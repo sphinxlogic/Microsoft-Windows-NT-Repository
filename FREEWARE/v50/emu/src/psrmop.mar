@@ -1,0 +1,1098 @@
+        .title  PSRMOP    
+        .ident  /V05-002/                   
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 002	PB	Oct-1-1997	Added len checking for each param. Appears
+;				some devices send corrupted SYSIDs and
+;				we have to be more defensive.
+;++
+;1 PSRMOP 
+; Program to receive MOP frames from Listen, process them and
+; build the internal PSRMOP DB. This routine handles both MOP
+; types:
+;	6001	Downline Load
+;	6002	Remote Console
+;
+;2 Database
+;    Symbol	    offs(From Header)	   Desc
+; PSR_MOP_EA_ADDR       0    		Ethernet address
+; PSR_MOP_EA_ADDRLO     2    		Ethernet address  (Low long)
+; PSR_MOP_W_FUNC	6	  	Enabled function bit mask
+; PSR_MOP_EA_HWADDR     8	  	Hardware address
+; PSR_MOP_EA_HWADDRLO   10	  	Hardware address  (Lo long)
+; PSR_MOP_B_DEVID	14	  	Device ID
+; PSR_MOP_3B_VER	15   		Version
+; PSR_MOP_W_TIMER	18	  	Console res timer
+; PSR_MOP_W_CMDSIZ      20		Command size
+; PSR_MOP_W_RESSIZ      22	 	Response Size
+; PSR_MOP_EA_USER	24	  	Console user
+; PSR_MOP_EA_USERLO     26	  	Console user (Low
+; PSR_MOP_W_SPARE	30	  	Spare/align
+; PSR_MOP_AC_NAME	32	  	.ascic name (31 bytes max)
+; PSR_MOP_Q_LASBOOT     64	  	Time last boot request
+; PSR_MOP_L_SOFTTYP     72	  	Type or len of filename
+; PSR_MOP_A16_FILNAM    76	  	.ascii File name (16 byt max)
+; PSR_MOP_L_BOOTCNT     92	  	Count of boot requests
+;-- 
+
+        .LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUCNTDEF
+	EMURLTDEF
+	EMUMOPDEF
+	EMUMSGDEF
+	$LCKDEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+THIS_PROCESS = SYS_PID_C_PSRMOP
+THIS_PROCESS_FLAG = SYS_FLG_C_PSRMOP  
+
+       
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+INADDR:		.QUAD	0
+EBUFFS_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+MOPDB_A: 	.QUAD	0
+PSRTBL_A:	.QUAD   0
+COUNTERS_A:	.QUAD	0
+RLTCXT:		.LONG	0		; Relater context
+GBLSIZ:		.LONG	0
+RELDIS:		.LONG	0
+NAMFRM:		
+NF_PID:		.LONG
+NF_KEY2:	.LONG
+NF_NAM:		.BLKL	8
+; temp - move to section
+PSRTBLCNT:	.LONG	0		; Count of psr table entries
+PASS_COUNT:	.LONG	0               ; COunt of buffs rec'ed 1 cycle
+BOXID:		.LONG	0
+MOPRET:		.BLKB	MOP_PRS_C_LEN
+MOPRET_LEN = .-MOPRET
+; Locking
+; Lock value block
+MOPDBLVB:
+MOPLVBSTA:	.WORD	0		; Status
+MOPLVBRES:	.WORD	0		; Reserved
+MOPLVBID:	.LONG	0		; Lock id
+MOPLVBSIZ:	.LONG	0		; Begining of LVB (Size of DB in pages)
+MOPLVBSPR:	.BLKL	3		; Unused 12 bytes
+; $ENQ call frame
+MOPDBLOCK:	
+		.LONG	12		; Arguments
+		.LONG	0		; EFN
+LKMODE:		.LONG	LCK$K_EXMODE	; Lock mode
+		.ADDRESS MOPDBLVB	; Lock value block
+LKFLGS:         .LONG 	<LCK$M_SYSTEM!LCK$M_VALBLK>	; Use value block
+LKNAM:		.ADDRESS MOPDBLKNAM 	; Resourse name
+		.LONG	0		; Parent id 
+                .LONG	0               ; AST
+		.LONG	0		; AST Param
+		.LONG	0		; BLAST
+		.LONG	0		; ACC Mode
+		.LONG	0		; RSDM_ID
+		.LONG	0		; Null
+
+; Error Log
+; The error system works as follows:
+; Fill in MSGDCE, PARCNT and required params and call EMU_LOGGER with 
+; the addr of this message as the param. 
+; MSGCDE is the EMU message code. Symbols are defined in _EMUMSGDEF
+; PARCNT is the count of params in the MSGPARAMS area. There may be up to 
+; 7 params in any message. The params are FAO directives as required
+; by the message. See EMUMSG.MSG
+; Error System Params
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/PSRMOP/
+
+
+	.ALIGN	LONG
+MOPSECFAB:	
+		$FAB	FAC = <GET,PUT>,-        ; Access
+			FNM = <EMU5_ROOT:[DAT]EMU_PSRMOP.SEC>
+MOPSECRAB:	
+		$RAB	FAB = MOPSECFAB,-            ; Record 
+			RAC = SEQ,-
+       			RBF = MOPSECREC,-			; 
+       			UBF = MOPSECREC,-			; 
+       			USZ = MOPSECREC_SIZE,-		; 
+       			RSZ = MOPSECREC_SIZE   		; 
+		
+
+MOPSECREC:	 .BLKB	PSR_MOP_C_RECSIZ   
+MOPSECREC_SIZE = .-MOPSECREC
+
+
+	.ALIGN	LONG
+EXIT_STATUS:	.LONG	0
+EXIT_BLOCK:	.LONG	0
+		.ADDRESS PSRMOP_EXIT
+		.LONG	1
+		.ADDRESS EXIT_STATUS
+
+EFLAGS1:		.ASCID	/EFLAGS1/	; Event Flag Cluster (64-95)
+EFLAGS2:		.ASCID	/EFLAGS2/	; Event Flag Cluster (96-127)
+MOPDBLKNAM:		.ASCID	/EMU_MOPDB/	; DB Lock name 
+MOPSECNAM:		.ASCID	/EMU_PSRMOP/	; DB section name 
+;misc
+	.align long
+HIORD:	    	.BYTE	^XAA,^X00,^X04,^X00
+FLAGS:		.LONG	0
+DEFRECCNT:      .LONG	3000			; DEF dbsize
+MOPDL:		.BYTE	^X60,01		; Mop download type
+SNAPID:		.BYTE	^XAA,^XAA	;
+
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=PSRMOP
+
+
+; Ensure death if control process dies
+	CALLS	#0, G^GET_CONTROL_LOCK	; 
+	BLBS	R0,10$
+
+        MOVL	#MSG_GENPSR_CTLLCK,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+10$:
+; 
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BLBS	R0,20$
+
+        MOVL	#MSG_GENPSR_ASSMBX,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+
+20$:	
+; Create and Map to sections 
+;
+
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	BLBS	R0,25$
+
+        MOVL	#MSG_GENPSR_MAPCNT,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+25$:
+	PUSHAL	EBUFFS_A		; Ebuffs section return addresses
+	CALLS	#1, G^MAP_EBUFFS	; Create and map ebuffs
+	BLBS	R0,30$
+
+        MOVL	#MSG_GENPSR_MAPCNT,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+30$:
+	PUSHAL	CONTROL_A		; Control section return addresses
+	CALLS	#1, G^MAP_CONTROL	; Create and map control section
+	BLBS	R0,40$
+
+        MOVL	#MSG_GENPSR_MAPCTL,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+40$:
+	PUSHAL	PSRTBLCNT  		; Count of entries found
+	PUSHAL	PSRTBL_A		; PSR table start addr
+	CALLS	#2,G^MAP_PSRTBL
+	BLBS	R0,50$
+
+        MOVL	#MSG_GENPSR_MAPPSRT,MSGCDE   ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+50$:
+        CALLS	#0,G^MAP_MOPDB  
+	BLBS	R0,60$
+
+        MOVL	#MSG_GENPSR_MAPDB,MSGCDE     ; General PSR error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	MOPSECNAM,(R1)
+	PUSHAL	ERRORMSG                     ; Section name
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+60$:
+; Declare exit handler
+	$DCLEXH_S DESBLK=EXIT_BLOCK	     ; 
+	BLBS	R0,65$
+        MOVL	#MSG_GENPSR_NOHNDLR,MSGCDE   ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+; Register constants
+; R6 = Current buffer
+; R8 = current datarec
+; R9 = addr of que header
+; R11 = counters
+65$:
+	MOVL	EBUFFS_A,R9                  ; que heads
+
+; Common Event flag Cluster:
+;
+	$ASCEFC_S	EFN = #64,-
+			NAME = EFLAGS1
+	BLBC	R0,70$
+
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	BLBS	R0,80$
+70$:
+        MOVL	#MSG_GENPSR_NOHNDLR,MSGCDE   ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+
+80$:
+; Locate our place in the PSR table to store counts
+        MOVL	PSRTBL_A,R6			; 
+	MOVL	PSRTBLCNT,R3			; Count of entries
+100$:
+	CMPL	#THIS_PROCESS_FLAG,PSR_TBL_L_PSRID(R6)
+        BEQLU	110$
+	ADDL	#PSR_TBL_C_SIZE,R6   	; Next entry
+	SOBGTR	R3,100$			; Loop for all
+	MOVL	#SS$_ITEMNOTFOUND,R0	; We could not find ourselves
+	RET
+110$:
+; Find our area in counters section and init
+	MOVL	COUNTERS_A,R11      	; Start of counters
+	ADDL	#CNT_PSR_C_START,R11    ; Start of PSRs
+	MULL3	#THIS_PROCESS,#CNT_PSR_C_ASIZE,R1	; Offset
+	ADDL	R1,R11					; Our space
+        MOVC5	#0,#0,#0,#CNT_PSR_C_ASIZE,(R11)		; Clear
+        MOVQ	PSR_TBL_Q_DNAM(R6),CNT_PSR_Q_NAME(R11)  ; Our name
+        MOVL	PSR_TBL_L_RELDIS(R6),RELDIS  		; Relater disable
+; Send message to relater to enable us
+
+	MOVL	#100,R2			; Try this many times
+120$:
+	CLRL	RLTCXT
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGSTART	; Start us
+	PUSHAL	BOXID			; Dummy Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#4,G^CREATE_RELATER_FRAME
+	BLBS    R0,130$
+	SOBGTR	R2,120$
+; Fatal error - log it and exit
+        MOVL	#MSG_GENPSR_SNDRLT,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+130$:	
+  	PUSHL	RLTCXT                       ; Context
+	CALLS	#1,G^SEND_RELATER_FRAME
+140$:
+
+WAIT:
+	$wflor_s  	EFN=#96,-            ; Wait for our flag set
+			MASK=#THIS_PROCESS_FLAG
+
+	$READEF_S 	EFN=#96,-       ; Get EBUFF Flags
+			STATE=FLAGS     ; Current state
+
+READ:
+; When our flag is set:
+; 1. Clear our CEF
+; 2. Attempt to remove a command buffer. If any received, process
+; 3. Scan all ebuffs for any with our flag set.
+; If any found, process the buffer and clear our flag.
+; repeat 3. until no buffs are found for us
+; Wait for our CEF
+; Clear our CEF 
+	ADDL3	#96,#THIS_PROCESS,R1
+	PUSHL	R1
+	CALLS	#1,G^SYS$CLREF
+
+	CLRL	PASS_COUNT			; Clear cycle count
+	MOVL	EBUFFS_A,R6            		; Ethernet buffers
+	ADDL	#IPC_EBUF_C_BUFSTART,R6 	; Buffers
+	MOVL	#IPC_ETH_C_BUFNO,R7		; Number of buffers
+MAIN:
+	BBS	#THIS_PROCESS,IPC_HDR_L_RFLAGS(R6),PROCESS   ; Br if buffer is ours
+	ADDL	#IPC_ETH_C_BUFSIZE,R6	
+	SOBGTR	R7,MAIN
+	TSTL    PASS_COUNT			; Did we process any?
+	BNEQU	READ				; Cycle again
+	BRW	WAIT
+
+PROCESS:
+	INCL	CNT_PSR_L_PRCV(R11)	; Count 1 buff in
+	PUSHL	#1			; Create if not found
+	PUSHL	#THIS_PROCESS   	; This process is creator
+	PUSHAL	BOXID       		; BOXID - always = 0
+	PUSHAL	MOPDB_A			; Section
+	ADDL3	#IPC_ETH_EA_SA,R6,-(SP)	; Addr of MOP addr	
+	PUSHL	#PSR_MOP_EA_ADDR        ; Offset to addr
+	PUSHL	#6	        	; Push len
+	CALLS	#7,G^LOCATE_PSRREC
+	BLBS	R0,10$
+
+        MOVL	#MSG_EMUSYS_LOCPSR,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+10$:
+	CMPL	R0,#SS$_CREATED
+	BEQL	100$
+; Found this rec
+	MOVL	R1,R8
+	MOVQ	EXE$GQ_SYSTIME,COM_HDR_Q_LSTHRD(R8)  	; Heard this addr now
+	INCL	COM_HDR_L_ACNT(R8)		        ; Count this access
+	BRW	CHECK_ENTRY 	        		; Just check
+100$:
+CHECK_ENTRY:
+	MOVL	R1,R8
+; Check for enet type 6001
+	CMPW	IPC_ETH_W_PTY(R6),MOPDL
+	BNEQ	200$
+	PUSHL	R8				; Record
+	PUSHL	R6				; Frame
+	CALLS	#2,G^PSRMOP_DL
+	BRW	DONE
+200$:
+; check for SNAP type 6001
+	ADDL3	#IPC_ETH_W_PTY,R6,R1
+	ADDL	#6,R1				; SNAPID + 3
+	CMPW	(R1),MOPDL
+	BNEQ	210$
+	PUSHL	R8				; Record
+	PUSHL	R6				; Frame
+	CALLS	#2,G^PSRMOP_DL
+	BRW	DONE
+210$:
+	MOVZWL	IPC_ETH_W_ELEN(R6),R9		; Len of data
+	ADDL3	#IPC_ETH_1500_DATA,R6,R10       ; Data
+	CMPB	#7,2(R10)			; SYSID Packet type?
+        BEQL	8$
+	BRW	DONE			; Ignore
+8$:
+	ADDL	#6,R10			; Param 1
+	SUBL	#6,R9			; Adj data len
+10$:
+	TSTL	R9                      ; Any data?
+	BGTR	20$                     ; Br if none left
+	BRW	DONE
+20$:
+	PUSHAL	MOPRET			; Return buffer
+	PUSHL	R10
+	CALLS	#2,G^MOP_PARSE_SYSID
+	BLBS	R0,50$
+	INCL	CNT_PSR_L_INFMT(R11)    ; count err
+	BRW	DONE			; Abandon
+
+	
+50$:
+	MOVAL	MOPRET,R5
+
+	CASEL	(R5),#1,#6		; Select routine
+60$:
+	.WORD	1$-60$                  ; Group 1
+	.WORD	2$-60$
+	.WORD	3$-60$
+	.WORD	4$-60$
+	.WORD	5$-60$
+	.WORD	6$-60$
+	.WORD	7$-60$
+	CASEW	(R5),#100,#5		; Select routine
+70$:
+	.WORD	100$-70$                ; Group 2 
+	.WORD	101$-70$                
+	.WORD	102$-70$
+	.WORD	103$-70$
+	.WORD	104$-70$
+	.WORD	105$-70$
+	BRW	300$				; Ignore
+
+1$:		   		     		; Mop version
+	CMPL	#3,MOP_PRS_L_LEN(R5)		; Param len = 3?
+	BLSSU	10000$
+	MOVL	#PSR_MOP_3B_VER,R1
+	BRW	1000$
+2$:				       		; Function codes
+	CMPL	#2,MOP_PRS_L_LEN(R5)		; Param len = 3?
+	BLSSU	10000$
+	MOVL	#PSR_MOP_W_FUNC,R1
+	BRW	1000$
+3$:                       			; Console user
+	CMPL	#6,MOP_PRS_L_LEN(R5)		; Param len = 3?
+	BLSSU	10000$
+	MOVL	#PSR_MOP_EA_USER,R1      	; Top 4 bytes
+	BRW	1000$
+4$:                                		; Reservation timer
+	CMPL	#2,MOP_PRS_L_LEN(R5)		; Param len = 3?
+	BLSSU	10000$
+	MOVL	#PSR_MOP_W_TIMER,R1	
+	BRW	1000$
+5$:                                		; Cons Command size
+	CMPL	#2,MOP_PRS_L_LEN(R5)		; Param len = 3?
+	BLSSU	10000$
+	MOVL	#PSR_MOP_W_CMDSIZ,R1	
+	BRW	1000$
+6$:                                		; Cons resp size
+	CMPL	#2,MOP_PRS_L_LEN(R5)		; Param len = 3?
+	BLSSU	10000$
+	MOVL	#PSR_MOP_W_RESSIZ,R1	
+	BRW	1000$
+7$:                                		; Hardware addr
+	CMPL	#6,MOP_PRS_L_LEN(R5)		; Param len = 3?
+	BLSSU	10000$
+	MOVL	#PSR_MOP_EA_HWADDR,R1
+	BRW	1000$			; OK - Done
+10000$:
+	INCL	CNT_PSR_L_INFMT(R11)    ; count err
+	BRW	DONE			; Abandon
+100$:
+	CMPL	#1,MOP_PRS_L_LEN(R5)		; Param len = 3?
+	BLSSU	10000$
+	MOVL	#PSR_MOP_B_DEVID,R1	; Device ID
+	BRW	1000$
+101$:
+102$:
+103$:
+104$:
+	BRW	300$                     ; Undocumented 
+105$:					 ; Node name
+; Special handling
+	CMPL	#PSR_MOP_C_MAXNAMLEN,MOP_PRS_L_LEN(R5) 
+	BGEQ	1051$
+	MOVL	#PSR_MOP_C_MAXNAMLEN,MOP_PRS_L_LEN(R5)            ; Truncate
+1051$:
+	TSTL	MOP_PRS_L_LEN(R5)		; Name Present? 
+	BEQL	1053$				; If not - skip compare
+	MOVL	MOP_PRS_L_VALUE(R5),R2		; Incoming .ascii name
+	ADDL3	#PSR_MOP_AC_NAME,R8,R3		; Stored .ascic name
+	INCL	R3				; Skip counter byte
+	CLRL	R4				; Loop control
+1052$:
+	CMPB	(R2)[R4],(R3)[R4]
+	BNEQ	1053$
+	AOBLSS	MOP_PRS_L_LEN(R5),R4,1052$
+	BRW	300$
+1053$:
+; alert  - name change Return old value, new value
+;	MOVL	R9,R10
+;	ADDL	#MOP_PRS_C_VALUE,R10		; Write here
+;	CLRL	R4				; Loop control
+1054$:
+;	MOVB	(R3)[R4],(R10)[R4]
+;	AOBLSS	R1,R4,1054$
+; replace value 
+	CLRL	R4				; Loop control
+	DECL	R3				; Counter byte pos
+	MOVB	MOP_PRS_L_LEN(R5),(R3)+		; Write counter
+1055$:
+	MOVB	(R2)[R4],(R3)[R4]
+	AOBLSS	MOP_PRS_L_LEN(R5),R4,1055$
+; Signal main to send this name
+        BICL    #SYS_FLG_C_NAMER,COM_HDR_L_PTYBITS(R8)
+	BISL	#SYS_COM_M_UPDATE,COM_HDR_L_SYSCTL(R8) ; Set update
+	BRW	300$
+1000$:
+	ADDL3	R1,R8,R3		; Stored param
+	MOVL	MOP_PRS_L_VALUE(R5),R2	; Incoming 
+1010$:
+	CLRL	R4			; Loop control
+1020$:
+	CMPB	(R2)[R4],(R3)[R4]
+	BNEQ	1030$
+	AOBLSS	MOP_PRS_L_LEN(R5),R4,1020$
+	BRW	300$
+1030$:
+; Return old value
+; alert  - PARAM change Return old value, new value
+;	MOVL	R9,R10
+;	ADDL	#MOP_PRS_C_VALUE,R10		; Write here
+;	CLRL	R4				; Loop control
+1035$:
+;	MOVB	(R3)[R4],(R10)[R4]
+;	AOBLSS	R1,R4,1054$
+; replace value 
+	BISL	#SYS_COM_M_UPDATE,COM_HDR_L_SYSCTL(R8) ; Set update
+	CLRL	R4				; Loop control
+1050$:
+	MOVB	(R2)[R4],(R3)[R4]
+	AOBLSS	MOP_PRS_L_LEN(R5),R4,1050$
+	BRW	300$
+
+300$:
+	ADDL3	MOP_PRS_L_LEN(R5),#3,R1 ; Total len
+	ADDL	R1,R10			; Next param
+	SUBL	R1,R9			; Deduct processed
+	BRW	10$			; Next
+	
+DONE:
+; Make sure we are in the Relater DB
+	CLRL	RLTCXT 			; Start with new frame
+	BBS	#THIS_PROCESS,RELDIS,5$
+	BBS	#THIS_PROCESS,COM_HDR_L_PTYBITS(R8),5$
+	ADDL3	#PSR_MOP_EA_ADDR,R8,-(SP)	; Our addr   
+	PUSHL	#6			; Len of our addr
+  	PUSHL	#THIS_PROCESS		; Add our address
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,5$                   ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)    ; count err
+	BRW	100$			; Skip
+5$:
+; Check if decnet frame
+        CMPL    HIORD,PSR_MOP_EA_ADDR(R8)  
+        BNEQU   20$                     ; Br if not decnet
+10$:
+        BBS     #SYS_PID_C_PSRDN4,RELDIS,20$  
+        BBS     #SYS_PID_C_PSRDN4,COM_HDR_L_PTYBITS(R8),20$  
+	ADDL3	#PSR_MOP_EA_ADDR,R8,R1	; Get decnet addr
+	ADDL	#4,R1			; Offset to decnet
+	PUSHL	R1			; Addr of decnet
+	PUSHL	#2			; Len of decnet addr
+  	PUSHL	#SYS_PID_C_PSRDN4	; Add decnet address
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,20$                  ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)    ; count err
+	BRW	100$                    ; skip to end
+; As this frame came from Ethernet ...
+20$:
+        BBS     #SYS_PID_C_PSRETH,RELDIS,40$  
+        BBS     #SYS_PID_C_PSRETH,COM_HDR_L_PTYBITS(R8),30$  
+	ADDL3	#PSR_MOP_EA_ADDR,R8,-(SP)	; Our addr   
+	PUSHL	#6			; Len of Ethernet addr
+  	PUSHL	#SYS_PID_C_PSRETH 	; Add Ethernet address
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,30$                  ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)    ; count err
+	BRW	100$                    ; skip to end
+30$:
+; Check if hardware addr and mac addr .eq. if not include hardware in RELATER
+	CMPL	PSR_MOP_EA_ADDR(R8),PSR_MOP_EA_HWADDR(R8)  	
+        BEQLU	40$
+        TSTL	PSR_MOP_EA_HWADDR(R8)  	; just in case - don't add 0 addr
+        BEQL	40$
+
+	ADDL3	#PSR_MOP_EA_HWADDR,R8,-(SP)	; Our addr   
+	PUSHL	#6			; Len of our addr
+  	PUSHL	#SYS_PID_C_PSRETH 	; Add eth address
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,40$                  ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)    ; count err
+	BRW	100$			; Skip
+
+40$:
+
+; Check name is in DB
+	BBS	#SYS_PID_C_NAMER,RELDIS,100$
+	BBS	#SYS_PID_C_NAMER,COM_HDR_L_PTYBITS(R8),100$
+; Name has not been sent - send it
+	PUSHL	R8
+	CALLS	#1,G^MOP_SEND_NAME                         ; Send to namer
+100$:
+; send relater frame.
+	TSTL	RLTCXT			; Any frame to send?
+	BEQL	200$                    ; Br if not
+  	PUSHL	RLTCXT                  ; Context (Addr of buffer)
+	CALLS	#1,G^SEND_RELATER_FRAME
+	CLRL	RLTCXT			; Saftey - don't reuse
+
+	BLBS	R0,110$                 ; br no err
+
+	INCL	CNT_PSR_L_ERROR(R11)         ; count err
+        MOVL	#MSG_GENPSR_SNDRLT,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	200$                         ; skip
+110$:
+	INCL	CNT_PSR_L_PREL(R11)          ; Count relater frame sent
+	BRW	200$
+
+200$:
+; clear our bit in return
+; reque this buff back to listen
+	BICL  	#THIS_PROCESS_FLAG,IPC_HDR_L_RFLAGS(R6)
+	INCL	CNT_PSR_L_RET(R11)
+	BRW	MAIN
+COMMAND:
+; Later addition
+;	INCL	CNT_PSR_L_COMMNDS(R11)
+; 	REMQTI	(R9),R6			; Get buffer
+;	BCS	READ			; Try again on collision 
+;	BVC	20$			; Br if got one
+;	$READEF_S 	EFN=#96,-       ; Get EBUFF Flags
+			STATE=FLAGS     ; Current state
+
+	BRW	READ
+; Subroutines
+ERROR_CHK:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	MOVL	R0,R6
+        MOVL	#MSG_GENPSR_SNDNAM,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+	$EXIT_S
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=PSRMOP_DL   
+;++
+;2 PSRMOP_DL   
+; Routine to implement the downline load portion of the MOP protocol
+; Each time a device on this net attempts to boot via MOP this 
+; system will receive the request frame. From this frames we 
+; extract and store:
+;3 Input          
+;	.address of EBUFF destined for type 6001
+;	.address of MOP db rec this address is for
+;3 Output
+;	Following fields are written in MOPdb rec:
+;	 PSR_MOP_Q_LASBOOT     Time last boot request
+;	 PSR_MOP_L_SOFTTYP     Type or len of filename
+; 	PSR_MOP_A16_FILNAM    .ascii File name (if present)
+; 	PSR_MOP_L_BOOTCNT     Count of boot requests
+;3 Return
+; 	SS$_NORMAL
+; Any errors detected are handled in this routine.
+;--
+	MOVL	4(AP),R6
+	MOVL	8(AP),R8
+	MOVZWL	IPC_ETH_W_ELEN(R6),R9		; Len of data
+	ADDL3	#IPC_ETH_1500_DATA,R6,R10       ; Data
+
+        ADDL	R10,R9				; Last byte
+; If SNAP id then skip (unknown reason - it just is that way!)
+	CMPW	IPC_ETH_W_PTY(R6),SNAPID
+	BEQLU	10$
+	ADDL	#2,R10			; Skip 1s field
+10$:
+	CMPB	#8,(R10)		; Request program?
+	BEQLU	30$			; Br if so
+	MOVL	#SS$_NORMAL,R0
+	RET
+30$:
+	ADDL	#3,R10			; Skip to program type
+	CMPL	R10,R9			; Still in frame?
+	BLSSU	40$
+	BRW	60$
+40$:
+	INCL	R10				; Software type
+	MOVZBL	(R10),PSR_MOP_L_SOFTTYP(R8)     ; Type or len
+	TSTL	PSR_MOP_L_SOFTTYP(R8)           ; Len?
+	BLEQ	60$                             ; Br no
+	MOVZBL	(R10),R1
+	MOVC5	R1,1(R10),#^A/ /,#16,PSR_MOP_A16_FILNAM(R8)  
+60$:
+	MOVQ	EXE$GQ_SYSTIME,PSR_MOP_Q_LASBOOT(R8)
+	INCL	PSR_MOP_L_BOOTCNT(R8)
+	BISL	#SYS_COM_M_UPDATE,COM_HDR_L_SYSCTL(R8) ; Set update
+	MOVL	#SS$_NORMAL,R0	
+	RET
+
+;	
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=MOP_SEND_NAME   
+;++
+;2 MOP_SEND_NAME   
+; Routine to extract the name, format it with keying info and add it
+; to (possibly) existing relater frame
+; Input
+;	.address of MOPDB Rec
+; Output
+;	Namer frame is added to relater frame.  A namer frame is formatted
+;	as follows:
+;	PID	.long protocol id of sending process
+;	KEY2	.long key for multiple names - not used in SCS
+;	Name	.ascii name
+;       The len is the len of the name +8
+; Return
+;	None - If an invalid char found in name then abort process.
+;--
+	MOVL	4(AP),R8
+	ADDL3	#PSR_MOP_AC_NAME,R8,R1	; .ascic name
+	MOVZBL	(R1),R2			; Get len
+	BEQL	200$			; Br if len = 0
+
+	CMPL	#PSR_MOP_C_MAXNAMLEN,R2	; Max name len?
+	BLSSU	200$			; Br if invalid
+	INCL	R1			; Point to name
+	CLRL	R3			; Index
+	MOVAL	NF_NAM,R4
+10$:
+	CMPB	(R1)[R3],#^A/ /      	; If char < ascii space it is invalid
+	BLSS	200$			; exit if invlid char found
+	MOVB	(R1)[R3],(R4)[R3]
+	AOBLSS	R2,R3,10$
+	PUSHL	R1			; addr of name
+	PUSHL	R2			; Len
+	CALLS	#2,G^MAKE_CRC		; No errors returned
+	MOVL	R0,NF_KEY2		; Returned crc
+	MOVL	#THIS_PROCESS,NF_PID	; 
+	PUSHAL	NAMFRM			; Our addr   
+	ADDL3	#8,R2,-(SP)		; Len of our addr
+  	PUSHL	#SYS_PID_C_NAMER	; Add name
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,200$                  ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)     ; count err
+200$:
+	RET	
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=MAP_MOPDB   
+;++
+;2 MAP_MOPDB   
+; Routine to create and initialise the MOP db. This is a standard routine
+; that any DB creator execxutes on it's own DB:
+;	Acquire exclusive lock on this database. 
+;		Fatal error if not granted.
+;	Open file - if file not opened used hardcoded defaults.
+;	Create section. Fatal error ir we did not CREATE.
+;	Initalise with either file contents or defaults
+;	Write section size (in pages) to LVB
+;	Convert lock to CW
+;	That's it!
+;--
+	MOVL	#LCK$K_EXMODE,LKMODE		; EXCLUSIVE
+	$ENQW_G	MOPDBLOCK 			; Get DB lock in exclusive mode
+	BLBS	MOPLVBSTA,10$            	; Br if got it
+	CMPW	#SS$_VALNOTVALID,MOPLVBSTA  	; Ignore LVB not valid error
+	BEQLU	10$
+;
+        MOVL	#MSG_EMUSYS_LOCKDB,MSGCDE    ; General PSR error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	LKNAM,(R1)+		     ; Lock name
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+10$:
+	$OPEN	FAB= MOPSECFAB			; Attempt to open
+	BLBS	R0,20$                          ; Br if OK
+	BRW	1000$				; Use defaults
+20$:
+	$CONNECT RAB=MOPSECRAB
+	BLBS	R0,30$
+	BRW	280$			; Abandon and use defaults
+30$:
+	$GET	RAB=MOPSECRAB		; Get 1st rec
+	BLBS	R0,40$
+	BRW	280$			; Abandon and use defaults
+40$:
+; Calc memory/file size, Get memory & Map section
+       	MOVAL	MOPSECREC,R7
+	MULL3	COM_DBHDR_L_MAXENTRIES(R7),COM_DBHDR_L_RECSIZE(R7),GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+100$:	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR			; returned address
+	PUSHL	GBLSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BSBW	ERROR_CHK		; check ok
+; MAP SECTION	
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	GBLSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	MOPSECNAM		; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	MOPDB_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	BSBW	ERROR_CHK
+	CMPL	#SS$_CREATED,R0
+	BEQL	200$
+	$CLOSE	FAB=MOPSECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	RET
+200$:
+; We created the section. Load it with file contents
+; Move the 1st rec to rec header
+; 1st rec cannot exceed common header size...
+	MOVAL	MOPDB_A,R11			; Start of section
+	MOVL	(R11),R7                        ;
+	MOVC3	#COM_HDR_C_SIZE,MOPSECREC,(R7)  ; Init header
+	ADDL3	COM_DBHDR_L_RECSIZE(R7),R7,R8   ; Location of 1st rec
+	CLRL	COM_DBHDR_L_ENTRIES(R7)		; No entries yet
+	MOVL	COM_DBHDR_L_RECSIZE(R7),R9      ; rec size
+210$:
+	MOVL	R8,MOPSECRAB+RAB$L_UBF    	; Write rec here
+	MOVW	R9,MOPSECRAB+RAB$W_RSZ		; Record size
+	MOVW	R9,MOPSECRAB+RAB$W_USZ		; Record size
+	$GET	RAB = MOPSECRAB		; Get a record
+	BLBC	R0,260$			; BR IF  error 
+	INCL	COM_DBHDR_L_ENTRIES(R7)			; Count
+	ADDL	R9,R8     		; Next slot
+	ADDL3	R9,R8,R10		; Check if enough room
+	CMPL	R10,4(R11)		; OK?
+	BLEQU	210$			; OK
+	BRW	280$			; Undo
+	
+260$:
+	CMPL	R0,#RMS$_EOF		; Was error end of file
+	BEQLU	270$			; Yes - OK
+	RET				; No - Die
+270$:
+	$CLOSE	FAB=MOPSECFAB
+	BRW	2000$
+280$:
+; Undo and set to default
+	$CLOSE	FAB=MOPSECFAB
+	CLRQ	-(SP)
+        PUSHL	4(AP)
+	CALLS	#3,G^SYS$DELTVA
+
+1000$:
+; File was not found, or otherwise unloadable
+; Use defaults
+	MULL3	#PSR_MOP_C_RECSIZ,DEFRECCNT,GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR			; returned address
+	PUSHL	GBLSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BSBW	ERROR_CHK		; check ok
+; MAP SECTION	
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	GBLSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	MOPSECNAM		; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	MOPDB_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	CMPL	#SS$_CREATED,R0
+	BEQL	1100$
+	$CLOSE	FAB=MOPSECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	RET
+; init header rec
+1100$:
+	MOVL	MOPDB_A,R6
+	MOVL	#PSR_MOP_C_RECSIZ,COM_DBHDR_L_RECSIZE(R6)   ; write recsize 
+	MOVL	#THIS_PROCESS,COM_DBHDR_L_FLAG(R6)          ; Write flag
+	MOVL	DEFRECCNT,COM_DBHDR_L_MAXENTRIES(R6)
+2000$:
+	$ERASE	FAB= MOPSECFAB			  ; Delete all versions
+	BLBS	R0,2000$                          ; Br until no more
+	SUBL3	MOPDB_A,MOPDB_A+4,R10 		; Size if section (bytes)
+	DIVL3	#512,R10,MOPLVBSIZ              ; Size (Pages) in LVB
+	INCL	MOPLVBSIZ			; Real number
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	MOVL	#LCK$K_CWMODE,LKMODE		; COnvert to CW
+	$ENQW_G	MOPDBLOCK 			; Convert DB lock 
+	MOVW	MOPLVBSTA,R0
+	RET					; Return with any errors
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=PSRMOP_EXIT
+; Here at exit
+; Disable ourselves
+        MOVL	PSRTBL_A,R6			; 
+	MOVL	PSRTBLCNT,R3			; Count of entries
+10$:
+	CMPL	#THIS_PROCESS_FLAG,PSR_TBL_L_PSRID(R6)
+        BNEQU	15$
+	BICL	#PSR_CFLG_M_DISAB,PSR_TBL_L_CFLGS(R6)  ; Disable
+15$:
+	ADDL	#PSR_TBL_C_SIZE,R6   	; Next entry
+	SOBGTR	R3,10$			; Loop for all
+
+; Get lock
+
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	$ENQW_G	MOPDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	MOPLVBSTA,20$
+	CMPW	#SS$_VALNOTVALID,MOPLVBSTA  ;  Ignore LVB not valid error
+	BEQLU	20$
+;
+        MOVL	#MSG_EMUSYS_LOCKDB,MSGCDE    ; General PSR error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	LKNAM,(R1)+
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+20$:
+; create new file
+	$CREATE	FAB=MOPSECFAB
+	BLBS	R0,30$
+	RET
+30$:
+	$CONNECT RAB=MOPSECRAB
+	BLBS	R0,40$
+	RET
+40$:
+; analyse section, dec entry count for any deleted recs
+	MOVL	MOPDB_A,R10			; Top of section
+        MOVL	COM_DBHDR_L_ENTRIES(R10),R6      ; Number of entries
+	BEQL	65$				; Br if none
+        MOVL	COM_DBHDR_L_RECSIZE(R10),R7      ; Size of entries
+	ADDL3	R7,R10,R8				; 1st rec
+50$:
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R8),60$ ; Br if not deleted
+	DECL	COM_DBHDR_L_ENTRIES(R10)			   ; uncount
+60$:
+	ADDL	R7,R8 
+	SOBGTR	R6,50$
+; The count is now the count of valid recs
+; Calc a new MAXENTRY
+65$:
+	MULL3	#100,COM_DBHDR_L_ENTRIES(R10),R1
+        DIVL	#15,R1			; increase by 15 %
+	CMPL	#10,R1			; must be > 10
+	BLSS	70$
+	MOVL	#10,R1			; Set min
+	BRB	100$
+70$:
+	CMPL	#1000,R1			; must be < 100
+	BGTR	100$
+	MOVL	#1000,R1			; Set min
+100$:
+; Set header and write it
+; 
+	MOVW	COM_DBHDR_L_RECSIZE(R10),MOPSECRAB+RAB$W_RSZ     ; rec size
+	ADDL3	R1,COM_DBHDR_L_ENTRIES(R10),COM_DBHDR_L_MAXENTRIES(R10)	; Set new max size
+	MOVL	#-1,COM_HDR_L_ACNT(R10)	; Set this field Max count (FOR SORT)
+	MOVL	R10,MOPSECRAB+RAB$L_RBF    ; Write this rec 
+	$PUT	RAB = MOPSECRAB		; Write a record
+	BLBS	R0,110$			; BR IF no error 
+	BRW	210$
+
+110$:
+; Write out all recs (skip deletes)
+        MOVL	COM_DBHDR_L_ENTRIES(R10),R6      ; Number of entries
+	BEQL	200$				; Br if none
+        MOVL	COM_DBHDR_L_RECSIZE(R10),R7      ; Size of entries
+        MOVW	COM_DBHDR_L_RECSIZE(R10),MOPSECRAB+RAB$W_RSZ    ; Size of record
+	ADDL3	R7,R10,R8			; 1st rec
+120$:
+	MOVL	R8,MOPSECRAB+RAB$L_RBF    ; Write this rec 
+	$PUT	RAB = MOPSECRAB		; Write a record
+	BLBC	R0,210$			; BR IF  error 
+	ADDL	R7,R8 
+	SOBGTR	R6,120$
+200$:
+	$CLOSE	FAB= MOPSECFAB	; 
+ 	MOVZWL  #SS$_RESIGNAL, R0    
+        RET
+210$:
+	$CLOSE	FAB= MOPSECFAB	; 
+	$ERASE	FAB= MOPSECFAB			; Delete Partial
+ 	MOVZWL  #SS$_RESIGNAL, R0    
+        RET
+
+
+        .END	PSRMOP
+

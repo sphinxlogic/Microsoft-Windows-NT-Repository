@@ -1,0 +1,358 @@
+	.MACRO	EMUPSRDEF,$GBL
+	$DEFINI	EMUPSRDEF,$GBL
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Psr database record layouts
+; Standard header  Common to all sections.
+
+$EQU	COM_HDR_C_SIZE 	      128		; Size of header
+$EQU	COM_PSR_C_MAXSIZE     512		; Max Size of any PSRrec
+$EQU	COM_HDR_L_FLAGS       0                 ; Flags (below)
+$EQU	COM_HDR_L_BOXID       4                 ; Unique device id
+$EQU	COM_HDR_L_PTYBITS     8                 ; Other protocols present
+$EQU	COM_HDR_L_SYSCTL      12                ; System control flags (SYSDEF)
+$EQU	COM_HDR_Q_LSTHRD      16                ; Last time heard
+$EQU	COM_HDR_Q_LSTALT      24                ; Time last alert sent
+$EQU	COM_HDR_Q_FSTHRD      32                ; Time 1st heard
+$EQU	COM_HDR_L_STATUS      40                ; Current status
+$EQU	COM_HDR_L_ACNT        44                ; Count of access this rec
+$EQU	COM_HDR_L_LEN         48                ; Len of KEY (Protocol addr)
+$EQU	COM_HDR_L_HOWSET      52                ; How this addr found
+$EQU	COM_HDR_Q_LOCKFIELD   56		; Count of current acesses
+$EQU	COM_HDR_L_READLOCK    56		; Count of read accessors
+$EQU	COM_HDR_L_WRITELOCK   60		; Count of write accessors
+; Configmon
+$EQU	COM_CFG_Q_LASUPD 	64		; Time last update
+$EQU	COM_CFG_Q_LASPOL 	72		; Time last POLL
+$EQU	COM_CFG_L_POLLS		80		; Count of polls this dev
+$EQU	COM_CFG_L_RESP 		84		; Count of good responses
+$EQU	COM_CFG_L_LASSTA	88		; Last VMS status
+$EQU	COM_CFG_L_UPDINT 	92		; Hours to next update
+$EQU	COM_CFG_B16_SUPPORT	96		; Support bit pattern
+; alert
+$EQU	COM_HDR_L_ALTID		112		; ALERT ID
+$EQU	COM_HDR_L_ALTCNT  	116		; ALERT Count
+$EQU	COM_CFG_L_PASS 		120		; Access control info
+$EQU	COM_CFG_L_ADJCNT 	124		; Count of new nodes found here
+
+
+$EQU	COM_CFG_C_DEFINT	4320		; Default upd interval (3 days)
+$EQU	COM_CFG_C_MAXINT	14400		; Max upd interval (10 days)
+
+;
+; Header rec (rec 0)
+$EQU	COM_DBHDR_L_ENTRIES	0	; Number of physical entries
+$EQU	COM_DBHDR_L_RECSIZE  	4	; Size of each rec
+$EQU	COM_DBHDR_L_MAXENTRIES	8	; Max number of physical entries
+$EQU	COM_DBHDR_L_FLAG 	12	; EMUPID of the DB owner
+;  flags field is defined to be the SYS_FLG_C_xxxx value of the 
+; database creator and 'owner'. This is copied from COM_DBHDR_L_FLAG 
+; to each record upon creation.  
+ 
+; SCS
+$EQU	PSR_SCS_EA_ADDR		COM_HDR_C_SIZE+0	; Eth addr
+$EQU	PSR_SCS_EA_ADDRLO	COM_HDR_C_SIZE+2	; lo long Eth addr
+$EQU	PSR_SCS_W_CLUID		COM_HDR_C_SIZE+6 	; Cluster id
+$EQU	PSR_SCS_AC_NAME		COM_HDR_C_SIZE+8	; Node name (max 6 char)
+$EQU	PSR_SCS_C_DATSIZ   	16			; DATA size 
+$EQU	PSR_SCS_C_RECSIZ   	COM_HDR_C_SIZE+PSR_SCS_C_DATSIZ	; Record size 
+
+; DN4
+$EQU    PSR_DN4_W_ADDR          COM_HDR_C_SIZE+0 ; Net fmt addr addr
+$EQU    PSR_DN4_W_ROUTYP        COM_HDR_C_SIZE+2 ; Routing type
+$EQU    PSR_DN4_L_MGMT          COM_HDR_C_SIZE+4 ; Spare/align
+$EQU    PSR_DN4_C_DATSIZ        8                ; Data size
+$EQU    PSR_DN4_C_RECSIZ        COM_HDR_C_SIZE+PSR_DN4_C_DATSIZ ; Record size
+; LAT
+; LAT Service Announcement Message
+$EQU	LAT_B_MSGTYP     0     ; Message type (28  Service Announce)
+$EQU	LAT_B_CIRTIM     1     ; Service Circuit timer
+$EQU	LAT_B_HIVERS     2     ; Highest version supported
+$EQU	LAT_B_LOVERS     3     ; Lowest version supported
+$EQU	LAT_B_CUVERS     4     ; Current version supported
+$EQU	LAT_B_ECO        5    ; ECO Level
+$EQU	LAT_B_MSGNO      6     ; Message Incarnation (?)
+$EQU	LAT_B_CHGFLG     7     ; Change flags (below)
+$EQU	LAT_W_FRMSIZ     8     ; Frame size
+$EQU	LAT_B_MCTIM      10    ; Multicast timer
+$EQU	LAT_B_NODSTA     11    ; Node status (below)
+$EQU	LAT_B_GRPSIZ     12    ; Enabled group size 
+$EQU	LAT_B_FILL       13    ; Rest of packet is relative offsets
+; After LAT_B_GRPSIZ:
+; A number of bytes (specified by LAT_B_GRPSIZ) showing the enabled groups.
+; Each bit set (0-255) means the corresponding Service group is enabled.
+; Follows is .ASCIC of node name.
+; Follows is .ascic of node descriptor
+; Follows is 1 byte count of number of services offered
+; Follows (1 for each service):
+;        Current rating (1 byte)
+;        .ascic service name
+;
+; Change flags
+$EQU	PSR_LCF_V_NODE	0	; Node group change
+$EQU	PSR_LCF_V_NDESC	1	; Node desc change
+$EQU	PSR_LCF_V_SNAM	2	; Service name change
+$EQU	PSR_LCF_V_SRAT	3	; Service rating change
+$EQU	PSR_LCF_V_SDESC	4	; Service desc change
+$EQU	PSR_LCF_V_SCLAS	5	; Service class change
+$EQU	PSR_LCF_V_UNDEF	6	; Undef
+$EQU	PSR_LCF_V_OTHER	7	; Other param change
+;
+$EQU	PSR_LCF_M_NODE	1	; Node group change
+$EQU	PSR_LCF_M_NDESC	2	; Node desc change
+$EQU	PSR_LCF_M_SNAM	4	; Service name change
+$EQU	PSR_LCF_M_SRAT	8	; Service rating change
+$EQU	PSR_LCF_M_SDESC	16	; Service desc change
+$EQU	PSR_LCF_M_SCLAS	32	; Service class change
+$EQU	PSR_LCF_M_UNDEF	64	; Undef
+$EQU	PSR_LCF_M_OTHER	128	; Other param change
+
+; Status:
+;       0               Host not accepting new connections
+;
+;
+;
+$EQU	PSR_LAT_EA_ADDR        COM_HDR_C_SIZE+0 ; LAT addr
+$EQU	PSR_LAT_EA_ADDRLO      COM_HDR_C_SIZE+2 ; Lo long
+$EQU	PSR_LAT_B_MCTIM        COM_HDR_C_SIZE+6 ; Multicast timer
+$EQU	PSR_LAT_B_NODSTA       COM_HDR_C_SIZE+7 ; Node status
+$EQU	PSR_LAT_B_CNGFLG       COM_HDR_C_SIZE+8 ; Change flags
+$EQU	PSR_LAT_B_NODNAMSIZE   COM_HDR_C_SIZE+9 ; Size of nodename
+$EQU	PSR_LAT_A16_NODNAM     COM_HDR_C_SIZE+10 ; Nodename
+$EQU	PSR_LAT_C_DATSIZ       32		; Size of data
+$EQU	PSR_LAT_C_MAXNAMSIZ    22               ; Max size of name
+$EQU	PSR_LAT_C_RECSIZ       COM_HDR_C_SIZE+PSR_LAT_C_DATSIZ
+;
+; MOP
+$EQU	PSR_MOP_EA_ADDR       COM_HDR_C_SIZE+0  ; Ethernet address
+$EQU	PSR_MOP_EA_ADDRLO     COM_HDR_C_SIZE+2  ; Ethernet address  (Low long)
+$EQU	PSR_MOP_W_FUNC	      COM_HDR_C_SIZE+6	; Enabled function bit mask
+$EQU	PSR_MOP_EA_HWADDR     COM_HDR_C_SIZE+8	; Hardware address
+$EQU	PSR_MOP_EA_HWADDRLO   COM_HDR_C_SIZE+10	; Hardware address  (Lo long)
+$EQU	PSR_MOP_B_DEVID	      COM_HDR_C_SIZE+14	; Device ID
+$EQU	PSR_MOP_3B_VER	      COM_HDR_C_SIZE+15 ; Version
+$EQU	PSR_MOP_W_TIMER	      COM_HDR_C_SIZE+18	; Console res timer
+$EQU	PSR_MOP_W_CMDSIZ      COM_HDR_C_SIZE+20	; Command size
+$EQU	PSR_MOP_W_RESSIZ      COM_HDR_C_SIZE+22	; Response Size
+$EQU	PSR_MOP_EA_USER	      COM_HDR_C_SIZE+24	; Console user
+$EQU	PSR_MOP_EA_USERLO     COM_HDR_C_SIZE+26	; Console user (Low
+$EQU	PSR_MOP_W_SPARE	      COM_HDR_C_SIZE+30	; Spare/align
+$EQU	PSR_MOP_AC_NAME	      COM_HDR_C_SIZE+32	; .ascic name (31 bytes max)
+$EQU	PSR_MOP_Q_LASBOOT     COM_HDR_C_SIZE+64	; Time last boot request
+$EQU	PSR_MOP_L_SOFTTYP     COM_HDR_C_SIZE+72	; Type or len of filename
+$EQU	PSR_MOP_A16_FILNAM    COM_HDR_C_SIZE+76	; .ascii File name (16 byt max)
+$EQU	PSR_MOP_L_BOOTCNT     COM_HDR_C_SIZE+92	; Count of boot requests
+$EQU	PSR_MOP_C_MAXNAMLEN   31
+$EQU	PSR_MOP_C_DATSIZ      96		; Size of data
+$EQU	PSR_MOP_C_RECSIZ      COM_HDR_C_SIZE+PSR_MOP_C_DATSIZ
+; Mop function bits
+
+$EQU	PSR_MOPFN_V_LOOP	0   ; Loop
+$EQU	PSR_MOPFN_V_DUMP	1   ; Dump
+$EQU	PSR_MOPFN_V_PLOAD	2   ; Primary loader 
+$EQU	PSR_MOPFN_V_MLOAD	3   ; Multi-block loader
+$EQU	PSR_MOPFN_V_BOOT	4   ; Boot
+$EQU	PSR_MOPFN_V_CC		5   ; Console carrier
+$EQU	PSR_MOPFN_V_COUNT	6   ; Data link counters
+$EQU	PSR_MOPFN_V_CCR		7   ; Console carrier reservation
+     
+;
+; Bridge
+$EQU	PSR_BRD_EA_ADDR     COM_HDR_C_SIZE+0     ; Ethernet address  
+$EQU	PSR_BRD_L_ADDRLO    COM_HDR_C_SIZE+2     ; Ethernet address  (Low long)
+$EQU	PSR_BRD_W_SPR	    COM_HDR_C_SIZE+6	; Spare /align
+$EQU	PSR_BRD_Q_ROOT      COM_HDR_C_SIZE+8     ; Root id. Made of:
+$EQU	PSR_BRD_W_PRIO	    COM_HDR_C_SIZE+8	; Root priority
+$EQU	PSR_BRD_EA_ROOT     COM_HDR_C_SIZE+10     ; Ethernet address  
+$EQU	PSR_BRD_L_ROOTLO    COM_HDR_C_SIZE+12     ; Ethernet address  (Low long)
+$EQU	PSR_BRD_W_HINT	    COM_HDR_C_SIZE+16	; Hello interval
+$EQU	PSR_BRD_W_LIST      COM_HDR_C_SIZE+18	; Listen timer
+$EQU	PSR_BRD_W_FDT  	    COM_HDR_C_SIZE+20	; Forward delay timer
+$EQU	PSR_BRD_W_TYP  	    COM_HDR_C_SIZE+22	; STP type (dec or 802)
+$EQU	PSR_BRD_L_COST	    COM_HDR_C_SIZE+24	; Cost to root
+$EQU	PSR_BRD_L_SPR	    COM_HDR_C_SIZE+28	; Spare /align
+$EQU	PSR_BRD_C_DATSIZ    32 			; Size of data
+$EQU	PSR_BRD_C_RECSIZ    COM_HDR_C_SIZE+PSR_BRD_C_DATSIZ
+;
+; Incoming bridge (dec) buffer
+; Offsets
+$EQU	PSR_BRD_DEC_B_BRIFUNC  0	; Function code (%XE1 = Spanning tree hello)
+$EQU	PSR_BRD_DEC_B_BRILEN   1	; Message Len
+$EQU	PSR_BRD_DEC_B_BRIVERS  2	; Hello Version
+$EQU	PSR_BRD_DEC_B_BRIFLG   3	; Flags (MSB = Topology Change)
+$EQU	PSR_BRD_DEC_B_BRIZER1  4	; Zero and reserved
+$EQU	PSR_BRD_DEC_Q_BRIBROOT 5	; ROOT ID (Priority + addr)
+$EQU	PSR_BRD_DEC_W_BRICOST  12	; Cost to root
+$EQU	PSR_BRD_DEC_B_BRIZER2  14	; Zero and Reserved
+$EQU	PSR_BRD_DEC_Q_RVCDESB  15	; Designated Bridge Id
+$EQU	PSR_BRD_DEC_B_BRILINK  22	; Inlink
+$EQU	PSR_BRD_DEC_B_BRIAGE   23	; Hello Age
+$EQU	PSR_BRD_DEC_B_BRIHINT  24	; Hello Interval
+$EQU	PSR_BRD_DEC_B_BRILISN  25	; Listen timer
+$EQU	PSR_BRD_DEC_B_BRIFWD   26	; Forward Delay Timer
+; Incoming bridge (802) buffer
+; Offsets
+$EQU	PSR_BRD_802_W_PROTOID	   0  ; MBZ	
+$EQU	PSR_BRD_802_B_PROROVERS	   2  ; MBZ
+$EQU	PSR_BRD_802_B_BPDUTYPE	   3  ; 0 = STP (configuration BPDU)
+$EQU	PSR_BRD_802_B_FLAGS	   4  ; Bot Bit is Top Change
+$EQU	PSR_BRD_802_Q_ROOTID	   5  ; 2 bytes = Pri/ Hard addreess
+$EQU	PSR_BRD_802_L_ROOTCOST	   13 ; (NETFMT)
+$EQU	PSR_BRD_802_Q_BRIID	   17 ; 2 ROOT PRIO addr= 6 
+$EQU	PSR_BRD_802_W_PORTID	   25 ;  
+$EQU	PSR_BRD_802_W_MESSAGE	   27 ; AGE Seconds
+$EQU	PSR_BRD_802_W_LIFETIME	   29 ; MAX AGE	
+$EQU	PSR_BRD_802_W_HELLO        31
+$EQU	PSR_BRD_802_W_FWDDELAY	   33
+;
+$EQU	PSR_BRD_C_STP_DEC           0
+$EQU	PSR_BRD_C_STP_802           1
+; Ipx
+$EQU	PSR_IPX_L_NET         COM_HDR_C_SIZE+0     ; Net number
+$EQU	PSR_IPX_EA_ADDR       COM_HDR_C_SIZE+4     ; Ethernet address  
+$EQU	PSR_IPX_L_ADDRLO      COM_HDR_C_SIZE+6     ; Ethernet address  (Low long)
+$EQU	PSR_IPX_W_SERVICE     COM_HDR_C_SIZE+10    ; service
+$EQU	PSR_IPX_W_HOPS        COM_HDR_C_SIZE+12    ; Router hops to station
+$EQU	PSR_IPX_W_NAMLEN      COM_HDR_C_SIZE+14	   ; Len of following name
+$EQU	PSR_IPX_AS_NAME       COM_HDR_C_SIZE+16    ; Name (MAX 48)
+$EQU	PSR_IPX_C_DATSIZ      64 			; Size of data
+$EQU	PSR_IPX_C_RECSIZ      COM_HDR_C_SIZE+PSR_IPX_C_DATSIZ
+; Incoming frame
+; IPX header
+$EQU	PSR_IPX_HDR_W_CKSUM	0	; Checksum
+$EQU	PSR_IPX_HDR_W_PLEN	2	; Packet len
+$EQU	PSR_IPX_HDR_B_TCON	4	; Transport control
+$EQU	PSR_IPX_HDR_B_PTYPE	5	; Packet type
+$EQU	PSR_IPX_HDR_L_DNET	6	; Dest network
+$EQU	PSR_IPX_HDR_EA_DNODE	10	; Dest node
+$EQU	PSR_IPX_HDR_W_DSOCK	16	; Dest Socket
+$EQU	PSR_IPX_HDR_L_SNET	18	; SRC network
+$EQU	PSR_IPX_HDR_EA_SNODE	22	; Src node
+$EQU	PSR_IPX_HDR_W_SSOCK	28	; Src Socket
+; Packet types
+$EQU	PSR_IPX_PTYPE_C_UNK	0	; Unknown
+$EQU	PSR_IPX_PTYPE_C_RIP 	1	; Routing info
+$EQU	PSR_IPX_PTYPE_C_SAP	4	; Service advert
+$EQU	PSR_IPX_PTYPE_C_SPX	5	; Sequenced Packet
+$EQU	PSR_IPX_PTYPE_C_NCP	17	; Netware Core Protocol
+$EQU	PSR_IPX_PTYPE_C_BIOS	20	; Propogated BIOS
+;
+; SAP (offsets after IPX header)
+$EQU	PSR_IPX_SAP_W_OPER	0	; Operation
+$EQU	PSR_IPX_SAP_C_ENTRIES	2	; Start of server entries
+; Each server entry:
+$EQU	PSR_IPX_SAP_W_TYPE	0	; Service type
+$EQU	PSR_IPX_SAP_AS_NAME	2	; Server name
+$EQU	PSR_IPX_SAP_L_NET	50	; Network
+$EQU	PSR_IPX_SAP_EA_ADDR	54	; Address
+$EQU	PSR_IPX_SAP_W_SOCK	60	; Socket
+$EQU	PSR_IPX_SAP_W_HOPS	62	; Hops to server
+$EQU	PSR_IPX_SAP_C_SIZE	64	; Size 1 entry
+
+; SAP operations
+$EQU	PSR_IPX_SAPOPER_C_REQ	0	; Request
+$EQU	PSR_IPX_SAPOPER_C_RESP	1       ; Response
+$EQU	PSR_IPX_SAPOPER_C_GNS	2       ; Get nearest server req
+$EQU	PSR_IPX_SAPOPER_C_GNSR	4	; Get nearest server resp
+; Service types
+$EQU	PSR_IPX_STYPE_C_UNK	0	; Unknown
+$EQU	PSR_IPX_STYPE_C_PRT	3	; Printer
+$EQU	PSR_IPX_STYPE_C_FILE	4	; File server
+$EQU	PSR_IPX_STYPE_C_JOB	5	; Job server
+$EQU	PSR_IPX_STYPE_C_PRTSVR	7	; Print server
+$EQU	PSR_IPX_STYPE_C_ARCH	9	; Archive Server
+$EQU	PSR_IPX_STYPE_C_BRIDGE	36	; Remote Bridge Server
+$EQU	PSR_IPX_STYPE_C_ADPRSV	55	; Advertising print server
+; RIP  (Offsets after IPX header)
+$EQU	PSR_IPX_RIP_W_OPER	0	; Operation
+$EQU	PSR_IPX_RIP_C_ENTRIES	2	; Start of net entries
+; Each net entry:
+$EQU	PSR_IPX_RIP_L_NET	0	; Network
+$EQU	PSR_IPX_RIP_W_HOPS	4	; Hops to net
+$EQU	PSR_IPX_RIP_W_TICS	6	; Tics (1/18 sec units)
+; RIP operations
+$EQU	PSR_IPX_RIPOPER_C_REQ	1	; Request	
+$EQU	PSR_IPX_RIPOPER_C_RESP	2	; Response	
+; Sockets  (2 byt hex in net fmt)
+$EQU    PSR_IPX_SOC_NCP     20740   ;    0451h
+$EQU    PSR_IPX_SOC_SAP     20996   ;    0452h
+$EQU    PSR_IPX_SOC_RIP     21252   ;    0453h
+$EQU    PSR_IPX_SOC_BIOS    21764   ;    0455h
+$EQU    PSR_IPX_SOC_DIAG    22020   ;    0456h
+
+
+; Ethernet
+
+$EQU	PSR_ETH_EA_ADDR       COM_HDR_C_SIZE+0 ; Ethernet address
+$EQU	PSR_ETH_EA_ADDRLO     COM_HDR_C_SIZE+4 ; Ethernet address  (Low long)
+$EQU	PSR_ETH_W_TYPE        COM_HDR_C_SIZE+6 ; LAN TYPE
+$EQU	PSR_ETH_TQ_PTYTBL     COM_HDR_C_SIZE+8 ; Protocol table
+$EQU	PSR_ETH_L_TBLCNT      COM_HDR_C_SIZE+168 ; Table control
+$EQU	PSR_ETH_L_LTYPE	      COM_HDR_C_SIZE+172 ; Loop type
+$EQU	PSR_ETH_C_DATSIZ      176      		;  
+$EQU	PSR_ETH_C_RECSIZ      COM_HDR_C_SIZE+PSR_ETH_C_DATSIZ      ;  
+; Constants
+; Protocol Table entry
+$EQU	PSR_ETH_C_MAXPTYTYP    20                    ; Max table entries
+; Loop types supported
+; Vectors
+$EQU	PSR_ETH_V_LOOPE        0                     ; Ethernet Loop
+$EQU	PSR_ETH_V_LOOPI        1                     ; 802.3
+$EQU	PSR_ETH_V_LOOPX        2                     ; 802.3 XID
+; Masks
+$EQU	PSR_ETH_M_LOOPE        1                     ; Ethernet Loop
+$EQU	PSR_ETH_M_LOOPI        2                     ; 802.3
+$EQU	PSR_ETH_M_LOOPX        4                     ; 802.3 XID
+; DECnet OSI
+$EQU	PSR_DN5_B20_ADDR      COM_HDR_C_SIZE+0  ; OSI addr
+$EQU	PSR_DN5_L_ROUTYP      COM_HDR_C_SIZE+20 ; Routing type
+$EQU	PSR_DN5_C_DATSIZ      24      		;  
+$EQU	PSR_DN5_C_RECSIZE      COM_HDR_C_SIZE+PSR_DN5_C_DATSIZ      ;  
+; IP
+$EQU	PSR_IP_L_ADDR		COM_HDR_C_SIZE+0
+$EQU	PSR_IP_L_SPR		COM_HDR_C_SIZE+4
+$EQU	PSR_IP_C_DATSIZ      	8      		;  
+$EQU	PSR_IP_C_RECSIZ      	COM_HDR_C_SIZE+PSR_IP_C_DATSIZ      ;  
+;; Constants
+;; Routing types 
+$EQU	PSR_DN5_C_RTAREA        1      ; AREA (IV)
+$EQU	PSR_DN5_C_RTROUT        2      ; ROUTING (IV)
+$EQU	PSR_DN5_C_RTEND         3      ; END (IV)
+; PSR table - This section used to store control and monitor data
+; for current PSRs
+$EQU	PSR_TBL_C_SIZE		64	; Size 1 rec
+$EQU	PSR_TBL_C_SECSIZE	2	; Section size (pages)
+$EQU	PSR_TBL_Q_PTYTYP	0	; EMU derrived frame type
+$EQU	PSR_TBL_L_PSRID  	8	; Bit pattern showing target
+$EQU	PSR_TBL_L_RELDIS	12	; Relater disable
+$EQU	PSR_TBL_Q_DNAM 		16	; .ascic display name
+$EQU	PSR_TBL_L_CFLGS		24	; Control flags
+$EQU	PSR_TBL_L_LOST 		28	; Max outstanding before discard
+$EQU	PSR_TBL_L_SNT  		32	; Message sent (to this PSR)
+$EQU	PSR_TBL_L_DSC  		36	; Messages discarded
+$EQU	PSR_TBL_L_OST  		40	; Messages outstanding (in process)
+$EQU	PSR_TBL_L_HOST 		44	; Highest outstanding count
+$EQU	PSR_TBL_C_FSTCNT	32	; First counter
+; Control flags			bit	   when set
+$EQU	PSR_CFLG_V_DISAB	0	; Enabled
+$EQU	PSR_CFLG_V_ALL		1	; Send all traffic (not mcast only)
+$EQU	PSR_CFLG_V_NOCHECK	2	; Check ptytyp
+$EQU	PSR_CFLG_V_RECORDALL	3	; Record all traffic
+$EQU	PSR_CFLG_V_RECORDFILT	4	; Record only filtered traffic
+$EQU	PSR_CFLG_V_INIT		5	; Initalisation complete
+;
+$EQU	PSR_CFLG_M_DISAB	1	; Disabled
+$EQU	PSR_CFLG_M_ALL		2	; Send all traffic (not mcast only)
+$EQU	PSR_CFLG_M_NOCHECK	4	; Donot check ptytyp
+$EQU	PSR_CFLG_M_RECORDALL	8	; Record all traffic
+$EQU	PSR_CFLG_M_RECORDFILT	16	; Record only filtered traffic
+$EQU	PSR_CFLG_M_INIT		32	; Initialisation complete
+;
+
+	$DEFEND	EMUPSRDEF,$GBL,DEF
+	.ENDM

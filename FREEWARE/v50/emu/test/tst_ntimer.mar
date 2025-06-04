@@ -1,0 +1,67 @@
+ 	.TITLE	TST_NTIMER
+	.IDENT /V05-004/
+; Modifications:
+;1 TST_NTIMER
+;--
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	.psect	listen_sec,wrt,noexe,pic,shr,page
+
+;
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+
+INADDR:	       	.QUAD	0
+SYSTIME:	.QUAD	0
+TIME:		.FLOAT	1
+INCR:		.FLOAT  0
+FAOBUF:		.BLKB	80
+FAODESC:	.LONG 	.-FAOBUF
+		.ADDRESS  FAOBUF
+STR:		.ASCID	/Wait time: !UL, Elapsed: !UL Systime !%D/
+
+	.PSECT	TST_NTIMER_C,NOWRT,EXE,SHR,PIC,LONG
+	.CALL_ENTRY	MAX_ARGS=6, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TST_NTIMER
+
+	MOVL	#1,R10
+ 10$:
+	CLRQ	INADDR
+	PUSHAL	INADDR
+	calls	#1,G^NTIMER
+	
+5$:
+	PUSHAL	TIME
+	CALLS	#1,G^LIB$WAIT
+;	MOVL	#10000000,R6
+50$:
+;	SOBGTR	R6,50$		
+	PUSHAL	INADDR
+	calls	#1,G^NTIMER
+	MOVL	#80,FAODESC
+	MOVQ	EXE$GQ_SYSTIME,SYSTIME
+	PUSHAL	SYSTIME
+	PUSHL	INADDR
+	PUSHL	R10
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	STR
+	CALLS	#6,G^SYS$FAO
+	BLBS	R0,20$
+	RET
+20$:
+	PUSHAL	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+;	BRW	10$	
+	ADDF	INCR,TIME
+	AOBLSS	#1000,R10,10$
+	RET
+
+	.END	TST_NTIMER

@@ -1,0 +1,182 @@
+	.TITLE FILELIST
+	.IDENT /V02-003/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications
+; 1	PB	25-Mar-1993	Creation
+;002	PB	26-Apr-1993	Added handler with SS$_FAIL enabled
+; 3	PB	30-jan-1996	Allow any valid filespec
+;++
+;1 FILELIST
+; Routine to return list of all files found in the current directory
+; matching the filename input.
+; The return is a list of filenames in static array.
+; 	- This is largely based on Example 4-3 (RMS manual).
+;
+;2 Inputs:
+;	.long address of desc pointing to file type
+;	.long address of desc pointing to array where list is written
+;	.long address of place to write No. of files found
+;	Value of static string len returned for each item found
+;	.long flag. Optional. If present return file,typ;ver
+;2 Outputs
+;	array (fixed len elements) of filenames
+;	No. of files found
+;2 Returns:
+;	SS$_NORMAL	; Good end
+;	SS$_NOSUCHFILE	; No files of this filtype found
+;	SS$_BADFILENAME ; At least one filename too long
+;	SS$_BUFFEROVL	; Output array was too small
+;	Any return from system services
+;2 EXAMPLE
+; Default dir contains:
+;Directory DISK$SU1:[BEAUDOIN]
+;
+;COLLECT_CONNECTED_NODES.MAR;28          ECOUNTMON.MAR;14    FILELIST.MAR;2     
+;FILELIST.MAR;1      HANDLER.MAR;2       HANDLER.MAR;1       LATDEF.MAR;1       
+;LATMSG.MAR;1        LIB.MAR;1           MONAMS.MAR;3        TCOUNTMON.MAR;1    
+;TEST_APPLIC.MAR;1   TEST_DEDIC.MAR;1    TEST_FORWARD.MAR;1  TEST_SENSE.MAR;1   
+;TMON.MAR;1          DECTERM_ERROR.LOG;3 DECTERM_ERROR.LOG;2 DECTERM_ERROR.LOG;1
+;DECW$SM.LOG;24      DECW$SM.LOG;23      DECW$SM.LOG;22      DECW$SM.LOG;21     
+;DECW$SM.LOG;20      DECW$SM.LOG;19      DECW$SM.LOG;18      NETSERVER.LOG;17   
+;NETSERVER.LOG;16    NETSERVER.LOG;15    NETSERVER.LOG;14    NETSERVER.LOG;13   
+;
+;Total of 31 files.
+; 
+; Inputs are desc pointing to string  "mar"
+; Value (P4) 12
+; The outputs are
+;/ECOUNTMON   /
+;/FILELIST    /
+;/FILELIST    /
+;/HANDLER     /
+;/HANDLER     /
+;/LATDEF      /
+;/LATMSG      /
+;/LIB         /
+;/MONAMS      /
+;/TCOUNTMON   /
+;/TEST_APPLIC /
+;/TEST_DEDIC  /
+;/TEST_FORWARD/
+;/TEST_SENSE  /
+;/TMON        /
+;
+;VALUE RETURNED = 15 (files found)
+; R0 = SS$_BADFILENAME  (at least 1 filename exceeded permited len)
+;--
+    ;
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	$CHFDEF		; Condition handler
+	$SSDEF		; System Services
+        $NAMDEF         ; NAM block definitions
+
+              .PSECT  FLIELIST_DATA,NOEXE,WRT
+    NAM_BLK:
+              $NAM    RSA=RES_STR,-            ; Result buffer address
+                       RSS=NAM$C_MAXRSS,-       ; Result buffer size
+                       ESA=EXP_STR,-            ; Expanded buffer address
+                       ESS=NAM$C_MAXRSS         ; Expanded buffer size
+    FAB_BLK:
+              $FAB    FOP=NAM,-                 ; Use NAM block option
+			shr=<DEL,UPD,GET,PUT>,-
+                       NAM=NAM_BLK,-            ; Pointer to NAM block
+                       FNA=INP_STR               ; Addr of file name string
+
+    EXP_STR:                                     ; Expanded string buffer
+              .BLKB   NAM$C_MAXRSS
+    RES_STR:                                     ; Resultant string buffer
+              .BLKB   NAM$C_MAXRSS
+    RES_STR_D:                                   ; Resultant string descriptor
+              .BLKL   1
+              .LONG   RES_STR
+    INP_STR:                                     ; Input string buffer
+              .BLKB   NAM$C_MAXRSS-2             ; Rest of filtype str
+; 
+        .PSECT  FILELIST_CODE,EXE,NOWRT
+	.CALL_ENTRY	MAX_ARGS=12, -
+			HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=FILELIST
+; Establish condition handler
+	MOVAB	FILELIST_HANDLER,(FP)	; Condition handler 
+;	$SETSFM_S	ENBFLG = #1	; Enable SS failure mode
+
+	MOVQ	@4(AP),R6		; Get filetype desc
+	MOVC3	R6,(R7),INP_STR		; Input filename
+
+	MOVQ	@8(AP),R8		; Get outp desc
+	CLRL	@12(AP)                 ; Init return count
+	CLRL	R11			; Final Status flag
+    ;
+    ; Store user input string and perform initial parse to
+    ; set up VMS RMS context for subsequent search.
+    ;
+              ADDB3   #2,R6,FAB_BLK+FAB$B_FNS      ; Set string size
+              $PARSE  FAB=FAB_BLK               ; Parse the file spec
+              BLBS    R0,SEARCH_LOOP               ; Br OK   
+	      RET				; Quit and signal on error
+    ;
+    ; Search until all possibilities are exhausted.
+    ;
+SEARCH_LOOP:
+	$SEARCH FAB=FAB_BLK               ; Find next file
+	BLBC    R0,SRCHERR                ; Any more?
+	MOVZBL  NAM_BLK+NAM$B_RSL,R2      ; Get Rtn string length
+	MOVAL	RES_STR,R3			
+	LOCC    #^A/]/,R2,(R3)		  ; Find ']'
+	ADDL3	#1,R1,R3		  ; Next char (start of fmn)
+	CMPL	#5,(AP)			  ; Flag param present
+	BNEQ	100$			  ; Br if not - file name only
+; Return filename,type,ver
+
+     	MOVAL	RES_STR,R10
+	SUBL3	R10,R3,R1		  ; Len of dev:[dir]
+	SUBL3	R1,R2,R10		  ; Len of fil.typ;ver
+	BRW	200$
+100$:
+	LOCC    #^A/./,R2,(R3)		  ; Find '.'
+	SUBL3	R3,R1,R10		  ; Len of filename
+200$:
+	CMPL	R10,16(AP)		  ; Too long?
+	BGTR	TRUNC_ERR		  ; Yes - br
+	CMPL	R8,16(AP)		  ; Enough buffer left?
+	BLSS	BUFF_ERR		  ; No - br
+	MOVC5	R10,(R3),#^A/ /,16(AP),(R9) ; Move filename to array
+	INCL	@12(AP)			  ; Count file
+	SUBL	16(AP),R8	          ; Delete used part of buff
+	ADDL	16(AP),R9		  ; Move pointer
+        BRB     SEARCH_LOOP               ; Go for more
+SRCHERR:                                     
+	CMPL    R0,#RMS$_NMF             ; If error is not 'No more files'
+        BNEQ    10$	                 ;   Br
+	MOVL	#SS$_NORMAL,R0           ; Good end
+	BLBC	R11,10$
+	MOVL	#SS$_BADFILENAME,R0	 ; We lost (at least ) 1 file
+	RET                              ; Pretty good end
+10$:
+	RET
+TRUNC_ERR:
+	MOVL	#1,R11			; Flag we have lost a file
+	BRW	SEARCH_LOOP
+BUFF_ERR:
+	MOVL	#SS$_BUFFEROVF,R0	; Ran out of buffer
+	RET                             ; Bad end
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=FILELIST_HANDLER
+
+        $UNWIND_S			; Unwind stack to previous caller
+	MOVL	#CHF$L_SIG_NAME,R0	; Error
+	RET				; Tell the caller
+
+       .END 
+

@@ -1,0 +1,1857 @@
+	.title	etherwatch
+	.ident	"X5-008"
+
+;+
+; Version:	X5-008
+;
+; Facility:	Diagnostic Utilities.
+;
+; Abstract:	Listen (in promiscuous mode) to all packets on the Ether
+;		and printout its source, destination, protocol and
+;		(optionally) the data in string or hexadecimal format.
+;
+; Environment:	Needs PHY_IO privilege.
+;
+;	The following is the CLD used by ETHERWATCH:
+;
+; module etherwatch_cld
+;
+; define verb etherwatch
+;	noparameters
+;	qualifier debug
+;	qualifier device,	value (required)
+;	qualifier display,	default, value (type = display_options)
+;	qualifier both
+;	qualifier from,		default, value (default = "*")
+;	qualifier to,		default, value (default = "*")
+;	qualifier protocol,	default, value (default = "*")
+;	qualifier dsap,		default, value (default = "*")
+;	qualifier ssap,		default, value (default = "*")
+;	qualifier control,	default, value (default = "*")
+;	qualifier pid,		default, value (default = "*")
+;	qualifier copid,	default, value (default = "*")
+;	qualifier ipid,		default, value (default = "*")
+;	qualifier nonames
+;	qualifier begin,	value (required, type = $datetime)
+;	qualifier end,		value (required, type = $datetime)
+;	qualifier count,	value (required, type = $number)
+;	qualifier output,
+;			value (type = $outfile, default = "ETHERWATCH.LOG")
+;	qualifier record,
+;			value (type = $outfile, default = "ETHERWATCH.RECORD")
+;	qualifier playback
+;			value (type = $infile, default = "ETHERWATCH.RECORD")
+;
+;	disallow (end and count)
+;	disallow (record and playback)
+;	disallow (playback and (begin or end))
+;
+; define type display_options
+;	keyword	all
+;	keyword ascii,	default
+;	keyword both
+;	keyword fast
+;	keyword	hexadecimal
+;	keyword	none
+;	keyword	text
+;
+; History:
+;
+;	02-Apr-1990, DBS; Version X1-001
+; 001 -	Original version.  Based on ETHUTIL by Mark Myers of the University
+;	of Melbourne.
+;	02-Apr-1990, DBS; Version X1-002
+; 002 -	Added code to handle /both, /from and /to.
+;	03-Apr-1990, DBS; Version X1-003
+; 003 -	Added code for the /unkown qualifier and changed the code that matches
+;	the addresses to nodenames.
+;	09-Apr-1990, DBS; Version X1-004
+; 004 -	Fix to pick up the value returned in the iosb when starting up the
+;	device.
+;	11-Apr-1990, DBS; Version X1-005
+; 005 -	Use for_signal/stop to handle errors.
+;	23-May-1990, DBS; Version X1-006
+; 006 -	Added code to unpack LAT messages.
+;	05-Jun-1990, DBS; Version X1-007
+; 007 -	Modified to always do the LAT format on LAT messages.
+;	06-Jun-1990, DBS; Version X1-008
+; 008 -	Added more specific lat packet processing.
+;
+;	07-Jun-1990, DBS; Version X2-001
+; 001 -	Major rehash for lat processing.
+;	11-Jun-1990, DBS; Version X2-002
+; 002 -	Put it back the way it was, all the lat stuff is now done in LATWATCH.
+;	15-Jun-1990, DBS; Version X2-003
+; 003 -	Bit of a cleanup, mainly with the displays.
+;
+;	27-Jun-1990, DBS; Version X3-001
+; 001 -	Added wildcard matching on addresses and protocols.
+;	29-Jun-1990, DBS; Version X3-002
+; 002 -	Fix bug where packets of maximum size were being truncated.
+;	09-Jul-1990, DBS; Version X3-003
+; 003 -	Added control C trap so we can do a nice exit.
+;	20-Nov-1991, DBS; Version X3-004
+; 004 -	Use sys_find_ether_device to return the default device for this system.
+;	17-Jan-1992, DBS; Version X3-005
+; 005 -	Added software expiry check.
+;
+;	07-Jan-1993, DBS; Version X4-001
+; 001 -	Major rehash to change the qualifiers so source and destination
+;	addresses can be specified.
+;	11-Oct-1993, DBS; Version X4-002
+; 002 -	Fixed bug with packet header size.
+;
+;	15-Jul-1994, DBS; Version X5-001
+; 001 -	Complete rewrite in Macro with more bells and whistles.  Allow
+;	specification of DECnet format address (area.node).  Added
+;	/DISPLAY=FAST.  Added more keywords in /PROTOCOL qualifier.
+;	19-Jul-1994, DBS; Version X5-002
+; 002 -	Added /NONAMES qualifier to allow faster processing of packets by
+;	skipping the table lookups - useful if monitoring known nodes.
+;	Use LIB$GET_VM to allocate space for the name/address lists based
+;	on the number of lines in the file.  Added /DEBUG for future use.
+;	Fixed some minor bugs/problems with displayed names.
+;	22-Jul-1994, DBS; Version X5-003
+; 003 -	Added calls to lib$init_timer and lib$show_timer for use with /debug.
+;	28-Jul-1994, DBS; Version X5-004
+; 004 -	Fixed bug (or potential bug) where async i/o changed the contents of
+;	the packet buffer before we displayed it - probably not an issue in
+;	here but caused headaches in LATWATCH.
+;	03-Aug-1994, DBS; Version X5-005
+; 005 -	Fixed bug with CLD definition.
+;	15-Aug-1994, DBS; Version X5-006
+; 006 -	Added /BEGIN and /END to specify run times and /COUNT to allow
+;	termination after processing a specified number of packets.
+;	Added /RECORD qualifier to dump raw data to a file for later playback
+;	and of course /PLAYBACK to look at the recorded data.
+;	Added /OUTPUT qualifier (long overdue).
+;	23-Aug-1994, DBS; Version X5-007
+; 007 -	Made /RECORD set /NONAMES - waste of time while recording.
+;	21-Oct-1994, DBS; Version X5-008
+; 008 -	Fixed bug that reported buffer size incorrectly when using /PLAYBACK.
+;-
+
+	.subtitle Psect definitions, external definitions
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	.external	cli$dcl_parse
+	.external	cli$get_value
+	.external	cli$present
+	.external	etherwatch_cld
+	.external	lan_format_header
+	.external	lan_startup_prm
+	.external	lib$free_vm
+	.external	lib$get_foreign
+	.external	lib$get_vm
+	.external	lib$init_timer
+	.external	lib$lookup_key
+	.external	lib$show_timer
+	.external	lib$show_vm
+	.external	lib$signal
+	.external	lib$stop
+	.external	lib_cvt_t_l
+	.external	lib_output_seg_t
+	.external	lib_output_seg_tzb
+	.external	lib_output_seg_zb
+	.external	str$match_wild
+	.external	str_collapse
+	.external	str_len
+	.external	str_uppercase
+	.external	sys_find_ether_device
+	.external	sys_trap_controlc
+
+	enb_long			; for structured macro stuff
+	_landef
+	_lanhdrdef
+	$clidef
+	$climsgdef
+	$fabdef
+	$iodef
+	$lnmdef
+	$psldef
+	$rabdef
+	$rmsdef
+	$ssdef
+	$stsdef
+
+	def_psect _util_data, type=DATA, alignment=LONG
+	def_psect _util_code, type=CODE, alignment=LONG
+
+	.subtitle Local macros
+
+; .macro IF_PRESENT
+; All we do here is set bits in cli_defaulted and cli_present to indicate
+; which qualifiers were used and whether or not they used the default.
+; This information is used later for matching packet information against
+; what the user wants to see.
+
+.macro if_present item
+
+	call cli$present cli_'item
+	if <eql,#cli$_defaulted,r0> then
+	  bisl	#m_'item, cli_defaulted
+	else
+	if <eql,#cli$_present,r0> then
+	  bisl	#m_'item, cli_supplied
+	endif
+	endif
+
+.endm if_present
+
+; .macro IF_MATCHED
+; When checking for a match, if the item to check was defaulted in the
+; command line, then we have a match since the default is to match all
+; and we can go on to check the next item i.e. don't bother calling
+; str$match_wild.
+; If the item is not defaulted, i.e. the user supplied something, then we
+; see if it matches, and proceed based on the outcome of that check.
+; Any mismatch means we can stop checking and go on to the next packet.
+
+.macro if_matched item, ?next
+
+	bbs	#v_'item, cli_defaulted, next
+	call str$match_wild pkt_'item, item
+	blbs	r0, next
+	brw	exit
+next:
+
+.endm if_matched
+
+	.subtitle Impure data areas
+
+	set_psect _util_data
+
+program_id:	.ascid	"ETHERWATCH  X5-008"
+loaded_fao:	.ascid	"!UL names and addresses were loaded"
+intro_line1:	.ascid	"Starting a watch on device !AS"
+intro_line2:	.ascid	"Packets from !AS [!AS] to !AS [!AS]!/"-
+			"Protocol !AS, display option is !AS"
+playing_back:	.ascid	"Reading recorded data from !AS"
+display_header:	.ascid	"!78*-!/From !AS [!AC] to !AS [!AC]"-
+			"!/Protocol !AS, !4UW byte buffer at !%D"
+protocol_fao:	.ascid	"!XB-!XB"
+wildcard:	.ascid	"*"
+null_ascic:	.ascic	""
+vm_allocated:	.ascid	"LIB$GET_VM allocated !UL bytes at !XL"
+tally:		.ascid	"Of the !UL packets read, !UL packets were !AS"
+displayed:	.ascid	"displayed"
+recorded:	.ascid	"recorded"
+
+	alloc_string	_faobuf, 2048	; used for all output - needs to
+					;  be big enough to hold an ethernet
+					;  packet (in case /disp=fast is used)
+	alloc_string	command, 256
+
+; Here we have to fudge the command line by loading the verb and then
+; tacking on whatever the user specifies to the end of it.  This we can
+; then pass on the the cli routines.
+
+command_buffer:		.long	command_buffer_extra-command_buffer_t
+			.address command_buffer_t
+command_buffer_t:	.ascii	"ETHERWATCH"
+command_buffer_extra:	.blkb	<11+256>
+
+; Some general bits and pieces
+
+iosb:			.word	0
+iosb_xfr_size:		.word	0
+iosb_unused1:		.byte	0
+iosb_status:		.byte	0
+iosb_error_summary:	.byte	0
+iosb_unused2:		.byte	0
+log_channel:		.long	0
+packets_read:		.long	0	; used for some stats on the way
+packets_displayed:	.long	0	;  out...
+stats_context:		.long	0	; used by lib$init/show_timer
+
+; These next bits are used to convert decnet node numbers in the format
+; area.node to aa type addresses
+
+area_number:		.long	0
+node_number:		.long	0
+area_number_s:		.long	0
+area_number_addr:	.long	0
+node_number_s:		.long	0
+node_number_addr:	.long	0
+aa_format:		.ascid	"AA-00-04-00-!XB-!XB"
+
+; The following definitions specifiy the sizes of the text representations
+; of the various fields that are used.
+
+	s_address = 17			; xx-xx-xx-xx-xx-xx
+	s_name = 32			; maximum allowed name size
+	s_sap = 23
+	s_protocol = 5
+	s_dsap = 2
+	s_ssap = 2
+	s_control = 2
+	s_pid = 14
+	s_copid = 8
+	s_ipid = 5
+
+; The next bits are used to set up some virtual memory to contain the
+; name and address lists (for use by lib$lookup_key) and pointers to the
+; lists and data area.
+
+vm_bytecount:		.long	0	; used by lib$get_vm/lib$free_vm
+vm_base_address:	.long	0
+address_vector_size:	.long	0	; filled in later
+name_vector_size:	.long	0
+data_area_size:		.long	0
+
+	max_nodecount = 30000		; we won't load any more than this
+					;  many nodes from the nodelist
+
+user_nodecount:		.long	0	; this is from reading nodelist
+node_count:		.long	0	; this is how many real nodes we got
+address_vector:		.long	0	; these will contain pointers to
+name_vector:		.long	0	;  the memory allocated by lib$get_vm
+name_address_data:	.long	0
+
+; These are some dummy headers that we need for various routines to point
+; to the header and data buffers.
+
+packet_header_ds:	.long	lanhdr_s_lanhdrdef
+			.address packet_header
+packet_data_ds:		.long	lan_s_ethernet
+			.address packet_data
+
+; This is the buffer where the header and data are returned by $qio
+
+packet_length:		.long	0	; length of received packet
+record_buffer:
+rec_type:		.byte	0
+rec_time:		.quad	0
+	rec_hdrsize = .-record_buffer
+packet_buffer:
+packet_header:		.blkb	lanhdr_s_lanhdrdef
+packet_data:		.blkb	lan_s_ethernet
+	rec_rsize = .-record_buffer
+	rec_ascii = 1			; record is ascii data
+	rec_binary = 2			; record is raw data
+
+; Here we define some descriptors that will be used to check the details
+; of the incoming packet.  We basically have three strings, the source and
+; destination address and the sap details (returned by LAN_FORMAT_HEADER).
+; We then use "fake" descriptors to address sub-fields within the sap details.
+; The strings are those returned by lan_format_header and are therefore
+; fixed length and a known format.
+; pkt_destination and pkt_source will look like "XX-XX-XX-XX-XX-XX".
+; pkt_sap will look like "XX-XX XX XX-XX-XX-XX-XX", where "XX-XX" is the
+; protocol (also DSAP plus SSAP), the "XX" is the control byte and the rest
+; is the PID consisting of COPID and IPID fields.
+
+pkt_destination:	.long	s_address
+			.address pkt_destination_t
+pkt_destination_t:	.blkb	s_address
+pkt_source:		.long	s_address
+			.address pkt_source_t
+pkt_source_t:		.blkb	s_address
+pkt_sap:		.long	s_sap
+			.address pkt_sap_t
+pkt_sap_t:		.blkb	s_sap
+pkt_protocol:		.long	s_protocol
+			.address pkt_sap_t+0
+pkt_dsap:		.long	s_dsap
+			.address pkt_sap_t+0
+pkt_ssap:		.long	s_ssap
+			.address pkt_sap_t+3
+pkt_control:		.long	s_control
+			.address pkt_sap_t+6
+pkt_pid:		.long	s_pid
+			.address pkt_sap_t+9
+pkt_copid:		.long	s_copid
+			.address pkt_sap_t+9
+pkt_ipid:		.long	s_ipid
+			.address pkt_sap_t+18
+
+; The following areas are used to store the items returned from the command
+; line.  The sizes here should give enough room for valid addresses etc.
+; and also allow for the use of keywords on those items that allow keywords.
+
+	alloc_string	from, 64
+	alloc_string	to, 64
+	alloc_string	protocol, 16
+	alloc_string	dsap, s_dsap
+	alloc_string	ssap, s_ssap
+	alloc_string	control, s_control
+	alloc_string	pid, s_pid
+	alloc_string	copid, s_copid
+	alloc_string	ipid, s_ipid
+	alloc_string	device, 64
+	alloc_string	display, 32
+	alloc_string	begin, 64
+	alloc_string	end, 64
+	alloc_string	count, 32
+	alloc_string	output, 255
+	alloc_string	record, 255
+
+	alloc_string	from_name, s_name ; filled in if available from the
+	alloc_string	to_name, s_name	; nodelist entries
+from_ascic:		.long	0
+to_ascic:		.long	0
+protocol_value:		.long	0	; filled in by lib$lookup_key if the
+					;  /protocol value is a keyword
+default_end:	.ascid	"0 00:30:00.00"
+begin_time:	.quad	0
+end_time:	.quad	0
+count_l:	.long	0		; use time limit
+
+lnm_tabnam:	.ascid	"LNM$PROCESS_TABLE"
+lnm_lognam:	.ascid	"SYS$OUTPUT"
+lnm_acmode:	.long	psl$c_user
+lnm_itmlst:	.word	0		; buffer length - filled in later
+		.word	lnm$_string
+		.long	0		; buffer address - filled in later
+		.long	0		; return address - not used
+		.long	0		; to end the list
+
+destination_ascic:	.address null_ascic ; filled in by lookup_name when
+source_ascic:		.address null_ascic ;  processing a packet
+
+display_option:	.long	display_c_ascii	; the default
+	display_c_all = 1
+	display_c_none = 2
+	display_c_ascii = 3
+	display_c_hex = 4
+	display_c_fast = 5
+
+	alloc_string	display_choice, 16 ; filled in by lib$lookup_key to
+					; be the full keyword
+all_segment_size:	.long	16
+hex_segment_size:	.long	20
+ascii_segment_size:	.long	64
+fast_format:		.ascid	"!AF"	; minimum formatting required
+
+; Here are the valid command line qualifiers.
+
+cli_debug:	.ascid	"DEBUG"
+cli_device:	.ascid	"DEVICE"
+cli_both:	.ascid	"BOTH"
+cli_display:	.ascid	"DISPLAY"
+cli_from:	.ascid	"FROM"
+cli_to:		.ascid	"TO"
+cli_protocol:	.ascid	"PROTOCOL"
+cli_dsap:	.ascid	"DSAP"
+cli_ssap:	.ascid	"SSAP"
+cli_control:	.ascid	"CONTROL"
+cli_pid:	.ascid	"PID"
+cli_copid:	.ascid	"COPID"
+cli_ipid:	.ascid	"IPID"
+cli_nonames:	.ascid	"NONAMES"
+cli_count:	.ascid	"COUNT"
+cli_end:	.ascid	"END"
+cli_begin:	.ascid	"BEGIN"
+cli_output:	.ascid	"OUTPUT"
+cli_record:	.ascid	"RECORD"
+cli_playback:	.ascid	"PLAYBACK"
+
+; The following definitions are used for checking whether a command line
+; item was defaulted or not.  This is used in an attempt to increase the speed
+; with which we determine whether or not we display a particular packet.
+; The flags are set by the command parsing routine.
+
+flag1:		.long	0		; this is a general flag area but uses
+					;  the stuff defined below...
+cli_supplied:	.long	0		; to keep track of what was given
+cli_defaulted:	.long	0		;  and what was defaulted
+	m_from		= 1
+	v_from		= 0
+	m_to		= 2
+	v_to		= 1
+	m_protocol	= 4
+	v_protocol	= 2
+	m_dsap		= 8
+	v_dsap		= 3
+	m_ssap		= 16
+	v_ssap		= 4
+	m_control	= 32
+	v_control	= 5
+	m_pid		= 64
+	v_pid		= 6
+	m_copid		= 128
+	v_copid		= 7
+	m_ipid		= 256
+	v_ipid		= 8
+	m_both		= 512
+	v_both		= 9
+	m_unknown	= 1024
+	v_unknown	= 10
+	m_from_unknown	= 2048
+	v_from_unknown	= 11
+	m_to_unknown	= 4096
+	v_to_unknown	= 12
+	m_device	= 8192
+	v_device	= 13
+	m_display	= 16384
+	v_display	= 14
+	m_source_unknown = 32768
+	v_source_unknown = 15
+	m_dest_unknown = 65536
+	v_dest_unknown = 16
+	m_nonames	= 131072
+	v_nonames	= 17
+	m_debug		= 262144
+	v_debug		= 18
+	m_count		= 524288
+	v_count		= 19
+	m_end		= 1048576
+	v_end		= 20
+	m_begin		= 2097152
+	v_begin		= 21
+	m_output	= 4194304
+	v_output	= 22
+	m_record	= 8388608
+	v_record	= 23
+	m_playback	= 16777218
+	v_playback	= 24
+
+; The following keyword table (for lib$lookup_key) is used to check the
+; single entry UNKNOWN to be used in /from and /to choices.
+
+unknown_vector:	.long	1*2		; only one keyword
+		.address unknown_keyword
+		.long	m_unknown	; value to return
+unknown_keyword:
+		.ascic	"UNKNOWN"
+
+unknown_ascid:	.ascid	"UNKNOWN"	; not part of the table, but used
+
+; The following keyword table (for lib$lookup_key) contains the valid options
+; available on the /display qualifier.
+
+display_vector:	.long	7*2		; seven choices available
+		.address ascii_keyword	; having it first makes it the default
+		.long	display_c_ascii
+		.address text_keyword
+		.long	display_c_ascii
+		.address all_keyword
+		.long	display_c_all
+		.address both_keyword
+		.long	display_c_all
+		.address none_keyword
+		.long	display_c_none
+		.address hex_keyword
+		.long	display_c_hex
+		.address fast_keyword
+		.long	display_c_fast
+
+all_keyword:	.ascic	"ALL"
+both_keyword:	.ascic	"BOTH"
+none_keyword:	.ascic	"NONE"
+ascii_keyword:	.ascic	"ASCII"
+text_keyword:	.ascic	"TEXT"
+hex_keyword:	.ascic	"HEXADECIMAL"
+fast_keyword:	.ascic	"FAST"
+
+; The following keyword table (used by lib$lookup_key) contains some valid
+; options available on the /protocol qualifier
+
+protocol_vector:	.long	11*2	; 11 choices so far
+			.address dump_keyword
+			.long	^X0160	; 60-01
+			.address mop_keyword
+			.long	^X0260	; 60-02
+			.address decnet_keyword
+			.long	^X0360	; 60-03
+			.address lat_keyword
+			.long	^X0460	; 60-04
+			.address diag_keyword
+			.long	^X0560	; 60-05
+			.address lavc_keyword
+			.long	^X0760	; 60-07
+			.address rbms_keyword
+			.long	^X3880	; 80-38
+			.address vaxeln_keyword
+			.long	^X3B80	; 80-3B
+			.address dns_keyword
+			.long	^X3E80	; 80-3E
+			.address netbios_keyword
+			.long	^X4080	; 80-40
+			.address last_keyword
+			.long	^X4180	; 80-41
+
+dump_keyword:	.ascic	"MOPDUMP"
+mop_keyword:	.ascic	"MOPCONSOLE"
+decnet_keyword:	.ascic	"DECNET"
+lat_keyword:	.ascic	"LAT"
+diag_keyword:	.ascic	"DIAGNOSTICS"
+lavc_keyword:	.ascic	"LAVC"
+rbms_keyword:	.ascic	"RBMS"
+vaxeln_keyword:	.ascic	"VAXELN"
+dns_keyword:	.ascic	"DNS"
+netbios_keyword:.ascic	"NETBIOS"
+last_keyword:	.ascic	"LAST"
+
+	reset_psect
+
+	.subtitle Work areas for reading of the nodelist file
+
+	set_psect _util_data
+
+	_rsize = 256			; not really but should be plenty
+_record:	.blkb	_rsize		; buffer for the record
+_record_ds:	.long	_rsize		; descriptor to point to the buffer
+_record_addr:	.address _record
+
+	alloc_string	play_thing, _rsize ; used for juggling the record
+	alloc_string	play_thing2, _rsize
+
+	_mbc = 127
+	_mbf = 16
+	_rtv = 255
+
+	.align	long
+_fab:	$fab	fac=<GET>, -
+		fnm=<NODELIST>, -
+		dnm=<ETHERWATCHER:NODELIST.DAT>, -
+		fop=<SQO>, -
+		rtv=_rtv, -
+		shr=<GET,PUT,DEL,UPD>
+_rab:	$rab 	fab=_fab, -
+		mbc=_mbc, -
+		mbf=_mbf, -
+		rac=<SEQ>, -
+		rop=<WAT,RAH,NLK,RRL,LOC>, -
+		ubf=_record, -
+		usz=_rsize
+
+	reset_psect
+
+	.subtitle Work areas for recording/playback file
+
+	set_psect _util_data
+
+	rec_alq = 2400			; initial allocation
+	rec_deq = 2400			; default extension quantity
+	rec_mbc = 127			; multi block count
+	rec_mbf = 16			; multi buffer count
+	rec_mrs = rec_rsize		; maximum record size
+	rec_rtv = 255			; retreival pointers
+
+	.align	long
+rec_fab:
+	$fab	alq=rec_alq, -
+		deq=rec_deq, -
+		dnm=<ETHERWATCH.RECORD>, -
+		fop=<SQO,TEF>, -
+		mrs=rec_mrs, -
+		org=<SEQ>, -
+		rat=<CR>, -
+		rfm=<VAR>, -
+		rtv=rec_rtv, -
+		shr=<NIL>
+rec_rab:
+	$rab 	fab=rec_fab, -
+		mbc=rec_mbc, -
+		mbf=rec_mbf, -
+		rac=<SEQ>, -
+		rbf=record_buffer, -
+		rop=<RAH,WBH>, -
+		ubf=record_buffer, -
+		usz=rec_rsize
+
+	reset_psect
+
+	.subtitle Mainline
+
+	set_psect _util_code
+
+	.entry -
+etherwatch, ^m<>
+
+	call lib$init_timer -		; initialize stats in case we
+		stats_context		;  want to look at them
+
+	call sys_trap_controlc -	; so we can exit gracefully
+		process_controlc, -	;  ... (hopefully)
+		iosb
+
+	call read_nodelist		; need some of this info when
+					;  parsing the command...
+	call parse_command		; get all the gory details
+
+	call startup_device		; fire up the controller
+
+	$hiber_s			; ...and wait
+
+90$:	ret
+
+	.subtitle Read the nodelist file
+
+	.entry -
+read_nodelist, ^m<r2,r3,r4,r5,r6,r7>
+
+;++
+; Functional Description:
+;	The first thing we do is a quick scan of the nodelist file to see
+;	how much memory we need to allocate for the names and addresses.
+;	Here we open the nodelist file, read each record in the file and
+;	pass it on to the process_nodelist_entry routine to validate it
+;	and store it in the appropriate tables.  When complete we just
+;	close the file.  If we don't find the file, we don't generate any
+;	errors, we just continue but don't have any names and addresses in
+;	the tables so every address is UNKNOWN when we display the packet
+;	details.
+;
+; Calling Sequence:
+;	call	read_nodelist
+;
+; Formal Argument(s):
+;	None.
+;
+; Implicit Inputs:
+;	None.
+;
+; Implicit Outputs:
+;	None.
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	call	scan_nodelist		; to see how many are there
+	clrl	node_count		; we use this for counting
+	movl	address_vector, r2	; we will use this later
+	addl	#4, r2			; skip the count
+	movl	name_vector, r3		; we need this also
+	addl	#4, r3			; skip the count
+	movl	name_address_data, r4	; we need this as well
+
+	$open	fab=_fab		; open the nodelist
+	blbc	r0, close
+	$connect rab=_rab		; connect to it
+	blbc	r0, close
+
+10$:	$get	rab=_rab		; grab a record
+	blbc	r0, close
+
+	movzwl	_rab+rab$w_rsz, r5	; these get passed on to the
+	movl	_rab+rab$l_rbf, r6	;  processing routine
+
+	call	process_nodelist_entry
+
+	cmpl	node_count, -		; how many have we done so far
+		user_nodecount
+	blss	10$			; still got room, try again
+
+close:	$close	fab=_fab
+
+	mull3	#2, node_count, -	; setup the vector count to be the
+		@address_vector		;  number of longwords (2 per node)
+	movl	@address_vector, -	; should be the same number of entries
+		@name_vector		;  in each list
+
+	ret
+
+	.subtitle Routine to scan the nodelist and allocate virtual memory
+
+	.entry -
+scan_nodelist, ^m<>
+;+
+; Here we do a quick scan of the nodelist file to see how many entries are
+; in it.  We assume each line is valid so that if there are comments and
+; blank lines we will over allocate the real space that we need.  (I can live
+; with that).
+;-
+	clrl	user_nodecount
+	$open	fab=_fab		; open the nodelist
+	blbc	r0, 90$
+	$connect rab=_rab		; connect to it
+	blbc	r0, 90$
+10$:	$get	rab=_rab		; grab a record
+	blbc	r0, 90$
+	incl	user_nodecount
+	brb	10$
+90$:	$close	fab=_fab
+	if <gtr,user_nodecount,#max_nodecount> then
+	  movl	#max_nodecount, user_nodecount
+	endif
+	if <eql,user_nodecount> then	; if the file is missing, or empty
+	  movl	#1, user_nodecount	;  allocate space for 1 node to
+	  bisl	#m_nonames, cli_supplied;  prevent accvio's, and set /nonames
+	endif
+	mull3	#8, user_nodecount, -	; that's how many bytes in the vector
+		address_vector_size
+	addl2	#4, address_vector_size	; allow for the vector count
+	movl	address_vector_size, -	; they will be the same size
+		name_vector_size
+	addl3	#s_address, #s_name, -	; that's the size of each entry
+		data_area_size
+	addl2	#2, data_area_size	; plus byte count overhead
+	mull2	user_nodecount, -	; and this is how much we really need
+		data_area_size		;  for the data portion
+	mull3	#2, address_vector_size, -
+		vm_bytecount
+	addl2	data_area_size, -	; this is the total allocation we
+		vm_bytecount		;  need
+	call lib$get_vm -		; now try to allocate it
+		vm_bytecount, -
+		vm_base_address
+	if <lbc,r0> then		;  and signal any problems
+	  signal code=r0
+	endif
+	movl	vm_base_address, -	; that's the pointer to the address
+		address_vector		;  vector
+	addl3	address_vector_size, -	; this is the pointer to the name
+		address_vector, -	;  vector
+		name_vector
+	addl3	name_vector_size, -	; and the pointer to the data area
+		name_vector, -
+		name_address_data
+	clrl	@address_vector		; in case we have no entries
+	clrl	@name_vector
+
+	ret
+
+	.subtitle Process a nodelist entry
+
+	.entry -
+process_nodelist_entry, ^m<>
+
+;++
+; Functional Description:
+;	This routine will verify (in a limited way) the record from the
+;	nodelist file.  Blank lines are allowed, comments can begin with
+;	either "!" or ";" and can really be any line without an equals sign
+;	in it.
+;	The expected format of the record is
+;		xx-xx-xx-xx-xx-xx = nodename
+;	Where the xx-xx... stuff is the address of the node with name
+;	nodename.  All characters are converted to uppercase.
+;	Once we get a "valid" record, we load it into the address and name
+;	tables, sort out the cross referencing between the two and that's
+;	that.
+;
+; Calling Sequence:
+;	call	process_nodelist_entry
+;
+; Formal Argument(s):
+;	None.
+;
+; Implicit Inputs:
+;	R2	pointer to next longword entry in address vector
+;	R3	pointer to next longword entry in name vector
+;	R4	pointer to next byte in name/address data
+;	R5	size of record
+;	R6	address of record buffer
+;
+; Implicit Outputs:
+;	R5 and R6 are trashed to reflect the size of the record after we
+;		have done an str_collapse.
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	movl	r5, _record_ds		; load up a descriptor for us to
+	movl	r6, _record_addr	;  use
+	call	str_uppercase -		; convert the record to uppercase
+			play_thing_ds, -
+			_record_ds
+	call	str_collapse -		; get rid of spaces etc...
+			play_thing2_ds, -
+			play_thing_ds
+	call	str_len -		; and get the real length
+			play_thing2_ds, -
+			play_thing2
+	movq	play_thing2, r5		; now point to the real data
+	tstl	r5			; anything there?
+	beql	90$			; nope, so go away
+	cmpb	#^A/!/, (r6)		; is this a comment
+	beql	90$			; yep, so ignore it
+	cmpb	#^A/;/, (r6)		; allow ";" as a comment as well
+	beql	90$			; yep, so ignore it
+	cmpb	#^A/=/, (r6)		; see if address is null
+	beql	90$			; yep, so ignore it
+	locc	#^A/=/, r5, (r6)	; look for an "="
+	cmpl	r0, #1			; how many characters left?
+	bleq	90$			; not enough, so skip it
+	subl3	r6, r1, r7		; R7 = address length
+	movl	r4, (r2)+		; pointer to address in address vector
+	movb	r7, (r4)+		; move the address byte count to the
+					;  data area
+10$:	movb	(r6)+, (r4)+		; now move the address
+	sobgtr	r7, 10$			;  until we have it all
+	movl	r4, (r2)+		; pointer to name in address table
+	decl	r0			; this skips the "=" by reducing the
+					;  length by one
+	incl	r6			;  and upping the address by one
+	cmpl	r0, #s_name		; check that the name is not too long
+	bleq	15$			; it's ok, so keep going
+	movl	#s_name, r0		; force it to our maximum length
+15$:	movb	r0, (r4)+		; move the name byte count to the
+					;  data area
+20$:	movb	(r6)+, (r4)+		; now move the name
+	sobgtr	r0, 20$			;  until it's all done
+	movl	-4(r2), (r3)+		; pointer to name in name vector
+	movl	-8(r2), (r3)+		; pointer to address in name vector
+	incl	node_count		; keep track of how many we have
+
+90$:	ret
+
+	.subtitle Parse the command
+
+	.entry -
+parse_command, ^m<>
+
+;++
+; Functional Description:
+;	Here we validate the command and extract everything we can and
+;	validate any qualifier values that were suppplied.
+;
+; Calling Sequence:
+;	call parse_command
+;
+; Formal Argument(s):
+;	None
+;
+; Implicit Inputs:
+;	None.
+;
+; Implicit Outputs:
+;	None.
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	pushaw	command			; here we get the command they
+	pushl	#0			;  used to invoke us - we don't
+	pushaq	command_ds		;  prompt even if they didn't give
+	calls	#3, g^lib$get_foreign	;  any options
+
+	pushr	#^m<r2,r3,r4,r5>
+	movc3	command, -		; tack the foreign command
+		command_t, -		;  onto the primed buffer
+		command_buffer_extra
+	popr	#^m<r2,r3,r4,r5>
+	addl2	command, command_buffer	; and fixup the length
+
+	call cli$dcl_parse -		; see if the cli routines think
+		command_buffer, -	;  the command is ok
+		etherwatch_cld
+	if <lbc,r0> then		; if it didn't work
+	  bisl	#sts$m_inhib_msg, r0	;  then don't signal when we exit
+	  pushl	r0			;    cli$... has already done that
+	  calls	#1, g^lib$stop		;  bail out
+	endif ;<lbc,r0> then
+
+	if_present from			; here we check all the possible
+	if_present to			;  qualifiers and set bits in
+	if_present protocol		;  the cli_supplied and _defaulted
+	if_present dsap			;  flags to say what was what
+	if_present ssap
+	if_present control
+	if_present pid
+	if_present copid
+	if_present ipid
+	if_present device
+	if_present display
+	if_present both
+	if_present nonames
+	if_present debug
+	if_present count
+	if_present end
+	if_present begin
+	if_present output
+	if_present record
+	if_present playback
+
+; first get the output details if supplied
+
+	if <bs,#v_output,cli_supplied> then
+	  call cli$get_value cli_output, output_ds, output
+	  movw	output, lnm_itmlst
+	  movab output_t, lnm_itmlst+4
+	  $crelnm_s -
+		tabnam=lnm_tabnam, -
+		lognam=lnm_lognam, -
+		acmode=lnm_acmode, -
+		itmlst=lnm_itmlst
+	  if <lbc,r0> then
+	    signal code=r0
+	  endif
+	endif
+
+; now see if we are recording or playing back
+
+	if <bs,#v_record,cli_supplied> then
+	  call cli$get_value cli_record, record_ds, record
+	  call create_record_file
+	  bisl	#m_nonames, cli_supplied ; turn off name processing
+	endif
+
+	if <bs,#v_playback,cli_supplied> then
+	  call cli$get_value cli_playback, record_ds, record
+	endif
+
+	display	program_id		; say who we are
+
+	$fao_s	ctrstr=loaded_fao, -	; say how many names/addresses we
+		outbuf=_faobuf_ds, -	;  loaded
+		outlen=_faobuf, -
+		p1=node_count
+	display	_faobuf
+
+; Now we get the values they supplied, if any
+
+	if <bs,#v_device,cli_supplied> then
+	  call cli$get_value -		; they supplied a device, so use it
+		cli_device, device_ds, device
+	else
+	call sys_find_ether_device -	; else see what's on the system
+		device_ds		;  and use that one
+	if <lbc,r0> then		; if any problems at this point
+	  pushl	r0
+	  calls	#1, g^lib$stop		;  bail out
+	endif ;<lbc,r0> then
+	call str_len -			; we got one, now fix up the
+		device_ds, -		;  string
+		device
+	endif ;<bs,#v_device,cli_supplied> then
+
+; ...now get all the other values, there should be no errors since all these
+; have defaults i.e. there should not be any cli$_absent returned
+
+	call cli$get_value cli_from, from_ds, from
+	call cli$get_value cli_to, to_ds, to
+	call cli$get_value cli_protocol, protocol_ds, protocol
+	call cli$get_value cli_dsap, dsap_ds, dsap
+	call cli$get_value cli_ssap, ssap_ds, ssap
+	call cli$get_value cli_control, control_ds, control
+	call cli$get_value cli_pid, pid_ds, pid
+	call cli$get_value cli_copid, copid_ds, copid
+	call cli$get_value cli_ipid, ipid_ds, ipid
+	call cli$get_value cli_display, display_ds, display
+
+	call	check_display_option
+
+	if <bc,#v_protocol,cli_defaulted> then ; if /protocol not defaulted
+	  call	check_protocol_option	; check what they supplied
+	endif
+
+	if <bc,#v_from,cli_defaulted> then ; if /from not defaulted
+	  call	check_from_option	; check what they gave us
+	else
+	clrl	from_name
+	endif
+
+	if <bc,#v_to,cli_defaulted> then ; if /to not defaulted
+	  call	check_to_option		; check what they gave us
+	else
+	clrl	to_name
+	endif
+
+	if <bs,#v_debug,cli_supplied> then
+	  $fao_s ctrstr=vm_allocated, -
+		outbuf=_faobuf_ds, -
+		outlen=_faobuf, -
+		p1=vm_bytecount, -
+		p2=vm_base_address
+	  display _faobuf
+	  call lib$show_vm
+	endif
+
+	if <bs,#v_begin,cli_supplied> then
+	  call cli$get_value cli_begin, begin_ds, begin
+	  $bintim_s -
+		timbuf=begin, -
+		timadr=begin_time
+	  $setimr_s -
+		efn=#0, -
+		daytim=begin_time
+	  $wfland_s -
+		efn=#0, -
+		mask=#1
+	endif
+
+	if <bs,#v_count,cli_supplied> then
+	  call cli$get_value cli_count, count_ds, count
+	  call lib_cvt_t_l count, count_l
+	endif
+	if <eql,count_l> then		; if it's zero
+	  decl	count_l			;  make it -1 i.e. use time to end
+	endif
+	bbs	#v_count, cli_supplied, - ; if /count used, then don't use
+		exit_parse		; timer to exit
+
+	if <bs,#v_end,cli_supplied> then
+	  call cli$get_value cli_end, end_ds, end
+	  $bintim_s -
+		timbuf=end, -
+		timadr=end_time
+	else
+	$bintim_s -
+		timbuf=default_end, -
+		timadr=end_time
+	endif
+	$setimr_s -
+		daytim=end_time, -
+		astadr=process_controlc
+
+exit_parse:
+
+	ret
+
+	.subtitle Routines to check the command line qualifier values
+
+	.entry -
+check_display_option, ^m<>
+;+
+; Here we take what was given and return the full keyword for display
+; purposes.  There should be no errors since the cli parsing would have
+; picked them up and we wouldn't have got this far.
+;-
+	call lib$lookup_key -
+		display, -		; this is what they said
+		display_vector, -	; ...the table of valid keywords
+		display_option, -	; ...the coded value
+		display_choice_ds, -	; ...the full keyword
+		display_choice		; ...and the keyword length
+
+	ret
+
+	.entry -
+check_protocol_option, ^m<>
+;+
+; Here we check to see if the protocol value supplied is a valid keyword.
+; If it is then we reset the protocol string to be in the format XX-XX based
+; on the associated keyword value in the table.  If it isn't a keyword then
+; we just use whatever they supplied as the protocol.
+;-
+	call lib$lookup_key -		; see if the value is a keyword
+		protocol, protocol_vector, protocol_value
+	if <lbs,r0> then		; if it was a keyword
+	  movl	protocol_value, r0	;  decode the real value
+	  movl	r0, r1			;  this is used for the high byte
+	  bicl	#^XFFFFFF00, r0		;  grab the low byte - all we want
+	  bicl	#^XFFFF00FF, r1		;  the next byte we have to shift
+	  divl	#^X100, r1		;   down to the first byte
+	  $fao_s ctrstr=protocol_fao, -	;  and now generate a string from
+		outbuf=protocol_ds, -	;   these two values
+		outlen=protocol, -
+		p1=r0, -
+		p2=r1
+	endif ;<lbs,r0> then
+
+	ret
+
+;+
+; The check_from_option and check_to_option routines do the same work but
+; just use different strings as the source.
+; The strategy is as follows:
+; 1.  See if the keyword UNKNOWN was used.  If so then set the appropriate
+;	flag for later... that's all we need to do.
+; 2.  Now check to see if the string is in the form area.node i.e. a DECnet
+;	address.  If it is, then we convert it into a string of the form
+;	AA-00-04-00-XX-XX and make it look like the user typed it.
+; 3.  Assume the string is a name that will be found in the nodename list.
+; 4.  If we find the name in the nodename list then use the associated address
+;	as our address used for matching against packets and use the given
+;	name to display in the header.  At this point we have finished.
+; 5.  If the name is not in the nodename list, assume it is an address in the
+;	address list.
+; 6.  If we find it in the address list then use the address for matching
+;	purposes and use the associated name to display in the header.
+;	At this point we have finished.
+; 7.  At this point the given value is neither a known name nor a known
+;	address therefore just use what we were given as it is probably an
+;	address that is not currently in the list or contains wildcards.
+;-
+
+	.entry -
+check_from_option, ^m<>
+
+	call lib$lookup_key from, unknown_vector
+	if <lbs,r0> then		; if they said /from=unknown
+	  bisl	#m_from_unknown, flag1	;  set the flag
+	  movq	wildcard, from
+	  movq	unknown_ascid, from_name
+	else
+	pushr	#^m<r10,r11>
+	movaq	from_ds, r10		; check for a DECnet address
+	movaq	from, r11
+	call	convert_decnet_to_aa
+	popr	#^m<r10,r11>
+	call lib$lookup_key from, @name_vector, from_ascic, from_ds, from
+	if <lbs,r0> then		; if it is a name
+	  pushr	#^m<r2,r3,r4,r5>
+	  movc3	from, @from+4, -	;  copy "from" into "from_name"
+		@from_name+4
+	  movl	from, from_name		;  and fix the length
+	  movl	from_ascic, r0		;  just to play with
+	  movzbl (r0)+, from		;  that's the address length
+	  movc3	from, (r0), @from+4	;  copy the address to the "from" field
+	  popr	#^m<r2,r3,r4,r5>
+	else				; wasn't a name...
+	call lib$lookup_key from, @address_vector, from_ascic
+	if <lbs,r0> then		; if it is an address
+	  pushr	#^m<r2,r3,r4,r5>
+	  movl	from_ascic, r0
+	  movzbl (r0)+, from_name
+	  movc3	from_name, (r0), -	; copy the ascic stuff to the ascid
+		@from_name+4		;   area
+	  popr	#^m<r2,r3,r4,r5>
+	else				; wasn't name or address - use as is
+	clrl	from_name		; nothing to display
+	endif ;<lbs,r0> then
+	endif ;<lbs,r0> then
+	endif ;<lbs,r0> then
+
+	ret
+
+	.entry -
+check_to_option, ^m<>
+
+	call lib$lookup_key to, unknown_vector
+	if <lbs,r0> then		; if they said /to=unknown
+	  bisl	#m_to_unknown, flag1	;  set the flag
+	  movq	wildcard, to
+	  movq	unknown_ascid, to_name
+	else
+	pushr	#^m<r10,r11>
+	movaq	to_ds, r10		; see if it is a DECnet address
+	movaq	to, r11
+	call	convert_decnet_to_aa
+	popr	#^m<r10,r11>
+	call lib$lookup_key to, @name_vector, to_ascic, to_ds, to
+	if <lbs,r0> then		; if it is a name
+	  pushr	#^m<r2,r3,r4,r5>
+	  movc3	to, @to+4, @to_name+4	;  copy "to" into "to_name"
+	  movl	to, to_name		;  and fix the length
+	  movl	to_ascic, r0		;  just to play with
+	  movzbl (r0)+, to		;  that's the address length
+	  movc3	to, (r0), @to+4		;  copy the address to the "to" field
+	  popr	#^m<r2,r3,r4,r5>
+	else				; wasn't a name...
+	call lib$lookup_key to, @address_vector, to_ascic
+	if <lbs,r0> then		; if it is an address
+	  pushr	#^m<r2,r3,r4,r5>
+	  movl	to_ascic, r0
+	  movzbl (r0)+, to_name
+	  movc3	to_name, (r0), -	; copy the ascic stuff to the ascid
+		@to_name+4		;   area
+	  popr	#^m<r2,r3,r4,r5>
+	else				; wasn't name or address - use as is
+	clrl	to_name			; nothing to display
+	endif ;<lbs,r0> then
+	endif ;<lbs,r0> then
+	endif ;<lbs,r0> then
+
+	ret
+
+	.entry -
+convert_decnet_to_aa, ^m<>
+;+
+; Here we check to see if the specified address is a possible decnet type
+; address in the form area.node.  If it is then we convert it to the format
+; AA-00-04-00-XX-XX and set this up to look like the user supplied this value.
+;
+; Inputs:
+;	R10	Address of the output buffer descriptor
+;	R11	Address of the input buffer descriptor
+;-
+	pushr	#^m<r8,r9>
+	movq	(r11), r8		; grab the input buffer descriptor
+	locc	#^A/./, r8, (r9)	; try to find a dot
+	tstl	r0			; is there one?
+	bneq	10$			; yes, so play with it
+	brw	90$			; no, bail out
+10$:	movq	(r11), area_number_s	; load the area number descriptor
+	subl2	r0, area_number_s	;  and fix up the length
+	decl	r0			; shorten length by one
+	incl	r1			;  and increase address by one
+					;  to skip the dot
+	movq	r0, node_number_s	; load the node number descriptor
+	call lib_cvt_t_l area_number_s, area_number
+	blbc	r0, 90$			; bail out if no good
+	call lib_cvt_t_l node_number_s, node_number
+	blbc	r0, 90$			; bail out if no good
+	mull3	#1024, area_number, r0	; now convert the two numbers into
+	addl2	node_number, r0		;  a single word value
+	movl	r0, r1			; we need a copy to split it
+	bicl	#^XFFFFFF00, r0		; now do the jiggery pokery to
+	bicl	#^XFFFF00FF, r1		;  get the bytes swapped and
+	divl2	#^X100, r1		;  cleaned up for the aa format
+	$fao_s	ctrstr=aa_format, -
+		outbuf=(r10), -
+		outlen=(r11), -
+		p1=r0, -
+		p2=r1
+90$:	popr	#^m<r8,r9>
+
+	ret
+
+	.subtitle Startup the ethernet device in promiscuous mode
+
+	.entry -
+startup_device, ^m<>
+
+;++
+; Functional Description:
+;	This routine attempts to startup the ethernet device, set it up so
+;	we can see everything then queue the first read request to it.
+;	It also displays some informational messages along the way.
+;
+; Calling Sequence:
+;	call startup_device
+;
+; Formal Argument(s):
+;	None
+;
+; Implicit Inputs:
+;	None.
+;
+; Implicit Outputs:
+;	None.
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	if <bs,#v_playback,cli_supplied> then
+	  $fao_s ctrstr=playing_back, -
+		outbuf=_faobuf_ds, -
+		outlen=_faobuf, -
+		p1=#record
+	  display _faobuf
+	  call open_record_file
+10$:	  $get	rab=rec_rab
+	  blbc	r0, 20$
+	  call process_packet
+	  brb	10$
+20$:	  call process_controlc
+	else
+	$fao_s	ctrstr=intro_line1, -
+		outbuf=_faobuf_ds, -
+		outlen=_faobuf, -
+		p1=#device
+	display	_faobuf
+	call lan_startup_prm -
+		device, -
+		log_channel, -
+		iosb
+	if <lbc,iosb> then		; if anything goes wrong with that
+	  pushl	iosb			;  then we can't go any further
+	  calls	#1, g^lib$stop
+	endif ;<lbc,r0> then
+	$fao_s	ctrstr=intro_line2, -
+		outbuf=_faobuf_ds, -
+		outlen=_faobuf, -
+		p1=#from, -
+		p2=#from_name, -
+		p3=#to, -
+		p4=#to_name, -
+		p5=#protocol, -
+		p6=#display_choice
+	display	_faobuf
+	call queue_async_read
+	endif ;<bs,#v_playback,cli_supplied> then
+
+	ret
+
+	.subtitle Queue an asynchronous read I/O to the ethernet device
+
+	.entry -
+queue_async_read, ^m<>
+
+;++
+; Functional Description:
+;	Here we issue a read qio to the ethernet device and setup an ast to
+;	invoke the process_packet routine when we have something to read.
+;
+; Calling Sequence:
+;
+;	call queue_async_read
+;
+; Formal Argument(s):
+;	None
+;
+; Implicit Inputs:
+;	ether_watch_data common area.
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	$qio_s	chan=log_channel, -
+		func=#io$_readvblk, -
+		iosb=iosb, -
+		astadr=process_packet, -
+		p1=packet_data, -	; data location
+		p2=#lan_s_ethernet, -	; size of data area
+		p5=#packet_header	; header location
+	if <lbc,r0> then
+	  signal code=r0
+	endif ;<lbc,r0> then
+
+90$:	ret
+
+	.subtitle Lookup a nodename given an address
+
+	.entry -
+lookup_name, ^m<>
+
+;++
+; Functional Description:
+;	Check the ethernet address given and return the address of ascic
+;	string for the associated name.  If the address was not found, then
+;	we return the address of the name UNKNOWN.
+;
+; Calling Sequence:
+;	call	lookup_name (%descr(address), %ref(name_location))
+;
+; Formal Argument(s):
+;	address.rt.ds	Address of the descriptor for the string containing
+;			the ethernet address to be checked.
+;	name_location.wl.r  Address of a longword that will contain the
+;			address of the ascic string containing the node name.
+;
+; Implicit Inputs:
+;	4(ap)	Address of descriptor of the ethernet address
+;	8(ap)	Address of a longword to receive the address of the ascic
+;		string containing the node name
+;
+; Implicit Outputs:
+;	None.
+;
+; Completion Codes:
+;	The low bit in R0 can be checked on return to see if the address was
+;	found or not (saves doing string comparisons etc.).
+;
+; Side Effects:
+;	None
+;--
+
+	pushl	8(ap)
+	pushl	address_vector
+	pushl	4(ap)
+	calls	#3, g^lib$lookup_key
+
+	if <lbc,r0> then
+	  movab	unknown_keyword, @8(ap)
+	endif ;<lbc,r0> then
+
+	ret
+
+	.subtitle Lookup an address given a nodename
+
+	.entry -
+lookup_address, ^m<>
+
+;++
+; Functional Description:
+;	Check the name given and return the address of ascic string for the
+;	associated ethernet address.  If the name was not found, then we
+;	return the address of the name UNKNOWN.
+;
+; Calling Sequence:
+;	call	lookup_name (%descr(nodename), %ref(address_location))
+;
+; Formal Argument(s):
+;	nodename.rt.ds	Address of the descriptor for the string containing
+;			the node name to be checked.
+;	address_location.wl.r  Address of a longword that will contain the
+;			address of the ascic string containing the ethernet
+;			address.
+;
+; Implicit Inputs:
+;	4(ap)	Address of descriptor of the node name
+;	8(ap)	Address of a longword to receive the address of the ascic
+;		string containing the node address
+;
+; Implicit Outputs:
+;	None.
+;
+; Completion Codes:
+;	The low bit in R0 can be checked on return to see if the name was
+;	found or not (saves doing string comparisons etc.).
+;
+; Side Effects:
+;	None
+;--
+
+	pushl	8(ap)
+	pushl	name_vector
+	pushl	4(ap)
+	calls	#3, g^lib$lookup_key
+
+	if <lbc,r0> then
+	  movab	unknown_keyword, @8(ap)
+	endif ;<lbc,r0> then
+
+	ret
+
+	.subtitle Here's where we get to if they type control/c
+
+	.entry -
+process_controlc, ^m<>
+
+;++
+; Functional Description:
+;	This is where we end up if a control c is used.  We just exit.
+;
+; Calling Sequence:
+;	via an ast...
+;
+; Formal Argument(s):
+;	None.
+;
+; Implicit Inputs:
+;	None.
+;
+; Implicit Outputs:
+;	None.
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	if <bs,#v_record,cli_supplied> then
+	  movaq	recorded, r0
+	else
+	movaq	displayed, r0
+	endif
+	$fao_s	ctrstr=tally, -
+		outbuf=_faobuf_ds, -
+		outlen=_faobuf, -
+		p1=packets_read, -
+		p2=packets_displayed, -
+		p3=r0
+	display	_faobuf
+
+	call lib$free_vm -
+		vm_bytecount, -
+		vm_base_address
+
+	if <bs,#v_debug,cli_supplied> then
+	  call lib$show_vm
+	  call lib$show_timer stats_context
+	endif
+
+	display	command_buffer
+
+	if <bs,#v_record,cli_supplied> then
+	  call close_record_file
+	endif
+	if <bs,#v_playback,cli_supplied> then
+	  call close_record_file
+	endif
+
+	pushl	#^X10000001
+	calls	#1, g^lib$stop
+
+	ret
+
+	.subtitle Process a packet
+
+	.entry -
+process_packet, ^m<>
+	
+;++
+; Functional Description:
+;	This routine gets the packet, formats the header and does the
+;	necessary checking to see if we want to look at it based on the
+;	selection criteria supplied by the user on the command line.
+;	We also queue another i/o request for the next packet.
+;
+; Calling Sequence:
+;	call	process_packet
+;
+; Formal Argument(s):
+;	None.
+;
+; Implicit Inputs:
+;	None.
+;
+; Implicit Outputs:
+;	None.
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	incl	packets_read		; keep track of how many we've read
+
+	if <bs,#v_playback,cli_supplied> then
+	  movzwl rec_rab+rab$w_rsz, packet_length
+	  subl	#rec_hdrsize, packet_length
+	  subl	#lanhdr_s_lanhdrdef, packet_length
+	else
+	movzwl	iosb_xfr_size, -	; grab the length of the packet we
+		packet_length		;  are going to look at
+	endif
+
+	call lan_format_header -	; format the header so we can start
+		packet_header_ds, -	;  doing our matching
+		pkt_destination, -
+		pkt_source, -
+		pkt_sap
+
+	bicl	#<m_dest_unknown-	; reset the unknown flags
+		 !m_source_unknown>, -
+		flag1
+
+	if <bc,#v_nonames,cli_supplied> then
+	  call lookup_name -		; get the friendly names if they
+		pkt_destination, -	;  exist in our list
+		destination_ascic
+	  if <lbc,r0> then		; couldn't find them in the list
+	    bisl #m_dest_unknown, flag1	;   flag an unknown destination
+	  endif
+	endif
+
+	if <bc,#v_nonames,cli_supplied> then
+	  call lookup_name -		; see if the source is in our list
+		pkt_source, -		;  of known addresses
+		source_ascic
+	  if <lbc,r0> then		; couldn't find this one either
+	    bisl #m_source_unknown, flag1	;   flag an unknown source
+	  endif
+	endif
+
+	if_matched protocol		; any mismatch on these items will
+	if_matched dsap			;  result in a failure and a branch
+	if_matched ssap			;  to the exit label in this routine
+	if_matched control
+	if_matched pid
+	if_matched copid
+	if_matched ipid
+
+check_source:
+	bbs	#v_from, cli_defaulted, - ; if /from was defaulted
+		check_destination	; it always matches, check destination
+	if <bs,#v_from_unknown,flag1> then ; if /from=unknown
+	  if <bs,#v_source_unknown,flag1> then ; if source is unknown
+	    brb check_destination	; then it's ours, check destination
+	  else
+	  if <bs,#v_both,cli_supplied> -
+		and <bs,#v_dest_unknown,flag1> then
+	    brw do_display
+	  else
+	  brw	exit			; else we don't want it
+	  endif
+	  endif
+	endif
+	call str$match_wild -		; check source of the packet
+		pkt_source, from	;  against the /from value
+	blbs	r0, check_destination	; it's a winner
+	bbs	#v_both, cli_supplied, - ; no match, so bail out unless they
+		10$			;  specified /both
+	brw	exit
+10$:	call str$match_wild -		; want /both so try to match dest
+		pkt_destination, from	;  address
+	blbs	r0, check_destination	; ok, keep going
+	brw	exit			; if that failed, just get out
+check_destination:
+	bbs	#v_to, cli_defaulted, -	; if /to was defaulted
+		do_display		;  it always matches, so display it
+	if <bs,#v_to_unknown,flag1> then ; if /to=unknown
+	  if <bs,#v_dest_unknown,flag1> then ; if destination is unknown
+	    brb do_display		;  then we want to look at it
+	  else
+	  if <bs,#v_both,cli_supplied> -
+		and <bs,#v_source_unknown,flag1> then
+	    brw do_display
+	  else
+	  brb	exit			; else we don't want it
+	  endif
+	  endif
+	endif
+	call str$match_wild -		; check destination of the packet
+		pkt_destination, to	;  against the /to value
+	blbs	r0, do_display		; it matches, so look at it
+	bbc	#v_both, cli_supplied, - ; no match, so bail out unless they
+		exit			;  said /both in the command
+	call str$match_wild -		; want /both so try to match source
+		pkt_source, to		;  address
+	blbc	r0, exit		; if that failed, try another packet
+
+do_display:
+	incl	packets_displayed
+	if <bs,#v_record,cli_supplied> then
+	  call record_a_packet
+	else
+	call display_a_packet
+	endif
+
+exit:	cmpl	packets_read, count_l	; see if we should finish yet
+	blssu	10$			; not yet...
+	call process_controlc		; finish, don't want to look anymore
+10$:	bbs	#v_playback, cli_supplied, 90$
+	call queue_async_read
+
+90$:	ret
+
+	.subtitle Display a packet
+
+	.entry -
+display_a_packet, ^m<>
+
+;++
+; Functional Description:
+;	Here we display the packet header in a nice formatted way.  Then,
+;	based on the display option chosen, display (or not) the contents
+;	of the packet in the chosen way.
+;
+; Calling Sequence:
+;	call	display_a_packet
+;
+; Formal Argument(s):
+;	None.
+;
+; Implicit Inputs:
+;	None.
+;
+; Implicit Outputs:
+;	None.
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	if <bs,#v_playback,cli_supplied> then
+	  movaq	rec_time, r0
+	else
+	clrl	r0
+	endif
+	$fao_s	ctrstr=display_header, - ; always display the header
+		outbuf=_faobuf_ds, -
+		outlen=_faobuf, -
+		p1=#pkt_source, -
+		p2=source_ascic, -
+		p3=#pkt_destination, -
+		p4=destination_ascic, -
+		p5=#pkt_sap, -
+		p6=packet_length, -
+		p7=r0
+	display	_faobuf
+
+; Display the packet based on what /display option was chosen.
+
+	if <neq,#display_c_none,display_option> then
+	  if <eql,#display_c_ascii,display_option> then
+	    pushal	ascii_segment_size
+	    pushal	packet_length
+	    pushaq	packet_data_ds
+	    calls	#3, g^lib_output_seg_t
+	  else
+	  if <eql,#display_c_all,display_option> then
+	    pushal	all_segment_size
+	    pushal	packet_length
+	    pushaq	packet_data_ds
+	    calls	#3, g^lib_output_seg_tzb
+	  else
+	  if <eql,#display_c_hex,display_option> then
+	    pushal	hex_segment_size
+	    pushal	packet_length
+	    pushaq	packet_data_ds
+	    calls	#3, g^lib_output_seg_zb
+	  else
+	  $fao_s ctrstr=fast_format, -
+		outbuf=_faobuf_ds, -
+		outlen=_faobuf, -
+		p1=packet_length , -
+		p2=#packet_data
+	  display _faobuf
+	  endif ;<eql,#display_c_hex,display_option> then
+	  endif ;<eql,#display_c_all,display_option> then
+	  endif ;<eql,#display_c_ascii,display_option> then
+	endif ;<neq,#display_c_none,display_option> then
+
+90$:	ret
+
+	.subtitle Routines to handle recording/playback file
+
+	.entry -
+create_record_file, ^m<>
+
+	movab	record_t, rec_fab+fab$l_fna
+	movb	record, rec_fab+fab$b_fns
+	movb	#fab$m_put, rec_fab+fab$b_fac
+	$create	fab=rec_fab
+	if <lbc,r0> then
+	  signal code=r0
+	endif
+	$connect rab=rec_rab
+	if <lbc,r0> then
+	  signal code=r0
+	endif
+
+	ret
+
+	.entry -
+open_record_file, ^m<>
+
+	movab	record_t, rec_fab+fab$l_fna
+	movb	record, rec_fab+fab$b_fns
+	movb	#fab$m_get, rec_fab+fab$b_fac
+	$open	fab=rec_fab
+	if <lbc,r0> then
+	  signal code=r0
+	endif
+	$connect rab=rec_rab
+	if <lbc,r0> then
+	  signal code=r0
+	endif
+
+	ret
+
+	.entry -
+close_record_file, ^m<>
+
+	$close	fab=rec_fab
+
+	ret
+
+	.entry -
+record_a_packet, ^m<>
+
+	movb	#rec_binary, rec_type
+	$gettim_s -
+		timadr=rec_time
+	addl3	packet_length, #rec_hdrsize, r0
+	addl2	#lanhdr_s_lanhdrdef, r0
+	movw	r0, rec_rab+rab$w_rsz
+	$put	rab=rec_rab
+	if <lbc,r0> then
+	  signal code=r0
+	endif
+
+	ret
+
+	.end	etherwatch

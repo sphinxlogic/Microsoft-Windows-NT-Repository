@@ -1,0 +1,725 @@
+	.TITLE	EMU_ALTLIB   
+	.IDENT	/V5-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	APR-1997	PB	Creation
+;	
+;++
+;1 EMU_ALTLIB   
+; Collection of routines used to implement Alert subsystem. 
+; See individual routines for descriptions
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+	.LIBRARY        /EMU5_LIB:MACROLIB.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+        $NMADEF                         ;Define Network Management parameters
+	$SECDEF				; Global Section 
+	$SSDEF
+	$LCKDEF
+        EMUSYSDEF
+        EMUPSRDEF
+	EMUDBDEF
+	EMUCTPDEF
+	EMUCNTDEF
+	EMUIPCDEF
+	EMUMSGDEF
+	;	
+
+	.PSECT	EMU_ALTLIB_D,WRT,NOEXE,PIC,SHR,QUAD
+INADDR:		.QUAD	0
+PARAM_DESC:	.QUAD	0
+
+MAXNAMSIZ = 256
+NAME_BUFF:	.BLKB	MAXNAMSIZ
+NAME_DESC:	.LONG	.-NAME_BUFF
+		.ADDRESS  NAME_BUFF
+
+DBTBL:
+; Ordering in this table is important - the order in which they
+; appear is the order in which the PID was assigned
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 0 = invalid
+		.BLKB	SYS_MAP_C_MAPSIZ        ; = listener (no db)
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN4
+		.LONG	PSR_DN4_W_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN4DB
+		.ADDRESS EMU_PSRDN4
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN5
+		.LONG	PSR_DN5_B20_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN5DB
+		.ADDRESS EMU_PSRDN5
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRSCS
+		.LONG	PSR_SCS_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_SCSDB
+		.ADDRESS EMU_PSRSCS
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRLAT
+		.LONG	PSR_LAT_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_LATDB
+		.ADDRESS EMU_PSRLAT
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIP
+		.LONG	PSR_IP_L_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPDB
+		.ADDRESS EMU_PSRIP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIPX
+		.LONG	PSR_IPX_L_NET
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPXDB
+		.ADDRESS EMU_PSRIPX
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 9 = DNS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 10 = DTS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 11 = ARP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRETH
+		.LONG	PSR_ETH_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_ETHDB
+		.ADDRESS EMU_PSRETH
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 13 = Recorder (no relater) 
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRBRD
+		.LONG	PSR_BRD_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_BRDDB
+		.ADDRESS EMU_PSRBRD
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 14 = unassigned  
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 15 = unassigned  
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 16 = unassigned  
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_RELATER
+		.LONG	0
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_RELATERDB
+		.ADDRESS EMU_RELATER
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_NAMER
+		.LONG	NAM_DB_L_PID
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_NAMERDB
+		.ADDRESS EMU_NAMER
+
+
+DBTBL_DESC:	.LONG 	.-DBTBL
+		.ADDRESS  DBTBL
+
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/ALT_FMT/
+; Messages
+ALTFAO1:	.ASCID	\*** !AC Alert on !AS *** !/\
+ALTFAO2:	.ASCID	\Received at !%D on !AC, Priority = !UL !/\
+ALTFAO3:	.ASCID	\Other Recent events !UL !/\
+ALTFAO4:	.ASCID	\Additional Information: !/\
+SCLAS_NEW:	.ASCID	\Component Added !/\
+SCLAS_MOD:	.ASCID	\Component Modified. Old/New Values Follow !/\
+SCLAS_DEL:	.ASCID	\Component Deleted. !/\
+; Lock Names
+EMU_RELATERDB:	
+		.ASCID	\EMU_RELATERDB\            ; Lock name
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_IPXDB:	
+		.ASCID	\EMU_IPXDB\            ; Lock name
+EMU_BRDDB:	
+		.ASCID	\EMU_BRDDB\            ; Lock name
+EMU_IPDB:	
+		.ASCID	\EMU_IPDB\            ; Lock name
+EMU_SCSDB:	
+		.ASCID	\EMU_SCSDB\            ; Lock name
+EMU_DN5DB:	
+		.ASCID	\EMU_DN5DB\            ; Lock name
+EMU_DN4DB:	
+		.ASCID	\EMU_DN4DB\            ; Lock name
+EMU_LATDB:	
+		.ASCID	\EMU_LATDB\            ; Lock name
+EMU_ETHDB:	
+		.ASCID	\EMU_ETHDB\            ; Lock name
+EMU_NAMERDB:		
+		.ASCID	/EMU_NAMERDB/	; DB Lock name 
+; Section names
+EMU_RELATER:
+		.ASCID	/EMU_RELATER/
+EMU_PSRMOP:
+		.ASCID	/EMU_PSRMOP/
+EMU_PSRIPX:
+		.ASCID	/EMU_PSRIPX/
+EMU_PSRBRD:
+		.ASCID	/EMU_PSRBRD/
+EMU_PSRIP:
+		.ASCID	/EMU_PSRIP/
+EMU_NAMER:
+		.ASCID	/EMU_NAMER/
+EMU_PSRSCS:	
+		.ASCID	\EMU_PSRSCS\  		; Section name
+EMU_PSRDN5:	
+		.ASCID	\EMU_PSRDN5\  		; Section name
+EMU_PSRDN4:	
+		.ASCID	\EMU_PSRDN4\  		; Section name
+EMU_PSRLAT:	
+		.ASCID	\EMU_PSRLAT\  		; Section name
+EMU_PSRETH:	
+		.ASCID	\EMU_PSRETH\  		; Section name
+
+
+
+	.ALIGN	LONG
+; Alert class xlate table
+; Class names
+ALTCLS_UNK:	 .ASCIC	/Unknown        /
+ALTCLS_ACCT:     .ASCIC	/Accounting     /
+ALTCLS_PERF:     .ASCIC	/Performance    /
+ALTCLS_CONF:     .ASCIC	/Configuration  /
+ALTCLS_FAUL:     .ASCIC	/Fault          /
+ALTCLS_SEC:      .ASCIC	/Security       /
+ALTCLS_SYS:      .ASCIC	/System         /
+ALTNAMSIZ = 16
+ALT_CLS_TBL:
+	.ADDRESS	ALTCLS_UNK
+	.ADDRESS	ALTCLS_ACCT
+	.ADDRESS	ALTCLS_PERF
+	.ADDRESS	ALTCLS_CONF
+	.ADDRESS	ALTCLS_FAUL
+	.ADDRESS	ALTCLS_SEC
+	.ADDRESS	ALTCLS_SYS
+MAXALTCLS = 6
+
+
+; Misc
+	.ALIGN	LONG
+CONTEXT:	.LONG
+CRLF:		.BYTE	10,13
+LCNT:		.LONG	0
+       .PSECT EMU_ALTLIB_EXE,EXE,NOWRT,LONG
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALERT_GETDB 
+;++
+;2 ALERT_GETDB
+; Returns pointer to the mapped db entry specified by the input pid
+;3 Input
+; .long of PID of db to check/map
+; The table used for lookup is hard coded in this routine (DBTBL)
+;3 Output
+;  The address of the entry is returned in R1 if mapped successfuly.
+;3 Return
+;  SS$_NORMAL		OK
+;  SS$_ITEMNOTFOUND     Unknown db specified
+;  SS$_INSFMAP		Could not map specified db
+;--
+	MOVL	4(AP),R6
+        MOVAL	DBTBL,R9
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R7   ; ENd of table
+	
+40$:
+	CMPL	R9,R7                         ; AT END?
+	BGTR	100$			      ; Br if end
+
+	CMPL	SYS_MAP_L_PID(R9),R6
+	BEQLU	60$			; br if this DB
+	ADDL	#SYS_MAP_C_MAPSIZ,R9    ; Next
+	BRB	40$                     ; Loop
+60$:
+	TSTL	SYS_MAP_Q_ADDR(R9)  	; Access this DB?     
+	BNEQ	70$                     ; Br if OK
+	CALLS	#0,G^ALERT_MAPDB 		; Attempt to map
+	TSTL	SYS_MAP_Q_ADDR(R9)	; Active?
+	BNEQ	70$                     ; Br if OK
+	MOVL	#SS$_INSFMAP,R0
+	RET
+70$:
+	MOVL	#SS$_NORMAL,R0
+	MOVL	R9,R1
+	RET
+100$:
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALERT_MAPDB 
+;++
+;2 ALERT_MAPDB
+; Maps all known DBs in the table. If the section is already
+; mapped the entry is skipped.
+;3 Inputs
+;	None. The input table is hadr coded here.
+;3 Outputs
+;	Any section newly mapped has it's 1st and last addr written
+;	to the map structure.
+;3 Returns
+; 	None
+;--
+
+	MOVAL	DBTBL,R9
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R10	; Last addr to map
+60$:
+	TSTL	SYS_MAP_Q_ADDR(R9)		; ALready mapped?
+	BNEQ	70$				; Skip if so
+	PUSHL	R9				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,70$                          ; Log error if DB not mapped
+
+	MOVL	#MSG_ALERT_NODB,MSGCDE       ; MAP error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	8(R9),(R1)+    		     ; PID
+	MOVL	R0,(R1)            	     ;  error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+70$:
+; here set bit for any PSRdb with records  = 0. At end loop clear any bits 
+	ADDL	#SYS_MAP_C_MAPSIZ,R9
+	CMPL	R9,R10				; Done mapping?
+	BLSSU	60$                             ; Br if more
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALERT_FORMAT   
+;++
+;2 ALERT_FORMAT
+; Routine to format a binary alert message
+;3 Input
+;	.address of binary alert message
+;	.address of desc pointing to outp area
+;	.address of .quad 1st and last counters section addresses
+;3 Output
+;  A formatted alert message is written to the outp
+;	The address of the PSR rec is returned in R1
+;3 Return
+;	SS$_NORMAL	OK
+;	SS$_BUFFEROVF	Outp Buffer too small
+;--
+	MOVL	4(AP),R6
+	MOVL	@12(AP),R11
+
+; Ensure we can map to the DB specified by the DBPID
+	PUSHL	ALT_MSG_L_DBPID(R6)
+	CALLS	#1,G^ALERT_GETDB             ; Returns pointer to DB struct R1
+	BLBS	R0,30$
+
+	MOVL	#MSG_ALERT_NODB,MSGCDE       ; MAP error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	ALT_MSG_L_DBPID(R6),(R1)+    ; PID
+	MOVL	R0,(R1)            	     ;  error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	RET
+
+30$:
+; Find this ALTID in PSRdb.
+	MOVL	R1,R7				; Save DB
+	CLRL	CONTEXT				; No context
+	PUSHAL	CONTEXT
+	PUSHL	R7                       	; Sea this DB
+	ADDL3	#ALT_MSG_L_ALTID,R6,-(SP)	; Boxid 
+	CALLS	#3,G^LOCATE_ALTID
+	BLBS	R0,40$			        ; Br if no error
+
+
+; Serious error. A message was received with a ALTID that is not in 
+; specified  PSRdb.
+
+        MOVL	#MSG_ALERT_NOALTID,MSGCDE    ; No boxid
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	8(R7),(R1)+    		     ; PID
+	PUSHL	ALT_MSG_L_ALTID(R6)	     ; ALTid 
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	RET
+40$:
+; R6 = Incomming message
+; R7 = DB struct
+; R10 = PSRrec
+; R11= Count
+;
+; Locate relater for this boxid
+; Ensure we can map to the relater DB 
+        MOVL	R1,R10			     ; Save PSRrec
+	PUSHL	#SYS_PID_C_RELATER
+	CALLS	#1,G^ALERT_GETDB             ; Returns pointer to DB struct R1
+	BLBS	R0,50$
+
+	MOVL	#MSG_ALERT_NODB,MSGCDE       ; MAP error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	#SYS_PID_C_RELATER,(R1)+    ; PID
+	MOVL	R0,(R1)            	     ;  error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	MOVL	R10,R1			     ; PSR Rec	
+	RET
+50$:
+; R1 = relater db struct
+        ADDL3	#COM_HDR_L_FLAGS,R10,-(SP)    ; Sea for box id this PID
+	PUSHL	R1                           ; Relater DB
+        ADDL3	#COM_HDR_L_BOXID,R10,-(SP)    ; This boxid
+	CALLS	#3,G^LOCATE_RELATER_BOXID
+	BLBS	R0,60$
+
+	MOVL	#MSG_ALERT_LOCREL,MSGCDE    ; MAP error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+        MOVL	COM_HDR_L_BOXID(R10),(R1)+    ; this box
+        MOVL	COM_HDR_L_FLAGS(R10),(R1)    ; this PID
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	MOVL	R10,R1			     ; PSR Rec	
+	RET
+60$:
+; R6 = Incomming message
+; R7 = DB struct
+; R10 = PSRrec
+; R9 = Relater rec
+; R11= Count
+	MOVL	R1,R9
+
+;2 Description
+;  Once an alert is recieved and the corresponding RELATER record
+;  is located, the following processing takes place:
+
+;  Translate the boxid to a display name
+100$:
+	CLRL	R5			; Keep running prio adjust here
+	MOVL	#MAXNAMSIZ,NAME_DESC
+	PUSHAL	NAME_DESC               ; Outp
+	PUSHL	R9			; Relater rec
+	CALLS	#2,G^NAME_LOOKUP	; Set display name
+	BLBS	R0,110$
+; Assume any error here is because we have no name for this box. 
+; Try translating the address. If this fails, give up
+
+	PUSHAL	NAME_DESC		     ; Output
+	ADDL3	#COM_HDR_C_SIZE,R10,-(SP)	     ; Address of protocol addr
+	PUSHL	COM_HDR_L_LEN(R10)	     ; Len of addr
+	PUSHL	COM_HDR_L_FLAGS(R10)	     ; PID
+	CALLS	#4,G^XLATE_ADDR
+	BLBS	R0,110$
+
+	MOVL	R0,R6
+        MOVL	#MSG_ALERT_SETNAME,MSGCDE    ; Set name error
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)    		     ; error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	MOVL	R6,R0
+	MOVL	R10,R1			     ; PSR Rec	
+	RET
+
+110$:
+; Lookup config type
+; If not in range make it UNKNOWN
+	MOVL	ALT_MSG_L_CLASS(R6),R4
+	CMPL	R4,#MAXALTCLS 
+	BLEQU	120$
+	CLRL	R4
+120$:
+	MOVAL	ALT_CLS_TBL,R5		; Table top
+; Format top line
+; R6 = Message
+; R7 = Outp len
+; R8 = outp addr
+; R10 = psrrec
+        MULL	#4,R4
+	ADDL	R4,R5
+	MOVQ	@8(AP),R7	
+	MOVQ	R7,INADDR		; Spare quad
+	PUSHAL	NAME_DESC		; Name
+	PUSHL	(R5)			; addr of class
+	PUSHAL	INADDR	
+	PUSHAL	INADDR
+	PUSHAL	ALTFAO1
+	CALLS	#5,G^SYS$FAO
+	BLBS	R0,130$
+
+	MOVL	R0,R6
+        MOVL	#MSG_ALERT_MSGFMT,MSGCDE    ; Set name error
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)    		     ; error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	MOVL	R6,R0
+	MOVL	R10,R1			     ; PSR Rec	
+	RET
+
+130$:
+; Adjust pointers
+	SUBL	INADDR,R7		     ; Buffer used
+	ADDL	INADDR,R8		     ; Buffer written
+; Line 2
+; Translate PID                         	; .ascic Outp here
+	PUSHAL	NAME_BUFF		
+	PUSHL	COM_HDR_L_FLAGS(R10)		; PID
+        CALLS	#2,G^XLATE_PSRID
+	BLBS	R0,140$
+
+	MOVL	R0,R6
+        MOVL	#MSG_ALERT_XLTPID,MSGCDE    ; Set name error
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	COM_HDR_L_FLAGS(R10),(R1)    ; PID
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	MOVL	R6,R0
+	MOVL	R10,R1			     ; PSR Rec	
+	RET
+140$:
+; Adjust pointers
+
+	MOVQ	R7,INADDR		; Spare quad
+	PUSHL	ALT_MSG_L_PRIO(R6)	; Prio
+	PUSHAL	NAME_BUFF		; Protocol
+	ADDL3	#ALT_MSG_Q_TIME,R6,-(SP) ; Time
+	PUSHAL	INADDR	
+	PUSHAL	INADDR
+	PUSHAL	ALTFAO2
+	CALLS	#6,G^SYS$FAO
+	BLBS	R0,150$
+
+	MOVL	R0,R6
+        MOVL	#MSG_ALERT_MSGFMT,MSGCDE    ; Set name error
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)    		     ; error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	MOVL	R6,R0
+	MOVL	R10,R1			     ; PSR Rec	
+	RET
+150$:
+; If no recent events then skip
+; Adjust pointers
+	SUBL	INADDR,R7		     ; Buffer used
+	ADDL	INADDR,R8		     ; Buffer written
+	TSTL	COM_HDR_L_ALTCNT(R10)
+	BEQL	180$
+
+	MOVQ	R7,INADDR		; Spare quad
+	PUSHL	COM_HDR_L_ALTCNT(R10)	; Alert count
+	PUSHAL	INADDR	
+	PUSHAL	INADDR
+	PUSHAL	ALTFAO3
+	CALLS	#4,G^SYS$FAO
+	BLBS	R0,170$
+
+	MOVL	R0,R6
+        MOVL	#MSG_ALERT_MSGFMT,MSGCDE    ; Set name error
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)    		     ; error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	MOVL	R6,R0
+	MOVL	R10,R1			     ; PSR Rec	
+	RET
+170$:
+; Adjust pointers
+	SUBL	INADDR,R7		     ; Buffer used
+	ADDL	INADDR,R8		     ; Buffer written
+180$:
+; Display subclass Line if subclass = 1-3
+	TSTL	ALT_MSG_L_SCLAS(R6)
+	BEQL	181$                         ; No subclass
+	CMPL	ALT_MSG_L_SCLAS(R6),#3
+	BLEQU	1810$			     ; Br if valid
+181$:
+	BRW	190$
+; Write header
+1810$:
+	MOVQ	R7,INADDR		; Spare quad
+	PUSHAL	INADDR	
+	PUSHAL	INADDR
+
+	CASEL	ALT_MSG_L_SCLAS(R6),#1,#2
+182$:
+	.WORD	185$-182$
+	.WORD	186$-182$
+	.WORD	187$-182$
+        RET				; Not possible to get here
+185$:
+	PUSHAL	SCLAS_NEW
+	BRB	189$
+186$:
+	PUSHAL	SCLAS_MOD
+	BRB	189$
+187$:
+	PUSHAL	SCLAS_DEL
+	BRB	189$
+
+189$:
+	CALLS	#3,G^SYS$FAO
+; Adjust pointers
+	SUBL	INADDR,R7		     ; Buffer used
+	ADDL	INADDR,R8		     ; Buffer written
+	BLBS	R0,190$
+
+	MOVL	R0,R6
+        MOVL	#MSG_ALERT_MSGFMT,MSGCDE    ; Set name error
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)    		     ; error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	MOVL	R6,R0
+	MOVL	R10,R1			     ; PSR Rec	
+	RET
+190$:
+	TSTL	ALT_MSG_L_PARAMC(R6)		; ANy params?
+	BNEQ	200$
+	MOVL	R10,R1			     ; PSR Rec	
+	MOVL	#SS$_NORMAL,R0
+	RET
+200$:
+; Translate and add each param to the outp
+; Write header
+	MOVQ	R7,INADDR		; Spare quad
+	PUSHAL	INADDR	
+	PUSHAL	INADDR
+	PUSHAL	ALTFAO4
+	CALLS	#3,G^SYS$FAO
+	BLBS	R0,210$
+
+	MOVL	R0,R6
+        MOVL	#MSG_ALERT_MSGFMT,MSGCDE    ; Set name error
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)    		     ; error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	MOVL	R6,R0
+	MOVL	R10,R1			     ; PSR Rec	
+	RET
+210$:
+; Adjust pointers
+	SUBL	INADDR,R7		     ; Buffer used
+	ADDL	INADDR,R8		     ; Buffer written
+	MOVL	ALT_MSG_L_PARAMC(R6),R9      ; Param count
+	ADDL	#ALT_MSG_C_PARAMS,R6	     ; 1st param	
+250$:
+; Make outp desc
+	MOVQ	R7,INADDR
+; Make input desc
+	MOVL	(R6),PARAM_DESC			; Len
+	ADDL3	#4,R6,PARAM_DESC+4		; Addr
+	CLRL	-(SP)				; No opts
+	PUSHL	#132				; Max line len
+	PUSHAL	LCNT			        ; Returned line count
+	PUSHAL	INADDR
+	PUSHAL	PARAM_DESC
+	CALLS	#5,G^PARAMXLT
+	BLBS	R0,260$
+
+	MOVL	R0,R6
+        MOVL	#MSG_ALERT_MSGFMT,MSGCDE    ; Set name error
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)    		     ; error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	MOVL	R6,R0
+	MOVL	R10,R1			     ; PSR Rec	
+	RET
+260$:
+	ADDL	(R6),R6			; Next param
+	ADDL	#4,R6			; Include len
+	SUBL	INADDR,R7		; Buffer used
+	ADDL	INADDR,R8		; Buffer written
+; Add carriage return / line feed at end of each param
+	CMPL	#2,R7			; Space left?
+	BGTRU	270$
+	MOVW	CRLF,(R8)
+	ADDL	#2,R8
+	SUBL	#2,R7
+	SOBGTR	R9,262$
+	BRB	265$
+262$:
+	BRW	250$
+; Write total len in ret desc
+
+265$:
+	MOVQ	@8(AP),R1
+	SUBL3	R2,R8,R1
+	MOVQ	R1,@8(AP)
+	MOVL	R10,R1			; PSR pointer
+	MOVL	#SS$_NORMAL,R0
+	RET
+270$:
+	MOVL	R10,R1			; PSR pointer
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+	.END

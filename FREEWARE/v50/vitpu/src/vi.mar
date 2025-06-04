@@ -1,0 +1,311 @@
+;
+;	This file contains the source to a program that exercises callable
+;	TPU.  You will be interested in using this program ONLY if you
+;	make use of more than ONE TPU utility that requires a CALL_USER
+;	routine, and/or you like to define TPUSECINI as opposed to using
+;	the /SECTION quailfier of EDIT/TPU.
+;
+;	This program expects to be able to use the VI_CALLUSER logical
+;	to find the call_user routines for VI.  It also uses VISECINI
+;	for the name of the TPU section file.  Just to be complete, it will
+;	also use TPU$CALLUSER and TPUSECINI if the VI logicals do not exist.
+;
+;	Written by Gregg Wonderly, 10-jul-1987
+;
+		$ssdef
+		$lnmdef
+		$psldef
+		$fabdef
+		$rabdef
+		$namdef
+		.macro	item,code,blen,badr,radr
+		.word	blen
+		.word	code
+		.address -
+			badr
+		.address -
+			radr
+		.endm
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;	Program data section
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		.psect	rwdata,rd,wrt,noexe
+
+fabdef:
+		$fab
+fablen=.-fabdef
+
+rabdef:
+		$rab
+rablen=.-rabdef
+
+namdef:
+		$nam
+namlen=.-namdef
+
+blkdescr:
+		.address	0
+exit_h:
+		.long	0
+		.address exit_handler
+		.long	0
+		.address exit_stat
+;
+exit_stat:
+		.long	0
+;
+clean_flags:
+		.long	TPU$M_DELETE_JOURNAL!-
+			TPU$M_DELETE_EXITH!-
+			TPU$M_RESET_TERMINAL!-
+			TPU$M_KILL_PROCESSES!-
+			TPU$M_LAST_TIME
+bvpval:
+		.long	0
+;
+bvp:
+		.address -
+			tpu_init
+		.long	0
+;
+calluserd:
+		.long	0
+		.long	0
+;
+fileiod:
+		.address -
+			TPU$FILEIO
+		.long	0
+;
+crelnm_items:
+		item	LNM$_STRING,0,trnlnm_string,dummy
+		.long	0
+dummy:
+		.long	0
+
+trnlnm_items:
+		item	LNM$_STRING,512,trnlnm_string,string_len
+		.long	0
+		.long	0
+
+trnlnm_string:
+		.blkb	512
+
+sectdescr:
+string_len:
+		.long
+		.address -
+			trnlnm_string
+
+vicalldescr:
+		.ascid	/VI_CALLUSER/
+
+tpucalldescr:
+		.ascid	/TPU$CALLUSER/
+
+visectdescr:
+		.ascid	/VI_SECTION/
+
+tpusectdescr:
+		.ascid	/TPU$SECTION/
+
+procdescr:
+		.ascid	/LNM$PROCESS_TABLE/
+
+badvicall:
+		.ascid	/%VI-F-BADTPUCALL, improper definition of VI_CALLUSER/
+
+badtpucall:
+		.ascid	/%VI-F-BADTPUCALL, improper definition of TPU$CALLUSER/
+
+nocalluser:
+		.ascid	/%VI-F-NOCALLUSER, no calluser routine could be loaded/
+
+		.psect	code,rd,exe,nowrt
+
+		.entry	noerr,^m<>
+		ret
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;	The program itself, straight forward no?
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+		.entry	viedit,^m<r2,r3,r4,r5,r6>
+
+		movab	noerr,(fp)		;Forget about errors we will
+						;handle them
+		pushal	calluserd		;Push return address location
+		pushab	tpucalldescr		;Routine name
+		pushab	vicalldescr		;Image to search through
+		calls	#3,g^lib$find_image_symbol	;Find the symbol
+		blbs	r0,10$			;Branch on success
+;
+		cmpl	r0,#RMS$_FNF		;If FNF then try TPU$CALLUSER
+		beql	5$
+		pushl	r0			;Save the exit value
+		pushab	badvicall		;Pass the right message
+		brw	8$			;Join the other code
+5$:
+;
+;	There is no VI_CALLUSER image, so try TPU$CALLUSER.
+;
+		pushal	calluserd		;Push return address location
+		pushab	tpucalldescr		;Routine name
+		pushab	tpucalldescr		;Image to search through
+		calls	#3,g^lib$find_image_symbol	;Find the symbol
+		blbs	r0,10$			;Branch if we got that
+
+		pushl	r0			;Save the status
+
+		cmpl	r0,#RMS$_FNF		;If FNF then say the right thing
+		beql	7$			;Go set up the right parameter
+
+		pushab	badtpucall		;Push the message descr
+		brb	8$			;Join other code
+;
+7$:
+		pushab	nocalluser		;Push the message descr
+;
+8$:
+		calls	#1,g^lib$put_output	;Output the message
+		calls	#1,g^sys$exit		;Stop with the status pushed
+;
+;	Got the calluser routine, continue processing
+;
+10$:
+		clrl	(fp)			;Remove condition handler
+
+		$trnlnm_s -
+			tabnam=procdescr,-
+			lognam=visectdescr,-
+			itmlst=trnlnm_items	;Get the VISECINI defintion
+		blbc	r0,20$			;If that fails then don't worry
+						;If /SECTION is not there, then
+						;TPU will bark for us.
+
+;		pushaq	sectdescr		;On success, redefine TPUSECINI
+;		pushaq	tpusectdescr		;to be VISECINI's value
+;		calls	#2,g^lib$set_logical
+;		blbs	r0,20$
+;		pushl	r0
+;		calls	#1,g^sys$exit		;Exit with the condition
+
+20$:
+		movab	g^tpu$handler,(fp)	;Establish tpu$handler
+
+		pushab	calluserd		;Pass the BVP's to parseinfo
+		pushab	fileiod			;Use TPU$FILEIO
+		calls	#2,g^tpu$parseinfo	;Get the command line stuff
+		movl	r0,bvpval		;This is the value for the
+						;call back routine to return
+						;to tpu$initialize, so save it.
+
+		pushab	bvp			;Pass the BVP for the callback
+		calls	#1,g^tpu$initialize	;Initialize TPU
+		blbc	r0,err			;Branch on error
+
+		$dclexh_s -
+			desblk=exit_h		;Establish an exit handler
+		blbc	r0,err
+
+		calls	#0,g^tpu$execute_inifile ;Execute the initialization
+
+		blbc	r0,err
+		cmpl	r0,#TPU$_SUCCESS
+		bneq	done			;Skip control if not SUCCESS
+
+		calls	#0,g^tpu$control	;Call control to do editing.
+		blbc	r0,err
+done:
+		brb	out
+err:
+		pushl	r0			;Signal any error
+		calls	#1,g^sys$exit
+out:
+		ret				;Back to caller
+;
+;	Merely return the value that tpu$parseinfo returned to us
+;
+		.entry	tpu_init,^m<>
+		movl	bvpval,r0
+		ret
+
+;
+;	This exit handler is called at image exit to cleanup the things that
+;	are of no more interest to us.  Sadly enough, there is not a perfect
+;	policy for the journal file that satisfies everyone.  I have always
+;	written out my changes from time to time, so I really don't ever use
+;	the journal.  The current itemlist to tpu$cleanup causes the journal
+;	to be deleted.  WARNING, don't $FORCEX a VI that you wish to have the
+;	journal from.
+;
+		.entry	exit_handler,^m<>
+		pushal	clean_flags
+		calls	#1,g^tpu$cleanup
+		movl	exit_stat,r0
+		ret
+;
+;
+;
+;
+		.entry	vi$fileio,^m<r2,r3,r4,r5,r6,r7,r8,r9>
+
+		movl	@4(ap),r1		;Get the code
+		cmpl	r1,#TPU$K_OPEN
+		bneq	10$
+		jmp	tpu_open
+;
+10$:
+		cmpl	r1,#TPU$K_CLOSE
+		bneq	20$
+		jmp	tpu_close
+;
+20$:
+		cmpl	r1,#TPU$K_CLOSE_DELETE
+		bneq	30$
+		jmp	tpu_close_delete
+;
+30$:
+		cmpl	r1,#TPU$K_GET
+		bneq	40$
+		jmp	tpu_get
+;
+40$:
+		cmpl	r1,#TPU$K_PUT
+		beql	tpu_put
+		movl	#SS$_BADPARAM,r0
+		ret
+;
+;	$PUT routine for VI to use
+;
+tpu_put:
+		
+;
+;	$GET routine for VI to use
+;
+tpu_get:
+
+;
+;	$CLOSE with delete for VI to use
+;
+tpu_close_delete:
+
+;
+;	$CLOSE for VI to use
+;
+tpu_close:
+
+;
+;	$OPEN for VI to use
+;
+tpu_open:
+
+
+		ret
+		.end	viedit

@@ -1,0 +1,196 @@
+1 MIB_COMPILE1 
+ Programme to read ASN.1 standard MIB files and produce intermediary 
+ output in readable form, subsequentialy input to MIB_COMPILE2 for 
+ execution in EMU.
+2 Inputs:
+ This is a standalone interactive programme. The user inputs a file name
+ to be processed and the programme converts the file to 1 line per
+ entry suitable for input to the next suite.
+ The default for dev:dir is EMU5_MIB: 
+ The output is all ascii and editable before onward processing.
+  
+2 Other_inputs
+ the IMPORTS statement found in MIBs may contain a FROM statement.
+ the FROM specifies a MIB that defines other symbols used in this MIB.
+ If this is the case, this routine locates that file and IMPORTS the
+ symbols. That file must have been previously processed by this routine.
+ Note that the entire file is IMPORTED, not selectively as implied by
+ the MIB. Note alos that any symbol imported is NOT included in the 
+ output of MIB_COMPILE2. 
+
+2 Outputs
+ The intermediary file, named with the same name as input but with extension
+ .MC1. e.g. File rfc1287-mib.doc is processed into rfc1287-mib.MC1.
+ The file is written to EMU5_MIB: and may be edited before input to 
+ MIB_COMPILE2 
+
+ A help file is produced with each direct or table as level 1 and each 
+ table element found as level 2.
+
+ Any error regardless of origin is output to the screen and if appropriate
+ allows user to continue/correct/ignore/quit.
+
+ 
+3 Output_rec_fmt
+ Field		     Desc
+ ObjID		     ASN.1 encoded object ID
+ ObjName	     Name as in MIB
+ Mdatatype	     As given in SYNTAX statemenmt in MIB
+ Access	     As given in ACCESS statemenmt in MIB
+  Each field is .ascii with a '/' seperating the fields             
+  This file is editable before input to MIB_COMPILE2
+
+ Symbols are built internaly in a section. They are only written at 
+ the end of processing the entire MIB
+
+2 Symbol_section_fmt
+
+ Field		Ofs	Len		Desc
+ Name len	0	4		len of following
+ SymName	4	32		Name as given in MIB asciI
+ OID len	36	4		len of following
+ OID		40	32		ascii ObjId
+ Datatype len	72	4		len of following
+ Datatype	76	32		
+ Access len	108	4		len of following
+ Access	112	16
+2 MC_READ_MIB   
+ Read a line from the MIB.
+3 Inputs
+ .addr of .quad where rec descriptor (less comments) is returned.
+ Assumes file is open, connected.
+ Also replaces non-printable chars with 'space'
+2 MC_PRS_BEGIN 
+ Place holder. Future routine to process BEGIN statement.
+2 MC_PRS_SEQUENCE
+ Parse sequence statement. Purpose here is to identify the following
+ entries that are part of a table and therfore included in the help 
+ library as level 2 entries.
+3 Sample
+               LIfEntry ::=
+                   SEQUENCE {
+                       locIfHardType
+                           DisplayString,
+                       locIfLineProt
+                           INTEGER,
+                             	.
+				.
+				.
+                       locIfOutputQueueDrops
+                           INTEGER
+                   }
+
+ 
+ This keyword occurs in 2 statements. The SEQUENCE OF is not interesting.
+ We want the string SEQUENCE {.
+2 MC_PRS_SEQUENCEOF 
+ Parse SYNTAX statement containing SEQUENCE OF. Purpose here is to identify 
+ the following entry that is part of a table and therfore included in the help 
+ library as a level 2 entry.  This routine will be reached via the SYNTAX
+ parser - it looks specificaly for this keyword.
+3 Sample
+               lifTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LIfEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of interface entries."
+                   ::= { linterfaces 1 }
+
+ This keyword occurs in 2 statements. The SEQUENCE OF is the introducer
+ and contains the name of the table entry point. The entry point will be
+ the next object in the mib and the 1st level 2 entry in this table.
+ simply extract the entry name and set up the SEQARRAY (as in SEQUENCE) 
+ with 1 entry.
+2 MC_PRS_IMPORTS  
+
+ Parse IMPORTS statement and find all occurences of FROM. The next
+ symbol will be a filename. Find this file and add it's contents to 
+ the symbol section. For each entry scan the symbol table and discard
+ any entry that already exists in the table. Mark each entry added 
+ as imported by designating the access filed as 'IMPORT'
+2 MC_PRS_OBJTYP 
+ locate the object name and record it in curobj
+2 MC_PRS_SYNTAX
+ locate the display syntax and record it in cursyn
+2 MC_PRS_ACCESS 
+
+ locate the access type and record it in curacc
+2 MC_PRS_STATUS   
+ Place holder. Future routine to process STATUS statement.
+2 MC_PRS_DESCRIPTION
+
+ Add the text following to the help file. Direct access and table names
+ are displayed as menu entries. Table entries are not and so are not
+ accessible as level 1 help entries. These are made as level 2 as follows:
+ The SEQUENCE processor determines the number of entries that wll follow as
+ table entries and stores this number as the name of the 1st entry in
+ the SEQARRAY structure. This routine process this as follows:
+ If the count of table elements is 0 then skip to 'l1'
+ If help level is currently 2 then skip to 'L2'
+ If current obj does not match 1st entry then skip to 'l1'
+ Set help level 2
+ l2:
+ move help level 2 and name to hlpbuf and write
+ decrement count
+ rest of process
+ l1:
+ move help level 1 and name to hlpbuf and write
+2 MC_PRS_OBJID   
+ Process object definition string and produce schema entry.
+
+3 Input 
+ .addr of desc pointing to current rec
+3 Output
+ Fully qualified schema for this object.
+
+3 Returns:
+	BADPARAM	unexpected rec format
+	NORMAL		Symbol written
+	INSVMEM		Symbol table overflow
+
+3 Example
+
+  'experimental OBJECT IDENTIFIER ::= { internet 3 }'
+  Result should be experimental = Internet (1.3.6.1) + .1
+ = 1.3.6.1.1
+2 MC_USER_ADD_SYM     
+ Request user to add unknown symbol. If an unknown symbol is encountered
+ this user may add it here to allo compilation to continue. Otherwise
+ processing will likely stop (usualy by stack dump) (sorry 'bout that).
+ 
+3 Inputs:
+ addr of desc pointing to symbol name
+3 Outp
+ R0 either normal or error (symbol not added)
+ If symbol is added then 1 more symbol in table
+ R1 = addr of added sym (if added)
+2 MC_PRS_VALUE 
+
+ Exmple of line this routine processes:
+
+       ::= { system 2 }
+
+ Locate 'parent' symbol (system) in table
+ add '.value (2)  and create new symbol
+ For example
+ if system = 1.2.3.4.5 then this will become 1.2.3.4.5.2
+ This is the last entry in the MIB for this OBJECT-TYPE
+ Therfore write out this rec.
+2 MC_FIND_SYM 
+ Find previously created symbol in symbol table.
+  
+3 Inputs
+ Desc point to symbol to search for
+3 Outputs
+ R0 = either normal or not found 
+ R1 = either add of located sym or loca of next avail position
+ Fast search: If top .long matches then check rest of rec.
+2 MC_GET_TOKEN
+ Find next token (next occurence of non-whitespace) in string.
+  
+3 Inputs
+ Desc point to string to search
+ addr of .quad where descriptor of found word is written
+3 Outputs:
+ R0 = either normal or badparam (not found, 0 len etc) 

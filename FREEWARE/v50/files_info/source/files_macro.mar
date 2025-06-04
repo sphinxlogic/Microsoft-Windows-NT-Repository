@@ -1,0 +1,177 @@
+	.Title	FILES_MACRO
+	.Ident	/V1.1/
+;+
+; FACILITY:
+;	VMS Privileged utilities
+;
+; PROGRAM:
+;	FILES_MACRO.MAR
+;
+; AUTHOR:				CREATION DATE:
+;	Edward A. Heinrich			22-Jan-1992	21:00
+;
+; ABSTRACT:
+;	This module contains jacket routines to call JSB linkage routines
+;	from C code in FILE_LIST.C
+;
+; ENVIRONMENT:
+;	Some code in this module executes with the FILSYS spinlock owned.
+;	Code is page aligned to insure all eleveated IPL code is in memory
+;	by virtue of its address relative to the routine that elevates IPL.
+;
+; MODIFIED BY:
+;
+;	V1.1		Hunter Goatley		23-NOV-1994 21:53
+;		Ported to OpenVMS AXP.
+;
+;-
+	.Library	"SYS$LIBRARY:LIB.MLB"
+
+	.MACRO	DEFINE_ALPHA
+;
+;  Define ALPHA if R22 is a register and not a symbol
+;
+	.NTYPE	...IS_IT_ALPHA,R22		;Get the type of R22
+	...IS_IT_ALPHA = <...IS_IT_ALPHA@-4&^XF>-5
+	.IF EQ ...IS_IT_ALPHA
+	ALPHA	= 1			; Define AXP symbols
+	EVAX 	= 1
+	BIGPAGE = 1
+	ADDRESSBITS = 32
+	.ENDC
+	.ENDM	DEFINE_ALPHA
+
+	DEFINE_ALPHA		; Define ALPHA symbols if on AXP
+
+	.MACRO	PUSHREG	REG
+	.IF DEFINED ALPHA
+	$PUSH64	REG
+	.IFF
+	PUSHL	REG
+	.ENDC
+	.ENDM	PUSHREG
+
+	.MACRO	POPREG	REG
+	.IF DEFINED ALPHA
+	$POP64	REG
+	.IFF
+	POPL	REG
+	.ENDC
+	.ENDM	POPREG
+
+	.Extrn	IOC$SEARCHDEV
+
+	.WEAK	EXE$IPID_TO_EPID
+	.WEAK	EXE$CVT_IPID_TO_EPID
+
+	DECLARE_PSECT EXEC$NONPAGED_DATA
+IPID_TO_EPID:	.ADDRESS	EXE$IPID_TO_EPID+EXE$CVT_IPID_TO_EPID
+
+	DECLARE_PSECT EXEC$NONPAGED_CODE
+;+
+;
+; ROUTINE:	unlock_filsys
+;
+; FUNCTIONAL DESCRIPTION:
+;	CALLS/G routine to release the FILSYS spinlock
+;
+; INPUTS:
+;	None
+;
+; OUTPUTS:
+;	R0/R1	random
+;
+; ENVIRONMENT:
+;	Kernel mode code that relinquishes the FILSYS spinlock.  Need to insure
+;	this routine is locked down in memory to prevent the a page fault when 
+;	it is called.
+;-
+	.Entry	unlock_filsys, 0
+
+	UNLOCK	lockname = FILSYS,    -	; Unlock file system
+		condition = RESTORE,  -	; Release only 1 instance of it
+		newipl   = #0		; Lower IPL, all the way
+	RET
+;+
+;
+; ROUTINE:	lock_filsys
+;
+; FUNCTIONAL DESCRIPTION:
+;	CALLS/G routine to acquire the FILSYS spinlock
+;
+; INPUTS:
+;	None
+;
+; OUTPUTS:
+;	R0/R1	random
+;
+; ENVIRONMENT:
+;	Kernel mode code that acquires the FILSYS spinlock.  Should either
+;	be locked down in memory or page aligned to prevent the RET 
+;	instruction from being on a different page.
+;-
+	.Align	Long
+	.Entry	lock_filsys, 0
+
+	LOCK    lockname = FILSYS       ; Acquire file system spinlock
+	RET
+
+;+
+;
+; FUNCTIONAL DESCRIPTION:
+;	Subroutine to lookup a UCB for a device.  
+;
+; INPUTS:
+;	4(AP)	device name, as descriptor
+;
+; OUTPUTS:
+;	R0	status from IOC$SEARCHDEV
+;	R1	random
+;
+;	8(AP)	UCB address associated with device name
+;
+; ENVIRONMENT:
+;	Kernel mode code that acquires the I/O database mutex for READ access.
+;-
+	.Align	Long
+	.Entry	find_device_ucb, ^M<R2,R3,R4>
+
+	MOVL	G^CTL$GL_PCB,R4		; Make sure R4 has PCB address
+	MOVL	4(AP), R1		; Get device descriptor from stack
+	MOVZBL	#SS$_ACCVIO, R0		; Presume the worst
+	IFNORD	#8, (R1), 200$		; Exit if no read access
+	JSB	G^SCH$IOLOCKR		; Obtain I/O database mutex, read access
+	JSB	G^IOC$SEARCHDEV		; Get address of UCB for device in R1
+	PUSHREG	R0			; Save IOC$SEARCHDEV status
+	MOVL	R1, @8(AP)		; Put UCB address in callers buffer
+	JSB	G^SCH$IOUNLOCK		; Relinquish I/O database mutex
+	POPREG	R0			; Restore IOC$DEARCHDEV status to R0
+
+  200$:	RET				; Exit back to caller
+
+	.Sbttl	CONVERT_PID	Jacket Routine to Call EXE$IPID_TO_EPID
+;+
+;
+; FUNCTIONAL DESCRIPTION:
+;	Jacket routine to JSB to EXE$IPID_TO_EPID since C doesn't support
+;	external routine linkages via JSB.  (Really limits coding privileged
+;	mode routines in C...)
+;
+; INPUTS:
+;	4(AP)	PID in internal format, by value
+;	8(AP)	address of buffer to receive external formatted PID
+;
+; OUTPUTS:
+;	8(AP)	external PID
+;
+;-
+	.Align	Long
+	.Entry	CONVERT_PID, 0
+
+	MOVL	4(AP), R0		; Get channel number in R0
+        JSB     @IPID_TO_EPID		; Let VMS convert it for us
+	MOVL	R0, @8(AP)		; Return it to our caller
+	MOVL	#SS$_NORMAL, R0		; Always say success from here
+	RET				; Exit back to our caller
+
+	.End

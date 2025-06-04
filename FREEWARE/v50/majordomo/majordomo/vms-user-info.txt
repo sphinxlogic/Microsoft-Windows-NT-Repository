@@ -1,0 +1,190 @@
+VMS Majordomo support for non-SMTP mail addresses
+
+One of the goals of the port of Majordomo to VMS is to provide compatability
+with non-SMTP mail environments which, in a VMS world, almost always means plain
+old intra-cluster VMS mail and DECnet mail and often means All-In-1. The work in
+this area is most likely not complete however some work has been done.
+
+Additional aliases provided to allow use of VMS Majordomo from systems without
+SMTP connectivity.
+
+   Users of VMS Majordomo who have no way to send mail via SMTP on their systems
+   (Eg. a DECnet only system) may still make full use of VMS Majordomo. They
+   may subscribe and unsubscribe to lists and issue all the user Majordomo
+   commands. They may also act as list owners and issue the list owner Majordomo
+   commands. They must simply use special addresses (or "aliases") to send mail
+   to a list or to send Majordomo commands to the VMS Majordomo server.
+   
+   For each list on a VMS Majordomo server there exists an alias that users who
+   do not have SMTP connectivity to the server must send mail to if they want it
+   to be properly handled. The alias is in the form "listname-LIST" where
+   "listname" is the name of the list. For example, for a list named "sample"
+   there would be an alias on the VMS majordomo server called "SAMPLE-LIST". To
+   send mail to the list "sample" when you have no way to use SMTP on your
+   system use whatever mechanism you do have (DECnet or All-In-1, etc.) to get a
+   mail to user SAMPLE-LIST on the VMS Majordomo server. In other words to send
+   mail to the list sample send a mail message as if you were sending to user
+   "SAMPLE-LIST" on the VMS Majordomo server.  Say your VMS Majordomo server has
+   a DECnet node name of "ACME". To send to the list via DECnet mail you'd do:
+
+         MAIL> send
+         To: ACME::SAMPLE-LIST
+
+   There is a similar address for sending Majordomo commands to the VMS
+   Majorodmo server itself. It is "MAJORDOMO-SMTP". To send majordomo commands
+   to VMS Majordomo just address your mail to the "MAJORDOMO-SMTP" user on the
+   VMS Majordomo server.  Eg:
+
+         MAIL> send
+         To: ACME::MAJORDOMO-SMTP
+         Subj: whatever (subject is ignored by majordomo)
+         subscribe sample
+         <CTRL-Z>
+
+   The most important effect of the "listname-LIST" and MAJORDOMO-SMTP aliases
+   is that it funnels the mail through SMTP *locally* on the VMS Majordomo
+   server. This causes creation of RFC 822 headers (ie. SMTP style mail headers)
+   which Majordomo wants to see.
+
+Important Note!!!
+
+   Do not send mail directly to the MAJORDOMO username or to the list itself.
+   (Eg. Don't send mail to ACME::SAMPLE. Send it to ACME::SAMPLE-LIST.) This
+   will bypass the SMTP "funnel" described above and cause unpredictable
+   results. Your mail may work but if it does the headers will surely be messed
+   up!
+
+Other Gotcha's
+
+   To send to a list or to majordomo when you're logged onto the 
+   VMS Majordomo server you might think you could do these:
+
+      MAIL> send	-- OR --       MAIL> send
+      To: MAJORDOMO	--THIS--       To: SAMPLE
+
+   but actually you shouldn't. This is for the same reason that you shouldn't
+   send directly to the MAJORDOMO username or to the list itself. It bypasses
+   the SMTP funnel which must be in place in order for VMS Majordomo to work
+   properly. The correct ways to send to majordomo and a to a list when logged
+   onto the system running VMS Majordomo are:
+
+      MAIL> send	  --AND --    MAIL> send
+      To: MAJORDOMO-SMTP  --THIS--    To: SAMPLE-LIST
+
+
+File retrieval - "index" and "get" commands.
+
+If you want to fetch files from a list's archive you need to use the index and
+get commands. The index command returns a directory of a list's archive. The get
+command returns one or more files from the directory and expects VMS filename
+syntax.
+
+   Index command:
+
+      Before you get files from an archive you need to know what files are
+      there. This is the purpose of the index command. It shows you the files in
+      the lists's archive directory and its sub-directories if any. To do this
+      VMS Majordomo issues a VMS DIRECTORY command. For those familiar with VMS
+      the index command output is actually the result of a SET DEFAULT (in Unix
+      that's a cd) to the directory's archive directory and then a
+      DIRECTORY/SIZE/DATE [...] command. In VMS [...] means this directory and
+      all sub-directories as deep as they exist.
+
+   Get command:
+
+      The get command fetches files from a list's archive directory and
+      sub-directories. The VMS Majordomo get command requires VMS style
+      filenames. In cases of simple file fetches the differences between Unix
+      and VMS filename syntax should not come into play so the non-VMS user
+      won't be suprised. How to do more complex fetches using wildcards and
+      sub-directories in filenames may not be obvious for non-VMS users though.
+      The example index and get commands below should help non-VMS users.
+
+      The get command allows you to look at any files in a list's archive
+      directory or in any sub-directories below it. All filenames are relative
+      to the list's archive directory. A full file specification (in Unix, a
+      full path name to files) are not allowed.
+
+      The get command accepts the VMS '*' and '%' wildcards and is also
+      sensitive to VMS version numbers.
+
+Examples:
+
+   Say you send the command "index sample-digest" to majordomo@acme.com. VMS
+   Majordomo on acme.com will send a response in a mail message back to you. Say
+   it responds as follows:
+
+   >>>> index sample-digest
+
+   Directory XYZ$DISK:[UCX$MAJORDOM.LISTS.SAMPLE-DIGEST-ARCHIVE]
+
+   A.A;2                      1  16-DEC-1996 07:12:15.42
+   A.A;1                      1  16-DEC-1996 07:12:07.61
+   SUBDIR.DIR;1               1  13-DEC-1996 07:20:13.90
+   V01.N001;1                 6  13-DEC-1996 05:41:40.28
+   V01.N002;1                 2   4-DEC-1996 12:43:06.78
+   V02.N001;1                 2  16-DEC-1996 07:20:42.03
+
+   Total of 6 files, 13 blocks.
+
+   Directory XYZ$DISK:[UCX$MAJORDOM.LISTS.SAMPLE-DIGEST-ARCHIVE.SUBDIR]
+
+   A.A;1                      1  13-DEC-1996 07:20:46.66
+   ANOTHER.TXT;1              1  16-DEC-1996 07:09:02.42
+   B.B;1                      1  13-DEC-1996 10:29:52.21
+
+   Total of 3 files, 3 blocks.
+
+   Grand total of 2 directories, 9 files, 16 blocks.
+
+Here are some get commands you might use given the above index result.
+
+1) get test-digest V01.N001
+   -  This fetches the file V01.N001;1 from the top level directory for the
+   archive which is XYZ$DISK:[UCX$MAJORDOM.LISTS.SAMPLE-DIGEST-ARCHIVE].
+
+2) get test-digest V01.*
+   -  This fetches the files V01.N001;1 and V01.N002;1, again from the top level
+   directory for the archive.
+
+3) get test-digest *.N001
+   -  This fetches the files V01.N001;1 and V02.N001;1 from the top level
+   directory.
+
+4) get test-digest A.A;1
+   -  This fetches the file A.A;1 which is not the highest version of the file
+   from the top level directory. VMS Majordomo is sensitive to version numbers!
+
+5) get test-digest A.A
+   -  This fetches the file A.A;2 from the top level directory. Note that when
+   multiple versions of a file exist and no version number is specified only the
+   highest version of the file is returned.
+
+6) get test-digest A.A;0
+   -  In VMS filename syntax a version number of ;0 indicates the highest
+   version number of the file so this fetches the file A.A;2 from the top level
+   directory.
+
+7) get test-digest A.A;*
+   -  This fetches the files A.A;2 and A.A;1 from the top level directory.  Each
+   version of the file is shipped in a separate mail message as with different
+   files.
+
+8) get test-digest [.SUBDIR]a.a
+   -  This fetches the file A.A;1 from the "subdir" sub-directory of
+   XYZ$DISK:[UCX$MAJORDOM.LISTS.SAMPLE-DIGEST-ARCHIVE]
+
+9) get test-digest [.SUBDIR]%.%
+   -  This fetches the files A.A;1 and B.B;1 from the "subdir" sub-directory.
+
+10) get test-digest [.SUBDIR]*.*
+   -  This fetches the files A.A;1, B.B;1 and ANOTHER.TXT;1 from the "subdir"
+   sub-directory.
+
+11) get test-digest [...]a.a
+   -  This fetches the file A.A;2 from the top level directory and A.A;1 from
+   the "subdir" sub-directory.
+
+12) get test-digest [...]a.a;*
+   -  This fetches the files A.A;2 and A.A;1 from the top level directory and
+   A.A;1 from the "subdir" sub-directory.

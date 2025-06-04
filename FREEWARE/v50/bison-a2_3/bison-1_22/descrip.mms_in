@@ -1,0 +1,387 @@
+# description for bison on VMS.
+# Copyright (C) 1988, 1989, 1991, 1993 Bob Corbett and Free Software Foundation, Inc.
+# 
+# This file is part of Bison, the GNU Compiler Compiler.
+# 
+# Bison is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2, or (at your option)
+# any later version.
+# 
+# Bison is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with Bison; see the file COPYING.  If not, write to
+# the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
+
+#### Start of system configuration section. ####
+
+srcdir_dev = @srcdir_dev@
+srcdir_dir = @srcdir_dir@
+srcdir = $(srcdir_dev)[$(srcdir_dir)]
+vmssrcdir = $(srcdir_dev)[$(srcdir_dir).vms]
+VPATH = @srcdir@
+version = @version@
+version_us = @version_us@
+
+CC = @CC@
+INSTALL = @INSTALL@
+INSTALL_PROGRAM = @INSTALL_PROGRAM@
+INSTALL_DATA = @INSTALL_DATA@
+MAKEINFO = makeinfo
+
+# Things you might add to DEFS:
+# STDC_HEADERS		If you have ANSI C headers and libraries.
+# HAVE_STRING_H		If you don't have ANSI C headers but have string.h.
+# HAVE_MEMORY_H		If you don't have ANSI C headers and have memory.h.
+# HAVE_STRERROR		If you have strerror function.
+DEFS = @DEFS@
+
+CFLAGS = @CFLAGS@ /DEBUG
+#LDFLAGS = /debug
+LDFLAGS =
+
+LIBS = @LIBS@
+
+# Some System V machines do not come with libPW.  If this is true, use
+# the GNU alloca.o here.
+ALLOCA = @ALLOCA@
+
+# Where the system include files reside.
+sys_includes=@sys_includes@
+
+prefix_dev = SYS$SYSDEVICE:
+prefix_dir = GNU
+prefix = $(prefic_dev)[$(prefix_dir)]
+exec_prefix_dev = $(prefix_dev)
+exec_prefix_dir = $(prefix_dir)
+exec_prefix = $(prefix)
+
+# where the installed binary goes
+bindir = $(exec_prefix_dev)[$(exec_prefix_dir).bin]
+
+# where the parsers go
+datadir = $(prefix_dev)[$(prefix_dir).lib]
+
+# where the info files go
+infodir = $(prefix_dev)[$(prefix_dir).info]
+
+# where manual pages go and what their extensions should be
+mandir = $(prefix_dev)[$(prefix_dir).help]
+manext = .hlp
+
+# where GNU_STARTUP.COM or BISON_STARTUP.COM should be
+startupdir = SYS$COMMON:[SYS$STARTUP]
+
+# where to insert the command definition for Bison.  Of empty, command
+# definition is not inserted.
+dcltable = 
+
+#### End of system configuration section. ####
+
+DISTFILES = COPYING ChangeLog Makefile.in configure configure.in \
+    descrip.mms_in configure.com configure.com_in \
+    REFERENCES bison.1 bison.rnh configure.bat \
+    bison.simple bison.hairy \
+    LR0.c allocate.c closure.c conflicts.c derives.c \
+    files.c getargs.c gram.c lalr.c lex.c main.c nullable.c \
+    output.c print.c reader.c reduce.c symtab.c version.c \
+    warshall.c files.h gram.h lex.h machine.h new.h state.h \
+    symtab.h system.h types.h vmsgetargs.c \
+    README INSTALL bison.texinfo bison.info* texinfo.tex \
+    getopt.c getopt.h getopt1.c alloca.c mkinstalldirs \
+    bison.cld_in [.vms]*.*
+
+SHELL = /bin/sh
+
+# This rule allows us to supply the necessary -D options
+# in addition to whatever the user asks for.
+.c.obj :
+	$(CC) /DEFINE=($(DEFS)) /INCLUDE=($(srcdir_dev)[$(srcdir_dir).-.include]) $(CPPFLAGS) $(CFLAGS) /object=$@ $<
+
+# names of parser files
+PFILE = bison.simple
+PFILE1 = bison.hairy
+
+PFILES = XPFILE="""$(datadir)$(PFILE)""", \
+	 XPFILE1="""$(datadir)$(PFILE1)"""
+
+OBJECTS = LR0.obj,allocate.obj,closure.obj,conflicts.obj,derives.obj,	\
+	  files.obj,vmsgetargs.obj,gram.obj,lalr.obj,lex.obj,		\
+	  main.obj,nullable.obj,output.obj,print.obj,reader.obj,	\
+	  reduce.obj,symtab.obj,warshall.obj,version.obj		\
+	  $(ALLOCA)
+
+all : setup setup_config bison.exe $(srcdir)bison.info bison.s1
+	@ !
+
+setup : FRC.vms
+	create/dir [.vms]
+	if "$(sys_includes)" .nes. "" then -
+		define /nolog sys $(sys_includes),$(srcdir),sys$disk:[]
+	extra_defs = ""
+	extra_includes = ""
+
+descrip.mms : $(srcdir)descrip.mms_in config.status
+	@config.status
+	@ write sys$output "Please start over..."
+	@ exit
+
+config.status : $(srcdir)configure.com
+	@config.status --recheck
+
+$(srcdir)configure.com : $(srcdir)configure.com_in
+	a = f$environment("DEFAULT")
+	set default $(srcdir)
+	autoconf
+	append nla0: $(srcdir)configure.com	! a light touch
+	set default 'a'
+
+# Copy bison.simple, inserting directory name into the #line commands.
+bison.s1 : [.vms]routines.tpu$section $(srcdir)bison.simple descrip.mms
+	@ open/write foo junk.tpu
+	@ write foo "input_file:=GET_INFO(COMMAND_LINE, ""file_name"");"
+	@ write foo "main_buffer := CREATE_BUFFER (""main"", input_file);"
+	@ write foo "position (beginning_of (main_buffer));"
+	@ write foo "TPU_substitute(LINE_BEGIN + ""#line"","
+	@ write foo "               ""bison"", """","
+	@ write foo "               ""$(datadir)bison"");"
+	@ write foo "write_file(main_buffer, get_info (command_line, ""output_file""));"
+	@ write foo "quit;"
+	@ close foo
+	@ save_mesg = f$environment("MESSAGE")
+	@ set message/nofacility/noidentification/noseverity/notext
+	@ edit/tpu/section=sys$disk:[.vms]routines.tpu$section/nodisplay -
+                /command=junk.tpu/out=bison.s1_tmp -
+                $(srcdir)bison.simple
+	@ delete junk.tpu;*
+	@ set message'save_mesg'
+	@ @$(vmssrcdir)move-if-change bison.s1_tmp bison.s1
+
+bison.cld : [.vms]routines.tpu$section $(srcdir)bison.cld_in descrip.mms
+	@$(vmssrcdir)gnu_generate_data $(srcdir)bison.cld_in [.vms]config.dat bison.cld
+
+FRC.vms :
+	@ !
+
+setup_config : [.vms]vmslink.opt descrip.mms
+	@ write sys$output "Producing `[.vms]config.dat'."
+	@ open/write foo [.vms]config.dat_tmp
+	@ write foo "@"+"version"+"@"
+	@ write foo "$(version)"
+	@ write foo "@"+"bindir"+"@"
+	@ write foo "$(bindir)"
+	@ write foo "@"+"mandir"+"@"
+	@ write foo "$(mandir)"
+	@ write foo "@"+"datadir"+"@"
+	@ write foo "$(datadir)"
+	@ ! write foo "@"+"exec_prefix_dev"+"@"
+	@ ! write foo "$(exec_prefix_dev)"
+	@ ! write foo "@"+"prefix_dev"+"@"
+	@ ! write foo "$(prefix_dev)"
+	@ write foo "@"+"all_logicals"+"@"
+	@ __result = ""
+	@ __mode = ""
+	@ delete/symbol/local __result
+	@ delete/symbol/local __mode
+	@ lnm = f$parse("$(bindir)",,,"DEVICE") - ":"
+	@ @$(vmssrcdir)decomplnm 'lnm' __result DIRS,ATTRIBUTES __mode
+	@ flag := no
+	@ if __result .nes. "" then flag := yes
+	@ if flag then write foo " D\",lnm,"\",__mode,"\ -"
+	@ if flag then @$(vmssrcdir)loop_sym v __result "," "if next_v .nes. "","" then write foo ""    "",v,"",-"";if next_v .eqs. "","" then write foo ""    "",v" ";" next_v
+	@ lnm = f$parse("$(mandir)",,,"DEVICE") - ":"
+	@ @$(vmssrcdir)decomplnm 'lnm' __result DIRS,ATTRIBUTES __mode
+	@ flag := no
+	@ if __result .nes. "" then flag := yes
+	@ if flag then write foo " D\",lnm,"\",__mode,"\ -"
+	@ if flag then @$(vmssrcdir)loop_sym v __result "," "if next_v .nes. "","" then write foo ""    "",v,"",-"";if next_v .eqs. "","" then write foo ""    "",v" ";" next_v
+	@ lnm = f$parse("$(datadir)",,,"DEVICE") - ":"
+	@ @$(vmssrcdir)decomplnm 'lnm' __result DIRS,ATTRIBUTES __mode
+	@ flag := no
+	@ if __result .nes. "" then flag := yes
+	@ if flag then write foo " D\",lnm,"\",__mode,"\ -"
+	@ if flag then @$(vmssrcdir)loop_sym v __result "," "if next_v .nes. "","" then write foo ""    "",v,"",-"";if next_v .eqs. "","" then write foo ""    "",v" ";" next_v
+	@ ! lnm = f$parse("$(exec_prefix_dev)",,,"DEVICE") - ":"
+	@ ! @$(vmssrcdir)decomplnm 'lnm' __result DIRS,ATTRIBUTES __mode
+	@ ! flag := no
+	@ ! if __result .nes. "" then flag := yes
+	@ ! if flag then write foo " D\",lnm,"\",__mode,"\ -"
+	@ ! if flag then @$(vmssrcdir)loop_sym v __result "," "if next_v .nes. "","" then write foo ""    "",v,"",-"";if next_v .eqs. "","" then write foo ""    "",v" ";" next_v
+	@ ! lnm = f$parse("$(prefix_dev)",,,"DEVICE") - ":"
+	@ ! @$(vmssrcdir)decomplnm 'lnm' __result DIRS,ATTRIBUTES __mode
+	@ ! flag := no
+	@ ! if __result .nes. "" then flag := yes
+	@ ! if flag then write foo " D\",lnm,"\",__mode,"\ -"
+	@ ! if flag then @$(vmssrcdir)loop_sym v __result "," "if next_v .nes. "","" then write foo ""    "",v,"",-"";if next_v .eqs. "","" then write foo ""    "",v" ";" next_v
+	@ ! You might want to define more (or less) things.
+	@ close foo
+	@ @$(vmssrcdir)move-if-change [.vms]config.dat_tmp [.vms]config.dat
+	@ open/read/write foo [.vms]config.dat
+	@ close foo
+
+[.vms]vmslink.opt : descrip.mms
+	@ write sys$output "Producing `[.vms]vmslink.opt'."
+	@ open/write foo [.vms]vmslink.opt_tmp
+	@ @$(vmssrcdir)loop_args lib "$(LIBS)" " " "write foo lib" ";"
+	@ close foo
+	@ @$(vmssrcdir)move-if-change [.vms]vmslink.opt_tmp [.vms]vmslink.opt
+	@ open/read/write foo [.vms]vmslink.opt
+	@ close foo
+
+[.vms]routines.tpu$section : $(vmssrcdir)routines.tpu
+	@ save_mesg = f$environment("MESSAGE")
+	@ set message/nofacility/noidentification/noseverity/notext
+	@ edit/tpu/nosect/nodisp -
+		/command=$(vmssrcdir)routines.tpu -
+		/out=[.vms]routines.tpu$section
+	@ set message'save_mesg'
+
+clean :
+	- set file/protect=w:rwed *.obj;*,bison.exe;*,bison.s1;*
+	- delete *.obj;*,bison.exe;*,bison.s1;*
+
+mostlyclean : clean
+
+distclean : clean
+	- set file/protect=w:rwed descrip.mms;*,config.status;*
+	- delete descrip.mms;*,config.status;*
+
+realclean : distclean
+	- set file/protect=w:rwed tags..;*,*.info*;*
+	- delete tags..;*,*.info*;*
+
+# Most of these deps are in case using RCS.
+install : installbin installman installdatabase
+	@ !
+
+installdatabase : [.vms]bison_startup.com
+	@ @$(vmssrcdir)gnu_install_startup bison $(version) -
+		[.vms]bison_startup.com $(startupdir) DATABASE
+
+install_no_database : installbin installman installstartup
+	@ !
+
+installstartup : [.vms]bison_startup.com
+	@$(vmssrcdir)gnu_install_startup bison $(version) -
+		[.vms]bison_startup.com $(startupdir) NODATABASE
+
+installbin : all $(srcdir)$(PFILE) $(srcdir)$(PFILE1) bison.cld \
+		installdirs uninstall
+	$(INSTALL_PROGRAM) bison.exe $(bindir)bison.exe
+	if f$edit("$(dcltable)","collapse") .nes. "" then -
+		set command/table=$(dcltable) bison.cld /output=$(dcltable)
+	if f$edit("$(dcltable)","collapse") .nes. "" then -
+		install replace $(dcltable)
+	if f$edit("$(dcltable)","collapse") .eqs. "" then -
+		$(INSTALL_DATA) bison.cld $(bindir)bison.cld
+	$(INSTALL_DATA) bison.s1 $(datadir)$(PFILE)
+	$(INSTALL_DATA) $(srcdir)$(PFILE1) $(datadir)$(PFILE1)
+	- SET FILE/PROT=W:RE $(datadir)$(PFILE),$(datadir)$(PFILE1) 
+
+installman : bison.hlp
+	if f$search("$(mandir)gnu.hlb") .eqs. "" then -
+		library/create/help $(mandir)gnu.hlb
+	set file/prot=(w:r) $(mandir)gnu.hlb
+	library/replace $(mandir)gnu.hlb bison.hlp
+	copy/prot=(w:r) $(srcdir)bison.info* $(infodir)
+
+[.vms]bison_startup.com : [.vms]bison_startup.dat
+	@ write sys$output "Producing `[.vms]bison_startup.com' from `$(vmssrcdir)bison_startup.dat'."
+	@ @$(vmssrcdir)gnu_generate_script [.vms]bison_startup.dat -
+		[.vms]bison_startup.com_tmp
+	@ @$(vmssrcdir)move-if-change [.vms]bison_startup.com_tmp [.vms]bison_startup.com
+
+[.vms]bison_startup.dat : [.vms]config.dat
+	@ write sys$output "Producing `[.vms]bison_startup.dat' from `$(vmssrcdir)bison_startup.dat_in' and `[.vms]config.dat'."
+	@ copy $(vmssrcdir)bison_startup.dat_in [.vms]bison_startup.dat_in_tmp
+	@ open/append foo [.vms]bison_startup.dat_in_tmp
+	@ if "$(dcltable)" .eqs. "" then write foo " CLD\@bindir@bison"
+	@ close foo
+	@ @$(vmssrcdir)gnu_generate_data [.vms]bison_startup.dat_in_tmp -
+		[.vms]config.dat [.vms]bison_startup.dat_tmp
+	@ @$(vmssrcdir)move-if-change [.vms]bison_startup.dat_tmp -
+		[.vms]bison_startup.dat
+	@ delete/nolog [.vms]bison_startup.dat_in_tmp;*
+
+# Make sure all installation directories, e.g. $(bindir) actually exist by
+# making them if necessary.
+installdirs :
+	- create/dir $(bindir),$(datadir),$(infodir),$(mandir)
+
+uninstall :
+	- set file/protect=w:rwed $(bindir)bison.exe;*, -
+		$(datadir)$(PFILE);*,$(PFILE1);*,$(infodir)bison.info*;*
+	- delete $(bindir)bison.exe;*, -
+		$(datadir)$(PFILE);*,$(PFILE1);*,$(infodir)bison.info*;*
+
+bison.exe : $(OBJECTS) [.vms]vmslink.opt
+	link/exec=$@ $(LDFLAGS) $(OBJECTS),[.vms]vmslink.opt/opt
+
+#dist : bison.info
+#	echo bison-`sed -e '/version_string/!d' -e 's/[^0-9.]*\([0-9.]*\).*/\1/' -e q version.c` > .fname
+#	-rm -rf `cat .fname`
+#	mkdir `cat .fname`
+#	dst=`cat .fname`; for f in $(DISTFILES); do \
+#	   ln $(srcdir)/$$f $$dst/$$f || { echo copying $$f; cp -p $(srcdir)/$$f $$dst/$$f ; } \
+#	done
+#	tar --gzip -chf `cat .fname`.tar.gz `cat .fname`
+#	-rm -rf `cat .fname` .fname
+
+$(srcdir)bison.info : $(srcdir)bison.texinfo
+	$(MAKEINFO) $(srcdir)/bison.texinfo
+
+TAGS : *.c *.h
+	etags *.c *.h
+
+bison.hlp : $(srcdir)bison.rnh
+	runoff $(srcdir)bison.rnh /output=bison.hlp
+
+# This file is different to pass the parser file names to the compiler.
+files.obj : $(srcdir)files.c
+	comma :=,
+	dummy := $(DEFS)
+	if dummy .eqs. "" then comma :=
+	$(CC) /DEFINE=($(DEFS)'comma'$(PFILES)) $(CPPFLAGS) $(CFLAGS) \
+	   $(srcdir)files.c $(OUTPUT_OPTION) /object=$*.obj
+
+LR0.obj : $(srcdir)LR0.c $(srcdir)system.h $(srcdir)machine.h $(srcdir)new.h \
+	$(srcdir)gram.h $(srcdir)state.h
+allocate.obj : $(srcdir)allocate.c
+closure.obj : $(srcdir)closure.c $(srcdir)system.h $(srcdir)machine.h \
+	$(srcdir)new.h $(srcdir)gram.h
+conflicts.obj : $(srcdir)conflicts.c $(srcdir)system.h $(srcdir)machine.h \
+	$(srcdir)new.h $(srcdir)files.h $(srcdir)gram.h $(srcdir)state.h
+derives.obj : $(srcdir)derives.c $(srcdir)system.h $(srcdir)new.h \
+	$(srcdir)types.h $(srcdir)gram.h
+files.obj : $(srcdir)files.c $(srcdir)system.h $(srcdir)files.h \
+	$(srcdir)new.h $(srcdir)gram.h
+vmsgetargs.obj : $(srcdir)vmsgetargs.c
+gram.obj : $(srcdir)gram.c
+getargs.obj : $(srcdir)getargs.c $(srcdir)system.h $(srcdir)files.h
+lalr.obj : $(srcdir)lalr.c $(srcdir)system.h $(srcdir)machine.h \
+	$(srcdir)types.h $(srcdir)state.h $(srcdir)new.h $(srcdir)gram.h
+lex.obj : $(srcdir)lex.c $(srcdir)system.h $(srcdir)files.h $(srcdir)symtab.h \
+	$(srcdir)lex.h
+main.obj : $(srcdir)main.c $(srcdir)system.h $(srcdir)machine.h
+nullable.obj : $(srcdir)nullable.c $(srcdir)system.h $(srcdir)types.h \
+	$(srcdir)gram.h $(srcdir)new.h
+output.obj : $(srcdir)output.c $(srcdir)system.h $(srcdir)machine.h \
+	$(srcdir)new.h $(srcdir)files.h $(srcdir)gram.h $(srcdir)state.h
+print.obj : $(srcdir)print.c $(srcdir)system.h $(srcdir)machine.h \
+	$(srcdir)new.h $(srcdir)files.h $(srcdir)gram.h $(srcdir)state.h
+reader.obj : $(srcdir)reader.c $(srcdir)system.h $(srcdir)files.h \
+	$(srcdir)new.h $(srcdir)symtab.h $(srcdir)lex.h $(srcdir)gram.h
+reduce.obj : $(srcdir)reduce.c $(srcdir)system.h $(srcdir)machine.h \
+	$(srcdir)files.h $(srcdir)new.h $(srcdir)gram.h
+symtab.obj : $(srcdir)symtab.c $(srcdir)system.h $(srcdir)new.h \
+	$(srcdir)symtab.h $(srcdir)gram.h
+warshall.obj : $(srcdir)warshall.c $(srcdir)system.h $(srcdir)machine.h
+version.obj : $(srcdir)version.c
+alloca.obj : $(srcdir)alloca.c
+
+# Prevent GNU make v3 from overflowing arg limit on SysV.
+#.NOEXPORT:

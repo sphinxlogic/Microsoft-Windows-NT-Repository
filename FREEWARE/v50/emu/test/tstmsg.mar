@@ -1,0 +1,124 @@
+        .title  TST_MSG    
+        .ident  /V05-001/ 
+; TEST Message facility                  
+
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	.link		"emu5_lib:emu5_vax.olb"/include=(emumsg)
+;	.link		"emu5_lib:emu5_axp.olb"/include=(emumsg)
+	$RMSDEF
+	EMUMSGDEF
+
+ALLOPTS = 15
+
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+; returned addresses
+	.ALIGN	QUAD
+
+ERRFAB:	$FAB	FAC = <PUT>,-        	; Access
+		FNM = <EMU_ERR>,-    ; Filename 
+		DNM = <EMU5_LOG:EMU_ERR.TST>,-    ; Filename 
+		SHR = <DEL,UPD,GET,PUT>,- ; Share access R/W
+		FOP = CIF		; Create if doesn't exist
+ERRRAB:	$RAB	FAB = ERRFAB,-           
+		RAC = SEQ,-		; Sequential access
+		ROP = EOF,-		; Open for append
+		USZ = ERRREC_SIZE,-
+		RSZ = ERRREC_SIZE
+ERRREC_SIZE = 64
+;
+
+ERRSTRU:	.BLKB	MSG_C_SIZE
+
+
+errtim:
+        .quad    0
+errmsg:
+	.ascid	/tstmsg/	
+
+
+outmsg:
+	.blkb	256
+msgdesc:	.long	.-outmsg
+		.address  outmsg
+facnam:		.ascid	/EMU/
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=TST_MSG
+
+
+	MOVAL	ERRSTRU,R6
+	MOVAL	ERRMSG,MSG_L_SENDER(R6)
+	CLRL	MSG_W_PARAMS(R6)
+	MOVL	#MSG_RLT_OK,MSG_L_ERROR(R6)
+	PUSHL	R6
+	CALLS	#1,EMU_LOGGER
+
+	MOVAL	ERRSTRU,R6
+	MOVL	#99,MSG_W_PARAMS(R6)
+	MOVL	#MSG_RLT_ALTOK,MSG_L_ERROR(R6)
+	PUSHL	R6
+	CALLS	#1,EMU_LOGGER
+	RET
+
+
+
+10$:
+;	MOVQ	EXE$GQ_SYSTIME,ERRTIM
+;	MOVL	(R6),ERRCODE
+;	PUSHAL	MSGVCTR
+;	CALLS	#1,G^SYS$PUTMSG
+;	ADDL	#4,R6	
+;	SOBGTR	R7,10$
+;20$:
+;	MOVL	#SS$_ACCVIO,ERRCODE
+;	PUSHAL	MSGVCTR
+;	CALLS	#1,G^SYS$PUTMSG
+;
+;	$EXIT_S	R0
+
+        .CALL_ENTRY     MAX_ARGS=4, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=rec_MSG
+
+	MOVL	4(AP),R6
+
+	MOVAL	EXE$GQ_SYSTIME,MSG_L_TIME(R6)
+	INCL    MSG_W_PARAMS(R6)		; Include time param
+	ADDW3	#2,MSG_W_PARAMS(R6),MSG_W_ARG(R6)
+	MOVW	#ALLOPTS,MSG_W_OPT(R6)
+	MOVW	#ALLOPTS,MSG_W_OPT2(R6)
+	CLRQ	-(SP)
+	PUSHAL	WRT_MSG
+	PUSHL	R6
+	CALLS	#4,G^SYS$PUTMSG
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=WRT_MSG
+	MOVQ	@4(AP),R6
+	MOVL	R7,ERRRAB+RAB$L_RBF
+	MOVW	R6,ERRRAB+RAB$W_RSZ   
+
+	$PUT	RAB=ERRRAB
+	BLBC	R0,10$
+	RET
+10$:
+	$CREATE	FAB=ERRFAB
+	BLBC	R0,100$
+	$CONNECT RAB=ERRRAB
+	BLBC	R0,100$
+	$PUT	RAB=ERRRAB
+100$:
+	RET
+        .END	TST_MSG

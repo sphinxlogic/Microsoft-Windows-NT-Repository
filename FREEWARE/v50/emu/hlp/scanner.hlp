@@ -1,0 +1,115 @@
+1 SCANNER   
+  This process scans EMUDB extracting those items that are gathered via
+ polling and should appear in the PSR level databases. The extracted items
+ are propogated to the correct PSRdbs.
+
+2 Description
+ A database that is created and can be altered by a system administrater
+ directs this process to find all occurences of particular records in 
+ EMUDB and then take specific action. Actions supported are:
+	Send contents to Relater
+ In the case of send to relater, the contents will normaly be a protocol
+ address. After confirming the record is not in the appropriate db, and 
+ validating the record, it is sent to the relater in a standard relater
+ frame. 
+
+2 Scanner database
+ The database is created using the system management tool Scanner DB. In 
+ this routine, menus of tables and params EMU supports are presented and 
+ for each selected, the user specifys an action. The results are stored
+ in a file which this process reads at the start of each cycle. 
+ File format:
+ Table		.long EMU defined table the following paramater is found in.
+ Paramater	.long EMU defined parameter. 
+ Action	1. Send to relater
+ Action when link not found. A bit pattern directing the routine to execute
+ a 'fix' routine when no backward link is found. If the EMUDB rec just read
+ does not have a corresponding PSRdb entry, it may take 1 of 2 actions:
+ 1. If the EMUDB rec is a protocol address, it executes LOCATE_PSR with 
+ the EMUDB BOXID in the call. This creates the PSR record with the correct
+ boxid and the relater rebuilds the links. Note that the record is ALWAYS
+ created: If the rec existed (with different boxid) the boxid is changed
+ and flagged as created. If the rec did not exist it is created as normal.
+ 2. If the rec just read is not a protocol address the routine cannot
+ determine how to recreate the link and all EMUDB recs for this protocl.boxid
+ are deleted.
+    
+
+2 Counters
+ Performance counters are kept in standard format and displayed via the 
+ standard interface. Counters kept:
+ State		WAT, RUN or WFL
+ Entry		Number of database entry currently working on
+ Scanned	Number of EMUDB recs succesfuly retrieved
+ DB Errors	Number of EMUDB reads in error
+ Relater	Number of relater recs sent
+ Namer		Number of Namer recs sent (obsolete)
+ NoIPC		Number of times no Send buffer available
+ Start time	WAT: Time next cycle will start
+		RUN: Time current cycle started
+
+3 Error_logging
+ This process conforms to EMUMSG and is facility SCANER.
+ Messages:
+2 SCN_GETDB
+ Tests to see if there is a frame to send and if so sends the 
+ current relater frame.
+3 Input
+ None. It is assumed:
+	RLTCXT (Relater context) is either 0 (no send) or
+	a current valid value
+	The .addr of counter field for SCANNED is in R11
+3 Output
+ If RLTCXT .ne. o then send the frame else exit
+3 Return
+ None - any errors in this routine are logged here.
+2 SCN_GETDB
+ Returns pointer to the mapped db entry specified by the input pid
+3 Input
+ .long of PID of db to check/map
+ The table used for lookup is hard coded in this routine (DBTBL)
+3 Output
+  The address of the entry is returned in R1 if mapped successfuly.
+3 Return
+  SS$_NORMAL		OK
+  SS$_ITEMNOTFOUND     Unknown db specified
+  SS$_INSFMAP		Could not map specified db
+2 SCN_MAPDB
+ Maps all known DBs in the table. If the section is already
+ mapped the entry is skipped.
+3 Inputs
+	None. The input table is hadr coded here.
+3 Outputs
+	Any section newly mapped has it's 1st and last addr written
+	to the map structure.
+3 Returns
+ 	None
+2 SCN_UNMAP 
+ Unmap specific database and release lock. This routine is called
+ by the MAP Blast routine.
+3 Input
+ The .long param suppied as the AST param to the MAP request. This is 
+ the address of the MAP_STRUCTURE that has has the blocking AST delivered
+ by VMS.
+PUSHL	4(AP)
+CALLS	#1,G^UNMAPLVB_DB
+BLBS	R0,10$
+RET
+0$:
+; re-request lock
+PUSHL	4(AP)				; Blast param
+PUSHAL	SCN_UNMAP			; Our unmap routine
+PUSHL	4(AP)				; Map this db
+       CALLS	#3,G^MAPLVB_DB  
+RET
+
+.sbttl	exit_hdlr ()
+
+.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=SCANNEREXIT_HDLR 
+++
+2 SCANNEREXIT_HDLR  
+ Routine called upon exit to:
+	 Do nothing. Place holder for future enhancement.

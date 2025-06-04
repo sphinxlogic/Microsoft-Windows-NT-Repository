@@ -1,0 +1,963 @@
+%TITLE	'HGLOGIN'
+MODULE HGLOGIN (MAIN = main, IDENT = 'V1.4') = 
+BEGIN
+!++
+!
+!  Facility:	HGLOGIN
+!
+!  Author:	Hunter Goatley
+!
+!  Date:	October 3, 1997
+!
+!  Abstract:
+!
+!	This program allows a privileged user to login as another
+!	user without having to specify that user's password.  The
+!	privileged user inherits the complete environment of the
+!	target user, including DCL symbols, PROCESS/JOB/GROUP
+!	logical names, process quotas, privileges and rights
+!	identifiers, as well as anything else that is set up in
+!	the target user's LOGIN.COM.
+!
+!	HGLOGIN requires the target username as a parameter.  If there
+!	is other text on the line, HGLOGIN enters "single command mode."
+!	The remaining text is passed to the new process to be executed
+!	by DCL.  When the command execution completes, the process is
+!	automatically logged out and control returns to the original
+!	process.
+!
+!  Inspired by:
+!
+!	This program is a BLISS rewrite and extension of GLOGIN, written
+!	by Anthony C. McCracken, Northern Arizona University, in 1992.
+!
+!  Modified by:
+!
+!	V1.4		Hunter Goatley		28-JUN-2000 19:39
+!		Let's try using larger buffers, just for the heck of it.
+!		(Previous version used 512-byte buffers; I never heard
+!		of any problems, but let's go ahead and increase those.)
+!
+!			Hunter Goatley		 9-AUG-2000 07:56
+!		Added support for /ESCAPE_CHARACTER (default is CTRL-D)
+!		to exit out of HGLOGIN.
+!
+!	V1.3		Hunter Goatley		 8-JUN-2000 14:35
+!		Added support for /[NO]UAF, which causes the process
+!		creation to use or not use the UAF file.  With /NOUAF,
+!		you can log into DISUSERed accounts.
+!
+!		Also added an error message display if the target process
+!		exits with an error.  Previously, trying to log into a
+!		DISUSERed account would tell you nothing about why it
+!		failed.
+!
+!	V1.2		Hunter Goatley		 4-NOV-1998 09:23
+!		Modified to work under OpenVMS Alpha V7.2-EFT3, which
+!		uses the Persona stuff by default.  The new PSB structure
+!		is now modified along with the JIB when changing username.
+!
+!	V1.1		Hunter Goatley		31-AUG-1998 21:46
+!		Renamed to HGLOGIN.
+!
+!	V1.0-4		Hunter Goatley		23-JUN-1998 13:14
+!		Ooops!  Don't check IOSB in TT_READ_AST except when we
+!		actually called $QIO!
+!
+!	V1.0-3		Hunter Goatley		17-OCT-1997 14:35
+!		Don't check for SYSPRV; let $GETUAI do priv check.
+!
+!	V1.0-2		Hunter Goatley		16-OCT-1997 09:35
+!		Clean up exit handler code some.  Also, check for proper
+!		privs early on.
+!
+!	V1.0-1		Hunter Goatley		14-OCT-1997 20:42
+!		Add various PTD$SET_EVENT_NOTIFICATION calls.
+!
+!	V1.0		Hunter Goatley		 3-OCT-1997 12:24
+!		Original version.
+!
+!--
+LIBRARY 'SYS$LIBRARY:LIB';			!Pull stuff from LIB
+
+SWITCHES ADDRESSING_MODE (EXTERNAL = GENERAL, NONEXTERNAL = WORD_RELATIVE);
+
+    FORWARD ROUTINE
+	main,					!Main entry point
+	tt_read_ast,
+	pt_read_ast,
+	mb_ast	: NOVALUE,
+	exit_handler,
+	send_input_to_pt,
+	krnl_handler,
+	setusername,
+	send_bell_ast,
+	send_xoff_ast,
+	send_xon_ast,
+	set_line_ast
+	;
+
+REQUIRE 'PTD_MACROS.REQ';
+
+    EXTERNAL ROUTINE
+	CLI$DCL_PARSE,
+	CLI$PRESENT,
+	CLI$GET_VALUE,
+	LIB$FREE_VM_PAGE,
+	LIB$GET_FOREIGN,
+	LIB$GET_INPUT,
+	LIB$GET_VM_PAGE,
+	LIB$PUT_OUTPUT,
+	OTS$CVT_TU_L,
+	STR$CONCAT,
+	STR$FREE1_DX
+	;
+
+    EXTERNAL LITERAL
+	HGLOGIN__EXIT, HGLOGIN__NOSUCHUSER, HGLOGIN__NOFTDEV,
+	HGLOGIN__LOGIN, HGLOGIN__NOCMKRNL, HGLOGIN__NOSYSPRV,
+	HGLOGIN__PRCFINSTS, HGLOGIN__CTRLINV, HGLOGIN__INVCMDCHAR,
+	CLI$_NEGATED, CLI$_NOCOMD;
+
+    EXTERNAL
+	HGLOGIN_CLD,
+	CTL$GL_PCB		: $BBLOCK ADDRESSING_MODE (GENERAL),
+	CTL$T_USERNAME		: $BBLOCK ADDRESSING_MODE (GENERAL);
+
+    LITERAL
+	no_of_mem_pages	= 3,
+	PTBUF_S_DATA	= 8188,			!Size of data portion of buffer
+	PTBUF_S_PTBUF	= 8192;			!Total size of buffer
+
+    MACRO					!PT buffers
+	PTBUF_W_STATUS	= 0,0,16,0 %,		!1st word: status
+	PTBUF_W_COUNT	= 2,0,16,0 %,		!2nd word: # bytes read/written
+	PTBUF_T_DATA	= 4,0, 0,0 %;		!Data begins here
+
+    OWN
+	pydevnam	: $BBLOCK [64],
+	pydevnam_l	: INITIAL(0),
+	ftdevnam	: $BBLOCK [64],
+	ftdevnam_l	: INITIAL(0),
+	ptdevnam	: $BBLOCK [64],
+	ptdevnam_l	: INITIAL(0),
+	target_uic	: INITIAL(0),
+	my_uic		: INITIAL(0),
+	my_username	: $BBLOCK [JIB$S_USERNAME],
+	my_username_d	: $BBLOCK [DSC$K_S_BLN] PRESET
+				([DSC$W_LENGTH] = %ALLOCATION(my_username),
+				 [DSC$B_DTYPE]  = DSC$K_DTYPE_T,
+				 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+				 [DSC$A_POINTER] = my_username),
+	my_curprivs	: $BBLOCK [8],
+	all_privs	: VECTOR[2,LONG] INITIAL (-1, -1),
+	pt_read_buffer	: REF $BBLOCK INITIAL(0),
+	pt_write_buffer	: REF $BBLOCK,
+	pt_echo_buffer	: REF $BBLOCK,
+	pt_buffer_range	: VECTOR [2, LONG],
+	ptname_d	: $BBLOCK [DSC$K_S_BLN],
+	tt_channel	: INITIAL(0),
+	pt_channel	: INITIAL(0),
+	mb_channel	: INITIAL(0),
+	mb_buffer	: $BBLOCK [ACC$K_TERMLEN],
+	mb_unit		: INITIAL(0),
+	tt_read_iosb	: VECTOR [4, WORD] VOLATILE,
+	tt_write_iosb	: VECTOR [4, WORD] VOLATILE,
+	tt_set_iosb	: VECTOR [4, WORD] VOLATILE,
+	pt_read_iosb	: VECTOR [4, WORD] VOLATILE,
+	pt_write_iosb	: VECTOR [4, WORD] VOLATILE,
+	dvi_iosb	: VECTOR [4, WORD] VOLATILE,
+	orig_ttchars	: VECTOR [3, LONG],
+	new_ttchars	: VECTOR [3, LONG],
+	target_user_d	: $BBLOCK [DSC$K_S_BLN],
+	cmdline		: $BBLOCK [DSC$K_S_BLN],
+	login_prompt_d	: $BBLOCK [DSC$K_S_BLN],
+	single_cmd_state,
+	signal_exit_msg	: INITIAL(0),
+	show_output,
+	quiet_mode,
+	final_status,
+	esc_char	: INITIAL(4),		! What command-mode character?
+	esc_char_buf	: VECTOR[8, BYTE],
+	esc_char_dsc	: $BBLOCK [DSC$K_S_BLN],
+	exit_handler_block	: VECTOR[4,LONG]
+			INITIAL (0, exit_handler, 1, final_status);
+
+    OWN
+	TERMINAL_ATTR:  BLOCK[7,LONG]   ! Create 3 quadword itemlist entries
+		VOLATILE
+		INITIAL(        ! for input, output and error
+			PRC$_INPUT_ATT^16 + 4,
+			LNM$M_TERMINAL,
+			PRC$_OUTPUT_ATT^16 + 4,
+			LNM$M_TERMINAL,
+			PRC$_ERROR_ATT^16 + 4,
+			LNM$M_TERMINAL,
+			PRC$_LISTEND);
+
+    BIND
+	py_itmlst	= $ITMLST_UPLIT (
+				(ITMCOD = DVI$_DEVNAM,
+				 BUFSIZ = %ALLOCATION(pydevnam),
+				 BUFADR = pydevnam,
+				 RETLEN = pydevnam_l)),
+	ft_itmlst	= $ITMLST_UPLIT (
+				(ITMCOD = DVI$_DEVNAM,
+				 BUFSIZ = %ALLOCATION(ftdevnam),
+				 BUFADR = ftdevnam,
+				 RETLEN = ftdevnam_l)),
+	pt_itmlst	= $ITMLST_UPLIT (
+				(ITMCOD = DVI$_DEVNAM,
+				 BUFSIZ = %ALLOCATION(ptdevnam),
+				 BUFADR = ptdevnam,
+				 RETLEN = ptdevnam_l)),
+	mb_itmlst	= $ITMLST_UPLIT (
+				(ITMCOD = DVI$_UNIT,
+				 BUFSIZ = %ALLOCATION(mb_unit),
+				 BUFADR = mb_unit)),
+	uai_itmlst	= $ITMLST_UPLIT (
+				(ITMCOD = UAI$_UIC,
+				 BUFSIZ = %ALLOCATION(target_uic),
+				 BUFADR = target_uic)),
+	jpi_itmlst	= $ITMLST_UPLIT (
+				(ITMCOD = JPI$_UIC,
+				 BUFSIZ = %ALLOCATION(my_uic),
+				 BUFADR = my_uic),
+				(ITMCOD = JPI$_USERNAME,
+				 BUFSIZ = %ALLOCATION(my_username),
+				 BUFADR = my_username),
+				(ITMCOD = JPI$_CURPRIV,
+				 BUFSIZ = %ALLOCATION(my_curprivs),
+				 BUFADR = my_curprivs));
+
+    MACRO
+	prcprompt	= '!^_HGlogin-^$ '%;
+    BIND
+	cli_command_d	= %ASCID'COMMAND',
+	hglogin_cmd_d	= %ASCID'HGLOGIN ',
+	cli_username_d	= %ASCID'USERNAME',
+	cli_prompt_d	= %ASCID'PROMPT',
+	cli_quiet_d	= %ASCID'QUIET',
+	cli_uaf_d	= %ASCID'UAF',
+	cli_escape_d	= %ASCID'ESCAPE_CHARACTER',
+	prcprompt_d	= %ASCID %STRING(prcprompt) : $BBLOCK,
+	prcprompt2_d	= %ASCID %STRING(%CHAR(0), prcprompt) : $BBLOCK,
+	fta0_d		= %ASCID'_FTA0:';
+
+    MACRO
+	lit_from_struc (name, a,b,c,d) = LITERAL name = a %;
+
+
+ROUTINE main =
+BEGIN
+
+    LOCAL
+	krnl_arglist	: VECTOR [3,LONG],
+	stsflags,
+	status;
+
+    $INIT_DYNDESC (cmdline);
+    $INIT_DYNDESC (login_prompt_d);
+    $INIT_DYNDESC (target_user_d);
+    status = LIB$GET_FOREIGN (cmdline);
+    IF NOT(.status) THEN RETURN (.status);
+
+    !
+    !  Parse the command line.
+    !
+    STR$CONCAT (cmdline, hglogin_cmd_d, cmdline);
+    status = CLI$DCL_PARSE (cmdline, hglogin_cld, LIB$GET_INPUT, LIB$GET_INPUT);
+    IF NOT(.status)
+    THEN
+	RETURN (IF (.status EQLU RMS$_EOF) OR (.status EQLU CLI$_NOCOMD)
+		THEN SS$_NORMAL ELSE .status);
+
+    !
+    !  Get the escape character (default here and via CLD is CTRL-D)
+    !
+    esc_char_dsc[DSC$W_LENGTH] = %ALLOCATION(esc_char_buf);
+    esc_char_dsc[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    esc_char_dsc[DSC$B_CLASS] = DSC$K_CLASS_S;
+    esc_char_dsc[DSC$A_POINTER] = esc_char_buf;
+
+    IF CLI$GET_VALUE (cli_escape_d, esc_char_dsc, esc_char_dsc)
+    THEN
+	BEGIN
+	status = OTS$CVT_TU_L (esc_char_dsc, esc_char);	!Convert it
+	IF NOT(.status) THEN RETURN (.status OR STS$M_INHIB_MSG);
+	CASE .esc_char FROM 0 TO 31 OF			!Make sure it's valid
+	   SET						!... and set up desc
+	   [0]	: esc_char_buf[0] = %C'@';		!... for single char
+	   [13] : RETURN (HGLOGIN__CTRLINV);		!Don't allow ^M (RET)
+	   [17]	: RETURN (HGLOGIN__CTRLINV);		!Don't allow ^Q
+	   [19]	: RETURN (HGLOGIN__CTRLINV);		!Don't allow ^S
+	   [26]	: RETURN (HGLOGIN__CTRLINV);		!Don't allow ^Z
+	   [27]	: esc_char_buf[0] = %C'[';
+	   [28]	: esc_char_buf[0] = %C'\';
+	   [29]	: esc_char_buf[0] = %C']';
+	   [30]	: esc_char_buf[0] = %C'`';
+	   [31]	: esc_char_buf[0] = %C'_';
+	   [INRANGE] : esc_char_buf[0] = .esc_char + %C'@';
+	   [OUTRANGE] :	RETURN (HGLOGIN__INVCMDCHAR);
+	   TES;
+	esc_char_dsc[DSC$W_LENGTH] = 1;		!Set length to one character
+	END
+    ELSE					!No command character was
+	BEGIN					!... given on the command
+	esc_char = 4;				!... line, so default to
+	esc_char_buf[0] = %C'D';		!... CTRL-D
+	esc_char_dsc[DSC$W_LENGTH] = 1;
+	END;
+
+    !
+    !  See if the target user exists.
+    !
+    CLI$GET_VALUE (cli_username_d, target_user_d);
+    status = $GETUAI (USRNAM = target_user_d, ITMLST = uai_itmlst);
+    IF (.status EQLU RMS$_RNF)
+    THEN
+	SIGNAL (HGLOGIN__NOSUCHUSER, 1, target_user_d);
+    IF NOT(.status) THEN RETURN (.status);
+
+    show_output = 1;
+    quiet_mode = 0;
+
+    single_cmd_state = 0;
+    STR$FREE1_DX (cmdline);
+    IF CLI$PRESENT(cli_command_d)
+    THEN
+	status = CLI$GET_VALUE(cli_command_d, cmdline);
+
+    !
+    !  The $CREPRC flags for the process.  It'll be a detached, interactive
+    !  process, but no prompt for the password.  By default, all other UAF
+    !  checks are made (like checking for DISUSERed accounts).  To override
+    !  that, check for /NOUAF on the command line.
+    !
+    stsflags = PRC$M_DETACH  OR PRC$M_INTER OR PRC$M_NOPASSWORD;
+
+    IF (CLI$PRESENT(cli_uaf_d) EQLU CLI$_NEGATED)
+    THEN
+	stsflags = .stsflags OR PRC$M_NOUAF;	!Bypass UAF checks
+
+    IF NOT(.status) THEN RETURN (.status);
+    IF (.cmdline [DSC$W_LENGTH] NEQU 0)
+    THEN
+	BEGIN
+	single_cmd_state = 1;
+	IF (CLI$PRESENT(cli_prompt_d))
+	THEN
+	    BEGIN
+	    CLI$GET_VALUE (cli_prompt_d, login_prompt_d);
+	    STR$CONCAT (login_prompt_d, %ASCID %CHAR(0),
+			(IF (.login_prompt_d [DSC$W_LENGTH] NEQU 0)
+			 THEN login_prompt_d ELSE %ASCID'$'));
+	    END;
+	quiet_mode = NOT(CLI$PRESENT(cli_quiet_d) EQLU CLI$_NEGATED);
+	END;
+
+    status = $GETJPIW (ITMLST=jpi_itmlst);
+    IF NOT(.status) THEN RETURN (.status);
+
+    !
+    !  Make sure we have SYSPRV and CMKRNL (just check current privs).
+    !
+    IF NOT(.my_curprivs [PRV$V_CMKRNL]) THEN RETURN (HGLOGIN__NOCMKRNL);
+
+    !
+    !  Be sure those privs are on.
+    !
+    all_privs[0] = PRV$M_CMKRNL + PRV$M_SYSPRV;
+    status = $SETPRV(ENBFLG=1, PRVADR=all_privs);
+    IF NOT(.status) THEN RETURN (.status);
+
+    !
+    !  Trim blanks from my_username by changing the length in the descriptor.
+    !
+    WHILE (CH$RCHAR (CH$PLUS (.my_username_d [DSC$A_POINTER],
+			.my_username_d [DSC$W_LENGTH]-1)) EQLU %CHAR(32)) DO
+	my_username_d [DSC$W_LENGTH] = .my_username_d [DSC$W_LENGTH] - 1;
+
+    !
+    !  Determine whether the FTA device exists.
+    !
+    status = $GETDVI (DEVNAM = fta0_d, ITMLST = ft_itmlst);
+    IF (.status EQLU SS$_NOSUCHDEV) THEN status = HGLOGIN__NOFTDEV;
+    IF NOT(.status) THEN RETURN (.status);
+
+    SIGNAL (HGLOGIN__LOGIN, 2, target_user_d, esc_char_dsc);
+
+    !
+    !  Set terminal characteristics and declare exit handler to reset them.
+    !
+    status = $ASSIGN (DEVNAM = %ASCID'TT:', CHAN = tt_channel);
+    IF NOT(.status) THEN RETURN (.status);
+
+    status = $QIOW (CHAN = .tt_channel,
+		    FUNC = IO$_SENSEMODE,
+		    IOSB = tt_read_iosb,
+		    P1   = orig_ttchars,
+		    P2   = %ALLOCATION(orig_ttchars));
+    IF (.status) THEN status = .tt_read_iosb [0];
+    IF NOT(.status) THEN RETURN (.status);
+
+    !
+    !  Declare an exit handler to reset the terminal characteristics.
+    !
+    status = $DCLEXH (DESBLK = exit_handler_block);
+    IF NOT(.status) THEN RETURN (.status);
+
+    !
+    !  Now set the terminal chars the way we want them.
+    !
+    new_ttchars [0] = .orig_ttchars [0];
+    new_ttchars [1] = (.orig_ttchars [1] OR TT$M_NOECHO) AND NOT(TT$M_WRAP);
+    new_ttchars [2] = .orig_ttchars [2] OR TT2$M_PASTHRU;
+
+    status = $QIOW (CHAN = .tt_channel,
+		    FUNC = IO$_SETMODE,
+		    IOSB = tt_set_iosb,
+		    P1   = new_ttchars,
+		    P2   = %ALLOCATION(new_ttchars));
+    IF (.status) THEN status = .tt_set_iosb [0];
+    IF NOT(.status) THEN RETURN (.status);
+
+    !
+    !  Allocate three pages for 1-page read, write, and echo buffers.
+    !
+!    STATUS = LIB$GET_VM_PAGE (%REF (PTBUF_S_PTBUF*3), pt_read_buffer);
+    status = $EXPREG (PAGCNT = PTBUF_S_PTBUF/512*3, RETADR = pt_buffer_range);
+    IF NOT(.status) THEN RETURN (.status);
+    pt_read_buffer = .pt_buffer_range[0];
+
+    pt_write_buffer = .pt_read_buffer + PTBUF_S_PTBUF;
+    pt_echo_buffer = .pt_read_buffer + (PTBUF_S_PTBUF*2);
+!    pt_buffer_range [0] = .pt_read_buffer;
+!    pt_buffer_range [1] = .pt_read_buffer + (PTBUF_S_PTBUF*3) - 1;
+
+    !
+    !  Change our USERNAME and UIC to that of the target user.
+    !
+    krnl_arglist [0] = 2;
+    krnl_arglist [1] = target_user_d;
+    krnl_arglist [2] = target_uic;
+    status = $CMKRNL (ROUTIN = setusername, ARGLST = krnl_arglist);
+    IF NOT(.status) THEN RETURN (.status);
+
+    !
+    !  Create the pseudo-terminal.
+    !
+    status = $PTD$CREATE (CHAN		= pt_channel,
+			  CHARBUFF	= orig_ttchars,
+			  BUFLEN	= %ALLOCATION(orig_ttchars),
+			  INADR		= pt_buffer_range);
+    IF NOT(.status) THEN RETURN (.status);
+
+    status = $PTD$SET_EVENT_NOTIFICATION (CHAN = .pt_channel,
+			ASTADR = send_bell_ast, TYPE = PTD$C_SEND_BELL);
+    IF (.status) THEN
+	status = $PTD$SET_EVENT_NOTIFICATION (CHAN = .pt_channel,
+			ASTADR = send_xon_ast, TYPE = PTD$C_SEND_XON);
+    IF (.status) THEN
+	status = $PTD$SET_EVENT_NOTIFICATION (CHAN = .pt_channel,
+			ASTADR = send_xoff_ast, TYPE = PTD$C_SEND_XOFF);
+    IF (.status) THEN
+	status = $PTD$SET_EVENT_NOTIFICATION (CHAN = .pt_channel,
+			ASTADR = set_line_ast, TYPE = PTD$C_CHAR_CHANGED);
+    IF NOT(.status) THEN RETURN (.status);
+
+    status = $GETDVIW (CHAN = .pt_channel, ITMLST = pt_itmlst);
+    IF NOT(.status) THEN RETURN (.status);
+
+    ptname_d [DSC$W_LENGTH]  = .ptdevnam_l;
+    ptname_d [DSC$B_DTYPE]   = DSC$K_DTYPE_T;
+    ptname_d [DSC$B_CLASS]   = DSC$K_CLASS_S;
+    ptname_d [DSC$A_POINTER] = ptdevnam;
+
+    !
+    !  Now create a mailbox that will receive a termination message
+    !  when the process logs out of the psuedo-terminal.
+    !
+    status = $CREMBX (CHAN = mb_channel,		!Create termination
+		      MAXMSG = ACC$K_TERMLEN);		!... mailbox
+    IF NOT(.status) THEN RETURN (.status);
+    status = $GETDVIW (CHAN = .mb_channel, ITMLST = mb_itmlst);
+    IF NOT(.status) THEN RETURN (.status);
+    status = $QIO  (CHAN	= .mb_channel,		!Que a read on the
+		    FUNC	= IO$_READVBLK,		!... termination
+		    ASTADR	= mb_ast,		!... mailbox
+		    P1		= mb_buffer,
+		    P2		= ACC$K_TERMLEN);
+    IF NOT(.status) THEN RETURN (.status);
+    status = $CREPRC (IMAGE	= %ASCID'SYS$SYSTEM:LOGINOUT.EXE',
+		      INPUT	= ptname_d,
+		      OUTPUT	= ptname_d,
+		      ERROR	= ptname_d,
+		      MBXUNT	= .mb_unit,
+		      BASPRI	= 4,
+		      ITMLST	= terminal_attr,
+		      UIC	= %X'00010004',
+		      STSFLG	= .stsflags);
+    IF NOT(.status) THEN RETURN (.status);
+
+    !
+    !  Process has been created.  Set our USERNAME and UIC back.
+    !
+    krnl_arglist [0] = 2;
+    krnl_arglist [1] = my_username_d;
+    krnl_arglist [2] = my_uic;
+    status = $CMKRNL (ROUTIN = setusername, ARGLST = krnl_arglist);
+    IF NOT(.status) THEN RETURN (.status);
+
+    !
+    !  Queue reads to the appropriate devices and then hibernate.
+    !
+    status = $QIO  (CHAN	= .tt_channel,
+		    FUNC	= IO$_READVBLK,
+		    ASTADR	= tt_read_ast,
+		    IOSB	= tt_read_iosb,
+		    P1		= pt_write_buffer [PTBUF_T_DATA],
+		    P2		= 1);
+    IF NOT(.status) THEN RETURN (.status);
+    status = $PTD$READ (CHAN	= .pt_channel,
+			ASTADR	= pt_read_ast,
+			READBUF	= .pt_read_buffer,
+			READBUF_LEN = PTBUF_S_DATA);
+    IF NOT(.status) THEN RETURN (.status);
+
+    $HIBER();		!Just go to sleep
+
+    RETURN (.status);				!Set success status
+
+END;						!End of routine
+
+
+ROUTINE TT_READ_AST =
+BEGIN
+!+
+!  Routine:	TT_READ_AST
+!
+!  Function:	This AST routine is called whenever a key is pressed
+!		on the real keyboard.  It just writes the character to
+!		the appropriate psuedo-terminal device and then
+!		queues a new read to the keyboard.
+!-
+    LOCAL
+	status;
+
+    status = .tt_read_iosb [0];
+    IF NOT(.status)
+    THEN
+	BEGIN
+	IF (.status NEQU 0) THEN SIGNAL (.status);	!Special check
+	RETURN (.status);
+	END;
+
+    !
+    !  Did we type our escape character?  Exit, if so.
+    !
+    IF (CH$RCHAR(pt_write_buffer[PTBUF_T_DATA]) EQLU .esc_char)
+    THEN
+	BEGIN
+	mb_buffer[ACC$L_FINALSTS] = SS$_ABORT;
+	$EXIT (CODE = SS$_ABORT);
+	END;
+
+    pt_echo_buffer [PTBUF_W_COUNT] = 0;	!Clear our count
+
+    status = $PTD$WRITE (CHAN		= .pt_channel,
+			 WRTBUF		= .pt_write_buffer,
+			 WRTBUF_LEN	= 1,
+			 ECHOBUF	= .pt_echo_buffer,
+			 ECHOBUF_LEN	= PTBUF_S_DATA);
+    !
+    !  If the PTD$ write was successful and data was echoed, write
+    !  it to the terminal.
+    !
+    IF (.status) AND (.pt_echo_buffer [PTBUF_W_COUNT] GTRU 0)
+    THEN
+	BEGIN							!V1.0-4
+	status = $QIOW (CHAN = .tt_channel, FUNC = IO$_WRITEVBLK,
+			IOSB = tt_write_iosb,
+			P1   = pt_echo_buffer [PTBUF_T_DATA],
+			P2   = .pt_echo_buffer [PTBUF_W_COUNT]);
+	IF (.status) THEN status = .tt_write_iosb [0];		!V1.0-4
+	END;							!V1.0-4
+
+    IF (.status)
+    THEN
+	!
+	!  Now queue the next keyboard read to the terminal.
+	!
+	status = $QIO  (CHAN = .tt_channel,
+			FUNC = IO$_READVBLK,
+		  	IOSB = tt_read_iosb,
+		 	ASTADR = tt_read_ast,
+		 	P1 = pt_write_buffer [PTBUF_T_DATA],
+		 	P2 = 1);
+
+    IF NOT(.status)
+    THEN
+	SIGNAL (.status);
+
+    RETURN (.status);
+
+END;	! TT_READ_AST
+
+
+ROUTINE PT_READ_AST =
+BEGIN
+!+
+!  Routine:	PT_READ_AST
+!
+!  Function:	This AST routine is called whenever there is output from
+!		the pseudo terminal.  It writes the output to the real
+!		terminal, then queues a new read to the pseudo-terminal.
+!-
+    LOCAL
+	found_hglogin_prompt,
+	found_login_prompt,
+	status;
+
+    found_login_prompt = 1;			!Pretend we've found login "$"
+    IF (.single_cmd_state NEQU 0)
+    THEN
+	BEGIN
+	!
+	!  Look for the special HGLOGIN DCL prompt.
+	!
+	found_hglogin_prompt = NOT(CH$FAIL(CH$FIND_SUB (
+				.pt_read_buffer [PTBUF_W_COUNT],
+				pt_read_buffer [PTBUF_T_DATA],
+				.prcprompt2_d [DSC$W_LENGTH],
+				.prcprompt2_d [DSC$A_POINTER])));
+	!
+	!  If we haven't sent our first command yet and the user wants to
+	!  wait for the login prompt, see if we have it yet.  The login
+	!  prompt is a null byte following by the text specified by the
+	!  user.
+	!
+	IF (.single_cmd_state EQLU 1) AND
+	   (.login_prompt_d [DSC$W_LENGTH] NEQU 0)
+	THEN
+	    found_login_prompt = NOT(CH$FAIL(CH$FIND_SUB (
+				.pt_read_buffer [PTBUF_W_COUNT],
+				pt_read_buffer [PTBUF_T_DATA],
+				.login_prompt_d [DSC$W_LENGTH],
+				.login_prompt_d [DSC$A_POINTER])));
+
+	!
+	!  If we're getting ready to send the logout command, disable
+	!  output so that our modified DCL prompt isn't displayed.
+	!
+	IF (.single_cmd_state EQLU 4) AND
+	   (.found_hglogin_prompt) AND
+	   (.quiet_mode)
+	THEN
+	    show_output = 0;		!Turn off output
+
+	END;
+
+    IF (.show_output)
+    THEN
+	BEGIN
+	status = $QIOW (CHAN = .tt_channel,
+			FUNC = IO$_WRITEVBLK,
+			IOSB = tt_write_iosb,
+			P1   = pt_read_buffer [PTBUF_T_DATA],
+			P2   = .pt_read_buffer [PTBUF_W_COUNT]);
+	IF (.status) THEN status = .tt_write_iosb [0];
+	END;
+
+    IF (.single_cmd_state GTRU 1) AND (.found_hglogin_prompt)
+    THEN
+	SELECT (.single_cmd_state) OF
+	    SET
+	    [4] :
+		BEGIN
+		status = SEND_INPUT_TO_PT (%ASCID'HG_LOG_OUT', 1);
+		single_cmd_state = 5;
+		show_output = 1;
+		END;
+	    [3] :
+		BEGIN
+		show_output = 1;
+		status = SEND_INPUT_TO_PT (cmdline, 1);
+		single_cmd_state = 4;
+		END;
+	    [2] :
+		BEGIN
+		status = SEND_INPUT_TO_PT (%ASCID'HG_LOG_OUT :== LOGOUT', 1);
+		single_cmd_state = 3;
+		END;
+	    TES;
+
+    status = $PTD$READ (CHAN		= .pt_channel,
+			ASTADR		= pt_read_ast,
+			READBUF		= .pt_read_buffer,
+			READBUF_LEN	= PTBUF_S_DATA);
+    IF NOT(.status)
+    THEN
+	SIGNAL (.status);
+
+    IF (.single_cmd_state EQLU 1) AND (.found_login_prompt)
+    THEN
+	BEGIN
+!	show_output = 0;
+	show_output = NOT(.quiet_mode);
+	status = SEND_INPUT_TO_PT (%ASCID %CHAR(0), 0);	!Just one character
+	status = SEND_INPUT_TO_PT (%ASCID %STRING('SET PROMPT="',
+					prcprompt, '"'), 1);
+	single_cmd_state = 2;
+	END;
+
+    RETURN (.status);
+
+END;	! PT_READ_AST
+
+
+ROUTINE MB_AST : NOVALUE =
+BEGIN
+!+
+!  Routine:	MB_AST
+!
+!  Function:	This AST routine is called when the termination mailbox
+!		receives a message.  That happens when the created process
+!		has terminated, so it's time for us to exit the image.
+!-
+
+    ! We use MB_BUFFER in EXIT_HANDLER
+
+    $EXIT (CODE = SS$_NORMAL);
+
+END;	! MB_AST
+
+
+ROUTINE EXIT_HANDLER (exit_status_a) =
+BEGIN
+
+    LOCAL
+	status;
+
+    $SETAST (ENBFLG = 0);			!Disable ASTs
+    !
+    !  Delete the pseudo-terminal
+    !
+    IF (.pt_channel NEQU 0)
+    THEN
+	$PTD$DELETE (CHAN = .pt_channel);
+    !
+    !  Cancel the terminal I/O
+    !
+    IF (.tt_channel NEQU 0)
+    THEN
+	BEGIN
+	$CANCEL (CHAN = .tt_channel);
+	!
+	!  Reset the original terminal characteristics.
+	!
+	$QIOW (CHAN = .tt_channel,
+		FUNC = IO$_SETMODE,
+		IOSB = tt_write_iosb,
+		P1   = orig_ttchars,
+		P2 = %ALLOCATION(orig_ttchars));
+	$DASSGN (CHAN = .tt_channel);
+	END;
+
+    IF (.pt_read_buffer NEQU 0)
+    THEN
+	LIB$FREE_VM_PAGE (%REF (3), pt_read_buffer);
+
+    SIGNAL (HGLOGIN__EXIT, 1, my_username_d);	!Print info message
+
+    status = .mb_buffer [ACC$L_FINALSTS];
+
+    IF NOT(.status)
+    THEN
+	BEGIN
+	SIGNAL (HGLOGIN__PRCFINSTS, 1, target_user_d, .status, 0);
+	END;
+
+    SS$_NORMAL
+
+END;	! EXIT_HANDLER
+
+
+ROUTINE SEND_INPUT_TO_PT (str_a, add_cr) =
+BEGIN
+    BIND
+	str	= .str_a	: $BBLOCK;
+
+    LOCAL
+	src	: REF $BBLOCK,
+	dst	: REF $BBLOCK,
+	len,
+	status;
+
+    pt_echo_buffer [PTBUF_W_COUNT] = 0;
+
+    src = .str [DSC$A_POINTER];
+    dst = pt_write_buffer [PTBUF_T_DATA];
+    INCR i FROM 1 TO .str [DSC$W_LENGTH] DO
+	CH$WCHAR_A (CH$RCHAR_A(src), dst);
+
+    IF (.add_cr)
+    THEN
+	CH$WCHAR_A(%CHAR(13), dst);
+
+    len = CH$DIFF (.dst, pt_write_buffer [PTBUF_T_DATA]);
+    status = $PTD$WRITE (CHAN = .pt_channel, WRTBUF = .pt_write_buffer,
+			WRTBUF_LEN = .len,
+			ECHOBUF = .pt_echo_buffer,
+			ECHOBUF_LEN = PTBUF_S_DATA);
+    IF (.status) AND (.pt_echo_buffer [PTBUF_W_COUNT] GTRU 0) AND (.show_output)
+    THEN
+	    status = $QIOW (CHAN = .tt_channel, FUNC = IO$_WRITEVBLK,
+			    IOSB = tt_write_iosb,
+			    P1   = pt_echo_buffer [PTBUF_T_DATA],
+			    P2   = .pt_echo_buffer [PTBUF_W_COUNT]);
+    RETURN (.status);	
+
+END;	! SEND_INPUT_TO_PT
+
+
+ROUTINE KRNL_HANDLER =
+BEGIN
+
+   RETURN ($UNWIND());
+
+END;	! KRNL_HANDLER
+
+ROUTINE SETUSERNAME (str_a, uic_a) =
+BEGIN
+    BIND
+	str = .str_a : $BBLOCK,
+	uic = .uic_a;
+    LOCAL
+	jib : REF $BBLOCK,
+	psb : REF $BBLOCK,
+	pcb : REF $BBLOCK;
+
+    ENABLE KRNL_HANDLER;
+
+    pcb = .CTL$GL_PCB;
+    pcb [PCB$L_UIC] = .uic;
+    jib = .pcb [PCB$L_JIB];
+    CH$COPY (.str [DSC$W_LENGTH], .str [DSC$A_POINTER], %CHAR(32),
+		JIB$S_USERNAME, jib [JIB$T_USERNAME]);
+    CH$COPY (.str [DSC$W_LENGTH], .str [DSC$A_POINTER], %CHAR(32),
+		JIB$S_USERNAME, CTL$T_USERNAME);
+
+%IF %DECLARED(PSB$K_LENGTH)	!Are PSBs defined?
+%THEN
+    BEGIN	!Need new block to define LITERAL here
+
+    lit_from_struc (pcb_ar_natural_psb, PCB$AR_NATURAL_PSB);
+
+    !
+    !  Beginning with OpenVMS Alpha V7.2-EFT3, we also need to change
+    !  the username and UIC in the PSB (Persona Security Block), as
+    !  the CTL and JIB changes have no effect in that version (but we
+    !  still change them).
+    !
+    !  Instead of requiring a different .OBJ file for V7.1+, let's just
+    !  do the check on-the-fly.  If the PCB is big enough to include the
+    !  PCB$AR_NATURAL_PSB field, and there is a PSB, then set the fields.
+    !
+    IF (.pcb [PCB$W_SIZE] GTRU pcb_ar_natural_psb)	!Is PCB big enough?
+    THEN
+	BEGIN
+	psb = .pcb [PCB$AR_NATURAL_PSB];    !Point to the Natural Persona PSB
+	IF (.psb NEQA 0)		    !If there is one, change the UIC
+	THEN				    !... and username in the PSB
+	    BEGIN
+	    psb [PSB$L_UIC] = .uic;
+	    CH$COPY (.str [DSC$W_LENGTH], .str [DSC$A_POINTER], %CHAR(32),
+			PSB$S_USERNAME, psb [PSB$T_USERNAME]);
+	    END;
+	END;
+    END;	!End of BEGIN
+%FI
+
+    SS$_NORMAL
+
+END;	!SETUSERNAME
+
+
+ROUTINE send_bell_ast =
+BEGIN
+    LOCAL
+	bell : INITIAL(7);
+
+    RETURN ($QIO (CHAN = .tt_channel, FUNC = IO$_WRITEVBLK,
+		  IOSB = tt_write_iosb,
+		  P1   = bell,
+		  P2   = 1));
+
+END;
+
+
+ROUTINE send_xoff_ast =
+BEGIN
+    LOCAL
+	xoff : INITIAL(19);
+
+    RETURN ($QIO (CHAN = .tt_channel, FUNC = IO$_WRITEVBLK,
+		  IOSB = tt_write_iosb,
+		  P1   = xoff,
+		  P2   = 1));
+
+END;
+
+
+ROUTINE send_xon_ast =
+BEGIN
+    LOCAL
+	xon : INITIAL(17);
+
+    RETURN ($QIO (CHAN = .tt_channel, FUNC = IO$_WRITEVBLK,
+		  IOSB = tt_write_iosb,
+		  P1   = xon,
+		  P2   = 1));
+
+END;
+
+
+ROUTINE set_line_ast =
+BEGIN
+    LOCAL
+	pt_chars	: VECTOR [3,LONG],
+	tt_chars	: VECTOR [3,LONG],
+	status;
+
+    status = $QIOW (CHAN = .pt_channel,
+		    FUNC = IO$_SENSEMODE,
+		    IOSB = pt_read_iosb,
+		    P1   = pt_chars,
+		    P2   = %ALLOCATION(pt_chars));
+    IF (.status) THEN status = .pt_read_iosb [0];
+    IF NOT(.status) THEN RETURN (.status);
+
+    pt_chars [0] = .pt_chars [0];
+    pt_chars [1] = (.pt_chars [1] OR TT$M_NOECHO) AND NOT(TT$M_WRAP);
+    pt_chars [2] = .pt_chars [2] OR TT2$M_PASTHRU;
+
+    $CANCEL (CHAN = .tt_channel);		!Cancel any pending READ
+    status = $QIOW (CHAN = .tt_channel,
+		    FUNC = IO$_SETMODE,
+		    IOSB = tt_set_iosb,
+		    P1   = pt_chars,
+		    P2   = %ALLOCATION(pt_chars));
+
+    status = $QIO  (CHAN	= .tt_channel,
+		    FUNC	= IO$_READVBLK,
+		    ASTADR	= tt_read_ast,
+		    IOSB	= tt_read_iosb,
+		    P1		= pt_write_buffer [PTBUF_T_DATA],
+		    P2		= 1);
+    RETURN (.status);
+
+END;
+
+END						!End of module BEGIN
+ELUDOM						!End of module

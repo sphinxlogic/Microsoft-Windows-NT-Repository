@@ -1,0 +1,57 @@
+        .title  TST_TIMEDIFF    
+        .ident  /V05-001/ 
+; TEST TIME DIFFERNCE CALC                  
+
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+; returned addresses
+	.ALIGN	QUAD
+
+BASE:	.QUAD	0
+NOW:	.QUAD	0
+WAIT:		.FLOAT	1.0   
+ONE:		.FLOAT	1.0   
+FAOBUF:		.BLKB	80
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+TIMSTR:		.ASCID	/Base = !%D, Now = !%D, Diff = !UL (sec)/
+
+
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=TST_TIMEDIFF
+
+
+[2;4;24;1&w	MOVQ	EXE$GQ_SYSTIME,BASE
+10$:
+
+	PUSHAF	WAIT		;
+	CALLS	#1, G^LIB$WAIT		; 
+	MOVQ	EXE$GQ_SYSTIME,NOW
+	PUSHAL	BASE
+	PUSHAL	NOW
+	calls	#2,G^TIMEDIFF_SEC  
+	BLBS	R0,20$
+	ret
+20$:
+	movl	#80,FAODESC
+
+	PUSHL	R1
+	PUSHAL	NOW
+	pushal	base
+
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	pushal	timstr
+	calls	#6,g^sys$fao
+    	PUSHAL	faodesc
+	calls	#1,g^lib$put_output
+	ADDF	ONE,WAIT
+	BRW	10$
+        .END	TST_TIMEDIFF

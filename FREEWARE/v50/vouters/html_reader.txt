@@ -1,0 +1,623 @@
+$!                             COPYRIGHT (C) 2000 BY
+$!                       COMPAQ COMPUTER CORPORATION, HOUSTON
+$!                        TEXAS.  ALL RIGHTS RESERVED.
+$!
+$!     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+$!     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+$!     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+$!     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+$!     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+$!
+$!     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+$!     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+$!     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+$!
+$!     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+$!     ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+$!     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+$!     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+$!
+$!
+$!
+$!
+$!
+$!     Extract the command procedure below to your C++ directory.
+$!     Assuming you name this command procedure www.com, do
+$!     
+$!     $ @www.com
+$!     
+$!     Prior to executing the program, define a symbol:
+$!     
+$!     $ www :== $disk:[directory]www.exe
+$!     
+$!     then finally, type the command:
+$!     
+$!     $ www "http_command" ["proxy-server"] ["filter1" ... "filterN"]
+$!     
+$!     The filters are set of subnets preceded with a star character
+$!     '*' for which the port used will be 80 (default HTTP port).
+$!     If there isn't a match between the web site specified in the
+$!     http:// command and one of the N filters, the port used for
+$!     communication will be 8080 (default PROXY_HTTP port).
+$!     
+$!     For example:
+$!     
+$!     $ www http://www.compaq.fr www-proxy.ias.reo.dec.com *.dec.com
+$!     
+$!     This command will connect to www-proxy.ias.reo.dec.com to
+$!     access the home page of www.compaq.fr site, using port 8080,
+$!     because .dec.com string is not included into www.compaq.fr string.
+$!     
+$!     $ www http://www.compaq.com/
+$!     This command will open Compaq's home page using no proxy server
+$!     and port 80.
+$!     
+$!     $ www http://www.altavista.com/ proxy:8086
+$!     
+$!     This will use the connection to a proxy server using port 8086 to
+$!     read altavista home page.
+$!     
+$!     $ www http://joe:eoj@sos6.evt.cpqcorp.net:8080/
+$!     
+$!     This command will obtain the home page of sos6.evt.cpqcorp.net
+$!     directly (no proxy server) using port 8080 and with a basic
+$!     authentification (user:joe, password: eoj).
+$!
+$!
+$!
+$ create sockutil.hxx
+#ifdef WIN32
+#include <winsock.h>
+#endif
+#if defined(__VMS) || defined (__osf__)
+#include <stdlib.h>
+#include <string.h>
+#include <socket.h>
+#include <netdb.h>
+#include <in.h>
+#include <inet.h>
+#include <unixio.h>
+
+#define BOOL unsigned char
+#ifndef TRUE
+#define TRUE 1
+#endif
+#ifndef FALSE
+#define FALSE 0
+#endif
+#define SOCKET int
+#define closesocket close
+#define SOCKET_ERROR -1
+#define INVALID_SOCKET -1
+#define min(a,b) (a)<(b)?(a):(b)
+#endif
+
+class ConnectSocket{
+public:
+        int SendData(char *buffer, unsigned int len);
+        int GetData(char *buffer,unsigned int buffersize, char Terminator);
+        int GetData(char *buffer,unsigned int buffersize,
+                        unsigned int LengthOffset,
+                        unsigned int LengthSize,
+                        BOOL NetworkOrder = FALSE);
+        void SetSocketOptions(int level,int optname, char *optval,int optlen);
+        ConnectSocket(char *host,unsigned short port,int Size);
+        ~ConnectSocket();
+private:
+        SOCKET s;
+        int TcpBufferSize;
+        char *TcpBuffer;
+        char *TcpBufferPtr;
+};
+$ create sockutil.cxx
+#include "sockutil.hxx"
+
+static int setipaddr (struct sockaddr_in *to,char *name);
+static char *strnchr(char *str,char search, int len);
+static int getsockdata (SOCKET s,char *cp, int len);
+const unsigned char BYTESIZE = 8;
+
+ConnectSocket::ConnectSocket(char *host,unsigned short port, int size){
+#ifdef WIN32
+        WORD wVersionRequested;
+        WSADATA wsaData;
+#endif
+        struct sockaddr_in to;
+
+
+
+// Start up the Windows socket API DLL
+#ifdef WIN32
+        wVersionRequested = MAKEWORD(1,1);
+        if(WSAStartup(wVersionRequested,&wsaData)!=0){
+                throw(WSAGetLastError());
+        }
+
+        if ((LOBYTE(wsaData.wVersion) != 1)     ||
+                (HIBYTE(wsaData.wVersion) != 1)) {
+                throw(WSAGetLastError());
+        }
+#endif
+        if ((s = socket (PF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET){
+                this->~ConnectSocket();
+                throw(-1);
+        }
+        TcpBufferSize = size;
+        TcpBuffer = new char[TcpBufferSize];
+        TcpBufferPtr = TcpBuffer;
+        memset(TcpBuffer,0,TcpBufferSize);
+
+        memset (&to, 0, sizeof (to));
+        to.sin_port = htons((unsigned short)port);
+        if(setipaddr(&to,host)){
+           this->~ConnectSocket();
+           throw(-1);
+        }
+
+        if (connect (s,(struct sockaddr *)&to,sizeof(to))== SOCKET_ERROR){
+            this->~ConnectSocket();
+            throw(-1);
+        }
+}
+
+ConnectSocket::~ConnectSocket(){
+        if (s != INVALID_SOCKET){
+                (void) shutdown(s,2);
+                (void) closesocket(s);
+                delete []TcpBuffer;
+        }
+#ifdef WIN32
+        WSACleanup();
+#endif
+}
+void ConnectSocket::SetSocketOptions(int level,int optname,char *optval,int optlen){
+        if (setsockopt(s,level,optname,optval,optlen) == SOCKET_ERROR){
+                delete this;
+                throw(-1);
+        }
+}
+int ConnectSocket::SendData(char *buffer, unsigned int len){
+        char *cp = buffer;
+        fd_set writefds;
+        int status,sendlen;
+
+        while (len != 0){
+                FD_ZERO(&writefds);
+                FD_SET(s,&writefds);
+                status = select(s+1,NULL,&writefds,NULL,NULL);
+                switch(status){
+                case SOCKET_ERROR:
+                        return SOCKET_ERROR;
+                        break;
+                case 1: /* send the message */
+                        if (FD_ISSET(s,&writefds))
+                                if ((sendlen = send (s,cp,len,0)) == SOCKET_ERROR){
+                                        return SOCKET_ERROR;
+                                }
+                                else {
+                                        len -= sendlen;
+                                        cp += sendlen;
+                                }
+                        break;
+                }/* end switch */
+        }/* end while */
+
+        return 0;
+}
+int ConnectSocket::GetData(char *buffer,unsigned int buffersize, char Terminator){
+        char *cp = NULL;
+        int packet_size=-1;
+        int r;
+        struct timeval timeout = {100,0};
+        fd_set readmask;
+
+        while(!cp){
+                // Try to get from buffer
+                cp = strnchr(TcpBuffer,Terminator,(int)(TcpBufferPtr-TcpBuffer));
+                if ((cp != NULL)||
+                    (TcpBufferPtr == TcpBuffer + TcpBufferSize) ||
+                    (!packet_size)){
+                        unsigned int Size;
+                        if (cp != NULL)
+                            Size = min(buffersize,
+                                        (unsigned int)(cp-TcpBuffer) + 1);
+                        else
+                            Size = min((unsigned int)(TcpBufferPtr-TcpBuffer),
+                                        buffersize);
+                        // Copy from TCP buffer to user buffer.
+                        memcpy(buffer,TcpBuffer,Size);
+                        // move up rest of data.
+                        memcpy(TcpBuffer,TcpBuffer+Size,TcpBufferSize-Size);
+                        TcpBufferPtr -= Size;
+                        return Size;
+                }
+                // Get data from socket buffer
+                FD_ZERO(&readmask);
+                FD_SET(s,&readmask);
+                /* Is the socket s readable ? If yes, the bit at position s in readmask   */
+                /* will be set to one enabling us to receive data from the remote node    */
+                if ((r=select (s+1,&readmask,NULL,NULL,&timeout)) == SOCKET_ERROR) {
+                        return r;
+                }
+                switch (r){
+                case 0 :
+                        // Timeout. No Answer
+                        return SOCKET_ERROR;
+                        break;
+                case 1 :
+                        if (FD_ISSET (s,&readmask)){
+                                int Remaining = (int)(TcpBuffer + TcpBufferSize - TcpBufferPtr);
+                                // Read the socket buffer
+                                if ((packet_size = recv (s,TcpBufferPtr,Remaining,0)) == SOCKET_ERROR){
+                                        return SOCKET_ERROR;
+                                }
+                                else {
+                                        if (packet_size == 0){
+                                                // Remote node closed the link.
+                                                // Return rest of TcpBuffer;
+                                           continue;
+                                        }
+                                        else
+                                                // Update pointer
+                                                TcpBufferPtr += packet_size;
+                                }
+                        }
+                        else
+                                // Should never happen
+                                return SOCKET_ERROR;
+      }// end switch
+        }// end while
+        return 0;
+}
+
+int ConnectSocket::GetData(char *buffer,unsigned int buffersize,
+                                unsigned int LengthOffset,
+                                 unsigned int LengthSize,BOOL NetworkOrder){
+        unsigned int Length = 0;
+        unsigned char *cp;
+        int Size = LengthSize;
+
+        if(getsockdata(s,TcpBuffer,LengthOffset+LengthSize))
+                return SOCKET_ERROR;
+        cp = (unsigned char *)TcpBuffer+LengthOffset+LengthSize;
+        while (Size--)
+                Length = (Length << BYTESIZE) + (int)*--cp;
+        if (NetworkOrder)
+                switch(LengthSize){
+                case sizeof(unsigned short):
+                        Length = ntohs((unsigned short)Length);
+                        break;
+                case sizeof(unsigned int):
+                        Length = ntohl(Length);
+                }
+        if(getsockdata(s,TcpBuffer+LengthOffset+LengthSize,Length))
+                return SOCKET_ERROR;
+        memcpy(buffer,TcpBuffer,min(buffersize,Length+LengthOffset+LengthSize));
+
+        return min(buffersize,Length+LengthOffset+LengthSize);
+}
+// The routine strnchr searches for the occurence of a given character in a string
+// limited to len characters. If there is a match, the matching character pointer is
+// returned, else it returns NULL
+static char *strnchr(char *str,char search, int len){
+        for (;len;len--,str++)
+                if (*str == search)
+                        return str;
+        return (NULL);
+}
+
+static int getsockdata (SOCKET s,char *cp, int len){
+        int packet_size;
+        int r;
+        struct timeval timeout = {100,0};
+        fd_set readmask;
+
+        while (len != 0){
+                FD_ZERO(&readmask);
+                FD_SET(s,&readmask);
+                /* Is the socket s readable ? If yes, the bit at position s in readmask   */
+                /* will be set to one enabling us to receive data from the remote node    */
+                if ((r=select (s+1,&readmask,NULL,NULL,&timeout)) == SOCKET_ERROR) {
+                        return r;
+                }
+
+                switch (r){
+                case 0 :
+                        return SOCKET_ERROR;
+                        break;
+                case 1 :
+                        if (FD_ISSET (s,&readmask)){
+                                if ((packet_size = recv (s,cp,len,0)) == SOCKET_ERROR){
+                                        return SOCKET_ERROR;
+                                }
+                                else {
+                                        if (packet_size == 0){
+                                                /* Remote node closed the link. */
+                                                return SOCKET_ERROR;
+                                        }
+                                        else {
+                                                cp += packet_size;
+                                                len -=packet_size;
+                                        }
+                                }
+                        }
+                        else
+                                return SOCKET_ERROR;
+      }/* end switch */
+        } /* end while */
+        return 0;
+}
+
+static int setipaddr (struct sockaddr_in *to,char *name){
+    struct hostent *hp;
+
+
+        to->sin_family = PF_INET;
+        to->sin_addr.s_addr = inet_addr(name);
+        if (to->sin_addr.s_addr == (unsigned int)(-1)) {
+                hp = gethostbyname(name);
+                if (hp) {
+                        to->sin_family = hp->h_addrtype;
+                        memcpy(&to->sin_addr,hp->h_addr,hp->h_length);
+                } else {
+                        return SOCKET_ERROR;
+                }
+        }
+        return 0;
+}
+$ cxx sockutil
+$ create encode_64.c
+#include <stdlib.h>
+#include <string.h>
+
+#define MAX_LINE  76 /* size of encoded lines */
+static char basis_64[] =
+   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+char *encode_64(char *str,char *eol){
+
+        unsigned int rlen;
+        int len = strlen(str);
+        int chunk;
+        unsigned char c1,c2,c3;
+        unsigned int eollen;
+        char *r,*out;
+
+       if (eol)
+           eollen = strlen(eol);
+       else{
+           eol = "\n";
+           eollen = 1;
+       }
+
+       /* calculate the length of the result */
+        rlen = (len+2) / 3 * 4;  /* encoded bytes */
+        if (rlen) {
+            /* add space for EOL */
+            rlen += ((rlen-1) / MAX_LINE + 1) * eollen;
+        }
+
+        /* allocate a result buffer */
+        out = r = malloc(rlen ? rlen : 1);
+
+        for (chunk=0; len > 0; len -= 3, chunk++) {
+            if (chunk == (MAX_LINE/4)) {
+                char *c = eol;
+                char *e = eol + eollen;
+                while (c < e)
+                    *r++ = *c++;
+                chunk = 0;
+            }
+            c1 = *str++;
+            c2 = *str++;
+            *r++ = basis_64[c1>>2];
+            *r++ = basis_64[((c1 & 0x3)<< 4) | ((c2 & 0xF0) >> 4)];
+            if (len > 2) {
+                c3 = *str++;
+                *r++ = basis_64[((c2 & 0xF) << 2) | ((c3 & 0xC0) >>6)];
+                *r++ = basis_64[c3 & 0x3F];
+            } else if (len == 2) {
+                *r++ = basis_64[(c2 & 0xF) << 2];
+                *r++ = '=';
+            } else { /* len == 1 */
+                *r++ = '=';
+                *r++ = '=';
+            }
+        }
+        if (rlen) {
+            /* append eol to the result string */
+            char *c = eol;
+            char *e = eol + eollen;
+            while (c < e)
+                *r++ = *c++;
+        }
+        *r = '\0';  /* every SV in perl should be NUL-terminated */
+        return(out);
+}
+$ cc encode_64
+$ create www.cxx
+#include <iostream.h>
+#include <ctype.h>
+#include <stdio.h>
+#include "sockutil.hxx"
+
+// Define possible WEB ports.
+#define HTTP_PROXY_PORT 8080
+#define HTTP_PORT 80
+
+// Setup constants.
+char const *http = "http://";
+char const *CRLF = "\015\012";
+extern "C"{
+  char *encode_64(char *str, char *eol);
+}
+char *parse(char *command,char **filters,
+        short number_filters,
+        char *which,unsigned short *port, char **userpasswd){
+        char const slash = '/';
+        char const star = '*';
+        char *cp,*cp1;
+        static char *host;
+
+    // Convert command to lowercase.
+        for (unsigned int i = 0;i<strlen(command); i++)
+             command[i] = tolower(command[i]);
+        // Locate "http:// which must appear at the
+    // beginning of the command.
+        cp = strstr(command,http);
+        if (cp != command){
+            cout << "Bad http:// command" << command <<endl;
+            exit(0);
+        }
+        cp += strlen(http);
+    if ((cp1 = strchr(cp,'@')) == NULL){
+         *userpasswd = NULL;
+             // host located, return string after the first single slash.
+             host = cp;
+    }
+    else{
+             *cp1++ = '\0';
+         host = cp1;
+         *userpasswd = cp;
+         cp = cp1;
+    }
+        cp = strchr(host,slash);
+        if (cp == NULL)
+            strcpy(which,"/");
+        else {
+           strcpy(which,cp);
+           *cp = '\0';
+        }
+    // Now determine the port we will use.
+    // The rule is that if found in the set of filters,
+    // we use port 80, otherwise port=8080.
+    // The star character in an address filter must be in
+    // first position.
+    if (number_filters >= 0)
+        *port = HTTP_PROXY_PORT; // Assume not found in the filters.
+    else
+        *port = HTTP_PORT;
+
+        for (int j=0; j< number_filters;j++){
+             if (strstr(host,filters[j] + sizeof(star)) != NULL){
+                 *port = HTTP_PORT;
+                 break;
+             }
+    }
+    return host;
+}
+void usage(){
+        cout<< "Syntax : www <http command> [<proxy server name>]";
+    cout<< "[<filter1> .. <filterN>]"<< endl;
+    cout<< "Examples : "<<endl;
+    cout<< "www http://www.compaq.com/"<<endl;
+    cout<< "With authentification string : www http://vouters:vouters@sos6.evt.cpqcorp.net/"<<endl;
+    cout<< "With alternate HTTP port (default 80) : www http://sos6.evt.cpqcorp.net:82/"<<endl;
+    cout<< "With alternate HTTP_PROXY port (default 8080) : www http://www.compaq.fr/ proxy:8086"<<endl;
+    exit(0);
+}
+int main(int argc, char **argv){
+
+    if (argc < 2)
+        usage();
+
+    char *proxy_server  = argv[2];
+    char *host;
+    unsigned short port, http_proxy_port = HTTP_PROXY_PORT;
+    char Webpage[80];
+    char *userpwd;
+    char *cp;
+
+    host = parse(argv[1],&argv[3],argc-3,Webpage,&port,&userpwd);
+    // If user did not specify a proxy server, use port 80.
+    if (argc<3)
+        port = HTTP_PORT;
+    else
+        if (!strcmp(proxy_server,""))
+            port  = HTTP_PORT;
+        else {
+             // Parse a proxy server with a colon followed by
+             // the http default proxy port.
+             char *cp = strchr(proxy_server,':');
+             if (cp != NULL){
+                 *cp = 0;
+                 cp++;
+                 if (port != HTTP_PORT)
+                 port = http_proxy_port = (unsigned short)atoi(cp);
+             }
+        }
+    // did the user specified a HTTP_PORT ?
+    if ((cp = strchr(host,':')) != NULL){
+         *cp++ = '\0';
+         port = (unsigned short)atoi(cp);
+         // if user specify in the first program's argument an alternate
+         // port which is equal to the http_proxy_port and no proxy_server,
+         // then set the proxy_server to host.
+         if ((port == http_proxy_port) && (!proxy_server))
+              proxy_server = host;
+    }
+    // Setup the HTTP command.
+    char HttpGetCommandBuffer[100] = "GET ";
+    if (port == http_proxy_port){
+        strcat(HttpGetCommandBuffer,http);
+        strcat(HttpGetCommandBuffer,host);
+    }
+    strcat(HttpGetCommandBuffer,Webpage);
+    strcat(HttpGetCommandBuffer," HTTP/1.0");
+    strcat(HttpGetCommandBuffer,CRLF);
+    strcat(HttpGetCommandBuffer,"Host: ");
+    strcat(HttpGetCommandBuffer,host);
+    strcat(HttpGetCommandBuffer,CRLF);
+    if (userpwd){
+        strcat (HttpGetCommandBuffer,"Authorization: Basic ");
+        strcat (HttpGetCommandBuffer,encode_64(userpwd,"\0"));
+        strcat(HttpGetCommandBuffer,CRLF);
+    }
+    strcat(HttpGetCommandBuffer,CRLF);
+
+    // Connect to WWW partner.
+    ConnectSocket *WWW;
+    const int TCPBufferSize = 512;
+    try{
+        WWW = new ConnectSocket(port == http_proxy_port ? proxy_server : host,
+                                port,TCPBufferSize);
+    } catch(int error){
+        char buffer[80];
+        sprintf(buffer,"Fatal : unable to connect to %s",
+                        port == http_proxy_port ? proxy_server : host);
+        cout<<buffer<<endl;
+        exit(error);
+    }
+    if(WWW->SendData(HttpGetCommandBuffer,strlen(HttpGetCommandBuffer))<0){
+       cout << "Error sending data to WWW"<<endl;
+       exit(0);
+    }
+
+    // Read data with terminator LF.
+    char buffer[TCPBufferSize];
+    buffer[TCPBufferSize-1] = '\0';
+    const char Terminator = '\012';
+    int Size;
+    BOOL Display = FALSE;
+
+    Size = WWW->GetData(buffer,TCPBufferSize-1,Terminator);
+    while (Size > 0){
+           const char carriage_return = '\015';
+
+           if (Display)
+               cout.write(buffer,Size);
+
+           if((!Display) && (Size == (int)strlen(CRLF)) &&
+              (buffer[0] == carriage_return))
+               Display = TRUE;
+           Size = WWW->GetData(buffer,TCPBufferSize-1,Terminator);
+   }
+   delete WWW;
+   return 1;
+}
+$ cxx www
+$ cxxlink www,sockutil,encode_64
+$ exit

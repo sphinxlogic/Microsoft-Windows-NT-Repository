@@ -1,0 +1,43 @@
+ 	.title	setefn
+	.ident /v01-001/
+
+	.library        /sys$library:lib.mlb/
+	.library        /emu5_lib:emu5.mlb/
+
+        $iodef                          ;define i/o functions and modifiers
+        $nmadef                         ;define network management parameters
+	$secdef				; global section 
+	$prtdef				; protection codes
+	$ssdef
+	emuipcdef
+	emusysdef
+	.psect	listen_sec,wrt,noexe,pic,shr,page
+; Event flags associated with incoming buffers
+EFLAGS1:		.ASCID	/EFLAGS1/	; Event Flag Cluster (64-95)
+EFLAGS2:		.ASCID	/EFLAGS2/	; Event Flag Cluster (96-127)
+
+
+	.psect	listen_c,nowrt,exe,shr,pic,long
+	.sbttl	setefn (efn)
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SETEFN
+
+; common event flag cluster:
+	$ascefc_s	efn = #64, name = eflags1
+	bsbw	error_chk       	; fatal
+	$ascefc_s	efn = #96, name = eflags2
+	bsbw	error_chk       	; fatal
+
+; set efn 96
+	ADDL3	#96,#SYS_PID_C_PSRETH,-(SP)   ; Set relater flag
+	CALLS	#1,G^SYS$SETEF
+	ret
+error_chk:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	blbs	r0, 10$
+	ret
+10$:	rsb
+
+	.end setefn

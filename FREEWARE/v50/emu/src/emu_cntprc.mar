@@ -1,0 +1,767 @@
+	.TITLE EMU_CNTPRC  
+	.IDENT /V05-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 5-001	Apr-1997		PB	Creation
+;++
+;1 EMU_CNTPRC   
+; This routine processes a stream of numbers into tables and:
+;  1  Determines 'ususal' range stream moves in
+;  2. Calculates if counter moves outside 'usual' range and alerts
+;     this event.
+;2 Range_calculations
+; There are 3 conceptual ranges used in this routine:
+;	Short Term
+;	Long Term
+;	Absolute
+; Each range is shown as minimum and maximum resulting in 3
+; possible ranges any counter moves in.
+; Short term  is the simple average of the previous 48 samples
+; Long term is the simple average of all previous samples
+; Absolute is the largest and smallest value ever seen for this counter.
+; Ranges are expressed as percentage movement from the calulated average
+; and is stored for each stream and recalculated on each sample. The intent
+; is to reduce any stream to a single number representing the usual range
+; the counter moves in. This is how EMU determines 'normal' operational
+; paramaters for any device.
+;
+;2 Input
+; 	.address of counter processing structure
+;2 Output
+; 	Counter processing structure may be written
+;2 Return
+; 	SS$_NORMAL	Counter processed - no ranges exceeded
+;	SS$_CREATED	New counter record created
+;	SS$_BADPARAM	One of the following:
+;			CNTID was neither 0 or existing 
+;			Unknown function. Must be either process or delete.
+;2 Counter_Processing_Structure
+; The structure is a 16 byte array used for both input and output.
+; On input:
+;	CNTID		.long Unique Identifier this counter
+;			This is assigned and written by this routine 
+;			if the field is 0 on input. 
+;	FUNC		.long Function. May be 1 of:
+;		Process	 - Exactly that - processs the sample into 
+;			the table for this CNTID. If CNTID is 0 
+;			then create the record 1st.
+;		Delete	- Delete the record specified by CNTID.
+;		SAMPLE		.quad unsigned integer.
+; On Output:
+;	CNTID		If 0 on input then written with ID to be used
+;			to access this counter on future operations.
+;	STATUS          .long - One of:
+;               SS$_NORMAL      ; No threasholds exceedeed
+;               SS$_NODATA      ; Not enough info stored ( < 8 samples)
+;               SS$_DATACHECK   ; At least 1 threshold exceeded
+;	THREAS		.long - bit pattern threasholds exceeded.
+;			For each threashold exceeded a bit is set.
+;	SEVERITY	.long accumulation of the calculated amount
+;			each threashold exceeded according to:
+;			10% of amount exceeded limited to 100. Therefore 
+;			the maximum severity cannot exceed 300.
+;2 Processing
+; The difference between this SAMPLE and the last is found as is the 
+; difference in seconds between samples. The result is a .long average 
+; number of counts per second during the period between samples. It is
+; this number that is stored, processed and reported on.
+;
+;2 Examples
+; Given an existing counter record whose currently calculated 
+; averages are:
+;							Threashold
+;	Range		Average		Movement    Min		Max
+;	Short term	 100		50          50		150
+;	Long Term	 50		40	    30           70
+;	Min		20 - Absolute number
+;	Max		200 -    "
+; If a sample is received for this counter whose value is 125:
+;	Short term is OK. Movement is decremented by 1 to 49
+;			  Average is recalulated
+;	Long term is exceeded by  55 
+;		Bit for long term hi is set
+;		Severity is incremented by 5 (integer portion of 10% of 55)
+;	        Movement is incremented by 5
+;	Min/Max is OK
+;	Final status is SS$_DATACHECK
+;	Final Severity is 5
+; If a sample is received for this counter whose value is 400:
+;	Short term is exceeded by  250
+;		Bit for Short term hi is set
+;		Severity is incremented by 25 (integer portion of 10% of 250)
+;	        Movement is incremented by 25
+;		Average is recalulated
+;	Long term is exceeded by  330 
+;		Bit for long term hi is set
+;		Severity is incremented by 33 (integer portion of 10% of 330)
+;	        Movement is incremented by 33
+;	Min is OK
+;	Max is exceeded by 200
+;		Bit for Max is set
+;		Severity is incremented by 20 (integer portion of 10% of 200)
+;	        Max value is replaced by 400
+;
+;
+;	Final status is SS$_DATACHECK
+;	Final Severity is 78
+;2 Usage_Notes 
+; This routine is providing 'back-end' support to the
+; current counter processors which preprocess raw counters info.
+; It is the results of those routines, passed to this routine on a regular,
+; periodic basis that will yeild the best results.
+; While this routine may be called  and used from anywhere, it is
+; not intended to provide usefulness outside this context. 
+;--
+
+	.LIBRARY	/SYS$LIBRARY:LIB.MLB/
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+
+	$SSDEF		; System Services
+        EMUCTPDEF	; EMU
+        EMUSNMPDEF
+	EMUCTRLDEF
+	EMUMSGDEF
+	.PSECT	EMU_CNTPRC_D,WRT,NOEXE,PIC,NOSHR,QUAD
+
+; Section addresses
+CONTROL_A:	.QUAD	0  		; Control section return addresses
+QRESULT:	.QUAD	0		; Results from quad calcs
+FACTOR:		.LONG	0
+SAMPLE:		.LONG	0
+TEMPQUAD:	.QUAD	0
+File:
+CNTRPRCFAB:	$FAB  FAC = <DEL,UPD,GET,PUT>,-        	; Access
+		SHR = <DEL,UPD,GET,PUT>,- ; Share with readers
+		FOP = CIF,-
+		ORG = IDX,-			; Keyed file (Finally)
+		FNM = <EMU_CNTPRC>,-      ; Filename 
+		DNM = <EMU5_DAT:EMU_CNTPRC.DAT.>,-      ; Filename 
+		XAB = CNTRPRCXAB
+CNTRPRCRAB:	
+		$RAB  FAB = CNTRPRCFAB,-            ; Record 
+ 		RBF = CNTRPRCREC,-
+		UBF = CNTRPRCREC,-
+		USZ = CTP_DB_C_RECSIZE,-
+		RSZ = CTP_DB_C_RECSIZE,-
+		RAC = KEY,-		 ; KEY access
+		KBF = CNTRPRCREC,-
+		KSZ = 4
+CNTRPRCXAB:
+	  	$XABKEY	REF = 0,-  		; Primary key
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4                 ; Key len
+
+	.ALIGN	LONG
+CNTRPRCREC:	.BLKB	CTP_DB_C_RECSIZE 
+	.ALIGN	LONG
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/PRFMON/
+
+
+	.psect	EMU_CNTPRC_code,nowrt,exe,shr,pic,long
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_CNTPRC
+
+
+	MOVAB	EMU_CNTPRC_HANDLER,(FP)	; condition handler
+; Verify we can access params
+	PROBEW	#0,#CTP_CFM_C_SIZE,4(AP)  		; Write Outp?
+	BNEQ	40$			; Yes
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+; Check if this is 1st call. If so Initilise.
+40$:
+        TSTW    CNTRPRCFAB+FAB$W_IFI        ; File open?
+	BNEQ	100$
+	CALLS	#0,G^CTP_INITIALISE			; Initialise 
+
+100$:
+CTP_START:
+	MOVL	4(AP),R6			; Call frame
+; Determine function requested and branch appropriately.
+	CASEL	CTP_CFM_L_FUNC(R6),#1,#1             ; Select routine for this count ID
+40$:
+	.WORD	100$-40$       
+	.WORD	200$-40$       
+	MOVL	#SS$_BADPARAM,R0
+	
+	RET                             ; Return (BADPARAM)
+100$:				; Process counter
+	PUSHL	R6
+	CALLS	#1,G^CTP_PROCESS
+	RET
+200$:
+	PUSHL	R6
+	CALLS	#1,G^CTP_DELETE
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CTP_PROCESS 
+;++
+;3 CTP_PROCESSS
+; Processes a counter into existing table. 
+; If CNTID = 0 then assign new id and create record with def values
+;4 Input
+;  .address of call frame
+;4 Output
+;  CNTPRC.DAT record is modified (or created then modified)
+;4 Returns
+;   
+;--
+	MOVL	4(AP),R6
+100$:
+	MOVL	4(AP),R6
+	MOVAL	CNTRPRCREC,R7
+	MOVL	CTP_CFM_L_CNTID(R6),CTP_DB_L_CNTID(R7)	; Set key
+	$GET	RAB=CNTRPRCRAB
+	BLBS	R0,110$					; Must exist
+	CMPL	R0,#RMS$_RNF
+	BNEQU	105$
+
+	PUSHL	R6
+	CALLS	#1,G^CTP_CREATE_REC
+	BLBC	R0,105$
+	MOVL	#SS$_CREATED,CTP_CFM_L_STATUS(R6) 
+	RET
+
+105$:
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPREAD,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+        RET
+
+110$:
+; convert the .quad sample to .long counts per sec since last.
+	PUSHAL	QRESULT
+	ADDL3	R7,#CTP_DB_Q_LASSAM,-(SP)    	; Last sample
+	ADDL3	#CTP_CFM_Q_SAMPLE,R6,-(SP)	; Current sample
+	CALLS	#3,G^LIB$SUBX
+	BLBS	R0,120$
+
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPMATH,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+        RET
+120$:
+; If result < 0 then assume counts have reset. simply store last
+; sample and time and exit NORMAL. (Calcs not possible)
+; Side effect here - if result > 32 bits then in all probability
+; it has been a long time since last sample.
+	TSTL	QRESULT+4				; Test sign bit
+	BEQL	150$                               	; Br if Current > .LONG
+130$:
+	MOVQ	EXE$GQ_SYSTIME,CTP_DB_Q_LASTIM(R7)      ; Store Time
+	MOVQ	CTP_CFM_Q_SAMPLE(R6),CTP_DB_Q_LASSAM(R7)      ; Store Time
+        MOVL	#SS$_NORMAL,R0
+	RET
+150$:
+; Qresult now contains a .long diff - calc as counts/sec since last sample
+        MOVQ	EXE$GQ_SYSTIME,TEMPQUAD
+	PUSHAL	FACTOR
+	ADDL3	#CTP_DB_Q_LASTIM,R7,-(SP) 
+	PUSHAL	TEMPQUAD
+	CALLS	#3,G^EMU_TIMEDIFF
+	BLBS	R0,160$
+
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPTIM,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+        RET
+	
+160$:
+; Unlikely but just in case - ensure there is a diff in time. If not
+; store and exit.
+	TSTL	FACTOR
+        BEQL	130$
+	EDIV	FACTOR,QRESULT,SAMPLE,R2
+; SAMPLE now contains the average number of counts since last poll this
+; counter.
+;Max compare:
+;
+	SUBL3	SAMPLE,CTP_DB_L_MAX(R7),R1
+	BGTR	200$
+
+	MOVL    SAMPLE,CTP_DB_L_MAX(R7)		; Replace
+        CLRQ	QRESULT
+	MOVL	R1,QRESULT
+	PUSHAL	QRESULT				; Amount exceeded
+	PUSHL	#CTP_THR_M_MAX			; Bit to set
+	PUSHL	R6				; Return frame
+	CALLS	#3,G^CTP_ADD2RETURN		; Add this result
+	BLBS	R0,250$
+; ERR
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPADD2,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+        RET
+200$:
+; Min compare
+	SUBL3	CTP_DB_L_MIN(R7),SAMPLE,R1
+	BGTR	250$
+
+	MOVL    SAMPLE,CTP_DB_L_MIN(R7)		; Replace
+        CLRQ	QRESULT
+	MOVL	R1,QRESULT
+	PUSHAL	QRESULT				; Amount exceeded
+	PUSHL	#CTP_THR_M_MIN			; Bit to set
+	PUSHL	R6				; Return frame
+	CALLS	#3,G^CTP_ADD2RETURN		; Add this result
+	BLBS	R0,250$
+; ERR
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPADD2,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+        RET
+
+250$:
+
+
+; Long term Calcs
+; 
+	INCL	CTP_DB_L_LTCNT(R7)
+	CLRQ	QRESULT
+	MOVL	SAMPLE,QRESULT
+	ADDL3	R7,#CTP_DB_Q_LTTOT,-(SP)    	; Long term total
+	PUSHAL	QRESULT      			; This sample
+	ADDL3	R7,#CTP_DB_Q_LTTOT,-(SP)    	; Long term total
+	CALLS	#3,G^LIB$ADDX
+	BLBS	R0,310$
+; Assume any error is overflow
+	MOVQ	QRESULT,CTP_DB_Q_LTTOT(R7)
+	MOVL	#1,CTP_DB_L_LTCNT(R7)
+310$:
+; find factor:
+; get current average
+;	
+; R2 = Integer average
+; R3 = Remainder from divide
+; R4 = 32BIT Factor
+	EDIV	CTP_DB_L_LTCNT(R7),CTP_DB_Q_LTTOT(R7),R2,R3   ; Average
+	MULL3	CTP_DB_L_LTRNG(R7),R2,R4                      ; make %..
+	DIVL	#100,R4                                       
+; R4 is now the number representing the limits this counter may move in
+; Add this number to current average to get upper limit, subract it 
+; to get lower limit.
+	ADDL3	R2,R4,FACTOR
+	
+;MAX compare:
+	SUBL3	SAMPLE,FACTOR,R1
+	BGTR	320$
+
+	ADDL	R1,CTP_DB_L_LTRNG(R7)		; Adjust range
+
+        CLRQ	QRESULT
+	MOVL	R1,QRESULT
+	PUSHAL	QRESULT				; Amount exceeded
+	PUSHL	#CTP_THR_M_LTHI			; Bit to set
+	PUSHL	R6				; Return frame
+	CALLS	#3,G^CTP_ADD2RETURN		; Add this result
+	BLBS	R0,340$
+; ERR
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPADD2,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+        RET
+320$:
+;Min compare:
+	SUBL3	FACTOR,SAMPLE,R1
+	BGTR	340$
+
+	ADDL	R1,CTP_DB_L_LTRNG(R7)		; Adjust range
+
+        CLRQ	QRESULT
+	MOVL	R1,QRESULT
+	PUSHAL	QRESULT				; Amount exceeded
+	PUSHL	#CTP_THR_M_LTLO			; Bit to set
+	PUSHL	R6				; Return frame
+	CALLS	#3,G^CTP_ADD2RETURN		; Add this result
+	BLBS	R0,340$
+; ERR
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPADD2,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+        RET
+
+
+340$:
+400$:
+; Short term checks
+; The pointer is updated after each calculation so that the pointer
+; is always pointing to the least recent sample added to the table
+; This points to sample we will overwrite
+; subtract this from the total and add in current
+410$:
+; Calc offset
+	MOVL    CTP_DB_L_TBLPNT(R7),R10
+	ADDL3	#CTP_DB_TL_SAMTBL,R7,R2			; tbl
+	CLRQ	QRESULT
+	MOVL	(R2)[R10],QRESULT			; Addr
+; Subtract this value from tot
+
+	ADDL3	#CTP_DB_Q_STTOT,R7,-(SP)	; Result
+	ADDL3	#CTP_DB_Q_STTOT,R7,-(SP)	; Current tot
+	PUSHAL	QRESULT      			; Obsolete sample
+	CALLS	#3,G^LIB$SUBX
+	BLBS	R0,420$
+
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPMATH,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+        RET
+420$:
+; Add current  value to tot
+; These are 64 bit integers and should never overflow.
+	CLRQ	QRESULT
+	MOVL	SAMPLE,QRESULT
+	ADDL3	#CTP_DB_Q_STTOT,R7,-(SP)	; Result
+	ADDL3	#CTP_DB_Q_STTOT,R7,-(SP)	; Current tot
+	PUSHAL	QRESULT     			; Current sample
+	CALLS	#3,G^LIB$ADDX
+	BLBS	R0,430$
+
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPMATH,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+        RET
+430$:
+; Add sample and time  to tables
+	MOVL	CTP_DB_L_TBLPNT(R7),R1
+	ADDL3	#CTP_DB_TQ_TIMTBL,R7,R2
+	ADDL3	#CTP_DB_TL_SAMTBL,R7,R3
+        MOVQ	EXE$GQ_SYSTIME,(R2)[R1]
+	MOVL	SAMPLE,(R3)[R1]
+	INCL	CTP_DB_L_STCNT(R7) 		; Another
+	CMPL	#CTP_DB_C_MAXTBL,CTP_DB_L_STCNT(R7)   
+	BGTR	435$
+	MOVL	#CTP_DB_C_MAXTBL,CTP_DB_L_STCNT(R7)   
+435$:
+	INCL	CTP_DB_L_TBLPNT(R7) 		; Another
+	CMPL	#CTP_DB_C_MAXTBL,CTP_DB_L_TBLPNT(R7)   
+	BGTR	437$
+	CLRL	CTP_DB_L_STCNT(R7)   
+437$:
+; Get factor
+; get current average
+;	
+; R2 = Integer average
+; R3 = Remainder from divide
+; R4 = 32BIT Factor
+440$:
+	EDIV	CTP_DB_L_STCNT(R7),CTP_DB_Q_STTOT(R7),R2,R3   ; Average
+	MULL3	CTP_DB_L_STRNG(R7),R2,R4                      ; make %..
+	DIVL	#100,R4                                       ; ..
+; R4 is now the number representing the limits this counter may move in
+; Add this number to current average to get upper limit, subract it 
+; to get lower limit.
+	ADDL3	R2,R4,R1
+	CLRQ	FACTOR                                        ; Make quad
+	MOVL	R1,FACTOR                                     ; 
+;
+;MAX compare:
+	SUBL3	SAMPLE,FACTOR,R1
+	BGTR	460$
+
+	ADDL	R1,CTP_DB_L_STRNG(R7)		; Adjust range
+
+        CLRQ	QRESULT
+	MOVL	R1,QRESULT
+	PUSHAL	QRESULT				; Amount exceeded
+	PUSHL	#CTP_THR_M_STHI			; Bit to set
+	PUSHL	R6				; Return frame
+	CALLS	#3,G^CTP_ADD2RETURN		; Add this result
+	BLBS	R0,450$
+; ERR
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPADD2,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+        RET
+450$:
+;Min compare:
+	SUBL3	FACTOR,SAMPLE,R1
+	BGTR	460$
+
+	ADDL	R1,CTP_DB_L_STRNG(R7)		; Adjust range
+
+        CLRQ	QRESULT
+	MOVL	R1,QRESULT
+	PUSHAL	QRESULT				; Amount exceeded
+	PUSHL	#CTP_THR_M_STLO			; Bit to set
+	PUSHL	R6				; Return frame
+	CALLS	#3,G^CTP_ADD2RETURN		; Add this result
+	BLBS	R0,460$
+; ERR
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPADD2,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+        RET
+460$:
+
+500$:
+; Final status
+	MOVL	#SS$_NORMAL,CTP_CFM_L_STATUS(R6)	; Assume OK
+	TSTL	CTP_CFM_L_THREAS(R6)		; Any bits set?
+	BEQL	550$				; Br if none
+	MOVL	#SS$_DATACHECK,CTP_CFM_L_STATUS(R6)	; Alert
+	CMPL	#CTP_CFM_C_MINCNT,CTP_DB_L_STCNT(R7)	; Reached min yet?
+	BLEQ	550$
+	MOVL	#SS$_NODATA,CTP_CFM_L_STATUS(R6)	; No alert
+550$:
+	$UPDATE	RAB=CNTRPRCRAB
+	RET
+	
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CTP_DELETE 
+;++
+;3 CTP_DELETE
+;  Delete a counter record fromn the database. The counter record specified
+; by the CNTID in the call frame is deleted. 
+;4 Input
+;  .address of call frame
+;4 Output
+;  CNTPRC.DAT record is deleted
+;4 Returns
+;	SS$_NORMAL	Record deleted
+;	SS$_BADPARAM	CNTID was 0   
+;--
+	MOVL	4(AP),R6
+	TSTL	CTP_CFM_L_CNTID(R6)   
+	BNEQ	10$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+
+10$:
+	MOVAL	CNTRPRCREC,R7
+	MOVL	CTP_CFM_L_CNTID(R6),CTP_DB_L_CNTID(R7)	; Set key
+	$GET	RAB=CNTRPRCRAB
+	BLBS	R0,20$					; Must exist
+
+	MOVL	R0,R6
+	MOVL	#MSG_PRFMON_CTPREAD,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+        RET
+
+20$:
+	$DELETE	RAB=CNTRPRCRAB
+	BLBS	R0,30$
+        MOVL	R0,R6
+	MOVL	#MSG_PRFMON_CTPERASE,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+30$:
+        RET
+
+	.CALL_ENTRY	MAX_ARGS=4, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CTP_ADD2RETURN
+;++
+;3 CTP_ADD2RETURN
+; Routine to add severity factor and threashold exceeded bit(s) to 
+; return frame. This routine calculates 10% of the amount exceeded,
+; limits it to 100, and adds this to the current severity factor 
+; (a number representing the amount various threasholds were exceeded) 
+; and sets the bit corresponding to this particular threashold. 
+; Additionly this factor is returned in R1.
+;4 Input
+;	.address of CTP call frame
+;	.long bit mask of threahsold
+;	.LONG amount exceeded
+;4 Output
+;	Call frame is modified as follows:
+;		The bit mask specified is ANDed to THREAS field
+;		10% of the amount exceeded (limited to 100) 
+;		is added to the SEVERITY field.
+;	The calculated severity is returned in R1
+;4 Returns
+;	SS$_NORMAL
+;--
+	EDIV	#10,@12(AP),R1,R2
+	CMPL	#100,R1
+	BGEQ	10$
+	MOVL	#100,R1
+10$:
+	MOVL	4(AP),R6
+	ADDL	R1,CTP_CFM_L_SEVERITY(R6) 
+	BISL	8(AP),CTP_CFM_L_THREAS(R6) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+		
+	
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CTP_CREATE_REC
+;++
+;3 CTP_CREATE_REC
+; Routine to create a new counter processing record. The caller of the 
+; main routine specified a CNTID that does not yet exist.
+; Input
+;	.address of CTP call frame
+; Output
+;	Counter processing record
+; Return
+; Any return from RMS
+;--
+	MOVL	4(AP),R6
+	MOVAL	CNTRPRCREC,R7
+; Initalise record	
+        MOVC5	#0,#0,#0,#CTP_DB_C_RECSIZE,(R7) 	; Init rec
+	MOVL	CTP_CFM_L_CNTID(R6),CTP_DB_L_CNTID(R7)	; Write record
+	MOVW	#CTP_DB_C_RECSIZE,CNTRPRCRAB+RAB$W_RSZ
+	MOVW	#CTP_DB_C_RECSIZE,CNTRPRCRAB+RAB$W_USZ
+	MOVQ	EXE$GQ_SYSTIME,CTP_DB_Q_LASTIM(R7)      ; Store Time
+	MOVQ	CTP_CFM_Q_SAMPLE(R6),CTP_DB_Q_LASSAM(R7)      ; Store sam
+        $PUT	RAB=CNTRPRCRAB
+	RET
+
+ 
+	
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CTP_INITIALISE 
+;++
+;3 CTP_INITIALISE 
+;  Called if file is not open, usualy on 1st call to main routine.
+;  opens file (create if if doesn't exist)
+;--
+	PUSHAL	CONTROL_A  		; Control section return addresses
+	CALLS	#1, G^MAP_CONTROL	; Create and map control section
+	BLBS	R0,10$
+	RET
+10$:
+	$CREATE	FAB=CNTRPRCFAB
+	BLBS	R0,20$
+
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPOPEN,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+	RET
+20$:
+	$CONNECT RAB=CNTRPRCRAB
+	BLBS	R0,50$
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPOPEN,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+50$:
+	RET
+
+
+; Here on unhandled error
+	.SBTTL	EMU_CNTPRC_HANDLER ()
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_CNTPRC_HANDLER
+
+	MOVL	R0,R6
+        MOVL	#MSG_PRFMON_CTPEXIT,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+
+
+        $UNWIND_S       	; Unwind stack to previous caller
+        RET             	; Tell the caller
+        .END            						
+

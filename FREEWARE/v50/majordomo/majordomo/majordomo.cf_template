@@ -1,0 +1,107 @@
+$majordomo_debug = $ENV{'UCX$MAJORDOMO_DEBUG'} || 0;
+
+# $whereami -- What machine am I running on?
+$whereami = "foo.ACME.COM";
+
+# $whoami -- Who do users send requests to me as?
+$whoami = "Majordomo\@$whereami";
+
+#
+# $whoami_owner -- Who is the owner of the above, in case of problems?
+$whoami_owner = "Majordomo-Owner\@$whereami";
+
+# $homedir -- Where can I find my extra .pl files, like majordomo.pl?
+$homedir_vms = $ENV{'UCX$MAJORDOMO_HOME'} || die("No UCX\$MAJORDOMO_HOME logical");
+$homedir = VMS::Filespec::unixify($homedir_vms); 
+#
+# unixify leaves directory spec's with a closing "/" which the rest of Majordomo
+# doesn't expect. So truncate the closing "/".
+$homedir =~ s'/$'';
+
+# $listdir -- Where are the mailing lists?
+$listdir_vms = $ENV{'UCX$MAJORDOMO_LIST'} || die("No UCX\$MAJORDOMO_LIST logical");
+$listdir = VMS::Filespec::unixify($listdir_vms); 
+$listdir =~ s'/$'';
+
+# $digest_work_dir -- the parent directory for digest's queue area
+# Each list must have a subdirectory under this directory in order for
+# digest to work. E.G. The bblisa list would use:
+# 	/usr/local/mail/digest/bblisa
+# as its directory.
+$digest_work_dir_vms = $ENV{'UCX$MAJORDOMO_DIGEST'} || die("No UCX\$MAJORDOMO_DIGEST logical");
+$digest_work_dir = VMS::Filespec::unixify($digest_work_dir_vms); 
+$digest_work_dir =~ s'/$'';
+
+# $log -- Where do I write my log?
+$log = "$homedir/Log";
+
+# Majordomo will look for "get" and "index" files related to $list in
+# directory "$filedir/$list$filedir_suffix", so set $filedir and
+# $filedir_suffix appropriately.  For instance, to look in
+# /usr/local/mail/files/$list, use:
+#   $filedir = "/usr/local/mail/files";
+#   $filedir_suffix = "";		# empty string
+# or to look in $listdir/$list.archive, use:
+
+$filedir = "$listdir";
+$filedir_suffix = "-archive";
+
+# What command should I use to process an "index" request?
+# $index_command = "/bin/ls -lRL";
+$index_command = "DIRECTORY/SIZE/DATE [...]";
+
+# if you want the subject of the request to be included as part of the
+# subject of the reply (useful when automatically testing, or submitting
+# multiple command sets), set $return_subject to 1.
+$return_subject = 1;
+
+# If you are using majordomo at the -request address, set the
+# following variable to 1. This affects the welcome message that is
+# sent to a new subscriber as well as the help text that is generated.
+$majordomo_request = 0;
+
+# Set the umask for the process. Used to set default file status for
+# config file.
+umask(007);
+
+# the safe locations for archive directories. This should be defined as
+# a series of root anchored directory paths as will be used as prefixes
+# to the file names specified to the archive2.pl script.
+# @archive_dirs = ( "/spool/archive/bblisa", "/usr/spool/archive/firewalls" );
+@archive_dirs_vms = ();
+@archive_dirs = ();
+
+{
+local($i) = 0;
+local($tmp_archive_dir);
+local($archdir_vms) = $ENV{"UCX\$MAJORDOMO_ARCHIVE;$i"} || die("No UCX\$MAJORDOMO_ARCHIVE logical");
+while ($archdir_vms)
+  {
+  push(@archive_dirs_vms, $archdir_vms);
+  $tmp_archive_dir = VMS::Filespec::unixify($archdir_vms);
+  $tmp_archive_dir =~ s'/$'';
+  push(@archive_dirs, $tmp_archive_dir);
+  $i++;
+  $archdir_vms = $ENV{"UCX\$MAJORDOMO_ARCHIVE;$i"};
+  }
+}
+
+
+# Set this to 1 if you want to use the experimental mechanism for allowing
+# / in user names. People with lots of X.400 addresses on their lists or
+# HP mail whatever may want to set this. However use it at your own risk.
+$analyze_slash_in_address = 0;
+
+#
+# these tune the experimental matching that is done for addresses with / in
+# them. If you haven't turned on the experimental analyze_slash_in_address
+# they are ignored. See the source for full explanation of these variables.
+#
+# if set to 1 ignore the requirement that addresses have an @ sign in the
+# address component after the last /.
+$no_x400at=0;
+# if set to 1 do not look for "/c=" and "/ad=" or "/am=" in the address.
+# X.400 seems to require these components.
+$no_true_x400=0;
+
+1;

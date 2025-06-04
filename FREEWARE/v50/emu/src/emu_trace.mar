@@ -1,0 +1,894 @@
+ 	.TITLE	EMU_TRACE  
+	.IDENT /V05-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 EMU_TRACE  
+; Enable tracing of specified data frames as they are passed through
+; the running system.
+; A process supporting trace will, when enabled,
+; write the selected frames to a mailbox this process reads. The frames
+; are formatted and displayed in 'real' time.
+;2 Format
+; Trace records have common format:
+;	Record type	.long
+;	event code	.long
+;	Sending process .quad	(.ascic name of process)
+;	data		up to 104 bytes as dictated by the record type
+;2 Supporting_processes
+; Currently the LISTENER supports tracing of EBUFFS.
+; When enabled, the listener reports all EBUFF activity:
+; Any frame read from ethernet.
+; Any frame qued to PSR
+; Any frame qued to Ethernet
+; RELATER supports received relater frames
+;3 EBUFFS
+; In addition to the standard trace header each EBUFF is displayed 
+; as follows:
+; (IPC header)     Target flags, Return flags, Buffer number, param
+; (Ethernet header) Destination, Source, Protocol type
+;3 Relater_frames
+;  The relater header and all targets are displayed.
+;--
+; Modifications:
+; 5-1	Sep 1996	PB	Create
+; 
+
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+;	.library	/lib$:macrolib.mlb/
+	.LIBRARY        /EMU5_lib:EMU5.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$SSDEF
+        $TRMDEF         ; Terminal Modifiers
+        $DSCDEF         ; Declare DSC sysmbols
+        $SMGDEF         ; Declare SMG symbols
+	EMUCTRLDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCNTDEF
+	EMUPSRDEF
+	EMURLTDEF
+;
+
+	.psect	listen_sec,wrt,noexe,pic,shr,page
+
+CONTROL_A:	.QUAD	0
+TRCIOSB:	.QUAD	0
+; LOG File
+TRACEFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = SEQ,-			; Keyed file (Finally)
+		MRS = 132,-                       ; Largest rec
+		DNM = <EMU5_LOG:TRACE.LOG>,-	; Default Filename 
+		FNM = <TRACE>			; Filename 
+
+TRACERAB:	$RAB	FAB = TRACEFAB		; pointer to FAB
+
+
+;
+; 
+; Read LISNMBX call frame
+	.ALIGN LONG
+READTRC:	.LONG	12				; Arg counter
+		.LONG	0				; Event number
+TRCCHAN:	.LONG	0				; Channel
+       		.LONG	<IO$_READVBLK>			; Function
+       		.LONG   TRCIOSB				; IO Status block
+       		.LONG	0				; AST Routine
+		.LONG	0				; AST Param
+	       	.LONG	TRCMBX				; P1
+TRCMBXLEN:	.LONG	MAXTRCMBXLEN				; P2
+       		.LONG	0				; P3
+       		.LONG	0				; P4
+       		.LONG	0				; P5
+       		.LONG	0				; P6
+TRCMBX:        			
+	.BLKB	512
+MAXTRCMBXLEN = .-TRCMBX
+
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 40
+VD_COLS: 	.LONG 132
+;
+; Optional Display Characteristics
+;
+CHOICE:		.WORD
+BYTCNT:		.WORD		; Input Byte counter
+	.align	long
+SAVE_DISP:	.LONG	0		; Saved char
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 2
+W3:    		.LONG 3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+UPCASE:		.LONG	TRM$M_TM_CVTLOW 	;Convert lower to upper case
+DELITM:		.LONG	SMG$M_REMOVE_ITEM       ; Remove selected item from menu
+RESET_CURSOR:	.LONG	<SMG$M_CURSOR_ON!SMG$M_SCROLL_SMOOTH>
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+; Misc SMG ...
+	.ALIGN	LONG
+CMDCOL:		.LONG	1
+CMDROW:		.LONG	1
+twenty_four:	.long	24
+desc4_l:	.long	4
+desc4_a:	.long	0
+desc6_l:	.long	6
+desc6_a:	.long	0
+control_w:	.long	23
+control_z:	.long	26
+oob_b_mask:	.long	^x4800000
+exit_requested:	.long	0
+
+pb_flags:	.long	 smg$m_workstation
+zero:		.long	0
+got_cntl_lck:	.long	0
+
+
+ttcdata:	.quad	0		; characteristics to chg
+page_len:	.long	35
+term_wid:	.long	80
+lock_id:	.long	0   
+;Menu Display Characteristics
+;
+M_DCS:		.WORD	14                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+MADDR:		.ADDRESS M_LIST             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+MSIZE:		.LONG   0		    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+
+M_LIST:		.ASCII	/EBUFFS        /
+		.ASCII	/Relater       /
+M_LIST_SIZE = .-M_LIST	
+
+
+
+	.ALIGN	LONG
+EXIT_BLOCK:	.LONG	0
+		.ADDRESS EMU_TRACE_EXIT_HDLR   
+		.LONG	1
+		.ADDRESS EXIT_STATUS
+EXIT_STATUS:	.LONG	0
+;
+; Error messages
+;
+
+ADDRBUF:	.BLKB	132
+ADDRDESC:	.LONG	.-ADDRBUF
+		.ADDRESS  ADDRBUF
+FAOBUF:		.BLKB	132
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+FAOLIST:	.BLKB	128
+; Messages
+HEAD1:		.ASCID	/CCCI Ltd 1993          Trace Display/
+controller_shutdown:	.ascid	/ENM Control Process shutdown/
+PROMPT:		.ASCID	/YEAM> /
+not_started:	.ascid	/EMU processes not currently running/
+FMTERR:		.ASCID	\Input data format error\
+TRCHEADSTR:	.ASCID	\!%T Type = !UL, Event = !AC From !AC \
+TRCIPCHEAD:	.ASCID	/Tflg = !XL, RFLG = !XL, Buffno = !UL, PARAM = !UL/
+TRCETHHEAD:	.ASCID	/DST= !XB-!XB-!XB-!XB-!XB-!XB, SRC = !XB-!XB-!XB-!XB-!XB-!XB, TYP = !XB-!XB-!XB-!XB-!XB/
+TRCRLTHEAD:	.ASCID	/Boxid = !UL, Sender = !XL, Message = !UL, Targets = !UL/
+TRCRLTTGT:	.ASCID	/Target = !XL, Len = !UL, Addr = !AS/
+PSRHDR1:	.ASCID	/ !30<Flags = !XL!>!30<Boxid = !UL!>!30<Ptybits = !XL!>!30<Control - !XL!>/
+PSRHDR2:	.ASCID	/ !30<Last=!%D!>!30<FST=!%D!>!30<ALT=!%D!>/
+PSRHDR3:	.ASCID	/ !30<Status = !XL!>!30<Accesses = !UL!>!30<Len = !UL!>!30<HowSet = !XL!>/
+PSRHDR4:	.ASCID	/ !30<Current readers = !UL!>!30<Current Writers = !UL!>/
+SEPERATOR:	.ASCID	\!/%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\
+SEP_LEN = .-SEPERATOR
+XLTERR:		.ASCII	\ %% Translation error %%\
+XLTERR_LEN = .-XLTERR
+EVTTBL:
+	.ADDRESS EVT0
+	.ADDRESS EVT1
+	.ADDRESS EVT2
+	.ADDRESS EVT3
+	.ADDRESS EVT4
+	.ADDRESS EVT5
+EVT0:	.ASCIC	/Invalid       /
+EVT1:	.ASCIC	/Enet Read     /
+EVT2:	.ASCIC	/Enet Que      /
+EVT3:	.ASCIC	/PSR Que       /
+EVT4:	.ASCIC	/Relater Frame /
+EVT5:	.ASCIC	/PSR Header    /
+
+TRCLOGNAM:		.ASCID	/TRCMBX/
+ 
+	.PSECT	EMU_TRACE_C,NOWRT,EXE,SHR,PIC,LONG
+	.sbttl	listen ()
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_TRACE
+
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BSBW	ERROR_CHK		; 
+
+; Map section
+	PUSHAL	CONTROL_A
+	CALLS	#1,G^MAP_CONTROL
+        BSBW	ERROR_CHK
+	BSBW	CREATE_ENVIRONMENT
+; Declare exit handler
+	$DCLEXH_S DESBLK=EXIT_BLOCK	; 
+	BSBW	ERROR_CHK		; 
+;
+; Display Menu
+;
+
+START:
+	MOVAL	M_LIST,MADDR
+	MOVL	#M_LIST_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,5$			; Assume any error = eof
+	ret
+5$:
+	CASEW	CHOICE,#1,#1
+10$:
+	.WORD	11$-10$
+	.WORD	12$-10$
+	RET
+11$:
+; Set EBUFF trace flag - signals to supporting processes to send buffs
+	MOVL	CONTROL_A,R1
+	BISL	#TRC_ETH_M_ENA,CTL_TRC_L_ENAFLG(R1)
+        BRB	100$
+12$:
+	MOVL	CONTROL_A,R1
+	BISL	#TRC_RLT_M_ENA,CTL_TRC_L_ENAFLG(R1)
+        BRB	100$
+
+100$:
+; Create trace mailbox
+	PUSHAL	TRCLOGNAM       ; Logical Name
+	CLRL	-(SP)		; Access Mode
+	CLRL	-(SP)		; Protection Mask
+	PUSHL	#4096		; Buff Quota (~8 messages)
+	PUSHL	#512		; Max Message Size
+	PUSHAL	TRCCHAN		; I/O Channel
+	PUSHL	#0		; Temp Mailbox
+	CALLS	#7,SYS$CREMBX	; Create Mailbox
+	BSBW	ERROR_CHK       ; Fatal
+
+MAIN:
+	$QIOW_G	READTRC
+	BSBW	ERROR_CHK
+	MOVAL	TRCMBX,R6
+        CASEL   (R6),#1,#2		; Select routine to write trace rec
+150$:
+        .WORD   1000$-150$       ; Ethernet heads
+        .WORD   2000$-150$
+        .WORD   3000$-150$
+; Display error on screen and ignore this rec
+        BRW	MAIN
+1000$:				; Ethernet buffs
+; This is the 1st (of possible series) of recs for this event.
+; Write a seperator line to keep the file (somewhat) readable.
+	MOVL	#132,FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	SEPERATOR
+	CALLS	#3,G^SYS$FAO
+        MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	PUSHL	R6
+	CALLS	#1,G^TRCFMT_TRCHEAD	; Format trace header
+	BSBW	FMT_ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	ADDL3	#16,R6,-(SP)
+	CALLS	#1,G^TRCFMT_IPCHEAD	; Format IPC header
+	BSBW	FMT_ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	ADDL3	#40,R6,-(SP)
+	CALLS	#1,G^TRCFMT_ETHHEAD	; Format ETHERNET header
+	BSBW	FMT_ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	BRW	MAIN
+2000$:
+; Standard trace header
+	PUSHL	R6
+	CALLS	#1,G^TRCFMT_TRCHEAD	; Format trace header
+	BSBW	FMT_ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+; Relater frame header
+	PUSHL	R6
+	CALLS	#1,G^TRCFMT_RELHDR
+	BSBW	FMT_ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+; Each target
+	ADDL3	#TRC_HDR_C_SIZE,R6,R7		; Skip trace header
+	MOVL	RLT_FRM_L_TARGETS(R7),R3 	; Number of targets
+	ADDL	#RLT_FRM_C_1STTGT,R7		; 1st target
+	BEQL	2100$			; Br if none
+2010$:
+	PUSHL	R7
+	CALLS	#1,G^TRCFMT_RELTGT
+	BSBW	FMT_ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	MOVL	RLT_FRM_L_TGTLEN(R7),R4	; Len this target
+	ADDL	#8,R4			; Include header
+	ADDL	R4,R1			; add to Total frame len
+	ADDL	R4,R7			; Next target
+	SOBGTR	R3,2010$		; Loop for all
+2100$:
+      	BRW	MAIN
+
+3000$:
+; Standard trace header
+	PUSHL	R6
+	CALLS	#1,G^TRCFMT_TRCHEAD	; Format trace header
+	BSBW	FMT_ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+; PSR Header
+	ADDL	#16,R6
+	PUSHL	R6
+	CALLS	#1,G^TRCFMT_PSRHEAD	; Format **AND print** PSR header
+	BSBW	FMT_ERROR_CHK
+	BRW	MAIN
+4000$:
+	PUSHL	R6
+	CALLS	#1,G^TRCFMT_TRCHEAD	; Format trace header
+	BSBW	FMT_ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	ADDL3	#20,R6,-(SP)
+	CALLS	#1,G^TRCFMT_IPCHEAD	; Format IPC header
+	BSBW	FMT_ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	ADDL3	#44,R6,-(SP)
+	CALLS	#1,G^TRCFMT_ETHHEAD	; Format ETHERNET header
+	BSBW	FMT_ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	BRW	MAIN
+; Subroutines
+ERROR_CHK:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBC	R0,10$
+	RSB
+10$:
+	RET
+FMT_ERROR_CHK:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBC	R0,10$
+	RSB
+10$:
+	MOVAL	FMTERR,R1
+	BSBW	PRINT
+	RSB
+PRINT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		MOVL	R1,R2			; Save
+		PUSHL	R1
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+        	TSTW	TRACEFAB+FAB$W_IFI	; File open?
+                BNEQ	10$
+		RSB
+10$:
+	MOVZWL	(R2),TRACERAB+RAB$W_RSZ
+        MOVL	4(R2),TRACERAB+RAB$L_RBF
+	$PUT	RAB= TRACERAB
+	bsbw	error_chk
+	RSB
+
+
+
+
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TRCFMT_PSRHEAD   
+
+;++
+;2 TRCFMT_PSRHEAD   
+; Format standard PSR header
+;3 Input
+;  Address of PSR  record
+;3 Output
+;  Formatted PSR record header
+;3 Return
+;  None
+;3 PSR_Head_format
+;	FLAGS   	Flags 
+;	BOXID         	Unique device id
+;	PTYBITS       	Other protocols present
+;	SYSCTL       	System control flags (SYSDEF)
+;	LSTHRD       	Last time heard
+;	LSTALT       	Time last alert sent
+;	FSTHRD      	Time 1st heard
+;	STATUS      	Current status
+;	ACNT        	Count of access this rec
+;	LEN         	Len of data
+;	HOWSET      	How this addr found
+;	READLOCK    	Count of read accessors
+;	WRITELOCK   	Count of write accessors
+;-- 
+; Write a seperator line to keep the file (somewhat) readable.
+	MOVL	#132,FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	SEPERATOR
+	CALLS	#3,G^SYS$FAO
+        MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	4(AP),R6
+	MOVL	#132,FAODESC
+	PUSHL	R6
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRHDR1
+	CALLS	#4,G^SYS$FAOL
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+	ADDL3	#COM_HDR_Q_LSTALT,R6,-(SP)
+ 	ADDL3	#COM_HDR_Q_FSTHRD,R6,-(SP)
+ 	ADDL3	#COM_HDR_Q_LSTHRD,R6,-(SP)
+ 	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRHDR2
+	CALLS	#6,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+	ADDL3	#COM_HDR_L_STATUS,R6,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRHDR3
+	CALLS	#4,G^SYS$FAOL
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+	ADDL3	#COM_HDR_Q_LOCKFIELD,R6,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRHDR4
+	CALLS	#4,G^SYS$FAOL
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TRCFMT_TRCHEAD   
+
+;++
+;2 TRCFMT_TRCHEAD   
+; Format standard trace header
+;3 Input
+;  Address of trace record
+;3 Output
+;  Formatted trace record header
+;3 Return
+;  None
+;3 Trace_Head_format
+;  Record type	.long
+;  Event type	.long
+;  Sender	.quad  (.ascic of sending process name)
+;-- 
+
+	MOVL	#132,FAODESC
+	MOVL	4(AP),R6
+; Translate event type
+        MOVAL	EVTTBL,R9
+	MOVL	4(R6),R1
+	MOVL	(R9)[R1],R2
+;
+	ADDL3	#8,R6,-(SP)		; process name
+	PUSHL	R2			; event
+	PUSHL	(R6)                    ; type
+	CLRL	-(SP)			; Time
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	TRCHEADSTR
+	CALLS	#7,G^SYS$FAO
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TRCFMT_IPCHEAD
+;++
+;2 TRCFMT_IPCHEAD
+; Format standard IPC (Inter Process Communication) header
+;3 Inputs
+;  Addr of IPC buffer
+;3 Output
+; Formatted string
+;3 IPC_Header
+;  Target flags		.long
+;  Return flags 	.long
+;  Buffer Number        .long
+;  Paramater		.long
+;--
+	MOVL	#132,FAODESC
+	PUSHL	4(AP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	TRCIPCHEAD
+	CALLS	#4,G^SYS$FAOL
+	RET
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TRCFMT_ETHHEAD 
+;++
+;2 TRCFMT_ETHHEAD 
+; Format Ethernet header. This is in VMS format.
+;3 Inputs
+;  Address of VMS standard Ethernet header
+;3 Outputs
+;  Formatted header
+;3 VMS Standard header
+;  Destination		Ethernet address
+;  Source		Ethernet address
+;  Protocol Type	One of:
+;			  Ethernet type 2 (00-00-00-xx-xx)
+;			  IEEE	          (00-00-00-xx-xx)
+;			  SNAP		  (xx-xx-xx-xx-xx)
+;--
+
+
+        MOVL	4(AP),R6
+	MOVL	#132,FAODESC
+	MOVAL	FAOLIST,R7
+	MOVL	#17,R8		; Loop control
+10$:
+	MOVZBL	(R6)+,(R7)+	; Da, Sa, Ptypty
+	SOBGTR	R8,10$
+	PUSHAL	FAOLIST
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	TRCETHHEAD
+	CALLS	#4,G^SYS$FAOL
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TRCFMT_RELHDR   
+
+;++
+;2 TRCFMT_RELHDR   
+; Format standard relater frame header
+;3 Input
+;  Address of start of relater frame
+;3 Output
+;  Formatted relater header
+;3 Return
+;  None
+;3 Relater_Head_format
+;	BOXID		Sender's boxid
+;	SENDER		Sender's EMU PID
+;	MTYPE		Message type
+;	TARGETS		Number of address to follow
+;-- 
+        MOVL	4(AP),R6
+	ADDL	#TRC_HDR_C_DATA,R6	; SKip to data
+	ADDL	#RLT_FRM_L_BOXID,R6     ; Skip over que heads
+	MOVL	#132,FAODESC
+10$:
+	PUSHL	R6
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	TRCRLTHEAD
+	CALLS	#4,G^SYS$FAOL
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TRCFMT_RELTGT 
+;++
+;2 TRCFMT_RELTGT 
+; Format A single relater target entry.
+; This is a portion of the relater frame
+;3 Inputs
+;  Address of relater target
+;3 Outputs
+;  Formatted target
+;3 Target_format
+;	Target PID
+;	Address len
+;	Address
+;
+;--
+        MOVL	4(AP),R6
+; Translate addr
+	MOVL	#132,ADDRDESC
+	PUSHAL	ADDRDESC
+	ADDL3    #8,R6,-(SP)             ; Addr of data
+	PUSHL	4(R6)                   ; Len
+	PUSHL	(R6)      		; PID
+	CALLS	#4,G^XLATE_ADDR
+	BLBS	R0,10$
+; Can't translate addr - display hex
+	MOVL	#132,FAODESC
+	MOVAL	FAOLIST,R7
+	MOVQ	(R6),(R7)+   		; Target, len
+	MOVL	4(R6),R8		; Loop control
+	MOVL	4(R6),(R7)+		; Number of params to follow
+	ADDL	#8,R6
+	MOVZBL	(R6)+,(R7)+	; Address
+	SOBGTR	R8,10$
+	PUSHAL	FAOLIST
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	TRCRLTTGT
+	CALLS	#4,G^SYS$FAOL
+	RET
+
+10$:	
+	MOVL	#132,FAODESC
+	PUSHAL	ADDRDESC		; Translated Addr
+	PUSHL	4(R6)			; Len
+	PUSHL	(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	TRCRLTTGT
+	CALLS	#6,G^SYS$FAO
+	RET
+
+
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+;
+; Create Virtual Display
+;
+CR_DISP:
+	CLRL	-(SP)
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	VD_COLS
+	PUSHAL	VD_ROWS
+	CLRL	-(SP)
+	PUSHAL	PB_BOARD
+	CALLS	#4,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	PB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BSBW	ERROR_CHK
+
+	PUSHAL	VD_ROWS
+	CLRL	-(SP)
+	PUSHAL	VD_COLS	
+	PUSHAL	PB_BOARD
+	CALLS	#4, G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BSBW	ERROR_CHK
+
+;
+; Enable Unsolocited Input
+;
+	PUSHAL	TRACE_GET_INPUT                        ; AST Routine
+	PUSHAL	PB_BOARD                         ; PB ID
+	CALLS	#2,G^SMG$ENABLE_UNSOLICITED_INPUT
+	BSBW	ERROR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk		;
+
+;	clrl	-(sp)			;
+;	pushal	g^emu_trace_oob_ast	;
+;	pushal	oob_b_mask		;
+;	pushal	pb_board		;
+;	calls	#4, g^smg$set_out_of_band_asts
+;	bsbw	error_chk		;
+
+	RSB
+
+	.SBTTL	EMU_TRACE_EXIT_HDLR
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TRACE_GET_INPUT
+;++
+;2 TRACE_GET_INPUT
+; Unsolicited input is enabled and when received this routine is run.
+; Allows for controlling logging of messages and exit only.
+;2 Logging
+; When logging is enabled, formatted trace records are written to
+; EMU5_LOG:TRACE.LOG
+; Each time tracing is enabled, a new file is opened.
+;  
+	PUSHAL	CMDCOL			; Column (1)
+	PUSHAL	CMDROW			; Row (1)
+	PUSHAL	VD_DISP
+	CALLS	#3,G^SMG$SET_CURSOR_ABS
+	PUSHAL	VD_DISP                 ; Output display
+	CLRL	-(SP)                   ; Blank 
+	PUSHAL	BYTCNT                  ; Bytes to display
+	CLRL	-(SP)                   ; Blank 
+	CLRL	-(SP)                   ; Blank 
+	PUSHAL	UPCASE                  ; Make input UPCASE 
+	CLRL	-(SP)                   ; Blank 
+	PUSHAL	PROMPT                      ; Output DSC
+	PUSHAL	KB_DES                  ; Input buf
+	PUSHAL	KB_BOARD                ; Input ID
+	CALLS	#10,G^SMG$READ_STRING
+	BLBS	R0,10$
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+
+	PUSHAL	SAVE_DISP	
+	PUSHAL  PB_BOARD
+	CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+	MOVL	#SS$_NORMAL,R0
+	RET					; EXIT
+10$:
+	TSTW	BYTCNT
+	BNEQ	20$
+	RET
+20$:
+; Check if log file open. If so close it. If not open it.
+        TSTW	TRACEFAB+FAB$W_IFI	; File open?
+	BNEQU	30$			; Br if open
+	$CREATE	FAB = TRACEFAB 		; Open file
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = TRACERAB		;Connect input stream
+	BSBW	ERROR_CHK
+        RET
+30$:
+	$CLOSE	FAB = TRACEFAB 
+	RET
+	
+
+
+
+	.SBTTL	EMU_TRACE_EXIT_HDLR
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_TRACE_EXIT_HDLR 
+
+; Disable all tracing
+
+	MOVL	CONTROL_A,R1
+	CLRL	CTL_TRC_L_ENAFLG(R1)
+	pushal	twenty_four
+	pushal	vd_disp
+	calls	#2, g^smg$set_cursor_abs
+
+	pushal	reset_cursor
+	pushal	pb_board
+	calls	#2, g^smg$set_cursor_mode
+
+
+90$:	movl	#1, r0
+	ret
+
+	.sbttl	emu_trace_oob_ast ()
+;	.entry	emu_trace_oob_ast, ^m<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,iv>
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_TRACE_OOB_AST
+
+	movl	4(ap), r2		; Structure address
+
+	cmpb	smg$b_character(r2), control_z
+	beql	10$
+	brw	50$
+
+10$:	movl	#1, exit_requested		; 
+
+50$:	cmpb	smg$b_character(r2), control_w
+	bneq	100$			;
+	pushal	pb_board		;
+	calls	#1, g^smg$repaint_screen
+	bsbw	error_chk		;
+
+100$:	movzwl	#ss$_normal, r0		; return good status
+	ret
+
+
+	.END	

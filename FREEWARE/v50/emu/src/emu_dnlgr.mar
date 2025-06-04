@@ -1,0 +1,338 @@
+	.TITLE	EMU_DNLGR	
+	.IDENT	/V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Programme to recieve DECnet IV events and pass them via MBX to processor. 
+
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY	/EMU5_LIB:MACROLIB.MLB/
+	.LIBRARY        /EMU5_LIB:EMU5.MLB/
+
+	$DIBDEF				; 
+        $IODEF                          ; define i/o functions and modifiers
+	$LCKDEF
+	$NFBDEF
+        $NMADEF                         ; define network management parameters
+	$SECDEF				; global section 
+	$PRTDEF				; protection codes
+	$PRCDEF
+	$PSLDEF
+	$PQLDEF
+	$SSDEF				; 
+
+
+	.PSECT	RW_DATA, NOEXE, RD, WRT, LONG, PIC, NOSHR	;Read/Write data
+FAO_STR_LEN = 1024
+FAO_STRL:	.LONG	FAO_STR_LEN	; fao descriptor length
+FAO_STRA:	.ADDRESS FAO_STR	; fao descriptor address
+FAO_STR:	.BLKB	FAO_STR_LEN
+
+NCBDESC:	.LONG	100		; Network control block desc
+		.ADDRESS NCB		;
+NCB:		.BLKB	100		; Network control block
+NFBDESC:	.LONG	5		; Network function block desc
+		.ADDRESS NFB		;
+NFB:		.BYTE	NFB$C_DECLNAME	; Network function block
+		.LONG	0		;
+DNOBJNAME:	.ASCID	/EMUDNLGR/	; Declared name & desc
+DNCOMNAME:	.ASCID	/EMU5_SRC:EMU_DNLGR.COM/
+DNSPAWNPID:	.LONG	0
+DNSPAWNSTS:	.LONG	0
+
+MBXIOSB:	.QUAD
+EVLMSG:		.BLKB	240
+EVLMSG_LEN = .-EVLMSG
+
+; Argument list for PSRMSG write
+MBXWRITE:	.LONG	12				; Arg counter
+		.LONG	0				; Event number
+DNEVL_MBXCHAN:	.LONG	0				; Channel
+		.LONG	<IO$_WRITEVBLK!IO$M_NOW!IO$M_NORSWAIT>	; Function
+		.LONG	MBXIOSB				; IO Status block
+		.LONG	0				; AST Routine
+		.LONG	0				; AST Param
+		.LONG	EVLMSG				; P1
+MBXMSG_LEN:  	.LONG	0				; P2
+		.LONG	0				; P3
+		.LONG	0				; P4
+		.LONG	0				; P5
+		.LONG	0				; P6
+
+EVENT_MAXMSG_SIZE=240
+; Mailbox created to talk to DECNET event delivery _net device
+DNMBX_CHAN:		.LONG	0
+DNMBX_IOSB:		.QUAD	0
+DNMBX_MSGBUF:		.BLKB	EVENT_MAXMSG_SIZE
+DNMBX_MAXMSG:		.LONG	EVENT_MAXMSG_SIZE
+DNMBX_BUFQUO:		.LONG	<EVENT_MAXMSG_SIZE*10>
+NET_DEVICE_CHAN:	.LONG	0
+NET_IOSB:		.QUAD	0
+STR_DESC:		.LONG	0
+STR_ADR:		.LONG	0
+
+CREPRC_SYSUIC:	.LONG	^X010004		; [1,4]
+CREPRC_QUOTA:	.BYTE	PQL$_ASTLM
+		.LONG	100
+		.BYTE	PQL$_BIOLM
+		.LONG	50000
+		.BYTE	PQL$_BYTLM
+		.LONG	1000000
+		.BYTE	PQL$_DIOLM
+		.LONG	100
+		.BYTE	PQL$_ENQLM
+		.LONG	100
+		.BYTE	PQL$_FILLM
+		.LONG	100
+		.BYTE	PQL$_PGFLQUOTA
+		.LONG	80000
+		.BYTE	PQL$_TQELM
+		.LONG	100
+		.BYTE	PQL$_WSDEFAULT
+		.LONG	2048
+		.BYTE	PQL$_WSEXTENT
+		.LONG	8096
+		.BYTE	PQL$_WSQUOTA
+		.LONG	4096
+		.BYTE	PQL$_LISTEND
+
+CREPRC_PRIVS:	.LONG	-1
+		.LONG	-1
+CREPRC_ERROR:	.ASCID	/EMU5_LOG:EMU_DNLGR.ERR/
+CREPRC_OUTPUT:	.ASCID	/NLA0:/
+CREPRC_INPUT:	.ASCID	/NLA0:/
+LOGINOUT:	.ASCID	/SYS$SYSTEM:LOGINOUT.EXE/
+
+
+	.PSECT	RD_DATA, NOEXE, RD, NOWRT, LONG, PIC, SHR	;Read Only data
+DNMBX_LOGNAM:		.ASCID	/EMU_DNLGRMBX/
+NET_DEVICE:		.ASCID	/_NET:/		; Pseudo-device and descripitor
+EVLMBX:			.ASCID	/EVLMBX/
+
+	.PSECT	PROG_CODE, RD, NOWRT, EXE, PIC, SHR, LONG
+
+	.SBTTL	EMU_DNLGR ()
+	DECLARE	EMU_DNLGR <>
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_DNLGR
+
+; Ensure death if control process dies
+	CALLS	#0, G^GET_CONTROL_LOCK	; 
+	BSBW	ERROR_CHK		; 
+
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BSBW	ERROR_CHK		; 
+
+; Create MBX to pass info to EMU_DNEVL
+20$:	PUSHAL	EVLMBX		; Logical Name
+	CLRL	-(SP)		; Access Mode
+	CLRL	-(SP)		; Protection Mask
+	PUSHL	#1984		; Buff Quota
+	PUSHL	#240		; Max Message Size
+	PUSHAL	DNEVL_MBXCHAN	; I/O Channel
+	CLRL	-(SP)		; TEMP Mailbox
+	CALLS	#7,SYS$CREMBX	; Create Mailbox
+	BSBW	ERROR_CHK       ; fatal
+
+; Create a temporary mbx with the logical name EMU_DNLGRMBX
+	$CREMBX_S -
+		CHAN=DNMBX_CHAN,-	; Adr of word to put mbx chan
+		MAXMSG=DNMBX_MAXMSG,-	; Adr of lw with max msg size
+		BUFQUO=DNMBX_BUFQUO,-	; Adr of lw with buf quota
+		LOGNAM=DNMBX_LOGNAM	; Adr of desc of mbx lognam
+	BSBW	ERROR_CHK       ; Fatal
+
+; Assign a channel to a NET device and associate the mailbox with it.
+	$ASSIGN_S -
+		DEVNAM=NET_DEVICE,-	; Adr of desc of NET device
+		CHAN=NET_DEVICE_CHAN,-	; Adr of word to put chan num
+		MBXNAM=DNMBX_LOGNAM	; Adr of desc of mbx log name
+	BSBW	ERROR_CHK       ; Fatal
+
+; Declare a network name
+	$QIOW_S CHAN=NET_DEVICE_CHAN,-	; Use assigned channel
+		FUNC=#IO$_ACPCONTROL,-	; ACP QIO
+		IOSB=NET_IOSB,-		; Adr of I/O status block
+		P1=NFBDESC,-		; Adr of NFB desc
+		P2=#DNOBJNAME		; Adr of declared name desc
+	BSBW	ERROR_CHK       ; Fatal
+; Pre read Mailbox
+	BSBW	READ_MBX
+
+	CLRL	-(SP)		; status flags
+	CLRL	-(SP)		; termination mbx
+	PUSHL	CREPRC_SYSUIC	; uic
+	PUSHL	#4		; priority
+	CLRL	-(SP)		; process name
+	PUSHAL	CREPRC_QUOTA	; quotas
+	PUSHAQ	CREPRC_PRIVS	; all
+	PUSHAL	CREPRC_ERROR	; 
+	PUSHAL	CREPRC_OUTPUT	; 
+	PUSHAL	DNCOMNAME	; 
+	PUSHAL	LOGINOUT	; image name
+	PUSHAL	DNSPAWNPID	; Update records pid 
+	CALLS	#12, G^SYS$CREPRC
+	BSBW	ERROR_CHK	; 
+
+	$HIBER_S
+	MOVL	#1, R0
+	RET
+
+
+	.SBTTL	DNMBX_AST ()
+	DECLARE	DNMBX_AST <>
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DNMBX_AST
+
+; RELABEL-OFF (Stop relabeling program screwing up case statement
+
+; Ast routine to examine the mbx msg code and determine the app action.
+	MOVZWL	DNMBX_IOSB, R0		; Get async I/O completion status
+	MOVL	#1, R11
+	BLBS	R0, 10$			; Error  ?
+	$EXIT_S	R0			; Network died
+
+10$:	CASEB	DNMBX_MSGBUF, #MSG$_ABORT, #MSG$_NETSHUT-MSG$_ABORT
+50$:	.WORD	110$-50$	; abort
+	.WORD	130$-50$	; confirm
+	.WORD	90$-50$		; connect
+	.WORD	110$-50$	; discon
+	.WORD	110$-50$	; exit
+	.WORD	130$-50$	; intmsg
+	.WORD	110$-50$	; pathlost
+	.WORD	110$-50$	; protocol
+	.WORD	130$-50$	; reject
+	.WORD	110$-50$	; thirdparty
+	.WORD	110$-50$	; timeout
+	.WORD	120$-50$	; netshut
+; FALL THROUGH ON MBX MSG OUT OF RANGE. UNKNOWN MBX MSG ENCOUNTERED.
+	CMPB	DNMBX_MSGBUF, #MSG$_TRMUNSOLIC
+	BEQL	60$		; 
+	MOVL	#2, R11
+	$EXIT_S	R0
+
+60$:	MOVAL	DNMBX_IOSB, R2		; 
+	MOVQ	(R2), R0		; Get the i/o completion status
+	BLBS	R0, 80$			; no error
+
+70$:	INSV	#STS$K_INFO, #STS$V_SEVERITY, #3, R0
+	PUSHL	R0			;
+	CALLS	#1, G^LIB$SIGNAL	; 	
+	MOVL	#1, R0			; 
+	RET
+
+; Msg is received 
+80$:	MOVZWL	2(R2), STR_DESC		; Get the i/o length read
+	MOVAL	DNMBX_MSGBUF, STR_DESC+4 ;
+
+;	MOVL	#FAO_STR_LEN, FAO_STRL	; max fao descriptor length
+;	PUSHAL	FAO_STRL		; fao descriptor address
+;	PUSHAL	FAO_STRL		; fao descriptor address
+;	PUSHAL	STR_DESC		; string descriptor
+;	CALLS	#3, G^REPLACE_NONPRINTABLE
+;	BSBW	ERROR_CHK		; 
+
+
+	BSBW	WRITE_MBX		; 
+
+	BRW	100$			; Issue read
+
+; connect:	
+90$:	BSBW	CONNECT_ACCEPT	; Go accept the connect request
+
+100$:	BSBW	READ_MBX	; Requeue the mbx read AST
+	RET			; return control to main program
+
+; discon:,abort:,exit:,pathlost:,protocol:,thirdparty:,timeout:, Netshut:
+110$:
+120$:	$EXIT_S	#SS$_SHUT	;
+	$WAKE_S			; The network is shutting down
+	RET			; wake the main program so that
+				; it will exit
+; IGNORE INTERRUPT MESSAGES FOR THIS EXAMPLE
+; intmsg:,reject:,confirm:
+130$:	BSBW	READ_MBX	; requeue the mbx read ast
+; RELABEL-ON (RESTART RELABELING PROGRAM AFTER CASE STATEMENT
+	RET			; return control to main prog
+
+
+; Subroutine to accept the connect request and add the channel and unit
+	.SBTTL	CONNECT_ACCEPT
+CONNECT_ACCEPT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+;	MOVAB	DNMBX_MSGBUF+4, R9	; Get adr of dev name count
+;	MOVZBL	(R9)+, R8		; get byte count of dev name str
+;	ADDL2	R8,R9			; skip over the string
+;	MOVZBL	(R9)+, R8		; Get byte count of info string
+;	MOVC3	R8, (R9), NCB		; Put the NCB in adr NCB
+;	MOVL	R8, NCBDESC		; update the NCB desc
+
+	$ASSIGN_S -
+		DEVNAM=NET_DEVICE,-	; Adr of NET desc
+		CHAN=DNMBX_CHAN,-	; Chan num
+		MBXNAM=DNMBX_LOGNAM	; Assoc mbx with new network dev
+	BSBW	ERROR_CHK
+
+1000$:	$QIOW_S	CHAN=DNMBX_CHAN,-	; Use assigned channel
+		FUNC=#IO$_ACCESS,-	; Req a log link
+		IOSB=DNMBX_IOSB,-	; Adr of I/O status block
+		P2=#NCBDESC		; Adr of NCB desc
+	BSBW	ERROR_CHK
+
+1100$:	MOVZWL	DNMBX_IOSB, R0		; Get i/o comp status
+	BSBW	ERROR_CHK
+1200$:	RSB
+
+
+; Subroutines to issue an async read to the mbx with an AST
+	.SBTTL	READ_MBX
+READ_MBX:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	$QIO_S	CHAN=DNMBX_CHAN,-	; Use assigned mbx chan
+		FUNC=#IO$_READVBLK,-	; Read virt block
+		IOSB=DNMBX_IOSB,-	; Adr of i/o status block
+		ASTADR=DNMBX_AST,-	; Adr of Ast routine
+		P1=DNMBX_MSGBUF,-	; Adr of i/p buffer
+		P2=DNMBX_MAXMSG	; length of input buffer
+	BLBS	R0, 100$		; error if lbc
+	$EXIT_S	R0			; Branch (failure)
+100$:	RSB
+
+	.SBTTL	WRITE_MBX
+WRITE_MBX:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	CLRQ	-(SP)			; 
+	CLRQ	-(SP)			; 
+	MOVZWL	STR_DESC, -(SP)		; Buffer length
+	PUSHL	STR_DESC+4		; Buffer address
+	CLRQ	-(SP)			; ast stuff 
+	PUSHAL	MBXIOSB			; 
+	PUSHL	#<IO$_WRITEVBLK!IO$M_NOW!IO$M_NORSWAIT>
+	PUSHL	DNEVL_MBXCHAN		; 
+	CLRL	-(SP)			;
+	CALLS	#12, G^SYS$QIOW		; 
+	BLBS	R0, 100$		; error if lbc
+	$EXIT_S	R0			; Branch (failure)
+
+100$:	RSB
+
+
+	.SBTTL	ERROR_CHK
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBC	R0,10$
+	RSB
+10$:	$EXIT_S	R0			; Branch (failure)
+
+	.END  EMU_DNLGR

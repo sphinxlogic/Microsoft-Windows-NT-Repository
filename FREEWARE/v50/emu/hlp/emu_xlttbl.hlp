@@ -1,0 +1,161 @@
+1 EMU_XLTTBL   
+ Collection of routines used to implement the translation table subsystem.
+2 EMU_XLTTBL
+	Main entry point for the user into the XLTTBL routines.
+	The file indicated by the call is:
+		Opened in the editor
+		Upon exit:
+			New file always created. User may:
+			Keep new file delete prev version 
+			and compile new table.
+			OR
+			Delete current version.
+3 Input
+	.long	Choice. This is the menu item selected in EMU_UILIB
+		The menu in EMU_UILIB and case statement in this 
+		routine MUST stay in sync.
+	The selected *.ITXT file is edited
+3 Output
+	XLATE table files: 
+	The selected *.ITXT file is edited
+	If user selects to keep new version, the corresponding
+	*.XTB file is created. The -1 version of both files is 
+	deleted.
+	If user selects to not keep new version, the current
+	version of *.ITXT is deleted.
+3 Return
+	SS$_NORMAL	OK
+	Any return from:
+		$RMS
+2 XLTTBL_COMPILE
+	Called by EMU_XLTTBL, this routine compiles the selected
+	text input file to the corresponding binary translation
+	table used by the translation routines.
+3 Input
+	.long	Choice. This is the menu item selected in EMU_UILIB
+		The menu in EMU_UILIB and case statement in this 
+		routine MUST stay in sysnc.
+	The selected *.ITXT file is read only
+3 Output
+	The corresponding *.XTBL file is created.
+	On any error the current version is deleted. If successful
+	compile, the previous version is deleted.
+	All errors are logged to screen.
+
+3 Return
+	SS$_NORMAL	OK
+	Any return from:
+		$RMS
+3 Processing
+4 Netware SAP
+ Input is 4 byte hex string, 1 space, 1-68 byte translation string.
+ Converted to:
+ Hex string = .quad hex string in net byte order (byte reversed)
+	0003(ascii) = 0000000000000300 (hex)
+	Len of string is written as .long @ofs 12
+	String is written for lesser of (len or 68)
+4 MOP_Device
+ Input is  decimal number in range 1-255 , 1 space, 1-68 byte translation 
+ string.
+ Converted to:
+ Hex string = .quad integer
+	64(ascii) = 0000000000000040 (hex)
+	Len of string is written as .long @ofs 12
+	String is written for lesser of (len or 68)
+4 Ethernet protocol types
+ Input is 1,2 or 5 byte hex string, 1 space, 1-68 byte translation string.
+ Converted to:
+ Key len (Char) 	Byte 0 		       Remainder of quad
+ 4		 	 1		bytes 6,7 = bytes 12,13 of original
+ 2			 2		Byte 7 = DSAP (byte 12 of original
+ 10		  	 3		Bytes 3 - 7 = bytes 15 - 20 or original
+2 XLTTBL_DISP_ERROR  
+	Routine called whenever a compile process discovers an error
+	The error and line number it occured on is displayed and 
+	the user may decide to continue or not.
+
+3 Input
+	
+	None. R0 contains the error and other structures used
+	are assumed.
+3 Output
+3 Returns
+	SS$_CONTINUE	OK - Continue compile
+	SS$_ENDOFFILE	Compile stopped
+2 XLTTBL_PARSE_REC  
+ Routine to Parse an input rec and return to following info:
+	Len of key
+	Len and address of string
+  1. Any comment char are found and rec is limmited to processing
+     up to that point. If no rec is left all fields are returned with 
+     0 len
+  2. The seperating space is found. If not present error is returned.
+  3. The key len is written. Caller must check if valid
+  4. The string len and address is written.
+3 Input
+	
+	.address of desc pointing to rec
+3 Output
+ 	Input desc is overwritten with string len and address
+	If string len > 68 then string is truncated
+	PARSE_KEYL is written
+3 Returns
+	SS$_NORMAL	OK
+	SS$_FORMAT	; Could not find seperating space
+2 XLTTBL_VALIDATE_STRING   
+ Routine to validate that the input name contains only printable characters
+3 Input
+	.address of desc pointing to string
+3 Output
+ 	None
+3 Returns
+	SS$_NORMAL	OK
+	SS$_DATACHECK	Name contains unprintable characters
+2 XLTTBL_XLTSAP   
+ Routine to lookup the specified 2 byte code in the SAP translation
+ table and if found, return the translation.
+3 Input
+	.address of 2 byte Netware SAP (Network format)
+	.address of desc pointing to area to write translation to
+	Note: the max len of the output string is 68 bytes.
+3 Output
+ 	If found, the translation string is written to P2
+3 Returns
+	SS$_NORMAL		OK
+	SS$_BUFFEROVF		output buffer too small 
+	Any from $FAO	
+ Note: If translation is unavailable
+	the input SAP is converted to text and returned. Any underlying 
+	problem with files, sections etc are suppressed.
+2 XLTTBL_XLTPTY   
+ Routine to lookup the specified Ethernet protocol type in  translation
+ table and if found, return the translation.
+3 Input
+	.address of .quad ethernet protocol type (EMU format)
+	.address of desc pointing to area to write translation to
+	Note: the max len of the output string is 68 bytes.
+3 Output
+ 	If found, the translation string is written to P2
+	If not found, the input is translated and returned as string.
+3 Returns
+	SS$_NORMAL		OK
+	SS$_BUFFEROVF		output buffer too small 
+	SS$_FORMAT		Input is not in recognised EMU format
+	Any from $FAO	
+ Note: Any underlying  problem with files, sections etc are suppressed.
+2 XLTTBL_MOPDEV   
+ Routine to lookup the specified MOP device type in  translation
+ table and if found, return the translation.
+3 Input
+	.address of .byte MOP device type
+	.address of desc pointing to area to write translation to
+	Note: the max len of the output string is 68 bytes.
+3 Output
+ 	If found, the translation string is written to P2
+	If not found, the input is translated and returned as string.
+3 Returns
+	SS$_NORMAL		OK
+	SS$_BUFFEROVF		output buffer too small 
+	SS$_FORMAT		Input is not in recognised EMU format
+	Any from $FAO	
+ Note: Any underlying  problem with files, sections etc are suppressed.

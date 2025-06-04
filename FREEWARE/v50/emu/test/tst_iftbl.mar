@@ -1,0 +1,248 @@
+        .title  TST_IFTBL    
+        .ident  /V05-001/ 
+; TEST SNMP_GET_IFTBL in module EMU_SNMP                 
+
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUSNMPDEF
+	EMUCMIPDEF
+	$TRMDEF
+	$LCKDEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+FAOTBL:		.BLKL	16
+RETURN:		.BLKB	8196
+RETURN_D:	.LONG	.-RETURN
+		.ADDRESS  RETURN
+WAIT_INTERVAL:  .FLOAT  10               ; Time between Screen updates
+IFCNT:		.LONG	0
+ADDR:
+	.BYTE	165,47,4,115
+	.BYTE	165,47,4,116
+	.BYTE	165,47,4,117
+	.BYTE	165,47,4,118
+	.BYTE	165,47,4,119
+	.BYTE	165,47,4,120
+	.BYTE	165,47,4,121
+	.BYTE	165,47,4,122
+	.LONG	0
+;
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 40
+VD_COLS: 	.LONG 132
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+BYTCNT:		.WORD		; Input Byte counter
+; Misc SMG ...
+bold:		.long	smg$m_bold
+PROMPT:		.ASCII	/YEAM> /
+CMDCOL:		.LONG	1
+CMDROW:		.LONG	24
+STCOL:		.LONG	1
+STROW:		.LONG	3
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+TIMEOUT:	.LONG	15
+CHARCNT:	.LONG	15
+BLANK:		.ASCID	/      /
+CURCOL:		.LONG
+CURROW:		.LONG
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+reset_cursor:	.long	<smg$m_cursor_on!smg$m_scroll_smooth>
+
+FAOBUF:		.BLKB	256
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+; Control strings
+ERRSTR:		.ASCID	/!UB.!UB.!UB.!UB> Error = !XL/
+DATSTR:		.ASCID	/!15<!UL!>!12(11UL)/
+HDR:		.ASCID	/!15<!UB.!UB.!UB.!UB!>INOCTET  INUOCT  INUCASTP   INDISCAR    INERROR   INUNKPR  OUTOCTET   OUTUPKTS    OUTNUPK   OUTDISCA    OUTERRO   OUTQLEN/
+	
+
+
+
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=TST_IFTBL
+
+;
+	bsbw	create_environment
+
+	MOVAL	ADDR,R6
+10$:
+	TSTL	(R6)
+	BNEQ	20$
+        PUSHAL  WAIT_INTERVAL                  ; Wait
+        CALLS   #1,G^LIB$WAIT
+	PUSHAL	VD_DISP
+	CALLS   #1,G^SMG$ERASE_DISPLAY
+	MOVAL	ADDR,R6
+        BRB     10$
+20$:
+	PUSHL	#SNMP_IFT_C_COUNT
+	PUSHAL	IFCNT
+	PUSHAL	RETURN_D
+	PUSHL	R6
+	CALLS	#4,G^SNMP_GET_IFTBL
+	BLBS	R0,40$
+	MOVL	#256,FAODESC
+	PUSHL	R0
+	MOVZBL	3(R6),-(SP)
+	MOVZBL	2(R6),-(SP)
+	MOVZBL	1(R6),-(SP)
+	MOVZBL	(R6),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	ERRSTR
+	CALLS	#8,G^SYS$FAO
+	BSBW	ERROR_CHK
+	BSBW	PRINT
+30$:
+	ADDL	#4,R6
+	BRW	10$
+40$:
+	TSTL	IFCNT
+	BEQL	30$
+	MOVZBL	3(R6),-(SP)
+	MOVZBL	2(R6),-(SP)
+	MOVZBL	1(R6),-(SP)
+	MOVZBL	(R6),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	HDR
+	CALLS	#7,G^SYS$FAO
+	BSBW	ERROR_CHK
+	BSBW	PRINT
+	MOVAL	RETURN,R7
+	MOVAL	FAOTBL,R9
+	MOVL	R7,R8
+	MOVL	#13,R1
+50$:
+; pick longs from the returned quads
+        MOVL	(R8),(R9)+
+	ADDL	#8,R8
+	SOBGTR	R1,50$
+	MOVL	#256,FAODESC
+	PUSHAL	FAOTBL
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	DATSTR
+	CALLS	#4,G^SYS$FAOL
+	BSBW	ERROR_CHK
+	BSBW	PRINT
+	ADDL	#SNMP_IFT_C_CNTSIZ,R7
+	MOVL	R7,R8
+	MOVAL	FAOTBL,R9
+	MOVL	#13,R1
+	SOBGTR	IFCNT,50$
+	BRW	30$
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+PRINT2:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;		PUSHL	R1			; Addr of .ascid in R1
+;		PUSHAL	VD_DISP2
+;		CALLS	#2,G^SMG$PUT_LINE
+;		BSBW	ERROR_CHK
+		RSB
+
+
+
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+;
+; Create Virtual Display
+;
+CR_DISP:
+	CLRL	-(SP)
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Pasteboard
+;
+	pushal	vd_cols
+	pushal	vd_rows
+	clrl	-(sp)
+	pushal	pb_board
+	calls	#4,g^smg$create_pasteboard
+	bsbw	error_chk
+
+	pushal	vd_rows
+	clrl	-(sp)
+	pushal	vd_cols	
+	pushal	pb_board
+	calls	#4, g^smg$change_pbd_characteristics
+	bsbw	error_chk
+
+;
+; Enable Unsolocited Input
+;
+;	PUSHAL	GET_INPUT                        ; AST Routine
+;	PUSHAL	PB_BOARD                         ; PB ID
+;	CALLS	#2,G^SMG$ENABLE_UNSOLICITED_INPUT
+;	BSBW	ERROR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk		;
+
+;	clrl	-(sp)			;
+;	pushal	g^emu_disp_oob_ast	;
+;	pushal	oob_b_mask		;
+;	pushal	pb_board		;
+;	calls	#4, g^smg$set_out_of_band_asts
+;	bsbw	error_chk		;
+
+	RSB
+
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBS	R0,20$
+	RET
+20$:	RSB
+
+        .END	TST_IFTBL

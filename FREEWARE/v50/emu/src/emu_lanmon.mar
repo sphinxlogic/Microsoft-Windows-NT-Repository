@@ -1,0 +1,1837 @@
+        .title  EMU_LANMON    
+        .ident  /V01-001/                   
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications
+; 01-002	PB	Jun-1997	Removed LAN protocols and
+;					created EMU_LANMON to update
+;					LAN protocols faster.
+;++
+;1 EMU_LANMON
+; This routine polls the network using all implemented LAN protocols
+; to:
+;	Build the database
+;	Update the database
+;	Determine any param changes and alert
+; The data is gathered from the local system using the appropriate routines.
+;
+;--
+
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	$NMADEF
+	$LATDEF
+	EMUSNMPDEF
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUCNTDEF
+	EMUCMIPDEF
+	EMUDBDEF
+	EMUDN4DEF
+	EMUIPCDEF
+	EMUMOPDEF
+	EMUMSGDEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+RETURN:		.BLKB	8192
+RETURN_D:	
+RETLEN:		.LONG	.-RETURN
+		.ADDRESS  RETURN
+OLDP_BUFF:	.BLKB	768		; Returd old val here on change
+OLDP_DESC:	.LONG	.-OLDP_BUFF
+		.ADDRESS  OLDP_BUFF
+TEMPDESC:	.QUAD	0
+NAMEDESC:	.QUAD
+RESTIME:	.QUAD	0
+INTIME:         .QUAD	0
+INTLTIM:	.QUAD
+INTIM_D:	.LONG	16
+		.ADDRESS  INTIM
+INTIM:		.ASCII	/0000 00:00:10.00/      ; Wait interval
+
+
+ALERT_BUFF:	.BLKB	512
+
+       
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+INADDR:		.QUAD	0
+MIBSEC_A:	.QUAD	0
+TBLPARMS:	.QUAD	0
+MOPRET:		.BLKB	16
+MOPMAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP  
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+IPXMAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIPX  
+		.LONG	PSR_IPX_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPXDB
+		.ADDRESS EMU_PSRIPX
+
+SCSMAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRSCS
+		.LONG	PSR_SCS_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_SCSDB
+		.ADDRESS EMU_PSRSCS
+;
+;
+ETHMAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRETH
+		.LONG	PSR_ETH_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_ETHDB
+		.ADDRESS EMU_PSRETH
+;
+LATMAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRLAT
+		.LONG	PSR_LAT_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_LATDB
+		.ADDRESS EMU_PSRLAT
+;
+BRDMAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRBRD
+		.LONG	PSR_BRD_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_BRDDB
+		.ADDRESS EMU_PSRBRD
+
+CONTROL_A:	.QUAD	0
+PSRTBL_A:	.QUAD   0
+COUNTERS_A:	.QUAD	0
+
+CRCDESC:	.QUAD	0
+CRCINIT:	.LONG	0
+CRCPOLY:	.LONG  ^O120001
+CRCTBL:		.BLKL	16	
+WAIT_INTERVAL1:	.FLOAT	120.0		; 2 min initital wait
+WAIT_INTERVAL:	.FLOAT	10.0
+; Lock Names
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_IPXDB:	
+		.ASCID	\EMU_IPXDB\            ; Lock name
+EMU_BRDDB:	
+		.ASCID	\EMU_BRDDB\            ; Lock name
+EMU_SCSDB:	
+		.ASCID	\EMU_SCSDB\            ; Lock name
+EMU_LATDB:	
+		.ASCID	\EMU_LATDB\            ; Lock name
+EMU_ETHDB:	
+		.ASCID	\EMU_ETHDB\            ; Lock name
+; Section names
+EMU_PSRIPX:	
+		.ASCID	\EMU_PSRIPX\  		; Section name
+EMU_PSRMOP:	
+		.ASCID	\EMU_PSRMOP\  		; Section name
+EMU_PSRBRD:	
+		.ASCID	\EMU_PSRBRD\  		; Section name
+EMU_PSRSCS:	
+		.ASCID	\EMU_PSRSCS\  		; Section name
+EMU_PSRLAT:	
+		.ASCID	\EMU_PSRLAT\  		; Section name
+EMU_PSRETH:	
+		.ASCID	\EMU_PSRETH\  		; Section name
+
+EFLAGS1:		.ASCID	/EFLAGS1/	; Event Flag Cluster (64-95)
+EFLAGS2:		.ASCID	/EFLAGS2/	; Event Flag Cluster (96-127)
+	.align	long
+
+;
+HIORD:	    	.BYTE	^XAA,^X00,^X04,^X00
+CONTEXT:	.LONG
+WRITE_OPTS:	.LONG	<DB_OPT_M_RETURN!DB_OPT_M_SETUPD>	
+; temp - move to section
+PSRTBLCNT:	.LONG	0		; Count of psr table entries
+; Error Log
+
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/LANMON/
+; Routine names
+
+
+	.ALIGN	LONG
+EXIT_STATUS:	.LONG	0
+EXIT_BLOCK:	.LONG	0
+		.ADDRESS EMU_LANMON_EXIT
+		.LONG	1
+		.ADDRESS EXIT_STATUS
+KEY_BUF:
+PROTO:		.LONG
+BOXID:		.LONG
+TBL:		.LONG
+INSTANCE:	.LONG
+PARAM:		.LONG
+KEYSPR:		.LONG
+	.ALIGN	LONG
+MAPPERFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		FOP = CIF,-			; Create if doesn't exist
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <EMU5_DAT:PARAMTBL.DAT>,-	; Default Filename 
+		FNM = <MAPPER>,-			; Filename 
+		XAB = MAPPERXAB0                  ; Keys
+
+MAPPERRAB:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = MAPPERREC_BUF,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = MAPPERREC_BUF,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		KBF = MAPPER_KEY,-			; Key location
+		KSZ = 8
+
+MAPPERXAB0:	$XABKEY	REF = 0,-  		; TBL,PARAM
+		DTP = BN8,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+		NXT = MAPPERXAB1
+
+MAPPERXAB1:	$XABKEY	REF = 1,-  	; TBL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+;
+MAPPERREC_BUF:	
+MAPPER_KEY:
+MAPPER_TBL:		.LONG	0	; Table 
+MAPPER_PARAM:		.LONG	0	; Paramater
+			.BLKB	120	; Rest
+MAPPERREC_SIZE = .-MAPPERREC_BUF        ; = 128
+
+
+
+;
+; Misc
+	.ALIGN	LONG
+TMPBUF:		.BLKB	24
+CUROBJ:		.LONG	0
+COMSTRING:	.LONG	0		; Use only 'public' 
+CYCLCNT:	.LONG	0
+PCNT:		.LONG	0
+UPDFLG:		.LONG	0
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=EMU_LANMON
+
+
+; Ensure death if control process dies
+	calls	#0, g^get_control_lock	; 
+	BLBS	R0,10$
+        RET
+10$:
+; 
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	calls	#0, g^asn_tempmbx_system
+	BLBS	R0,20$
+        RET
+20$: 
+
+40$:
+;	
+; Create and Map to sections 
+;
+
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	BLBS	R0,50$
+
+        MOVL	#MSG_LANMON_MAPCNT,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+50$:
+	pushal	control_a		; Control section return addresses
+	calls	#1, g^map_control	; Create and map control section
+	BLBS	R0,60$
+
+        MOVL	#MSG_LANMON_MAPCTL,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+60$:
+; Declare exit handler
+	$DCLEXH_S DESBLK=EXIT_BLOCK	; 
+	BLBS	R0,70$
+	RET
+70$:
+
+; Create CRC table for later input to CRC generation
+	PUSHAL	CRCTBL
+	PUSHAL	CRCPOLY		;  16 bit 
+	CALLS	#2,G^LIB$CRC_TABLE
+; No condition value returned
+; Common Event flag Cluster:
+;
+	$ASCEFC_S	EFN = #64,-
+			NAME = EFLAGS1
+	BLBS	R0,80$
+	RET      	; Fatal
+80$:
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	BLBS	R0,90$
+	RET
+90$:
+
+; Wait 2 min before start
+	PUSHAL	WAIT_INTERVAL1
+	CALLS	#1,G^LIB$WAIT
+
+START:
+; Here at begining of each cycle
+   	ADDL3	#96,#SYS_PID_C_LANMON,-(SP)	; CLear run flag
+	CALLS	#1,G^SYS$CLREF
+	MOVL	COUNTERS_A,R9
+	MOVL	#CNT_STA_C_RUN,CNT_LCM_L_STATE(R9)	; State = run
+
+
+                 
+MOP:
+;++
+;2 MOP
+; Performs MOP_GETDATA (Func=sysid) for each address fornd in MOP DB. 
+; Params returned are compared with  the database and any changes are
+; alerted
+;--
+; Set default alert params this section
+	MOVAL	ALERT_BUFF,R1
+	MOVL	#SYS_PID_C_PSRMOP,ALT_MSG_L_DBPID(R1)
+	MOVL	#SYS_PID_C_LANMON,ALT_MSG_L_PID(R1)	; Sender is  LANMON
+
+	TSTL	MOPMAPS
+	BNEQ	5$
+	PUSHAL	MOPMAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,5$
+
+        MOVL	#MSG_LANMON_NODB,MSGCDE      ; No ipc map
+	MOVL	#2,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	#SYS_PID_C_PSRMOP,(R1)+	     ; Mop db
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	1000$				; Br if not mapped
+5$:
+	MOVL	MOPMAPS,R11				; Top of table
+	MOVL	#SYS_PID_C_PSRMOP,CNT_LCM_L_CURDB(R9) 	; Set DB
+	MOVL	COM_DBHDR_L_ENTRIES(R11),CNT_LCM_L_ENTRIES(R9) 
+	CLRL	CNT_LCM_L_ENTRY(R9) 
+	ADDL3	#PSR_MOP_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	BRW	100$				; br if None
+10$:
+	INCL	CNT_LCM_L_ENTRY(R9) 
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),100$	; Br if deleted
+; Check if time to poll
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_CHECK_TIME
+;
+20$:
+	BLBS	R0,100$
+  	CMPL	#LIB$_IVTIME,R0
+	BEQLU	30$                             
+	BRW	100$
+30$:
+
+; Update this box
+	PUSHL	R6
+	CALLS	#1,G^LANMON_UPDATE_MOP
+	PUSHL	R6
+	PUSHL	R0
+	CALLS	#2,G^CONFIGMON_UPDATE_HEADER
+100$:
+	ADDL	#PSR_MOP_C_RECSIZ,R6		; Next entry
+	SOBGTR	R11,10$
+1000$:
+; A bit out of order.... The underlying calls acquire and lock the 
+; MOP channel for the entire cycle. When cycle completes, it must let it go.
+
+	CALLS	#0,G^MOP_UNLOCK
+ETH:
+;++
+;2 ETH
+; Interrogates local Ethernet DB for Address, type and protocls enabled
+; information. These params are converted to records and added to EMUDB
+;--
+; Set default alert params this section
+	MOVAL	ALERT_BUFF,R1
+	MOVL	#SYS_PID_C_PSRETH,ALT_MSG_L_DBPID(R1)
+	MOVL	#SYS_PID_C_LANMON,ALT_MSG_L_PID(R1)	; Sender is  LANMON
+
+	TSTL	ETHMAPS				; Map structure
+	BNEQ	1$
+	PUSHAL	ETHMAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,1$
+
+        MOVL	#MSG_LANMON_NODB,MSGCDE      ; No ipc map
+	MOVL	#2,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	#SYS_PID_C_PSRETH,(R1)+	     ; Mop db
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	1000$
+1$:
+	MOVL	ETHMAPS,R11			; Top of table
+	ADDL3	#PSR_ETH_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	#SYS_PID_C_PSRETH,CNT_LCM_L_CURDB(R9) 	; Set DB
+	MOVL	COM_DBHDR_L_ENTRIES(R11),CNT_LCM_L_ENTRIES(R9) 
+	CLRL	CNT_LCM_L_ENTRY(R9) 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	BRW	100$				; br if None
+10$:
+	INCL	CNT_LCM_L_ENTRY(R9) 
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),100$	; Br if deleted
+; Check if time to poll
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_CHECK_TIME
+
+	BLBS	R0,100$
+	CMPL	#LIB$_IVTIME,R0
+	BEQLU	30$                             
+	BRW	100$
+30$:
+
+; Update this box
+	PUSHL	R6
+	CALLS	#1,G^LANMON_UPDATE_ETH
+	PUSHL	R6
+	PUSHL	R0
+	CALLS	#2,G^CONFIGMON_UPDATE_HEADER
+100$:
+	ADDL	#PSR_ETH_C_RECSIZ,R6		; Next entry
+	SOBGTR	R11,10$
+
+1000$:
+LAT:
+;++
+;2 LAT
+; Interrogates local LAT DB for NODE, SERVICE and LINK information
+; for each entry in LATDB. Note that user groups on the local node 
+; MUST be set to (0-255). This allows the LATDriver to collect the 
+; information for all broadcasting LAT nodes.
+;--
+; Set default alert params this section
+	MOVAL	ALERT_BUFF,R1
+	MOVL	#SYS_PID_C_PSRLAT,ALT_MSG_L_DBPID(R1)
+	MOVL	#SYS_PID_C_LANMON,ALT_MSG_L_PID(R1)	; Sender is  LANMON
+
+	TSTL	LATMAPS				; Map structure
+	BNEQ	1$
+	PUSHAL	LATMAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,1$
+
+        MOVL	#MSG_LANMON_NODB,MSGCDE      ; No ipc map
+	MOVL	#2,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	#SYS_PID_C_PSRLAT,(R1)+	     ; Mop db
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	1000$
+1$:
+	MOVL	LATMAPS,R11		; Top of table
+	ADDL3	#PSR_LAT_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	#SYS_PID_C_PSRLAT,CNT_LCM_L_CURDB(R9) 	; Set DB
+	MOVL	COM_DBHDR_L_ENTRIES(R11),CNT_LCM_L_ENTRIES(R9) 
+	CLRL	CNT_LCM_L_ENTRY(R9) 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	BRW	100$				; br if None
+10$:
+	INCL	CNT_LCM_L_ENTRY(R9) 
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),100$	; Br if deleted
+20$:
+; Check if time to poll
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_CHECK_TIME
+	BLBS	R0,100$
+	CMPL	#LIB$_IVTIME,R0
+	BEQLU	30$                             
+	BRW	100$
+30$:
+; Update this box
+	PUSHL	R6
+	CALLS	#1,G^LANMON_UPDATE_LAT
+	PUSHL	R6
+	PUSHL	R0
+	CALLS	#2,G^CONFIGMON_UPDATE_HEADER
+100$:
+	ADDL	#PSR_LAT_C_RECSIZ,R6		; Next entry
+	SOBGTR	R11,10$
+ 
+1000$:
+IPX:
+;++
+;2 IPX
+;  Scans IPX db for nodes. For each node requireing update a broadcast
+; config request is made to that network. This returns (likely) a response
+; for all nodes on that segment. Update all nodes received and all headers
+; for nodes. 
+;--
+; Set default alert params this section
+	MOVAL	ALERT_BUFF,R1
+	MOVL	#SYS_PID_C_PSRIPX,ALT_MSG_L_DBPID(R1)
+	MOVL	#SYS_PID_C_LANMON,ALT_MSG_L_PID(R1)	; Sender is  LANMON
+
+	TSTL	IPXMAPS				; Map structure
+	BNEQ	1$
+	PUSHAL	IPXMAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,1$
+
+        MOVL	#MSG_LANMON_NODB,MSGCDE      ; No ipc map
+	MOVL	#2,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	#SYS_PID_C_PSRIPX,(R1)+	     ; Mop db
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	1000$
+1$:
+	MOVL	IPXMAPS,R11		; Top of table
+	ADDL3	#PSR_IPX_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	#SYS_PID_C_PSRIPX,CNT_LCM_L_CURDB(R9) 	; Set DB
+	MOVL	COM_DBHDR_L_ENTRIES(R11),CNT_LCM_L_ENTRIES(R9) 
+	CLRL	CNT_LCM_L_ENTRY(R9) 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	BRW	100$				; br if None
+10$:
+	INCL	CNT_LCM_L_ENTRY(R9) 
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),100$	; Br if deleted
+20$:
+; Check if time to poll
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_CHECK_TIME
+	BLBS	R0,100$
+	CMPL	#LIB$_IVTIME,R0
+	BEQLU	30$                             
+	BRW	100$
+30$:
+; Update this box
+	PUSHL	R6
+	CALLS	#1,G^LANMON_UPDATE_IPX
+	PUSHL	R6
+	PUSHL	R0
+	CALLS	#2,G^CONFIGMON_UPDATE_HEADER
+100$:
+	ADDL	#PSR_IPX_C_RECSIZ,R6		; Next entry
+	SOBGTR	R11,10$
+ 
+1000$:
+SCS:
+;++
+;2 SCS
+;  Scans SCS db for nodes. For each node requiring update, the params
+; are propogated 1 for 1 from the PSR db to EMUDB
+;--
+; Set default alert params this section
+	MOVAL	ALERT_BUFF,R1
+	MOVL	#SYS_PID_C_PSRIPX,ALT_MSG_L_DBPID(R1)
+	MOVL	#SYS_PID_C_LANMON,ALT_MSG_L_PID(R1)	; Sender is  LANMON
+
+	TSTL	SCSMAPS				; Map structure
+	BNEQ	1$
+	PUSHAL	SCSMAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,1$
+
+        MOVL	#MSG_LANMON_NODB,MSGCDE      ; No ipc map
+	MOVL	#2,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	#SYS_PID_C_PSRIPX,(R1)+	     ; Mop db
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	1000$
+1$:
+	MOVL	SCSMAPS,R11		; Top of table
+	ADDL3	#PSR_SCS_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	#SYS_PID_C_PSRSCS,CNT_LCM_L_CURDB(R9) 	; Set DB
+	MOVL	COM_DBHDR_L_ENTRIES(R11),CNT_LCM_L_ENTRIES(R9) 
+	CLRL	CNT_LCM_L_ENTRY(R9) 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	BRW	100$				; br if None
+10$:
+	INCL	CNT_LCM_L_ENTRY(R9) 
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),100$	; Br if deleted
+20$:
+; Check if time to poll
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_CHECK_TIME
+	BLBS	R0,100$
+	CMPL	#LIB$_IVTIME,R0
+	BEQLU	30$                             
+	BRW	100$
+30$:
+; Update this box
+	PUSHL	R6
+	CALLS	#1,G^LANMON_UPDATE_SCS
+	PUSHL	R6
+	PUSHL	R0
+	CALLS	#2,G^CONFIGMON_UPDATE_HEADER
+100$:
+	ADDL	#PSR_SCS_C_RECSIZ,R6		; Next entry
+	SOBGTR	R11,10$
+ 
+1000$:
+BRD:
+;++
+;2 Bridge
+; Interrogates local Bridge DB for:  
+;
+; Prm    Keyword                
+; 1     Root ID                 
+; 2     Spanning Tree Type      
+; 3     Cost to Root            
+; 4     Forward Delay           
+; 5     Listen Timer            
+; 6     Hello Interval          
+;--
+; Set default alert params this section
+	MOVAL	ALERT_BUFF,R1
+	MOVL	#SYS_PID_C_PSRBRD,ALT_MSG_L_DBPID(R1)
+	MOVL	#SYS_PID_C_LANMON,ALT_MSG_L_PID(R1)	; Sender is  LANMON
+
+	TSTL	BRDMAPS				; Map structure
+	BNEQ	1$
+	PUSHAL	BRDMAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,1$
+
+        MOVL	#MSG_LANMON_NODB,MSGCDE      ; No ipc map
+	MOVL	#2,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	#SYS_PID_C_PSRBRD,(R1)+	     ; Mop db
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	1000$
+1$:
+	MOVL	BRDMAPS,R11		; Top of table
+	ADDL3	#PSR_BRD_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	#SYS_PID_C_PSRBRD,CNT_LCM_L_CURDB(R9) 	; Set DB
+	MOVL	COM_DBHDR_L_ENTRIES(R11),CNT_LCM_L_ENTRIES(R9) 
+	CLRL	CNT_LCM_L_ENTRY(R9) 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	BRW	100$				; br if None
+10$:
+	INCL	CNT_LCM_L_ENTRY(R9) 
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),100$	; Br if deleted
+20$:
+; Check if time to poll
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_CHECK_TIME
+	BLBS	R0,100$
+	CMPL	#LIB$_IVTIME,R0
+	BEQLU	30$                             
+	BRW	100$
+30$:
+; Update this box
+	PUSHL	R6
+	CALLS	#1,G^LANMON_UPDATE_BRD
+	PUSHL	R6
+	PUSHL	R0
+	CALLS	#2,G^CONFIGMON_UPDATE_HEADER
+100$:
+	ADDL	#PSR_BRD_C_RECSIZ,R6		; Next entry
+	SOBGTR	R11,10$
+ 
+1000$:
+; 
+END_CYCLE:
+; Determine how long to wait to start cycle again.
+; For now, simply wait 10 sec ad restart. In future this will be 
+; a calc based on number of updates this cycle, how long cycle 
+; took and so on.
+   	ADDL3	#96,#SYS_PID_C_LANMON,-(SP)	; CLear run flag
+	CALLS	#1,G^SYS$SETEF
+	MOVL	COUNTERS_A,R9
+	MOVL	#CNT_STA_C_WAT,CNT_LCM_L_STATE(R9)	; State = WAIT
+; Set time to restart
+	$BINTIM_S-	
+		TIMBUF=INTIM_D,-
+		TIMADR=INTLTIM
+	ADDL3	#CNT_LCM_Q_STTIME,R9,-(SP)
+	PUSHAL  INTLTIM
+	PUSHAL	EXE$GQ_SYSTIME
+	CALLS	#3,G^LIB$ADD_TIMES
+
+
+	PUSHAL	WAIT_INTERVAL
+	CALLS	#1,G^LIB$WAIT
+	BRW	START
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LANMON_UPDATE_IPX 
+;++
+;2 LANMON_UPDATE_IPX 
+; Propogate all Netware records to EMUDB fo the input record
+;3 Inputs
+; Record address
+;3 Outputs
+; EMUDB records
+; Record  is updated with Name, net, addr and service(s)
+; Any errors detected are written to error log
+; ANy changed component is alerted
+;3 Returns
+; SS$_NORMAL		Update succesful
+; Any error from EMUDB_ACCESS routines (which see) 
+; ** An error in writting the rec causes the PSR rec to be deleted **
+;-- 
+	MOVL	4(AP),R6
+	INCL	COM_CFG_L_POLLS(R6)		; Count poll
+	INCL	COM_CFG_L_RESP(R6)		; Count Response
+
+; Write LAN addr
+; CRC this instance
+	MOVL	#6,CRCDESC			; Len of Ethernet addr + type		
+	ADDL3	#PSR_IPX_EA_ADDR,R6,CRCDESC+4	 		; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	#DB_PRM_IPX_EA_ADDR,PARAM       ; Paramater
+	MOVL	#SYS_PID_C_PSRIPX,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_IPX,TBL		; Set table
+; Write addr 
+;
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,10$                         ; Error?
+
+	BISL	#SYS_COM_M_DELETE,COM_HDR_L_SYSCTL(R6)	; Delete record
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+10$:
+; Name
+; CRC this instance
+	MOVZWL	PSR_IPX_W_NAMLEN(R6),CRCDESC	; Len of NAME		
+	ADDL3	#PSR_IPX_AS_NAME,R6,CRCDESC+4	; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	#DB_PRM_IPX_AS_NAME,PARAM       ; Paramater
+	MOVL	#SYS_PID_C_PSRIPX,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_IPX,TBL		; Set table
+110$:
+; Write name
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,120$                         ; Br no Error
+
+	BISL	#SYS_COM_M_DELETE,COM_HDR_L_SYSCTL(R6)	; Delete record
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+120$:
+; Net
+; CRC this instance
+	MOVL	#4,CRCDESC			; Len of Net		
+	ADDL3	#PSR_IPX_L_NET,R6,CRCDESC+4	; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	#DB_PRM_IPX_L_NET,PARAM       ; Paramater
+	MOVL	#SYS_PID_C_PSRIPX,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_IPX,TBL		; Set table
+; Write net
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,130$                         ; Br no Error
+
+	BISL	#SYS_COM_M_DELETE,COM_HDR_L_SYSCTL(R6)	; Delete record
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+
+130$:
+; Service
+
+; Net
+; CRC this instance
+	MOVL	#2,CRCDESC			; Len of Net		
+	ADDL3	#PSR_IPX_W_SERVICE,R6,CRCDESC+4	; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	#DB_PRM_IPX_W_SERVICE,PARAM       ; Paramater
+	MOVL	#SYS_PID_C_PSRIPX,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_IPX,TBL		; Set table
+; Write Service
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,140$                         ; Br no Error
+
+	BISL	#SYS_COM_M_DELETE,COM_HDR_L_SYSCTL(R6)	; Delete record
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+140$:
+	PUSHL	4(AP)				; Rec addr
+	CALLS	#1,G^CONFIGMON_CHECK_FOR_DELETE
+
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LANMON_UPDATE_SCS 
+;++
+;2 LANMON_UPDATE_SCS 
+; Propogate all SCS records to EMUDB fo the input record
+;3 Inputs
+; Record address
+;3 Outputs
+; EMUDB records
+; Record  is updated with Name, net, addr and service(s)
+; Any errors detected are written to error log
+; ANy changed component is alerted
+;3 Returns
+; SS$_NORMAL		Update succesful
+; Any error from EMUDB_ACCESS routines (which see) 
+;-- 
+	MOVL	4(AP),R6
+	INCL	COM_CFG_L_POLLS(R6)		; Count poll
+	INCL	COM_CFG_L_RESP(R6)		; Count Response
+
+; Write LAN addr
+; CRC this instance
+	MOVL	#6,CRCDESC			; Len of Ethernet addr 	
+	ADDL3	#PSR_SCS_EA_ADDR,R6,CRCDESC+4	 		; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	#DB_PRM_SCS_EA_ADDR,PARAM       ; Paramater
+	MOVL	#SYS_PID_C_PSRSCS,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_SCS,TBL		; Set table
+; Write addr 
+;
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,10$                         ; Error?
+
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+10$:
+; Name
+; CRC this instance
+	MOVZBL	PSR_SCS_AC_NAME(R6),CRCDESC	; Len of NAME		
+	INCL	CRCDESC				; Include count
+	ADDL3	#PSR_SCS_AC_NAME,R6,CRCDESC+4	; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	#DB_PRM_SCS_AC_NAME,PARAM       ; Paramater
+	MOVL	#SYS_PID_C_PSRSCS,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_SCS,TBL		; Set table
+110$:
+; Write name
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,120$                         ; Br no Error
+
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+120$:
+; CLUID
+; CRC this instance
+	MOVL	#2,CRCDESC			; Len 		
+	ADDL3	#PSR_SCS_W_CLUID,R6,CRCDESC+4	; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	#DB_PRM_SCS_W_CLUID,PARAM       ; Paramater
+	MOVL	#SYS_PID_C_PSRSCS,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_SCS,TBL		; Set table
+; Write ID
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,130$                         ; Br no Error
+
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+
+130$:
+	PUSHL	4(AP)				; Rec addr
+	CALLS	#1,G^CONFIGMON_CHECK_FOR_DELETE
+
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LANMON_UPDATE_ETH 
+;++
+;2 LANMON_UPDATE_ETH 
+; Update all Ethernet records for this boxid
+;3 Inputs
+; Record address
+;3 Outputs
+; EMUDB records
+; Record  is updated with facilities, poll times, last response fields.
+; Any errors detected are written to error log
+;3 Returns
+; SS$_NORMAL		Update succesful
+; Any error from EMUDB_ACCESS routines (which see) 
+;-- 
+	MOVL	4(AP),R6
+	INCL	COM_CFG_L_POLLS(R6)		; Count poll
+	INCL	COM_CFG_L_RESP(R6)		; Count Response
+
+; Write LAN type
+; CRC this instance
+	MOVL	#8,CRCDESC			; Len of Ethernet addr + type		
+	ADDL3	#PSR_ETH_EA_ADDR,R6,CRCDESC+4	 		; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	#DB_PRM_ETH_W_LANTYP,PARAM       ; Paramater
+	MOVL	#SYS_PID_C_PSRETH,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_ETH,TBL		; Set table
+; Write LANTYP ONLY
+	MOVL	#2,CRCDESC			; Len type
+	ADDL3	#PSR_ETH_W_TYPE,R6,CRCDESC+4	; Addr type
+;
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,10$                         ; Error?
+
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+10$:
+; LAN Address
+; CRC this instance
+	MOVL	#8,CRCDESC			; Len of Ethernet addr + type		
+	ADDL3	#PSR_ETH_EA_ADDR,R6,CRCDESC+4	 		; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	#DB_PRM_ETH_EA_ADDR,PARAM       ; Paramater
+	MOVL	#SYS_PID_C_PSRETH,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_ETH,TBL		; Set table
+110$:
+; Write ethernet addr ONLY
+	SUBL	#2,CRCDESC			; Less type
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,120$                         ; Br no Error
+
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+120$:
+; In this case the param cannot be changed - it is the key and if
+; changed finds a different rec. - 
+; 3 possiblities
+;	 Param was created
+;	 Param is unchanged
+; 	 System was stopped after initial write but before update
+;	 completed. In this case treat as created.
+;
+	CMPL	#SS$_NORMAL,R0                  ; Unchanged?
+	BEQLU	130$				; Br if yes
+
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	R6
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+
+130$:
+; write protocol entries
+	MOVL	PSR_ETH_L_TBLCNT(R6),R7		; Count of entries 
+	CMPL	R7,#PSR_ETH_C_MAXPTYTYP		; More entries counted than present?
+	BLEQU	135$				; Br if table not full
+	MOVL	#PSR_ETH_C_MAXPTYTYP,R7		; Max entries present
+135$:
+	ADDL3	#PSR_ETH_TQ_PTYTBL,R6,R8        ; Start of table
+140$:
+; CRC this instance
+	MOVL	#8,CRCDESC			; Len Protocol type		
+	MOVL	R8,CRCDESC+4	 		; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	#DB_PRM_ETH_Q_PTYTYP,PARAM      ; Paramater
+	MOVL	#SYS_PID_C_PSRETH,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_ETH,TBL		; Set table
+; Write Protocol type
+
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,150$
+
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                       ; 1 params
+	MOVAL	MSGPARAMS,R1                    ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                        ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+150$:
+; Check if this is initial update (Update time = 0). If so skip
+; alerting all the new protocols.
+	TSTL	COM_CFG_Q_LASUPD(R6)	
+	BEQL	200$
+; Send alert - New protocol started
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	R6
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+
+200$:
+	ADDL	#8,R8
+	SOBGTR	R7,210$				; Loop for all types
+
+;	PUSHL	4(AP)				; Rec addr
+;	CALLS	#1,G^CONFIGMON_CHECK_FOR_DELETE
+
+	MOVL	#SS$_NORMAL,R0
+	RET
+210$:
+	BRW	140$
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LANMON_UPDATE_BRD 
+;++
+;2 LANMON_UPDATE_BRD 
+; Update all BRD records for this boxid
+;3 Inputs
+; Record address
+;3 Outputs
+; EMUDB records
+; Alerts on any change(s) found
+; Record  is updated with Poll counts.
+; Any errors detected are written to error log
+;3 Returns
+; SS$_NORMAL		Update succesful
+;
+;-- 
+	MOVL	4(AP),R6
+	INCL	COM_CFG_L_POLLS(R6)		; Count poll
+
+
+
+	MOVL	#6,CRCDESC			; Len of Ethernet addr + type		
+	ADDL3	#PSR_BRD_EA_ADDR,R6,CRCDESC+4	 		; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	#DB_PRM_BRD_EA_ADDR,PARAM       ; Paramater
+	MOVL	#SYS_PID_C_PSRBRD,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_BRD,TBL		; Set table
+; Write each param 
+
+	MOVL	#8,CRCDESC			; Len of root if		
+	ADDL3	#PSR_BRD_Q_ROOT,R6,CRCDESC+4	; Addr
+	MOVL	#DB_PRM_BRD_Q_ROOTID,PARAM       ; Paramater
+	CALLS	#0,G^LANMON_WRITE_BRD
+;
+	MOVL	#2,CRCDESC			; Len 		
+	ADDL3	#PSR_BRD_W_TYP,R6,CRCDESC+4	; Addr
+	MOVL	#DB_PRM_BRD_W_TYPE,PARAM       ; Paramater
+	CALLS	#0,G^LANMON_WRITE_BRD
+
+	MOVL	#4,CRCDESC			; Len 		
+	ADDL3	#PSR_BRD_L_COST,R6,CRCDESC+4	; Addr
+	MOVL	#DB_PRM_BRD_L_COST,PARAM       ; Paramater
+	CALLS	#0,G^LANMON_WRITE_BRD
+
+	MOVL	#2,CRCDESC			; Len 		
+	ADDL3	#PSR_BRD_W_FDT,R6,CRCDESC+4	; Addr
+	MOVL	#DB_PRM_BRD_W_FDT,PARAM       ; Paramater
+	CALLS	#0,G^LANMON_WRITE_BRD
+
+	MOVL	#2,CRCDESC			; Len 		
+	ADDL3	#PSR_BRD_W_LIST,R6,CRCDESC+4	; Addr
+	MOVL	#DB_PRM_BRD_W_LIST,PARAM       ; Paramater
+	CALLS	#0,G^LANMON_WRITE_BRD
+
+	MOVL	#2,CRCDESC			; Len 		
+	ADDL3	#PSR_BRD_W_HINT,R6,CRCDESC+4	; Addr
+	MOVL	#DB_PRM_BRD_W_HINT,PARAM       ; Paramater
+	CALLS	#0,G^LANMON_WRITE_BRD
+
+	INCL	COM_CFG_L_RESP(R6)		; Count response
+
+	PUSHL	4(AP)				; Rec addr
+	CALLS	#1,G^CONFIGMON_CHECK_FOR_DELETE
+
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LANMON_WRITE_BRD 
+;++
+;2 LANMON_WRITE_BRD 
+; Writes the param to EMUDB for UPDATE_BRD
+;3 Inputs
+; None it is ASSUMED:
+;	the param is pointed to by CRCDESC
+;	The KEY_BUF: field is set up correctly
+;	The PSR rec is pointerd to by R6
+;3 Outputs
+; EMUDB records
+; Alert on change/addition
+; All errors logged
+;3 Returns
+; None
+;--
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,100$                         ; Error?
+
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+100$:
+; Send alert - new component. Only other possible non error return.
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	R6
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+
+        RET
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LANMON_UPDATE_MOP 
+;++
+;2 LANMON_UPDATE_MOP 
+; Update all MOP records for this boxid
+;3 Inputs
+; PSRDB Record address
+;3 Outputs
+; EMUDB records
+; Alerts on any node unreachable or change(s) found
+; Record  is updated with facilities, poll times, last response fields.
+; Any errors detected are written to error log
+;3 Returns
+; SS$_NORMAL		Update succesful
+; Any error from GET_MOPSYSID routines (which see) 
+;-- 
+	MOVL	4(AP),R6
+	INCL	COM_CFG_L_POLLS(R6)		; Count poll
+	MOVL	#960,RETURN_D
+	PUSHAL	RETURN_D
+	ADDL3	#PSR_MOP_EA_ADDR,R6,-(SP)
+	PUSHL	#MOP_FUN_C_SYSID	
+	CALLS	#3,G^MOP_GETDATA
+	MOVL	R0,COM_CFG_L_LASSTA(R6)         ; Last status
+	BLBS	R0,100$                         ; Br if good
+	BRW	1000$
+100$:
+	INCL	COM_CFG_L_RESP(R6)		; Count response
+	MOVL	#SYS_PID_C_PSRMOP,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_MOP,TBL		; Set table
+	CLRL	INSTANCE			; No instance
+	MOVQ	RETURN_D,R8
+	ADDL	#4,R9				;PARAM 1
+	SUBL	#4,R8
+110$:
+	TSTL	R8    		
+	BGTR	120$            		; Br if data to process 
+
+	PUSHL	4(AP)				; Rec addr
+	CALLS	#1,G^CONFIGMON_CHECK_FOR_DELETE
+        BRW	1000$
+120$:
+	PUSHAL	MOPRET			; Return buffer
+	PUSHL	R9
+	CALLS	#2,G^MOP_PARSE_SYSID
+	BLBS	R0,130$                 
+	BRW	150$			; Skip on error
+130$:
+	MOVAL	MOPRET,R10
+	TSTL	MOP_PRS_L_LEN(R10)      ; Len = 0?
+	BEQL	150$                    ; Br if so
+	MOVL	MOP_PRS_L_PARAM(R10),PARAM	; Param
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC                       ; Write old rec here on change
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	ADDL3	#MOP_PRS_L_LEN,R10,-(SP)	; Data desc
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,140$
+
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        BRW	1000$
+140$:
+	CMPL	#SS$_NORMAL,R0
+	BNEQU	200$
+150$:
+	ADDL3	MOP_PRS_L_LEN(R10),#3,R1
+	ADDL	R1,R9
+	SUBL	R1,R8
+	BRW     110$
+
+200$:
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	R6
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+        BRW	150$
+1000$:
+; Here at any end - if boot params are present, propogate to db.
+	MOVL	R0,R9				; Save status
+	TSTL	PSR_MOP_L_BOOTCNT(R6)	        ; Any data?
+	BNEQ	1010$
+	MOVL	R9,R0
+	RET
+1010$:
+
+
+	MOVL	#DB_PRM_MOP_Q_LASBOOT,PARAM		; Param
+	ADDL3	#PSR_MOP_Q_LASBOOT,R6,TEMPDESC+4	; Addr
+        MOVL	#8,TEMPDESC                             ; Len
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC                       ; Write old rec here on change
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	TEMPDESC			; Data desc
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,1030$
+1020$:
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        MOVL	R9,R0
+	RET
+1030$:
+	MOVL	#DB_PRM_MOP_L_BOOTCNT,PARAM		; Param
+	ADDL3	#PSR_MOP_L_BOOTCNT,R6,TEMPDESC+4	; Addr
+        MOVL	#4,TEMPDESC                             ; Len
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC                       ; Write old rec here on change
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	TEMPDESC			; Data desc
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,1040$
+	BRW	1020$
+1040$:
+	MOVL	#DB_PRM_MOP_BOOTSOFT,PARAM		; Param
+	MOVL	#1,TEMPDESC      	; Def
+	MOVAL	TMPBUF,TEMPDESC+4       ; data here
+	MOVB	PSR_MOP_L_SOFTTYP(R6),TMPBUF       ; indicator or len
+	BGTR    1060$
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC                       ; Write old rec here on change
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	TEMPDESC			; Data desc
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,1050$
+	BRW	1020$
+1050$:
+	MOVL	R9,R0
+	RET
+1060$:
+	MOVC5	PSR_MOP_L_SOFTTYP(R6),PSR_MOP_A16_FILNAM(R6),#^A/ /,#20,TMPBUF+1
+        ADDL	PSR_MOP_L_SOFTTYP(R6),TEMPDESC
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC                       ; Write old rec here on change
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	TEMPDESC			; Data desc
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,1050$
+	BRW	1020$
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LANMON_UPDATE_LAT 
+;++
+;2 LANMON_UPDATE_LAT 
+; Update all LAT records for this boxid
+;3 Inputs
+; Record address
+;3 Outputs
+; EMUDB records
+; Alerts on any node unreachable or change(s) found
+; Record  is updated with facilities, poll times, last response fields.
+; Any errors detected are written to error log
+;3 Returns
+; SS$_NORMAL		Update succesful
+; Any error from GETLAT routines (which see) 
+;-- 
+	MOVL	4(AP),R6
+	MOVL	COM_CFG_L_RESP(R6),UPDFLG	; Store Response
+	INCL	COM_CFG_L_POLLS(R6)		; Count poll
+
+	MOVZBL	PSR_LAT_B_NODNAMSIZE(R6),NAMEDESC
+	ADDL3	#PSR_LAT_A16_NODNAM,R6,NAMEDESC+4
+	MOVL	#960,RETURN_D
+	PUSHAL	RETURN_D
+	PUSHAL	NAMEDESC
+	CALLS	#2,G^GETLATNODE
+	BLBS	R0,100$
+	RET
+100$:
+	INCL	COM_CFG_L_RESP(R6)		; Count Response
+	MOVL	#SYS_PID_C_PSRLAT,PROTO		; Set protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID	;
+	MOVL	#DB_FAC_C_LAT_NODE,TBL		; Set table
+	CLRL	INSTANCE			; No instance
+	MOVQ	RETURN_D,R7
+110$:
+	BBC	#LAT$V_STRING,(R8),115$		; Br if NOT string
+	BRW	200$                            ; String
+115$:
+	ADDL3	#2,R8,CRCDESC+4			; Addr of value
+	MOVL	#4,CRCDESC			; Len of value
+	MOVZWL	(R8),PARAM			; Param
+	MOVL	#DB_FAC_C_LAT_NODE,TBL		; Set table
+
+        PUSHAL	KEY_BUF
+	CALLS	#1,G^CONFIGMON_CHECK_POLFLG 	; Get this param?
+	BLBC	R0,120$				; Br if not
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC                       ; Write old rec here on change
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,120$
+
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+120$:
+	ADDL	#6,R8				; Move pointer
+	SUBL	#6,R7
+	BLEQ	130$
+	BRW	110$				; Br if more
+130$:
+	CMPL	COM_CFG_L_RESP(R6),UPDFLG	; Store Response
+        BEQLU	140$
+	PUSHL	4(AP)				; Rec addr
+	CALLS	#1,G^CONFIGMON_CHECK_FOR_DELETE
+140$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+200$:
+; String
+	CMPW	#LAT$_ITM_COUNTERS,(R8)		; If counter block...
+	BNEQU	205$
+	BRW	230$				; ... ignore
+205$:
+	CMPW	#LAT$_ITM_NODE_SVC_BLOCK,(R8)	; If service block...
+	BNEQU	210$				; ... process seperately
+	PUSHL	R6				; PSR rec
+        PUSHL	R8                              ; Lat service block
+	CALLS	#2,G^LANMON_UPDATE_LATSVC 
+	BRW	220$
+210$:
+	MOVZBL	2(R8),CRCDESC			; Len
+	INCL	CRCDESC				; Include count
+	ADDL3	#2,R8,CRCDESC+4			; Addr
+	MOVZWL	(R8),PARAM			; Param
+	MOVL	#DB_FAC_C_LAT_NODE,TBL		; Set table
+
+        PUSHAL	KEY_BUF
+	CALLS	#1,G^CONFIGMON_CHECK_POLFLG 	; Get this param?
+	BLBC	R0,230$				; Br if not
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC                       ; Write old rec here on change
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,220$
+
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+220$:
+	CMPL	#SS$_NORMAL,R0
+	BNEQU	300$
+230$:
+	MOVZBL	2(R8),R1			; Len of str
+	ADDL	#3,R1	
+	ADDL	R1,R8				; Move pointer
+	SUBL	R1,R7
+	BLEQ	240$
+	BRW	110$				; Br if more
+240$:
+	PUSHL	4(AP)				; Rec addr
+	CALLS	#1,G^CONFIGMON_CHECK_FOR_DELETE
+
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+300$:
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	R6
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+        BRW	230$
+
+
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LANMON_UPDATE_LATSVC  
+;++
+;2 LANMON_UPDATE_LATSVC  
+; Update and check all LAT services on this node
+;3 Inputs
+; Record address
+; .address of LAT encoded service block
+;3 Outputs
+; EMUDB records
+; Any errors detected are written to error log
+;3 Returns
+; SS$_NORMAL		Update succesful
+;-- 
+
+	MOVL	4(AP),R8			; LAT Service
+	MOVL	8(AP),R6			; LAT Record
+; CRC this instance
+	MOVZBL	2(R8),R7			; Overall Data len
+	ADDL	#3,R8				; Start of data
+	MOVZBL	2(R8),CRCDESC			; Len of data		
+	INCL	CRCDESC				; Include count
+	ADDL3	#2,R8,CRCDESC+4	 		; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	#DB_FAC_C_LAT_SERVICE,TBL		; Set table
+	MOVL	COM_HDR_L_BOXID(R6),BOXID       ; 
+110$:
+
+	BBC	#LAT$V_STRING,(R8),115$		; Br if not string
+	BRW	200$				; Br if string
+115$:
+	ADDL3	#2,R8,CRCDESC+4			; Addr of value
+	MOVL	#4,CRCDESC			; Len of value
+	MOVZWL	(R8),PARAM			; Param
+
+        PUSHAL	KEY_BUF
+	CALLS	#1,G^CONFIGMON_CHECK_POLFLG 	; Get this param?
+	BLBC	R0,120$				; Br if not
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC                       ; Write old rec here on change
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+
+
+	BLBS	R0,120$
+
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+120$:
+	ADDL	#6,R8				; Move pointer
+	SUBL	#6,R7
+	BGTR	130$				; Br if more
+	MOVL	#SS$_NORMAL,R0
+	RET
+130$:
+	BRW	110$
+200$:
+; String
+	CMPW	#LAT$_ITM_COUNTERS,(R8)		; If counter block...
+	BNEQU	210$				
+	BRW	220$                            ; ... ignore  
+210$:
+	MOVZBL	2(R8),CRCDESC			; Len
+	INCL	CRCDESC				; Include count
+	ADDL3	#2,R8,CRCDESC+4			; Addr
+	MOVZWL	(R8),PARAM			; Param
+
+        PUSHAL	KEY_BUF
+	CALLS	#1,G^CONFIGMON_CHECK_POLFLG 	; Get this param?
+	BLBC	R0,230$				; Br if not
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC                       ; Write old rec here on change
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	BLBS	R0,220$
+
+        MOVL	#MSG_LANMON_DBWRITE,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	KEY_BUF,R2
+	MOVL	R0,(R1)+                      ; MAP error
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+220$:
+	CMPL	#SS$_NORMAL,R0
+	BNEQU	300$
+230$:
+	MOVZBL	2(R8),R1			; Len of str
+	ADDL	#3,R1	
+	ADDL	R1,R8				; Move pointer
+	SUBL	R1,R7
+	BLEQ	240$
+	BRW	110$				; Br if more
+240$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+300$:
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	R6
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+        BRW	230$
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=EMU_LANMON_EXIT
+; Here at exit
+        ret
+        .END	EMU_LANMON

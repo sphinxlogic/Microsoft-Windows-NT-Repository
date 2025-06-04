@@ -1,0 +1,392 @@
+	.TITLE	EMU_MONI   
+	.IDENT	/V1-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	FEB-1997	PB	Creation
+;	
+;++
+;1 EMU_MONI   
+; Collection of routines used to monitor various aspects of the EMU system.
+; See individual routines for detail
+;--
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+	.LIBRARY        /EMU5_LIB:MACROLIB.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$SMGDEF
+	$TRMDEF
+	$PRVDEF
+	EMUUIDEF
+	EMUPSRDEF
+	EMUSYSDEF
+	EMUIPCDEF
+	EMUSNMPDEF
+	EMUDBDEF
+	EMUCNTDEF	
+
+	.PSECT	EMU_MONI_DATA,WRT,NOEXE,PIC,SHR,QUAD
+; Sections
+COUNTERS_A:	.QUAD
+WAIT_INTERVAL:	.FLOAT	1               ; Time between Screen updates
+CONTROL_W:	.LONG	23
+CONTROL_Z:	.LONG	26
+OOB_B_MASK:	.LONG	^X4800000
+EXIT_REQUESTED:	.LONG	0
+ZERO:		.LONG	0
+
+MAINPB_BOARD:	.LONG	0
+CHOICE:		.WORD
+BYTCNT:		.WORD		; Input Byte counter
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG	0
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+; SMG
+; Virtual Display Parameters
+; Individual SUbroutine Displays
+
+MONPROB_EMU_MAIN_DISP:	.LONG	0	; Virtual Display ID
+MONPROB_EMU_MAIN_ROWS: 	.LONG   0       ; Set by routine (page size-7)
+MONPROB_EMU_MAIN_COLS: 	.LONG 132
+MONPROB_EMU_MAINPB_COL:	.LONG	1      
+MONPROB_EMU_MAINPB_ROW:	.LONG 	5
+;
+MONPROB_EMU_HINT_DISP:	.LONG		; Virtual Display2 ID
+MONPROB_EMU_HINT_ROWS: 	.LONG  3        ; Static
+MONPROB_EMU_HINT_COLS: 	.LONG 132
+MONPROB_EMU_HINT_PBCOLS:	.LONG	1      
+MONPROB_EMU_HINT_PBROWS:	.LONG 	1
+;
+
+
+
+; Misc SMG ...
+BOLD:		.LONG	SMG$M_BOLD
+BORDER:		.LONG	SMG$M_BORDER
+SAVE_DISP:	.LONG	0		; Saved char
+SCR_WID:	.LONG	132
+SCR_HEIGHT:	.LONG	48
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+CURCOL:		.LONG   1
+CURROW:		.LONG   3
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+	.ALIGN	LONG
+FAOBUF:		.BLKB	132
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+; Prompts and messages                                                                      
+HEAD1:		.ASCID	/    Probe                 Sent     Receive       Error    NoRespose/
+PROB_SNMPDAT:	.ASCID	/ !16<SNMP!>  !4(12UL)/
+PROB_CMIPDAT:	.ASCID	/ !16<CMIP!>  !4(12UL)/
+PROB_NICEDAT:	.ASCID	/ !16<NICE!>  !4(12UL)/
+PROB_MOPDAT:	.ASCID	/ !16<MOP!>  !4(12UL)/
+PROB_LATDAT:	.ASCID	/ !16<LAT!>  !4(12UL)/
+
+       .PSECT EMU_MONI,EXE,NOWRT,LONG
+
+
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MON_PROBES
+;++
+;2 MON_PROBES
+; Routine to display counters kept by the active probes.
+; Currently there are 3 probes:
+;	SNMP		IP
+;	CMIP		DECnet V
+;	NICE		DECnet IV
+;3 Inputs
+; None - routine maps to counters section.
+;3 Outputs
+; Contuniously updating screen of counter set for each probe.
+; Each probe is displayed on 1 line as with the following info:
+; 	Requests   		Total frames sent
+; 	All responses           Total frames received
+; 	Errors returned         Responses received with error staatus
+; 	No responses            Frames not responded to.
+;
+; Returns
+; SS$_NORMAL
+;--
+	BSBW	CREATE_MONPROB_ENVIRONMENT
+1$:
+	PUSHAL	MONPROB_EMU_MAINPB_COL		;Column
+	PUSHAL	MONPROB_EMU_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	MONPROB_EMU_MAIN_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	MONPROB_EMU_HINT_PBCOLS		;Column
+	PUSHAL	MONPROB_EMU_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	MONPROB_EMU_HINT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+	TSTL	COUNTERS_A
+	BNEQ	10$
+	PUSHAL	COUNTERS_A
+	CALLS	#1,MAP_COUNTERS
+	BLBS	R0,10$
+	BRW	1000$
+10$:
+; Titles
+	PUSHAL	MONPROB_EMU_MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	PUSHAL	MONPROB_EMU_MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	pushal	head1
+	PUSHAL	MONPROB_EMU_MAIN_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+	MOVL	COUNTERS_A,R6
+	CLRL	EXIT_REQUESTED
+20$:	
+	BLBC	EXIT_REQUESTED, 30$	; 
+	BRW	1000$
+30$:	
+	PUSHAL	CURCOL			; Column (1)
+	PUSHAL	CURROW			; Row (3)
+	PUSHAL	MONPROB_EMU_MAIN_DISP 
+	CALLS	#3,G^SMG$SET_CURSOR_ABS
+; SNMP
+	ADDL3	#CNT_POL_L_SNMPREQ,R6,R7
+	MOVL	#132,FAODESC
+	PUSHL	R7
+        PUSHAL	FAODESC
+        PUSHAL	FAODESC
+	PUSHAL	PROB_SNMPDAT
+	CALLS	#4,G^SYS$FAOL
+	BLBS	R0,40$
+	RET
+40$:
+	PUSHAL	FAODESC
+	PUSHAL	MONPROB_EMU_MAIN_DISP 
+	CALLS	#2,G^SMG$PUT_LINE
+	BLBS	R0,50$
+	RET
+50$:
+; CMIP
+	ADDL3	#CNT_POL_L_CMIPREQ,R6,R7
+	MOVL	#132,FAODESC
+	PUSHL	R7
+        PUSHAL	FAODESC
+        PUSHAL	FAODESC
+	PUSHAL	PROB_CMIPDAT
+	CALLS	#4,G^SYS$FAOL
+	BLBS	R0,60$
+	RET
+60$:
+	PUSHAL	FAODESC
+	PUSHAL	MONPROB_EMU_MAIN_DISP 
+	CALLS	#2,G^SMG$PUT_LINE
+	BLBS	R0,70$
+	RET
+70$:
+; NICE
+	ADDL3	#CNT_POL_L_NICEREQ,R6,R7
+	MOVL	#132,FAODESC
+	PUSHL	R7
+        PUSHAL	FAODESC
+        PUSHAL	FAODESC
+	PUSHAL	PROB_NICEDAT
+	CALLS	#4,G^SYS$FAOL
+	BLBS	R0,80$
+	RET
+80$:
+	PUSHAL	FAODESC
+	PUSHAL	MONPROB_EMU_MAIN_DISP 
+	CALLS	#2,G^SMG$PUT_LINE
+	BLBS	R0,90$
+	RET
+90$:
+; MOP
+	ADDL3	#CNT_POL_L_MOPREQ,R6,R7
+	MOVL	#132,FAODESC
+	PUSHL	R7
+        PUSHAL	FAODESC
+        PUSHAL	FAODESC
+	PUSHAL	PROB_MOPDAT
+	CALLS	#4,G^SYS$FAOL
+	BLBS	R0,100$
+	RET
+100$:
+	PUSHAL	FAODESC
+	PUSHAL	MONPROB_EMU_MAIN_DISP 
+	CALLS	#2,G^SMG$PUT_LINE
+	BLBS	R0,110$
+	RET
+110$:
+; LAT
+	ADDL3	#CNT_POL_L_LATREQ,R6,R7
+	MOVL	#132,FAODESC
+	PUSHL	R7
+        PUSHAL	FAODESC
+        PUSHAL	FAODESC
+	PUSHAL	PROB_LATDAT
+	CALLS	#4,G^SYS$FAOL
+	BLBS	R0,120$
+	RET
+120$:
+	PUSHAL	FAODESC
+	PUSHAL	MONPROB_EMU_MAIN_DISP 
+	CALLS	#2,G^SMG$PUT_LINE
+	BLBS	R0,130$
+	RET
+
+130$:
+	PUSHAL	WAIT_INTERVAL                  ; Wait
+	CALLS	#1,G^LIB$WAIT
+	BRW	20$
+	
+1000$:
+	CLRQ	-(SP)			;
+	PUSHAL	ZERO			;
+	PUSHAL	MAINPB_BOARD		;
+	CALLS	#4, G^SMG$SET_OUT_OF_BAND_ASTS
+	PUSHAL	MONPROB_EMU_MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	MONPROB_EMU_HINT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	#SS$_NORMAL,R0
+	RET					; EXIT
+
+
+
+
+CREATE_MONPROB_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; Create Pasteboards
+;
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BLBS	R0,10$
+	RET
+10$:
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,30$
+	RET
+30$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	MONPROB_EMU_MAIN_ROWS	      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	MONPROB_EMU_MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,40$
+	RET
+40$:
+	SUBL	#7,MONPROB_EMU_MAIN_ROWS			; Set our page len
+;
+	PUSHAL	BORDER
+	PUSHAL	MONPROB_EMU_MAIN_DISP
+	PUSHAL	MONPROB_EMU_MAIN_COLS
+        PUSHAL	MONPROB_EMU_MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,50$
+	RET
+50$:
+
+	
+;
+	PUSHAL	BORDER
+	PUSHAL	MONPROB_EMU_HINT_DISP
+	PUSHAL	MONPROB_EMU_HINT_COLS
+        PUSHAL	MONPROB_EMU_HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,60$
+	RET
+60$:
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,70$
+	RET         
+70$:
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	MONPROB_EMU_MAINPB_COL		;Column
+	PUSHAL	MONPROB_EMU_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	MONPROB_EMU_MAIN_DISP 
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,80$
+	RET
+80$:
+
+	PUSHAL	MONPROB_EMU_HINT_PBCOLS		;Column
+	PUSHAL	MONPROB_EMU_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	MONPROB_EMU_HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,90$
+	RET
+90$:
+
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+;
+	CLRL	-(SP)			;
+	PUSHAL	G^EMU_MONI_OOB_AST	;
+	PUSHAL	OOB_B_MASK		;
+	PUSHAL	MAINPB_BOARD		;
+	CALLS	#4, G^SMG$SET_OUT_OF_BAND_ASTS
+
+	RSB
+
+
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, - 
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, - 
+			LABEL=EMU_MONI_OOB_AST
+
+	MOVL	4(AP), R2		; Structure address
+
+	CMPB	SMG$B_CHARACTER(R2), CONTROL_Z
+	BEQL	10$
+	BRW	50$
+
+10$:	MOVL	#1, EXIT_REQUESTED		; 
+
+50$:	CMPB	SMG$B_CHARACTER(R2), CONTROL_W
+	BNEQ	100$			;
+	PUSHAL	MAINPB_BOARD		;
+	CALLS	#1, G^SMG$REPAINT_SCREEN
+
+100$:	MOVZWL	#SS$_NORMAL, R0		; return good status
+	RET
+
+	.END
+	
+
+
+

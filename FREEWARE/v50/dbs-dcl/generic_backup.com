@@ -1,0 +1,385 @@
+$! File created by DCL_DIET at 13-NOV-2000 11:09:29.52 from
+$! DBS0:[OLGA.COM]GENERIC_BACKUP.COS;
+$__vfy = "VFY_''f$parse(f$environment("procedure"),,,"name")'"
+$if (f$type('__vfy') .eqs. "") then __vfy = 0
+$__vfy_saved = f$verify(&__vfy)
+$procedure = f$element(0,";",f$environment("PROCEDURE"))
+$procedure_name = f$parse(procedure,,,"NAME")
+$location = f$parse(procedure,,,"DEVICE","NO_CONCEAL") -
++ f$parse(procedure,,,"DIRECTORY","NO_CONCEAL") - "]["
+$set noon
+$set message/facility/severity/identification/text
+$on control_y then goto bail_out
+$set process/privilege=bypass
+$vax = (f$getsyi("HW_MODEL") .lt. 1024)
+$axp = (f$getsyi("HW_MODEL") .ge. 1024)
+$default_transport = f$trnlnm("RSTUFF_DEFAULT_TRANSPORT")
+$default_transport = f$edit(default_transport,"COLLAPSE,UPCASE")
+$if (default_transport .eqs. "") then default_transport = "DECNET"
+$if (default_transport .eqs. "IP")
+$then
+$mail_recipient = "hotline@onl3.on-line"
+$else
+$mail_recipient = "ONL3::HOTLINE"
+$endif
+$pid = f$getjpi("","PID")
+$ss$_normal = %X00000001
+$dc$_disk = 1
+$dc$_tape = 2
+$unsupported = "/34/53/53/129/130/131/132/133/134/135/136/139/140/"
+$len_unsupported = f$length(unsupported)
+$say = "write sys$output"
+$err = "call reporter"
+$log = "call reporter"
+$set_status = "call set_status"
+$weekday = f$cvtime(,,"WEEKDAY")
+$status_lnm = "BACKUP_STATUS"
+$status_lnm2 = "BACKUP_STATUS_''weekday'"
+$facility = "BAGBACKUP"
+$version = "V2-021  (20001113.1)"
+$err I STARTING "starting version ''version'"
+$scsnode = f$edit(f$getsyi("SCSNODE"),"COLLAPSE,UPCASE")
+$history_file = "SYS$MANAGER:''scsnode'_''procedure_name'.HISTORY"
+$if (f$search(history_file) .eqs. "") then copyy/nolog nla0: 'history_file'
+$test_only = ((f$trnlnm("GENERIC_BACKUP_TEST") .nes. "") .or. (P1 .nes. ""))
+$ignore_cluster = ((f$trnlnm("GENERIC_BACKUP_IGNORE_CLUSTER") .nes. "") -
+.or. (P2 .nes. ""))
+$ignore_finder = f$trnlnm("GENERIC_BACKUP_IGNORE_FINDER")
+$if (test_only) then err I TESTONLY "running in TEST mode" C
+$if (ignore_cluster) then err I ALLDISKS "backing up ALL cluster disks" C
+$if (ignore_finder)
+$then
+$err I NOTUSEFIND "not using tape finder"
+$else
+$call tape_finder
+$endif
+$disk_getter = "OLGA$SYS:GET_DISK_DEVICES.EXE"
+$cluster_member = f$getsyi("CLUSTER_MEMBER")
+$alloclass = f$getsyi("ALLOCLASS")
+$if (alloclass .eq. 0)
+$then
+$prefix = "_"
+$else
+$prefix = "_$''alloclass'$"
+$endif
+$prefix2 = "''scsnode'$"
+$before_backup = "SYS$MANAGER:''scsnode'_BEFORE_BACKUP.COM"
+$after_backup = "SYS$MANAGER:''scsnode'_AFTER_BACKUP.COM"
+$if (.not. test_only)
+$then
+$set_status "Executing ''before_backup'"
+$call spawner 'before_backup'
+$endif
+$set output_rate
+$dat_device = ""
+$dat_device2 = ""
+$backup_device = f$trnlnm("GENERIC_BACKUP_DEVICE")
+$if (backup_device .eqs. "") then goto check_dat_logical
+$dat_device = f$element(0,",",backup_device)
+$if (.not. f$getdvi(dat_device,"EXISTS")) then goto dat_not_exist
+$dev_class = f$getdvi(dat_device,"DEVCLASS")
+$if (dev_class .ne. dc$_tape) then goto dat_not_tape
+$counter = 1
+$bd_loop:
+$dis_device = f$element(counter,",",backup_device)
+$counter = counter + 1
+$if (dis_device .eqs. "") then goto bd_loop
+$if (dis_device .eqs. ",") then goto end_bd_loop
+$dis_device = dis_device - ":" + ":"
+$if (.not. f$getdvi(dis_device,"EXISTS"))
+$then
+$err W NODEVICE "device <''dis_device'> not found, skipped"
+$else
+$dev_class = f$getdvi(dis_device,"DEVCLASS")
+$if (dev_class .ne. dc$_tape)
+$then
+$err W NOTTAPE "device <''dis_device'> is not a tape, skipped"
+$else
+$dat_device2 = dat_device2 + "," + dis_device
+$endif
+$endif
+$goto bd_loop
+$end_bd_loop:
+$if (f$length(dat_device2) .lt. 2) then dat_device2 = ""
+$goto skip_dat_logical
+$check_dat_logical:
+$if (f$trnlnm("DAT") .eqs. "") then goto no_dat_logical
+$dat_device = f$trnlnm("DAT") - ":" + ":"
+$if (.not. f$getdvi(dat_device,"EXISTS")) then goto dat_not_exist
+$dev_class = f$getdvi(dat_device,"DEVCLASS")
+$if (dev_class .ne. dc$_tape) then goto dat_not_tape
+$skip_dat_logical:
+$err I BACKUPTO "backing up to ''dat_device'''dat_device2'"
+$if (f$search(disk_getter) .eqs. "") then goto no_disk_getter
+$call sort_disks
+$assist = "/ASSIST"
+$if (dat_device2 .nes. "") then assist = "/NOASSIST"
+$continue_backups = 1
+$backups_done = 0
+$counter = 0
+$loop:
+$disk_device = f$element(counter,",",sorted_disk_list)
+$counter = counter + 1
+$if (disk_device .eqs. "") then goto loop
+$if (disk_device .eqs. ",") then goto end_loop
+$if (.not. f$getdvi(disk_device,"EXISTS")) then goto loop
+$if (.not. f$getdvi(disk_device,"MNT")) then goto loop
+$if (f$getdvi(disk_device,"SHDW_MEMBER")) then goto loop
+$disk_type = f$getdvi(disk_device,"DEVTYPE")
+$if (f$locate("/''disk_type'/",unsupported) .lt. len_unsupported) then goto loop
+$fulldevnam = f$getdvi(disk_device,"FULLDEVNAM")
+$if (.not. ignore_cluster) then -
+if (cluster_member) then -
+if (f$locate(prefix,fulldevnam) .eq. f$length(fulldevnam)) then -
+goto loop
+$skip_backup = f$search("''fulldevnam'[000000]SKIP.BACKUP")
+$if (skip_backup .nes. "")
+$then
+$say f$fao("(!6%D !8%T) !15*< Skipping backup of !AS !15*>",0,0,fulldevnam)
+$goto loop
+$endif
+$disk_device = fulldevnam - prefix - ":"
+$disk_device = disk_device - prefix2
+$if (backups_done .eq. 0)
+$then
+$rewind = "/REWIND"
+$initialize_tape = 1
+$else
+$rewind = "/NOREWIND"
+$initialize_tape = 0
+$endif
+$backups_done = backups_done + 1
+$list_file = "''disk_device'.LIS"
+$save_set = "''dat_device'''disk_device'.BCK''dat_device2'"
+$say f$fao("(!6%D !8%T) !15*< Purging !AS !15*>",0,0,disk_device)
+$say "$ PURGEE/NOLOG ''fulldevnam'[*...]/EXCLUDE=([SYSLOST...])"
+$if (.not. test_only)
+$then
+$set_status "Purging ''fulldevnam'"
+$purgee/nolog 'fulldevnam'[*...]/exclude=([SYSLOST...])
+$endif
+$if (initialize_tape)
+$then
+$say f$fao("(!6%D !8%T) !15*< Initializing !AS !15*>",0,0,dat_device)
+$say "$ INITIALIZE/MEDIA_FORMAT=COMPACTION ''dat_device' BACKUP"
+$if (.not. test_only)
+$then
+$set_status "Initializing ''dat_device'"
+$initializee/media_format=compaction 'dat_device' BACKUP
+$initialize_status = $status
+$if (.not. initialize_status)
+$then
+$wait 00:00:30.00
+$say "$ INITIALIZE/MEDIA_FORMAT=COMPACTION ''dat_device' BACKUP ! retry"
+$set_status "Initializing ''dat_device' (2)"
+$initializee/media_format=compaction 'dat_device' BACKUP
+$initialize_status = $status
+$if (.not. initialize_status)
+$then
+$continue_backups = 0
+$set_status "Initializing ''dat_device' - ''f$message(initialize_status)'"
+$endif
+$endif
+$endif
+$endif
+$if (continue_backups)
+$then
+$say f$fao("(!6%D !8%T) !15*< Starting backup of !AS !15*>",0,0,disk_device)
+$say "$ BACKUPP/IMAGE''assist'/LIST=''list_file' -"
+$say "    ''fulldevnam'/IGNORE=(INTERLOCK,LABEL) -"
+$say "    ''save_set'''rewind'/MEDIA_FORMAT=COMPACTION/BLOCK_SIZE=30000"
+$if (.not. test_only)
+$then
+$set_status "Starting backup of ''fulldevnam'"
+$if (dat_device2 .eqs. "")
+$then
+$definee/nolog sys$command opa0:
+$replyy/enable
+$replyy/disable
+$deassign sys$command
+$else
+$definee/user/nolog sys$command opa0:
+$endif
+$backupp/image'assist'/list='list_file' -
+'fulldevnam'/ignore=(interlock,label) -
+'save_set''rewind'/media_format=compaction/block_size=30000
+$say f$fao("(!6%D !8%T) !15*< Finished backup of !AS !15*>",0,0,disk_device)
+$set_status "Finished backup of ''fulldevnam'"
+$else
+$say f$fao("(!6%D !8%T) !15*< Finished backup of !AS !15*>",0,0,disk_device)
+$endif
+$endif
+$set output_rate
+$if (continue_backups) then goto loop
+$end_loop:
+$if (.not. test_only)
+$then
+$if (continue_backups)
+$then
+$set_status "Executing ''after_backup'"
+$endif
+$call spawner 'after_backup'
+$if (continue_backups)
+$then
+$set_status "Backups completed OK"
+$endif
+$endif
+$if (f$mode() .eqs. "BATCH")
+$then
+$set output_rate
+$cancel_it = f$getqui("CANCEL_OPERATION")
+$job_name = f$getqui("DISPLAY_JOB","JOB_NAME",,"THIS_JOB")
+$logfile = f$getqui("DISPLAY_JOB","LOG_SPECIFICATION",,"THIS_JOB")
+$logfile = f$parse(job_name,logfile,".LOG")
+$if (f$search(logfile) .nes. "")
+$then
+$searchh 'logfile' "%MOUNT-I-OPRQST"/output=nla0:
+$search_status = $status
+$if (search_status .eq. ss$_normal)
+$then
+$maill/subject="''scsnode' Backup required operator assistance" -
+nla0: "''mail_recipient'"
+$set_status "Backup required operator assistance"
+$else
+$if (.not. search_status)
+$then
+$maill/subject="''scsnode' search status was ''search_status'" -
+nla0: "''mail_recipient'"
+$endif
+$endif
+$endif
+$endif
+$goto bail_out
+$no_dat_logical:
+$err F NOLOGICAL "the logical ""DAT"" does not exist"
+$set_status "The logical <DAT> does not exist"
+$goto bail_out
+$dat_not_exist:
+$err F NOTEXIST "device DAT <''dat_device'> does not exist"
+$set_status "Device DAT <''dat_device'> does not exist"
+$goto bail_out
+$dat_not_tape:
+$err F NOTTAPE "device <''dat_device'> is not a tape device"
+$set_status "Device DAT <''dat_device'> is not a tape device"
+$goto bail_out
+$no_disk_getter:
+$err F NODISKGET "unable to find <''disk_getter'>"
+$set_status "Unable to find <''disk_getter'>"
+$bail_out:
+$if (.not. test_only)
+$then
+$today3 = f$extract(0,3,f$cvtime(,,"WEEKDAY"))
+$openn/append/error=close_history history 'history_file'
+$write history "''today3' ''f$trnlnm(status_lnm)'"
+$close_history:
+$closee/nolog history
+$endif
+$err I FINISHED "that's all folks"
+$exitt 1+(0*'f$verify(__vfy_saved)')
+$reporter: subroutine
+$set noon
+$percent = "%"
+$if (P4 .nes. "") then percent = "-"
+$say "''percent'''facility'-''P1'-''P2', ''P3'"
+$exitt 1
+$endsubroutine
+$spawner: subroutine
+$set noon
+$thing = f$edit(P1,"COLLAPSE,UPCASE")
+$if (thing .eqs. "") then goto exit_spawner
+$if (f$search(thing) .eqs. "") then goto exit_spawner
+$thing = f$element(0,";",thing)
+$log i start "starting <''thing'>"
+$spawnn/wait @'thing'
+$log i end "finished <''thing'>"
+$exit_spawner:
+$exitt 1
+$endsubroutine
+$set_status: subroutine
+$set noon
+$status_text = f$edit(P1,"COMPRESS,TRIM")
+$definee/system/nolog 'status_lnm' "''f$cvtime()' ''status_text'"
+$definee/system/nolog 'status_lnm2' "''f$cvtime()' ''status_text'"
+$exitt 1
+$endsubroutine
+$sort_disks: subroutine
+$set noon
+$on control_y then goto bail_out
+$run 'disk_getter'
+$temp_file = pid + ".DISK_LIST"
+$copyy/nolog nla0: 'temp_file'
+$openn/append temp 'temp_file'
+$count = 0
+$sloop:
+$count = count + 1
+$device_name = f$trnlnm("DISK_DEVICE_''count'","LNM$PROCESS_TABLE")
+$if (device_name .eqs. "") then goto end_sloop
+$if (.not. f$getdvi(device_name, "EXISTS")) then goto sloop
+$if (.not. f$getdvi(device_name, "MNT")) then goto sloop
+$if (f$getdvi(device_name, "SHDW_MEMBER")) then goto sloop
+$if (f$search("''device_name'[000000]SKIP.BACKUP") .nes. "") then goto sloop
+$volnam = f$getdvi(device_name, "VOLNAM")
+$unit_number = f$getdvi(device_name, "UNIT")
+$devnam = f$getdvi(device_name, "DEVNAM")
+$freeblocks = f$getdvi(device_name, "FREEBLOCKS")
+$maxblocks = f$getdvi(device_name, "MAXBLOCK")
+$inuse = maxblocks - freeblocks
+$write temp f$fao("!16UL  !AS", inuse, devnam)
+$goto sloop
+$end_sloop:
+$closee/nolog temp
+$sort 'temp_file' 'temp_file'
+$openn/read/error=end_rloop temp 'temp_file'
+$sorted_disk_list == ""
+$disk_list = ""
+$rloop:
+$readd/end_of_file=end_rloop/error=end_rloop temp stuff
+$device = f$extract(18,999,stuff)
+$disk_list = disk_list + "," + device
+$goto rloop
+$end_rloop:
+$closee/nolog temp
+$disk_list = disk_list - ","
+$sorted_disk_list == "''disk_list'"
+$if (f$search(temp_file) .nes. "") then deletee/nolog 'temp_file';*
+$exit_sort_disks:
+$exitt 1
+$endsubroutine
+$tape_finder: subroutine
+$set noon
+$facility = "TAPEFINDER"
+$on control_y then goto exit_tape_finder
+$tape_getter = "OLGA$SYS:GET_TAPE_DEVICES.EXE"
+$if (f$search(tape_getter) .eqs. "")
+$then err E NOGETTER "can't find ''tape_getter'"
+$else
+$dat_lnm = "DAT"
+$run 'tape_getter'
+$other_tape = ""
+$counter = 1
+$loop0:
+$tape_device = f$trnlnm("TAPE_DEVICE_''counter'","LNM$PROCESS_TABLE")
+$counter = counter + 1
+$if (tape_device .eqs. "") then goto end_loop0
+$if (.not. f$getdvi(tape_device,"EXISTS")) then goto loop0
+$fulldevnam = f$getdvi(tape_device,"FULLDEVNAM")
+$media_name = f$getdvi(tape_device,"MEDIA_NAME")
+$err S FOUND "found ''fulldevnam' (''media_name')"
+$other_tape = fulldevnam
+$end_loop0:
+$if (other_tape .eqs. "")
+$then
+$err E NODEVICE "no suitable tape devices were found"
+$else
+$if (test_only)
+$then
+$err I WOULDHAVE "would have defined ''dat_lnm' to ''fulldevnam'"
+$else
+$err I DEFLOG "defining ''dat_lnm' to ''fulldevnam'"
+$definee/system/nolog 'dat_lnm' 'fulldevnam'"
+$endif
+$endif
+$endif
+$exit_tape_finder:
+$exitt 1
+$endsubroutine

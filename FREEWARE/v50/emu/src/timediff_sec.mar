@@ -1,0 +1,133 @@
+	.TITLE	TIMEDIFF_SEC 
+	.IDENT	/V1-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;2 TIMEDIFF_SEC  
+; Calculate the difference between 2 absolute times and return the 
+; difference in seconds.
+;3 Inputs
+;	Command line containing 2 absolute times seperated by /
+;	The 1st time must be later or = to 2nd time
+;	Addr of TIME2
+;3 Outputs
+;	Symbol TIMEDIFF is set to the number of seconds between the
+;	two times. This is a character string.
+;3 Returns
+;	$STATUS is set by DCL
+;	SS$_NORMAL	OK , Symbol is set to time difference
+;	Any return from LIB$SUB_TIMES, LIB$GET_FOREIGN
+;	On any error symbol is set to -1
+; (Time1 must be later or = time2)
+;--
+
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+
+	.PSECT	TIMEDIFF_SEC_D,WRT,NOEXE,PIC,SHR,QUAD
+ 
+INTLTIM1:	.QUAD	0
+INTLTIM2:	.QUAD	0
+QTIME:		.QUAD	0
+CLI_BUFF:	.BLKB	80
+CLI_DESC:	.LONG 	.-CLI_BUFF
+		.ADDRESS  CLI_BUFF
+CLI_LEN:	.LONG
+TIME1:		.BLKB	24
+TIME1_D:	.LONG	.-TIME1
+		.ADDRESS  TIME1
+TIME2:		.BLKB	24
+TIME2_D:	.LONG	.-TIME2
+		.ADDRESS  TIME2
+SYM:		.ASCII	/TIMEDIFF/
+SYM_DESC:	.LONG	.-SYM
+		.ADDRESS  SYM
+CVTSTR:		.ASCID	/!UL/
+
+	.PSECT	TIMEDIFF_SEC_C,NOWRT,EXE,PIC,SHR,QUAD
+ 
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=TIMEDIFF_SEC  
+
+; Get command line
+	CLRL	-(SP)		; No flag
+	PUSHAL	CLI_LEN         ; Resulting len
+	CLRL	-(SP)           ; No prompt
+	PUSHAL	CLI_DESC        ; Write here
+	CALLS	#4,G^LIB$GET_FOREIGN
+	BLBS	R0,10$
+	RET
+10$:
+; Get times into descriptors
+	TSTL	CLI_LEN
+	BNEQ	100$
+20$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+100$:
+	MOVAL	CLI_BUFF,R6
+	LOCC	#^A?/?,CLI_LEN,(R6)
+	TSTL	R0 			; Found /?
+	BEQL	20$                     ; Br not
+	SUBL3	R6,R1,TIME1_D       	; Len of TIME 1
+	BLEQ	20$                     ; Br if <= 0
+	MOVL	R6,TIME1_D+4
+	MOVL	TIME1_D,R2		; Len so far
+	INCL	R2
+	SUBL3	R2,CLI_LEN,TIME2_D	; Len of Time 2
+	BLEQ	20$
+	ADDL3	#1,R1,TIME2_D+4
+; Convert time to binary
+	$BINTIM_S-	
+		TIMBUF=TIME1_D,-
+		TIMADR=INTLTIM1
+	BLBS	R0,110$
+	RET
+110$:
+	$BINTIM_S-	
+		TIMBUF=TIME2_D,-
+		TIMADR=INTLTIM2
+     	BLBS	R0,120$
+	RET
+120$:
+
+
+
+        PUSHAL	QTIME		; Result
+	PUSHAL	INTLTIM2
+	PUSHAL	INTLTIM1
+	CALLS	#3,G^LIB$SUB_TIMES
+	BLBS	R0,130$
+	RET
+130$:
+; Test if resulting time = 0
+	TSTL	QTIME       	; low long
+	BNEQ	140$             ; Br if ne
+	TSTL	QTIME+4         ; hi long
+	BNEQ	140$             ; br if not
+	CLRL	R1              ; Time diff = 0
+	MOVL	#SS$_NORMAL,R0  ; OK
+	RET
+140$:
+	EDIV    #-10000000,QTIME,R1,R2     ; R1 = Seconds since
+	PUSHL	R1
+	PUSHAL	CLI_DESC
+	PUSHAL	CLI_DESC
+	PUSHAL	CVTSTR
+	CALLS	#4,G^SYS$FAO
+	BLBS	R0,150$
+	RET
+150$:
+	PUSHAL	CLI_DESC
+	PUSHAL	SYM_DESC
+	CALLS	#2,G^LIB$SET_SYMBOL
+	RET
+	.END	TIMEDIFF_SEC

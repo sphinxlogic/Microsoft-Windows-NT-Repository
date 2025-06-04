@@ -1,0 +1,223 @@
+	.title	lib_output_fh2
+	.ident	/X1-003/
+
+;+
+; Version:	X1-003
+;
+; Facility:	Library routines.
+;
+; Abstract:	To format a 512 byte buffer as if it was a Files-11 file
+;		header block.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	11-Sep-1991, DBS, Version X1-001
+; 001 -	Original version.
+;	01-Jul-1993, DBS; Version X1-002
+; 002 -	Fixed bug where filename was not being displayed correctly.
+;	19-Jan-1996, DBS; Version X1-003
+; 003 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	This routine will format the contents of a 512 byte buffer to show
+;	the contents as if they were a Files-11 file header.  No checking is
+;	done to establish the validity of the block - this is up to the
+;	caller.
+;
+; Calling Sequence:
+;	call lib_output_fh2 (%val(%loc(buffer)))
+;		- or -
+;	pushab	buffer
+;	calls	#1, g^lib_output_fh2
+;
+; Formal Argument(s):
+;	buffer.rl.v	Address of the first byte of the buffer.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	Output is directed to SYS$OUTPUT.
+;
+; Completion Codes:
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	.external	str_len
+
+	$fh2def
+	$fi2def
+	$fm2def
+	$ssdef
+	$gblini GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+arg_count=1
+buffer=4
+
+	set_psect _sys_data
+
+	alloc_string	lib_faobuf, 1024
+	alloc_string	filespec, <fi2$s_filename+fi2$s_filenamext>
+
+filename_buffer:	.blkb	fi2$s_fi2def
+
+fileheader_fao1:	.ascid -
+	"!55<ODS Version !UB.!UB!>Segment number !UW!/"-
+	"!10* File Identification :  (!UW,!UW,!UW)!/"-
+	"!12* Extension File ID :  (!UW,!UW,!UW)!/"-
+	"!13* Backlink File ID :  (!UW,!UW,!UW)!/"-
+	"!19* File owner :  !%U!/"-
+	"!8* Identification Offset :  !UB!/"-
+	"!19* Map Offset :  !UB!/"-
+	"!8* Access Control Offset :  !UB!/"-
+	"!14* Reserved Offset :  !UB"
+fileheader_fao2:	.ascid -
+	"!20* File name :  !AF!/"-
+	"!16* File revision :  !UW!/"-
+	"!16* Creation date :  !%D!/"-
+	"!16* Revision date :  !%D!/"-
+	"!18* Expiry date :  !%D!/"-
+	"!18* Backup date :  !%D"
+fileheader_fao3:	.ascid -
+	"!14* File Protection :  !XW!/"-
+	"!12* Record Protection :  !XW!/"-
+	"!15* Map Area Inuse :  !UB!/"-
+	"!18* Access Mode :  !XB!/"-
+	"!19* Journaling :  !XB!/"-
+	"!9* Recovery Unit Active :  !XB!/"-
+	"!14* High-water mark :  !UL"
+fileheader_fao4:	.ascid -
+	"!9* File characteristics :  !XL!/"-
+	"!12* Record attributes :  !XL !XL !XL !XL!/"-
+	"!33* !XL !XL !XL !XL!/"-
+	"!21* Checksum :  !XW!/"
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+lib_output_fh2, ^m<r2,r3,r4,r5,r6,r7,r8,r9,r10>
+
+	cmpw	(ap), #arg_count
+	beql	20$
+	bgtr	10$
+	movl	#ss$_insfarg, r0
+	brw	90$
+10$:	movl	#ss$_ovrmaxarg, r0
+	brw	90$
+
+20$:	movl	buffer(ap), r8
+
+	$fao_s	ctrstr=fileheader_fao1, -
+		outbuf=lib_faobuf_ds, -
+		outlen=lib_faobuf, -
+		p1=fh2$b_struclev(r8), -
+		p2=fh2$b_strucver(r8), -
+		p3=fh2$w_seg_num(r8), -
+		p4=fh2$w_fid_num(r8), -
+		p5=fh2$w_fid_seq(r8), -
+		p6=fh2$w_fid_rvn(r8), -
+		p7=fh2$w_ex_fidnum(r8), -
+		p8=fh2$w_ex_fidseq(r8), -
+		p9=fh2$w_ex_fidrvn(r8), -
+		p10=fh2$w_bk_fidnum(r8), -
+		p11=fh2$w_bk_fidseq(r8), -
+		p12=fh2$w_bk_fidrvn(r8), -
+		p13=fh2$l_fileowner(r8), -
+		p14=fh2$b_idoffset(r8), -
+		p15=fh2$b_mpoffset(r8), -
+		p16=fh2$b_acoffset(r8), -
+		p17=fh2$b_rsoffset(r8)
+	display lib_faobuf
+
+	movzbl	fh2$b_idoffset(r8), r7
+	mull2	#2, r7
+	addl2	r8, r7
+	movab	filename_buffer, r9
+	movab	filespec_t, r10
+	movc3	#fi2$k_length, (r7), (r9)
+	movc3	#fi2$s_filename, -
+		fi2$t_filename(r9), (r10)
+	movc3	#fi2$s_filenamext, -
+		fi2$t_filenamext(r9), -
+		fi2$s_filename(r10)
+	movab	filename_buffer, r7
+	addl3	#fi2$q_credate, r7, r3
+	addl3	#fi2$q_revdate, r7, r4
+	addl3	#fi2$q_expdate, r7, r5
+	addl3	#fi2$q_bakdate, r7, r6
+	movab	filespec_t, r10
+	pushal	filespec
+	pushaq	filespec_ds
+	calls	#2, g^str_len
+	$fao_s	ctrstr=fileheader_fao2, -
+		outbuf=lib_faobuf_ds, -
+		outlen=lib_faobuf, -
+		p1=filespec, -
+		p2=r10, -
+		p3=fi2$w_revision(r7), -
+		p4=r3, -
+		p5=r4, -
+		p6=r5, -
+		p7=r6
+	display lib_faobuf
+
+	movl	fh2$l_highwater(r8), r1
+	tstl	r1
+	beql	30$
+	decl	r1
+30$:	$fao_s	ctrstr=fileheader_fao3, -
+		outbuf=lib_faobuf_ds, -
+		outlen=lib_faobuf, -
+		p1=fh2$w_fileprot(r8), -
+		p2=fh2$w_recprot(r8), -
+		p3=fh2$b_map_inuse(r8), -
+		p4=fh2$b_acc_mode(r8), -
+		p5=fh2$b_journal(r8), -
+		p6=fh2$b_ru_active(r8), -
+		p7=r1
+	display lib_faobuf
+
+	$fao_s	ctrstr=fileheader_fao4, -
+		outbuf=lib_faobuf_ds, -
+		outlen=lib_faobuf, -
+		p1=fh2$l_filechar(r8), -
+		p2=fh2$w_recattr+28(r8), -
+		p3=fh2$w_recattr+24(r8), -
+		p4=fh2$w_recattr+20(r8), -
+		p5=fh2$w_recattr+16(r8), -
+		p6=fh2$w_recattr+12(r8), -
+		p7=fh2$w_recattr+8(r8), -
+		p8=fh2$w_recattr+4(r8), -
+		p9=fh2$w_recattr(r8), -
+		p10=fh2$w_checksum(r8)
+	display	lib_faobuf
+
+90$:	ret
+
+	.end

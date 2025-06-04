@@ -1,0 +1,2977 @@
+       .TITLE EMU_CORE
+       .IDENT  /V05-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 EMU_CORE
+; Collection of routines used primarily in EMU core processes
+; See each routine for detail
+;2 Modifications
+;  002	30-jun-1998	PB	Changed variable NF_NAM to be 512 char
+;				was .quad - programming error.
+;--
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	$IODEF		; I/O functions
+	$NMADEF		; Network Management Functions
+	$LCKDEF
+	$UAIDEF
+	$JPIDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUMSGDEF
+	EMURLTDEF
+	EMUDBDEF
+	EMUCNTDEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+CONTROL_A:	.QUAD   0
+COMIPC_A:	.QUAD	0
+COUNTERS_A:	.QUAD	0
+QTIME:		.QUAD   0       
+TEMPDESC:	.QUAD	0
+; CRC table
+CRCDESC:	.QUAD	0
+CRCINIT:	.LONG	1
+CRCPOLY:	.LONG  ^O120001
+CRCTBL:		.BLKL	16	
+
+MAPRELATER:
+                .QUAD	0
+		.LONG	SYS_PID_C_RELATER
+		.LONG	0
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_RELATERDB
+		.ADDRESS EMU_RELATER
+
+LOCK_WAIT:	.FLOAT	1.0   
+
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/CORE/
+
+
+
+	.ALIGN 	LONG
+LOGFAB:	$FAB	FAC = <PUT>,-        	; Access
+		FNM = <EMU_LOG>,-    ; Filename 
+		DNM = <EMU5_LOG:EMU_LOG.ERR>,-    ; Filename 
+		SHR = <DEL,UPD,GET,PUT>,- ; Share access R/W
+		RAT = CR,-
+		FOP = CIF		; Create if doesn't exist
+LOGRAB:	$RAB	FAB = LOGFAB,-           
+		RAC = SEQ,-		; Sequential access
+		ROP = EOF		; Open for append
+
+;
+	.ALIGN	LONG
+; Lock to control system wide DB access
+
+SYSDBLOCK:	
+		.LONG	12		; Arguments
+		.LONG	0		; EFN
+LKMODE:		.LONG	LCK$K_EXMODE 	; Lock mode
+		.ADDRESS SYSDBLOCK_STA	; Lock status block
+LKFLGS:         .LONG 	0		; flags
+		.ADDRESS EMU_SYSDBLOCK 	; Resourse name
+		.LONG	0		; Parent id 
+                .LONG	0               ; AST
+		.LONG	0		; (BL)AST Param
+		.LONG	0		; BLAST
+		.LONG	0		; ACC Mode
+		.LONG	0		; RSDM_ID
+		.LONG	0		; Null
+
+SYSDBLOCK_STA:	.LONG
+SYSDBLOCK_ID:	.LONG
+
+
+EMU_SYSDBLOCK:	.ASCID	/EMU_SYSDBLOCK/
+
+MNUMSK:         .BYTE   ^X0,^X0,^X0,^XFF ;  Mask out top 3 bytes E-Addr
+BOTMSK:         .BYTE   ^XFF,^X0,^X0,^X00 ;  Mask out top 3 bytes E-Addr
+ERRSTRU:	.BLKB	MSG_C_SIZE
+LOGGER_NAM:	.ASCID	/EMU_LOGGER/
+EFLAGS1:		.ASCID	/EFLAGS1/	; Event Flag Cluster (64-95)
+EFLAGS2:		.ASCID	/EFLAGS2/	; Event Flag Cluster (96-127)
+EMU_RELATERDB:	.ASCID	\EMU_RELATERDB\            ; Lock name
+EMU_RELATER:	.ASCID	\EMU_RELATER\  		; Section name
+; 
+	.ALIGN LONG
+NSAPADDR:	.BLKB	32
+NSAPDESC:	.LONG	.-NSAPADDR
+		.ADDRESS  NSAPADDR
+; PHYSADR...
+SETPARM:	.WORD	NMA$C_PCLI_FMT
+		.LONG	NMA$C_LINFM_ETH		; ETHERNET packet format
+		.WORD	NMA$C_PCLI_PTY   
+PTYTYP:		.LONG	^XFFFF			;Protocol type
+		.WORD	NMA$C_PCLI_PAD
+		.LONG	NMA$C_STATE_OFF
+
+SETPARMLEN =	.-SETPARM
+SETPARMDSC:	.LONG		SETPARMLEN
+		.ADDRESS	SETPARM
+	.ALIGN	LONG
+TEMPBUF:	.BLKB	512			; Gen use
+;
+; Sensemode Buffer. Used to get our address to put in mesage
+;
+SENSEBUF:	.BLKB	250
+SENSELEN 	= .-SENSEBUF
+SENSEBUFDSC:	.LONG	SENSELEN
+		.ADDRESS	SENSEBUF
+ETHCHN:	.LONG	0				; Channel
+RLT_FRM_WAIT:	.FLOAT	0.10	; 1/10th second
+IOSB:	.QUAD	0				; 
+NAMFRM:		
+NF_PID:		.LONG
+NF_KEY2:	.LONG
+NF_NAM:		.BLKB	512
+CURPRIVS:	.QUAD
+JPILEN:		.LONG	0
+HIORD:	    	.BYTE	^XAA,^X00,^X04,^X00
+RLTCXT:		.LONG	0
+UPDCXT:		.LONG	0
+JPILST:		.WORD	12
+		.WORD	JPI$_USERNAME
+		.ADDRESS USERNAME
+		.ADDRESS  USERNAME_DESC
+		.LONG	0
+USERNAME_DESC:	.LONG	12
+		.ADDRESS USERNAME
+USERNAME:	.BLKB	12
+		.LONG	0
+UAILST:		.WORD	8
+		.WORD	UAI$_PRIV
+		.ADDRESS CURPRIVS
+		.ADDRESS JPILEN
+		.LONG	0
+
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=SET_UPDATE
+;++
+;2 SET_UPDATE
+;  Routine to set the update bit in all PSRdb records matching the 
+;  input. Setting this bit causes this box to be updated on the next
+;  cycle.
+; Modification:
+;	Clear the NO-POLL bit at same time. 
+;3 Inputs
+;	.address of EMUDB record. Only the BOXID(4) and PROTOCOL(0) fields
+;	are accessed. That is the complete record need not be present.
+;	.address of .quad 1st and last address of section to search.
+;3 Outputs
+;	Any matching boxes in the specified db have the update bit set.
+;	SYS_COM_V_UPDATE bit is set in field COM_HDR_L_SYSCTL
+;3 Returns
+;	SS$_NORMAL	At least 1 match was found and bit set
+;	SS$_BADPARAM	Boxid = 0
+;			protocol specified did not match P2
+;	SS$_ITEMNOTFOUND No matching box found in specified db
+;-- 
+	MOVL	4(AP),R6	; EMUDB
+	MOVL	@8(AP),R7	; PSRdb (1ST Rec)
+	CMPL	COM_DBHDR_L_FLAG(R7),DB_REC_L_PROTO(R6)
+        BNEQU	10$
+	TSTL	DB_REC_L_BOXID(R6)
+        BNEQ	20$
+10$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+20$:
+	CLRL	UPDCXT			; New context
+	CLRL	R10			; Count
+100$:
+	PUSHAL   UPDCXT
+	PUSHL	8(AP)
+	ADDL3	#DB_REC_L_BOXID,R6,-(SP)
+	CALLS	#3,G^LOCATE_BOXID       ; Find next
+	BLBS	R0,200$                 ; Br if found
+	CMPL	#SS$_ITEMNOTFOUND,R0    ; Not found?
+	BEQLU	110$                    ; Br if not found error
+	RET                             ; Return error
+110$:
+	TSTL	R10                     ; Any found?
+	BEQL	120$                    ; Br if none found
+	MOVL	#SS$_NORMAL,R0          ; OK if some found
+120$:
+	RET                             ; Done
+200$:
+	INCL	R10			; Another found
+	BISL	#SYS_COM_M_UPDATE,COM_HDR_L_SYSCTL(R1)
+	BICL	#SYS_COM_M_NOPOL,COM_HDR_L_SYSCTL(R1)
+	BRW	100$
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CHECK_PRIVS
+;++
+;2 CHECK_PRIVS
+;  Routine to compare the caller's authorised privs with the input
+;  param. It returns true(1) is all privs in the input
+;  are present or false (0) if not.
+;3 Inputs
+;	.address of .quad VMS priv mask. The bit positions are defined by
+;	the $PRVDEF macro
+;3 Outputs
+;	None
+;3 Returns
+; 	True (1)	All bits set in the input quad are set in 
+;			the caller's AUTHPRIV mask
+;	False(0)	At least 1 bit set in the input quad was not
+;			set in the caller's AUTHPRIV mask. (UAF)
+;	Any from $GETJPI
+;-- 
+	$GETJPIW_S	ITMLST=JPILST
+	BLBS	R0,5$
+	RET
+5$:
+	$GETUAI_S	ITMLST=UAILST -
+			USRNAM=USERNAME_DESC	; 
+        BLBS	R0,10$
+	RET
+10$:
+	MOVL	4(AP),R6
+	MOVAL	CURPRIVS,R7
+	BICL3	(R7),(R6),R0		; Check low .LONG priv mask
+	BNEQ    20$			; Br if not all 0
+	BICL3	4(R7),4(R6),R0		; Check high .LONG priv mask
+	BNEQ    20$			; Br if not all 0
+	MOVL	#1,R0			; OK
+	RET
+20$:
+	CLRL	R0	                ; Not OK
+	RET
+
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=GET_EMUDBSYSLOCK 
+;++
+;2 GET_EMUDBSYSLOCK
+;	Routine to get a lock for access to the EMU databases
+;	system wide. It is used by those routines that must access multiple
+;	records to satisfy a single input. Current participants:
+;	RELATER
+;	SCANNER
+;   Note: the lock is queued in wait mode; The caller waits until the lock is 
+;	granted.
+;3 Inputs
+;	.address of lockid. If the value at this address = 0 then the 
+;	lock is queued in EXMODE and the created id returned to caller. 
+; 	If .ne. 0 then the lock is converted to EXMODE 
+;
+;	.long caller's pid. The EMU designated id of the caller. Used to 
+;	log activity of this routine.
+;
+;	.long  lock level. Optional - if not present defaults to LCK$K_EXMODE
+;	May be any valid LCK$K_xxMODE symbol. 
+;
+;
+;3 Outputs
+;	If Id = 0 and lock completes successfully, the created id is 
+;	returned in P1
+;	All activity is recorded as messages in EMU_LOGGER
+;	Messages written:
+;	All messages contain the time, caller's pid and activity:
+;	Attempt to que
+;	Result from $ENQ
+;
+;3 Returns
+; Any from $ENQ (status block)
+;3 Modifications
+;	001	PB	Commented out logging of all activity - 
+;			too many useless messages.
+;-- 
+	MOVL	@4(AP),SYSDBLOCK_ID		; lock ID
+	BEQL	20$
+	BRW	100$				; Br if NOT new id
+; Get new lock
+20$:
+	MOVL	#LCK$K_EXMODE,LKMODE		; Set def mode
+	CMPL	#3,(AP)     			; Option present?
+	BNEQ	50$                             ; Br no
+	MOVL	12(AP),LKMODE			; Set mode
+50$:
+	CLRL	LKFLGS			       ; No flags	
+        MOVL	#MSG_SYSDBLCK_CREATE,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                      ; 2 params
+	MOVAL	MSGPARAMS,R1                   ; Plist
+	MOVL	2(AP),(R1)                     ; PID
+	PUSHAL	ERRORMSG                       ; Log it
+	CALLS	#1,G^EMU_LOGGER
+;
+	$ENQW_G	SYSDBLOCK
+	MOVL	R0,R6				; Save status
+
+;        MOVL	#MSG_SYSDBLCK_COMPLT,MSGCDE    ; 
+;	MOVL	#3,PARCNT                      ; 2 params
+;	MOVAL	MSGPARAMS,R1                   ; Plist
+;	MOVL	2(AP),(R1)+                    ; PID
+;	MOVL	R0,(R1)+                        ;Status
+;	MOVZWL	SYSDBLOCK_STA,(R1)             ; IOSB
+;	PUSHAL	ERRORMSG                       ; Log it
+;	CALLS	#1,G^EMU_LOGGER
+
+	MOVL	R6,R0				; Restore status
+
+	BLBS	R0,60$
+	RET
+60$:
+	BLBS	SYSDBLOCK_STA,70$
+	MOVZWL	SYSDBLOCK_STA,R0
+	RET
+70$:
+	MOVL	SYSDBLOCK_ID,@4(AP)		; Return lock ID
+	RET
+	
+100$:
+; Convert existing lock
+	MOVL	#LCK$K_EXMODE,LKMODE		; Set def mode
+	CMPL	#3,(AP)     			; Option present?
+	BNEQ	120$                             ; Br no
+	MOVL	12(AP),LKMODE			; Set mode
+120$:
+	BISL	#LCK$M_CONVERT,LKFLGS	       ; Convert this lock
+; Removed logging of each convert - too many messages	
+;        MOVL	#MSG_SYSDBLCK_CONVERT,MSGCDE    ; General PSR error
+;	MOVL	#1,PARCNT                      ; 2 params
+;	MOVAL	MSGPARAMS,R1                   ; Plist
+;	MOVL	2(AP),(R1)                     ; PID
+;	PUSHAL	ERRORMSG                       ; Log it
+;	CALLS	#1,G^EMU_LOGGER
+;
+	$ENQW_G	SYSDBLOCK
+;	MOVL	R0,R6				; Save status
+
+;        MOVL	#MSG_SYSDBLCK_COMPLT,MSGCDE    ; 
+;	MOVL	#3,PARCNT                      ; 2 params
+;	MOVAL	MSGPARAMS,R1                   ; Plist
+;	MOVL	2(AP),(R1)+                    ; PID
+;	MOVL	R0,(R1)+                        ;Status
+;	MOVZWL	SYSDBLOCK_STA,(R1)             ; IOSB
+;	PUSHAL	ERRORMSG                       ; Log it
+;	CALLS	#1,G^EMU_LOGGER
+
+;	MOVL	R6,R0				; Restore status
+
+	BLBS	R0,130$
+	RET
+130$:
+	BLBS	SYSDBLOCK_STA,140$
+	MOVZWL	SYSDBLOCK_STA,R0
+140$:
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=RELEASE_EMUDBSYSLOCK 
+;++
+;2 RELEASE_EMUDBSYSLOCK
+;	Routine to release the lock gained by calling GET_EMUDBSYSLOCK
+;	The routine converts the lock specified to NULL
+;	See that routine for detail.
+;3 Inputs
+;	.address of lockid. Must not = 0
+;
+;	.long caller's pid. The EMU designated id of the caller. Used to 
+;	log activity of this routine.
+;
+;3 Outputs
+;	None other that status log message
+;	Messages written:
+;	All messages contain the time, caller's pid and activity:
+;	Result from $ENQ
+;
+;3 Returns
+;	SS$_BADPARAM	Lock id = 0
+; Any from $ENQ (status block)
+; 
+;3 Modifications
+;	001	PB	Commented out logging of all activity - 
+;			too many useless messages.
+;-- 
+	MOVL	@4(AP),SYSDBLOCK_ID		; lock ID
+	BNEQU	10$				; Br if id OK
+	MOVL	#SS$_BADPARAM,R0
+	RET
+10$:
+	MOVL	#LCK$K_NLMODE,LKMODE		; Set mode
+	BISL	#LCK$M_CONVERT,LKFLGS	       ; Convert this lock
+	
+;        MOVL	#MSG_SYSDBLCK_RELEASE,MSGCDE    ; General PSR error
+;	MOVL	#1,PARCNT                      ; 2 params
+;	MOVAL	MSGPARAMS,R1                   ; Plist
+;	MOVL	2(AP),(R1)                     ; PID
+;	PUSHAL	ERRORMSG                       ; Log it
+;	CALLS	#1,G^EMU_LOGGER
+;
+	$ENQW_G	SYSDBLOCK
+	MOVL	R0,R6				; Save status
+
+;        MOVL	#MSG_SYSDBLCK_RELEASD,MSGCDE    ; 
+;	MOVL	#3,PARCNT                      ; 2 params
+;	MOVAL	MSGPARAMS,R1                   ; Plist
+;	MOVL	2(AP),(R1)+                    ; PID
+;	MOVL	R0,(R1)+                       ;Status
+;	MOVZWL	SYSDBLOCK_STA,(R1)             ; IOSB
+;	PUSHAL	ERRORMSG                       ; Log it
+;	CALLS	#1,G^EMU_LOGGER
+
+	MOVL	R6,R0				; Restore status
+
+	BLBS	R0,130$
+	RET
+130$:
+	BLBS	SYSDBLOCK_STA,140$
+	MOVZWL	SYSDBLOCK_STA,R0
+140$:
+	RET
+
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=PSRREC_TO_RELATER 
+;++
+;2 PSRREC_TO_RELATER
+;	The input PSR record is parsed and components are added to a 
+;       relater frame. The resulting frame is sent to the relater.
+;3 Inputs
+;	.address of PSR record
+;3 Outputs
+;	Relater frame
+;3 Returns
+;	SS$_NORMAL	OK
+;	SS$_BADPARAM	Invalid PSR rec. One of:
+;			FLAG field is not in valid range
+; Any from CREATE_RELATER_FRAME, SEND_RELATER_FRAME
+;-- 
+	MOVL	4(AP),R6
+	CLRL	RLTCXT 			; Start with new frame
+	CASEL	COM_HDR_L_FLAGS(R6),#0,#18
+90$:
+	.WORD	100$-90$	; Undef
+	.WORD	101$-90$	; Listen ( no db)
+	.WORD	102$-90$	; dn4
+	.WORD	103$-90$	; DN5
+	.WORD	104$-90$	; scs
+	.WORD	105$-90$	; lat
+	.WORD	106$-90$	; mop
+	.WORD	107$-90$	; ip
+	.WORD	108$-90$	; ipx
+	.WORD	109$-90$	; dns
+	.WORD	110$-90$	; dts
+	.WORD	111$-90$	; arp
+	.WORD	112$-90$	; eth
+	.WORD	113$-90$	; rec
+	.WORD	114$-90$	; undef
+	.WORD	115$-90$	; undef
+	.WORD	116$-90$	; undef
+	.WORD	117$-90$	; Relater - invalid
+	.WORD	118$-90$	; Namer
+100$:
+101$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+
+102$: 					; DECnet
+	ADDL3	#PSR_DN4_W_ADDR,R6,-(SP)	; Our addr   
+	PUSHL	#2				; Len of our addr
+  	PUSHL	COM_HDR_L_FLAGS(R6)		; Add our address
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+10210$:
+	BRW	1000$
+
+103$:					; OSI
+	ADDL3	#PSR_DN5_B20_ADDR,R6,-(SP)	; Our addr   
+	PUSHL	COM_HDR_L_LEN(R6)   		; Push len
+  	PUSHL	COM_HDR_L_FLAGS(R6)		; Add our address
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,10310$                  	; Br no err
+	BRW	1000$
+10310$:
+; Check if decnet frame
+	ADDL3	#PSR_DN5_B20_ADDR,R6,R1	; NSAP
+        CMPL    HIORD,3(R1)             ; if bytes 3-6 = aa-00-04-00 = decnet
+        BNEQU   10330$                     ; Br if not decnet
+	ADDL	#7,R1			; get decnet addr
+	PUSHL	R1			; Addr of decnet
+	PUSHL	#2			; Len of decnet addr
+  	PUSHL	#SYS_PID_C_PSRDN4	; Add decnet address
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+10330$:
+	BRW	1000$                    ; skip to end
+
+104$: 					; scs
+	ADDL3	#PSR_SCS_EA_ADDR,R6,-(SP)	; Our addr   
+	PUSHL	#6				; Len of our addr
+  	PUSHL	COM_HDR_L_FLAGS(R6)		; Add our address
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,10410$                  		; Br no err
+	BRW	1000$				; Skip
+10410$:
+; Check if decnet frame
+        CMPL    HIORD,PSR_SCS_EA_ADDR(R6)  
+        BNEQU   10430$                     ; Br if not decnet
+
+	ADDL3	#PSR_SCS_EA_ADDR,R6,R1	; Get decnet addr
+	ADDL	#4,R1			; Offset to decnet
+	PUSHL	R1			; Addr of decnet
+	PUSHL	#2			; Len of decnet addr
+  	PUSHL	#SYS_PID_C_PSRDN4	; Add decnet address
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,10430$                  ; Br no err
+	BRW	1000$
+10430$:
+	MOVL	COM_HDR_L_FLAGS(R6),NF_PID
+	CLRL	NF_KEY2
+	ADDL3	#PSR_SCS_AC_NAME,R6,R1	; .ascic name
+	MOVZBL	(R1),R2			; Get len
+	BEQL	10450$			; Br if len = 0
+	CMPL	#6,R2			; Max name len?
+	BLSSU	10450$			; Br if invalid
+	INCL	R1			; Point to name
+	CLRL	R3			; Index
+	MOVAL	NF_NAM,R4
+10440$:
+	MOVB	(R1)[R3],(R4)[R3]
+	AOBLSS	R2,R3,10440$
+
+	PUSHL	R1				; addr of name
+	PUSHL	R2				; Len
+	CALLS	#2,G^MAKE_CRC			; No errors returned
+	MOVL	R0,NF_KEY2			; Returned crc
+
+	PUSHAL	NAMFRM			; Our addr   
+	ADDL3	#8,R2,-(SP)		; Len of our addr
+  	PUSHL	#SYS_PID_C_NAMER	; Add name
+	PUSHL	COM_HDR_L_FLAGS(R6)	; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+10450$:
+	BRW	1000$                    ; skip to end
+
+105$:					; Lat
+	ADDL3	#PSR_LAT_EA_ADDR,R6,-(SP)	; Our addr   
+	PUSHL	#6				; Len of our addr
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Add to our db
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,10510$                  	; Br no err
+	BRW	1000$
+10510$:
+; Check if decnet frame
+        CMPL    HIORD,PSR_LAT_EA_ADDR(R6)  
+        BNEQU   10520$                     	; Br if not decnet
+	ADDL3	#PSR_LAT_EA_ADDR,R6,R1		; Get decnet addr
+	ADDL	#4,R1				; Offset to decnet
+	PUSHL	R1				; Addr of decnet
+	PUSHL	#2				; Len of decnet addr
+  	PUSHL	#SYS_PID_C_PSRDN4		; Add decnet address
+	PUSHL	COM_HDR_L_FLAGS(R6) 		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,10520$                  	; Br no err
+        BRW	1000$
+10520$:
+	MOVL	COM_HDR_L_FLAGS(R6),NF_PID
+	CLRL	NF_KEY2
+	ADDL3	#PSR_LAT_B_NODNAMSIZE,R6,R1	; .ascic name
+	MOVZBL	(R1),R2				; Get len
+	BEQL	10540$				; Br if len = 0
+	INCL	R1				; Point to name
+	CLRL	R3				; Index
+	MOVAL	NF_NAM,R4
+10530$:
+	MOVB	(R1)[R3],(R4)[R3]
+	AOBLSS	R2,R3,10530$
+
+	PUSHL	R1				; addr of name
+	PUSHL	R2				; Len
+	CALLS	#2,G^MAKE_CRC			; No errors returned
+	MOVL	R0,NF_KEY2			; Returned crc
+
+	PUSHAL	NAMFRM				; Our addr   
+	ADDL3	#8,R2,-(SP)			; Len of our addr
+  	PUSHL	#SYS_PID_C_NAMER		; Add name
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME       	
+10540$:
+	BRW	1000$
+106$:					; Mop
+	ADDL3	#PSR_MOP_EA_ADDR,R6,-(SP)	; Our addr   
+	PUSHL	#6				; Len of our addr
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Add to our db
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,10610$                  	; Br no err
+	BRW	1000$
+10610$:
+; Check if decnet frame
+        CMPL    HIORD,PSR_MOP_EA_ADDR(R6)  
+        BNEQU   10620$                     	; Br if not decnet
+	ADDL3	#PSR_MOP_EA_ADDR,R6,R1		; Get decnet addr
+	ADDL	#4,R1				; Offset to decnet
+	PUSHL	R1				; Addr of decnet
+	PUSHL	#2				; Len of decnet addr
+  	PUSHL	#SYS_PID_C_PSRDN4		; Add decnet address
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME       	
+	BLBS	R0,10620$                  	; Br no err
+        BRW	1000$
+10620$:
+; Check if hardware addr and mac addr .eq. if not include hardware in RELATER
+	CMPL	PSR_MOP_EA_ADDR(R6),PSR_MOP_EA_HWADDR(R6)  	
+        BEQLU	10630$
+        TSTL	PSR_MOP_EA_HWADDR(R6)  	; just in case - don't add 0 addr
+        BEQL	10630$
+
+	ADDL3	#PSR_MOP_EA_HWADDR,R6,-(SP)	; Our addr   
+	PUSHL	#6				; Len of our addr
+  	PUSHL	#SYS_PID_C_PSRETH 		; Add eth address
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,10630$    	              	; Br no err
+	BRW	1000$				; Skip
+10630$:
+	ADDL3	#PSR_MOP_AC_NAME,R6,R1		; .ascic name
+	MOVZBL	(R1),R2				; Get len
+	BEQL	10650$				; Br if len = 0
+
+	CMPL	#PSR_MOP_C_MAXNAMLEN,R2		; Max name len?
+	BLSSU	10650$				; Br if invalid
+	INCL	R1				; Point to name
+	CLRL	R3				; Index
+	MOVAL	NF_NAM,R4
+10640$:
+	MOVB	(R1)[R3],(R4)[R3]
+	AOBLSS	R2,R3,10640$
+
+	PUSHL	R1				; addr of name
+	PUSHL	R2				; Len
+	CALLS	#2,G^MAKE_CRC			; No errors returned
+	MOVL	R0,NF_KEY2			; Returned crc
+	MOVL	COM_HDR_L_FLAGS(R6),NF_PID		; 
+	PUSHAL	NAMFRM				; Our addr   
+	ADDL3	#8,R2,-(SP)			; Len of our addr
+  	PUSHL	#SYS_PID_C_NAMER		; Add name
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+10650$:
+	BRW	1000$
+107$:
+	ADDL3	#PSR_IP_L_ADDR,R6,-(SP)		; Our addr   
+	PUSHL	#4				; Len of our addr
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Add to our db
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BRW	1000$
+
+108$:
+	ADDL3	#PSR_IPX_L_NET,R6,-(SP)		; Our addr   
+	PUSHL	#12				; Len of our addr
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Add to our db
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,10810$                  ; Br no err
+	BRW	1000$
+;
+; IPX addresses may be 'internal' in which case the ethernet address is 
+; a dummy entry. If not send the valid ethernet address.
+10810$:
+	TSTL	PSR_IPX_EA_ADDR(R6)
+	BEQL    10820$
+;
+	ADDL3	#PSR_IPX_EA_ADDR,R6,-(SP)	; Our addr   
+	PUSHL	#6				; Len of our addr
+  	PUSHL	#SYS_PID_C_PSRETH		; Add our address
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,10820$                  	; Br no err
+	BRW	1000$
+10820$:
+; Name
+	MOVL	COM_HDR_L_FLAGS(R6),NF_PID 	; Move PID in
+	ADDL3	#PSR_IPX_AS_NAME,R6,R5		; .ascii name
+	MOVZWL	PSR_IPX_W_NAMLEN(R6),R2 	; Get len
+	BEQL	10850$				; Br if len = 0
+	CMPL	#48,R2				; Max name len?
+	BGEQU	10830$				; Br if OK
+	MOVL	#48,R2				; Truncate
+10830$:
+	CLRL	R3				; Index
+	MOVAL	NF_NAM,R4
+10840$:
+; Move name in
+	MOVB	(R5)[R3],(R4)[R3]
+	AOBLSS	R2,R3,10840$
+; CRC this name and place result in KEY2
+	PUSHL	R5				; addr of name
+	PUSHL	R2				; Len
+	CALLS	#2,G^MAKE_CRC			; No errors returned
+	MOVL	R0,NF_KEY2			; Returned crc
+; Add the name frame to relater frame
+	PUSHAL	NAMFRM		       		; Our addr   
+	ADDL3	#8,R2,-(SP)	       		; Len of our addr
+  	PUSHL	#SYS_PID_C_NAMER       		; Add name
+	PUSHL	COM_HDR_L_FLAGS(R6)    		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD      		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                 		; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+10850$:
+	BRW	1000$
+109$:
+110$:
+111$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+112$:
+	ADDL3	#PSR_ETH_EA_ADDR,R6,-(SP)	; Our addr   
+	PUSHL	#6				; Len of our addr
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Add to our db
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BRW	1000$
+
+113$:
+114$:
+115$:
+116$:
+117$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+
+118$:						; Name 
+	ADDL3	#NAM_DB_L_PID ,R6,-(SP)		; Our addr   
+	PUSHL	COM_HDR_L_LEN(R6)   		; Push len
+  	PUSHL	COM_HDR_L_FLAGS(R6)		; Add our address
+	PUSHL	COM_HDR_L_FLAGS(R6)		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD		; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP) 	; Boxid
+  	PUSHAL	RLTCXT                  	; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BRW	1000$
+1000$:
+	TSTL	RLTCXT
+	BNEQ	1010$
+	MOVL	#SS$_NORMAL,R0
+	RET
+1010$:
+  	PUSHL	RLTCXT                  ; Context (Addr of buffer)
+	CALLS	#1,G^SEND_RELATER_FRAME
+	CLRL	RLTCXT			; Saftey
+	RET	
+
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=MAKE_CRC 
+;++
+;2 MAKE_CRC
+;	The input specified by the paramaters is CRC'ed using a 16 bit
+;	seed and the resulting CRC is returned in R0.
+;3 Inputs
+;	.long len of string to CRC
+;	.address of string to CRC
+;3 Outputs
+;	The string is CRCed and the CRC is returned in R0
+;3 Returns
+;	None. The result in R0 is the CRC value
+;-- 
+; Create CRC table for later input to CRC generation
+	TSTL	CRCINIT		; Table been produced?
+	BEQL	10$		; Br if done
+	PUSHAL	CRCTBL
+	PUSHAL	CRCPOLY		;  16 bit 
+	CALLS	#2,G^LIB$CRC_TABLE
+	CLRL	CRCINIT
+10$:
+	MOVL	4(AP),CRCDESC		; Len of string
+	MOVL	8(AP),CRCDESC+4         ; Addr of string
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	RET				; No error possible
+
+
+
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=DBV_RELPSR 
+;++
+;2 DBV_RELPSR 
+;	   Each entry in relater table in relater db is looked up
+;	   in the corresponding PSRdb to ensure it exists. 
+;	   The number of PSR entries found is counted. Any 
+;	   entries in relater with 0 PSRdb entries is bad.
+;3 Inputs
+;	.address of .quad context
+;	.address of .long entry count
+;	.address of .long option bit pattern
+;4 Options
+;	Bit		When set
+;	0		Return after each check. For interactive verify.
+;	1		Delete invalid links. When a relater entry 
+;			has no corresponding PSR entry, the relater 
+;			entry is deleted. 
+;3 Outputs
+;	Context:	.long	Current relative rec in relater db. 
+;				Count starts at 1. If not set, routine
+;				returns only if count = 0, on map error
+;				or at end of search.
+;			.long	Current relative entry in relater
+;				table. Corresponds to PSRid
+;	entry count:
+;			.long	Count of PSR entries found for this 
+;				relater entry. 
+;3 Returns
+;	SS$_NORMAL	OK 
+;--
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=DBV_PSRREL
+;++
+;2 DBV_PSRREL 
+;	   Each entry in relater table in relater db is looked up
+;	   in the corresponding PSRdb to ensure it exists. 
+;	   The number of PSR entries found is printed. Any 
+;	   entries in relater with 0 PSRdb entries is bad.
+;3 Inputs
+;	
+;3 Outputs
+;	The count of PSR entries for each Relater entry is printed.
+;	Counts of 0 are highlighted (This is an error)
+;3 Returns
+;	SS$_NORMAL	OK 
+;--
+	RET
+
+
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=DBV_DBPSR 
+;++
+;2 DBV_DBPSR 
+;	Takes a file specification and returns the file name.
+;	Note: This routine will fail if the node field is present.
+;3 Inputs
+;	.long	  len of file spec
+;	.address  file spec
+;	.address of desc pointing to area where file name is written.
+;3 Outputs
+;	File name is written to area pointed to by p3
+;	P3 is written with resulting len
+;3 Returns
+;	SS$_NORMAL	OK 
+;	SS$_BUFFEROVF	outp buffer too small
+;--
+		RET
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=STRIP_FILSPEC 
+;++
+;2 STRIP_FILSPEC 
+;	Takes a file specification and returns the file name.
+;	Note: This routine will fail if the node field is present.
+;3 Inputs
+;	.long	  len of file spec
+;	.address  file spec
+;	.address of desc pointing to area where file name is written.
+;3 Outputs
+;	File name is written to area pointed to by p3
+;	P3 is written with resulting len
+;3 Returns
+;	SS$_NORMAL	OK 
+;	SS$_BUFFEROVF	outp buffer too small
+;--
+; Get filename from string
+; Strip dev/dir part
+	MOVL  	4(AP),R6		; Size
+	MOVL	8(AP),R7		; File
+	LOCC	#^A/]/,R6,(R7)		        ; Find ']'
+	TSTL	R0                              ; Br if found
+	BNEQ	10$	
+	LOCC	#^A/:/,R6,(R7)		        ; Find ':'
+	TSTL	R0                              ; Br if not found
+	BEQL	20$	
+10$:
+	INCL	R1				; 1st char
+	SUBL3	R7,R1,R2			; Diff in len
+	MOVL	R1,R7				; Addr of file name
+	SUBL	R2,R6				; Len 
+20$:
+; Strip filetyp,vers
+	LOCC	#^A/./,R6,(R7)		        ; Find '.'
+	TSTL	R0                              ; Br if found
+	BNEQ	30$	
+	LOCC	#^A/;/,R6,(R7)		        ; Find ';'
+	TSTL	R0                              ; Br if NOT found
+	BEQL	40$	
+30$:
+	SUBL3 	R7,R1,R6			; Len of file name
+40$:
+; Get outp desc and check size
+	MOVQ	@12(AP),R8
+	CMPL	R6,R8
+	BLEQU	50$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+50$:
+	MOVC3	R6,(R7),(R9)			; Move filename
+	MOVL	R6,@12(AP)			; Write len
+	MOVL	#SS$_NORMAL,R0
+	RET
+		
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PHYSADR
+;++
+;2 PHYSADR
+; Get the physical mac address in use on the local node and place in output
+;3 Input
+;	P1	.address of 6 byte array to which this routine
+;		writes the node's Physical Ethernet address
+;3 Output
+;	The ethernet address is written to the output
+; Returns:
+;	SS$_NORMAL      Local address written 
+;	SS$_BADPARAM	Input param error:
+;			Number of params was .NE. 1
+;	SS$_ACCVIO	Can't write outp field
+;--
+
+; 
+;
+; Get and Validate Params
+;
+	MOVL	(AP),R6		; Param counter
+	MOVL	4(AP),R7	; Outp addr
+	CMPL	#1,R6		; Must = 1
+	BEQLU	2$		; OK
+	MOVL	#SS$_BADPARAM,R0 ; Signal Error
+	RET
+2$:
+	PROBEW	#0,#6,(R7)	; Check for write access
+	BNEQ	5$		; OK
+	MOVL	#SS$_ACCVIO,R0 	; Signal Error
+	RET
+5$:	
+	TSTW	ETHCHN
+	BNEQ	110$			; BR IF HAVE ONE
+; Assign channel 
+	PUSHAL	ETHCHN
+	CALLS	#1, g^ASSETHCHN
+	BLBS	R0,10$
+	RET
+; Start up channel and set characteristics
+10$:
+        $QIOW_S FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>,-
+                CHAN=ETHCHN,-
+                IOSB=IOSB,-
+                P2=#SETPARMDSC
+	BLBS	R0,15$
+;
+; PTYTYP is a required parameter and cannot be enabled more than once on
+; a single controller. For our purposes here the PTYTYP is irrelevant so
+; it is set to the highest value. If this clashes we will try the next one
+; down in an infinite loop until we find one.  
+15$:
+	MOVZWL	IOSB,R0				; Check IOSB return
+	BLBS	R0,110$
+	CMPL	#SS$_BADPARAM,R0		; Bad Param?
+	BNEQU	20$				; Other error
+	CMPL	#NMA$C_PCLI_PTY,IOSB+4		; Is Bad Param PTYTYP?
+	BNEQU	20$				; Other error
+	DECL	PTYTYP				; Make it different
+	BRB	10$                            ; Try Again
+20$:	
+	RET
+;
+; SENSEMODE to get our Physical address
+;
+110$:
+        $QIOW_S FUNC=#<IO$_SENSEMODE!IO$M_CTRL>,-
+                CHAN=ETHCHN,-
+                IOSB=IOSB,-
+                P2=#SENSEBUFDSC
+	BLBS	R0,120$
+	RET
+120$:
+	MOVZWL	IOSB,R0				; Check IOSB return
+	BLBS	R0,130$
+	RET
+130$:
+;
+; We got the Physical address, Find it and put it in the Outp buffer
+;
+	MOVAB	SENSEBUF,R0
+210$:	BBS	#^XC,(R0),220$			; If string branch
+;
+; Skip over next parameter
+;
+	ADDL	#6,R0
+	BRB	210$
+220$:	BICW	#^XF000,(R0)			; Clear Flag
+	CMPW	#NMA$C_PCLI_PHA,(R0)		; Physical Address?
+	BEQLU	30$				; Yup
+	ADDL	#2,R0
+	MOVZWL	(R0)+,R1
+	ADDL	R1,R0
+	BRB	210$
+30$:	MOVL	4(R0),(R7)+                     ; Put in outp
+	MOVW	8(R0),(R7)                      ;
+	MOVL	#SS$_NORMAL,R0
+	RET                                     ;  times in quick succession,
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=QUAD2FLOAT 
+;++
+;2 QUAD2FLOAT 
+;	Converts a quadword integer to F floating number
+;3 Inputs
+;	Addr of .quad integer
+;3 Outputs
+;	R1 = F Float equivalent
+;3 Returns
+;	SS$_NORMAL	OK , R1 contains .float equivalent
+;
+	MOVL	4(AP),R6
+	CVTLF	(R6),R1		; low long
+	CVTLF	4(R6),R2	; Hi long
+	MULF2	#4294967295,R2	; Scale
+	ADDF	R2,R1
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=EMU_CVTIME
+;++
+;2 EMU_CVTIME
+;  Routine to translate a binary time to ascii and return selected components.
+;
+;3 Inputs
+;  	.long function code
+;	.address of .quad binary time. If 0 is specified, the current system
+;	time is used.
+;	.address of desc pointing to output
+;3 Outputs
+; The input time is converted to ascii and the component(s) selected
+; by the funtion code is returned in the output.
+;3 Functions
+;  Code				Return
+;  0			Full date/time (as from $ASCTIM)
+;  1			Day/Month
+;  2			Hours/Min
+;
+;3 Returns
+;	SS$_NORMAL	OK
+;	SS$_BADPARAM	Unrecognised function code
+;	SS$_BUFFEROVF	Output too small
+;	Any from $ASCTIM
+;--
+	MOVQ	@8(AP),QTIME		; Input time
+	BNEQ	10$			; Br if .ne. 0
+	MOVQ	EXE$GQ_SYSTIME,QTIME	; Use current
+10$:
+	MOVL	#23,TEMPDESC
+	MOVAL	TEMPBUF,TEMPDESC+4
+	CLRL	-(SP)			; cvtflg
+	PUSHAL	QTIME
+	PUSHAL	TEMPDESC
+	PUSHAL	TEMPDESC
+	CALLS	#4,G^SYS$ASCTIM
+	BLBS	R0,20$
+	RET
+20$:
+	MOVQ	@12(AP),R6
+	CASEL	4(AP),#0,#2
+90$:
+	.WORD	100$-90$	; full
+	.WORD	101$-90$	; Day/Month
+	.WORD	102$-90$	; Hr/Min
+	MOVL	#SS$_BADPARAM,R0
+	RET
+100$:
+	MOVQ	TEMPDESC,R8
+	CMPL	R6,R8	        ; Outp len
+	BLSSU	1000$		; Br not enough
+	MOVC3	R8,(R9),(R7)
+	MOVL	R8,@12(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+101$:
+	CMPL	R6,#6	        ; Outp len
+	BLSSU	1000$		; Br not enough
+	MOVL	TEMPDESC+4,R8
+	MOVC3	#6,(R8),(R7)
+	MOVL	#6,@12(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+102$:
+	CMPL	R6,#5	        ; Outp len
+	BLSSU	1000$		; Br not enough
+	MOVL	TEMPDESC+4,R8
+	MOVC3	#5,12(R8),(R7)
+	MOVL	#5,@12(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+1000$:
+	MOVL	#SS$_ACCVIO,R0
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=TIMEDIFF_SEC  
+;++
+;2 TIMEDIFF_SEC  
+; Calculate the difference between 2 absolute times and return the 
+; difference in seconds.
+;3 Inputs
+;	Addr of TIME1
+;	Addr of TIME2
+;3 Outputs
+;	R1 = Time difference in seconds
+;3 Returns
+;	SS$_NORMAL	OK , R1 contains seconds passed from time1 to time2
+;	Any retunrn from LIB$SUB_TIMES
+; (Time1 must be later or = time2)
+        PUSHAL	QTIME		; Result
+	PUSHL	8(AP)
+	PUSHL	4(AP)
+	CALLS	#3,G^LIB$SUB_TIMES
+	BLBS	R0,10$
+	RET
+10$:
+; Test if resulting time = 0
+	TSTL	QTIME       	; low long
+	BNEQ	20$             ; Br if ne
+	TSTL	QTIME+4         ; hi long
+	BNEQ	20$             ; br if not
+	CLRL	R1              ; Time diff = 0
+	MOVL	#SS$_NORMAL,R0  ; OK
+	RET
+20$:
+	EDIV    #-10000000,QTIME,R1,R2     ; R1 = Seconds since
+        MOVL	#SS$_NORMAL,R0
+	RET
+	
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=ALLOCATE_BOXID
+;++
+;2 ALLOCATE_BOXID 
+; Allocates the next free BOXID
+;3 Inputs
+;	Addr of Control section
+;3 Outputs
+;	R1 = Next BOXID
+;3 Returns
+;	SS$_NORMAL	BOXID allocated and returned
+;	SS$_INTOVF 	BOXID allocated is invalid (top byte is written)
+;	SS$_DEADLOCK 	Could not allocate after 100 attempts
+;3 Note
+; BOXID is a 4 byte quantity uniquely identifying a physical device on
+; the network. The bottom 3 bytes are assigned locally and the top byte
+; is reserved for identifying the EMU server that maintains this box.
+; This routine allocates the next boxid using an 'increment and test'
+; algorithm. That is:
+; Read the current number, increment and store it
+; Increment the current number
+; Compare current and stored numbers. If not equal,(indicates collision with 
+; another process)  repeat.
+;--
+;Check input param:
+	MOVL	@4(AP),R3		  ; Start of section addresss
+        PROBEW  #0,#4,CTL_L_BOXID(R3)     ; Write count?
+	BEQL	50$			  ; Br if no write
+	MOVL	#100,R2			  ; Max attempts
+10$:
+	ADDL3	#1,CTL_L_BOXID(R3),R1     ; Make candidate
+	INCL    CTL_L_BOXID(R3)  	  ; New current
+	CMPL	CTL_L_BOXID(R3),R1        ; OK?
+	BNEQ	30$			  ; Br if not
+        CMPL	#16777215,R1              ; Highest allowed
+	BLSS	40$	                  ; BR if higher
+	TSTL	R1                        ; Result = 0?
+	BEQL	10$                       ; Repeat if so
+        MOVL	#SS$_NORMAL,R0            ; OK
+	RET
+30$:
+; We have collided. Repeat up to 100 times then give up
+	SOBGTR	R2,10$
+	MOVL	#SS$_DEADLOCK,R0
+	RET
+40$:
+        MOVL	#SS$_INTOVF,R0		; Attempt to alocate > allowed
+	RET
+50$:
+        MOVL    #SS$_ACCVIO,R0
+        RET
+
+        .CALL_ENTRY     MAX_ARGS=4, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=UNLOCREC 
+;++
+;2 UNLOCREC 
+; UnLock record in database by decrementing the access type on this rec.
+; For saftey, after decrement check if field >= 0. If not clear field
+; and return error.
+;3 Inputs
+;	addr of .quad lock field 
+;	value of .long lock type (read, write, exclusive)
+;3 Outputs
+;	none
+;3 Returns
+; R0 =  SS$_NORMAL  	 Rec unlocked
+;	SS$_OBJNOTLOCKED Not currently locked
+;	SS$_ACCVIO	Could not read or write input param
+;	SS$_BADPARAM 	Unknown lock mask
+;-- 
+; Check params
+        PROBER  #0,#4,8(AP)     ; Read typ?
+	BEQL	20$		; Br if no
+        PROBEW  #0,#8,4(AP)     ; write lock field?
+	BNEQ	UNLOCREC_PARAMS_OK
+20$:
+	MOVL	#SS$_ACCVIO,R0
+	RET
+UNLOCREC_PARAMS_OK:
+	MOVL	4(AP),R11		; Addr of lock field
+
+; Determine lock type 
+	CASEL	8(AP),#1,#2
+10$:
+	.WORD	100$-10$	; Read
+	.WORD	200$-10$	; write
+	.WORD	300$-10$	; exclusive
+	MOVL	#SS$_BADPARAM,R0	; Unknown
+	RET
+100$:
+; decrement read access
+	DECL   	SYS_COM_C_READER(R11)    ; 
+        BLSS	110$			; Br if < 0
+	MOVL	#SS$_NORMAL,R0
+	RET
+110$:
+        CLRL	SYS_COM_C_READER(R11)
+	MOVL	#SS$_OBJNOTLOCKED,R0
+	RET
+200$:
+; decrement write access
+	DECL   	SYS_COM_C_WRITER(R11)    ; 
+        BLSS	210$			; Br if < 0
+	MOVL	#SS$_NORMAL,R0
+        RET
+210$:
+        CLRL	SYS_COM_C_WRITER(R11)
+	MOVL	#SS$_OBJNOTLOCKED,R0
+	RET
+300$:
+; decrement ALL access
+	MOVL	#SS$_NORMAL,R0		; Assume success
+	DECL   	SYS_COM_C_WRITER(R11)    ; 
+        BGEQ	310$			; Br if >= 0
+	MOVL	#SS$_OBJNOTLOCKED,R0
+        CLRL	SYS_COM_C_WRITER(R11)
+310$:
+	DECL   	SYS_COM_C_READER(R11)    ; 
+        BLSS	320$			; Br if < 0
+	RET
+320$:
+        CLRL	SYS_COM_C_READER(R11)
+	MOVL	#SS$_OBJNOTLOCKED,R0
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=4, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LOCREC  
+;++
+;2 LOCREC  
+; Lock record in database
+;3 Inputs
+;	addr of .quad lock field 
+;	value of .long lock type (read, write, exclusive)
+;3 Output
+;	none
+;3 Returns
+; R0 =  SS$_NORMAL  	Rec locked
+;	SS$_DEADLOCK	Could not lock
+;	SS$_ACCVIO	Could not read or write input param
+;	SS$_BADPARAM 	Unknown lock mask
+;--
+; Check params
+        PROBER  #0,#4,8(AP)     ; Read type?
+	BEQL	20$		; Br if no
+        PROBEW  #0,#4,4(AP)     ; Write lock field?
+	BNEQ	LOCREC_PARAMS_OK
+20$:
+	MOVL	#SS$_ACCVIO,R0
+	RET
+;++
+;3 Description
+; As the fields in any database are exclusively written by a single process
+; it allows for simpler locking technique:
+; Writers can share with writers and readers can share with readers
+; To lock for write requires no readers
+; To lock for read requires no writers.
+; To lock exclusive requires no current access.
+; Any record capable of being locked has a 2x .long field which is:
+;	Number of readers currently accessing.
+;	Number of writers currenly accessing
+;4 To_acquire_lock
+; If exclusive check both fields = 0
+; If write check read field = 0
+; If read check write field = 0
+; If checked fields(s) clear then increment the required field
+; If not clear wait 1 sec and try again
+; Do this up to  SYS_COM_C_LOCATT times
+; If not locked return DEADLOCK.
+;--
+LOCREC_PARAMS_OK:
+	MOVL	4(AP),R11		; Addr of lock field
+	MOVL	#SYS_COM_C_LOCATT,R10	; Max attempts to acquire
+
+; Determine lock type requested
+	CASEL	8(AP),#1,#2
+10$:
+	.WORD	100$-10$	; Read
+	.WORD	200$-10$	; write
+	.WORD	300$-10$	; exclusive
+	MOVL	#SS$_BADPARAM,R0	; Unknown
+	RET
+100$:
+; Get read lock
+; check no writers present
+	TSTL   	SYS_COM_C_WRITER(R11)    ; Any?
+	BEQL	150$			; Br if none
+	SOBGTR	R10,110$		; Br if any attempts left
+	MOVL	#SS$_DEADLOCK,R0
+	RET
+110$:
+	PUSHAF	LOCK_WAIT		;
+	CALLS	#1, G^LIB$WAIT		; 
+	BRB	100$
+150$:
+       	INCL   	SYS_COM_C_READER(R11)	; Count this access
+	MOVL	#SS$_NORMAL,R0
+	RET
+200$:
+; Get write lock
+; check no readers present
+	TSTL   	SYS_COM_C_READER(R11)    ; Any?
+	BEQL	250$			; Br if none
+	SOBGTR	R10,210$		; Br if any attempts left
+	MOVL	#SS$_DEADLOCK,R0
+	RET
+210$:
+	PUSHAF	LOCK_WAIT		;
+	CALLS	#1, G^LIB$WAIT		; 
+	BRB	200$
+250$:
+       	INCL   	SYS_COM_C_WRITER(R11)	; Count this access
+	MOVL	#SS$_NORMAL,R0
+	RET
+300$:
+; Get Exclusive lock
+; check nobody present
+	TSTL   	SYS_COM_C_READER(R11)    ; Any?
+	BNEQ	310$			; Br if some
+	TSTL   	SYS_COM_C_WRITER(R11)    ; Any?
+	BEQL	350$			; Br if none
+310$:
+	SOBGTR	R10,320$		; Br if any attempts left
+	MOVL	#SS$_DEADLOCK,R0
+	RET
+320$:
+	PUSHAF	LOCK_WAIT		;
+	CALLS	#1, G^LIB$WAIT		; 
+	BRB	300$
+350$:
+       	INCL   	SYS_COM_C_WRITER(R11)	; Count this access
+       	INCL   	SYS_COM_C_READER(R11)	; Count this access
+; Final check: If we are the only reader/writer this is successful
+       	CMPL   	#1,SYS_COM_C_WRITER(R11) ; only us?
+	BNEQ	260$			 ; Br if not
+       	CMPL   	#1,SYS_COM_C_READER(R11)	 ; only us?
+	BNEQ	260$			 ; Br if not
+	MOVL	#SS$_NORMAL,R0
+	RET
+260$:
+       	DECL   	SYS_COM_C_WRITER(R11)	; unCount this access
+       	DECL   	SYS_COM_C_READER(R11)	; unCount this access
+        BRB	310$			; Try again
+
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LOCATE_RELATER_BOXID 
+;++
+;2 LOCATE_RELATER_BOXID 
+; locate record by BOXID in RELATER database
+;3 Inputs
+;	addr of .long boxid to find 
+;	addr of RELATER DB (.quad 1st and last addr)
+;	addr of .long SYS_PID_C_xxxx of PSRDB this boxid is in
+;3 Outputs
+;	R1 = addr of entry if either found or 1st available entry
+; 
+;3 Returns
+; R0 =  SS$_NORMAL  	 Rec found
+;	SS$_ITEMNOTFOUND Rec not found
+;	SS$_INVARG	 BOXID input was .le. 0
+;			 PID > MAXBOXID 
+;	SS$_ACCVIO	 Could not read or write input params
+;--
+; Check params
+        PROBER  #0,#0,4(AP)     ; Read BOXID?
+	BEQL	20$		; Br if no
+	TSTL	@4(AP)		; Must be .gt. 0
+	BLEQ	30$		; Br if not
+	MOVQ	@8(AP),R6
+	SUBL3	R6,R7,R2	; Len of section
+	PROBER	#0,R2,(R6)	; read access?
+	BEQL	20$		; No
+        PROBER  #0,#0,12(AP)    ; Read PID?
+	BEQL	20$		; No
+	CMPL	@12(AP),#RLT_DB_C_MAXBOXID	; In range?
+	BGTR	30$
+	BRW	100$		; Br if OK
+
+20$:
+	MOVL	#SS$_ACCVIO,R0
+	RET
+30$:
+	MOVL	#SS$_INVARG,R0
+	RET
+
+100$:
+
+	CLRL	R10			; Store 1st deleted entry here
+	MOVL	COM_DBHDR_L_RECSIZE(R6),R8	; Entry SIZE
+	MOVL	COM_DBHDR_L_ENTRIES(R6),R7	; Entry count 
+	ADDL	R8,R6			; DB start
+	TSTL	R7			; Entries
+	BEQL	130$			; Br if none
+	MOVL 	@12(AP),R11             ; Table index
+
+	
+110$:
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),150$	; Br if deleted
+	ADDL3	#RLT_DB_TL_BOXIDS,R6,R9
+	CMPL	@4(AP),(R9)[R11]
+	BEQL	1000$			; Br if found
+120$:
+	ADDL	R8,R6			; Next rec
+	SOBGTR	R7,110$
+130$:
+;  Rec not found
+	TSTL	R10			; Found deleted rec?
+	BEQL	140$			; br if no
+	MOVL	R10,R6			; Replace with stored
+140$:
+	MOVL	R6,R1			; Return where to write new rec
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+150$:
+	TSTL	R10			; Already stored deleted addr?
+	BNEQ	120$
+	MOVL	R6,R10			; Store deleted entry
+	BRB	120$			; COntinue
+1000$:
+	MOVL	R6,R1			; Return addr of found rec
+	MOVL	#SS$_NORMAL,R0		; Indicate found rec
+	RET
+;
+        .CALL_ENTRY     MAX_ARGS=5, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=MAKE_NAMER_FRAME 
+;++
+;2 MAKE_NAMER_FRAME 
+; Takes disparate inputs and congeals them into a namer frame.
+; 
+;3 Inputs
+;	.long PID of PSRdb this name belongs to
+;	.long len of name
+;	.addr of .ascii name
+;	.addr of desc pointing to outp
+;3 Outputs
+; 	A namer frame is written to the outp using input params.
+;	Namer frame:
+;	PID	Protocol this name is associated with
+;	KEY2	16 bit CRC of name
+;	Name	the .ascii name
+;  The entire len of this frame is written in the outp disc.
+;3 Returns
+; R0 =  SS$_NORMAL  	 OK
+;	SS$_BUFFEROVF	 Outp buffer too small
+;	SS$_BADPARAM	 Name len was > NAM_DB_C_MAXNAMSIZ or < 0
+;--
+
+	MOVQ	@16(AP),R6	; outp
+; Check len
+	TSTL	8(AP)		; 
+	BNEQ	10$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+10$:
+	CMPL	8(AP),#NAM_DB_C_MAXNAMSIZ
+	BLEQ	20$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+20$:
+	ADDL3	#8,8(AP),R8		; Len required
+	CMPL	R6,R8			; Len given
+	BGEQ	30$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+30$:
+; Move the fields. Move name to temp buffer 1st so to allow overlap. 
+; If the name and len params are the same as the output desc, 
+; storing the name then then moving it back will simply transform 
+; the given name to a namer frame
+; in the outp.
+	MOVL	8(AP),R11               ; Len of name
+	MOVL	12(AP),R10               ; Addr of name
+	MOVC3	R11,(R10),TEMPBUF	 ; Store in temp location
+; PID, KEY
+	MOVL	4(AP),(R7)		; Pid
+;
+	PUSHL	12(AP)		; .addr of name
+	PUSHL	8(AP)		; LEN
+	CALLS	#2,G^MAKE_CRC
+;
+	MOVL	R0,4(R7)		; KEY2
+	MOVC3	R11,TEMPBUF,8(R7)	; Mov name
+	MOVL	R8,@16(AP)		; Return (total) len
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LOCATE_BOXID 
+;++
+;2 LOCATE_BOXID 
+; locate record by BOXID in any database (other than RELATER)
+;3 Inputs
+;	addr of .long boxid to find 
+;	addr of section to search  (.quad 1st and last addr)
+; 	addr of .long context used to recursively locate multiple entries
+;3 Outputs
+;	R1 = addr of entry if either found or 1st available entry
+; 
+;3 Returns
+; R0 =  SS$_NORMAL  	 Rec found
+;	SS$_ITEMNOTFOUND Rec not found
+;	SS$_ACCVIO	 Could not read or write input params
+;	SS$_INSFMEM	 Attempted to return rec beyond end of section.
+;--
+; Check params
+        PROBER  #0,#0,4(AP)     ; Read BOXID?
+	BEQL	20$		; Br if no
+	TSTL	@4(AP)		; Must be .gt. 0
+	BLEQ	30$		; Br if not
+	MOVQ	@8(AP),R6
+	SUBL3	R6,R7,R2	; Len of section
+	PROBER	#0,R2,(R6)	; read access?
+	BEQL	20$		; No
+        PROBEW  #0,#0,12(AP)     ; Write context?
+	BNEQ	LOCATE_BOXID_PARAMS_OK		; Br if OK
+
+20$:
+	MOVL	#SS$_ACCVIO,R0
+	RET
+30$:
+	MOVL	#SS$_INVARG,R0
+	RET
+
+LOCATE_BOXID_PARAMS_OK:
+
+	CLRL	R10				; 1st deleted rec 
+	MOVL	COM_DBHDR_L_RECSIZE(R6),R8	; Entry SIZE
+	MOVL	COM_DBHDR_L_ENTRIES(R6),R9	; Entry count 
+	BEQL	30$				; Br if none
+	ADDL	R8,R6				; DB start
+;
+	TSTL 	@12(AP)                 ; Context present?
+	BEQL	10$                     ; Br if not
+; Calc new start addr if context .ne. 0
+	ADDL3	R8,@12(AP),R2		; Addr of 1st past last found
+	SUBL3	R6,R2,R1	        ; Distance to new start
+	DIVL	R8,R1			; Number of recs to skip
+	MOVL	R2,R6			; Start here
+	SUBL	R1,R9			; Number of recs left to search
+	BLEQ	30$			; Br if none left
+	
+10$:
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),50$	; Br if deleted
+	CMPL	@4(AP),COM_HDR_L_BOXID(R6)
+	BEQL	100$			; Br if found
+20$:
+	ADDL	R8,R6			; Next rec
+	SOBGTR	R9,10$
+30$:
+;  Rec not found
+	TSTL	R10			; Found deleted rec?
+	BEQL	40$			; br if no
+	MOVL	R10,R6			; Replace with stored
+40$:
+	ADDL	R8,R6			; Ensure still in section
+	CMPL	R6,R7			; Last addr
+	BLEQU	45$			; Br OK
+	MOVL	#SS$_INSFMEM,R0		; Uh Oh !
+	RET
+45$:
+	MOVL	R6,R1			; Return where to write new rec
+	
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+50$:
+	TSTL	R10			; Already stored deleted addr?
+	BNEQ	20$
+	MOVL	R6,R10			; Store deleted entry
+	BRB	20$			; COntinue
+100$:
+	MOVL	R6,R1			; Return addr of found rec
+	MOVL	R6,@12(AP)		; Return context
+	MOVL	#SS$_NORMAL,R0		; Indicate found rec
+	RET
+;
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LOCATE_ALTID 
+;++
+;2 LOCATE_ALTID 
+; locate record by ALTID in any database (other than RELATER)
+;3 Inputs
+;	addr of .long ALTID to find 
+;	addr of section to search  (.quad 1st and last addr)
+; 	addr of .long context used to recursively locate multiple entries
+;3 Outputs
+;	R1 = addr of entry if found 
+; 
+;3 Returns
+; R0 =  SS$_NORMAL  	 Rec found
+;	SS$_ITEMNOTFOUND Rec not found
+;	SS$_ACCVIO	 Could not read or write input params
+;	SS$_INVARG	 ALTID was not > 0
+;--
+; Check params
+        PROBER  #0,#0,4(AP)     ; Read ALTID?
+	BEQL	20$		; Br if no
+	TSTL	@4(AP)		; Must be .gt. 0
+	BLEQ	30$		; Br if not
+	MOVQ	@8(AP),R6
+	SUBL3	R6,R7,R2	; Len of section
+	PROBER	#0,R2,(R6)	; read access?
+	BEQL	20$		; No
+        PROBEW  #0,#0,12(AP)     ; Write context?
+	BNEQ	LOCATE_ALTID_PARAMS_OK		; Br if OK
+
+20$:
+	MOVL	#SS$_ACCVIO,R0
+	RET
+30$:
+	MOVL	#SS$_INVARG,R0
+	RET
+
+LOCATE_ALTID_PARAMS_OK:
+	MOVL	COM_DBHDR_L_RECSIZE(R6),R8	; Entry SIZE
+	MOVL	COM_DBHDR_L_ENTRIES(R6),R7	; Entry count 
+	ADDL	R8,R6			; DB start
+	TSTL	R7			; Entries
+	BEQL	30$			; Br if none
+	TSTL 	@12(AP)                  ; Context present?
+	BEQL	10$                      ; Br if not
+; Calc new start addr if context .ne. 0
+	ADDL3	R8,@12(AP),R2		; Addr of 1st past last found
+	SUBL3	R6,R2,R1	        ; Distance to new start
+	DIVL	R8,R1			; Number of recs to skip
+	SUBL	R1,R7			; Number of recs left to search
+	BEQL	30$			; Br if none left
+	MOVL	R2,R6			; Start here
+	
+10$:
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),20$	; Br if deleted
+	CMPL	@4(AP),COM_HDR_L_ALTID(R6)
+	BEQL	100$			; Br if found
+20$:
+	ADDL	R8,R6			; Next rec
+	SOBGTR	R7,10$
+30$:
+;  Rec not found
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+100$:
+; Rec found
+	MOVL	R6,R1			; Return addr of found rec
+	MOVL	R6,@12(AP)		; Return context
+	MOVL	#SS$_NORMAL,R0		; Indicate found rec
+	RET
+
+
+
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CHKSUM_NAME
+;++
+;2 CHKSUM_NAME        
+; Add all the bytes of an .ascic string together (not including count byte)
+; and return the byte result in R1
+;3 Return 
+;       SS$_NORMAL      - OK
+;       SS$_ACCVIO      - Could not read input
+;--
+        PROBER  #0,#1,4(AP)     ; Read count?
+        BNEQ    10$
+        MOVL    #SS$_ACCVIO,R0
+        RET                                             
+10$:
+        MOVZBL  @4(AP),R2       ; Get count
+        PROBER  #0,R2,4(AP)     ; Read String?
+        BNEQ    20$
+        MOVL    #SS$_ACCVIO,R0
+        RET
+20$:
+        CLRL    R0
+        ADDL3   #1,4(AP),R1     ; Addr of string (1 beyond count byte)
+30$:
+        ADDB    (R1)+,R0        ; Accumulate
+        SOBGTR  R2,30$          ; Loop for all bytes
+        MOVZBL  R0,R1           ; Return low byte
+        MOVL    #SS$_NORMAL,R0  ; OK
+        RET
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=EXTRACT_DBDATA  
+;++
+;2 EXTRACT_DBDATA  
+; Extracts the data portion from an EMUDB database record and returns 
+; a descriptor pointing to the data.
+;3 Inputs
+;	.address of .quad descriptor
+;	.address of descriptor pointing to EMUDB record
+;3 Outputs
+;	The descriptor is written with the len and address of the data
+;	portion of the record.
+;3 Returns
+;	SS$_NORMAL	ok
+;	SS$_BADPARAM	Unrecognised PID
+;--
+
+	MOVQ    @4(AP),R6		; Outp desc
+        MOVQ	@8(AP),R8               ; EMUDB rec
+
+	CASEL	DB_REC_KEY_PROTO(R9),#0,#18
+90$:
+	.WORD	100$-90$	; Undef
+	.WORD	101$-90$	; Listen ( no db)
+	.WORD	102$-90$	; dn4
+	.WORD	103$-90$	; DN5
+	.WORD	104$-90$	; scs
+	.WORD	105$-90$	; lat
+	.WORD	106$-90$	; mop
+	.WORD	107$-90$	; ip
+	.WORD	108$-90$	; ipx
+	.WORD	109$-90$	; dns
+	.WORD	110$-90$	; dts
+	.WORD	111$-90$	; arp
+	.WORD	112$-90$	; eth
+	.WORD	113$-90$	; rec
+	.WORD	114$-90$	; undef
+	.WORD	115$-90$	; undef
+	.WORD	116$-90$	; undef
+	.WORD	117$-90$	; Relater - invalid
+	.WORD	118$-90$	; Namer
+100$:
+101$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+
+102$: 					; DECnet
+	ADDL3	#DB_C_KSZ,R9,R7		; Addr
+	SUBL3	#DB_C_KSZ,R8,R6	        ; Len
+; if table = line and param = 1160 (hardware addr) then:
+; this is ethernet addr as counted string
+; For now, assume that len of 7 is as above:
+	CMPL	#7,R6
+	BNEQ	10210$
+	DECL	R6			; Ignore count byte
+	INCL	R7
+10210$:
+	MOVQ    R6,@4(AP)		; Return values
+	MOVL	#SS$_NORMAL,R0
+	RET
+103$:					; OSI
+	ADDL3	#DB_REC_C_CDATA,R9,R7	; Addr
+	SUBL3	#DB_REC_C_CDATA,R8,R6	; Len
+	MOVQ    R6,@4(AP)		; Return values
+	MOVL	#SS$_NORMAL,R0
+	RET
+104$: 					; scs
+105$:					; Lat
+106$:					; Mop
+	ADDL3	#DB_C_KSZ,R9,R7		; Addr
+	SUBL3	#DB_C_KSZ,R8,R6	        ; Len
+	MOVQ    R6,@4(AP)		; Return values
+	MOVL	#SS$_NORMAL,R0
+	RET
+107$:
+	ADDL3	#DB_REC_C_SDATA,R9,R7	; Addr
+	SUBL3	#DB_REC_C_SDATA,R8,R6	; Len
+	MOVQ    R6,@4(AP)		; Return values
+	MOVL	#SS$_NORMAL,R0
+	RET
+108$:
+109$:
+110$:
+111$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+112$:
+	ADDL3	#DB_C_KSZ,R9,R7		; Addr
+	SUBL3	#DB_C_KSZ,R8,R6	        ; Len
+	MOVQ    R6,@4(AP)		; Return values
+	MOVL	#SS$_NORMAL,R0
+	RET
+113$:
+114$:
+115$:
+116$:
+117$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+
+118$:
+; Name - preceeded by 8 byte header in data rec.
+; Location is header + 8, Len is Len - 8
+	ADDL3	#DB_C_KSZ,R9,R7		
+	ADDL	#8,R7				; Addr
+	SUBL3	#8,COM_HDR_L_LEN(R9),R6	        ; Len
+	MOVQ    R6,@4(AP)		; Return values
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+
+        .CALL_ENTRY     MAX_ARGS=4, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=VERIFY_RELATER  
+;++
+;2 VERIFY_RELATER  
+; Verifies if the specified relationship exists in the relater database.
+;3 Input
+;	.address of PID 1
+;	.address of BOXID 1
+;	.address of PID 2
+;	.address of BOXID 2
+;3 Output
+;	The 1st relater record containing PID, BOXID is returned in R1
+;	Boxid 1  is searched for in the relater tables at the position
+;	set by pid 1. If found, the address of this entry is returned.
+;3 Return
+;	SS$_NORMAL	 Relationship exists
+;	SS$_ITEMNOTFOUND Relationship does not exist
+;	SS$_DATACHECK	 Did not find either PID/BOXID combination
+;	Any from MAPLVB_DB, LOCATE_RELATER_BOXID
+;3 Description
+; The 1st PID/BOXID combination is located in the relater.
+; If found:
+; Check that 2nd BOXID is in this rec at position PID 
+; 	If not:
+;		SS$_ITEMNOTFOUND
+;	Else:
+;		SS$_NORMAL
+; If not found:
+;		SS$_DATACHECK
+;--
+	TSTL	MAPRELATER		; Relater mapped?
+	BNEQ	100$			; Br if so
+	PUSHAL	MAPRELATER		; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBS	R0,100$                 ; Br if DB mapped
+	RET
+100$:
+	PUSHL	4(AP)                   ; PID 1
+	PUSHAL	MAPRELATER              ; Relater section
+	PUSHL	8(AP)                   ; Boxid 1
+	CALLS	#3,G^LOCATE_RELATER_BOXID
+	BLBS	R0,150$
+	RET
+150$:
+	MOVL	#SS$_NORMAL,R0				; Assume found
+	ADDL3	#RLT_DB_TL_BOXIDS,R1,R2			; PID TBL
+	MOVL	@12(AP),R3				; Pid 2 location
+	CMPL	@16(AP),(R2)[R3]			; Match?
+	BEQLU	160$                                    ; Br if yes
+	MOVL	#SS$_ITEMNOTFOUND,R0                    ; Nope
+160$:
+	RET                                             ; Done
+;
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=VERIFY_ADDRESS  
+;++
+;2 VERIFY_ADDRESS  
+; Validates the address given in the input descriptor is:
+;	Valid length
+;	Valid Range
+; See the individual descriptions for detail on the specific tests made.
+;
+;3 Inputs
+;	.address of descriptor pointing to address
+;	.Long value of PID 
+;3 Outputs
+;	None
+;3 Returns
+;	SS$_NORMAL	ok
+;	SS$_BADPARAM	Unrecognised PID
+;	SS$_IVADDR	Address is invalid	
+;--
+
+        MOVL	8(AP),R8
+	MOVQ    @4(AP),R6
+
+	CASEL	R8,#0,#18
+90$:
+	.WORD	100$-90$	; Undef
+	.WORD	101$-90$	; Listen ( no db)
+	.WORD	102$-90$	; dn4
+	.WORD	103$-90$	; DN5
+	.WORD	104$-90$	; scs
+	.WORD	105$-90$	; lat
+	.WORD	106$-90$	; mop
+	.WORD	107$-90$	; ip
+	.WORD	108$-90$	; ipx
+	.WORD	109$-90$	; dns
+	.WORD	110$-90$	; dts
+	.WORD	111$-90$	; arp
+	.WORD	112$-90$	; eth
+	.WORD	100$-90$	; REC
+	.WORD	114$-90$	; bridge
+	.WORD	115$-90$	; Undef
+	.WORD	116$-90$	; Undef
+	.WORD	100$-90$	; Relater (invalid)
+	.WORD	118$-90$	; Name
+
+100$:
+101$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+102$: 					
+;++
+;4 DECnetIV
+; Address must be 2 bytes in len and in range 1025 - 65535
+;--
+	CMPL	#2,R6
+	BNEQU	1021$
+	CMPW	(R7),#1025
+	BLSSU	1021$
+	MOVL	#SS$_NORMAL,R0
+	RET
+1021$:
+	MOVL	#SS$_IVADDR,R0
+	RET
+
+103$:					; OSI
+;++
+;4 OSI
+; Address must be: 
+;	1-20 bytes in len
+;	recognised AFI. That is one of:
+;		49 Local
+;		37 x.121 
+;		53 x.121 
+;		39 ISO DCC
+;		41 F.69
+;		55 F.69
+;		43 E.163
+;		57 E.163
+;		45 E.164
+;		59 E.164
+;		47 ISO 6523-ICD
+;--
+; We are going to cheat here: The translation procedure verifys the addr.
+; If xlation succeeds then addr is OK.
+	MOVL	#32,NSAPDESC
+	PUSHAL	NSAPDESC
+	PUSHL	R7
+	PUSHL	R6
+	CALLS	#3,G^XLATE_NSAP
+	BLBC	R0,1031$
+	RET				; Return normal
+1031$:
+	MOVL	#SS$_IVADDR,R0
+	RET
+104$: 					
+;++
+;4 SCS
+; See Ethernet description
+;--
+105$:					; Lat
+;++
+;4 LAT
+; See Ethernet description
+;--
+106$:					; Mop
+;++
+;4 MOP
+; See Ethernet description
+;--
+	BRW	112$
+
+107$:
+;++
+;4 IP
+; Address must be:
+;	4 bytes in len
+;	1st byte must not be 0,127, or 255
+;	bytes 1,2  may be anything
+;	byte 3 must be 1-254
+; Note that this passes virtualy anything - this is not a good validation.
+; In later versions something more clever may be made available.
+;--
+	CMPL	#4,R6
+	BNEQU	1075$
+	TSTL	(R7)
+	BEQL	1075$
+	CMPB	(R7),#127
+	BEQLU	1075$
+	CMPB	(R7),#255
+	BEQLU	1075$
+	TSTB	3(R7)
+	BEQL	1075$
+	CMPB	3(R7),#255
+ 	BEQLU	1075$
+	MOVL	#SS$_NORMAL,R0
+	RET
+1075$:
+	MOVL	#SS$_IVADDR,R0
+	RET
+108$:
+;++
+;4 IPX
+; Address must be:
+;	>= 10 bytes in len
+;	Top 4 bytes must not be 0
+;--
+	CMPL	#10,R6
+	BGTRU	1085$
+	TSTL	(R7)
+	BEQL	1085$
+	MOVL	#SS$_NORMAL,R0
+	RET
+1085$:
+	MOVL	#SS$_IVADDR,R0
+	RET
+
+109$:     ; These are currently unassigned
+110$:
+111$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+112$:
+;++
+;4 Ethernet
+; Address must be:
+;	6 bytes in len
+;	Multicast not set
+;	Top 3 bytes must not be 0
+;	bot 3 bytes cannot be 0
+;--
+	CMPL	#6,R6
+	BNEQU	1125$
+	BICL3	MNUMSK,(R7),R0		; Check top 3 bytes of Dest addr.
+	BEQL    1125$			; Br if all 0
+	BLBS	(R7),1125$		; Br if  Mcast 
+	BICL3	BOTMSK,2(R7),R0		; Check bot 3 bytes of Dest addr.
+	BEQL    1125$			; Br if all 0
+	MOVL	#SS$_NORMAL,R0
+	RET
+1125$:
+	MOVL	#SS$_IVADDR,R0
+	RET
+114$:
+;++
+;4 Bridge
+; See Ethernet description
+;--
+	BRW	112$
+115$:     ; These are currently unassigned
+116$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+118$:
+;++
+;4 Namer
+; Verify PID is in range,
+; All char are printable strings
+
+	CMPL	(R7),#SYS_COM_C_LOWPID 			; Lowest valid
+	BLSS	11810$
+	CMPL	(R7),#SYS_COM_C_HIPID 			; Highest valid
+	BGTR	11810$
+	CMPL	R6,#400			; Too long?
+	BGTR	11810$
+;
+1185$:
+	ADDL3	#8,R7,R2		; Point to name
+	SUBL	#9,R6                   ; Adjust len (make index)
+	BLSS	11810$                  ; Br if <= 0 
+1186$:
+	CMPB	(R2)[R6],#^A/ /      	; If char < ascii space it is invalid
+	BLSS	11810$
+	SOBGEQ	R6,1186$
+	MOVL	#SS$_NORMAL,R0
+	RET
+11810$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+;--
+       
+        .CALL_ENTRY     MAX_ARGS=8, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LOCATE_PSRREC  
+;++
+;2 LOCATE_PSRREC  
+; Locates (by address) a record in a PSR database and optionaly creates
+; a new record. 
+;3 Inputs
+;	.long len of following PSR specific address
+;	.long offset from start of PSR rec where network addr is located 
+; 	.address of network address to locate in net format
+;	.address of .quad (1st & last addr) of PSR section
+;    ---------- Optional params - supply if creation wanted ------------
+;	.address of BOXID to use (if created)
+;	.long	value of SYS_PID_C_xxxx of caller  
+;	.long value of create flag. If param is not present or
+;	     = 0 then record is not created if not found. If flag = 1
+;	     then create record.
+;	.long VAR. If param is present and rec is created then this
+;	     routine sets the flag corresponding to this PSR in the PTYTBL.
+;	     The purpose here is to allow the relater to indicate to the
+;	     sending PSR the rec has been created without having to indicate
+;	     other relationships.
+;
+;4 Record_creation.
+; A record may be created in 2 ways:
+;	1. The protocol address did not exist and (if creation wanted)
+;	   it is added to the DB with either the given BOXID or a 
+;	   new boxid is created. 
+;	2. The protocol address did exist, the given boxid was not 0
+;	   and the given boxid and the found boxid did not match. In this
+;	   case, the found boxid is changed to the given boxid and 
+;	   the return is SS$_CREATED. The routine exits at this point.
+;
+;	If a record is created under condition 1 above, it is locked 
+;	for exclusive access and:
+;	If BOXID = 0 then new BOXID is generated, else given is used.
+;	The PSR header field is written (see INIT_PSRHDR)
+;	The PSR data field is cleared then the address is writen to the record
+;	The PSR header rec may be updated with rec count (if new rec created)
+; 	The rec is unlocked
+;3 Outputs
+; 	R1 = either located address or next available slot
+;3 Returns
+;	R0 = SS$_NORMAL		Record located
+;	     SS$_ACCVIO		Could not read/write 1 of 1st 4 params
+;	     SS$_BADPARAM	Len (P1) .gt. COM_PSR_C_MAXSIZE (512)
+;	     SS$_ITEMNOTFOUND	Not found, not created
+;	     SS$_CREATED	Not found, allocated and initalised
+;	     SS$_INSFMEM	Could not create
+;	Any return from: LOCREC, UNLOCREC, ALLOCATE_BOXID, INIT_PSRRECHDR,
+;			 $CRMPSC, VERIFY_ADDRESS
+;--
+; We need the control section here. See if it is mapped
+	TSTL	CONTROL_A
+	BNEQU	5$
+        pushal  control_a               ; Control section return addresses
+        calls   #1, g^map_control       ; Map control section
+        BLBS	R0,5$
+	RET
+5$:
+; Check 1st 4 params
+        PROBER  #0,#4,4(AP)     ; Read Len?
+	BEQL	7$		; Br if No
+	CMPL	#COM_PSR_C_MAXSIZE,4(AP)         ; Len OK?
+	BLSSU	8$              		 ; Br if no
+        PROBER  #0,#4,8(AP)     ; Read Offs?
+	BEQL	7$		; Br if No
+        PROBER  #0,#4,@12(AP)   ; Read Addr?
+	BEQL	7$		; Br if No
+        PROBER  #0,#4,@16(AP)   ; Read DB?
+	BNEQ	9$		; Br if Yes
+7$:
+	MOVL	#SS$_ACCVIO,R0
+	RET
+8$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+
+9$:
+; If Creation wanted, verify the given address is valid
+	CMPL	(AP),#4			; Creation params present?
+	BLEQ	91$
+	MOVL	4(AP),TEMPDESC		; Len
+	MOVL	12(AP),TEMPDESC+4
+	PUSHL	24(AP)
+	PUSHAL	TEMPDESC
+	CALLS	#2,G^VERIFY_ADDRESS
+	BLBS	R0,91$
+	RET
+91$:
+	CLRL	R11			; Indicate new record
+	CLRL	R10			; Store 1st deleted entry found here
+	MOVL	4(AP),R4	        ; Len of addr
+        MOVL	12(AP),R6 		; addr to find
+	MOVL	@16(AP),R9		; Top of table
+	MOVL	COM_DBHDR_L_RECSIZE(R9),R7	; Rec size
+	ADDL3	R7,R9,R8                	; 1st entry
+	MOVL	COM_DBHDR_L_ENTRIES(R9),R11	; Entries
+	BEQL	200$			; br if None
+10$:
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R8),100$	; Br if deleted
+	CLRL	R1				; Loop control
+	ADDL3	8(AP),R8,R2        		; Stored addr
+
+40$:
+	CMPB	(R6)[R1],(R2)[R1]
+	BNEQ	50$
+	AOBLSS	R4,R1,40$
+	CMPL	#7,(AP)		; Flag present?
+	BEQLU	47$		; Yes - check entry
+45$:
+	MOVL	#SS$_NORMAL,R0                  ; Found it
+	MOVL	R8,R1                           ; Return this addr
+	RET
+47$:
+	TSTL	@20(AP)		; BOXID = 0?
+	BEQL	45$		; If 0 then Don't check entry
+; Check that given and found boxids match. If not change found to 
+; given and declare this rec created.
+	CMPL   	@20(AP),COM_HDR_L_BOXID(R8)   
+	BEQLU	45$				; If match then OK
+	MOVL	@20(AP),COM_HDR_L_BOXID(R8) 	; Change it
+	MOVL	R8,R1
+	MOVL	#SS$_CREATED,R0
+	RET
+
+50$:
+	ADDL	R7,R8				; Next entry
+	SOBGTR	R11,10$
+	BRW	200$
+100$:
+	TSTL	R10		; already stored deleted addr?
+	BNEQ	50$             ; Br if so
+	MOVL	R8,R10          ; Store 1st deleted addr here	
+	MOVL	#1,R2		; Indicate reused rec
+	BRB	50$		; continue
+200$:
+	CMPL	#7,(AP)		; Flag present?
+	BNEQ	300$		; No - do not create
+	TSTL	28(AP)		; Flag set?
+	BNEQ	201$		; Yes - create
+300$:
+	MOVL	#SS$_ITEMNOTFOUND,R0    ; Good end
+	RET
+; Check if enough space
+201$:
+	ADDL3	R7,R8,R1
+	MOVQ	@16(AP),R2		; Section addresses
+	CMPL	R3,R1                   ; Last addr in section
+	BGEQU	205$			; OK
+	MOVL	#SS$_INSFMEM,R0
+	RET
+205$:
+; loc this rec for exclusive access
+	PUSHL	#SYS_COM_C_EXCLOCK
+	ADDL3	#COM_HDR_Q_LOCKFIELD,R8,-(SP)
+	CALLS	#2,G^LOCREC
+	BLBS	R0,210$
+	RET
+210$:
+; init this rec
+	BLBS	R11,220$			; Do not count if reused
+	INCL	COM_DBHDR_L_ENTRIES(R9)		; Another addr
+220$:
+	MOVL	@20(AP),R1			; Get boxid
+	BNEQ	230$                            ; Br if not = 0
+	PUSHAL	CONTROL_A
+	CALLS	#1,G^ALLOCATE_BOXID
+	BLBS	R0,230$
+	RET
+230$:	
+	PUSHL	R9		; Header rec
+	PUSHL	24(AP)		; Creator
+	PUSHL	R1		; Boxid
+	PUSHL	R8              ; Rec addr
+	CALLS	#4,INIT_PSRRECHDR
+        BLBS	R0,240$
+	RET
+240$:
+; Clear data portion of record and write given address
+	SUBL3	#COM_HDR_C_SIZE,R7,R1		; Size of data portion
+	MOVC5	#0,#0,#0,R1,COM_HDR_C_SIZE(R8)  ; Init data
+	MOVL	4(AP),R4			; Len 
+	MOVL	R4,COM_HDR_L_LEN(R8)            ; Write len in header
+	MOVL	12(AP),R6       		; addr
+	MOVL	8(AP),R1			; write here
+	MOVC3	R4,(R6),(R8)[R1]
+	CMPL	#8,(AP)				; param present
+	BNEQ	250$				; Br if not
+; Set the flag corresponding to this PSR in the PTYYBITS field.
+        BBSS	COM_HDR_L_FLAGS(R8),COM_HDR_L_PTYBITS(R8),250$
+
+250$:
+; Unlock
+	PUSHL	#SYS_COM_C_EXCLOCK
+	ADDL3	#COM_HDR_Q_LOCKFIELD,R8,-(SP)
+	CALLS	#2,G^UNLOCREC
+	BLBC	R0,260$  			; Br on error
+	MOVL	#SS$_CREATED,R0                 ; no error
+	MOVL	R8,R1                           ; return addr
+260$:
+	RET
+        .CALL_ENTRY     MAX_ARGS=4, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=INIT_PSRRECHDR 
+;++
+;2 INIT_PSRRECHDR
+;  Inialises any PSR record header. The record is assumed to be previously
+;  locked against other access by the caller.
+;3 Inputs
+; 	.address of record to be initalised
+;	.long of BOXID to use
+;	.Long	value of SYS_PID_C_xxxx of caller 
+;	.long addr of PSR header rec 
+;3 Outputs
+; The following fields are writtten:
+;   Field		Written with
+;   FLAGS		FLAG value in DB header
+;   BOXID	        Given value
+;   PTYBITS		cleared
+;   SYSCTL		cleared
+;   LSTHRD		Current time
+;   FSTHRD		Current time
+;   LSTALT		cleared
+;   Status		cleared
+;   ACNT		1
+;   Len			cleared
+;   HOWSET		Given value
+;   SYSCTL		SYS_COM_V_UPDATE bit is set
+;   alertid		same as boxid		
+;3 returns
+; 	SS$_NORMAL
+;--
+	MOVL	4(AP),R8		; Rec addr
+	MOVL	16(AP),R9
+; Clear indicated fields
+	CLRL	COM_HDR_L_PTYBITS(R8)
+	CLRL	COM_HDR_L_SYSCTL(R8)
+	CLRL	COM_HDR_L_STATUS(R8)
+	CLRL	COM_HDR_L_LEN(R8)
+; Write indicated fields
+	MOVL	8(AP),COM_HDR_L_BOXID(R8)
+	MOVL	8(AP),COM_HDR_L_ALTID(R8)
+	MOVL	12(AP),COM_HDR_L_HOWSET(R8) 
+	MOVL	COM_DBHDR_L_FLAG(R9),COM_HDR_L_FLAGS(R8) 
+        MOVQ	EXE$GQ_SYSTIME,COM_HDR_Q_FSTHRD(R8) 
+        MOVQ	EXE$GQ_SYSTIME,COM_HDR_Q_LSTHRD(R8) 
+	BISL	#SYS_COM_M_UPDATE,COM_HDR_L_SYSCTL(R8)  ; set update
+
+	CLRQ	COM_HDR_Q_LSTALT(R8) 
+        MOVL    #1,COM_HDR_L_ACNT(R8) 
+        MOVL	#SS$_NORMAL,R0
+	RET
+                  
+
+
+
+        .CALL_ENTRY     MAX_ARGS=7, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CREATE_RELATER_FRAME 
+;++
+;2 CREATE_RELATER_FRAME
+; Create (and/or) add to existing relater frame. This routine allocates
+; a relater frame from IPC pool and initalises it with input params. It 
+; returns a context to the caller to identify this frame for any future 
+; additions. The caller will normaly send the frame when completed. 
+; The RELATER receives the frame, processes it and deallocates it by 
+; returning it to the pool.
+;3 Input
+;   --- Params 1 - 4 are added only on the 1st call and form the header
+;   of the relater frame.
+;
+;  1 .address of context field. If this is 0 a new frame is allocated 
+;		and the address of the frame is written here.
+;  2 .address of BOXID the following frame relates to
+;  3 .long value of action. Either add or delete relationships.
+;  4 .long value of sender ID. This is the SYS_PID_C_xxxx of the sending 
+;		process. This is the owner process.
+;   --- The following are optional and if present, added on each call ---
+;  5 .long value of target following. This is the SYS_PID_C_xxxx 
+;		of the target process. 
+;  6 .long value of len of address following
+;  7 .address of the network address the sender belives it has a relationship
+;		to. A relationship means that the set of addresses in this 
+;		frame all exist on the same box.
+;3 Output
+; Frame format:
+;	.long	ready indicator. If the low bit is set the frame is 
+;		ready to be processed by the Relater. This bit is set by
+;		SEND_RELATER_FRAME.
+;	.long	Owner field. If this field is 0 the frame is not in use.
+;		Else it is owned by the PID indicated.
+; 	Upon create new frame:
+;		New frame is initalised with caller's ID.
+;		Context is written at P1 address.
+;	On all calls:	
+;       Relater frame identified by both context and sender's ID is 
+;	written with the target params specified.
+;3 Returns.
+;	SS$_NORMAL	OK
+;	SS$_ACCVIO	can't write context
+;	MSG_CRERLT_NOIPC   Could not allocate Inter-Process Comm buffer	
+;	MSG_CRERLT_BADBOX  Boxids of sender and stored do not match	
+;	MSG_CRERLT_BADACT  Action directive is not same as stored this frame	
+;	MSG_CRERLT_BADSDR  Sender's Id and Frame sender's Id do not match	
+;	MSG_CRERLT_BUFOVF  Cound not add relationship to frame
+; Any from MAP_SECTIONS $ASCEFC	
+;--
+	TSTL	COMIPC_A                ; Mapped?
+	BNEQ	20$                     ; Br if mapped
+; Ensure process is associated with  flags
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+        BLBS	R0,10$
+	RET
+10$:
+	PUSHAL	COMIPC_A		; Communication buffers
+	CALLS	#1,G^MAP_COMIPC                                                
+	BLBS	R0,20$
+	RET
+20$:
+; Check params
+        PROBEW  #0,#4,@4(AP)     ; Write context?
+	BNEQ	100$		; Br if OK
+	MOVL	#SS$_ACCVIO,R0
+	RET
+100$:
+	TSTL	@4(AP)		; If = 0 then get new frame
+	BEQL	105$
+	BRW	150$
+105$:
+	MOVL	#5,R3			; Loop
+110$:
+	MOVQ	COMIPC_A,R7
+115$:
+	TSTL	RLT_FRM_L_OWNER(R7)     ; Free buff?
+	BEQL	120$                    ; Br if free
+	ADDL	#RLT_FRM_C_LEN,R7       ; Next frame
+	CMPL	R7,R8                   ; Still in section?
+	BLSS	115$                    ; Br if more
+	PUSHAL	RLT_FRM_WAIT            ; No more - wait 1/10th sec
+	CALLS	#1,G^LIB$WAIT                ;
+	SOBGTR	R3,110$                 ; Br if tried < 5 times
+        MOVL	#MSG_CRERLT_NOIPC,R0	; Didn't get one
+	RET
+120$:
+; Init frame
+	MOVC5	#0,#0,#0,#512,(R7)		; Clear
+	MOVL	16(AP),RLT_FRM_L_OWNER(R7)	; Mark frame owned by us
+	MOVL	R7,@4(AP)			; Write context
+	MOVL	@8(AP),RLT_FRM_L_BOXID(R7)	; Write Boxid
+	MOVL	12(AP),RLT_FRM_L_MTYPE(R7)  	; Action
+	MOVL	16(AP),RLT_FRM_L_SENDER(R7) 	; Sender ID
+	CLRL	RLT_FRM_L_TARGETS(R7)		; None yet
+	ADDL3	#RLT_FRM_C_LEN,R7,R8		; Last possible addr
+; Double check - ensure we still own the frame and have not collided with
+; another process.
+	CMPL	16(AP),RLT_FRM_L_OWNER(R7)	; Still owned by us ?
+	BEQL	125$
+	CLRL	RLT_FRM_L_OWNER(R7)		; Undo
+	CLRL	@4(AP)				; No context
+	BRW	110$				; Try again
+125$:	
+; Validate PID and count buffer against PID
+	PUSHL	R7                      ; PID
+	PUSHL	#1                      ; increment
+	CALLS	#2,G^COUNT_IPCBUF	; Checks PID for validity
+	BLBS	R0,130$
+	CLRL	RLT_FRM_L_OWNER(R7)		; Undo
+	CLRL	@4(AP)				; No context
+	RET
+130$:
+	BRW	200$
+150$:
+;++
+;3 Sanity_checks
+; For any additions to existing frame ALL the following must be true:
+;  Caller's BOXID = frame BOXID 
+;  Caller's ID = frame SENDERID 
+;  Caller's ACTION = frame ACTION
+;--
+	MOVL	@4(AP),R7			; Addr of frame
+	ADDL3	#RLT_FRM_C_LEN,R7,R8		; Last possible addr
+	CMPL	@8(AP),RLT_FRM_L_BOXID(R7)	; Write Boxid
+	BNEQU	160$				; No
+	CMPL	12(AP),RLT_FRM_L_MTYPE(R7)  	; Action
+	BNEQU	170$				; No
+	CMPL	16(AP),RLT_FRM_L_SENDER(R7) 	; Sender ID
+	BNEQU	180$				; No
+	CMPL	16(AP),RLT_FRM_L_OWNER(R7) 	; Owner ID
+	BNEQU	190$				; No
+        BRW	200$
+160$:
+	MOVL	#MSG_CRERLT_BADBOX,R0
+	CLRL	@4(AP)				; No context
+	RET
+170$:
+	MOVL	#MSG_CRERLT_BADACT,R0
+	CLRL	@4(AP)				; No context
+	RET
+180$:
+	MOVL	#MSG_CRERLT_BADSDR,R0
+	CLRL	@4(AP)				; No context
+	RET
+190$:
+	MOVL	#MSG_CRERLT_BADONR,R0
+	CLRL	@4(AP)				; No context
+	RET
+200$:
+	ADDL3	#RLT_FRM_C_1STTGT,R7,R6		; Write new target here
+	MOVL	RLT_FRM_L_TARGETS(R7),R5	; Number of targets
+	BEQL	250$				; No targets
+210$:
+; Locate next avail slot
+; Most PSRs will send duplicate entries. Check for same and if
+; entry is already in frame skip it.
+
+	CMPL	20(AP),RLT_FRM_L_TGTID(R6)	; SAME ID?
+	BNEQU	240$                            ; Br not
+	CMPL	24(AP),RLT_FRM_L_TGTLEN(R6) 	; Same Len?
+	BNEQU	240$                            ; Br not
+        MOVL	24(AP),R3		; Len
+	DECL	R3			; Make index
+	MOVL	28(AP),R1		; New addr
+	ADDL3	#RLT_FRM_L_TGTADDR,R6,R4	; This entry
+220$:
+	CMPB	(R4)[R3],(R1)[R3]
+	BNEQU	240$
+	SOBGEQ	R3,220$
+	MOVL	#SS$_NORMAL,R0                  ; Found identical entry
+	RET                                     ; No change
+240$:
+	ADDL3	#8,4(R6),R2			; Len this entry
+	ADDL	R2,R6				; Move pointer
+	SOBGTR	R5,210$
+250$:
+	CMPL	#4,(AP)				; any targets to add?
+	BEQLU	270$				; Br if none
+	ADDL3	24(AP),R6,R3			; CHeck if room
+	ADDL	#8,R3				; Total len for add
+	CMPL	R3,R8				; OK?
+	BLEQU	260$				; Br if OK
+	PUSHL	R7                      ; PID
+	PUSHL	#-1                      ; DECREMENT
+	CALLS	#2,G^COUNT_IPCBUF	; Checks PID for validity
+	MOVL	#MSG_CRERLT_BUFOVF ,R0
+	RET
+260$:
+; Add this target
+	MOVL	20(AP),RLT_FRM_L_TGTID(R6)	; Move ID
+	MOVL	24(AP),RLT_FRM_L_TGTLEN(R6) 	; Len of addr
+	MOVC3	24(AP),@28(AP),RLT_FRM_L_TGTADDR(R6)	; ADDR
+	INCL	RLT_FRM_L_TARGETS(R7)		; Add new target
+270$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+	 
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=COUNT_IPCBUF 
+;++
+;2 COUNT_IPCBUF
+; An arrray is maintained to cound IPC usage aganst PID. The array is 
+; 32 .longs (1 per possible PID) and indexed by the PID. 
+;3 Input
+;	signed integer  If + the location is inc'ed else dec'ed
+;	.address of relater frame
+;3 Output
+;	As above, in the counter section.
+;3 Returns.
+;	SS$_NORMAL	OK
+;	SS$_BADOWNER	PID was not in legal range
+;	SS$_RESULTOVF   PID already has buffer allocated and has 
+;			not returned it.
+;--
+	TSTL	COUNTERS_A
+	BNEQU	20$
+; Map counters
+	PUSHAL	COUNTERS_A		; Counters section return addresses
+	CALLS	#1, G^MAP_COUNTERS	; Monitor counters
+	BLBS	R0,20$
+	RET
+20$:
+	MOVL	8(AP),R6		; Relater frame
+
+; Check PID
+	TSTL	RLT_FRM_L_SENDER(R6) 	; Sender ID
+	BGTR	120$
+110$:
+	MOVL	#SS$_BADOWNER,R0
+	RET
+120$:
+	CMPL	#31,RLT_FRM_L_SENDER(R6) 	; Sender ID
+	BLSSU	110$
+;
+	ADDL3 	#CNT_IPC_TL_IPCBUF,COUNTERS_A,R10   ; Get start addr
+	MOVL	RLT_FRM_L_SENDER(R6),R11            ; Index
+;
+	MOVL	#SS$_NORMAL,R0 			; Assume OK
+
+	TSTL	4(AP)                           ; Wants New buffer?
+	BLSS	150$                            ; Br if no
+	TSTL	(R10)[R11]                      ; Already has one?
+	BLEQ	130$                            ; Br not
+	MOVL	#SS$_RESULTOVF,R0               ; 
+	RET
+130$:	
+	INCL	(R10)[R11]                      ; Count buff
+	RET
+150$:
+	DECL	(R10)[R11]                      ; Uncount buff
+	RET
+	
+
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=SEND_RELATER_FRAME 
+;++
+;2 SEND_RELATER_FRAME
+; Send existing relater frame to the RELATER. 
+;3 Input
+;  1 .address of context field. This is the address of an allocated
+;	and completed frame the caller wishes to send. The context 
+;	was originaly written by CREATE_RELATER_FRAME.
+;3 Output
+;	The frame is checked for validity and if OK the status bit is 
+;	set indicating that the RELATER should process this frame.
+;	The relater flag is set to wake that process.
+;	The buffer count is decremented for this PID.
+;3 Returns.
+;	SS$_NORMAL		OK
+;	MSG_CRERLT_BADONR	PID and OWNER do not match
+;				PID  is not valid
+;	Any from MAP_SECTION, $SETEF, COUNT_IPCBUF
+;--
+	TSTL	COMIPC_A                ; Mapped?
+	BNEQ	10$                     ; Br if mapped
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	PUSHAL	COMIPC_A		; Communication buffers
+	CALLS	#1,G^MAP_COMIPC                                                
+	BLBS	R0,10$
+	RET
+10$:
+	MOVL	COMIPC_A,R7
+20$:
+	MOVL	4(AP),R6                ; Addr of buff
+	CMPL	RLT_FRM_L_OWNER(R6),RLT_FRM_L_SENDER(R6)
+	BEQLU	25$
+22$:
+        MOVL	#MSG_CRERLT_BADONR,R0  
+	RET
+
+
+25$:
+; Count buffer against PID
+	PUSHL	R6                      ; PID
+	PUSHL	#-1                     ; decrement
+	CALLS	#2,G^COUNT_IPCBUF	; Checks PID for validity
+	BLBC	R0,22$			; BR on err
+
+	MOVL	4(AP),R6                ; Addr of buff
+	MOVL	#1,RLT_FRM_L_STATUS(R6)		; Set buffer ready
+	ADDL3	#96,#SYS_PID_C_RELATER,-(SP)    ; Set relater flag
+	CALLS	#1,G^SYS$SETEF
+	BLBC	R0,30$
+	MOVL	#SS$_NORMAL,R0
+	RET
+30$:
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=EMU_LOGGER 
+;++
+;2 EMU_LOGGER
+; Write an error message to the log file. 
+;3 Input
+; 	.address of standard error message structure
+;	The caller must specify:
+;		Error code
+;		Name of sender (.addr of .ascid routine name)
+;		Param count  (may be 0 - 7)
+;	The caller may specify:
+;	Up to 7 .long params. The required params are message
+;	specific
+;	All other params are written by this routine before
+;	passing to $PUTMSG. The output from $PUTMSG is 
+;	fielded by EMU_WRTERR and written to the output file.
+; 
+;3 Output
+;	Calls EMU_WRTERR to write message to EMU5_LOG:EMUERR.LOG  
+;3 Return
+;	Original status in R0 is preserved and returned to the caller
+;	Any RMS error   While not yet available, it is intended that 
+;			any error this routine encounters is transformed
+;			into a system level alert and sent. Thus the
+;			error logging system is backed up by the alert
+;			system and vice versa.
+;      **NOTE**
+;	The following params are checked for validity:
+;	SENDER		- String described by .ascid must be readable
+;	Param Count     - Must be in range 0 - MSG_C_MAXPARAM (7)
+;	If either of these tests fail, the message is ignored, a failed
+;	message is logged to the logfile. 
+;
+;3 Error_message_structure
+;  Symbol	Offs		Desc
+; MSG_W_ARG	0	; Argument count
+; MSG_W_OPT	2	; Options (default = 15)
+; MSG_L_ERROR	4	; Error code
+; MSG_W_PARAMS	8	; Param count
+; MSG_W_OPT2	10	; Display options (15 = display all)
+; MSG_L_TIME	12	; Time recorded
+; MSG_L_SENDER	16	; .ascid of sending routine
+; MSG_C_PARAMS	20	; Start of params
+; 
+;--
+	MOVL	R0,R11			; Save status
+	MOVL	4(AP),R6
+; Param checks
+	TSTW	MSG_W_PARAMS(R6)  
+	BLSS	100$                    ; Br on error
+	CMPW	MSG_W_PARAMS(R6),#MSG_C_MAXPARAM
+	BGTR	100$
+	PROBER	#0,#4,@MSG_L_SENDER(R6)
+	BEQL	100$
+	MOVQ	@MSG_L_SENDER(R6),R1
+	PROBER	#0,R1,(R2)		; Check for read access
+	BEQL	100$			; No
+; Params OK 
+50$: 
+	MOVAL	EXE$GQ_SYSTIME,MSG_L_TIME(R6)
+	ADDW    #2,MSG_W_PARAMS(R6)		  ; Include time, name params
+	ADDW3	#2,MSG_W_PARAMS(R6),MSG_W_ARG(R6) ; Calc arg count
+	MOVW	#MSG_C_ALLOPTS,MSG_W_OPT(R6)            ; Display all
+	MOVW	#MSG_C_ALLOPTS,MSG_W_OPT2(R6)           ;   "
+	CLRQ	-(SP)                             ; No AST arg,
+	PUSHAL	EMU_WRTERR                        ; AST routine
+	PUSHL	R6                                ; Message vector
+	CALLS	#4,G^SYS$PUTMSG                   ; Do it
+	MOVL	R11,R0				  ; Restore status
+	RET                                       ; 
+100$:
+; The message recieved cannot be processed. log this fact.
+	MOVAL	ERRSTRU,R8                        ; Our error struct
+	MOVAL	LOGGER_NAM,MSG_L_SENDER(R8)		  ; We are the sender
+	MOVL	#2,MSG_W_PARAMS(R8)               ; Param count
+	ADDL3	R8,#MSG_C_PARAMS,R7               ; Param list
+	MOVL	MSG_L_SENDER(R6),(R7)+            ; BAD? sender name
+	MOVL	MSG_W_PARAMS(R6),(R7)+ 		  ; BAD? param count
+	MOVL	#MSG_EMUSYS_BADERR,MSG_L_ERROR(R8) ; Error message
+	MOVL	R8,R6
+	BRW     50$				  ; Write it
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=EMU_WRTERR 
+;++
+;2 EMU_WRTERR
+; Write an error message to the log file. This routine is invoked
+; by $PUTMSG to capture the formatted error message and write it
+; to the log file
+;3 Inputs
+;	.address of desc pointing to message to be written
+;3 Output
+;	The message is written to the file.
+;3 Return
+;  	Any RMS error
+;--
+; Assume file is open. On error open file and re-write. If this errors
+; then give up.
+	MOVQ	@4(AP),R6
+	MOVL	R7,LOGRAB+RAB$L_RBF
+	MOVW	R6,LOGRAB+RAB$W_RSZ   
+
+	$PUT	RAB=LOGRAB
+	$FLUSH	RAB=LOGRAB
+	BLBC	R0,10$
+	CLRL	R0			; Ensure message not written
+	RET
+10$:
+	$CREATE	FAB=LOGFAB
+	BLBC	R0,100$
+	$CONNECT RAB=LOGRAB
+	BLBC	R0,100$
+	$PUT	RAB=LOGRAB
+	$FLUSH	RAB=LOGRAB
+100$:
+	CLRL	R0			; Ensure message not written
+	RET
+
+        .END
+

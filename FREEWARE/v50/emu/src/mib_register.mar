@@ -1,0 +1,921 @@
+	.TITLE MIB_REGISTER  
+	.IDENT /V01-002/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications
+; 001 	Feb 1996		PB	Creation		
+; 002	Aug 21 1997		PB   Fully automated. Now adds table names
+;				     in the hierarchy dictated in MAPPER.DAT
+;++
+;1 MIB_REGISTER  
+; Interactive programme to Add Compiled mibs to MAPPER.DAT
+; This allows a raw MIB to be compiled and automaticaly included in the
+; standard EMU paramater translation mechanism.
+;2 Inputs  
+;  A compiled MIB. This is the output from MIB_COMPILE2. 
+;  The user specifies a MIB name. This is converted to a file spec
+;  and becomes the input.
+;2 Output
+; Each MIB record is read, the table it belongs to calculated and then added
+; to MAPPER.DAT. 
+; Warnings are issued for:
+; 1. This tbl.param exists and the name is not identical.
+;    The user may ignore (no change) or replace the existing record.
+;    If the record exists and is identical, it is ignored.
+; 2. If the keyword > 32 bytes the record is displayed and the user may:
+;	Allow the field to be truncated or
+;	Replace the keyword or
+;	Ignore (rec is not written)
+;
+;--
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+
+	$RMSDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	EMUCTRLDEF
+	EMUSYSDEF
+	EMUDBDEF
+	EMUSNMPDEF
+;
+
+	.PSECT MIB_REGISTER_DATA,WRT,NOEXE,QUAD,pic
+
+	.ALIGN	LONG
+MAPPERFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		FOP = CIF,-			; Create if doesn't exist
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <EMU5_DAT:MIB_REGISTER.DAT>,-	; Default Filename 
+		FNM = <MAPPER>,-			; Filename 
+		XAB = MAPPERXAB0                  ; Keys
+
+MAPPERRAB:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = MAPPERREC_BUF,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = MAPPERREC_BUF,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		KBF = KEY_BUF,-			; Key location
+		KSZ = 8
+
+MAPPERXAB0:	$XABKEY	REF = 0,-  		; TBL,PARAM
+		DTP = BN8,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+		NXT = MAPPERXAB1
+
+MAPPERXAB1:	$XABKEY	REF = 1,-  	; TBL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP,-
+		NXT = MAPPERXAB2
+
+MAPPERXAB2:	$XABKEY	REF = 2,-  	; PARAM
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+;
+MAPPERREC_BUF:	
+KEY_BUF:	
+MAPPER_TBL:		.LONG	0	; Table 
+MAPPER_PARAM:		.LONG	0	; Paramater
+MAPPER_SEC:		.QUAD	0	; Prives req'ed to detect. VMS sec
+MAPPER_KEYW_LEN:	.LONG	0	; Len of following string
+MAPPER_KEYW:		.BLKB	64      ; Standard keyword this param
+MAPPER_FMTTYP:		.LONG	0	; Either len of following of rtn num.
+MAPPER_FMTSTR:		.BLKB	32	; FAO directive str
+MAPPER_POLFLG:		.LONG	0       ; Poll flags
+MAPPER_RPTLVL:		.LONG	0       ; Report level
+MAPPERREC_SIZE = .-MAPPERREC_BUF        ; = 128
+	.ALIGN	LONG
+INFAB:	$FAB	FAC = <GET>,-			; Access
+                DNA = MIBDIR,-
+		DNS = MIBDIR_SIZE,-
+		ORG = SEQ,-
+		RAT = CR			; 
+
+INRAB:	$RAB	FAB = INFAB,-		; pointer to FAB
+		RBF = INBUF,-		; o/p buffer 
+		RSZ = MC_MIBT_C_RECSIZE,-	; Write this many bytes
+		UBF = INBUF,-		; i/p buffer 
+		USZ = MC_MIBT_C_RECSIZE		; Write this many bytes
+;
+; Record buffers
+INBUF:		.BLKB	MC_MIBT_C_RECSIZE  
+INBUF2:		.BLKB	MC_MIBT_C_RECSIZE  
+OUTBUF:		.BLKB	MC_SYMT_C_LEN 
+FILENAME:	.BLKB	32
+FILENAME_DESC:	.LONG	.-FILENAME
+		.ADDRESS  FILENAME
+
+
+
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 	30      ; 
+VD_COLS: 	.LONG 	60      ;
+VD_DISP2:	.LONG		; Display 2
+VD_ROW2:	.LONG 	3
+VD_COL2:	.LONG  	80      ; Position for DISP2
+VD_DISP3:	.LONG		; Display 3
+VD_ROW3:	.LONG 	30
+VD_COL3:	.LONG	20      ; Position for DISP3
+;
+;
+; Optional Display Characteristics
+;
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 2
+W3:    		.LONG 3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+UPCASE:		.LONG	TRM$M_TM_CVTLOW 	;Convert lower to upper case
+DELITM:		.LONG	SMG$M_REMOVE_ITEM       ; Remove selected item from menu
+CHOICE:		.WORD
+MAIN_TBL_CHOICE: .WORD	0
+SEC_TBL_CHOICE: .WORD	0
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	5
+PB_COL2:	.LONG	1      ; Position for DISP2
+PB_ROW2:	.LONG 	1
+PB_COL3:	.LONG	60      ; Position for DISP3
+PB_ROW3:	.LONG 	5
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+;
+; Prompt strings and parameters
+; FAO
+STRINGOUT:	.BLKB	256
+STRINGOUT2:	.BLKB	256
+FAOBUF:		.BLKB	132
+FAODESC:
+FAOLEN: 	.LONG		.-FAOBUF
+        	.ADDRESS        FAOBUF
+
+;
+MIBDIR:		.ASCII	/EMU5_MIB:.MC2/
+MIBDIR_SIZE = .-MIBDIR
+EXITMSG:	.ASCID	/Press Return/
+REPLMSG:	.ASCID	/ Replace? [N]/
+FILEPRMPT:	.ASCID	/File to add > /
+DUPMIBMSG:	.ASCID	/ MIB !AD already registered as MIB No. !UL/
+NEWMIBMSG:	.ASCID	/ Register !AS as MIB No. !UL (^Z to cancel): /
+RECPRMPT:	.ASCID	/Keyword too Long. Replace or Truncate [R] : /
+NEWKEYSTR:	.ASCID	/Enter New Keyword : /
+OLDRECSTR:	.ASCID	/ Stored Name: !AD/
+NEWRECSTR:	.ASCID	/ Stored Name: !AC/
+KEYWPRMPT:	.ASCID	/ Replace or Ignore? [I] :/
+MAPPERRECSTR:	.ASCID	/ !6<!UL!> !32<!AD!> !AD/
+MAPPERRECSTR2:	.ASCID	/ !6<!UL!> !32<!AD!> !UL/
+MAPPERFULSTR:	.ASCID	/!6<!UL!> !6<!UL!>  !8<!XL!XL!> !32<!AD!> !68<!AD!> !UL/
+MAPPERFULRTN:	.ASCID	/!6<!UL!> !6<!UL!>  !8<!XL!XL!> !32<!AD!> !UL/
+WRITEERR:	.ASCID	/ File write error !UL. <CR> to Continue, ^Z to Abort/
+;
+; Misc data areas
+	.ALIGN	LONG
+;
+OUTINT:		.LONG
+MIBNUM:		.LONG	^X03000000
+SNMPTBL:	.LONG	^X02000007
+MIBID:		.LONG	0
+BYTCNT:		.WORD
+
+;
+;	.End data definitions
+;
+	.PSECT MIB_REGISTER_CODE,EXE,pic
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MIB_REGISTER
+;
+; Open file 
+;
+	BSBW	CREATE_ENVIRONMENT
+;
+; Display Menu
+;
+
+START:
+; Open outp file
+	$OPEN	FAB=MAPPERFAB
+	BLBS	R0,1$
+	RET
+1$:
+	$CONNECT RAB=MAPPERRAB	
+	BLBS	R0,5$
+	RET
+5$:
+
+; Get file name to process.
+	PUSHAL	FILEPRMPT
+	CALLS	#1,G^MR_READ_PROMPT
+	BLBS	R0,10$
+	RET
+10$:
+; Get filename from string
+	MOVL	#32,FILENAME_DESC
+	PUSHAL	FILENAME_DESC
+	PUSHAL	KB_BUF
+	MOVZWL 	BYTCNT,-(SP)
+	CALLS	#3,G^STRIP_FILSPEC	
+        BLBC	R0,5$			; Retry on err
+	TSTL	FILENAME_DESC
+	BEQL	5$			; Retry on no filename
+
+; Open the file
+	MOVL	FILENAME_DESC+4,INFAB+FAB$L_FNA	; Location of name
+	MOVB	FILENAME_DESC,INFAB+FAB$B_FNS	; Size of name
+	$OPEN	FAB=INFAB
+	BLBC	R0,5$			; Retry on err
+	$CONNECT RAB=INRAB
+	BLBS	R0,30$
+	RET                             ; Give up
+30$:
+; Find the next available mib number to use
+	MOVL	MIBNUM,KEY_BUF+4		; Lowest possible (-1)
+	MOVL	SNMPTBL,KEY_BUF
+40$:
+	INCL	KEY_BUF+4
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,50$				;
+	CMPL	R0,#RMS$_RNF
+	BNEQU	45$
+	BRW	70$
+45$:
+	RET
+50$:
+; Check this mib not registered
+	MOVQ	FILENAME_DESC,R7
+	MOVAL	MAPPERREC_BUF,R6
+	CMPL	R7,DB_MAP_L_KEYWLEN(R6)		; Same Size?
+	BNEQ	40$
+	ADDL	#DB_MAP_A64_KEYW,R6		; Stored name
+	SUBL3	#1,R7,R4			; Make index
+60$:
+	CMPB	(R8)[R4],(R6)[R4]
+	BNEQ	40$
+	SOBGEQ	R4,60$
+; Found this mib - inform user
+	MOVAL	MAPPERREC_BUF,R6
+	MOVL	#80,FAODESC
+	MOVZWL	DB_MAP_L_PARAM(R6),-(SP)
+	ADDL3	#DB_MAP_A64_KEYW,R6,-(SP)	; Location of name
+	PUSHL	DB_MAP_L_KEYWLEN(R6)		; Size of name
+	PUSHAL	FAODESC			
+	PUSHAL	FAODESC			
+	PUSHAL	DUPMIBMSG
+	CALLS	#6,G^SYS$FAO
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	PUSHAL	REPLMSG
+	CALLS	#1,G^MR_READ_PROMPT
+	BLBC	R0,65$			; Exit on ^z
+	CMPB	#^A/Y/,KB_BUF		
+	BEQLU	70$
+65$:
+	RET
+70$:
+; Keybuf now contains the next available mib number
+; Inform user and give chance to cancel
+	MOVL	#80,FAODESC
+	MOVZWL	KEY_BUF+4,-(SP)
+	PUSHAL	FILENAME_DESC
+	PUSHAL	FAODESC			
+	PUSHAL	FAODESC			
+	PUSHAL	NEWMIBMSG
+	CALLS	#5,G^SYS$FAO
+	PUSHAL	FAODESC
+	CALLS	#1,G^MR_READ_PROMPT
+	BLBS	R0,80$
+	RET
+80$:
+	MOVW	#MAPPERREC_SIZE,MAPPERRAB+RAB$W_RSZ
+	MOVW	#MAPPERREC_SIZE,MAPPERRAB+RAB$W_USZ
+	MOVAL	MAPPERREC_BUF,R6
+	MOVQ	KEY_BUF,(R6)				; Set key
+	MOVQ	FILENAME_DESC,R1
+	MOVL	R1,DB_MAP_L_KEYWLEN(R6)			; Size of name
+	MOVC3	R1,(R2),DB_MAP_A64_KEYW(R6)             ; Move name
+	$PUT	RAB=MAPPERRAB
+	CMPL	#RMS$_DUP,R0				; If Duplicate ...
+	BEQLU	90$					; ... OK
+        BSBW	ERROR_CHK
+90$:
+	MOVL	MAPPER_PARAM,MIBID			; SAVE ID
+	MOVW	#MC_MIBT_C_RECSIZE,INRAB+RAB$W_RSZ
+100$:
+	$GET	RAB=INRAB
+	BLBS	R0,110$
+	RET
+110$:
+	MOVAL	INBUF,R6
+;Do not process table entries (only 'real' params and table names)
+ 	CMPL	#MC_MIBT_C_TYPDIR,MC_MIBT_L_ENTTYP(R6)
+	BEQLU	120$
+ 	CMPL	#MC_MIBT_C_TYPENT,MC_MIBT_L_ENTTYP(R6)
+	BEQLU	112$
+ 	CMPL	#MC_MIBT_C_TYPNAM,MC_MIBT_L_ENTTYP(R6)
+	BNEQU	100$
+; Table name - place as 3rd level table in hierarchy
+; We actualy need (what should be) the next record. It's objid is 
+; the table top. Get next rec. If not TYPTOP then exit. If so..
+; crc that objid and add this name.
+; Get in different buffer...
+	MOVAL	INBUF2,INRAB+RAB$L_RBF
+	MOVAL	INBUF2,INRAB+RAB$L_UBF
+
+	$GET	RAB=INRAB
+	BLBS	R0,111$
+	RET
+112$:	BRW	125$
+111$:
+; Restore default buffer
+	MOVAL	INBUF,INRAB+RAB$L_RBF
+	MOVAL	INBUF,INRAB+RAB$L_UBF
+	MOVAL	INBUF2,R4
+ 	CMPL	#MC_MIBT_C_TYPTOP,MC_MIBT_L_ENTTYP(R4)
+	BEQLU	115$
+; Display error and exit - we are lost.
+	RET
+115$:	
+; Make the ID from this Obj        
+	PUSHL	MIBID
+	PUSHAL	KEY_BUF
+	PUSHL	R4
+	CALLS	#3,G^SNMP_MAKTBL_NAME
+	BLBS	R0,130$
+	RET
+120$:
+; Direct entry - requires 2 entries: 1 to emulate a table head so it is
+; accessible to UI and 1 'real' to allow access by paramxlt.
+;
+	PUSHAL	KEY_BUF
+	PUSHL	R6
+	CALLS	#2,G^SNMP_MAKTBL_ID
+	BLBS	R0,122$
+	RET
+122$:
+	MOVL	MAPPER_TBL,MAPPER_PARAM
+	MOVL	MIBID,MAPPER_TBL
+	CALLS	#0,G^MR_WRITE_MAPPER
+        BLBS	R0,125$
+
+
+
+125$:
+; Convert this to tbl.param
+	PUSHAL	KEY_BUF
+	PUSHL	R6
+	CALLS	#2,G^SNMP_MAKTBL_ID
+	BLBS	R0,130$
+	RET
+130$:
+; See if this rec exists
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,150$
+	CMPL	#RMS$_RNF,R0
+	BEQLU	140$
+	RET			;Any other error is fatal
+140$:
+	CALLS	#0,G^MR_WRITE_MAPPER 	; Rec doesn't exist      
+	BRW	100$		
+;
+; A record exists for this tbl.param. COmpare KEW field. If .eq. then ignore
+; if .ne. ask user if wants to continue.
+150$:
+	MOVZBL 	MC_MIBT_AC_NAME(R6),R1	; Len of inpt str
+	CMPL	R1,MAPPER_KEYW_LEN	; Len =?
+	BNEQU	200$
+	ADDL3	#MC_MIBT_AC_NAME,R6,R2  ; addr of .ascic string
+	INCL	R2                      ; Skip past count
+	MOVAL	MAPPER_KEYW,R3          ; Stored name
+	DECL	R1 			; Make index
+160$:
+	CMPB	(R3)[R1],(R2)[R1]
+	BNEQU	200$
+	SOBGEQ	R1,160$
+	BRW	100$			; OK - ignore
+200$:
+	MOVL	#132,FAODESC
+	PUSHAL	MAPPER_KEYW
+	PUSHL	MAPPER_KEYW_LEN
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	OLDRECSTR
+	CALLS	#5,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+	ADDL3	#MC_MIBT_AC_NAME,R6,-(SP)  ; addr of .ascic string
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	NEWRECSTR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	PUSHAL	KEYWPRMPT
+	CALLS	#1,G^MR_READ_PROMPT
+	BLBS	R0,210$
+	BRW	100$
+210$:
+	CMPB	#^A/R/,KB_BUF             ; If replace?
+	BEQLU	220$                     ; Then replace
+	BRW	100$		          ; Ignore
+220$:
+	CALLS	#0,G^MR_WRITE_MAPPER
+	BRW	100$		          ; Next
+
+
+	.CALL_ENTRY	MAX_ARGS=3, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MR_WRITE_MAPPER 
+;++
+;2 MR_WRITE_MAPPER
+;  Routine to complete and write the current MIB component to the MAPPER 
+; file.
+; Following routines are called top complete the record:
+;	MIB_REGISTER_SETPOLFLG    Sets def Poll Flags    
+; 	MIB_REGISTER_SETSECURE    Sets def security    
+;	MIB_REGISTER_SETRPTLVL    Sets def Reporting level
+;	MIB_REGISTER_SETKEYW      Sets Keyword
+; 	MIB_REGISTER_SETFMT       Sets def formatting 
+
+;3 Inputs
+;	None. MAPPERERREC_BUF is assumed to be the target
+;3 Outputs
+;	MAPPERERREC_BUF is modified then written
+
+;3 Returns
+; 	SS$_NORMAL  	OK
+;	Any from $RMS or the called routines.
+;	RMS error is printed on screen and user is 
+;	asked for direction. If user inputs ^z then processing stops.
+;--
+
+	PUSHAL	MAPPERREC_BUF
+        CALLS	#1,G^MIB_REGISTER_SETPOLFLG
+	BLBS	R0,1010$
+	RET
+
+
+
+1000$:
+
+	PUSHAL	MAPPERREC_BUF
+        CALLS	#1,G^MIB_REGISTER_SETSECURE
+	BLBS	R0,1010$
+	RET
+1010$:
+	PUSHAL	MAPPERREC_BUF
+        CALLS	#1,G^MIB_REGISTER_SETRPTLVL
+	BLBS	R0,1020$
+	RET
+1020$:
+	PUSHAL	MAPPERREC_BUF
+	PUSHAL	INBUF
+        CALLS	#2,G^MIB_REGISTER_SETKEYW
+	BLBS	R0,1030$
+	RET
+1030$:
+	PUSHAL	MAPPERREC_BUF
+        CALLS	#1,G^MIB_REGISTER_SETFMT
+	BLBS	R0,1040$
+	RET
+1040$:
+	MOVW	#MAPPERREC_SIZE,MAPPERRAB+RAB$W_RSZ
+	MOVW	#MAPPERREC_SIZE,MAPPERRAB+RAB$W_USZ
+	$PUT	RAB=MAPPERRAB
+	BLBS	R0,1050$
+	MOVL	#132,FAODESC
+	PUSHL	R0 
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	WRITEERR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^MR_READ_PROMPT
+1050$:
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MR_READ_PROMPT  
+;++
+;2 MR_READ_PROMPT  
+; Routine to write prompt on screen and get the input in KB_DES
+;3 Inputs	.address of .ascid prompt
+;		.addr of input conversion. Optional. If not present
+;		input is not forced to uppercase
+;3 Outputs:
+;	In KB_DES any user input
+;3 Returns:
+;	Any return from SMG$READ_STRING
+;--
+; Check if options param present
+	CLRL	UPCASE			; Assume not present
+	CMPL	#2,(AP)
+	BNEQ	10$
+	MOVL	#TRM$M_TM_CVTLOW,UPCASE ; Force to upper
+10$:
+	PUSHAL	VD_DISP                 ; Output display
+	CLRL	-(SP)                   ; Blank 
+	PUSHAL	BYTCNT                  ; Bytes to display
+	CLRL	-(SP)                   ; Blank 
+	CLRL	-(SP)                   ; Blank 
+	PUSHAL	UPCASE                  ; Make input UPCASE 
+	CLRL	-(SP)                   ; Blank 
+	PUSHL	4(AP)                      ; Output DSC
+	PUSHAL	KB_DES                  ; Input buf
+	PUSHAL	KB_BOARD                ; Input ID
+	CALLS	#10,G^SMG$READ_STRING
+	RET
+;
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHL	R1
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+PRINT2:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHL	R1
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+10$:		RSB
+;
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Virtual Display
+;
+CR_DISP:
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK            		; Error Check
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP2
+	PUSHAL	VD_COL2
+        PUSHAL	VD_ROW2
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP3
+	PUSHAL	VD_COL3
+        PUSHAL	VD_ROW3
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL2		;Column
+	PUSHAL	PB_ROW2		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP2
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL3		;Column
+	PUSHAL	PB_ROW3		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP3
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+50$:	RSB
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		BLBC	R0,10$
+		RSB
+10$:
+	MOVL	R0,R6			; Save Error
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP3
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	R6,R0			; Restore
+		RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MIB_REGISTER_DISPLAY_REC  
+;++
+;2 MIB_REGISTER_DISPLAY_REC 
+; Routine to format and display a paramater map in VD_DISP
+; 
+;3 Inputs:
+;	.address of rec to display
+;3 Outputs:
+;	None
+;3 Returns:
+;	The ususal
+;--
+	MOVL	4(AP),R6
+	TSTL	DB_MAP_L_FMTTYP(R6)
+	BLSS	10$			; Br if routine type
+
+	MOVL	#132,FAODESC
+	ADDL3	#DB_MAP_A32_FMTSTR,R6,-(SP)	; Keyword
+	PUSHL	DB_MAP_L_FMTTYP(R6)
+	ADDL3	#DB_MAP_A64_KEYW,R6,-(SP)	; Keyword
+	PUSHL	DB_MAP_L_KEYWLEN(R6)
+	PUSHL	DB_MAP_L_PARAM(R6)          ; Param
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	MAPPERRECSTR
+	CALLS	#8,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	MOVL	#SS$_NORMAL,R0
+	RET
+10$:
+	MOVL	#132,FAODESC
+	MOVZWL	DB_MAP_L_FMTTYP(R6),-(SP)
+	ADDL3	#DB_MAP_A64_KEYW,R6,-(SP)	; Keyword
+	PUSHL	DB_MAP_L_KEYWLEN(R6)
+	MOVZWL	DB_MAP_L_PARAM(R6),-(SP)          ; Table
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	MAPPERRECSTR2
+	CALLS	#7,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MIB_REGISTER_DISPLAY_REC_FULL   
+;++
+;2 MIB_REGISTER_DISPLAY_REC_FULL   
+; Routine to format and display a full paramater map in VD_DISP1
+; There are 2 forms: 1. uses FAO control string
+;		     2. Uses a routine
+;		Distiguished by FMTTYP being < 0
+;3 Inputs:
+;	.address of rec to display
+;3 Outputs:
+;	None
+;3 Returns:
+;	The ususal
+;--
+	MOVL	4(AP),R6
+	TSTL	DB_MAP_L_FMTTYP(R6)
+	BLSS	10$			; Br if routine type
+
+	ADDL3	#DB_MAP_Q_SECURE,R6,R1		; Get addr of security
+	MOVL	#132,FAODESC
+	PUSHL	DB_MAP_L_RPTLVL(R6)		; Report level
+	ADDL3	#DB_MAP_A32_FMTSTR,R6,-(SP)	; Keyword
+	PUSHL	DB_MAP_L_FMTTYP(R6)
+	ADDL3	#DB_MAP_A64_KEYW,R6,-(SP)	; Keyword
+	PUSHL	DB_MAP_L_KEYWLEN(R6)
+	PUSHL	4(R1)				; Security
+	PUSHL	(R1)                            ; Security
+	MOVZWL	DB_MAP_L_PARAM(R6),-(SP)        ; Paramater
+	MOVZWL	DB_MAP_L_TBL(R6),-(SP)          ; Table
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	MAPPERFULSTR
+	CALLS	#12,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT2
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+10$:	
+	ADDL3	#DB_MAP_Q_SECURE,R6,R1		; Get addr of security
+	MOVL	#132,FAODESC
+	PUSHL	DB_MAP_L_RPTLVL(R6)		; Report level
+	MOVZWL	DB_MAP_L_FMTTYP(R6),-(SP)             ; RTN
+	ADDL3	#DB_MAP_A64_KEYW,R6,-(SP)	; Keyword
+	PUSHL	DB_MAP_L_KEYWLEN(R6)
+	PUSHL	4(R1)				; Security
+	PUSHL	(R1)                            ; Security
+	MOVZWL	DB_MAP_L_PARAM(R6),-(SP)        ; Paramater
+	MOVZWL	DB_MAP_L_TBL(R6),-(SP)          ; Table
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	MAPPERFULRTN
+	CALLS	#11,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT2
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MIB_REGISTER_SETPOLFLG  
+;++
+;2 MIB_REGISTER_SETPOLFLG 
+; Routine to set polling flags (CONFIGMON control) bitmask
+;3 Inputs:
+;	.addr of MAPPER record
+;3 Outputs
+;     	The polflg field is set with the system wid default 
+;3 Returns:
+;	The usual
+;--	  
+	MOVL	4(AP),R6
+	MOVL	#DB_MAP_FLG_C_DEFAULT,DB_MAP_L_POLFLG(R6)	; Set it
+	MOVL	#SS$_NORMAL,R0
+	RET
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MIB_REGISTER_SETSECURE  
+;++
+;2 MIB_REGISTER_SETSECURE  
+; Routine to display all VMS privs in menu, convert selection to bitmask
+; and return bitmask.
+; Menu is redisplayed and bits set until ^z
+;3 Inputs:
+;	.addr of quad where to write bits
+;3 Outputs
+;     	The selected bits 
+;3 Returns:
+;	The usual
+;--	  
+	MOVL	4(AP),R6
+	CLRQ	DB_MAP_Q_SECURE(R6)		; Set it
+	MOVL	#SS$_NORMAL,R0
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MIB_REGISTER_SETRPTLVL  
+;++
+;2 MIB_REGISTER_SETRPTLVL  
+; Routine to set report level of this paramater.
+;3 Inputs:
+;	.addr of mapper rec
+;	user input
+;3 Outputs
+;     	validated user input is written to rptlvl field
+;3 Returns:
+;	The usual
+;--	  
+	MOVL	4(AP),R6
+	MOVL	#3,DB_MAP_L_RPTLVL(R6)
+	MOVL	#SS$_NORMAL,R0
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MIB_REGISTER_SETKEYW
+;++
+;2 MIB_REGISTER_SETKEYW
+; Routine to get and set the displayable keyword for a paramater
+;3 Inputs:
+;	.addr of EMU MIB rec
+;	.addr of maprec
+;3 Outputs:
+;	Keyword and len are written to the designated areas
+;3 Returns:
+;	SS$_NORMAL	OK
+;	SS$_ACCVIO	Couldn't write
+;       SS$_NODATA	no input
+;--
+	MOVL	4(AP),R7                ; MIB rec
+	MOVL	8(AP),R6		; Map rec
+
+
+        MOVZBL	MC_MIBT_AC_NAME(R7),R8               ; Len 
+	ADDL3	#MC_MIBT_AC_NAME,R7,R9               
+	INCL	R9				     ; Addr
+	CMPL	#64,MAPPER_KEYW_LEN              ; Check > max len
+	BGEQ	100$				; Br if OK
+	PUSHAL	MAPPERREC_BUF
+	CALLS	#1,G^MIB_REGISTER_DISPLAY_REC_FULL  	
+10$:
+	PUSHAL	RECPRMPT
+	CALLS	#1,G^MR_READ_PROMPT
+	TSTW	BYTCNT
+	BEQL	20$
+        CMPB	#^A/R/,KB_BUF
+	BEQLU	20$
+        CMPB	#^A/T/,KB_BUF
+	BEQLU	50$
+	BRB	10$				; Unknown command
+20$:
+	PUSHAL	RECPRMPT
+	CALLS	#1,G^MR_READ_PROMPT
+	TSTW	BYTCNT
+	BEQL	10$
+        CMPW	#64,BYTCNT
+	BLSS	10$
+	MOVZWL	BYTCNT,R8
+	MOVAL	KB_BUF,R9
+	BRW	100$
+50$:
+	MOVL	#64,R8				; Truncate
+100$:
+	MOVL	R8,DB_MAP_L_KEYWLEN(R6)		; Set len of input
+	MOVC3	R8,(R9),DB_MAP_A64_KEYW(R6)     ; Write keyword
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MIB_REGISTER_SETFMT 
+;++
+;2 MIB_REGISTER_SETFMT 
+; Routine to get and set the format routine or len + string for a paramater
+;3 Inputs:
+;	.addr of maprec
+;3 Outputs:
+;	Routine (or len and str) are written to the designated area(s)
+;3 Returns:
+;	SS$_NORMAL	OK
+;	SS$_ACCVIO	Couldn't write
+;--
+
+
+	MOVL	4(AP),R6
+	MOVL	#8,DB_MAP_L_FMTTYP(R6)		; Set Routine number
+	BBSS	#31,DB_MAP_L_FMTTYP(R6),120$	; Set top bit
+120$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+		.END MIB_REGISTER

@@ -1,0 +1,788 @@
+	.TITLE	EMU_SNMP   
+	.IDENT	/V1-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	FEB-1997	PB	Creation
+;	
+;++
+;1 EMU_SNMP   
+; Collection of routines used to process SNMP protocols. 
+; See individual routines for descriptions
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+	.LIBRARY        /EMU5_LIB:MACROLIB.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$SSDEF
+	EMUCMIPDEF
+	EMUSNMPDEF	
+
+	.PSECT	EMU_SNMP_DATA,WRT,NOEXE,PIC,SHR,QUAD
+RETBUF:		.BLKB	8192
+RETBUF_DESC:	.LONG	.-RETBUF
+		.ADDRESS  RETBUF
+
+PARAMS:		.QUAD	0
+CRCDESC:	.QUAD	0
+QRESULT:	.QUAD	0
+ASN1TAG:	.BLKL	8
+CRCINIT:	.LONG	0
+CRCPOLY:	.LONG  ^O120001
+CRCTBL:		.BLKL	16	
+RETLEN:		.LONG	0
+CUROBJ:		.LONG	0
+GENINT:		.LONG	0
+GETINTTBL:
+        .BYTE   9,43,6,1,2,1,2,2,1,0        	; Interface table
+GETADJTBL:
+	.BYTE	9,43,6,1,2,1,4,21,1,0		;ipRouteDest
+
+PUBLICSTR:	.ASCIC	/public/
+BRIDIDSTR:	.ASCID	/!UW:!XB-!XB-!XB-!XB-!XB-!XB/
+;
+       .PSECT SNMP_PARSE,EXE,NOWRT,LONG
+
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SNMP_XLT_BRIDGEID 
+;++
+;2 SNMP_XLT_BRIDGEID
+;
+; Routine to translate an ASN.1 encoded bridgeid to pritable string.
+; A bridge id is made up of the assigned cost of this bridge and the MAC
+; address. The assigned cost is used to determine which bridge will be root
+; of the spanning tree (high cost = less likely)
+;3 Inputs
+;	p1	.address pointing to coded string
+;	p2	.address of desc pointing to outp
+;3 Outputs
+;	The string is formated to:
+;	dddd:XX-XX-XX-XX-XX-XX
+;	Where dddd is decimal 1-65535
+;	xx is hex digit (Mac address)
+;3 Returns
+; 	SS$_NORMAL  	OK
+; 	SS$_BADPARAM	Input was not formatted correctly or was not
+;			a bridge id (len was not = 8)
+;	Any from FAO
+;--
+	MOVL	4(AP),R7	; String
+	CMPB	#8,1(R7)
+	BEQL	10$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+10$:
+	ADDL	#2,R7		; Start of string
+; reverse 2 byte bridge cost part of string
+        
+	MOVZBL	1(R7),GENINT
+	MOVB	(R7),GENINT+1
+	MOVZBL	7(R7),-(SP) 	; Mac addr
+	MOVZBL	6(R7),-(SP)
+	MOVZBL	5(R7),-(SP)
+	MOVZBL	4(R7),-(SP)
+	MOVZBL	3(R7),-(SP)
+	MOVZBL	2(R7),-(SP)
+        PUSHL	GENINT          ; cost
+	PUSHL	8(AP)
+	PUSHL	8(AP)
+	PUSHAL	BRIDIDSTR
+	CALLS	#10,G^SYS$FAO
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=3, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SNMP_MAKTBL_ID 
+;++
+;2 SNMP_MAKTBL_ID
+;
+; Routine to parse an ASN.1 encoded object id and return the EMUDB table.param
+; it belongs in.
+;3 Inputs
+;	p1	.address pointing to EMU form of OBJid
+;	p2	.address of quad outp
+;3 Outputs
+;	.long 	table number
+;	.long	param number
+;3 Returns
+; 	SS$_NORMAL  	OK
+; 	SS$_BADPARAM	Input objid had len = 0
+;3 Description
+; The target object as formatted by MIB_COMPILE2 is a counted string
+; of decimal digits used to specify the data SNMP should return.
+; The string has some changes from the MIB standard:
+; 1. The 1st 2 digits are transformed to conform to the ASN.1 
+;    standard that says we must multiply the 1st digit by 40 
+;    and add the 2nd digit.
+; 2. It always ends with .0 which is not part of the standard input. 
+;    This is how the protocol expects it so it is stored this way.
+; 3. The count includes the .0 at the end so:
+;
+;"atPhysAddress"         "1.3.6.1.2.1.3.1.1.2"
+; 	becomes
+; 10.43.6.1.2.1.3.1.1.2.0
+; The table is  "43.6.1.2.1.3.1.1"
+; the param is 2
+; This routine parses a string in this format and returns:
+;	The CRC of the string less the count, and last 2 digits
+;	The paramater number
+;
+;--  
+	MOVL	4(AP),R7	                ; Inpt
+	MOVQ	8(AP),R8			; Outp 
+	TSTL	CRCTBL          ; Table aready calculated?
+	BNEQ	100$		; Br if done
+; Create CRC table for later input to CRC generation
+	PUSHAL	CRCTBL
+	PUSHAL	CRCPOLY		;  16 bit 
+	CALLS	#2,G^LIB$CRC_TABLE
+; No condition value returned
+100$:
+	MOVZBL	(R7),R1			; Len of obj_id
+	SUBL	#2,R1			; Less trailing .0 and param num
+	BGTR	110$			; Br if .gt. 0
+	MOVL	#SS$_BADPARAM,R0
+	RET
+110$:
+	MOVL	R1,CRCDESC
+	ADDL3	#1,R7,CRCDESC+4	 	; Addr
+	PUSHAL	CRCDESC                 ; CRC table portion only
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,(R8)        		; Table
+	MOVZBL	(R7),R1			; Len of obj_id
+	DECL	R1
+	MOVZBL	(R7)[R1],4(R8)		; Param number
+	MOVL	#SS$_NORMAL,R0
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=3, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SNMP_MAKTBL_NAME 
+;++
+;2 SNMP_MAKTBL_NAME
+;
+; Routine to parse an ASN.1 encoded object id of type MC_MIBT_C_TYPNAM
+; and return the EMUDB table.param it belongs in. As opposed to MAKTBL_ID
+; the table portion is always 02xxxxxx where xxxxxxx is the mib ID set
+; during the register process. The param portion is CRC of the obj ID.
+
+;3 Inputs
+;	p1	.address pointing to EMU form of OBJid
+;	p2	.address of quad outp
+;	p3	.long MIB ID
+;3 Outputs
+;	.long 	table number	(MIBID)
+;	.long	param number    (CRC of Table ObjId)
+;3 Returns
+; 	SS$_NORMAL  	OK
+; 	SS$_BADPARAM	Input objid had len = 0
+;3 Description
+; The target object as formatted by MIB_COMPILE2 is a counted string
+; of decimal digits used to specify the data SNMP should return.
+; The string has some changes from the MIB standard:
+; 1. The 1st 2 digits are transformed to conform to the ASN.1 
+;    standard that says we must multiply the 1st digit by 40 
+;    and add the 2nd digit.
+; 2. It always ends with .0 which is not part of the standard input. 
+;    This is how the protocol expects it so it is stored this way.
+; 3. The count includes the .0 at the end so:
+;
+;"ifTable"         "1.3.6.1.2.1.2.2.0"
+; 	becomes
+; 	43.6.1.2.1.2.2
+; The table is  "43.6.1.2.1.3.1.1"
+; This routine parses a string in this format and returns:
+;	The CRC of the string less the count, and last  digit
+;
+;--  
+	MOVL	4(AP),R7	                ; Inpt
+	MOVQ	8(AP),R8			; Outp 
+	TSTL	CRCTBL          ; Table aready calculated?
+	BNEQ	100$		; Br if done
+; Create CRC table for later input to CRC generation
+	PUSHAL	CRCTBL
+	PUSHAL	CRCPOLY		;  16 bit 
+	CALLS	#2,G^LIB$CRC_TABLE
+; No condition value returned
+100$:
+	MOVZBL	(R7),R1			; Len of obj_id
+	DECL	R1                      ; Less trailing 0 
+	BGTR	110$			; Br if .gt. 0
+	MOVL	#SS$_BADPARAM,R0
+	RET
+110$:
+	MOVL	R1,CRCDESC
+	ADDL3	#1,R7,CRCDESC+4	 	; Addr
+	PUSHAL	CRCDESC                 ; CRC table portion only
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,4(R8)        	; Paramater
+	MOVL	12(AP),(R8)
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=5, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SNMP_GET_IFTBL 
+;++
+;2 SNMP_GET_IFTBL
+;
+; Routine to get all params OR all counts for all interfaces on the device
+; specified by the input IP address.
+;3 Inputs
+;	p1	.address pointing to IP address in net format
+;	p2	.address of descriptor pointing to outp
+;		The len should be:
+;	 max number of expected interfaces*SNMP_IFT_C_TBLSIZ (296)
+;	P3	.long address where number of interfaces found is returned
+;	P4	.long One of: SNMP_IFT_C_PARAM	(paramaters)
+;			      SNMP_IFT_C_PARAM  (Counts)
+;	P5	.address of .ascic community string.
+;		If not present 'public' is used.
+;3 Outputs
+;	.long 	Number of interfaces
+; One of:
+; For params:
+;  	Desc			Type	Ofs	Len
+; Interface Description         .ascic	0	256
+; Interface Index               .long	256	4
+; Interface type                .long	260	4
+; Max trasmition unit           .long	264	4
+; Speed in BPS                  .long	268	4
+; Layer 2 addr                  .quad	272	8
+; Admin status                  .long	280	4
+; Current status                .long	284	4
+; Last change                   .long	288	4
+; Spare/align			.long	292	4
+; For counts:
+;  	Desc			Type	Ofs              
+; Interface Index		.quad	0
+; INOCTETS    			.quad	8                
+; INUCASTPKTS          		.quad   16              
+; INNUCASTPKTS         		.quad   24               
+; INDISCARDS           		.quad   32               
+; INERRORS             		.quad   40               
+; INUNKNOWNPROTOS      		.quad   48               
+; OUTOCTETS            		.quad   56               
+; OUTUCASTPKTS         		.quad   64               
+; OUTNUCASTPKTS        		.quad   72               
+; OUTDISCARDS          		.quad   80               
+; OUTERRORS            		.quad   88               
+; OUTQLEN              		.quad   96                
+;3 Returns
+; 	SS$_NORMAL  	OK
+; 	SS$_BADPARAM	Invalid P4
+;	SS$_BUFFEROVF	Outp buffer too small. Partial return. Number of 
+;			interfaces is number successfuly written.
+;	SS$_FORMAT	Returned buffer in bad format or internal error.
+;	SS$_UNREACH	No response from target
+;	SS$_DATACHECK	Error returned from target
+;	any error from GETSNMPROW, PROCESS_ASN1_TAG, CVT_ASN1TOINT
+;--
+
+; Get and Validate Params
+	PROBER	#0,#4,4(AP)  		; Read IP address?
+	BNEQ	10$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+10$:
+
+	MOVQ	@8(AP),R6     		; R6 = len, R7 = addr retbuf
+	ADDL3	R6,R7,R11		; Set last addr
+	PROBEW	#0,R6,(R7)     		; Write?
+	BNEQ	50$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+50$:
+	PROBEW	#0,#4,@12(AP)     	; Write number of interfaces?
+	BNEQ	60$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+60$:
+	PROBER	#0,#4,16(AP)     	; Read operation?
+	BNEQ	70$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+70$:
+	CMPL	#SNMP_IFT_C_PARAM,16(AP)
+	BEQLU	75$
+	CMPL	#SNMP_IFT_C_COUNT,16(AP)
+	BEQLU	75$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+75$:
+	CMPL	#5,(AP)			; Optional string present?
+	BNEQ	80$			; No
+	MOVZBL	@20(AP),R1		; Get len of str
+	PROBER	#0,R1,@20(AP)     	; Read Community string
+	BNEQ	90$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+80$:
+	MOVAL	PUBLICSTR,R10		; Use default access
+	BRW	1000$
+90$:
+	MOVL	20(AP),R10		; Use given access
+
+1000$:
+
+	MOVC5	#0,#0,#0,R6,(R7)	; Clr outp
+	CLRL	@12(AP)			; No data returned (yet)
+        CLRQ	PARAMS			; Param bit pattern
+	MOVL	16(AP),PARAMS
+	MOVL	#4096,RETBUF_DESC
+	PUSHL	R10		; Community string
+	PUSHAL	RETLEN
+	PUSHAL	GETINTTBL		; Obj      
+	PUSHAL	PARAMS	             	; Params
+	PUSHAL	CUROBJ
+	PUSHAL	GETINTTBL		; Obj      	
+	PUSHAL	RETBUF_DESC             ; outp
+	PUSHL	4(AP)                   ; Addr
+	CALLS	#8,G^GETSNMPROW
+	BLBS	R0,1010$                 ; Br OK
+	RET
+1010$:
+	CMPL	#SS$_NORMAL,R0      ; If normal then OK
+	BEQLU	1020$                ; Else - 
+	MOVL	#SS$_NORMAL,R0      ; No more interfaces - 
+	RET                         ;	Also OK
+1020$:
+; Check enough room in outp
+	CMPL	#SNMP_IFT_C_TBLSIZ,R6
+	BLEQU	1030$			; Br if OK
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+1030$:
+	MOVAL	RETBUF,R8		; Returned data
+	INCL	@12(AP)			; 1 more interface
+	CMPL	#SNMP_IFT_C_PARAM,16(AP)
+	BEQLU	1040$                   ; Br if Params returned 
+	BRW	2000$			; Counts
+; Process params
+1040$:
+
+	PUSHAL	ASN1TAG		; Return info here
+	PUSHL	R8              ; Current tag
+	CALLS   #2,G^PROCESS_ASN1_TAG 
+	BLBS	R0,1050$
+
+1050$:
+	PUSHL	#4				; Return .long
+	ADDL3	#SNMP_IFT_L_IFIDX,R7,-(SP)      ;  - Here
+	PUSHL	R8                              ; ASN.1 integer
+	PUSHAL	ASN1TAG                         ; Tag info
+	CALLS	#4,G^CVT_ASN1TOINT              ; Convert
+	BLBS	R0,1060$                        ; Br if OK
+	RET
+1060$:
+; Description
+	ADDL	ASN1TAG+ASN_PAT_C_NEXT,R8    ; Next tag
+	PUSHAL	ASN1TAG		; Return info here
+	PUSHL	R8              ; Current tag
+	CALLS   #2,G^PROCESS_ASN1_TAG 
+	BLBS	R0,1070$
+	RET
+1070$:
+	ADDL3	#SNMP_IFT_AC_DESC,R7,R2 ; Outp addr
+	MOVZBL	1(R8),R1                ; Get len
+	MOVB	1(R8),(R2)              ; Write len
+	MOVC3	R1,2(R8),1(R2)          ; Write str
+; type
+	ADDL	ASN1TAG+ASN_PAT_C_NEXT,R8    ; Next tag
+	PUSHL	#4				; Return .long
+	ADDL3	#SNMP_IFT_L_MTU,R7,-(SP)      ;  - Here
+	PUSHL	R8                              ; ASN.1 integer
+	PUSHAL	ASN1TAG                         ; Tag info
+	CALLS	#4,G^CVT_ASN1TOINT              ; Convert
+	BLBS	R0,1080$                        ; Br if OK
+	RET
+1080$:
+; MTU
+	ADDL	ASN1TAG+ASN_PAT_C_NEXT,R8    ; Next tag
+	PUSHAL	ASN1TAG		; Return info here
+	PUSHL	R8              ; Current tag
+	CALLS   #2,G^PROCESS_ASN1_TAG 
+	BLBS	R0,1090$
+	RET
+1090$:
+	PUSHL	#4				; Return .long
+	ADDL3	#SNMP_IFT_L_MTU,R7,-(SP)      ;  - Here
+	PUSHL	R8                              ; ASN.1 integer
+	PUSHAL	ASN1TAG                         ; Tag info
+	CALLS	#4,G^CVT_ASN1TOINT              ; Convert
+	BLBS	R0,1100$                        ; Br if OK
+	RET
+1100$:
+; Speed
+	ADDL	ASN1TAG+ASN_PAT_C_NEXT,R8       ; Next tag
+	PUSHAL	ASN1TAG		; Return info here
+	PUSHL	R8              ; Current tag
+	CALLS   #2,G^PROCESS_ASN1_TAG 
+	BLBS	R0,1105$
+	RET
+1105$:
+	PUSHL	#4				; Return .long
+	ADDL3	#SNMP_IFT_L_SPEED,R7,-(SP)      ;  - Here
+	PUSHL	R8                              ; ASN.1 integer
+	PUSHAL	ASN1TAG                         ; Tag info
+	CALLS	#4,G^CVT_ASN1TOINT              ; Convert
+	BLBS	R0,1110$                        ; Br if OK
+	RET
+1110$:
+; Physical addr
+	ADDL	ASN1TAG+ASN_PAT_C_NEXT,R8       ; Next tag
+	PUSHAL	ASN1TAG		; Return info here
+	PUSHL	R8              ; Current tag
+	CALLS   #2,G^PROCESS_ASN1_TAG 
+	BLBS	R0,1120$
+	RET
+1120$:
+	ADDL3	#SNMP_IFT_EA_PHYSADR,R7,R2 ; Outp addr
+	MOVL	2(R8),(R2)              ; Write top
+	MOVZWL	6(R8),4(R2)
+;Admin Status  
+	ADDL	ASN1TAG+ASN_PAT_C_NEXT,R8    ; Next tag
+	PUSHAL	ASN1TAG		; Return info here
+	PUSHL	R8              ; Current tag
+	CALLS   #2,G^PROCESS_ASN1_TAG 
+	BLBS	R0,1130$
+	RET
+1130$:
+	PUSHL	#4				; Return .long
+	ADDL3	#SNMP_IFT_L_ASTATUS,R7,-(SP)      ;  - Here
+	PUSHL	R8                              ; ASN.1 integer
+	PUSHAL	ASN1TAG                         ; Tag info
+	CALLS	#4,G^CVT_ASN1TOINT              ; Convert
+	BLBS	R0,1135$                        ; Br if OK
+	RET
+;Current Status  
+1135$:
+	ADDL	ASN1TAG+ASN_PAT_C_NEXT,R8    ; Next tag
+	PUSHAL	ASN1TAG		; Return info here
+	PUSHL	R8              ; Current tag
+	CALLS   #2,G^PROCESS_ASN1_TAG 
+	BLBS	R0,1140$
+	RET
+1140$:
+	PUSHL	#4				; Return .long
+	ADDL3	#SNMP_IFT_L_CSTATUS,R7,-(SP)      ;  - Here
+	PUSHL	R8                              ; ASN.1 integer
+	PUSHAL	ASN1TAG                         ; Tag info
+	CALLS	#4,G^CVT_ASN1TOINT              ; Convert
+	BLBS	R0,1150$                        ; Br if OK
+	RET
+1150$:
+;Current Status  
+	ADDL	ASN1TAG+ASN_PAT_C_NEXT,R8    ; Next tag
+	PUSHAL	ASN1TAG		; Return info here
+	PUSHL	R8              ; Current tag
+	CALLS   #2,G^PROCESS_ASN1_TAG 
+	BLBS	R0,1160$
+	RET
+1160$:
+	PUSHL	#4				; Return .long
+	ADDL3	#SNMP_IFT_L_LASTCHNG,R7,-(SP)      ;  - Here
+	PUSHL	R8                              ; ASN.1 integer
+	PUSHAL	ASN1TAG                         ; Tag info
+	CALLS	#4,G^CVT_ASN1TOINT              ; Convert
+	BLBS	R0,1170$                        ; Br if OK
+	RET
+1170$:
+	SUBL	#SNMP_IFT_C_TBLSIZ,R6           ; Deduct used outp
+	ADDL	#SNMP_IFT_C_TBLSIZ,R7           ; Move pointer
+; Get next interface
+	MOVL	#4096,RETBUF_DESC
+	PUSHL	R10 			; Community string
+	PUSHAL	RETLEN
+	PUSHAL	GETINTTBL			; Obj      
+	PUSHAL	PARAMS	                ; Params
+	PUSHAL	CUROBJ
+	PUSHL	CUROBJ		        ; Obj      	
+	PUSHAL	RETBUF_DESC             ; outp
+	PUSHL	4(AP)                   ; Addr
+	CALLS	#8,G^GETSNMPROW
+	BLBS	R0,1180$
+	RET
+1180$:
+	CMPL	#SS$_NOMOREITEMS,R0
+	BEQLU	1190$
+	SUBL	#SNMP_IFT_C_TBLSIZ,R6
+	ADDL	#SNMP_IFT_C_TBLSIZ,R7
+	BRW	1020$
+1190$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+2000$:
+; Process counts
+
+	CLRL	R9		; Loop/index
+2010$:
+	PUSHAL	ASN1TAG		; Return info here
+	PUSHL	R8              ; Current tag
+	CALLS   #2,G^PROCESS_ASN1_TAG 
+	BLBS	R0,2020$
+
+2020$:
+	PUSHL	#8				; Return .long
+	ADDL3	R9,R7,-(SP)      		;  - Here
+	PUSHL	R8                              ; ASN.1 integer
+	PUSHAL	ASN1TAG                         ; Tag info
+	CALLS	#4,G^CVT_ASN1TOINT              ; Convert
+	BLBS	R0,2040$                        ; Br if OK
+	RET
+2040$:
+	ADDL	ASN1TAG+ASN_PAT_C_NEXT,R8    	; Next tag
+        ACBL	#SNMP_IFT_Q_OUTQLEN-1,#8,R9,2010$ ; Loop
+; Get next interface
+	MOVL	#4096,RETBUF_DESC
+	PUSHL	R10 			; Community string
+	PUSHAL	RETLEN
+	PUSHAL	GETINTTBL			; Obj      
+	PUSHAL	PARAMS	                ; Params
+	PUSHAL	CUROBJ
+	PUSHL	CUROBJ		        ; Obj      	
+	PUSHAL	RETBUF_DESC             ; outp
+	PUSHL	4(AP)                   ; Addr
+	CALLS	#8,G^GETSNMPROW
+	BLBS	R0,2050$
+	RET
+2050$:
+	CMPL	#SS$_NOMOREITEMS,R0
+	BEQLU	2060$
+	SUBL	#SNMP_IFT_C_CNTSIZ,R6
+	ADDL	#SNMP_IFT_C_CNTSIZ,R7
+	BRW	1020$
+2060$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=4, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SNMP_GET_ADJNODES 
+;++
+;2 SNMP_GET_ADJNODES
+;
+; Routine to get all IP address from the routing table of the node
+; specified by the input IP address.
+;3 Inputs
+;	p1	.address pointing to IP address in net format
+;	p2	.address of descriptor pointing to outp
+;	P3	.long address where number of addresses 
+;	P4 (Optional .address of .ascic community string. If not present
+;	default 'public' is used
+;3 Outputs
+;	.long 	Number of interfaces
+;	list of IP addresses in net format, 1 per count.
+;3 Returns
+; 	SS$_NORMAL  	OK
+;	SS$_ACCVIO	Cant read/write inpt/outp params
+;	SS$_BUFFEROVF	Outp buffer too small. Partial return. Number of 
+;			interfaces is number successfuly written.
+;	SS$_FORMAT	Returned buffer in bad format or internal error.
+;	SS$_UNREACH	No response from target
+;	SS$_DATACHECK	Error returned from target
+;	any error from GETSNMPROW, PROCESS_ASN1_TAG, CVT_ASN1TOINT
+;--
+
+; Get and Validate Params
+	PROBER	#0,#4,4(AP)  		; Read IP address?
+	BNEQ	10$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+10$:
+
+	MOVQ	@8(AP),R6     		; R6 = len, R7 = addr retbuf
+	ADDL3	R6,R7,R11		; Set last addr
+	PROBEW	#0,R6,(R7)     		; Write?
+	BNEQ	50$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+50$:
+	PROBEW	#0,#4,@12(AP)     	; Write count?
+	BNEQ	60$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+60$:
+	CMPL	#4,(AP)			; Optional string present?
+	BNEQ	80$			; No
+	MOVZBL	@16(AP),R1		; Get len of str
+	PROBER	#0,R1,@16(AP)     	; Read Community string
+	BNEQ	90$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+80$:
+	MOVAL	PUBLICSTR,R10		; Use default access
+	BRW	1000$
+90$:
+	MOVL	16(AP),R10		; Use given access
+
+1000$:
+
+	MOVC5	#0,#0,#0,R6,(R7)	; Clr outp
+	CLRL	@12(AP)			; No data returned (yet)
+        CLRQ	PARAMS			; Param bit pattern
+	MOVL	#1,PARAMS		; Get param 1 only
+	MOVL	#4096,RETBUF_DESC
+	PUSHL	R10			; Community string
+	PUSHAL	RETLEN
+	PUSHAL	GETADJTBL		; Obj      
+	PUSHAL	PARAMS	             	; Params
+	PUSHAL	CUROBJ
+	PUSHAL	GETADJTBL		; Obj      	
+	PUSHAL	RETBUF_DESC             ; outp
+	PUSHL	4(AP)                   ; Addr
+	CALLS	#8,G^GETSNMPROW
+	BLBS	R0,1010$                ; Br OK
+	RET
+1010$:
+	CMPL	#SS$_NORMAL,R0      ; If normal then OK
+	BEQLU	1020$                ; Else - 
+	MOVL	#SS$_NORMAL,R0      ; No more interfaces - 
+	RET                         ;	Also OK
+1020$:
+; Check enough room in outp
+	CMPL	#4,R6
+	BLEQU	1030$			; Br if OK
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+1030$:
+	MOVAL	RETBUF,R8		; Returned data
+; Process params
+1040$:
+
+	PUSHAL	ASN1TAG		; Return info here
+	PUSHL	R8              ; Current tag
+	CALLS   #2,G^PROCESS_ASN1_TAG 
+	BLBS	R0,1050$
+
+1050$:
+; Check param
+	MOVAL	ASN1TAG,R1
+	CMPL	#4,ASN_PAT_C_LVAL(R1)		; Right len?
+	BEQLU	1060$
+	MOVL	#SS$_FORMAT,R0
+	RET
+1060$:
+	INCL	@12(AP)			; 1 more interface
+	ADDL3	ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2
+	ADDL	R8,R2   
+	MOVL	(R2),(R7)+
+	SUBL	#4,R6   
+
+
+
+; Get next interface
+	MOVL	#4096,RETBUF_DESC
+	PUSHL	R10 			; Community string
+	PUSHAL	RETLEN
+	PUSHAL	GETADJTBL			; Obj      
+	PUSHAL	PARAMS	                ; Params
+	PUSHAL	CUROBJ
+	PUSHL	CUROBJ		        ; Obj      	
+	PUSHAL	RETBUF_DESC             ; outp
+	PUSHL	4(AP)                   ; Addr
+	CALLS	#8,G^GETSNMPROW
+	BLBS	R0,1180$
+	RET
+1180$:
+	CMPL	#SS$_NOMOREITEMS,R0
+	BEQLU	1190$
+	BRW	1020$
+1190$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+
+	.CALL_ENTRY	MAX_ARGS=4, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=CVT_ASN1TOINT
+;++
+;2 CVT_ASN1TOINT
+;   
+; CONVERT ASN.1 Integer to VMS integer. 
+;
+;3 inputs
+;	Addr of PROCESS_ASN1_TAG outp block
+;	addr of asn1 encoded integer
+;	addr of outp 
+;	Len of outp	(either 4 or 8)
+;3 returns:
+; 	r0 = normal or overflow
+;       .quad or .long converted int 
+;3 Status Returns
+; SS$_NORMAL	- OK
+; SS$_INTOVF	- Len > len of outp, If len = 0 then 0 is written in outp.
+;
+;--
+	MOVL	4(AP),R6
+	TSTL	ASN_PAT_C_LVAL(R6)		; len of param
+	BNEQ	10$				; Br if not 0
+	CLRQ	QRESULT
+	BRW	50$
+
+10$:
+	CMPL	16(AP),ASN_PAT_C_LVAL(R6) 		; len of param
+	BGEQ	20$					; Br if len .GT. 
+	MOVL	#SS$_INTOVF,R0
+	RET
+20$:
+	MOVL	ASN_PAT_C_LVAL(R6),R1 		; Make index
+	ADDL3	ASN_PAT_C_TLEN(R6),ASN_PAT_C_LLEN(R6),R2  
+	ADDL3	8(AP),R2,R7			; point to value
+	DECL	R1				; Make Inpt index
+	MOVAL	QRESULT,R5                       ; Temp outp (quad)
+	CLRQ	(R5)                            ; Clear value
+
+40$:
+; Reverse byte order
+	MOVB	(R7)+,(R5)[R1]			; Move value
+	SOBGEQ	R1,40$
+	CMPL	#4,16(AP) 			; Wants .long?
+	BNEQ	50$                             ; Br if quad
+	TSTL	QRESULT+4			; > 4 bytes significance?
+	BNEQ	60$                             ; Br if too long
+	MOVL	QRESULT,@12(AP)                   ; outp here
+        MOVL	#SS$_NORMAL,R0
+	RET
+50$:
+	MOVQ	QRESULT,@12(AP)                   ; outp here
+        MOVL	#SS$_NORMAL,R0
+	RET
+60$:
+	MOVL	#SS$_INTOVF,R0
+	RET
+	
+
+
+
+
+	.END
+	
+
+
+

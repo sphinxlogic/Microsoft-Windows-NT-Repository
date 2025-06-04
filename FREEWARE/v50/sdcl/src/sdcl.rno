@@ -1,0 +1,263 @@
+.flags bold
+.ps 60,72
+.lm 0
+.sp 1
+.b 2
+.c 72
+SDCL -- A Preprocessor for Structured DCL 
+.b 4
+.c 72
+Sohail Aslam
+.b 2
+.c 72
+University of Colorado at Colorado Springs
+.c 72
+Colorado Springs, CO 80933
+.b 2
+.c 72
+Dick Munroe
+.b 2
+.c 72
+Acorn Software
+.c 72
+267 Cox St.
+.c 72
+Hudson, Ma. 01749
+.c 72
+munroe@acornsw.com
+.b 2
+
+.p 5,1,4
+The command language under the VAX/VMS operating system is called
+Digital Command Language, or DCL. 
+DCL provides a whole host of capabilities that allow the user not only
+execute simple commands but develop command procedures that can accomplish
+a complex task. DCL provides variables, conditional operators, 
+an IF-THEN-command construct and a number of built-in functions. It is
+thus a small programming language. Unfortunately, the only control structure
+provided is the 
+.b 1
+#####IF_ condition_ THEN_ a_ command
+.b 1
+By building a simple preprocessor, I have extended the control structure to
+include C like control structures, e.g, if-else, while, for, do-while,
+on condition blocks,  etc.
+These structures can operate on a single command or a group of commands.
+.p 5,1,4
+I taught a class here at UCCS in the spring semester of 1985 titled "The
+UNIX Programming Environment"; I chose developing the preprocessor for 
+structured DCL as the semester project. For the benefit of other teachers
+who may wish to assign such a project to their class, I have included the
+UNIX nroff/troff source and formatted version of the project handout. The 
+handout provides a very detailed, step by step description of the design and
+implementation of sdcl. Thus it serves as a document for anyone who wants
+to understand the workings of the preprocessor. The file "sdcl.nr" contains
+the nroff/troff source and "sdcl.doc" is the formatted version of "sdcl.nr"
+designed to be printed on ordinary line printers.
+.p 5,1,4
+The real motivation for wanting to have structured DCL came from the tradition
+set by RATFOR (RATional FORtran). For those of you not familiar with RATFOR, 
+RATFOR allows one to write code in FORTRAN in a C like manner. DCL has similar
+deficiencies when it comes to writing command procedures. I just wanted to
+illustrate that one does not have to live with GOTO's and COMEFROM's in one's
+programming practices. It is rather trivial to develop a layer of structured
+environment on top of something that does not support it.
+.pg
+.p 5,1,4
+The language recognized, and thus parsed, by sdcl is very simple. Here it is
+BNF form:
+.lm +5
+.nj
+.nf
+.b 1
+program   : statement
+          | program statement
+
+statement : ^*if (\* condition ^*)\* statement
+          | ^*if (\* condition ^*)\* statement ^*else\* statement
+          | ^*while (\* condition ^*)\* statement
+          | ^*for (\* intialize ^*;\* condition ^*;\* reinitialze ^*)\*
+                  statement
+          | ^*do\* statement ^*while ( \* condition ^*)\*
+          | ^*on\* statusCondition statement
+          | ^*on\* statusCondition ^*then\* statement
+          | ^*break\*
+          | ^*next\*
+          | ^*{\* program ^*}\*
+          | ^*other\*
+.lm -5
+.f
+.ju
+.b 1
+Here is a summary of sdcl usage. Please refer to 
+the file "sdcl.doc." for a detailed description.
+.list "o"
+.le
+The input file to sdcl is an ordinary text file containing sdcl statements.
+Unlike DCL, statements must not begin with a "_$" sign. 
+.le
+Statements can be enclosed within _{_} to form the so-called compound
+statement.
+.le
+The preprocessor looks at the first token of each statement to determine
+the type of statement so you should not preceed keywords with DCL labels
+e.g. "usage: if( p1 .eqs. ..". Statements that donot match one of the
+structured statements are classified as "other" and simply emitted.
+.le
+Any  sdcl source statement can be continued across more that one line by
+placing a "_\" (backslash) just before the end of line.
+.le
+In structured constructs, the "_\" need not be used however, because sdcl
+can infer whether the constructs is complete or not by simply going
+across line boundaries until satisfied. So if the condition part is too
+long to fit on one line in an "if" statement, it can simply be continued on
+the next line.
+.le
+Donot use the "-" (minus) as the continuation character in sdcl statements.
+.le
+If a source line begins with a "_#" or "_$" sign, the pound sign (then dollar sign
+is NOT removed) is removed and 
+rest of the line is emitted AS IS. This can be used to pass lines through
+sdcl untouched to DCL.
+.le
+Quoted strings are not broken.
+.le
+Variable substitution is not broken.
+.end list
+.pg
+.b 2
+The sdcl can be invoked as follows:
+.b 1
+.nj
+.nf
+####$ sdcl [infile.ext] [outfile.ext] [-x]
+.b 1
+where
+.b 1
+.lm +5
+"infile.ext"  is the input source file. If not specified,  input
+              is taken from "sys_$input".
+.b 1
+"outfile.ext" is the output file that will receive the generated
+              DCL code. If outfile is not specified, then the ge-
+              code will be placed in "infile.COM". If no  infile
+              was specified, output goes to "sys_$output".
+.b 1
+-x            If -x is specifed, then the code in outfile is pas-
+              to DCL for execution via lib_$do__command.
+.lm -5
+.ju
+.f
+.b 1
+Make sure that the symbol "sdcl" is defined as a foreign command either
+in your login.com or in the system wide login.com. For example, if the
+image "sdcl.exe" resides in "sys_$sysexe" then here is how you may
+define "sdcl" as a foreign command in your login.com:
+.b 1
+#####$#sdcl#:==#_$sys_$sysexe:sdcl
+.b 1
+Note that parameters cannot be passed to the command procedure in
+outfile when it is executed through the "-x" option.
+.pg
+Here is a command procedure to give you a flavor of sdcl, 
+.b 1
+.literal
+/*  Bun -- VMS DCL command procedure to bundle files into     */
+/*         distribution package which can then be unbundled   */
+/*         using UNIX shell. The output will be placed on the */
+/*         on the file given as the arg to this procedure     */
+if( p1 .eqs. "" ){
+    write sys$output\
+    	"Usage: bundle outfile (outfile will receive bundle)"
+    exit    /* DCL exit */
+}
+/* if the file exists, open it, otherwise create it */
+open/write/err=out_err fout 'p1'
+exist := "TRUE"
+out_err:
+if( exist .nes. "TRUE" ){
+    create 'p1'
+    open/write/err=give_up fout 'p1'
+}
+q := "'"
+for( rc = 0; ; ){    /* no condition, no reinit */
+    inquire infile "File? "
+    if( infile .eqs. "" )
+	break        /* time to wrapup */
+    open/read/err=infile_err inf 'infile'
+    write fout "echo ''infile' 1>&2"
+    write fout "cat >''infile' <<''q'END OF ''infile'''q'"
+    rc = rc + 2  
+    done = 0
+    while( done .eq. 0 ){
+	read/end=eof inf line
+	write       fout line
+	rc = rc + 1
+    }
+    eof: close inf
+    write fout "END OF ''infile'"
+    rc = rc + 1
+    next
+    /*
+     come here if trouble opening 'infile'
+    */
+    infile_err: write sys$output \
+		   "error opening ''infile'"
+}
+if( rc .gt. 0 ){
+    write sys$output "''rc' records written to ''p1'"
+    close fout
+}
+else
+    write sys$output "0 records written out"
+exit
+.end literal
+.pg
+And here is the generated code.
+.literal
+$ if (.not.(p1 .eqs. "" )) then goto 23000
+$ write sys$output "Usage: bundle outfile (outfile will receive bundle)"
+$ exit    
+$ 23000: 
+$ open/write/err=out_err fout 'p1'
+$ exist := "TRUE"
+$ out_err:
+$ if (.not.(exist .nes. "TRUE" )) then goto 23002
+$ create 'p1'
+$ open/write/err=give_up fout 'p1'
+$ 23002: 
+$ q := "'"
+$ rc = 0
+$ 23004: 
+$ inquire infile "File? "
+$ if (.not.(infile .eqs. "" )) then goto 23007
+$ goto 23006
+$ 23007: 
+$ open/read/err=infile_err inf 'infile'
+$ write fout "echo ''infile' 1>&2"
+$ write fout "cat >''infile' <<''q'END OF ''infile'''q'"
+$ rc = rc + 2  
+$ done = 0
+$ 23009: if (.not.(done .eq. 0 )) then goto 23010
+$ read/end=eof inf line
+$ write       fout line
+$ rc = rc + 1
+$ goto 23009
+$ 23010: 
+$ eof: close inf
+$ write fout "END OF ''infile'"
+$ rc = rc + 1
+$ goto 23005
+$ infile_err: write sys$output  "error opening ''infile'"
+$ 23005: 
+$ goto 23004
+$ 23006: 
+$ if (.not.(rc .gt. 0 )) then goto 23011
+$ write sys$output "''rc' records written to ''p1'"
+$ close fout
+$ goto 23012
+$ 23011: 
+$ write sys$output "0 records written out"
+$ 23012: 
+$ exit
+.end literal

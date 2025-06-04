@@ -1,0 +1,135 @@
+        .title  TST_DN4LINES    
+        .ident  /V05-001/ 
+; TEST get lines vie get_nice                  
+
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUCNTDEF
+	EMUDN4DEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+CRCDESC:	.QUAD	0
+RETURN:		.BLKB	4096
+RETURN_D:	.LONG	.-RETURN
+		.ADDRESS  RETURN
+ADDR:
+	.WORD	^XC990		; RAFFLE
+	.WORD	^XC9C4          ; Hedges
+	.long	0
+
+KEY_BUF:
+PROTO:		.LONG
+BOXID:		.LONG
+TBL:		.LONG
+INSTANCE:	.LONG
+PARAM:		.LONG
+KEYSPR:		.LONG
+
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=TST_DN4LINES
+
+	MOVAL	ADDR,R6
+
+10$:
+	TSTL	(R6)
+	BNEQ	20$
+	RET
+20$:
+
+; Get lines. Each line type has to go in it's own table
+	MOVL	#4096,RETURN_D
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#DN4_W_LICHAR 		        ; Function
+	MOVZWL	(R6),-(SP) 		; Node
+	CALLS	#3,G^GETNICE
+	BLBS	R0,310$                         
+	BRW	400$
+310$:
+	MOVQ	RETURN_D,R8
+	ADDL3	R8,R9,R10		; End addr
+320$:
+; Find protocol type - which table line goes into
+        ADDL	#20,R9 				; Start of params
+	MOVL	R9,R1
+330$:
+	CMPL	#1112,(R1)			; Protocol?
+	BEQLU	340$				; Br when found
+; 
+335$:
+	MOVL	4(R1),R2	        	; Len of data
+	ADDL	#8,R2                           ; Distance to next param
+	ADDL	R2,R1                           ; MOve pointer
+	TSTL	(R1) 				; Next entity?
+	BLSS	320$                            ; Br if so   (error)
+	CMPL	R1,R10                          ; Any data left?
+	BLSS	330$                            ; Br if some left
+	BRW	400$
+340$:
+	CASEB	8(R1),#0,#8
+350$:
+	.WORD	351$-350$            ; ddcmp
+	.WORD	351$-350$            ; "
+	.WORD	351$-350$            ; "
+	.WORD	354$-350$            ; Reserved (error)
+	.WORD	351$-350$            ; ddcmp
+	.WORD	352$-350$            ; LAPB
+	.WORD	353$-350$            ; Eth
+	.WORD	355$-350$            ; CI (not processed)
+	.WORD	355$-350$            ; QP2 (nort processed)
+351$:
+	MOVL	#DB_FAC_C_DN4_DDCMP_LINE,TBL	
+        BRW	360$
+352$:
+	MOVL	#DB_FAC_C_DN4_LAPB_LINE,TBL	
+        BRW	360$
+353$:
+	MOVL	#DB_FAC_C_DN4_ENET_LINE,TBL	
+        BRW	360$
+354$:
+355$:
+        BRW	335$			; Ignore
+360$:
+	MOVL	#SYS_PID_C_PSRDN4,PROTO		; Protocol
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	COM_HDR_L_BOXID(R6),BOXID       ; 
+
+; CHeck/Store param
+370$:
+	TSTL	(R9) 				; Next entity?
+	BLSS	320$                            ; Br if so   (error)
+	CMPL	R1,R10                          ; Any data left?
+	BLSS	330$                            ; Br if some left
+	BRW	400$
+
+
+
+	TSTL	4(R9)                           ; Len of data
+	BNEQ    380$                            ; Br if some
+	BRW	390$				; Ignore if len = 0
+380$:
+; Calc len of data
+; Make desc to write this param
+       	MOVL	4(R9),CRCDESC			; Len
+	ADDL3	#8,R9,CRCDESC+4			; Addr	
+        MOVL	(R9),PARAM		        ; Set param
+390$:
+; Next paramater
+	MOVL	4(R9),R1	        	; Len of data
+	ADDL	#8,R1                           ; Distance to next param
+	ADDL	R1,R9                           ; MOve pointer
+	CMPL	R9,R10
+	BLSS	370$                            ; Br if some left
+400$:
+        RET
+
+
+
+        .END	TST_DN4LINES

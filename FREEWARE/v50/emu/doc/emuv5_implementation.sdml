@@ -1,0 +1,924 @@
+<chapter>(Implementation\impl)
+    
+<head1>(Introduction)
+
+    This is the 5th major revision of EMU and it's 3rd complete
+    re-write. While many of the essential ideas and approaches are
+    preserved, virtually all of the data structures and many algorithms are
+    changed. This section specifies an implementation of the
+    architecture described previously.
+<head>(Core)
+    The core routines are the basic building blocks upon which the
+    rest of the system depends. The individual routines are described
+    here.
+<head1>(Listener)
+<x>(Listener)
+<head2>(Description)
+
+    The listener assigns a channel to the first Ethernet device found on the
+    local system and enables it in promiscuous mode enabling it to
+    receive all frames on the cable. Through logic described below it
+    distributes selected frames to the PSRs for further processing.
+<head2>(Processing abstract)
+<list>(unnumbered)
+<le>Acquire control lock to ensure exit at system shutdown.
+<le>Open error log. See Error processing for details
+<le>Map to:
+<list>(unnumbered)
+<le>Monitor section. See system monitor section for detail.
+<le>Control Section. See Control section for detail.
+<le>Ethernet buffers. Details below.
+<endlist>
+<le>Create command mailbox and que read with AST.
+<le>Create Ethernet buffer address. Details below.
+<le>Associate with CEF 63-127. (64 flags)
+<le>Call ASSETHCHN to locate and assign channel to Ethernet device
+
+     
+<le>Que all buffers to Ethernet.
+
+<le><emphasis>(Main Routine:\bold)
+<le>On any flag set:
+<le>    Locate buffer using flag set
+<le>    Validate source addr and Dest addr 
+<le>    Determine and set PTYTYP. See Detail below.
+<le>    Apply all defined filters:
+<le>    Lookup PSR table for processor
+<le>    If found set corresponding bit in frame.
+<le>	If at end any bits are set, set the corresponding CEF(s). If not
+	reque to Ethernet
+<le>Scan outstanding table and reques any returned buffers. 
+<endlist>    
+
+<head2>(Ethernet buffers)
+    There is an architectural limit of 64 buffers set by the maximum
+    number of Common Event Flags available in VMS. This implementation
+    uses 32 for Ethernet buffers reserving the remaining 32 flags for
+    other uses. Each buffer is
+    associated with a single event flag through the Ebuff_addr table
+    set up at init time. The table is a list of addresses of the
+    buffer and is 32x4 bytes long. After mapping Ebuffs, the start
+    address of this section is placed in the first location of the
+    table and this +1552 is placed at the second location and so on
+    for all 32 locations. Thus when a buffer is read off the Ethernet,
+    locating it is a simple task. The buffer itself is used as
+    follows:
+<table>(Ethernet Buffers\ebuffmt)
+<table_setup>(3\5\5)
+<table_heads>(Offset\Len\Description)
+<table_row>(0 \4\Target process flags)
+<table_row>(4 \4\Return Flags)
+<table_row>(8 \4\Buffer Number)
+<table_row>(12 \4\Spare)
+<table_row>(16 \8\IOSB)
+<table_row>(24 \20\Ethernet header)
+<table_row>(44\4\Buffer number)
+<table_row>(48\1500\Data)
+<table_row>(1548\4\Spare)
+<endtable>
+    Notes:
+<list>(unnumbered)
+<le>The Ethernet header is as returned by VMS and NOT as on the
+    network. See VMS doc for detail.
+<le>IOSB is the input output status block as returned by VMS. The
+    listener must check status completion and all other processes use
+    the len field in processing.
+<le>Data can be up to 1500 bytes long (Ethernet specification). 
+<le>Target Flags, Return Flags. When LISTEN determines a buffer should 
+    be passed to a process, it sets the processes corresponding flag
+    in Target. This collection is then used as a mask to set the
+    corresponding CEFs, waking up the process(es). Once the process
+    has completed, it sets it's corresponding flag in the return
+    field. When all Target Flags are matched by Return flags, the
+    buffer may be requed. 
+<endlist>
+
+<head2>(Protocol type formats)
+<x>(Protocol type formats)
+    There are 2 major Ethernet types and within 1 type there are 2
+    subtypes - effectively 3 types in total.
+<list>(unnumbered)
+<le>Ethernet type 2 - also known as DIX, specifies a 2 byte protocol
+    type and in the VMS return is found at offset 12. Byte 14 - 2- are
+    not written. We will know this as type 1
+<le>802.3 also known as IEEE specifies Service Access Points (SAPs)
+    with the source SAP at offset 12 and the destination SAP at offset
+    13. Byte 14 is written with a control field. A SAP is often
+    meaningless to us though some are universally defined as protocol
+    types. We know this as type 2.
+<le>SNAP. An IEEE frame with both saps set to %XAA that is byte 12-13
+    are %XAAAA. This defines the SNAP SAP and means that a 5 byte
+    protocol field follows at offset 15. The is EMU type 3.
+<endlist>
+    In order to speed processing. EMU converts these to an internal
+    standard format as follows:
+<table>(Protocol Types\ptyfmt)
+<table_setup>(3\5\5)
+<table_heads>(Offset\Len\Description)
+<table_row>(0 \1\EMU defined type - as above)
+<table_row>(1 \5\SNAP protocol type)
+<table_row>(4\2\Ethernet protocol type)
+<table_row>(5\1\IEEE source SAP)
+<endtable>
+ Note that any part of the above not defined for a particular type
+    must be zero. That is bytes 1 - 4 are 0 in type 2 and bytes 1-3
+    are zero for type 1.
+                
+<head1>(PSR)
+<x>(PSR)
+<head2>(Description)
+    The Protocol Specific Routines are exactly that - they process all
+    frames received for a particular protocol, extract the useful data
+    (formatting as necessary), build and maintain the database and
+    perform basic analysis as possible with the data available.
+<p>
+    Each PSR is responsible for it's own separate database. It
+    creates, saves and restores it largely under it's own
+    control and discretion. The database itself is made of fixed length
+    records in memory and is in 2 parts:
+
+<head2>(Control Record)
+
+    The 1st record of all PSR databases is a control record that the
+    PSR  uses to map to the section. The size of this record is set by
+    the record size for that PSR but cannot be less than 64 bytes
+    (standard header) The 1st (undefined number) of fields in the
+    control record are standard and the PSR may use the remaining
+    space for it's own purposes:
+<table>(PSR Control Record\psrctlrec)
+<table_setup>(3\20\6)
+<table_heads>(Symbol\Offset\Description)
+<table_row>(COM_DBHDR_L_ENTRIES     \0       \ Number of physical entries)      
+<table_row>(COM_DBHDR_L_RECSIZE     \4       \ Size of each rec)                
+<table_row>(COM_DBHDR_L_MAXENTRIES  \8       \ Max number of physical entries)  
+<table_row>(COM_DBHDR_L_FLAG        \12      \ EMUPID of the DB owner)          
+<endtable>
+         
+    This record is read by the PSR on startup and is used to size the 
+    section initially. It is written at exit or any time a re-size is 
+    executed. 
+    This record is the same length as all records in the associated DB
+    so will be various lengths in different DBs. Some part of the rec
+    should be reserved for PSR specific needs.
+         
+
+<head3>(PSR Records)
+<x>(PSR Records)
+    This is the familiar DB1 structure with a new header. All 
+    recs have this header:
+<x>(PSR Record Header)
+<table>(PSR Record Header\psrrechd)
+<table_setup>(4\20\3\3)
+<table_heads>(Symbol\Offs\Len\Description)
+<table_row>(COM_HDR_L_FLAGS       \0   \4\ Flags below)                
+<table_row>(COM_HDR_L_BOXID       \4   \4\ Unique device id)             
+<table_row>(COM_HDR_L_PTYBITS     \8   \4\ Other protocols present)      
+<table_row>(COM_HDR_L_SYSCTL      \12  \4\ System control flags)
+<table_row>(COM_HDR_Q_LSTHRD      \16  \8\ Last time heard)
+<table_row>(COM_HDR_Q_LSTALT      \24  \8\ Time last alert sent)
+<table_row>(COM_HDR_Q_FSTHRD      \32  \8\ Time 1st heard)
+<table_row>(COM_HDR_L_STATUS      \40  \4\ Current status)
+<table_row>(COM_HDR_L_ACNT        \44  \4\ Count of access this rec)
+<table_row>(COM_HDR_L_LEN         \48  \4\ Len of KEY)   
+<table_row>(COM_HDR_L_HOWSET      \52  \4\ How this addr found)
+<table_row>(COM_HDR_Q_LOCKFIELD   \56  \8\ Count of current accesses)
+<table_row>(COM_HDR_L_READLOCK    \56  \43\ Count of read accessors)
+<table_row>(COM_HDR_L_WRITELOCK   \60  \4\ Count of write accessors)
+<table_row>(Configuration Monitor \64  \4\ )
+<endtable>
+<list>(numbered)
+<le>FLGS. The EMU defined PID for this process.
+<le>ID is unique to that box an may be duplicated in many PSRDBs
+    when the box runs multiple protocols on multiple devices. It is
+    the method EMU uses to 'tie' addresses to boxes. Made of 2 parts:
+    bytes 0-2: locally generated ID, byte 3: EMU station ID that
+    target is local to. Results in a unique ID over space. 
+<le>PTYBITS is a bit pattern wherein a bit set indicates that this
+    box runs that (EMU supported) protocol. Thus if DECnet, MOP and IP
+    all appear on a specific Ethernet device the appropriate bits are
+    set and propagated to this field in each DB. Use of this field is
+    at 1st two-fold: Indicates to the PSR that the corresponding
+    protocol is known and exists in the corresponding DB. Indicates to
+    a searching process where to find additional data for this box.
+    The PSR will use this field when it discovers another protocol DB
+    should contain this address. If the bit is not set it sends the
+    info to the relater and continues to do so until the bit is set.
+<le>SYSCTL. System Control bits. Defined below
+<le>STATUS. Status bits. defined below.
+<le>LSTHRD. Time the last frame received this address.
+<le>LSTALT. Time the last alert sent this address.
+<le>FSTHRD. Time the first frame received this address.
+<le>LEN. The len of data after the header. Constant in any single
+    database.
+<le>HOWSET. or more accurately how found. Each process in EMU is
+    assigned an ID for various purposes. The process that found this
+    data and caused this rec to be created is set here. Additionally
+    the field could indicate 'set by management' if we allow user
+    input to create recs. Essential field in troubleshooting.
+
+<le>ACNT is a count incremented whenever this rec is accessed.
+    Since all access is by sequential search, arranging the recs so
+    that the most often accessed are nearer the top is an advantage.
+    
+<le>Spare. Exactly that - spare space for unanticipated needs.
+<le>LOCKFIELD. Should a process which to access the record, if call
+    the locking routine with the type (read or write) of access
+    required. That routine allows shared read or shared write but not 
+    shared read/write. If it grants access, the appropriate field is 
+    incremented so the count of current readers and writers is kept
+    in the record. Unlocking reverses this - the appropriate field
+    is decremented.  
+
+<le>Configuration Monitor area. Area used by the config monitor. See
+    that routine for details.
+<endlist>
+<x>(System Control bits)
+<table>(System Control\sysctrl)
+<table_setup>(3\20\3)
+<table_heads>(Symbol\Bit\When Set)
+<table_row>(SYS_COM_V_SCDEL\0\This rec is deleted)
+<table_row>(SYS_COM_V_SC_UPDATE\1\Update this rec next cycle)
+<table_row>(SYS_COM_V_SC_NOPOLL\2\Do not poll this address)
+<table_row>(SYS_COM_V_SC_PSEUD\3\ Pseudo Node - alias)
+<table_row>(SYS_COM_V_SC_CNTDB\4\Has been added to Counter DB)
+<table_row>(SYS_COM_V_SC_DISCNT\6\ Counts disabled)
+<table_row>(SYS_COM_V_SC_PROPOG\7\ Addr has been propagated to EMUDB)
+<endtable>
+<head2>(General processing)
+<X>(PSR - General processing)
+
+    At startup acquire the exclusive access lock and open the file. If
+    not found generate one using defaults either embedded in the PSR
+    code or system params. The 1st rec gives the layout and info
+    needed to create the section. Create it and read the records in
+    using the ACNT field as the key (descending). This starts the DB
+    with the most accessed recs at the top.  Write the
+    size of the section to the LOCK VALUE BLOCK to signal to other
+    processes the current size and release lock allowing general
+    access to section.
+
+<head3>(Adding records)
+    In all cases, the protocol address is unique in the database.
+    Search down for this address (ignore any deleted recs) and if not
+    found add it. During search note 1st deleted rec. If deleted rec
+    found, overwrite with new else add it at end. Update Control rec. 
+    Zero ACNT field in header
+    Note that ONLY ONE process can create/delete the records while
+    individual fields may be written by multiple processes.
+<p>
+<emphasis>(Note that any protocol address is integrated into the system
+    via BOXID only - it is the key by which all relationships are
+    known. When a record is added it sends the alert to the Relater
+    with the BOXID = 0 and no parameters. A common routine generates the 
+    BOXID and guarantees uniqueness.\bold)
+<head3>(Deleting Records)
+    Same as add - list is keyed by address. Recs can be deleted by
+    address (single delete) or by ID (multiple delete). Set the delete
+    bit in any rec deleted.
+
+<head3>(Compression)
+    If no deleted recs and no space invoke a compress routine that may 
+    ageout or otherwise identify recs to delete. If none are found
+    then invoke end processing (writes new params and exits - Control 
+    process will restart with new params)
+
+<head3>(Locking)
+    Normal mode has readers holding a concurrent read and writers 
+    holding a concurrent write lock respectively, allowing 
+    unlimited readers and writers.
+    With the exception of the PSR, locks are queued with a blocking
+    AST.
+    Should the PSR need to compress or re-size the DB, it requests an
+    exclusive lock, causing delivery of the BLAST to all other
+    accessors.
+    In this case the BLAST routine deaccsses the section and deletes VM
+    and waits for the section to recreate and the exclusive lock to
+    release. The new size is in the Lock Value block.
+
+
+<head3>(Exit and restart)
+
+    An exit handler is included in all PSRs to guarantee (within
+    reason) that the last action is to write the DB. 
+    First scan the DB to determine how many undeleted
+    recs will be written. Calculate from this what the size of the
+    section should be on next re-start (some room for expansion) and
+    write this to the control record. Write the control record
+    followed by all (undeleted) DB recs.
+
+<head3>(Command Mailbox)
+
+    Each PSR has a command mailbox defined. Periodically the PSR reads
+    this mailbox to determine if any messages are waiting. There are
+    no specified uses for this facility but it seemed a good idea at
+    the time and might even prove useful at some stage. It stays.
+
+ 
+<head3>(Other process interaction)
+
+    When mapping to any DB section,  the
+    subroutine will acquire the appropriate lock (share_read,
+    Share_write) and set up the blocking AST. The AST routine deletes
+    the virtual memory and releases the lock. This implies that ASTs
+    must be disabled during all (write anyway - not sure about read)
+    so that partial records are not written. 
+
+<head1>(Relater)
+<x>(Relater)
+<head2>(Description)
+
+    The Relater accepts inputs from many sources and essentially builds
+    and maintains the device database. A device in this context is a
+    single physical processor that at minimum is attached to a network
+    and cooperates in 1 protocol. While the PSRs build and maintain
+    the Network databases, the Relater is device specific.
+<head2>(Relater database)
+    The relater database contains the BOXID and all EMU supported
+    protocols along with some device specific information:
+<x>(Relater Database)
+<table>(Relater Database\rdb)
+<table_setup>(3\10\5)
+<table_heads>(Field\offs\Description)
+<table_row>(BOXID\4\Key to other databases)
+<table_row>(PTYBITS\4\Bit pattern showing protocols present)
+<table_row>(MGMTBITS\4\Management capabilities)
+<table_row>(Device type\4\See below)
+<table_row>(Facilities\4\See Below)
+<endtable> 	
+<p>
+     Notes:
+<list>(unnumbered)
+<le>Class. Number indicating the relative importance of this device. It
+    is (privileged) user writeable.
+<le>Services. A bit pattern showing the OSI level(s) this device
+    operates at. A bit set indicates the device supports the
+    corresponding OSI layer.
+<le> BOXID Table	Table of BOXIDs that exist on this device. Within each
+		DB a single BOXID associates the addresses together such
+		that a device with 3 IP addresses will have 3 entries in 
+		IP database with the same BOXID. This BOXID is placed
+		in the relater table at the IP offset. The Offset is 
+		dictated by SYS_PID_C_xxxx in sysdef (that is the IP offset
+		is SYS_PID_C_PSRIP (7). The current table size accommodates 24
+		entries.
+
+<endlist>
+
+<head2>(Relater Frame)
+<x>(Relater Frame)
+    Any process wishing to send info that the relater acts upon sends
+    the following frame to it:
+<table>(Relater Frame\relfrm)
+<table_setup>(3\8\4)
+<table_heads>(Field\Len\Description)
+<table_row>(BOXID\4\This device ID)
+<table_row>(SENDER\4\Sender's PID)
+<table_row>(Message Type\4\Add, delete or start)
+<table_row>(Targets\4\Count of targets) 
+<table_row>(Data\Var\1 target structure per target)
+<endtable>
+
+    Notes:
+<list>(unnumbered)
+<le>Message type defines the action the relater will perform and the
+    format and content of the data field. Each message type specifies
+    strict format and this is used to verify the received message.
+<le>Sender is the identity of the sending PSR. It is used to locate the
+    correct database and defines the contents of the record.
+<le>Data is specifically formatted according to message type.
+<endlist>
+
+<head2>(BOXID Modification)
+<x>(BOXID Modification)
+
+
+    If as and when a PSR or other process finds an association between
+    this address and another protocol, and the bit associated with
+    this protocol is not set in the header, it sends the following
+    frame to a process called the RELATER: 
+<list>(unnumbered)
+<le>BOXID = Value written in this rec header
+<le>Message type = 1
+<le>Message len = Var
+<le>Data :
+<list>(unnumbered)
+<le>Number of targets
+<list>(unnumbered)
+<le>Target PSRID
+<le>Target protocol address
+<endlist>
+<endlist>
+<endlist>
+    All fields must be present.
+    Each PSR has an ID which may be used to control many things but
+    here it denotes the format and length of the following address.
+    The Relater puts the ID on a subject list and executes the
+    following algorithm:
+
+<list>(unnumbered)
+    Locate each target on list and check the ID. If .eq. 0  copy
+    subject ID to it and continue. This is an unusual case.
+<le>If set and .eq. to input, continue.
+<le>If set and .ne. to subject add to subject list, overwrite
+     and restart.
+<le>At end (all possible locations scanned and made equal) delete all
+    references to ID's overwritten in relater table.
+<endlist>
+
+    Other messages will be defined to allow PSRs to send data that
+    belongs at device level to the relater.
+<page>
+<head1>(Alert Subsystem)
+<x>(Alert Subsystem)
+<head2>(Description)
+
+    The alert system exists to allow output of important events to the
+    human interface. It's goal is to provide a convenient interface
+    for both sides.
+
+    For processing and architectural considerations, the alert subsystem
+    is broken out into 3  distinct stages: 
+<list>(unnumbered)
+<le>Generator. Any process wishing to notify the operator through the 
+    alert mechanism for any purpose is called the generator.
+<le>Processing. The 1st level where the alert is compared with other
+    alerts, further information is added and passed to next stage.
+<le>Format/Transmit. The alert is formatted for screen output and sent
+    to all currently connected clients.
+<endlist>
+
+
+<x>(Alert Format)
+<table>(Alert Format\ALTfmt)
+<table_setup>(3\25\3)
+<table_heads>(Field\Len in Bytes\Description)
+<table_row>(Time\8\System time)
+<table_row>(Expirey\4\Number of Seconds)
+<table_row>(Sender\4\EMU process ID)
+<table_row>(BLINK\4\Location of address sending)
+<table_row>(Device\4\Device Type)
+<table_row>(Priority\1\Priority)
+<table_row>(Class\1\Perf,config etc)
+<table_row>(Recent\1\Number of recent events)
+<table_row>(related\1\Number of related events)
+<table_row>(Param Count\1\No. of Params in data field)
+<table_row>(Display Name\49\.ascic name displayed)
+<table_row>(Spare\12\Future)
+<table_row>(Data\var\Params)
+<endtable>
+    A binary alert minimum length is the standard header (88 bytes)
+    and can be up to 512 bytes.
+<p>
+    Notes:
+<list>(unnumbered)
+<le>
+    Time is the system time the alert was logged at.
+    It is set by the generator and not changed thereafter.
+<le>
+    Expirey. If this field .gt. 0  then the message is placed in the
+    timed que. If an identical message is in the que (and not expired)
+    then the alert is generated. See Timed Alert que below.
+<le>
+    Sender. The EMU defined identity of the sending process. It is
+    used to locate the correct database of the sending process.
+<le>
+    Blink. Backward link. Offset to the record for which this alert
+    was sent. In combination with the Sender field, and record in any
+    database can be located quickly.
+<le>
+    Device. The device type this alert is for. Device is an EMU
+    Datatype (which see). This is a placeholder that layer 2 fills in.
+<le>
+    Priority is dynamic through the system. The generator sets the
+    initial value according to some scheme (needs consistency) and
+    the processor can adjust it in either direction depending on other
+    related conditions (other alerts, other protocols down etc).
+<le>
+
+    Class is the general area the alert falls into.
+    This is OSI standard:
+<list>(unnumbered)
+<le>
+    Accounting
+<le>
+    Performance
+<le>
+    Configuration
+<le>
+    Fault
+<le>
+    Security
+<le>
+    system	*
+<endlist>
+	This is a bit field so that any alert can be classified in
+    multiple types - Often a config change has security implications.
+    The system class is not part of the standard but we will use it to
+    alert problems with EMU (disk full etc) to the user(s).
+
+<le>
+    
+    Recent. Layer 1 will determine if recent events are present,
+    adjust the priority if indicated and pass a count of these with
+    the alert. The user interface uses this to advise the user of
+    their presence. Recent events are defined as any event of any
+    class for this address in the previous 24 hours.
+
+<le>
+    Related. Again. Layer 1 works out the number of related events and
+    passes this as a count. Related events are defined as any event of
+    the same class on any node logically on the the same network as
+    the address the event is for. Some examples to make this clear:
+<list>(unnumbered)
+<le>
+
+    If the event is DECnet protocol down, any other node currently
+    down in the same DECnet area is a related event.
+<le>
+
+    If the event is IP down, any other IP node currently down on the
+    same subnet is related.
+<le>
+<x>(Segmentation)
+<x>(Physical Topology)
+    So, DECnet is divided into areas, IP into subnets and IPX into
+    subnets. This works for routed protocols but others such as LAT,
+    MOP and bridging do not fit well here. It is for this reason
+    mainly that future versions of EMU will begin the efforts of
+    determining the physical topology of the network.
+
+<endlist>
+<le>
+
+    Param count. The number of parameters found in the data field.
+<le>
+    Display name. This is a placeholder filled in by layer 2.
+    Acceptable values here are:
+<list>(unnumbered)
+<le>Valid BOXID. That is a BOXID that exists in the relater table. 
+<le>-1 The alert class must be system and there is no BOXID. 
+    The system is sending a message. 
+<le>Any other value results in an error and the message is rejected.
+<endlist>
+<endlist>
+
+<head2>(Alert generation)
+<x>(Alert generation)
+
+    Any process can generate an alert and pass it to the system for
+    processing.    All fields must be present with the following
+    exceptions:
+<list>(Unnumbered)
+<le>Device type. Layer 2 fills this field in (if known)
+<le>Recent,related and param count may all be 0.
+<le>Display name. If 0, this layer assigns and writes a unique ID.
+<endlist>
+    The alert may include no parameters or any number of params up to
+    the max len of 512 bytes. Parameter formats are given below. 
+<p>          
+    The goal here is to simplify the processing the alert generator
+    will have to do in order to get an alert out, and allow any params
+    to be present or missing. 
+
+<head2>(Alert processing)
+<x>(Alert processing)
+     
+
+    Here is where we accept a single alert and piece it together with
+    other related events and objects in an attempt to show the alert
+    as it relates to other problems on either the node or network.
+
+    Basically, the alert generator (Usually PSR) sends an initial alert
+    to the alert processor where the following happens:
+<list>(unnumbered)    
+<le> If the BOXID is 0 (not present) this layer assigns a new BOXID,
+    creates a record in the relater table and writes it to the location 
+    given by the following parameters. Skip all remaining processing 
+    and pass 'new protocol' to next layer.
+<le>
+    If the class is 'fault' get status by calling EMU_NODE_STATUS.
+    This routine will perform all currently available tests on the
+    node and return a complete status report in specific format. If
+    all protocols respond then ignore (positive check). Set priority
+    by adding fixed value for each protocol down
+<le>
+
+    All alerts: Look up BOXID for last alert this address, If < 24 hrs
+    old then: Search log file for other alerts this address.   Log file
+    is an indexed file. If any are found, insert symbol at end of
+    current param list showing start of recent event list and record
+    the key of each one found. Put the count in the header. The number
+    of recent alerts will be limited by the first occurrence of
+    MAX_RECENT_ALERTS or total message len (512). Raise priority
+    according to number (and priority) of recent events.
+<le>
+
+    Fill in device type field. PSR does not usually know this.
+    Adjust priority according to device class.
+<le>
+
+    FUTURE: Allow for 'related' events. Again, sear log file and
+    supply count and record number of each related event. See below
+    for description of related events.
+<le>
+
+    Set displayed name for this address. First occurrence of:
+<list>(unnumbered)
+<le>
+
+    	Name if known - protocol specific if appropriate
+<le>
+	Protocol Address
+<endlist>
+<le>
+    Because each class will have to have a separate
+    routine, it becomes possible to institute some sophisticated
+    alert processing in future. Some examples:
+    If alert is a performance class and the alert is 'excessive
+    collisions' the routine could look in the Ethernet DB for other nodes
+    sharing this segment and determine if they are also experiencing
+    'excessive collision'. If so report the segment in trouble, not
+    the node. See segmentation below.
+<le>
+
+    If alert is configuration class and alert is 'parameter change'
+    then check param value against user provided template for
+    legality. Adjust priority accordingly.  See below for description
+    of templates.
+<le>
+
+    Note that an alert can exist in multiple classes. Thus some config
+    class alerts, particularly param changes may have security
+    implications and will also exist as security class alerts. This
+    process will make that determination via templates and/or
+    hardcoded routines.  
+<le>
+     
+    This is also the point where we will provide the hook so
+    that the user can supply external procedures to run when specific
+    events occur.
+<le>
+
+    Log alert. Set time field to current time and log the error using
+    the time as the key. The file is indexed and set to noduplicates.
+    If the record does not store because of duplicate key, simply
+    repeat the get time and store until it does. This guarantees a
+    unique key.
+<le>
+
+    Look up the address in the index and copy the time to the last
+    alert field. (new index field)
+<le>
+ 
+    If there are no clients currently connected then end, else pass to 
+    Layer2 for formatting and transmission.
+<endlist>
+    
+<head2>(Alert Formatting and Transmission)
+<x>(Alert Formatting and Transmission)
+    
+<head3>(Data typing)
+<x>(Data typing)
+
+<p>
+    The alert is only partially processed and displayed in brief format.
+<p>
+    Brief format is the translation of the header (all fields always
+    present) + the first param (if present). Because each type
+    produces both the translation of the param and an associated
+    string, a single param is adequate to produce a brief but useful
+    message to alert the operator. The operator can then selectively
+    display the full format which is the header and all params
+    formatted and displayed.
+
+      
+<head3>(Parameters and translation)
+<x>(Alert Parameters and translation)
+
+    The display process will translate the header in standard format:
+<list>(unnumbered)
+<le>
+    Lookup class and put address of string on list
+<le>
+    Put address of time on list
+<le>
+    Put address of display name on list
+<le>
+    Convert BOXID to DISPLAY_NAME to name and put address of string on list
+<le>
+    If any params present, translate param 1 and put address of
+    resulting string on list.
+<le>
+    Set colour of display string according to priority. Very simple:
+    low priority alerts are green and hi are red. A very simple
+    calculation allows the priority to set the 'redness' by adjusting
+    the green down and the red up. Thus we can show priority clearly
+    in 255 equal steps. 
+<le>
+    Display alert on all clients currently connected and having alert
+    screen present.
+<endlist>
+         
+<p>
+    In implementation the translation is in two parts: Part 1
+    translates the individual params according to the directives and
+    modifiers producing both the FAO directive string and the faolist
+    and then part 2 assembles the final message.
+<p>
+    Note that for initial display the message is only part translated
+    and displayed - that is in brief format. Only when the operator
+    selects the displayed alert for expansion does the entire message
+    become translated and displayed. Thus the programmer need not be
+    concerned with message length and such but just include any and
+    all relevant data.
+<p>
+    A symbol file will be supplied.
+
+<head3>(Alert log files)
+<x>(Alert log files)
+
+    Above implies a lot of log file access and disk is too slow, so...
+
+    The alert log file can be made as a RAM disk and limited to storing
+    only alerts for the previous 24 hours. After 24 hours the brief
+    version is written to disk and removed from the RAM disk. At 512
+    bytes (max) per alert we can store 2,000 alerts/ MB of RAM space
+    so a 5MB RAM disk should be more than adequate. If the disk file
+    is limited to storing only the header (+- 100 bytes) we can store
+    something like 10,000 rec/MB while keeping enough info for history
+    lookups. This will relieve the current problem of the alert file
+    growing uncontrollably.
+    
+    The message file could also be copied to the ram disk for faster
+    processing.
+<page>
+<head1>(Counter Processing)
+<head1>(Counter Processing)
+<head2>(Description)
+
+    The counter system supplies a standard method of determining
+    normal ranges any counter moves in. It can then be used to
+    determine abnormal operation of the monitored device.
+
+<Head2>(Counter Processing files)
+<x>(Counter Processing files)
+
+    There are 2 data files , one standalone routine and one callable
+    object associated with the counter system:
+
+<x>(CNTRPOLL.DAT)
+<x>(CNTRPRC.DAT)
+<x>(EMU_CNTPOLL.EXE)
+<x>(EMU_CNTRPC)
+<list>(unnumbered)
+<le>CNTRPOLL.DAT. Contains the list of addresses and counters that
+    will be polled for data on the next cycle. Any process detecting
+    that counter data is available (and desirable) can add to this
+    file.
+<le>CNTRPRC.DAT. Contains the sample data and so on for each stream.
+<le>EMU_CNTPOLL.EXE. Is the main standalone process that initiates
+    polls to the devices and submits the raw results to CNTRPRC.
+<le>EMU_CNTRPC is a callable routine that processes the streams as
+    described here. This is the main counter processing routine.
+<endlist>
+
+<head2>(CNTRPOLL.DAT)
+
+    This file contains entries that the CNTRPOLL routine reads on each
+    cycle. Each entry specifies the routine that requests and formats
+    the counter data and address to request from. Additionally, it
+    control information and indexes to the data in CNTRPRC.DAT.
+
+<table>(EMU_CNTPOLL.DAT Format\ctpf1)
+<table_setup>(3\12\4)
+<table_heads>(Field\Len\Description)
+<table_row>(BOXID\4\Identifies device)
+<table_row>(Routine\4\Counter processing routine)
+<table_row>(Last Seen\8\ Time last successful poll)
+<table_row>(Polls\4\Number of polls this addr)
+<table_row>(Success\4\Number of answered polls with good data)
+<table_row>(Address\8\Protocol address of device)
+<table_row>(Counter Tbl\488\Counters - See table below)
+<endtable> 	
+    The file is indexed and the key is the 1st 8 bytes of the record
+    (BOXID/Routine). Each 512 byte record will accommodate 40 individual
+    counters. Each counter is stored as follows:
+
+
+<table>(EMU_CNTPOLL.DAT Format\ctpf)
+<table_setup>(3\12\4)
+<table_heads>(Field\Len\Description)
+<table_row>(Name\8\Record header)
+<table_row>(CNTID\4\CNTID assigned by EMU_CNTRPRC)
+<endtable> 	
+
+    The name field is the standard PARAMTBL entry given to all params:
+<list>(unnumbered)
+<le>Table 4 bytes
+<le>Param no. 4 bytes
+<endlist>
+	The CNTID is an index to the CNTRPRC database.
+
+    In general, the following sequence is used to identify addresses
+    with useful data, and include them in the counter system. 
+<list>(unnumbered)
+<le>Among it's many functions, SETFUNC determines if and under which
+    protocols any address responds to defined counter requests. When
+    this is identified, SETFUNC adds a record with the appropriate
+    fields filled in to this database.
+<le>On each cycle EMU_CNTPOLL determines which counter analyser to
+    call for the set of counters and calls it with the address param.
+    If the counters do not
+    have CNTID set, they are registered with EMU_CNTRPRC and that
+    routine returns a CNTID - a unique ID to be associated with this
+    counter. Each received counter is passed to CNTRPRC with it's
+    CNTID and if the return specifies any error status, an alert is
+    generated.
+<le>On each cycle CNTRPOLL determines if it is any use to continue
+    polling this address for data. If the address answers less that
+    10% of attempts with good data, the record is removed from the
+    database and this is flagged in the PSR record. This flag
+    prevents the address from being inadvertently reintroduced to the
+    database.
+<endlist>
+    Each count is processed into the following record:
+<x>(CNTRPRC Record)
+<table>(CNTRPRC Record\CNTRPRCREC)
+<table_setup>(4\15\3\3)
+    <table_heads>(Field\Ofs\Len\Description)
+
+<table_row>(CTP_W_CNTID\0\4\This record number)
+<table_row>(CTP_L_SPARE\4\4\Align/spare)
+<table_row>(CTP_L_LTCNT\8\8\Long term count)
+<table_row>(CTP_L_LTTOT\16\8\Long term total)
+<table_row>(CTP_L_LTRNG\24\8\Long term range % movement)
+<table_row>(CTP_L_STRNG\32\8\Short term range % movement)
+<table_row>(CTP_L_STCNT\40\8\Short term Counter)
+<table_row>(CTP_L_MAX\48\8\Max Value seen)
+<table_row>(CTP_L_MIN\56\8\Min Value seen)
+<table_row>(CTP_L_LASTSN\64\8\System time last Sample)
+<table_row>(CTP_L_TBLPNT\72\8\Index Pointer to current sample)
+<table_row>(CTP_TL_TIMTBL\80\384\Time in Sec since previous Sample)
+<table_row>(CTP_TL_SAMTBL\464\384\Last 48 samples)
+<endtable>
+Notes:
+<list>(unnumbered)
+<le>CNTID is the key for the indexed record and is the unique ID
+    stored by the caller to process further samples. It is generated
+    at create time by this process.
+<le>LTCNT. Count of samples added to long term total.
+<le>LTTOT. Sum of all samples. Routine to reset on overflow is
+    included.
+<le>LTRNG. Long term range. The %(+ or -) that the long term average
+    is allowed to move in and not generate a warning. The long term
+    average is calculated by dividing LTTOT by LTCNT. LTRNG is then
+    divided by this sum, multiplied  by 100 and added back to the sum
+    to find the current high value allowed. If exceeded a warning is
+    written to OUTP and LTRNG is incremented. If not exceeded LTRNG is
+    decremented. Over time LTRNG indicated the 'normal' range this
+    counter moved in. A similar calculation is performed to find if
+    the current sample is below the low range.
+<le>STRNG. Short term range. It is similar to LTRNG except that the
+    values used to find Short term average are taken from the table
+    (last 48 samples).
+<le>MAX. The highest value seen for this counter.
+<le>MIN. The lowest value seen for this counter.
+<le>LASTSN. The time the last sample for this record was received.
+<le>TBLPNT. Pointer to current sample in tables.
+<le>Spare. Spare space.
+<le>TIMTBL. Table of times at which corresponding sample in SAMTBL was
+    received.
+<le>SAMTBL. Table of last 48 samples. Both tables are circular buffers
+    in which the oldest value is overwritten by the newest.
+<endlist>
+
+<p>
+    The counter system, is intended to be
+    universal. That is any stream of related numbers can be processed
+    through it with only 2 prerequisites:
+<list>(unnumbered)
+<le>The samples are integer only and must be 64 bits wide.
+<le>The samples must not be negative.
+
+<endlist>
+
+    Note that counters must be presented in the standard format. This
+    means that for any counter subsystem there exists at least a
+    routine to request and receive the data in the protocol required
+    format and an analyser that transforms the raw data into
+    meaningful information  for this system. As of this writing, only
+    the MOP counters are fully implemented but others are well on the
+    way:
+<list>(unnumbered)
+<le>DECnet Phase IV one each for:
+<list>(unnumbered)
+<le>Executor counts
+<le>LAPB lines
+<le>Ethernet lines
+<le>LAPB Circuits
+<endlist>
+<le>SNMP:
+<le>System
+<le>Bridge
+<endlist>
+                                                     

@@ -1,0 +1,1118 @@
+        .TITLE  PSRLAT    
+        .IDENT  /V05-001/                   
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 PSRLAT
+; Program to receive LAT frames from Listen, process them and
+; build the internal PSRLAT DB.
+;
+;2 Database
+;	Ethernet (LAT) address
+;	LAT Node Name
+;	Multicast timer
+;	Change flags
+;
+;3 Multicast_timer
+; This is the number of seconds after which we can expect another service
+; announcement from this node. WHile not yet implemented, this will be used
+; to detect when a LAT node stops sending. (Protocol is down).
+;
+;3 Change_flags
+;       BIT             When Changed
+;       0               Node group change
+;       1               Node desc change
+;       2               Service name change
+;       3               Service rating change
+;       4               Service desc change
+;       5               Service class change
+;       6               Undef
+;       7               Other param change
+;
+; The change flag is a toggle indicating a change in the contents of this 
+; frame from the last one. That is when a change is present, the corresponding
+; bit is toggled. To find which field(s) changed, .XOR. the 
+; current flags with the stored (last) ones. The resulting bit pattern
+; indicates the changed fields according to the table above. 
+; 
+; If any change signaled, set the update flag in the header to indicate
+; to the config monitor to update this record.
+;-- 
+
+        .LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+	$LCKDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUCNTDEF
+	EMURLTDEF
+	EMUMSGDEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+THIS_PROCESS = SYS_PID_C_PSRLAT
+THIS_PROCESS_FLAG = SYS_FLG_C_PSRLAT  
+
+       
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+INADDR:		.QUAD	0
+EBUFFS_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+LATDB_A: 	.QUAD	0
+PSRTBL_A:	.QUAD   0
+COUNTERS_A:	.QUAD	0
+GBLSIZ:		.LONG	0
+RELDIS:		.LONG	0
+PSRTBLCNT:	.LONG	0		; Count of psr table entries
+BOXID:		.LONG	0
+RLTCXT:		.LONG	0
+
+NAMFRM:		
+NF_PID:		.LONG
+NF_KEY2:	.LONG
+NF_NAM:		.BLKL	4
+NF_DESC:	.LONG	.-NAMFRM
+		.ADDRESS  NAMFRM
+LAT_NF_LEN = 24
+; Locking
+; Lock value block
+LATDBLVB:
+LATLVBSTA:	.WORD	0		; Status
+LATLVBRES:	.WORD	0		; Reserved
+LATLVBID:	.LONG	0		; Lock id
+LATLVBSIZ:	.LONG	0		; Begining of LVB (Size of DB in pages)
+LATLVBSPR:	.BLKL	3		; Unused 12 bytes
+; $ENQ call frame
+LATDBLOCK:	
+		.LONG	12		; Arguments
+		.LONG	0		; EFN
+LKMODE:		.LONG	LCK$K_EXMODE	; Lock mode
+		.ADDRESS LATDBLVB	; Lock value block
+LKFLGS:         .LONG 	<LCK$M_SYSTEM!LCK$M_VALBLK>	; Use value block
+LKNAM:		.ADDRESS LATDBLKNAM 	; Resourse name
+		.LONG	0		; Parent id 
+                .LONG	0               ; AST
+		.LONG	0		; AST Param
+		.LONG	0		; BLAST
+		.LONG	0		; ACC Mode
+		.LONG	0		; RSDM_ID
+		.LONG	0		; Null
+
+
+; Error Log
+; The error system works as follows:
+; The standard header contains the Routine name, the error number, the VMS
+; error code, time and  may be followed by a counted ascii string. There is
+; a spare word in the header. All routines using this error system write in 
+; this format to a common file.
+;
+; The format is below:
+; Error System Params
+	.ALIGN 	LONG
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/PSRLAT/
+	.ALIGN	LONG
+LATSECFAB:	
+		$FAB	FAC = <GET,PUT>,-        ; Access
+			FNM = <EMU5_ROOT:[DAT]EMU_PSRLAT.SEC>
+LATSECRAB:	
+		$RAB	FAB = LATSECFAB,-            ; Record 
+			RAC = SEQ,-
+       			RBF = LATSECREC,-			; 
+       			UBF = LATSECREC,-			; 
+       			USZ = LATSECREC_SIZE,-		; 
+       			RSZ = LATSECREC_SIZE   		; 
+		
+
+LATSECREC:	 .BLKB	PSR_LAT_C_RECSIZ   
+LATSECREC_SIZE = .-LATSECREC
+
+
+	.ALIGN	LONG
+EXIT_STATUS:	.LONG	0
+EXIT_BLOCK:	.LONG	0
+		.ADDRESS PSRLAT_EXIT
+		.LONG	1
+		.ADDRESS EXIT_STATUS
+
+FLAGS:		.LONG	0
+CHGFLGS:	.LONG	<PSR_LCF_M_NDESC!PSR_LCF_M_SRAT!PSR_LCF_M_SDESC!PSR_LCF_M_SCLAS!PSR_LCF_M_UNDEF!PSR_LCF_M_OTHER>
+DESCRIPTOR:     .QUAD   0         ; 
+LATGRPENA:      .BLKB   32
+LATGRPDIS:      .BLKB   32
+TEMPTBL:        .BLKB   16                   ; Temp service table
+; Misc
+HIORD:	    	.BYTE	^XAA,^X00,^X04,^X00
+DEFRECCNT:      .LONG	1000			; DEF dbsize
+DB_WAIT:	.FLOAT	1.0
+;
+EFLAGS1:		.ASCID	/EFLAGS1/	; Event Flag Cluster (64-95)
+EFLAGS2:		.ASCID	/EFLAGS2/	; Event Flag Cluster (96-127)
+LATDBLKNAM:		.ASCID	/EMU_LATDB/	; DB Lock name 
+LATSECNAM:		.ASCID	/EMU_PSRLAT/	; DB section name 
+
+
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=PSRLAT
+
+
+
+; Ensure death if control process dies
+	CALLS	#0, G^GET_CONTROL_LOCK	; 
+	BLBS	R0,10$
+
+        MOVL	#MSG_GENPSR_CTLLCK,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+10$:
+; 
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BLBS	R0,20$
+
+        MOVL	#MSG_GENPSR_ASSMBX,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+
+20$:	
+; Create and Map to sections 
+;
+
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	BLBS	R0,25$
+
+        MOVL	#MSG_GENPSR_MAPCNT,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+25$:
+	PUSHAL	EBUFFS_A		; Ebuffs section return addresses
+	CALLS	#1, G^MAP_EBUFFS	; Create and map ebuffs
+	BLBS	R0,30$
+
+        MOVL	#MSG_GENPSR_MAPCNT,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+30$:
+	PUSHAL	CONTROL_A		; Control section return addresses
+	CALLS	#1, G^MAP_CONTROL	; Create and map control section
+	BLBS	R0,40$
+
+        MOVL	#MSG_GENPSR_MAPCTL,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+40$:
+	PUSHAL	PSRTBLCNT  		; Count of entries found
+	PUSHAL	PSRTBL_A		; PSR table start addr
+	CALLS	#2,G^MAP_PSRTBL
+	BLBS	R0,50$
+
+        MOVL	#MSG_GENPSR_MAPPSRT,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+50$:
+        CALLS	#0,G^MAP_LATDB  
+	BLBS	R0,60$
+
+        MOVL	#MSG_GENPSR_MAPDB,MSGCDE    ; General PSR error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	LATSECNAM,(R1)
+	PUSHAL	ERRORMSG                     ; Section name
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+60$:
+; Declare exit handler
+	$DCLEXH_S DESBLK=EXIT_BLOCK	; 
+	BLBS	R0,65$
+        MOVL	#MSG_GENPSR_NOHNDLR,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+; Register constants
+; R6 = Current buffer
+; R8 = current datarec
+; R9 = addr of que header
+; R11 = counters
+65$:
+	MOVL	EBUFFS_A,R9            ; que heads
+
+; Common Event flag Cluster:
+;
+	$ASCEFC_S	EFN = #64,-
+			NAME = EFLAGS1
+
+
+	BLBC	R0,70$
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	BLBS	R0,80$
+70$:
+        MOVL	#MSG_GENPSR_NOHNDLR,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	RET
+
+80$:
+; Locate our place in the PSR table to store counts
+	MOVL	#10,R2				; Try this many times
+        MOVL	PSRTBL_A,R6			; 
+	MOVL	PSRTBLCNT,R3			; Count of entries
+	BNEQ	100$                            ; Br if some
+	MOVL	#SS$_ITEMNOTFOUND,R0		; We could not find ourselves
+	RET
+
+100$:
+	CMPL	#THIS_PROCESS_FLAG,PSR_TBL_L_PSRID(R6)
+        BEQLU	110$
+	ADDL	#PSR_TBL_C_SIZE,R6   	; Next entry
+	SOBGTR	R3,100$			; Loop for all
+	SOBGTR	R2,80$
+	MOVL	#SS$_ITEMNOTFOUND,R0	; We could not find ourselves
+	RET
+110$:
+; Find our area in counters section and init
+	MOVL	COUNTERS_A,R11      	; Start of counters
+	ADDL	#CNT_PSR_C_START,R11    ; Start of PSRs
+	MULL3	#THIS_PROCESS,#CNT_PSR_C_ASIZE,R1	; Offset
+	ADDL	R1,R11					; Our space
+        MOVC5	#0,#0,#0,#CNT_PSR_C_ASIZE,(R11)		; Clear
+        MOVQ	PSR_TBL_Q_DNAM(R6),CNT_PSR_Q_NAME(R11)   ; Our name
+        MOVL	PSR_TBL_L_RELDIS(R6),RELDIS   		; Relater disable
+; Send message to relater to enable us
+
+	MOVL	#100,R2			; Try this many times
+120$:
+	CLRL	RLTCXT
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGSTART	; Start us
+	PUSHAL	BOXID			; Dummy Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#4,G^CREATE_RELATER_FRAME
+	BLBS    R0,130$
+	SOBGTR	R2,120$
+; Fatal error - log it and exit
+        MOVL	#MSG_GENPSR_SNDRLT,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+130$:	
+  	PUSHL	RLTCXT                       ; Context
+	CALLS	#1,G^SEND_RELATER_FRAME
+140$:
+
+
+WAIT:
+	$WFLOR_S  	EFN=#96,-       ; Wait for our flag set
+			MASK=#THIS_PROCESS_FLAG
+
+	$READEF_S 	EFN=#96,-      ; Get EBUFF Flags
+			STATE=FLAGS     ; Current state
+
+READ:
+; When our flag is set:
+; 1. Clear our CEF
+; 2. Attempt to remove a command buffer. If any received, process
+; 3. Scan all ebuffs for any with our flag set.
+; If any found, process the buffer and clear our flag.
+; repeat 3. until no buffs are found for us
+; Wait for our CEF
+; Clear our CEF 
+	ADDL3	#96,#THIS_PROCESS,R1
+	PUSHL	R1
+	CALLS	#1,G^SYS$CLREF
+; Here call process command buffer
+
+	MOVL	EBUFFS_A,R6            		; que heads
+	ADDL	#IPC_EBUF_C_BUFSTART,R6 	; Buffers
+	MOVL	#IPC_ETH_C_BUFNO,R7		; Number of buffers
+MAIN:
+	BBS	#THIS_PROCESS,IPC_HDR_L_RFLAGS(R6),PROCESS   ; Br if buffer is ours
+	ADDL	#IPC_ETH_C_BUFSIZE,R6	
+	SOBGTR	R7,MAIN
+	BRW	WAIT
+
+PROCESS:
+; If this is not a LAT service announcment then skip process.
+;
+	INCL	CNT_PSR_L_PRCV(R11)	; Count 1 buff in
+	CLRL	RLTCXT 			; Start with new RELATER frame
+	ADDL3	R6,#IPC_ETH_1500_DATA,R1
+	CMPB	LAT_B_MSGTYP(R1),#40
+	BNEQU	DONE
+	
+
+	PUSHL	#1			; Create if not found
+	PUSHL	#THIS_PROCESS   	; This process is creator
+	PUSHAL	BOXID       		; BOXID - always = 0
+	PUSHAL	LATDB_A			; Section
+	ADDL3	#IPC_ETH_EA_SA,R6,-(SP)		; Addr of ETH addr	
+	PUSHL	#PSR_LAT_EA_ADDR       ; Offset to addr
+	PUSHL	#6	        	; Push len
+	CALLS	#7,G^LOCATE_PSRREC
+	CMPL	R0,#SS$_CREATED
+	BNEQ	100$
+;; SEND ALERT - New addr
+; LAT Specific Data
+	MOVL	R1,R8			; Addr this rec
+        PUSHL   R8              	; Data rec
+        PUSHL   R6              	; Ebuff
+        CALLS   #2,G^LAT_NEW_ENTRY      ; Yes
+        BRW     DONE                    ; Done
+100$:
+; Check entry
+	MOVL	R1,R8				; Addr this rec
+	MOVQ	EXE$GQ_SYSTIME,COM_HDR_Q_LSTHRD(R8)  	; Heard this addr now
+	INCL	COM_HDR_L_ACNT(R8)		; Count this access
+        ADDL3	#IPC_ETH_1500_DATA,R6,R3	; Data frame
+        CMPB    LAT_B_CHGFLG(R3),PSR_LAT_B_CNGFLG(R8) ; Any changes Signaled?
+	BEQLU	DONE
+; Check change flags
+	CLRL	R1
+	XORB3   LAT_B_CHGFLG(R3),PSR_LAT_B_CNGFLG(R8),R1      ; Get diff
+	BICL	CHGFLGS,R1			 	; Clear Uninteresting changes
+	BEQL	DONE					; Ignore if only change
+        MOVB    LAT_B_CHGFLG(R3),PSR_LAT_B_CNGFLG(R8)         ; Replace
+	BISL	#SYS_COM_M_UPDATE,COM_HDR_L_SYSCTL(R8)        ; Mark updated
+	PUSHL	R8			; LAT record
+	PUSHL	R6			; EBUFF
+	CALLS	#2,G^LAT_NAME_CHECK     ; Check name - no error check
+DONE:
+; Make sure we are in the Relater DB
+	PUSHL	R8
+	CALLS	#1,G^LAT_SEND_RELATER		; Errors handled in routine
+
+200$:
+; clear our bit in return
+; reque this buff back to listen
+	BICL  	#THIS_PROCESS_FLAG,IPC_HDR_L_RFLAGS(R6)
+	INCL	CNT_PSR_L_RET(R11)
+	BRW	MAIN
+; Subroutines
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LAT_NAME_CHECK
+;++ 
+;2 LAT_NAME_CHECK
+; The node name is the key to the localy held LAT database supplied by VMS.
+; Thus all changes other than node name can be handled by the LAT poller.
+; This routine checks the LAT name against the stored one when the service 
+; node signals a change. If the name has changed, an alert is issued and the
+; stored name is overwritten with the new one. 
+;3 Inputs
+; .address of EBUFF
+; .address of LAT record
+;3 Outputs
+; If name in EBUFF does not match the name in LATDB the name in LATDB is 
+; overwritten with the name in EBUFF and the NAMER bit is PTYBITS is 
+; cleared forcing a change to be sent to NAMER
+;3 Returns
+;  	SS$_NORMAL is always returned.  
+;--
+	MOVL	4(AP),R10		; Ethernet
+	MOVL	8(AP),R8		; datarec
+; Loc this rec
+	PUSHL	#SYS_COM_C_WRTLOCK
+	ADDL3	#COM_HDR_Q_LOCKFIELD,R8,-(SP)
+	CALLS	#2,G^LOCREC
+	BLBS	R0,10$
+
+	INCL	CNT_PSR_L_ERROR(R11)    ; count err
+        MOVL	#MSG_EMUSYS_LOCREC,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+10$:
+; Move pointer to Name
+	ADDL	#IPC_ETH_1500_DATA,R10			; Data frame
+	ADDL	#LAT_B_GRPSIZ,R10
+	MOVZBL	(R10),R5			; Size of group
+	INCL	R5                                      ; incl count
+	ADDL	R5,R10					; Point to name
+	MOVZBL	(R10),R5				; Size of name
+	INCL	R10					; Name
+; Verify name
+	PUSHL	R10				; .ascii name
+	PUSHL	R5				; Size
+        CALLS	#2,G^LAT_VERIFY_NODNAM
+	BLBC	R0,200$
+; Check size
+	CMPB	R5,PSR_LAT_B_NODNAMSIZE(R8)		; Same size?
+	BNEQU	100$                                    ; Br not
+	ADDL3	#PSR_LAT_A16_NODNAM,R8,R4		; Name fields
+	CLRL	R1
+20$:
+	CMPB	(R10)[R1],(R4)[R1]
+	BNEQU	100$
+	AOBLSS	R5,R1,20$
+	BRW	200$				; OK - no change
+100$:
+; Change name and send to NAMER. NAMER will isssue alert
+	BISL	#SYS_COM_M_UPDATE,COM_HDR_L_SYSCTL(R8)   ; Mark rec updated
+; Force modify name in namer
+	BICL	#SYS_FLG_C_NAMER,COM_HDR_L_PTYBITS(R8)
+	MOVB	R5,PSR_LAT_B_NODNAMSIZE(R8)		; Set size
+	ADDL3	#PSR_LAT_A16_NODNAM,R8,R4		; Name fields
+	CLRL	R1
+110$:
+	MOVB	(R10)[R1],(R4)[R1]
+	AOBLEQ	R5,R1,110$
+200$:
+;; Unlock
+	PUSHL	#SYS_COM_C_WRTLOCK
+	ADDL3	#COM_HDR_Q_LOCKFIELD,R8,-(SP)
+	CALLS	#2,G^UNLOCREC
+	BLBS	R0,210$
+
+	INCL	CNT_PSR_L_ERROR(R11)    ; count err
+        MOVL	#MSG_EMUSYS_UNLREC,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+210$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+
+
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LAT_NEW_ENTRY
+; Inputs:
+; .address of area to write new datarec
+; .address of incoming ethernet frame
+
+; General:
+;       Record 1st heard field in header as NOW
+;       Set node status up
+;       Send relater frame (with appropriate fields)
+; Build Specific data rec
+; R8 = Addr of new data record (Start of header)
+; R9 = addr of new data rec (Start of data)
+; R10 = Addr of Rec've buf (start of data)
+; Fill in header fields:
+;       1st heard from this node now
+;       Addr added through listening
+;       Status is up
+;       Number of accesses is 1
+;	Record has been updated
+
+	MOVL	4(AP),R10		; Ethernet
+	MOVL	8(AP),R8		; datarec
+; Loc this rec
+	PUSHL	#SYS_COM_C_WRTLOCK
+	ADDL3	#COM_HDR_Q_LOCKFIELD,R8,-(SP)
+	CALLS	#2,G^LOCREC
+	BLBS	R0,10$
+
+	INCL	CNT_PSR_L_ERROR(R11)    ; count err
+        MOVL	#MSG_EMUSYS_LOCREC,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+10$:
+; Record is updated
+	BISL	#SYS_COM_M_UPDATE,COM_HDR_L_SYSCTL(R8)
+	MOVQ	EXE$GQ_SYSTIME,COM_HDR_Q_LSTHRD(R8)  	; Heard this addr now
+	MOVQ	EXE$GQ_SYSTIME,COM_HDR_Q_FSTHRD(R8)  	; Heard this addr now
+	MOVL	#1,COM_HDR_L_ACNT(R8)		; Count this access
+
+; Now the params...
+
+	ADDL	#IPC_ETH_1500_DATA,R10			; Data frame
+        MOVW    LAT_B_MCTIM(R10),PSR_LAT_B_MCTIM(R8)    ; MC Timer and status
+        MOVB    LAT_B_CHGFLG(R10),PSR_LAT_B_CNGFLG(R8)  ; Change flags
+	
+; Move pointer to Name
+	ADDL	#LAT_B_GRPSIZ,R10
+	MOVZBL	(R10),R5			; Size of group
+	INCL	R5                                      ; incl count
+	ADDL	R5,R10					; Point to name
+	MOVZBL	(R10)+,R5				; Size of name
+; Verify Name
+	PUSHL	R10			; .ascii name
+	PUSHL	R5			; Size
+        CALLS	#2,G^LAT_VERIFY_NODNAM
+	BLBC	R0,200$
+	MOVB	R5,PSR_LAT_B_NODNAMSIZE(R8)
+	ADDL3	R8,#PSR_LAT_A16_NODNAM,R4
+100$:
+	MOVB	(R10)+,(R4)+
+	SOBGTR	R5,100$
+	BRW	300$				; Done
+200$:
+	INCL	CNT_PSR_L_ERROR(R11)    ; count err
+        MOVL	#MSG_GENPSR_SNDNAM,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	#SS$_DATACHECK,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+300$:
+;; Unlock
+	PUSHL	#SYS_COM_C_WRTLOCK
+	ADDL3	#COM_HDR_Q_LOCKFIELD,R8,-(SP)
+	CALLS	#2,G^UNLOCREC
+	BLBS	R0,310$
+	INCL	CNT_PSR_L_ERROR(R11)    ; count err
+        MOVL	#MSG_EMUSYS_UNLREC,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+310$:
+        RET                             ; Done
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LAT_SEND_RELATER   
+;++
+;2 LAT_SEND_RELATER   
+; Routine to extract the components , create a relater frame and send it
+; to the relater. The main process detects if any of these components 
+; are missing and if so, the entire record is resent.
+; Input
+;	.address of LATDB Rec
+; Output
+;	Lat address
+;	DECnet address (If appropriate)
+;	Ethernet address
+;	Name 
+; 	A name frame is formatted
+;	as follows:
+;	PID	.long protocol id of sending process
+;	KEY2	.long key for multiple names 
+;	Name	.ascii name
+;       The len is the len of the name +8
+; A relater frame is always sent.
+; Return
+;	None
+;--
+	CLRL	RLTCXT			; Start with new frame
+	MOVL	4(AP),R8                ; LAT record
+	BBS	#THIS_PROCESS,RELDIS,10$
+	BBS	#THIS_PROCESS,COM_HDR_L_PTYBITS(R8),10$
+
+	ADDL3	#PSR_LAT_EA_ADDR,R8,-(SP)	; Our addr   
+	PUSHL	#6			; Len of our addr
+  	PUSHL	#THIS_PROCESS		; Add our address
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,10$                  ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)    ; count as no buff error
+	BRW	500$
+10$:
+; Check if decnet frame
+        CMPL    HIORD,PSR_LAT_EA_ADDR(R8)  
+        BNEQU   20$                     ; Br if not decnet
+        BBS     #SYS_PID_C_PSRDN4,RELDIS,20$  
+        BBS     #SYS_PID_C_PSRDN4,COM_HDR_L_PTYBITS(R8),20$  
+
+	ADDL3	#PSR_LAT_EA_ADDR,R8,R1	; Get decnet addr
+	ADDL	#4,R1			; Offset to decnet
+	PUSHL	R1			; Addr of decnet
+	PUSHL	#2			; Len of decnet addr
+  	PUSHL	#SYS_PID_C_PSRDN4	; Add decnet address
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,20$                  ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)    ; count as no buff error
+	BRW	500$                    ; skip to end
+; As this frame came from Ethernet ...
+20$:
+        BBS     #SYS_PID_C_PSRETH,RELDIS,30$  
+        BBS     #SYS_PID_C_PSRETH,COM_HDR_L_PTYBITS(R8),30$  
+	ADDL3   #PSR_LAT_EA_ADDR,R8,-(SP)  ; Ethernet addr
+	PUSHL	#6			; Len of Ethernet addr
+  	PUSHL	#SYS_PID_C_PSRETH	; Add Ethernet address
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,30$                  ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)    ; count as no buff error
+	BRW	500$                    ; skip to end
+30$:
+; Add name
+; Make name frame
+        BBS     #SYS_PID_C_NAMER,RELDIS,50$  
+        BBS     #SYS_PID_C_NAMER,COM_HDR_L_PTYBITS(R8),50$  
+	TSTB	PSR_LAT_B_NODNAMSIZE(R8)	; .ascic name
+	BEQL	50$                     	; Skip if len = 0
+	MOVL	#LAT_NF_LEN,NF_DESC
+	PUSHAL	NF_DESC				; Output
+	ADDL3	#PSR_LAT_A16_NODNAM,R8,-(SP)	; .ascii name
+	MOVZBL	PSR_LAT_B_NODNAMSIZE(R8),-(SP)  ; Len of name
+	PUSHL	#THIS_PROCESS			; This db PID
+        CALLS	#4,G^MAKE_NAMER_FRAME   	; 
+        BLBC	R0,50$                          ; Skip on err
+
+
+	PUSHAL	NAMFRM			; Our addr   
+	PUSHL	NF_DESC			; Len of our addr
+  	PUSHL	#SYS_PID_C_NAMER	; Add name
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,50$                  ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)    ; count err
+50$:
+	TSTL	RLTCXT			; Frame to send?
+	BEQL	500$
+  	PUSHL	RLTCXT                  ; Context (Addr of buffer)
+	CALLS	#1,G^SEND_RELATER_FRAME
+	CLRL	RLTCXT			; Saftey
+
+	BLBS	R0,60$                  ; br no err
+	INCL	CNT_PSR_L_ERROR(R11)    ; count err
+	INCL	CNT_PSR_L_NOIPC(R11)     ; Count as buffer unavail
+        MOVL	#MSG_GENPSR_SNDRLT,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	500$                    ; skip
+60$:
+	INCL	CNT_PSR_L_PREL(R11)     ; Count relater frame sent
+
+500$:
+	RET	
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=LAT_VERIFY_NODNAM   
+;++
+;2 LAT_VERIFY_NODNAM   
+; Verifies incomming node name. Name must be:
+;	>1<PSR_LAT_C_MAXNAMSIZ  bytes in len
+;	Contain only pritable characters
+;3 Input
+;	.long	 len of name
+;	.address name
+;3 Output
+;	None
+;3 Return
+;	#SS$_NORMAL	OK
+;	#SS$_DATACHECK	Did not pass tests
+;--
+	CMPL	4(AP),#1
+	BGTRU	10$
+	MOVL	#SS$_DATACHECK,R0
+	RET
+10$:
+	CMPL	4(AP),#PSR_LAT_C_MAXNAMSIZ 
+	BLSSU	20$
+	MOVL	#SS$_DATACHECK,R0
+	RET
+20$:
+; If any char < ascii space then replace with ?
+	MOVL	4(AP),R6	; Len
+	MOVL	8(AP),R7	; Name
+	CLRL	R1
+30$:
+	CMPB	(R7)[R1],#^A/ /
+	BLSSU	40$
+35$:
+	AOBLSS	R6,R1,30$
+	MOVL	#SS$_NORMAL,R0
+	RET
+40$:
+	MOVB	#^A/?/,(R7)[R1]
+	BRB	35$
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=MAP_LATDB   
+;++
+;2 MAP_LATDB   
+; Routine to create and initialise the LAT db. This is a standard routine
+; that any DB creator execxutes on it's own DB:
+;	Acquire exclusive lock on this database. 
+;		Fatal error if not granted.
+;	Open file - if file not opened used hardcoded defaults.
+;	Create section. Fatal error ir we did not CREATE.
+;	Initalise with either file contents or defaults
+;	Write section size (in pages) to LVB
+;	Convert lock to CW
+;	That's it!
+;--
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	$ENQW_G	LATDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	LATLVBSTA,10$            ; Br if got it
+	CMPW	#SS$_VALNOTVALID,LATLVBSTA  ;  Ignore LVB not valid error
+	BEQLU	10$
+
+        MOVL	#MSG_EMUSYS_LOCKDB,MSGCDE    ; General PSR error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	LKNAM,(R1)+		     ; Addr of lock name
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+	MOVZWL	LATLVBSTA,R0 
+	RET
+10$:
+	$OPEN	FAB= LATSECFAB			; Attempt to open
+	BLBS	R0,20$                          ; Br if OK
+	BRW	1000$				; Use defaults
+20$:
+	$CONNECT RAB=LATSECRAB
+	BLBS	R0,30$
+	BRW	280$			; Abandon and use defaults
+30$:
+	$GET	RAB=LATSECRAB		; Get 1st rec
+	BLBS	R0,40$
+	BRW	280$			; Abandon and use defaults
+40$:
+; Calc memory/file size, Get memory & Map section
+       	MOVAL	LATSECREC,R7
+	MULL3	COM_DBHDR_L_MAXENTRIES(R7),COM_DBHDR_L_RECSIZE(R7),GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+100$:	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR		; returned address
+	PUSHL	GBLSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BLBS	R0,110$
+
+        MOVL	#MSG_EMUSYS_EXPREG,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+; map section	
+110$:
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	GBLSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	LATSECNAM		; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	LATDB_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	BLBS	R0,120$
+115$:
+        MOVL	#MSG_EMUSYS_CREMAP,MSGCDE    ; General PSR error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	LATSECNAM,(R1)		     ; Section name
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+120$:
+	CMPL	#SS$_CREATED,R0
+	BEQL	200$
+	$CLOSE	FAB=LATSECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	BRB	115$
+200$:
+; We created the section. Load it with file contents
+; Move the 1st rec to rec header
+; 1st rec cannot exceed common header size...
+	MOVAL	LATDB_A,R11			; Start of section
+	MOVL	(R11),R7                        ;
+	MOVC3	#COM_HDR_C_SIZE,LATSECREC,(R7)     ; Init header
+	ADDL3	COM_DBHDR_L_RECSIZE(R7),R7,R8       ; Location of 1st rec
+	CLRL	COM_DBHDR_L_ENTRIES(R7)		; No entries yet
+	MOVL	COM_DBHDR_L_RECSIZE(R7),R9    ; rec size
+210$:
+	MOVL	R8,LATSECRAB+RAB$L_UBF    ; Write rec here
+	MOVW	R9,LATSECRAB+RAB$W_RSZ		; Record size
+	MOVW	R9,LATSECRAB+RAB$W_USZ		; Record size
+	$GET	RAB = LATSECRAB		; Get a record
+	BLBC	R0,260$			; BR IF  error 
+	INCL	COM_DBHDR_L_ENTRIES(R7)			; Count
+	ADDL	R9,R8     		; Next slot
+	ADDL3	R9,R8,R10		; Check if enough room
+	CMPL	R10,4(R11)		; OK?
+	BLEQU	210$			; OK
+	BRW	280$			; Undo
+	
+260$:
+	CMPL	R0,#RMS$_EOF		; Was error end of file
+	BEQLU	270$			; Yes - OK
+	RET				; No - Die
+270$:
+	$CLOSE	FAB=LATSECFAB
+	BRW	2000$
+280$:
+; Undo and set to default
+	$CLOSE	FAB=LATSECFAB
+	CLRQ	-(SP)
+        PUSHL	4(AP)
+	CALLS	#3,G^SYS$DELTVA
+
+1000$:
+; File was not found, or otherwise unloadable
+; Use defaults
+	MULL3	#PSR_LAT_C_RECSIZ,DEFRECCNT,GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR			; returned address
+	PUSHL	GBLSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BLBS	R0,1010$
+
+        MOVL	#MSG_EMUSYS_EXPREG,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+1010$:
+; map section	
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	GBLSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	LATSECNAM		; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	LATDB_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	CMPL	#SS$_CREATED,R0
+	BEQL	1100$
+	$CLOSE	FAB=LATSECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	BRW	115$                    ; Log err an exit
+; init header rec
+1100$:
+	MOVL	LATDB_A,R6
+	MOVL	#PSR_LAT_C_RECSIZ,COM_DBHDR_L_RECSIZE(R6)   ; write recsize 
+	MOVL	#THIS_PROCESS,COM_DBHDR_L_FLAG(R6)          ; Write flag
+	MOVL	DEFRECCNT,COM_DBHDR_L_MAXENTRIES(R6)
+2000$:
+	$ERASE	FAB= LATSECFAB			  ; Delete all versions
+	BLBS	R0,2000$                          ; Br until no more
+	SUBL3	LATDB_A,LATDB_A+4,R10 		; Size of section (bytes)
+	DIVL3	#512,R10,LATLVBSIZ              ; Size (Pages) in LVB
+	INCL	LATLVBSIZ			; Real number
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	MOVL	#LCK$K_CWMODE,LKMODE		; COnvert to CW
+	$ENQW_G	LATDBLOCK 			; Convert DB lock 
+        BLBS	R0,2020$
+2010$:
+	MOVL	R0,R6
+        MOVL	#MSG_EMUSYS_LOCKDB,MSGCDE    ; General PSR error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	LKNAM,(R1)+		     ; Addr of lock name
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        MOVL	R6,R0
+	RET
+2020$:
+	MOVZWL	LATLVBSTA,R0
+        BLBC	R0,2010$
+	RET					; Return with any errors
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=PSRLAT_EXIT
+; Here at exit
+
+; Disable ourselves
+        MOVL	PSRTBL_A,R6			; 
+	MOVL	PSRTBLCNT,R3			; Count of entries
+10$:
+	CMPL	#THIS_PROCESS_FLAG,PSR_TBL_L_PSRID(R6)
+        BNEQU	15$
+	BICL	#PSR_CFLG_M_DISAB,PSR_TBL_L_CFLGS(R6)  ; Disable
+15$:
+	ADDL	#PSR_TBL_C_SIZE,R6   	; Next entry
+	SOBGTR	R3,10$			; Loop for all
+
+
+; Get lock
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	$ENQW_G	LATDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	LATLVBSTA,20$
+	CMPW	#SS$_VALNOTVALID,LATLVBSTA  ;  Ignore LVB not valid error
+	BEQLU	20$
+
+        MOVL	#MSG_EMUSYS_LOCKDB,MSGCDE    ; General PSR error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	LKNAM,(R1)+		     ; Addr of lock name
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+ 	MOVZWL  #SS$_RESIGNAL, R0    
+        RET
+20$:
+; create new file
+	$CREATE	FAB=LATSECFAB
+	BLBS	R0,30$
+	RET
+30$:
+	$CONNECT RAB=LATSECRAB
+	BLBS	R0,40$
+40$:
+; analyse section, dec entry count for any deleted recs
+	MOVL	LATDB_A,R10			; Top of section
+        MOVL	COM_DBHDR_L_ENTRIES(R10),R6      ; Number of entries
+	BEQL	65$				; Br if none
+        MOVL	COM_DBHDR_L_RECSIZE(R10),R7      ; Size of entries
+	ADDL3	R7,R10,R8				; 1st rec
+50$:
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R8),60$ ; Br if not deleted
+	DECL	COM_DBHDR_L_ENTRIES(R10)			   ; uncount
+60$:
+	ADDL	R7,R8 
+	SOBGTR	R6,50$
+; The count is now the count of valid recs
+; Calc a new MAXENTRY
+65$:
+	MULL3	#100,COM_DBHDR_L_ENTRIES(R10),R1
+        DIVL	#15,R1			; increase by 15 %
+	CMPL	#10,R1			; must be > 10
+	BLSS	70$
+	MOVL	#10,R1			; Set min
+	BRB	100$
+70$:
+;	CMPL	#100,R1			; must be < 100
+;	BGTR	100$
+;	MOVL	#100,R1			; Set min
+100$:
+; Set header and write it
+; 
+	MOVW	COM_DBHDR_L_RECSIZE(R10),LATSECRAB+RAB$W_RSZ     ; rec size
+	ADDL3	R1,COM_DBHDR_L_ENTRIES(R10),COM_DBHDR_L_MAXENTRIES(R10)	; Set new max size
+	MOVL	#-1,COM_HDR_L_ACNT(R10)	; Set this field Max count (FOR SORT)
+	MOVL	R10,LATSECRAB+RAB$L_RBF    ; Write this rec 
+	$PUT	RAB = LATSECRAB		; Write a record
+	BLBS	R0,110$			; BR IF no error 
+	BRW	210$			; Undo on error
+
+110$:
+; Write out all recs (skip deletes)
+        MOVL	COM_DBHDR_L_ENTRIES(R10),R6      ; Number of entries
+	BEQL	200$				; Br if none
+        MOVL	COM_DBHDR_L_RECSIZE(R10),R7      ; Size of entries
+        MOVW	COM_DBHDR_L_RECSIZE(R10),LATSECRAB+RAB$W_RSZ    ; Size of record
+	ADDL3	R7,R10,R8			; 1st rec
+120$:
+	MOVL	R8,LATSECRAB+RAB$L_RBF    ; Write this rec 
+	$PUT	RAB = LATSECRAB		; Write a record
+	BLBC	R0,210$			; BR IF  error 
+	ADDL	R7,R8 
+	SOBGTR	R6,120$
+200$:
+	$CLOSE	FAB= LATSECFAB	; 
+ 	MOVZWL  #SS$_RESIGNAL, R0    
+        RET
+210$:
+	$CLOSE	FAB= LATSECFAB	; 
+	$ERASE	FAB= LATSECFAB			; Delete Partial
+ 	MOVZWL  #SS$_RESIGNAL, R0    
+        RET
+	.END	PSRLAT

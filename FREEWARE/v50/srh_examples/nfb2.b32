@@ -1,0 +1,158 @@
+Obviously, authorize does not spawn a subprocess and run NCP to notify
+the NETACP of a change.  The following code is from AUTHORIZE, and uses
+an IO$_ACPCONTROL interface to NET: to inform DECnet of the change. 
+
+
+%sbttl 'uaf$notify_netacp - Send control QIO to NETACP'
+global routine uaf$notify_netacp (fnct) = 
+begin
+
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine sends a control QIO to the NETACP so that
+!	it can update it's volitile data base
+!
+! INPUTS:
+!
+!	fnct - NFB function code
+!
+! OUTPUTS:
+!
+!	none
+!
+! IMPLICIT INPUTS:
+!
+!	UAF$NETBUF must contain the record in question for the
+!	ADD or DELETE
+!
+! IMPLICIT OUTPUTS:
+!
+!	none
+!
+! ROUTINE VALUE:
+!
+!	status
+!
+! SIDE EFFECTS:
+!
+!
+!--
+
+literal
+     !
+     ! The key buffer is a longword for the entry counter
+     ! followed by seperate node and name fields.  Each 
+     ! field is a WORD of count followed bt the string.
+     ! The strings also fit in the RMS record key so the
+     ! max combined string size for the key buffer is the
+     ! RMS key length.
+     ! After the key strings, there is a context area for the 
+     ! use of the NETACP
+     !
+     key_buff_len 	= 4 + 4 + nafv5$s_remname + nfb$c_ctx_size ;
+
+local
+     status		: long initial (ss$_normal)
+    ,net_iosb		: vector [2,long]
+    ,nfb		: block [nfb$c_length,byte]
+    ,nfb_desc		: $bblock [dsc$k_s_bln] field (descr_fields)
+			 preset ( [length]  = (NFB$C_LENGTH),
+				  [dtype]   = dsc$k_dtype_t,
+				  [class]   = dsc$k_class_s,
+				  [pointer] = (nfb)
+				) 
+    ,key_buff		: vector [key_buff_len,byte]
+    ,key_desc		: $bblock [dsc$k_s_bln] field (descr_fields)
+			 preset ( [length]  = (key_buff_len),
+				  [dtype]   = dsc$k_dtype_t,
+				  [class]   = dsc$k_class_s,
+				  [pointer] = (key_buff)
+				) 
+   ;
+
+!
+! Get a channel to NET: to inform the NETACP of a modification
+! to NETPROXY.DAT
+!
+if .net_chan eql 0
+    then if not (status = $assign (devnam = net_desc, chan = net_chan ))
+	then 
+	    begin
+	    net_chan = 0;
+	    signal_return (uaf$_netchanerr, 0, .status);
+	    end;
+
+!
+! Init the NFB
+!
+ch$fill ( 0, nfb$c_length, nfb );
+nfb[nfb$b_fct]		= .fnct;
+nfb[nfb$b_database]	= nfb$c_db_proxy;
+
+if .fnct neq nfb$c_rebuild_proxy
+    then
+	begin
+	bind
+	     key1str = key_buff[4]                            : vector [,word] 
+	    ,key2str = key_buff[4+2+.uaf$netbuf[nafv5$w_nodelen]] : vector [,word] 
+	   ;
+
+	!
+	! Fill in the key values
+	!
+	nfb[nfb$b_oper] 	= nfb$c_op_eql;
+	nfb[nfb$l_srch_key]	= nfb$c_proxy_rnode;
+	nfb[nfb$b_oper2] 	= nfb$c_op_eql;
+
+	!
+	! Now fill in the first key buffer
+	!
+	ch$fill ( 0, key_buff_len , key_buff);
+	key1str[0] = .uaf$netbuf[nafv5$w_nodelen];
+	ch$move ( .uaf$netbuf[nafv5$w_nodelen], uaf$netbuf[nafv5$t_node], key1str[1] );
+
+	!
+	! Now the second key type and buffer
+	!
+	if .uaf$netbuf[nafv5$v_uic]
+	    then 
+		begin
+		nfb[nfb$l_srch2_key]	= nfb$c_proxy_ruic;
+		key2str[0] = .uaf$netbuf[nafv5$w_remuic_mem];
+		key2str[1] = .uaf$netbuf[nafv5$w_remuic_grp];
+		end
+	    else 
+		begin 
+		nfb[nfb$l_srch2_key]	= nfb$c_proxy_rname;
+		key2str[0] = .uaf$netbuf[nafv5$w_remuserlen];
+		ch$move ( .uaf$netbuf[nafv5$w_remuserlen], uaf$netbuf[nafv5$t_remuser], key2str[1] );
+		end;
+	end
+    else
+	key_desc[length] = 0;
+
+
+!
+! Notify the NETACP of the changes
+!
+status = $QIOW ( chan = .net_chan,
+		 iosb = net_iosb,
+		 func = IO$_ACPCONTROL,
+		 p1   = nfb_desc,
+		 p2   = key_desc,
+		 p3   = 0,
+		 p4   = 0
+	       );
+
+if not .status
+then
+    signal_return ( uaf$_sigacperr, 0, .status );
+
+if not .net_iosb[0]
+then
+    signal_return ( uaf$_sigacperr, 0, .net_iosb[0] );
+
+return ss$_normal;
+end;

@@ -1,0 +1,141 @@
+1 LISTENV5
+ Read Ethernet in Promiscuous Mode and pass packets to other Routines. 
+ Packets are read into a 32 buffer area termed EBUFFS
+2 EBBUFS
+ Standard buffer header:
+ Field		ofs	len		Desc
+ TFlag		0	4	Target process
+ RFlag		4	4	Returned buffers
+ Buffno	8       4	Buffer number
+ Param		12	4	Spare
+ Ethernet:
+ IOSB		16	8       Status block of Ethernet read
+ RCVP5:	24	20      Packet Header (as from VMS)
+ Buffno	44	4	Ebuff number
+ DATA:		48	1500    Data
+ spare		1548	4	spare /align
+;	 	total len = 1552    
+
+ Each of the buffers is associated with a bit in CEF cluster 3(64-95)
+ The buffer addresses are calculated into a table to facilitate fast lookups.
+ The reads are queued and the second part waits for any flag set.
+2 Ethernet_read
+ When a flag is set the buffer is calculated using the Flag that was set.
+ A table of PSRs is scanned to see if this buffer should be directed to 
+ any. In the case where 1 (or more) PSRs should be a target, the corresponding
+ PSR flag is : 1. Set in the TFLAGS field of the buffer
+		2. Set in the CEF to wake up the PSR
+ A count of frames sent to each PSR is kept.
+ At end of processing the PSRTBL, if any Tflag bit is set: 
+ this field is copied to to the RFLAGS field.
+ Otherwise the buffer is requed to ethernet.
+ 
+ Each PSR scans the buffers and processes any it finds with it's flag set in
+ the Tflag field, it process the buffer and at end clears it's flag in Rflag.
+2 Ethernet_reque  
+ Any time the Listener reques an ethernet buffer, it scans the entire set
+ and XORs the Tflag and Rflag field. Any bit set as a result of this 
+ indicates the PSR(s) which have returned the buffer. These PSRs' counters
+ are adjusted and if all PSRs have returned the buffer, it is requed.
+ 
+ Performance counters are kept in Global memory.
+
+2 Tracing
+ A bit pattern set by the user in control section dictates trace records
+ this process will write (when enabled).
+ Tracing is enabled by running the trace program, setting the trace recs
+ required and starting it. Logging the results to file is optional.
+ Trace recs are written to a mailbox which is read by the trace program,
+ formatted and displayed.
+ A trace rec is written by a seperate routine and formed as follows:
+ type, len, value. It is unaligned.
+ Exiting the trace program clears all trace bits.
+2 PSRTBL 
+  Field	 Ofs  Len	 Type
+ PTYTYP	  0    8 	EMU Conversion of Ethernet protocol type 
+ PsrID		  8    4        Bit pattern showing que and flag info
+ Spare		  12	4	Spare/ailgn
+ Displayed fields     
+  MBXname	  16    8  	.ascic display name this PSR type
+  Flags	  24	4	control flags
+  Counters:
+   MAXOst	  28    4 	Max outstanding before discard
+   MsgSnt	  32	4	Sends to PSR
+   MsgDsc	  36	4	Discarded
+   MsgOst	  40	4	Current Outstanding
+   HIGHESTOst	  44    4 	Highest count of outstanding 
+   Spares	  48 - 60
+  total = 64 bytes
+3 Control flags:
+	bit		When set
+	0		Disabled - do not send to this PSR
+	1		Send all traffic (not only Multicast)
+
+3 PTYTYP. converted from Ethernet for fast lookups:
+  field	ofs	len		desc
+ type		0	1	EMU defined frame type: type2, IEEE or extended
+ ETYYPE	4	2	2 byte protocol field when type2
+ DSAP		4	1	1 byte Destination SAP when IEEE
+ SNAP		3	5	5 byte extended PID when SNAP
+ Bytes 1,2 never written
+2 Frame_selection
+ This section determines which (if any) PSRs this frame should go to.
+ Any matching criteria sets the target bit.
+ Matching table:
+ bit set		multicast 	Unicast 
+ Disable   		N		N
+ All			Y		Y
+ NoCHeck		Y		N
+ Recording check:
+ Recordall		Y		Y
+ RecordFilt		Y		N
+ 
+ The recorder, does not have an entry in the PSRTBL.
+ Once this section complete, recording is treated like a PSR.
+ That is, recording bit coresponds to a flag and PSR slot for the 
+ recorder and it responds PSR like.
+2 QUE_ETHERNET_BUFFERS   
+ Inputs: None
+ Output: None
+ Scan all EBUFFS and:
+ Determine which (if any) PSRs have returned this buffer
+ Target flags indicate where the buffer is currently:
+ 1 of : Ethernet - ignore in this routine
+      : 1 or more PSRs - determine which have returned and adjust counts
+      : Neither ( Return flags are all 0) - reque this to ethernet
+ If command message then call execute command
+	Else que this buffer to ethernet 
+ Exit after 1 cycle
+2 LISTEN_FILTER1
+ This the 1ST filter. Most frames are not Multicast and are ignored.
+ There are however some exceptions.
+ Catch and process all:
+  For IP:   ICMP, SNMP and ARP frames 
+  For OSI:  Error report frames
+ 
+3 Inputs:
+	.addr of ethernet buffer
+	.addr of converted ptytyp
+3 Outputs:
+	Target bits are set in INTFLG if matching filter found
+3 Returns:
+	None
+2 TRC_LISTENV5
+ Write a trace record to the trace mailbox
+3 Inputs
+	Record type by val
+	Event type by val
+	data to write by addr
+3 Outputs
+ Trace rec written to trace mailbox   
+4 format:
+ 	Rec type  
+	Event type 
+	Process name - This is set in the mbxframe
+	Ebuff header - This is the entire buffer up to ethernet data
+3 Returns
+ None
+2 LISTENV5EXIT_HDLR 
+ Exit handler to shut down orderly.
+3 Exit_actions
+ Write PSRTBL out to file

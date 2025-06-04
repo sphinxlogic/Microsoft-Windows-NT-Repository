@@ -1,0 +1,132 @@
+This is to document a new feature in UCX SMTP. Briefly the new feature allows
+one to create an RFC 822 formatted mail message in a file and pass it off to the
+UCX SMTP mailer to be delivered with headers under your control.
+
+And now not so briefly:
+
+Format of the file:
+
+   The file is an RFC 822 message in a text file with a few SMTP protocol
+   commands (RFC 821) preceding the RFC 822 message. The SMTP protocol commands 
+   specify the return path of the mail and the recipients. After the recipients
+   comes the DATA command and then the RFC 822 message. Here is an example:
+
+      UCXAXP> ty TEST_SMTP_SFF.TXT
+      MAIL FROM:<zielonko@ucx.lkg.dec.com>
+      RCPT TO:<zielonko@ucx.lkg.dec.com>
+      DATA
+      Date: Sun, 4 Aug 1996 14:48:14 -0400
+      Message-Id: <96080414481486@ucx.lkg.dec.com>
+      From: zielonko@ucx.lkg.dec.com (Karol Zielonko - UCX engineering)
+      To: zielonko@laddie.ucx.lkg.dec.com
+      Subject: TEST
+      X-VMS-To: SMTP%"zielonko@laddie"
+
+      This is the test text.
+
+   To those who are familiar with the SMTP protocol the commands that precede
+   the RFC 822 message are self explanatory. To those who aren't here is a brief
+   explanation. The MAIL FROM and RCPT TO commands form what is called the
+   "envelope" in RFC 821. The MAIL FROM gives the address to which the mail is
+   returned if it needs to be bounced. The RCPT To command gives the address of
+   a recipient. As with the SMTP protocol the commands must appear in the file
+   in the order given above, that is MAIL FROM first followed by RCPT TO and
+   then DATA. Also as with the SMTP protocol there must be one and only one MAIL
+   FROM command. There must be at least one RCPT TO command but there can be
+   more, one for each recipient. The DATA command *must* follow the last RCPT TO
+   command. It can't be left out since it flags the end of the RCPT TO's and the
+   begining of the header block.
+
+More notes on the file contents:
+
+   The text file can be a variable length or Stream_LF. If it's a variable
+   length file you don't need to add end of line CRLFs. If it's a Stream_LF the
+   LF at the end of each line is sufficient. No CR need be added.
+
+   A blank MAIL FROM is allowed. It looks like:
+      MAIL FROM:<>
+
+   A blank RCPT TO is not allowed.
+
+   Each RCPT TO command must contain only one address. If the mail is to go to
+   multiple addresses then one RCPT TO command for each address is required.
+   
+   Since MIME by definition complies with RFC822, MIME mail works too.
+
+   Do *not* include a Return-Path header in the RFC 822 headers. UCX SMTP puts
+   one in (if the mail is to be delivered locally) based on the MAIL FROM
+   command. If the mail is relayed to another SMTP host the Return-Path will be
+   gleaned from the MAIL FROM command on the final destination host.
+
+How to invoke the new function:
+
+You can invoke the new function from DCL or from a program. You simply write
+your RFC 822 mail to a file with the SMTP commands as above and pass the name of
+the file to UCX SMTP.
+
+   From a program:
+
+      UCX$SMTP_MAILSHR.EXE contains a routine called UCX$SMTP_SEND_FROM_FILE.
+      This routine is declared as follows:
+
+         unsigned int UCX$SMTP_SEND_FROM_FILE(infile_name, logfd, log_level)
+         char *infile_name;
+         FILE *logfd;
+         int log_level;
+
+      Arguments:
+         infile_name
+	 The name of the text file where the RFC 822 mail is located.
+
+	 logfd
+	 Optional. If non-null is the pointer to the file to which to log
+	 diagnostics. Ie. file must be opened by caller before calling. If no
+	 file is specified then output goes to SYS$OUTPUT.
+
+	 log_level
+	 Optional. Tells code what level of diagnostics to use. At the point
+	 it's either 1 or 0 for on or off. The default is 0 - off.
+
+      To call the routine link with UCX$SMTP_MAILSHR.EXE.
+
+   From DCL:
+
+      A jacket program, UCX$SMTP_SFF.EXE takes Unix style parameters and passes
+      them to UCX$SMTP_SEND_FROM_FILE. Here's the "usage" text from the program.
+
+        Usage: SMTP_SFF infile_name [-logfile logfile_name] [-loglevel log_level]
+	infile_name	    : Name of text input file containing SMTP mail to send.
+	logfile_name	    : Name of text log file to log diagnostics to. (Default SYS$OUTPUT).
+	log_level	    : Debug log level. 1 or 0 at this time. (Default 0)
+
+Miscellaneous Notes:
+
+UCX$SMTP_SEND_FROM_FILE adds a Received: header to the headers you provide.
+
+The process must have either bypass, sysprv or oper priv's enabled. This
+limitation is because there is a great spoofing potential when one has control
+over the headers of a mail.
+
+At this time UCX$SMTP_SEND_FROM_FILE doesn't add any headers itself except for
+the Received: and Return-Path: headers. One future enhancement may be to check
+for cretain headers and add them if not present. Message-ID: and Date: would be
+two obvious ones.
+
+
+So why did I do this?
+
+In the very least I see this a convenient test tool and I've already used it in
+that capacity.
+
+More importantly it provides a simple way for programs that want to format an
+SMTP RFC 822 message (with control over the headers) and have it delivered to do
+so. For example VMS Majordomo needs this a capability. Before this the only way
+to get the same effect was to write a pseudo SMTP client into your program and
+connect to port 25 and send the mail that way. VMS callable mail to an SMTP%
+address is not enough because you don't have control over the headers.
+
+One last note. At this point this code is entirely experimental. It is *not*
+supported or documented. Feel free to tell anyone about it but don't file a QAR
+or CLD on it. That's the bad news. The good news is that we are open to
+suggestions on enhancements especially around configurability of the code. Who
+knows, once it's been around we may add support for it. 

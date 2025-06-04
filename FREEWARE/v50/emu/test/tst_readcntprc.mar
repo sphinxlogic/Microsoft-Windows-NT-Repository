@@ -1,0 +1,400 @@
+	.TITLE	TST_READCNTPRC  
+	.IDENT /V01-001/
+;
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+	EMUCMIPDEF
+	EMUDBDEF
+	EMUPSRDEF
+	EMUSYSDEF
+	EMUMOPDEF
+	EMUCTPDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	$SECDEF				; Global Section 
+	.PSECT	DATA WRT,NOEXE,QUAD
+
+; returned addresses
+	.ALIGN	LONG
+CNTRFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; 
+		ORG = IDX,-			; Keyed file (Finally)
+		DNM = <EMU5_DAT:EMU_CNTPOLL.DAT>,-; Default Filename 
+		FOP = CIF,-		; Create if doesn't exist
+		XAB = CNTRXAB
+CNTRRAB:	
+	$RAB	FAB = CNTRFAB,-		; pointer to FAB
+		RBF = CNTREC_BUF,-		; o/p buffer 
+		RSZ = CNTREC_SIZE,-	; Write this many bytes
+		UBF = CNTREC_BUF,-		; i/p buffer 
+		USZ = CNTREC_SIZE,-		; Write this many bytes
+		RAC = KEY,-		; Keyed file
+		KBF = CNTREC_BUF,-		; Key location
+		KSZ = 40
+CNTRXAB:
+		$XABKEY	REF = 0,-  	; Protocol 
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len
+		FLG = <DUP>,-		; dups
+		NXT = CNTRXAB1
+CNTRXAB1:
+		$XABKEY	REF = 1,-  	; Address
+		DTP = STG,-             ; Key = 4 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 24,-              ; Key len
+		FLG = <CHG,DUP>,-	; Change, dups
+		NXT = CNTRXAB2
+CNTRXAB2:
+		$XABKEY	REF = 2,-  	; Entity 
+		DTP = STG,-             ; Key = 12 bytes binary (ascending)
+		POS = 28,-               ; Key position
+		SIZ = 12,-              ; Key len
+		FLG = <CHG,DUP>,-		; Change, dups
+		NXT = CNTRXAB3
+CNTRXAB3:
+
+		$XABKEY	REF = 3,-  	; Primary key 
+		DTP = STG,-             ; Key = 40 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 40,-              ; Key len
+		FLG = <CHG>		; Change, nodups
+
+
+CNTREC_BUF:	.BLKB	CPL_DB_C_MRS
+
+
+;KEY_BUF:
+;PROT:		.LONG
+;ADDR:		.BLKL	6		; .long siz, + up to 20 addr digits
+;ENTITY:		.BLKL	3               ; TBL.PRM.INSTANCE
+;LASRESP:	.QUAD			; Time last response
+;POLLS:		.LONG			; Number of polls
+;RESP:		.LONG			; Number of responses
+;FUNC:		.LONG			; Get counter function
+;TBLCNT:		.LONG			; Count of entries
+;IDTBL:		.BLKL	4*48		; Up to 48 tbl.prm.cntid entries
+CNTREC_SIZE = .-CNTREC_BUF
+
+	.ALIGN	LONG
+CNTRPRCFAB:	$FAB  FAC = <DEL,UPD,GET,PUT>,-        	; Access
+		SHR = <DEL,UPD,GET,PUT>,- ; Share with readers
+		FOP = CIF,-
+		ORG = IDX,-			; Keyed file (Finally)
+		FNM = <EMU_CNTPRC>,-      ; Filename 
+		DNM = <EMU5_DAT:EMU_CNTPRC.DAT.>,-      ; Filename 
+		XAB = CNTRPRCXAB
+CNTRPRCRAB:	
+		$RAB  FAB = CNTRPRCFAB,-            ; Record 
+ 		RBF = CNTRPRCREC,-
+		UBF = CNTRPRCREC,-
+		USZ = CTP_DB_C_RECSIZE,-
+		RSZ = CTP_DB_C_RECSIZE,-
+		RAC = KEY,-		 ; KEY access
+		KBF = CNTRPRCREC,-
+		KSZ = 4
+CNTRPRCXAB:
+	  	$XABKEY	REF = 0,-  		; Primary key
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4                 ; Key len
+
+	.ALIGN	LONG
+CNTRPRCREC:	.BLKB	CTP_DB_C_RECSIZE 
+
+NAMBUF:		.BLKB	80
+NAMDESC:	.LONG	.-NAMBUF
+		.ADDRESS  NAMBUF
+
+FAOBUF:		.BLKB	132
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+
+RECBUF:
+EMUDB_KEYBUF:	.BLKB	DB_C_KSZ 			; 
+RECDAT:		.BLKB	DB_REC_C_MRS-DB_C_KSZ		; 768 (Total)
+RECBUF_DESC:	.LONG	.-RECBUF
+		.ADDRESS  RECBUF
+
+CTP1STR:	.ASCID	/!UL   !AS/
+CTP2STR:	.ASCID	/Last: !%D, Polls: !UL, Responses: !UL, Func: !UL, Count: !UL/
+CPRCSTR:	.ASCID	/!32AS    !4(10UL)/
+CPRTSTR:	.ASCID	/                            !4(10%D)/
+CPRHSTR:	.ASCID	/Strng: !UL, Ltrng: !UL, Stcnt: !UL, Ltcnt: !UL/
+LINCNT:	.LONG
+;
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 48
+VD_COLS: 	.LONG 132
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+BYTCNT:		.WORD		; Input Byte counter
+OSITYP: 	.WORD   ^XFE00
+; Misc SMG ...
+PROMPT:		.ASCII	/YEAM> /
+CMDCOL:		.LONG	1
+CMDROW:		.LONG	1
+CURCOL:		.LONG   1
+CURROW:		.LONG   3
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+TIMEOUT:	.LONG	15
+CHARCNT:	.LONG	15
+FIRSTFLG:	.LONG	0
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+;
+
+	.PSECT	CODE	EXE,NOWRT,LONG
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TST_READCNTPRC
+
+	BSBW	CREATE_ENVIRONMENT
+
+	$OPEN	FAB=CNTRFAB
+	BLBC	R0,5$
+	$CONNECT RAB=CNTRRAB
+	BLBC	R0,5$
+        $OPEN	FAB=CNTRPRCFAB
+	BLBC	R0,5$
+	$CONNECT RAB=CNTRPRCRAB
+	BLBS	R0,START
+5$:
+	RET	
+START:
+	MOVB	#RAB$C_SEQ,CNTRRAB+RAB$B_RAC
+10$:
+	MOVW	#CNTREC_SIZE ,CNTRRAB+RAB$W_RSZ
+	MOVW	#CNTREC_SIZE ,CNTRRAB+RAB$W_USZ
+	$GET	RAB=CNTRRAB 
+	BLBS	R0,20$
+	RET
+20$:
+; Translate and display poll rec...
+	MOVAL	CNTREC_BUF,R6
+	MOVL	#80,NAMDESC
+	PUSHAL	NAMDESC
+	ADDL3	#CPL_DB_B24_ADDR,R6,R1
+	ADDL3	#4,R1,-(SP)
+	PUSHL	CPL_DB_B24_ADDR(R6)
+	PUSHL	CPL_DB_L_PROT(R6)
+	CALLS	#4,ADDR2NAME
+	BLBS	R0,50$
+	RET
+50$:
+; 1st line
+	MOVL	#132,FAODESC
+	PUSHAL	NAMDESC
+	PUSHL	CPL_DB_L_PROT(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	CTP1STR
+	CALLS	#5,SYS$FAO
+	BLBS	R0,60$
+	RET
+60$:
+	BSBW	PRINT
+; 2ND LINE
+; 1st line
+	MOVL	#132,FAODESC
+	PUSHL	CPL_DB_L_TBLCNT(R6) 
+	PUSHL	CPL_DB_L_FUNC(R6)
+	PUSHL	CPL_DB_L_RESP(R6)
+	PUSHL	CPL_DB_L_POLLS(R6)
+	ADDL3	R6,#CPL_DB_Q_LASRESP,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	CTP2STR
+	CALLS	#8,SYS$FAO
+	BLBS	R0,70$
+	RET
+70$:
+	BSBW	PRINT
+; Get each prc rec for this poll rec
+	MOVL	CPL_DB_L_TBLCNT(R6),R11		;loop
+        ADDL	#CPL_DB_C_IDTBL,R6		; Start
+100$:
+	MOVAL	CNTRPRCREC,R7
+	MOVL	CPL_DB_L_CNTID(R6),CTP_DB_L_CNTID(R7)	; Set key
+	MOVW	#CTP_DB_C_RECSIZE ,CNTRPRCRAB+RAB$W_RSZ
+	MOVW	#CTP_DB_C_RECSIZE ,CNTRPRCRAB+RAB$W_USZ
+	$GET	RAB=CNTRPRCRAB
+	BLBS	R0,110$					; Must exist
+	brw	10$
+110$:
+; Header
+	MOVL	#132,FAODESC
+	PUSHL	CTP_DB_L_LTCNT(R6) 
+	PUSHL	CTP_DB_L_STCNT(R6)
+	PUSHL	CTP_DB_L_LTRNG(R6)
+	PUSHL	CTP_DB_L_STRNG(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	CPRHSTR
+	CALLS	#7,SYS$FAO
+	BLBS	R0,130$
+	RET
+130$:
+	BSBW	PRINT
+; Times
+	MOVL	#132,FAODESC
+	ADDL3	#CTP_DB_TQ_TIMTBL,R7,R1
+	ADDL3	#24,R1,-(SP)
+	ADDL3	#16,R1,-(SP)
+	ADDL3	#8,R1,-(SP)
+	PUSHL	R1
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	CPRTSTR
+	CALLS	#7,SYS$FAO
+	BLBS	R0,140$
+	RET
+140$:	
+	BSBW	PRINT
+	BRW	147$
+
+145$:
+	MOVAL	CNTRPRCREC,R7
+	MOVL	CPL_DB_L_CNTID(R6),CTP_DB_L_CNTID(R7)	; Set key
+	$GET	RAB=CNTRPRCRAB
+	BLBS	R0,147$					; Must exist
+	RET
+147$:	
+
+; Fool paramxlt...
+	MOVAL	RECBUF,R1
+	MOVL	CPL_DB_L_TABLE(R6),DB_REC_L_TABLE(R1)
+	MOVL	CPL_DB_L_PARAM(R6),DB_REC_L_PARAM(R1)
+
+	PUSHL	#DB_XLTOPT_M_SUPDAT	; OPT
+	MOVL	#80,-(SP)		; Line len
+	PUSHAL	LINCNT
+	PUSHAL	NAMDESC
+	PUSHAL	RECBUF_DESC
+	CALLS	#5,G^PARAMXLT
+	BLBS	R0,120$
+	RET
+120$:
+; Counts
+	MOVL	#132,FAODESC
+	ADDL3	#CTP_DB_TL_SAMTBL,R7,R1
+	PUSHL	12(R1)
+	PUSHL	8(R1)
+	PUSHL	4(R1)
+	PUSHL	(R1)
+	PUSHAL	NAMDESC
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	CPRCSTR
+	CALLS	#8,SYS$FAO
+        BLBS	R0,150$
+	RET
+150$:
+	BSBW	PRINT
+        ADDL	#CPL_DB_C_ENTSIZ,R6		; Start
+        SOBGTR	R11,145$
+	BRW	10$
+
+	RET
+
+
+
+
+
+
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+;		BSBW	SCA_ERROR_CHK
+		RSB
+
+PRINTH:		
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHL	R1			; Addr of .ascid in R1
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+;		BSBW	SCA_ERROR_CHK
+		RSB
+
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Virtual Display
+;
+CR_DISP:
+	CLRL	-(SP)
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	SCA_ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	SCA_ERROR_CHK
+;
+; Enable Unsolocited Input
+;
+;	PUSHAL	GET_INPUT                        ; AST Routine
+;	PUSHAL	PB_BOARD                         ; PB ID
+;	CALLS	#2,G^SMG$ENABLE_UNSOLICITED_INPUT
+;	BSBW	SCA_ERROR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	SCA_ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	SCA_ERROR_CHK
+;
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	RSB
+SCA_ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	$EXIT_S	R0
+	.END	TST_READCNTPRC
+
+
+

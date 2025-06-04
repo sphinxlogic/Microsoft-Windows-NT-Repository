@@ -1,0 +1,67 @@
+1 EMU_IPX   
+ Collection of routines used to process Netware IPX/SPX protocols. 
+ See individual routines for descriptions
+2 GETIPX
+ This routine requests config data from  specified IPX Network address 
+ with an IPX Config request packet.
+ The node portion of the address is not present, the request is broadcast, 
+ thus addressing ALL Netware nodes on that segment. A list of exclusion 
+ may be supplied to supress addresses we do not want to hear from.
+
+
+3 Input
+	P1	.address of descriptor pointing to netware address
+		if the len is 4 then it is a netware segment and the 
+		node address is broadcast. If the len is 10 the node
+		address is included and the probe is directed to that 
+		node alone.
+	P2	.Addr of desc pointing to outp buffer
+	P3 	.address of .long where number of responses received is written 
+	P4	(optional) .address of descriptor pointing to list of
+		exclusion addresses. On a brodcast, these addresses 
+		are sepecificaly instructed to not respond.
+		May be up to 80 addresses in len. 
+3 Output
+	For each node responding the following frame is added to the output
+	buffer:
+	IPX packet header	30 bytes
+	Major version		1
+	Minor version		1
+	SPX diag socket		2
+	Component count		1
+  followed by the number of components specified:
+  Component id			1
+ If component id = 1-4 then id only is present
+ if component id = 5-7 then id is followed by:
+	local net count		1
+	and for each net:
+	net type		1
+	net addr		4
+	node addr		6
+ 
+3 Returns
+	SS$_NORMAL	Requested loop was succesful
+	SS$_UNREACHABLE	Failed to receive response from target
+	SS$_ACCVIO	Can' read input params or can't write outp field
+	SS$_BUFFEROVF	Output buffer too small for all responses
+			 - partial return - 
+	SS$_TOOMUCHDATA	Too many exclusion addresses. (max = 80)
+	Any from ASSETHCHN, PHYSADR, GETIPX_ROUTER, $QIO
+2 GETIPX_ROUTER
+ This routine requests the router to a specified IPX network using 
+ a RIP request packet. If a response is received, the mac layer address
+ of the router is returned.
+
+3 Input
+	P1	.address of 4 byte IPX network address. This is the IPX 
+		segment we want a route to.
+	P2	.Addr of 6 byte area to write the mac layer address of the 
+		responding router to.
+3 Output
+		The mac layer address is written to the output if a 
+		response is received.
+3 Returns
+	SS$_NORMAL	Request was succesful - address writtten
+	SS$_UNREACHABLE	Failed to receive response from target
+	SS$_ACCVIO	Can' read input params or can't write outp field
+	Any from ASSETHCHN, PHYSADR, $QIO

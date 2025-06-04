@@ -1,0 +1,544 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.HTD]HTD_ADMIN.SDML">
+<META NAME="date" CONTENT="Thu, 25 Jan 2001 04:55:44">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Server Administration</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Technical Overview</H1>
+
+<A NAME="236">
+<H2>15 - Server Administration</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+15.1 - <A HREF="htd_1500.html#237" TARGET="_self">Authorization</A>
+<BR>15.2 - <A HREF="htd_1500.html#238" TARGET="_self">Breaking-in To The Server!&nbsp;</A>
+<BR>15.3 - <A HREF="htd_1500.html#240" TARGET="_self">HTTPd Server Reports</A>
+<BR>15.4 - <A HREF="htd_1500.html#241" TARGET="_self">HTTPd Server Revise</A>
+<BR>15.5 - <A HREF="htd_1500.html#242" TARGET="_self">HTTPd Server Action</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="htd_1600.html" TARGET="_self">next</A>] [<A HREF="htd_1400.html" TARGET="_self">previous</A>] [<A HREF="htd_0001.html"TARGET="_top" >contents</A>] [<A HREF="htd_1500.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> All server configuration files, with the execption of the authentication
+databases, are plain text and may be modified with any prefered editor.&nbsp; 
+However the majority of these can also be administered on-line through a
+browser.&nbsp;
+
+<P><CENTER>
+<IMG SRC="image.gif" BORDER=0 ALT="[graphic]" ALIGN=bottom>&nbsp;
+<A TARGET="_top" HREF="admin.gif" TARGET="_blank">Server Administration Graphic</A>
+</CENTER>
+
+<P> In addition a <A TARGET="_top" HREF="/upd/ht_root/">Web <B>Upd</B>ate facility</A> allows
+some administration of file system portions of the Web.
+
+See <A HREF="htd_1900.html#277" TARGET="_self">19 - HTTPd Web Update</A>.&nbsp;
+
+<A NAME="237">
+<H3><BR><U>15.1 - Authorization</U></H3>
+</A>
+
+<P> The section <A HREF="htd_1100.html#151" TARGET="_self">11.1 - SYSUAF/Identifier Authentication</A> provides a quick guide
+to setting up authorization for server administration purposes.&nbsp;
+
+<P> It is also recommended that for production sites the path to these reports
+be controlled via authentication and authorization, using both host and
+username restrictions, similar to the following:
+
+<FONT COLOR="#333333"><PRE>  [WHATEVER-REALM]
+  /httpd/-/admin/*  host.ip.addr,~WebMaster,~WhoEverElse,r+w
+</PRE></FONT>
+
+<P> If a full authorization environment is not required but
+administration via browser is still desired restrict access to browsers
+executing on the server system itself, using an appropriate
+SYSUAF-authenticated username.&nbsp; Provision of a VMS account for server
+administration only is quite feasable, see
+<A HREF="htd_1200.html#178" TARGET="_self">12.9.3 - Nil-Access VMS Accounts</A>.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  [VMS]
+  /httpd/-/admin/*  #localhost,~<I>username</I>,r+w
+</PRE></FONT>
+
+<P> If SSL is in use (see <A HREF="htd_1400.html#218" TARGET="_self">14 - Secure Sockets Layer</A>) then username/password
+privacy is inherently secured via the encrypted communications.&nbsp; To restrict
+server administration functions to this secure environment add the following
+to the HTTPD$MAP configuration file:
+
+<FONT COLOR="#333333"><PRE>  /httpd/-/admin/*  "403 Access denied."  ![sc:https]
+</PRE></FONT>
+
+<P> When using the <I>revise</I> capability of the administration menu it
+is necessary to comply with all the requirements for Web update of files.&nbsp;
+This is discussed in general terms in <A HREF="htd_1900.html#277" TARGET="_self">19 - HTTPd Web Update</A>.&nbsp;
+Revision of server configuration files requires path permissions allowing
+write access for the username(s) doing the administration, as well as the
+required ACL on the target directory (in the following example
+HT_ROOT:[LOCAL]).
+
+<FONT COLOR="#333333"><PRE>  [VMS]
+  /httpd/-/admin/*  #localhost,~<I>username</I>,r+w
+  /ht_root/local/*  #localhost,~<I>username</I>,r+w
+</PRE></FONT>
+
+<P> It is possible to allow general access to the administration menu and
+reports while restricting the ability to initiate server actions such as a
+restart!&nbsp; Using the WORLD realm against the path is necessary, for the obvious
+security reason, the server administration module will not allow itself to be
+used without an authenticated username, provided as a pseudo-authenticated
+&quot;WORLD&quot;.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  [VMS]
+  /httpd/-/admin/control/*  #localhost,~<I>username</I>,r+w
+  [WORLD]
+  /httpd/-/admin/* r
+</PRE></FONT>
+
+<A NAME="238">
+<H3><BR><U>15.2 - Breaking-in To The Server!&nbsp;</U></H3>
+</A>
+
+<P> The server's authentication/authorization environment can be circumvented
+under special circumstances.&nbsp;  <B>Note that this is not possible without
+administrator action and persists only as long as the administrator actually
+performs the action!&nbsp;</B>
+
+<P> This provision exists for only four foreseeable situations:
+<OL>
+
+<LI> ad hoc server configuration
+<LI> initial configuration of the authentication environment
+<LI> loss of the administrator's password
+<LI> demonstration/experimentation purposes
+</OL>
+
+
+<A NAME="239">
+<H3><BR>Method</H3>
+</A>
+
+<P> If performing the initial authentication configuration
+<U><B>make sure the HT_AUTH logical is correctly
+defined</B></U> when planning to use HTA databases.&nbsp;
+
+<P> Manually start a new instance of the server on a non-standard port using
+the /PROMISCUOUS qualifier.&nbsp;  This can be done at the command line.&nbsp;  There is
+now a security hole.&nbsp;  Example:
+
+<FONT COLOR="#333333"><PRE>  $ HTTPD = "$HT_EXE:HTTPD.EXE"
+  $ SPAWN /WAIT HTTPD /NOLOG /SERVICE=8088 /PROMISCUOUS
+</PRE></FONT>
+
+<P> This server with then allow access using any username/password combination.&nbsp;
+Even if not completely paranoid it's perhaps a good idea to append a specific
+password to the qualifier, the server will then only authenticate to that.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ SPAWN /WAIT HTTPD /NOLOG /SERVICE=8088 /PROMISCUOUS=VERYCAUTIOUS
+</PRE></FONT>
+
+<P> Access this instance of the server with a browser and use the server
+administration menu.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  <A TARGET="_top" HREF="/httpd/-/admin/">http://host:port/httpd/-/admin/</A>
+</PRE></FONT>
+
+<P> It is now possible to review server-generated reports, check rule mappings,
+create databases, enter username details, change the administrator's password
+to something known, etc., etc.&nbsp; Shutdown that server again (ctrl-Y) and the
+security hole disappears.&nbsp;
+
+<P> Note that if a site authorization rule already maps the administration
+menu path or configuration file path the server may report duplicate path
+errors.&nbsp; This is due to the /PROMISCUOUS startup effectively introducing the
+following two rules, ensuring the menu and configuration files can be accessed
+regardless of anything already in or missing from the authorization file.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  [PROMISCUOUS]
+  # access to the server administration menu
+  /httpd/-/admin/* r+w
+  # access to write into the "usual" location for configuration files
+  /ht_root/local/* r+w
+</PRE></FONT>
+
+<P> Other rules may be placed in the local configuration file for the
+[PROMISCUOUS] realm specifically for use during this mode of access.&nbsp; They will
+not apply during normal server operation.&nbsp;  Be sure they are placed before other
+rules in the file.&nbsp;
+
+<A NAME="240">
+<H3><BR><U>15.3 - HTTPd Server Reports</U></H3>
+</A>
+
+<P> The server provides a number of internally generated reports.&nbsp;
+
+<P> It is possible to use this facility standalone, without configuring
+authorization, see <A HREF="htd_1500.html#238" TARGET="_self">15.2 - Breaking-in To The Server!&nbsp;</A>.&nbsp;
+<OL>
+
+<LI><B>Statistics - </B>
+Server process up-time, CPU-time and other resources consumed, number of
+connections processed, number of requests of each HTTP method, type of
+processing involved (HTTPd module used), number of bytes processed, etc.&nbsp;
+<P>
+<LI><B>Configuration - </B>
+A tabular summary of the server's current configuration.&nbsp;  This is
+a convenient method for viewing the information from the HTTPD$CONFIG file.&nbsp;
+<P>
+<LI><B>Services - </B>
+A tabular report listing the current services (virtual servers) and the
+service-specific parameters.&nbsp;
+<P>
+<LI><B>Messages - </B>
+A tabular report of the server's current message database, multiple
+languages shown if configured that way.&nbsp;
+<P>
+<LI><B>Mapping - </B>
+All loaded mapping rules and any cached USER rule paths.&nbsp;  A selector allows
+rules applying only to one particular virtual server to be displayed.&nbsp;
+<P>
+<LI><B>Path Authorization - </B>
+If authorization is in use (see <A HREF="htd_1200.html#157" TARGET="_self">12 - Authentication and Authorization</A>) this
+report lists the paths with associated authorization and access control.&nbsp;
+<P>
+<LI><B>User Authentication - </B>
+List any users that have been authorized since the server was last
+started, the realm authorized from, the group it applies to (if any), and what
+the user's capabilities are (allowed HTTP methods).&nbsp; A time-stamp and counters
+provide additional information.&nbsp;
+<P>
+<LI><B>Cache - </B>
+Allows monitoring of cache behaviour and performance, as well as the files
+currently in the cache.&nbsp; For further information see
+<A HREF="htd_1700.html#257" TARGET="_self">17 - Cache</A>.&nbsp;
+<P>
+<LI><B>DCL Scripting</B>
+
+<P> Provides some DCL, CGI and CGIplus scripting information.&nbsp;
+<UL>
+
+<P>
+<LI>  DCL module statistics (same information as displayed in the server
+statistics report).&nbsp;  These are cumulative for the entire life of the system
+(unless zeroed).&nbsp;
+<P>
+<LI> Subprocess information shows how many actual subprocesses exist at the
+time of the report, as indicated by the PID and bolded, non-zero liftime (in
+minutes).&nbsp; The <I>soft-limit</I> specifies how many CGIplus scripts are
+allowed to continue existing before the least used is deleted and the
+<I>hard-limit</I> show how many subprocesses may actually exist at any
+one time (the margin allows for subprocess deletion latency).&nbsp; A count of how
+many times the CGIplus subprocesses have been explicitly purged (button
+available on this report page).&nbsp; The <I>life-time</I> of zombie processes
+(in minutes, zero implying use of zombies is disabled) and the number that
+have been purged due to expiry.&nbsp; CGIplus subprocess life-time (in minutes, zero
+implying indefinite), the number purged due to life-time expiry and the number
+of CGIplus subprocesses that the server has actually purged (deleted) to
+maintain the soft-limit margin specified above.&nbsp;
+<P>
+<LI> Each of the allocated subprocess data structures is listed.&nbsp;  There may
+be zero up to hard-limit items listed here depending on demand for DCL
+activities and the life of the server.&nbsp;  Items with a PID shown indicate an
+actual subprocess existing.&nbsp;  This can be a zombie subprocess or a CGIplus
+subprocess.&nbsp;  If no subprocess is indicated then the other information
+represents the state the last time the item's associated subprocess completed.&nbsp;
+Information includes the script (URL-style path) or DCL command, total count of
+times the item has been used and the last time it was.&nbsp;  The zombie count
+indicates the number of time the same subprocess finished a request and entered
+the <I>zombie</I> state.&nbsp;  The CGIplus column indicates it is/was a CGIplus
+script and shows the total number of times that particular script has been/was
+used.&nbsp;  If the subprocess is currently in use the client information show the
+client host name.&nbsp;
+<P>
+<LI> If any subprocesses are associated with any data structure a
+<I>purge</I> button is provided that forces all subprocesses to be
+deleted.&nbsp;  This can be useful if a new script image is compiled and it is
+required all scripts now use this.&nbsp;  If a script is currently processing a
+request the subprocess deletion occurs when that processing is complete.&nbsp; The
+purge button <B>does not force</B> a subprocess to delete, so a
+second button <B>forces</B> all subprocesses to delete immediately.&nbsp; 
+This can be used to forceably clear errant scripts, etc., but be warned script
+processing is indiscrimately stopped!&nbsp;
+</UL>
+
+<P>
+<LI><B>DECnet Scripting</B>
+
+<P> DECnet module information shows totals for DECnet scripting usage and the
+DECnet connection list.&nbsp;
+
+<P> This list will grow, up to the specified configuration maximum, as
+conconurrent scripting demand occurs.&nbsp; Maintained connections are indicated by
+the bolded, non-zero lifetime (in minutes).&nbsp; When this reaches zero the task is
+disconnected.&nbsp; The current/last task for that connection is indicated, along
+with the number of times the connection was reused and a total number of uses
+for that list item.&nbsp;
+
+<P> <I>Purge</I> and <I>force</I> buttons allow current links to be
+broken after request completion or forcibly disconnected.&nbsp;
+<P>
+<LI><B>Memory - </B>
+Provides a report and does an integrity check on each of the Virtual
+Memory (VM) zones employed by the WASD HTTPd.&nbsp;
+<P>
+<LI><B>Process - </B>
+Lists all processes on the current system owned by the server account.&nbsp; 
+From this list a process can be selected to have a &quot;SHOW PROCESS /ALL&quot;
+performed on it, displayed on a report page.&nbsp;
+<P>
+<LI><B>Proxy - </B>
+If proxy serving is enabled a report providing statistics on the various
+HTTP methods used, network and cache traffic, cache reads and writes, requests
+not cachable, and host name lookup are provided.&nbsp;  This may used to help guage
+the effectiveness of the cache.&nbsp;
+<P>
+<LI><B>Request</B>
+
+<P> Lists current requests (always shows at least your own connection
+accessing this report :^) and if enabled by configuration a history list of
+the most recent requests (enabled by the configuration parameter
+[RequestHistory]).  Current requests numbers may selected for
+<I>one-shot</I> WATCH-processing reports from this page (see
+<A HREF="htd_1600.html#245" TARGET="_self">16 - WATCH Facility</A>).&nbsp;
+
+<P> Another diagnostic tool is available from the same link, the
+<I>WATCH-peek Report</I>.&nbsp;  Two &quot;double-dots&quot; precede the request
+number.&nbsp;  The first accesses the basic peek report, providing the contents
+selected internal fields and data structures of the request.&nbsp;  This is
+primarily intended as a problem investiagtion and development tool, and will be
+of limited value without an understanding of server internals.&nbsp;  The second
+&quot;double-dot&quot; accesses the internals then begins a one-shot
+WATCH-processing report.&nbsp; 
+<P>
+<LI><B>SSL - </B>
+The SSL report lists counts of the number of SSL transactions initiated
+and completed, along with session cache statistics for the currently connected
+SSL service.&nbsp; It also lists the ciphers available and current session
+information.&nbsp;
+<P>
+<LI><B>Activity</B>
+
+<P> Provide a graphical <I>snapshot</I> of server activity of a given
+period.&nbsp;
+
+<P> This is dynamic data, held in memory only, and so is current only from the
+latest server startup.&nbsp; It is enabled by the configuration parameter
+[ActivityDays]. The administration menu provides several, represented
+as a period of hours before the present time.&nbsp; Number of requests and bytes sent
+to the client are represented by a histogram with respective means for each
+during the period by a line graph.&nbsp; A <I>greyed</I> area indicates no data
+available for that time (i.e. before the latest server startup, or in the
+future).&nbsp;
+
+<P> Activity data is accumulated on a per-minute basis.&nbsp; This is the maximum
+granularity of any report.&nbsp; When reports are selected that can display less
+than this one minute granularity (i.e. with periods greater than four hours)
+the value shown is the <B>peak</B> of the number of minutes sampled
+for display.&nbsp; This better represents the load on the server than would a mean
+of those samples.&nbsp;
+
+<P> For browsers recognised as capable (with v4.3 of the server these are
+Netscape Navigator 3.0ff and Microsoft Internet Explorer 3.02ff) this report
+is JavaScript-enabled, and if in focus the browser refreshes itself at an
+interval appropriate to the reporting period.&nbsp;  If not in focus, the report is
+automatically refreshed when the browser is brought back into focus.&nbsp;
+
+<P> The graph is an image map, various regions of which allow the selection of
+other reports with different periods or durations.&nbsp; This allows previous
+periods to be examined at various levels of detail using the graph for
+navigation.&nbsp; Various sections may have no mapping as appropriate to the current
+report.&nbsp;
+
+<P> The following example shows the layout for a four hour report.&nbsp; The upper
+and lower sections have distinct functions.&nbsp; The middle 50% of the upper
+section allows the same end time (most commonly the current hour) to be
+examined over twice the current period, in this case it would be over eight
+hours.&nbsp; The left 25% allows the previous fours hours to be viewed (if such data
+exists), and for non-current reports the right 25% allows the next four hours
+to be viewed.&nbsp; The lower half can be divided into sections representing hours
+or days depending on the period of the current report.&nbsp; This allows that period
+to be viewed in greater detail.&nbsp; For single hour reports this section, of
+course, is not mapped.&nbsp;
+
+<P> Remember that the URL of the mapped section will be displayed in the
+status bar of the browser.&nbsp; As the URL contains time components it is not a
+difficult task to decipher the URL displayed to see the exact time and period
+being selected.&nbsp;
+
+<P><CENTER>
+<IMG SRC="image.gif" BORDER=0 ALT="[graphic]" ALIGN=bottom>&nbsp;
+<A TARGET="_top" HREF="activity.gif" TARGET="_blank">Server Activity Graphic</A>
+</CENTER>
+
+<P>
+<P>
+<LI><B>WATCH - </B>
+This report provides an online, real-time, in-browser-window view of request
+processing on the <B>running server</B>.&nbsp; See
+<A HREF="htd_1600.html#245" TARGET="_self">16 - WATCH Facility</A> for details.&nbsp;
+</OL>
+
+<P>
+
+<A NAME="241">
+<H3><BR><U>15.4 - HTTPd Server Revise</U></H3>
+</A>
+
+<P> The server provides a comprehensive configuration revision facility.&nbsp;
+<P>
+<OL>
+
+<LI> <B>Configuration - </B>
+A form-driven interface allows the current configuration of the server to be
+altered on-line.&nbsp;  This configuration may then be saved to the on-disk file and
+then the server could be restarted using the new parameters.&nbsp;  The source of the
+current configuration can be either the server itself (from it's volatile,
+in-memory parameters) or from the on-disk configuration file.&nbsp;  In addition it
+is possible to directly edit and update the on-disk file.&nbsp;
+<P>
+<LI> <B>Services - </B>
+A form-driven interface allows service (virtual server) configuration.&nbsp;
+It is also possible to directly edit and update the on-disk file.&nbsp;  The server
+must be restarted for service changes to take effect.&nbsp;
+<P>
+<LI> <B>Messages - </B>
+A form-driven interface allows the the server messages to be modified.&nbsp;
+It is also possible to directly edit and update the on-disk file.&nbsp;  The
+server can then be restarted to use the modified database (see
+<A HREF="htd_1500.html#242" TARGET="_self">15.5 - HTTPd Server Action</A>).&nbsp;
+<P>
+<LI> <B>Mapping - </B>
+No form-driven interface is currently available for changing the mapping rules.&nbsp; 
+However it is possible to directly edit and update the on-disk file.&nbsp;  The
+mapping rules could then be reloaded, changing the current server rules (see
+<A HREF="htd_1500.html#242" TARGET="_self">15.5 - HTTPd Server Action</A>).&nbsp;
+<P>
+<LI> <B>Path Authorization - </B>
+No form-driven interface is currently available for changing the path
+authorization configuration.&nbsp; However it is possible to directly edit and update
+the on-disk file.&nbsp;  The path authorization directives could the be reloaded,
+changing the current server authorization (see <A HREF="htd_1500.html#242" TARGET="_self">15.5 - HTTPd Server Action</A>).&nbsp;
+<P>
+<LI> <B>User Authentication - </B>
+User authentication comprises a number of dialogues that allow the
+WASD-specific (HTA) authentication databases to be administered.&nbsp;  These
+include:
+<P>
+<UL>
+
+<LI> creating databases
+<LI> deleting databases
+<LI> accessing databases for administering usernames
+<LI> listing usernames within databases
+<LI> adding usernames
+<LI> deleting usernames
+<LI> modifying username permissions and other data
+<LI> reseting in-server (cached) authentication information
+</UL>
+
+
+<P> Chapter <A HREF="htd_1200.html#157" TARGET="_self">12 - Authentication and Authorization</A> covers authentication detail.&nbsp;
+<P>
+<LI> <B>Site Log - </B>
+This accesses a plain-text file that could be used to record server or other
+significant site configuration changes if desired.&nbsp;  Two methods of access are
+provided.&nbsp;
+<P>
+<OL>
+
+<LI> Site-Log - open the file for editing, placing a
+date/time/author timestamp at the top
+<LI> Edit - open the file editing
+</OL>
+
+
+<P> The file name and/or location may be specified using HTTPD$SITELOG (see
+<A HREF="htd_0500.html#56" TARGET="_self">Logical Names</A>).&nbsp;
+</OL>
+
+
+<A NAME="242">
+<H3><BR><U>15.5 - HTTPd Server Action</U></H3>
+</A>
+
+<P> The server allows certain run-time actions to be initiated.&nbsp;  Many of these
+functions can also be initiated from the command line, see
+<A HREF="htd_0500.html#64" TARGET="_self">5.3.2 - Server Command Line Control</A>.&nbsp;
+
+<P> When multiple servers are executing on a single node or within a cluster
+a JavaScript-driven checkbox appears in the bottom left of the administration
+menu.&nbsp; <B>Checking that box applies any subsequently selected action to
+all servers!&nbsp;</B>
+
+<A NAME="243">
+<H3><BR>Control Section</H3>
+</A>
+<OL>
+
+<LI> <B>Server Restart/restartNOW/Exit/exitNOW - </B>
+The difference between restart/exit and restartNOW/exitNOW is the former waits
+for any current requests to be completed, while the latter does it immediately
+regardless of any current connections.&nbsp;  If the browser has JavaScript enabled a
+cautionary alert requesting confirmation is generated (otherwise there is no
+confirmation).&nbsp;
+<P>
+<LI> <B>Logging On/Off/Flush - </B>
+The HTTPD$LOG logical must be configured to allow access logging to be enabled
+and disabled from this menu.&nbsp;
+<P>
+<LI> <B>Caching On/Off/Purge - </B>
+Caching may be enabled and disabled in an ad hoc fashion using these controls.&nbsp;
+When being disabled after being enabled all previous data is retained.&nbsp;  If
+subsequently reenabled that data is then again available for use.&nbsp;  This allows
+convenient assessment of the subject or even object benefits on the cahing.&nbsp;
+If purged all entries in the cache are removed.&nbsp;
+</OL>
+
+
+<A NAME="244">
+<H3><BR>Configuration <I>Action</I> Section</H3>
+</A>
+<OL>
+
+<P>
+<LI> <B>Statistics Zeroed - </B>
+All counters are zeroed (except the <I>number-of-times-zeroed</I>
+counter!)
+<P>
+<LI> <B>Mapping Rules Reload - </B>
+Reloads the path mapping rules from the on-disk file into the running server,
+clears the user SYSUAF mapping cache.&nbsp;
+
+<P> <B>Caution!&nbsp; </B> If changing CGIplus script mapping it is
+advised to restart the server rather than reload.&nbsp;  Some conflict is possible
+when using new rules while existing CGIplus scripts are executing.&nbsp;
+<P>
+<LI> <B>Path Authorization Reload - </B>
+Reloads the path authorization directives from the on-disk file into the
+running server.&nbsp;
+<P>
+<LI> <B>User Authentication Cache Purge - </B>
+For efficiency reasons authenticated user information is cached for a limited
+period within the running server.&nbsp;  All this cached information may be
+completely purged using this action, forcing subsequent requests to be
+reauthenticated from the on-disk database.&nbsp;
+</OL>
+
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="htd_1600.html" TARGET="_self">next</A>] [<A HREF="htd_1400.html" TARGET="_self">previous</A>] [<A HREF="htd_0001.html"TARGET="_top" >contents</A>] [<A HREF="htd_1500.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

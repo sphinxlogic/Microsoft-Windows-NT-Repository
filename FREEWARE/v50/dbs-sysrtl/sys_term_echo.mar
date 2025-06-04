@@ -1,0 +1,122 @@
+	.title	sys_term_echo
+	.ident	"X1-002"
+
+;+
+; Version:	X1-002
+;
+; Facility:	General routines.
+;
+; Abstract:	To enable/disable terminal echo of input characters.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	28-Aug-1991, DBS, Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS, Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	This module contains two entry points, sys_disable_echo and
+;	sys_enable_echo.  Their functions are obvious...  The result is
+;	achieved by assigning a channel to SYS$INPUT then retrieving the
+;	current terminal characteristics, modifying the necessary bit then
+;	setting the characteristics to reflect the requested change.
+;
+; Calling Sequence:
+;	To disable echo:	call sys_disable_echo ()
+;					-or-
+;				calls	#0, g^sys_disable_echo
+;
+;	To enable echo:		call sys_enable_echo ()
+;					-or-
+;				calls	#0, g^sys_enable_echo
+; Formal Argument(s):
+;	None
+;
+; Implicit Inputs:
+;	It is assumed that we are using SYS$INPUT.
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	As returned by $assign, $dassgn, $qio.
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	$iodef
+	$ttdef
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+tt_desc:	.ascid	"SYS$INPUT"
+tt_chan:	.long	0
+tt_char_s=12
+tt_char:	.blkb	tt_char_s
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -			; entry to disable echo
+sys_disable_echo, ^m<r2>
+
+	clrl	r2			; indicate disable required
+
+	brb	sys_term_echo		; and on to the main code
+
+	.entry -			; entry to enable echo
+sys_enable_echo, ^m<r2>
+
+	movl	#1, r2			; indicate enable required
+
+sys_term_echo:
+
+	$assign_s -			; first we assign a channel to
+		devnam=tt_desc, -	;  SYS$INPUT
+		chan=tt_chan
+	blbc	r0, 90$			; bail out if this fails
+	$qiow_s	chan=tt_chan, -		; now we return the current
+		func=#io$_sensemode, -	;  terminal characteristics
+		p1=tt_char, -
+		p2=#tt_char_s
+	blbc	r0, 90$			; and bail out on any errors
+	tstl	r2			; is this an enable?
+	bneq	10$			; yes, so go and do it
+	bisl	#tt$m_noecho, -		; no, this is a disable so set
+		tt_char+4		;  the appropriate bit
+	brb	20$
+10$:	bicl	#tt$m_noecho, -		; here we enable echo by resetting
+		tt_char+4		;  the appropriate bit
+20$:	$qiow_s	chan=tt_chan, -		; now we set the characteristics
+		func=#io$_setmode, -	;  to what was required
+		p1=tt_char, -
+		p2=#tt_char_s
+90$:	$dassgn_s -			; and deassign the channel before
+		chan=tt_chan		;  we return to the caller
+
+	ret
+
+	.end

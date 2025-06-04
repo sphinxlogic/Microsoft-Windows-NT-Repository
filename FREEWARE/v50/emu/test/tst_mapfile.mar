@@ -1,0 +1,70 @@
+ 	.TITLE	TST_MAPFILE
+	.IDENT /V01-001/
+
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+;	.library	/lib$:macrolib.mlb/
+	.LIBRARY        /EMU5_LIB:EMU5.MLB/
+	EMUSNMPDEF
+
+	.PSECT	TST_MAP_FILE_DATA,WRT,NOEXE,PIC,SHR,PAGE
+
+mibsec_a:	.quad	0
+inaddr:		.quad	0
+	.ALIGN	LONG
+
+;
+MIBFAB:	$FAB  	DNA = MIBFILE,-		;Def filtype
+		DNS = MIBFILELEN,- 
+		FAC = <GET>,-	; Access
+		FOP = UFO,-		; User file open
+		MRS = MC_SYMT_C_LEN 		;Max record size
+MIBFILE:	.ASCII	/EMU5_MIB:RFC1213-MIB-II.MC2/
+MIBFILELEN = .- MIBFILE
+
+
+
+	.PSECT	TST_MAPFILE_CODE,NOWRT,EXE,PIC,SHR,QUAD
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TST_MAPFILE 
+
+
+
+
+
+	$OPEN	FAB = MIBFAB		;Open input file
+	BLBS	R0,10$			;OK ?
+	RET				; Die
+10$:
+; Get mem
+	CLRL	-(SP)		; P0 Space
+	CLRL	-(SP)		; Access mode
+	PUSHAL	inaddr	; Returned address
+	PUSHL	MIBFAB+FAB$L_ALQ            ; No. of pages
+	CALLS	#4,G^SYS$EXPREG
+	BLBS	R0,20$          ; Br no error
+	RET			; Die
+; Load FILE
+20$:
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	MIBFAB+FAB$L_ALQ			; no. of pages
+        PUSHL	MIBFAB+FAB$L_STV	; CHannel
+	CLRL	-(SP)			; rel page no.
+	CLRL	-(SP)			; version id
+	CLRL	-(SP)			; Section name
+	CLRL	-(SP)			; flags
+	CLRL	-(SP)			; access mode
+	PUSHAL	mibsec_a			; returned address
+	PUSHAL	inaddr			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+        blbs	r0,100$
+100$:
+	ret
+
+	.END	TST_MAPFILE
+
+
+

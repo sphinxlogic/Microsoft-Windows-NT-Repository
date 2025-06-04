@@ -1,0 +1,228 @@
+$! File: INSTALL_FRONTPORTP.COM
+$!
+$! This file installs the FRONTPORTP User Written System Service, rebuilding
+$! if needed.
+$!
+$! This is required as the routine that looks up the holder of a lock for
+$! the fcntl() routine must run in EXEC mode with the SYSLCK and WORLD
+$! privileges.
+$!
+$! 23-Oct-1999	J. Malmberg
+$! 16-Nov-2000	J. Malmberg	Missing endif block
+$!===========================================================================
+$!
+$! Copyright 2000, John E. Malmberg, All Rights Reserved
+$!
+$!   This program is free software; you can redistribute it and/or modify
+$!   it under the terms of the GNU General Public License as published by
+$!   the Free Software Foundation; either version 2 of the License, or
+$!   (at your option) any later version.
+$!
+$!   This program is distributed in the hope that it will be useful,
+$!   but WITHOUT ANY WARRANTY; without even the implied warranty of
+$!   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+$!   GNU General Public License for more details.
+$!
+$!   You should have received a copy of the GNU General Public License
+$!   along with this program; if not, write to the Free Software
+$!   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+$!
+$!===========================================================================
+$!
+$! Save environment
+$!-----------------
+$set noon
+$old_priv = f$getjpi("","CURPRIV")
+$!
+$!
+$!   Turn on privileges for terminal servers and ports"
+$!-----------------------------------------------------
+$needed_priv = "CMKRNL,SYSNAM,SYSPRV"
+$set proc/priv=('needed_priv')
+$if .not. f$privilege(needed_priv) then goto no_priv
+$!
+$!
+$! First find out what type of CPU we are on
+$!-------------------------------------------
+$hw_model = f$getsyi("HW_MODEL")
+$if hw_model .ge. 1000
+$then
+$    arch = "AXP"
+$else
+$    arch = "VAX"
+$endif
+$!
+$! Then get the OpenVMS version name
+$!-----------------------------------
+$node_swvers = f$getsyi("node_swvers")
+$!
+$! Now mangle the name into a suitable file specification
+$!--------------------------------------------------------
+$part1 = f$element(0,".",node_swvers)
+$part2 = f$element(1,".",node_swvers)
+$!
+$vms_ver = part1
+$if part2 .nes. "."
+$then
+$   vms_ver = part1 + "_" + part2
+$endif
+$!
+$!
+$! Where are the sources?
+$!-----------------------
+$procedure = f$environment("PROCEDURE")
+$device = f$parse(procedure,,,"DEVICE")
+$direct = f$parse(procedure,,,"DIRECTORY")
+$source_dir = device + direct
+$!
+$!
+$! Now figure out where the installed image is.
+$!---------------------------------------------
+$imagename = f$trnlnm("FRONTPORTP__CRTL")
+$if imagename .eqs. ""
+$then
+$    imagename = "''source_dir'FRONTPORTP_''arch'_''vms_ver'.EXE"
+$    DEFINE/SYSTEM/EXEC FRONTPORTP__CRTL 'imagename'
+$endif
+$!
+$!
+$! Is there a C compiler present?
+$!-------------------------------
+$rebuild1 = "FALSE"
+$object1 = "''source_dir'FPORT__UWSS_DISPATCH.OBJ_''arch'"
+$decc_image = f$search("SYS$SYSTEM:DECC$COMPILER.EXE")
+$if decc_image .nes. ""
+$then
+$!
+$!   Set up the correct CC command
+$!--------------------------------
+$   cc := cc/decc/warn=enable=level4
+$!
+$!   GCC not implemented at this time.
+$!-------------------------------------
+$!   Warning, GCC may make unwanted calls into runtime routines silently.
+$!
+$!   Are the objects up to date?
+$!------------------------------
+$   source1 = "''source_dir'FPORT__UWSS_DISPATCH.C"
+$   if f$search(source1) .nes. ""
+$   then
+$	if f$search(object1) .eqs. ""
+$	then
+$	   rebuild1 = "TRUE"
+$	else
+$	    src_rdt = f$cvtime(f$file_attributes(source1, "RDT"), "COMPARISON")
+$	    obj_rdt = f$cvtime(f$file_attributes(object1, "RDT"), "COMPARISON")
+$	    if obj_rdt .lts. src_rdt then rebuild1 = "TRUE"
+$	endif
+$	if rebuild1
+$	then
+$	    if f$search("SYS$LIBRARY:SYS$LIB_C.TLB") .nes. ""
+$	    then
+$		CC/object='object1' 'source1' + -
+		    SYS$LIBRARY:SYS$LIB_C.TLB/LIB/DEFINE=HAVE_NEWSTARLET
+$	    else
+$		CC/object='object1' 'source1'
+$	    endif
+$	endif
+$   endif
+$endif
+$!
+$! And the images
+$!---------------
+$if arch .eqs. "ALPHA" then macro := macro/migration
+$!
+$rebuild2 = "FALSE"
+$if arch .eqs. "VAX"
+$then
+$   source2 = "''source_dir'FPORT__UWSS_XFER.MAR"
+$   object2 = "''source_dir'FPORT__UWSS_XFER.OBJ"
+$   if f$search(source2) .nes. ""
+$   then
+$	if f$search(object2) .eqs. ""
+$	then
+$	    rebuild2 = "TRUE"
+$	else
+$	    src_rdt = f$cvtime(f$file_attributes(source2, "RDT"), "COMPARISON")
+$	    obj_rdt = f$cvtime(f$file_attributes(object2, "RDT"), "COMPARISON")
+$	    if obj_rdt .lts. src_rdt then rebuild3 = "TRUE"
+$	endif
+$	if rebuild2
+$	then
+$	    MACRO/object='object2' 'source2'
+$	endif
+$   endif
+$endif
+$!
+$!
+$!  Is the image up to date?
+$!--------------------------
+$relink = rebuild1 .or. rebuild2
+$if f$search(imagename) .eqs. "" then relink = "TRUE"
+$if .not. relink
+$then
+$   image_rdt = f$cvtime(f$file_attributes(imagename, "RDT"), "COMPARISON")
+$   obj_rdt = f$cvtime(f$file_attributes(object1, "RDT"),"COMPARISON")
+$   if image_rdt .lts. obj_rdt then relink = "TRUE"
+$endif
+$if .not. relink .and. (arch .eqs. "VAX")
+$then
+$   obj_rdt = f$cvtime(f$file_attributes(object2, "RDT"),"COMPARISON")
+$   if image_rdt .lts. obj_rdt then relink = "TRUE"
+$endif
+$if relink
+$then
+$   if arch .eqs. "AXP"
+$   then
+$	LINK/NODEBUG/NOTRACE/SHARE='imagename' 'object1', -
+	SYS$INPUT:/OPTION
+gsmatch=lequal,1,1
+identification = "FRONTPORTP 1.0"
+SYMBOL_VECTOR=(fport___priv_check_lock = PROCEDURE)
+PSECT=USER_SERVICES,VEC,NOWRT,NOEXE
+COLLECT=PLV,USER_SERVICES
+$   else
+$	LINK/NODEBUG/NOTRACE/PROTECT/NOSYSSHR/SHARE='imagename' 'object1', -
+	SYS$INPUT/opt
+SYS$SYSTEM:SYS.STB/selective
+gsmatch=lequal,1,0
+identification = "FRONTPORTP 1.0"
+cluster=TRANSFER_VECTOR,,,SYS$DISK:[]FPORT__UWSS_XFER.OBJ
+$   endif
+$endif
+$!
+$!
+$!  Is the image already installed?
+$!----------------------------------
+$cmd = "ADD"
+$if f$file_attributes(imagename,"KNOWN") then cmd = "REPLACE"
+$!
+$!  install the new image  NEVER WITH PRIVILEGES.
+$!-------------------------------------------------
+$install 'cmd' 'imagename' /SHARE/OPEN/HEADER/PROTECT
+$!
+$!
+$! Clean up and exit
+$!------------------
+$all_exit:
+$if f$type(old_priv) .eqs. "STRING" then set proc/priv=(NOALL,'old_priv')
+$exit
+$!
+$!
+$! No privilege for attempted operation
+$!-------------------------------------
+$no_priv:
+$!
+$ind = 0
+$prv_loop:
+$priv = f$element(ind,",",needed_priv)
+$if priv .eqs. "," then goto prv_loop_end
+$IF .NOT. F$PRIVILEGE(priv)
+$THEN
+$    WRITE SYS$OUTPUT "You need ''priv' privilege to run this procedure."
+$ENDIF
+$ind = ind + 1
+$goto prv_loop
+$prv_loop_end:
+$    WRITE SYS$OUTPUT "Please see your system manager."
+$goto all_exit

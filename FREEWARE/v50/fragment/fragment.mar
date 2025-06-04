@@ -1,0 +1,513 @@
+	.Title	Fragment		find fragmentation of a disk
+	.IDENT	/01-003/
+;++
+;
+;  Program:	FRAGMENT.MAR
+;
+;  Author:	DEC's DSIN (Digital Software Information Network)
+;
+;  Date:	????
+;
+;  Functional description:
+;
+;	This program will display the fragmentation of a disk.  It displays
+;	ranges and the number of extents within each range.
+;
+;  Modified by:
+;
+;	01-003		Hunter Goatley		24-MAR-2000 09:47
+;		Just allocate the bitmap buffer using LIB$GET_VM so we
+;		always have a buffer big enough, regardless of the disk size.
+;		Also, when calculating percentages, use EMUL and EDIV to
+;		handle values for modern large drives.
+;
+;	01-002		Hunter Goatley		11-NOV-1998 18:15
+;		Increased size of bitmap buffer for larger disks.
+;
+;	01-001		Hunter Goatley		16-NOV-1988 12:57
+;		Added message for largest contiguous space and a header to
+;		identify the disk being checked.
+;
+;	01-000		DSIN
+;		Original version.
+;
+;--
+
+;   NOTE:  This program requires BYPASS privilege to open the
+;		BITMAP.SYS file.
+
+;----------------------------------------------------------------
+;
+;   Macros
+;
+;----------------------------------------------------------------
+
+;   MACRO to do error checking
+
+.Macro	Erjmp	Destination,?Labl
+	Blbs	R0,Labl
+	Jmp	Destination
+Labl:
+.Endm
+
+;   MACRO to define item lists
+
+.Macro	Item	Type,Length,BufAddress,Retlen
+	.Word	Length
+	.Word	Type
+	.Address BufAddress
+.If blank <Retlen>
+	.Long	0
+.endc
+.If not_blank <Retlen>
+	.Address Retlen
+.Endc
+.Endm
+
+;----------------------------------------------------------------
+;
+;   Storage
+;
+;----------------------------------------------------------------
+
+	.Psect	Data
+
+;
+;   storage for opening the BITMAP.SYS file
+;
+
+FilFAB: 	$FAB	FAC=<GET,PUT,BIO>,SHR=<GET,PUT,UPD,DEL,UPI>, -
+			FOP=UFO,FNA=Device_Name
+
+Filename:	.Ascii	/[000000]BITMAP.SYS/
+Filenamelen:	.Long	.-Filename
+
+Inputbufferdsc: .Long	80
+		.Address Inputbuffer
+Inputbuffer:	.Blkb	80
+
+Prompt: 	.Ascid	/Disk device to check: /
+
+Channel:	.Blkl	1
+
+IOSB:		.Blkq	1
+
+;
+;   storage for bitmap scan
+;
+
+SaveLongword:	.Blkl	1
+SaveBit:	.Blkl	1
+
+;
+;  storage for GETDVI
+;
+
+DevChar:	.Blkl	1
+DevClass:	.Blkl	1
+MaxBlock:	.Blkl	1
+Cluster:	.Blkl	1
+Max_Contig:	.Blkl	1
+
+ItemList:	Item	DVI$_DEVCHAR,4,Devchar
+		Item	DVI$_DEVCLASS,4,DevClass
+		Item	DVI$_MAXBLOCK,4,Maxblock
+		Item	DVI$_CLUSTER,4,Cluster
+		Item	DVI$_FULLDEVNAM,80,Device_Name,Device_Name_Length
+		.Long	0			;terminator
+
+BadDeviceMsg:	.Ascid	/?Device must be a Files-11 mounted disk/
+
+;
+;   storage for range output
+;
+
+Parameters:				; FAOL parameter list
+Bottom_limit:	.Blkl	1		;   these variables MUST be in
+Top_limit:	.Blkl	1		;   this order to match the
+Count:		.Blkl	1		;   FAO control string
+Blocks: 	.Blkl	1
+Percent:	.Blkl	1
+Decimal:	.Blkl	1
+CumPoints:	.Blkl	1
+CumDecimal:	.Blkl	1
+
+Total_parameters:
+Total_count:	.Blkl	1
+Total_Blocks:	.Blkl	1
+
+Header1:	.Ascid	"               Fragmentation of disk !AD!/"
+Header:
+	.Ascid  "      Range                Extents        Blocks     Percentage   Cumulative"<13><10>-
+		" ----------------          -------        ------     ----------   ----------"
+Control:
+	.Ascid  /!6UL --> !6UL       !10UL    !10UL     !5UL.!2ZL     !5UL.!2ZL/
+
+TotalHeader:
+	.Ascid  /                           -------       -------/
+
+TotalControl:
+	.Ascid  /                        !10UL    !10UL/
+
+MaxContigMsg:	.Ascid	"!/Largest contiguous space is !UL blocks!/"
+
+Outbufdsc:	.Long	80
+		.Address Outbuf
+OutBuf: 	.Blkb	80
+
+Header1_Parameters:				; Parameters for header message
+Device_Name_Length:	.Long	0		; Length of full device name
+			.Address .+4
+Device_Name:		.Blkb	80		; Space for full device name
+
+;
+;   storage for ranges
+;	RANGE_TABLE contains the lower limit of each range
+;	RANGE_COUNT contains the count of extents within the parallel
+;		range
+;	BLOCK_COUNT contains the count of blocks within the parallel
+;		range
+;	TOTAL_COUNT is the total number of free extents (above)
+;	TOTAL_BLOCKS is the total number of free blocks on the disk (above)
+;
+
+;   NOTE:  RANGE_TABLE and RANGE_COUNT are parallel tables and
+;		should contain the same number of entries.
+
+Range_Table:
+	.Long	0				;start with zero
+	.Long	10
+	.Long	20
+	.Long	40
+	.Long	80
+	.Long	100
+	.Long	500
+	.Long	1000
+	.Long	2000
+	.Long	5000
+	.Long	10000
+	.Long	20000
+	.Long	30000
+	.Long	40000
+	.Long	50000
+	.Long	^X7FFFFFFF			;terminator for table
+No_Range_Entries = <<.-Range_Table>/4>
+
+Range_Count:
+	.Blkl	No_Range_Entries	;count should be number of entries
+					; in RANGE_TABLE
+
+Block_Count:
+	.Blkl	No_Range_Entries	;count should be number of entries
+					; in RANGE_TABLE
+
+;
+;   storage for bitmap pages
+;
+
+	.Psect	Pages,Page
+Myblock:	.Blkl	1
+Myblock_size:	.Blkl	1
+
+;----------------------------------------------------------------
+;
+;   Start of code
+;
+;----------------------------------------------------------------
+
+	.Psect	Code
+
+	.Entry	Fragmentation,^M<>
+
+;   get the disk name
+
+	Pushal	InputbufferDsc		;where to put length
+	Pushal	Prompt			;address of prompt
+	Pushal	InputbufferDsc		;where to put the string
+	CallS	#3,G^LIB$GET_FOREIGN	;get the command line
+	 Erjmp	Error
+
+;   check the characteristics of the given device
+
+	$Getdviw_S	Devnam=Inputbufferdsc, -	;name of device
+			Itmlst=ItemList 		;item list
+	 Erjmp	Error
+
+;   check for disk, files-oriented, mounted, directory structured
+
+	Cmpl	#DC$_DISK,DevClass		;disk?
+	Bneq	BadDevice			;no - bad device
+	Bitl	#DEV$M_FOD,DevChar		;files oriented?
+	Beql	BadDevice			;no - bad device
+	Bitl	#DEV$M_DIR,DevChar		;directory structured?
+	Beql	BadDevice			;no - bad device
+	Bitl	#DEV$M_MNT,DevChar		;mounted?
+	Beql	BadDevice			;no - bad device
+	Jmp	GoodDevice			;good device, use it
+
+;  Bad device
+
+BadDevice:
+	Pushal	BadDeviceMsg
+	CallS	#1,G^LIB$PUT_OUTPUT		;output error
+	 Erjmp	Error
+
+	Jmp	Error
+
+;   Good device...set up name of bitmap and open it
+
+GoodDevice:
+	Movl	Device_Name_Length,R6		;get offset into register
+	Movc3	Filenamelen,Filename,Device_Name(R6)	;move in file name
+	Addl2	Filenamelen,R6			;get total length
+
+	Movb	R6,FilFAB+FAB$B_FNS 		;size of file name
+
+	$Open	FilFAB				;try to open the file
+	 Erjmp	Error
+
+	Movl	FilFAB+FAB$L_STV,Channel	;grab the channel
+
+;   we now have a channel to the file, calculate number of bits in the
+;	bitmap (= MAXBLOCKS / CLUSTER)
+
+	Divl3	Cluster,MaxBlock,R11		;get number of bits
+	Addl3	#4095,R11,R10			;setup for round up
+	Divl2	#4096,R10			;get number of pages
+	Mull3	#512,R10,R9			;get number of bytes
+	Addl2	#31,R11 			;round up longwords
+	Divl3	#32,R11,R10			;get number of longwords
+
+;   R9 has the size of the buffer we need.  Allocate enough space
+;   to hold the bitmap.
+
+	ADDL3	#512,R9,MYBLOCK_SIZE		; Add some extra
+	PUSHAL	MYBLOCK				; Address of allocated memory
+	PUSHAL	MYBLOCK_SIZE			; Address of # of bytes to alloc
+	CALLS	#2,G^LIB$GET_VM			; Go get the memory
+	Erjmp	Error				; Branch on error
+
+;   we have the number of pages in the bitmap, so bring it in
+
+	$Qiow_S 	Chan=Channel, - 	;channel to read
+			Func=#IO$_READVBLK, -	;read some blocks
+			IOSB=IOSB, -		;I/O status block
+			P1=@Myblock, -		;where to put it
+			P2=R9, -		;number of bytes
+			P3=#2			;block 2 is where to start
+	 Erjmp	Error
+
+	Movzwl	IOSB,R0 			;get "real" status
+	 Erjmp	Error				;check it again
+
+;   we have the bitmap in memory, deassign BITMAP.SYS channel
+
+	$Dassgn_S	Chan=Channel
+	 Erjmp	Error
+
+;----------------------------------------------------------------
+;
+;	Start into the scan loop.  We simply want to count the number
+;	of free extents in the bitmap that are in certain ranges.
+;	The ranges are defined in RANGE_TABLE, and the count
+;	of extents in each range are kept in RANGE_COUNT.  These
+;	are parallel tables.  The total count of extents is
+;	kept in TOTAL_COUNT.
+;
+;	It should be noted that in the bitmap, a 1 bit indicates
+;	a FREE cluster.
+;
+;   Register usage:
+;	R4 - pointer into RANGE_TABLE (in CATEGORIZE loop)
+;	R5 - count of bits in current extent (in CATEGORIZE loop)
+;	R6 - base of bitmap array
+;	R7 - current longword counter for bitmap scan
+;	R8 - current bit number in the current longword
+;	R9 - temporary variable
+;	R10 - total longword count in bitmap (limit value)
+;
+;
+;----------------------------------------------------------------
+
+	Movl	Myblock,R6		;get address of array
+	Clrl	R7			;longword count
+	Clrl	R8			;bit offset
+Find_free_Loop:
+	Subl3	R8,#32,R9		;get space left in this longword
+	Movl	(R6)[R7],R5		;get the longword
+	FFS	R8,R9,R5,R8		;is there a set bit?
+	Bneq	FoundFree		;yes - start counting extent
+
+;  no free bit in this longword, clear startbit and go to next longword
+
+	Clrl	R8			;clear bit position
+	Incl	R7			;increment longword count
+	Cmpl	R7,R10			;compare to number we need
+	Blss	Find_Free_loop		;and loop
+
+;  end of the bitmap, output statistics
+
+	Jmp	OutStats		;output statistics
+
+;
+;   Here we found a free bit in the current longword.  So, we record
+;   this position, then start scanning for a used bit.
+;
+
+FoundFree:
+	Incl	Total_Count		;increment total count
+	Movl	R7,SaveLongword 	;save longword count
+	Movl	R8,SaveBit		;save bit position
+
+Find_used_loop:
+	Subl3	R8,#32,R9		;get count of rest of longword
+	Movl	(R6)[R7],R5		;get the longword
+	FFC	R8,R9,R5,R8		;find a clear bit
+	Bneq	FoundUsed		;found a used bit, count the extent
+
+;   no used bit found, increment longword, continue
+
+	Clrl	R8			;clear bit count
+	Incl	R7			;increment longword count
+	Cmpl	R7,R10			;check against limit
+	Blss	Find_Used_loop		;continue loop
+
+;   found end of free extent, calculate this extent, then output stats
+
+FoundUsed:
+	Subl3	SaveLongword,R7,R5	;get count of longwords
+	Bneq	ManyLongwords		;any full longwords?
+
+	Subl3	Savebit,R8,R5		;get count in this longword
+	Brb	GotCount		;we have total, so count extent
+
+ManyLongWords:
+	Decl	R5			;don't count end longwords
+	Mull2	#32,R5			;get bits of full longwords
+	Subl3	Savebit,#32,SaveBit	;get bits in first longword
+	Addl2	SaveBit,R5		;add in from first longword
+	Addl2	R8,R5			;add in from last longword
+
+;
+;   Total count of bits is in R5 at this point.  Calculate extent size
+;   by multiplying by CLUSTER, then categorize this extent.
+
+GotCount:
+	Mull2	Cluster,R5		;get extent size
+	Cmpl	R5,Max_Contig		;bigger than maximum contiguous block?
+	Bleq	10$			;no - don't save this one
+	Movl	R5,Max_Contig		;yes - save this block size as biggest
+ 10$:	Addl2	R5,Total_Blocks 	;add in to total blocks
+
+	Clrl	R4			;pointer into table
+Categorize:
+	Cmpl	R5,Range_table[R4]	;check against this entry
+	Blss	Foundit 		;if less, found it
+	Incl	R4			;increment pointer
+	Jmp	Categorize		;and loop
+
+Foundit:
+	Decl	R4			;actually went one too far
+	Incl	Range_count[R4] 	;increment count
+	Addl2	R5,Block_Count[R4]	;add in blocks
+
+	Cmpl	R7,R10			;out of range?
+	Bgeq	Outstats		;output stats
+
+	Jmp	Find_free_loop		;and go to finding a free bit
+
+;----------------------------------------------------------------
+;
+;   output statistics
+;
+;   Register usage:
+;	R6 - pointer into RANGE_COUNT table
+;	R7 and R8 - percentage calculation registers
+;
+;----------------------------------------------------------------
+
+OutStats:
+	Movl	#80,OutBufDsc
+	$Faol_S Ctrstr=Header1, -	;control string
+		Outlen=OutbufDsc, -	;where to put length
+		Outbuf=OutbufDsc, -	;where to put the output
+		Prmlst=Header1_Parameters ;parameter list
+	 Erjmp	Error
+
+	Pushal	OutBufDsc
+	CallS	#1,G^LIB$PUT_OUTPUT
+	 Erjmp	Error
+
+	Pushal	Header			;address of header
+	CallS	#1,G^LIB$PUT_OUTPUT	;output header
+	 Erjmp	Error
+
+	Clrl	R10			;pointer into range tables
+	Clrl	CumPoints		;cumulative points
+	Clrl	CumDecimal		;cumulative decimal points
+RangeLoop:
+	EMUL	#10000,Block_count[R10],#0,R6	; Get percentage points
+	EDIV	Total_Blocks,R6,R8,R9	; Get percentage * 100
+
+	Clrl	R9			;make quadword value
+	Ediv	#100,R8,Percent,Decimal ;R8 = percent, R7 = decimal
+	Addl2	Percent,CumPoints	;get cumulative
+	Addl2	Decimal,CumDecimal	;get cumulative decimal
+	Cmpl	CumDecimal,#100 	;too much?
+	Blss	OKdecimal
+	Incl	CumPoints		;increment points
+	Subl2	#100,CumDecimal 	;subtract out
+OKdecimal:
+	Movl	Range_table[R10],Bottom_limit	;get bottom limit
+	Cmpl	Bottom_limit,#^X7FFFFFFF	;end of list?
+	Bneq	OKbottom		;still in table
+	Jmp	AllDone 		;all done
+OKbottom:
+	Movl	Range_table+4[R10],Top_limit	;get top limit
+	Movl	Range_count[R10],Count	;get count
+	Movl	Block_Count[R10],Blocks	;get blocks
+
+	Movl	#80,OutbufDsc		;reset descriptor
+
+	$Faol_S Ctrstr=Control, -	;control string
+		Outlen=OutbufDsc, -	;where to put length
+		Outbuf=OutbufDsc, -	;where to put the output
+		Prmlst=Parameters	;parameter list
+	 Erjmp	Error
+
+	Pushal	OutBufDsc		;setup for output
+	CallS	#1,G^LIB$PUT_OUTPUT	;output the data
+
+	Incl	R10			;increment pointer
+	Jmp	RangeLoop		;and loop
+
+AllDone:
+	Pushal	TotalHeader
+	CallS	#1,G^LIB$PUT_OUTPUT	;output lines for totals
+	 Erjmp	Error
+
+	Movl	#80,OutBufDsc
+	$Faol_S Ctrstr=TotalControl, -	;control string
+		Outlen=OutbufDsc, -	;where to put length
+		Outbuf=OutbufDsc, -	;where to put the output
+		Prmlst=Total_Parameters ;parameter list
+	 Erjmp	Error
+
+	Pushal	OutBufDsc
+	CallS	#1,G^LIB$PUT_OUTPUT
+	 Erjmp	Error
+
+	Movl	#80,OutBufDsc
+	$Faol_S Ctrstr=MaxContigMsg, -	;control string
+		Outlen=OutbufDsc, -	;where to put length
+		Outbuf=OutbufDsc, -	;where to put the output
+		Prmlst=Max_Contig	;parameter list
+	 Erjmp	Error
+
+	Pushal	OutBufDsc
+	CallS	#1,G^LIB$PUT_OUTPUT
+	 Erjmp	Error
+Error:
+	$Exit_S R0
+
+	.End	Fragmentation

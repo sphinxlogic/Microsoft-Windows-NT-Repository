@@ -1,0 +1,1826 @@
+
+
+
+1 HELP
+
+InfoServer HELP Version V3.3
+
+HELP [topic] [subtopic...]
+
+Use the HELP command to obtain  online  help.   If  you  specify  HELP
+alone,  the  system  prompts  you for a topic.  You can also specify a
+specific topic on the HELP command line.   Whenever  subtopic  choices
+are available, the system prompts for them.
+
+EXAMPLES:  InfoServer> HELP
+           InfoServer> HELP CREATE SERVICE
+
+  Information available:
+
+        Auto-prompt     Wild-cards      Special-characters
+        BACKUP          BIND            CLEAR           COPY
+        CRASH           CREATE          DELETE          DISCONNECT
+        ERASE           EXIT            HELP            INITIALIZE
+        LOOP            MONITOR         PURGE           REBOOT
+        RECORD          RENAME          RESTORE         RETRIEVE
+        REWIND          SAVE            SET             SHOW
+        UNBIND          UNLOAD          UPDATE          VERIFY
+        ZERO
+
+--
+1 AUTO-PROMPT
+
+Automatic Prompting:
+
+The command interface prompts you  for  the  next  keyword  or  option
+available.
+
+--
+
+1 WILD-CARDS
+
+Wild-card Characters:
+
+Some  commands   accept   wild-card   character   specifications   for
+parameters.  The server uses the following wild-card characters:
+
+*      Matches any number of any characters in the current character position
+
+%      Matches exactly 1 character in the current character position
+
+For example, in the following command:
+
+InfoServer> SHOW SERVICE AB%DE*
+
+all services that start with the letters AB are shown, followed by any
+single  character,  followed by the letters DE, followed by any number
+of any characters.
+
+--
+
+1 SPECIAL-CHARACTERS
+
+Special Characters:
+
+The InfoServer  management  interface  treats  certain  characters  as
+special characters:
+
+DELETE           Deletes the previous character in the current command line.
+RETURN           Executes the current command and terminates the command.
+Ctrl/B           Recalls the previous command.
+Ctrl/D           Moves the cursor position back one character in the command
+                 line.
+Ctrl/E           Moves the cursor to the end of the current command line.
+Ctrl/F           Moves the cursor position forward one character in the
+                 command line.
+Ctrl/H           Moves the cursor to the beginning of the current command line.
+Ctrl/U           Deletes all characters from the current cursor position back
+                 to the beginning of the command line.
+Ctrl/Z           Executes the current command and terminates the command.
+Up-arrow         Recalls the previous command.
+Down-arrow       Recalls the next command in the command circular buffer.
+Left-arrow       Moves the cursor back one character in the command
+                 line.
+Right-Arrow      Moves the cursor forward one character in the
+                 command line.
+
+--
+
+1 BACKUP
+
+BACKUP
+
+Use the BACKUP command to make copies of an InfoServer-formatted disk,
+preserving  the  associated  service  information.   Use  the RETRIEVE
+command to restore the disks from backup copies.  A  BACKUP  operation
+followed by an immediate RETRIEVE operation defragments the disk.  You
+can use the BACKUP command to move the entire contents of one disk  to
+a disk of dissimilar size.
+
+To preserve data integrity, no remote disk  operations  are  permitted
+during  BACKUP  operations:  the server must be in the OFF state.  See
+the SET SERVER STATE  OFF  command.   See  the  RETRIEVE  command  for
+information on restoring from a BACKUP operation.
+
+Additional information available:
+
+Defragmentation         Replication             Saving
+
+++
+2 BACKUP DEFRAGMENTATION
+
+Defragmentation
+
+Over time, as partitions are created and deleted, InfoServer disks can
+become fragmented.  SHOW PARTITIONS DKn FULL shows the space allocated
+to  deleted  partitions  and  the  amount  of  free  space.    Deleted
+partitions can be reused by the file system, but the largest partition
+that may be created is the largest of the deleted  partitions  or  the
+free  space.   Thus,  a device could have 100,000 free blocks, but the
+largest partition that can be created might be much smaller.
+
+Defragmentation requires a disk device on which to  stage  the  backup
+copy   of   the  disk  being  defragmented.   The  staging  device  is
+initialized, and any data on the disk before the  operation  is  lost.
+The  following example assumes that DK1 is being defragmented and that
+DK15 (an additional hard disk) is being used for the staging disk:
+
+InfoServer> SET SERVER STATE OFF
+InfoServer> BACKUP DK1 DK15
+InfoServer> RETRIEVE DK15 DK1
+InfoServer> SET SERVER STATE ON
+InfoServer> SAVE
+
+--
+2 BACKUP REPLICATION
+
+Replicating a disk
+
+Suppose your X terminals have been using an RZ55 disk  as  the  remote
+device,  but  now  you are adding more terminals and you want to use a
+larger disk.  As with defragmentation, you must stage the data  on  an
+intermediate  disk.   (Tapes  devices are not yet supported for BACKUP
+operations.) The following example assumes that DK8 is the RZ55,  DK11
+is  the  destination  disk, and DK15 is a device large enough to stage
+the data.
+
+InfoServer> SET SERVER STATE OFF
+InfoServer> BACKUP DK8 DK15
+InfoServer> RETRIEVE DK15 DK11
+
+At this point, you might want to INITIALIZE DK8.  This operation  both
+frees  up  the disk and deletes all services that reference partitions
+that have moved to DK15.  If you  do  not  INITIALIZE  the  disk,  you
+should delete the services pointing to the original source disk before
+entering the SAVE command.
+
+InfoServer> SET SERVER STATE ON
+InfoServer> SAVE
+
+--
+2 BACKUP SAVING
+
+BACKUP src-device dest-device
+
+The  BACKUP  command  copies   partitions   and   services   from   an
+InfoServer-formatted   source  disk  to  the  destination  disk.   The
+destination  disk  can  be  manipulated  by  standard  user  interface
+commands.   The  SHOW  PARTITIONS command displays disk partitions and
+prints a message describing the disk as a BACKUP disk.   Tape  devices
+are not currently supported for BACKUP operations.
+
+During a BACKUP operation, the destination device is initialized,  the
+partitions   are  copied  from  the  source,  and  any  services  that
+referenced the source device are  saved  to  the  BACKUP_CONFIGURATION
+partition on the destination disk.
+
+Example:
+
+InfoServer> SET SERVER STATE OFF
+InfoServer> BACKUP DK1 DK15
+InfoServer> SET SERVER STATE ON
+
+--
+1 RETRIEVE
+
+RETRIEVE src-device dest-device
+
+Use the RETRIEVE command to restore the partitions and services from a
+disk  that was created by the BACKUP command.  If the source device is
+not a BACKUP disk, the server issues an error message.   Tape  devices
+are  not currently supported for RETRIEVE operations (see HELP for the
+BACKUP command).
+
+During a RETRIEVE operation, the destination  device  is  initialized,
+the  partitions are copied from the source, and the services that were
+saved are restored.
+
+IMPORTANT NOTE:  To preserve the services that were restored, you must
+enter a SAVE command after the RETRIEVE operation.
+
+Example:
+
+InfoServer> SET SERVER STATE OFF
+InfoServer> RETRIEVE DK15 DK1
+InfoServer> SET SERVER STATE ON
+InfoServer> SAVE
+
+--
+1 BIND
+
+BIND ODS-2_service_name
+
+Use the  BIND  command  to  establish  a  network  connection  to  the
+specified  ODS-2 service and create the virtual device VDK1:  for that
+service.  The virtual device is used as if it were a locally  attached
+compact disk drive.
+
+EXAMPLE:  InfoServer> BIND UPDATE_SERVICE
+
+Additional information available for optional qualifier:
+
+PASSWORD
+
+++
+2 BIND PASSWORD
+
+BIND ODS-2_service_name PASSWORD string
+
+Use the PASSWORD option when making a connection to an  ODS-2  service
+that is password protected.
+
+EXAMPLE:  InfoServer> BIND UPDATE_SERVICE PASSWORD TFORTWO
+
+--
+
+1 CLEAR
+
+CLEAR
+
+Use the CLEAR command  to  erase  the  screen  of  an  ANSI-compatible
+terminal.
+
+EXAMPLE:  InfoServer> CLEAR
+
+--
+
+1 COPY
+
+COPY DKn:[partition_name] DKn:[partition_name]
+
+Use the COPY command  to  copy  data  between  InfoServer  devices  or
+partitions.   The first parameter specifies the source device, and the
+second parameter specifies the destination device.  If  you  omit  the
+optional  partition_name  from  either  parameter, the server uses the
+entire device for the copy operation.  If you  specify  a  destination
+partition  that does not exist, the COPY command creates the partition
+before starting the copy operation.
+
+Copy operations require that the source  and  destination  devices  or
+partitions  are  the  same  size.   To  preserve  data  integrity, the
+InfoServer state must be set to OFF before  any  copy  operations  are
+executed (see the description of the SET SERVER STATE command).
+
+EXAMPLE: InfoServer> COPY DK2: DK1:
+          InfoServer> COPY DK1:MY_PARTITION DK1:BACKUP
+
+--
+
+1 CRASH
+
+CRASH
+
+Use the CRASH command to force server software to take a  recognizable
+bugcheck and create a dump.  Crashdump processing must be enabled.
+
+EXAMPLE:  InfoServer> CRASH
+
+--
+
+1 CREATE
+
+CREATE
+
+Use the CREATE  command  to  create  a  new  InfoServer  partition  or
+service.
+
+Additional information available:
+
+PARTITION      SERVICE
+
+++
+2 CREATE PARTITION
+
+CREATE PARTITION DKn:partition_name
+
+Use the CREATE PARTITION command to  create  a  new  partition  on  an
+InfoServer-formatted read/write disk.  A partition is a logical subset
+of disk blocks that can be served to the network as though it were  an
+entire disk.
+
+The CREATE PARTITION command accepts as  a  parameter  a  device  name
+coupled  with a partition name (for example, DK1:VIRTUALDISK) followed
+by the size of the partition in BLOCKS, BYTES,  or  MEGABYTES.   Bytes
+are  rounded  up  to  the  nearest  block.   The maximum length of the
+partition name is 36 characters.  The command also accepts  ERASE  and
+MOP options.
+
+EXAMPLES: InfoServer> CREATE PARTITION DK1:VIRTUAL_DISK BLOCKS 1000 ERASE
+          InfoServer> CREATE PARTITION DK1:MOP_IMAGE MEGABYTES 3 MOP ENABLED
+
+Additional information available:
+
+BLOCKS        ERASE        MOP
+
+++
+3 CREATE PARTITION BLOCKS
+
+CREATE PARTITION DKn:partition_name {BLOCKS | BYTES | MEGABYTES} value
+
+These parameters specify the size of the partition (one disk block  is
+512  bytes).  If you omit this parameter, you are prompted for a BLOCK
+value.
+
+--
+3 CREATE PARTITION ERASE
+
+CREATE PARTITION DKn:partition_name ERASE
+
+The ERASE qualifier specifies that the partition is to be erased  when
+it is created.  The erase algorithm is a single-pass write of zeros.
+
+--
+3 CREATE PARTITION MOP
+
+CREATE PARTITION DKn:partition_name MOP {ENABLED | DISABLED}
+
+The MOP qualifier specifies whether the partition is to  be  used  for
+downline  loading.   If  a partition is created with MOP ENABLED, then
+that partition cannot be served to the network as a virtual disk,  and
+can be used only for downline loading.  If a partition is created with
+MOP DISABLED, then the partition can be served to  the  network  as  a
+virtual  disk  and  cannot  be  used  for  downline  loading.  If this
+optional qualifier is omitted, the default value of  MOP  DISABLED  is
+used.
+
+--
+2 CREATE SERVICE
+
+CREATE SERVICE service_name FOR DKn:[partition_name]
+
+Use the CREATE SERVICE command to create a new service to which client
+systems  on  the  extended LAN can connect.  The command specifies the
+service name and the associated device or partition name.  The  CREATE
+SERVICE command also accepts a number of optional qualifiers.
+
+Service names are restricted to a maximum length of 80 characters  and
+may contain only characters in the following set:
+
+    A-Z               a-z          0-9
+    $ (dollar sign)   . (period)   _ (underscore)    - (hyphen)
+    Multinational characters in the (decimal) range 192-255
+
+EXAMPLES: InfoServer> CREATE SERVICE CONDIST FOR DK2:
+          InfoServer> CREATE SERVICE VIRTUAL-DISK FOR DK1:MY_PARTITION
+
+Additional information available for optional qualifiers:
+
+CLASS           CONTAINER       DYNAMIC_RATING  PASSWORD        READAHEAD
+READBEHIND      READERS         STATIC_RATING   WRITERS
+
+++
+3 CREATE SERVICE CLASS
+
+CREATE SERVICE service_name FOR DKn:[partition_name] CLASS class_name
+
+The CLASS qualifier specifies the service  class  (name  space)  under
+which  the  service  is  offered.   Different  name spaces are used to
+represent different  on-disk  structures.   Clients  connect  only  to
+service classes that are meaningful to them.
+
+If you omit the CLASS option, the server attempts to use  all  classes
+for file systems found on the device.  If the on-disk format cannot be
+determined, the server uses the ODS_2 class.
+
+EXAMPLE:  InfoServer> CREATE SERVICE TEST FOR DK2: CLASS V2.0
+          InfoServer> CREATE SERVICE ULTRIX_BOOK FOR DK13 CLASS ULTRIX
+
+Additional information available:
+
+Class_Name
+
+++
+3 CREATE SERVICE CONTAINER
+
+CREATE SERVICE service_name FOR DKn:[partition_name] CONTAINER
+
+The CONTAINER qualifier searches the source disk or partition  for  an
+ISO9660  container  file.   This service is then tied to the container
+file instead of the disk.  This option is used to verify  a  container
+file before it is recorded on a CDROM.
+
+If no container file is found then the command returns with no service
+created.
+
+EXAMPLE:  InfoServer> CREATE SERVICE VIRTUAL_CD FOR DK2:PARTITION CLASS CONTAINER
+
+--
+4 CREATE SERVICE CLASS CLASS_NAME
+
+CREATE SERVICE service_name FOR DKn:[partition_name] CLASS class_name
+
+Valid class_name values are the following:
+APPLE             (Apple hierarchical or flat volumes)
+HIGH_SIERRA       (High Sierra Group (HSG) compact disc format)
+ISO_9660          (ISO 9660 compact disc format)
+MOP               (MOP-loadable service name)
+MSDOS             (MS-DOS virtual disks)
+NTFS              (Windows NT file system)
+ODS_2             (VMS virtual disks)
+ULTRIX            (ULTRIX virtual disks)
+UNFORMATTED       (Virtual disk has no format)
+V2.0              (Names understood by MS-DOS clients)
+VXT_WORKGROUP     (X-terminal workgroups)
+VXT_SYSTEM        (X-terminal system disks)
+VXT_CONFIGURATION (X-terminal configuration information)
+VXT_PAGEFILE      (X-terminal paging information)
+
+--
+3 CREATE SERVICE DYNAMIC_RATING
+
+CREATE SERVICE service_name FOR DKn:[partition_name] DYNAMIC_RATING
+
+The  DYNAMIC_RATING  option  indicates  that  the  InfoServer   should
+calculate  a  dynamic  rating  for the created service.  The rating is
+used to balance the client  access  load  across  redundant  services.
+Clients  select  the  highest  rated  service when the same service is
+offered  more  than  once  on  the  network.   The  InfoServer  system
+calculates  a  new  dynamic  rating  for the service every 10 seconds,
+based on server CPU load and service I/O activity.  DYNAMIC_RATING  is
+the default value.
+
+EXAMPLE:  InfoServer> CREATE SERVICE TEST FOR DK2: DYNAMIC_RATING
+
+--
+3 CREATE SERVICE PASSWORD
+
+CREATE SERVICE service_name FOR DKn:[partition_name] PASSWORD [string]
+CREATE SERVICE service_name FOR DKn:[partition_name] NOPASSWORD
+
+The PASSWORD option indicates that a password is required from  client
+systems  before the server accepts connections to the created service.
+The string specifies the required password.  If the password string is
+omitted,  and  the  PASSWORD  option is the last option on the command
+line, the InfoServer system prompts you for the password.
+
+The NOPASSWORD option indicates  that  no  password  is  required  for
+clients  to connect to the created service.  NOPASSWORD is the default
+value.
+
+EXAMPLES:  InfoServer> CREATE SERVICE TEST FOR DK2: PASSWORD SECRET
+           InfoServer> CREATE SERVICE TEST FOR DK2: PASSWORD
+           _Password: SECRET (not echoed)
+           _Verification: SECRET (not echoed)
+
+If you omit the password option, no password is needed to  access  the
+service.
+
+--
+
+3 CREATE SERVICE READAHEAD
+
+CREATE SERVICE service_name READAHEAD
+CREATE SERVICE service_name NOREADAHEAD
+
+The READAHEAD option for a service determines whether blocks following
+a  request  are  also  inserted into cache.  The number of blocks read
+into the cache is determined by the  value  of  the  CACHE  BUCKETSIZE
+parameter.    If  the  READAHEAD  attribute  is  enabled,  the  blocks
+following a request are loaded into cache up to the next cache  bucket
+boundary.
+
+EXAMPLE:  InfoServer> CREATE SERVICE CONDOC FOR DK2: READAHEAD
+
+--
+3 CREATE SERVICE READBEHIND
+
+CREATE SERVICE service_name READBEHIND
+CREATE SERVICE service_name NOREADBEHIND
+
+The  READBEHIND  option  for  a  service  determines  whether   blocks
+preceding  a  request  are  also  inserted  into cache.  The number of
+blocks that are read into the cache is determined by the value of  the
+CACHE  BUCKETSIZE  parameter.  If the READBEHIND attribute is enabled,
+the blocks  preceding  a  request  are  loaded  into  cache  from  the
+beginning of the bucket up to the current request.
+
+EXAMPLE:  InfoServer> CREATE SERVICE CONDOC FOR DK2: READBEHIND
+
+--
+3 CREATE SERVICE STATIC_RATING
+
+CREATE SERVICE  service_name  FOR  DKn:[partition_name]  STATIC_RATING
+rating
+
+The STATIC_RATING option indicates  that  the  InfoServer  should  not
+periodically  calculate  a  rating for the service based on InfoServer
+load.  Instead, the service has a constant rating, which is the  value
+specified  on  the command line.  The rating value can be in the range
+from 0 to 65535.  Clients select the service with the highest  service
+rating.
+
+EXAMPLE:  InfoServer> CREATE SERVICE TEST FOR DK2: STATIC_RATING 1
+
+The default value of DYNAMIC_RATING is used for the created service if
+the STATIC_RATING option is omitted.
+
+--
+
+3 CREATE SERVICE READERS
+
+CREATE SERVICE service_name FOR DKn:[partition_name] READERS number
+CREATE SERVICE service_name FOR DKn:[partition_name] NOREADERS
+
+
+The  READERS  option  indicates  the  number  of   concurrent   client
+connections  allowed  to  the  service for read access.  The number of
+readers can be from 0 to 1000.  The default value of 1000 is used  for
+READERS if this option is omitted.
+
+The NOREADERS option indicates that client read access to the  created
+service is not allowed.  This option is the same as specifying READERS
+as 0.
+
+EXAMPLE:  InfoServer> CREATE SERVICE TEST FOR DK2: READERS 1
+
+
+--
+
+3 CREATE SERVICE WRITERS
+
+CREATE SERVICE service_name FOR DKn:[partition_name] WRITERS number
+CREATE SERVICE service_name FOR DKn:[partition_name] NOWRITERS
+
+
+The  WRITERS  option  indicates  the  number  of   concurrent   client
+connections  allowed  to  the service for write access.  The number of
+writers can be either 0 or 1.  The default value  of  1  is  used  for
+WRITERS if this option is omitted.
+
+The NOWRITERS option indicates that client write access to the created
+service is not allowed.  This option is the same as specifying WRITERS
+as 0.
+
+EXAMPLE:  InfoServer> CREATE SERVICE TEST FOR DK2: WRITERS 0
+
+
+--
+
+1 DELETE
+
+DELETE
+
+Use the DELETE command to delete an existing InfoServer  partition  or
+service.
+
+Additional information available:
+
+PARTITION       SERVICE
+
+++
+2 DELETE PARTITION
+
+DELETE PARTITION DKn:partition_name [ERASE]
+
+Use the DELETE PARTITION command to delete an existing partition on an
+InfoServer-formatted read/write disk.  The disk space that the deleted
+partition occupied is made available again.  Use the ERASE  option  to
+erase  the  partition  when  it  is deleted.  The erase algorithm is a
+single-pass write of zeros.
+
+If the partition being deleted has  associated  service  names,  those
+names  are  also deleted.  If clients are accessing the partition when
+you enter the DELETE PARTITION command, the server  issues  a  warning
+message and prompts for confirmation of the DELETE operation.
+
+EXAMPLE:  InfoServer> DELETE PARTITION DK1:VIRTUAL_DISK
+
+--
+2 DELETE SERVICE
+
+DELETE SERVICE service_name [FOR DKn:[partition_name]]
+                            [CLASS class_name]
+
+Use the DELETE SERVICE command to delete  an  existing  service  name.
+Wild-card specifications are allowed for the service name.
+
+The DELETE SERVICE  command  accepts  optional  qualifiers.   You  can
+specify  the device name or partition name for the service you want to
+delete if  the  service  is  offered  for  more  than  one  device  or
+partition.  You can also specify the service class if the same service
+name is offered under more than one service class.  If you omit either
+of these qualifiers, all matching service names are deleted.
+
+EXAMPLES: InfoServer> DELETE SERVICE CON_DIST*
+          InfoServer> DELETE SERVICE ONLINE_DOC FOR DK2:
+          InfoServer> CREATE SERVICE VIRTUAL-DISK CLASS V2.0
+
+Additional information available for optional qualifiers:
+
+CLASS
+
+++
+3 DELETE SERVICE CLASS
+
+DELETE SERVICE service_name [FOR DKn:[partition_name]] CLASS class_name
+
+The CLASS qualifier specifies the service class of the partition to be
+deleted.   If  the same service name exists under two or more classes,
+this qualifier allows you  to  delete  one  specific  service  without
+deleting the others.
+
+Valid class_name values are the following:
+
+APPLE             (Apple hierarchical or flat volumes)
+HIGH_SIERRA       (High Sierra Group (HSG) compact disc format)
+ISO_9660          (ISO 9660 compact disc format)
+MOP               (MOP-loadable service name)
+MSDOS             (MS-DOS virtual disks)
+NTFS              (Windows NT file system)
+ODS_2             (VMS virtual disks)
+ULTRIX            (ULTRIX virtual disks)
+UNFORMATTED       (Virtual disk has no format)
+V2.0              (Names understood by MS-DOS clients)
+VXT_WORKGROUP     (X-terminal workgroups)
+VXT_SYSTEM        (X-terminal system disks)
+VXT_CONFIGURATION (X-terminal configuration information)
+VXT_PAGEFILE      (X-terminal paging information)
+
+--
+
+1 DISCONNECT
+
+DISCONNECT [LAT | LAST] [SESSION] session_number
+
+Use the DISCONNECT command to disconnect a LASTport  or  LAT  session.
+If  you omit the LAST or LAT keyword, the server assumes that you want
+to disconnect a  LASTport  session.   Session_number  indicates  which
+session  you  want  to disconnect.  The SHOW SESSIONS command displays
+current sessions.
+
+EXAMPLES:  InfoServer> DISCONNECT LAST SESSION 1
+           InfoServer> DISCONNECT LAT SESSION 24
+
+--
+1 EXIT
+
+EXIT
+
+Use the EXIT command to terminate a management session.  You can  also
+use  the  LOGOUT  command  to  terminate  a management session.  These
+commands exit to the password prompt on a local console or terminate a
+remote LAT session.
+
+EXAMPLES:  InfoServer> EXIT
+           InfoServer> LOGOUT
+
+--
+1 ERASE
+
+ERASE device[:partition_name] {FUNCTIONS | SERVICES}
+
+Use the ERASE command  to  erase  the  specified  read/write  disk  or
+partition  or  FUNCTIONS  or SERVICES data on NVRAM.  The server state
+must be set OFF before you execute this command.
+
+The ERASE algorithm is a single-pass write of zeros.
+
+EXAMPLE:  InfoServer> ERASE NVRAM SERVICES
+
+--
+
+1 INITIALIZE
+
+INITIALIZE DKn:
+
+Use the INITIALIZE command to create the on-disk  structure  for  disk
+partitions  on  a  read/write  disk.   Once a read/write disk has been
+initialized, you can create partitions on  the  disk  or  save  system
+configuration  parameters  to  the  disk.   To  execute the INITIALIZE
+command,  you  must  set  the  server  state  off.   Initializing   or
+reinitializing a device erases all data on the device.
+
+By default, the internal read/write disk on  InfoServer  100  and  150
+systems  is  already  initialized.  You cannot initialize the internal
+FLASH device on InfoServer 1000 systems.
+
+EXAMPLE:  InfoServer> INITIALIZE DK12:
+
+--
+
+1 LOOP
+
+LOOP [command]
+
+Use the LOOP command to repeat  any  valid  InfoServer  command.   The
+command  takes  an optional InfoServer command as a parameter.  If you
+omit the InfoServer command, the server prompts you for it.
+
+The LOOP command continues to repeat the command until you  enter  any
+keyboard  character.   Once you enter a character, the LOOP terminates
+after the current command has been executed.
+
+EXAMPLE:  InfoServer> LOOP SHOW DEVICES
+
+--
+
+1 MONITOR
+
+MONITOR
+
+Use the MONITOR command to repeat any valid  InfoServer  command  once
+every  2-3 seconds.  Each time the InfoServer command is executed, the
+cursor returns to the home position.  The MONITOR command continuously
+updates  any  valid  InfoServer  SHOW display.  The command accepts an
+optional  InfoServer  command  as  a  parameter.   If  you  omit   the
+InfoServer command, the server prompts you for it.
+
+The MONITOR command continues to repeat the command until you type any
+keyboard  character.  Once you type a character, MONITOR terminates at
+the end of the current command.
+
+EXAMPLE:  InfoServer> MONITOR SHOW SERVER
+
+--
+
+1 PURGE VXT
+
+PURGE VXT DKn:  [Dkm:]
+
+If you decide not to purge old X terminal files when you  execute  the
+UPDATE  VXT command, you can use the PURGE VXT command to do so later.
+(For  more  information,  see  the  UPDATE  VXT  command.)  The  first
+parameter  is  the drive containing the VXT distribution compact disc.
+The second, optional parameter is the destination device.  If you omit
+the second parameter, the InfoServer system uses, in order, one of the
+following:
+
+   o The disk from which the system booted, if the disk is writable
+   o The InfoServer-formatted device with the lowest device number
+
+EXAMPLE:  InfoServer> PURGE VXT DK2:
+
+--
+
+1 REBOOT
+
+REBOOT [YES]
+
+Use the REBOOT command to cause the running server to  shut  down  and
+restart   the  system  software.   If  you  omit  the  optional  "yes"
+parameter, the server prompts you before performing the reboot.
+
+EXAMPLE:  InfoServer> REBOOT
+           _Are you sure you want to reboot the server now [No]? YES
+
+--
+
+1 RECORD
+
+RECORD DKn[:partitionname] DKn[:]
+
+Use the RECORD command to record the contents of the source device  to
+a CDROM recorder attached to the InfoServer.
+
+
+EXAMPLE:  InfoServer> RECORD DK1:STAGED_DATA DK2:
+
+Additional information available:
+
+HSFS    ISO     SIZE    SPEED   TEST    TIME
+
+++
+
+--
+
+2 RECORD HSFS
+
+RECORD DKn[:partition_name] DKn[:] HSFS
+
+This parameter specifies that a High Sierra container file  exists  on
+the  source partition and instructs the recorder to record the data as
+a High Sierra CDROM.  If  no  container  file  is  found  the  command
+returns with no operations performed.
+
+This parameter cannot be used in conjunction with the ISO parameter.
+
+--
+2 RECORD ISO
+
+RECORD DKn[:partition_name] DKn[:] ISO
+
+This parameter specifies that a ISO9660 container file exists  on  the
+source  partition  and instructs the recorder to record the data as an
+ISO9660 CDROM.  If no container file is found the command returns with
+no operations performed.
+
+This parameter cannot be used in conjunction with the HSFS parameter.
+
+--
+2 RECORD SIZE
+
+RECORD DKn[:partition_name] DKn[:] SIZE valueinbytes
+
+This parameter specifies the amount of data, in bytes, to be  recorded
+onto  the  CDROM.   If  omitted the source disk or partition size will
+determine the size of the resulting CDROM.
+
+--
+2 RECORD SPEED
+
+RECORD DKn[:partition_name] DKn[:] SPEED {1|2|4}
+
+This parameter specifies the speed  at  which  the  record  will  take
+place.   This is either 1, 2 or 4 times the speed of an audio CD.  The
+Default speed if the parameter is omitted is  2,  even  for  recorders
+that support 4X recording.
+
+Not all speeds are supported by all recorders.  Refer to your recorder
+documentation for more information.
+
+--
+2 RECORD TEST
+
+RECORD DKn[:partition_name] DKn[:] TEST
+
+This parameter causes the recorder to perform all of the functions  of
+recording  a  CDROM without actually writing a CDROM.  This feature is
+useful for verifying the source device can maintain  sufficient  speed
+to perform an actual record.
+
+This parameter is not supported  by  all  recorders.   Refer  to  your
+recorder documentation for more information.
+
+--
+2 RECORD TIME
+
+RECORD DKn[:partition_name] DKn[:] TIME valueinminutes
+
+This parameter controls how often, in  minutes,  update  messages  are
+printed  to  the  screen  while  a  record  is  taking place.  If this
+parameter is omitted then a default value of  1  minute  is  used.   A
+value of 0 disables the printing of any update messages.
+
+--
+1 RENAME
+
+
+Additional information available:
+
+PARTITION
+
+++
+2 RENAME PARTITION
+
+RENAME PARTITION DKn:partition_name new_partition_name
+
+Renames the specified partition to the new partition name
+
+--
+
+1 RESTORE
+
+RESTORE [DKn:]
+
+Use the RESTORE command to restore  from  the  system  device  to  the
+running  server all parameters previously saved with the SAVE command.
+Any services previously  saved  are  added  to  the  current  list  of
+services.   You  can optionally specify the device from which you want
+to restore the system configuration.  If you omit the device name, the
+InfoServer system uses, in order, one of the following:
+
+   o NVRAM for InfoServer 1000 systems
+   o The device from which the system booted, if the device is writable
+   o The InfoServer-formatted device with the lowest device number
+
+EXAMPLE:  InfoServer> RESTORE
+
+--
+1 REWIND
+
+REWIND TPn:
+
+Use the REWIND command to rewind the tape on the specified tape  drive
+without unloading the tape.
+
+EXAMPLE:  InfoServer> REWIND TP15:
+
+--
+
+1 SAVE
+
+SAVE [DKn:]
+
+The SAVE command saves a snapshot of the current system  configuration
+and writes all the services, device states, and system parameters to a
+read/write device on the system.
+
+You can optionally specify an InfoServer device as the destination  of
+the  save  operation.   If  you  omit  the device name, the InfoServer
+system uses, in order, one of the following:
+
+   o NVRAM for InfoServer 1000 systems
+   o The device from which the system booted, if the device is writable
+   o The InfoServer-formatted device with the lowest device number
+
+When the server boots, it searches the  boot  device  for  the  system
+configuration  partition  (called  CONFIGURATION),  to  which the SAVE
+command writes configuration data.  The server automatically sets  all
+system parameters from this partition.
+
+EXAMPLES:  InfoServer> SAVE
+           InfoServer> SAVE DK12:
+
+--
+1 SET
+
+SET
+
+Use the SET command to modify the InfoServer or an existing InfoServer
+entity.   InfoServer  entities that can be modified include partitions
+and services.  The SET command modifies attributes of the server or  a
+server entity.
+
+Additional information available:
+
+DEVICE     PARTITION     SERVER      SERVICE
+
+++
+2 SET DEVICE AUTOMOUNT
+
+SET DEVICE [ALL | device-list] AUTOMOUNT {ENABLED | DISABLED}
+
+Use the SET DEVICE  command  to  enable  or  disable  automounting  of
+devices, such as compact discs, that are not in InfoServer format.  If
+you specify a device list, use commas to separate the  devices.   Note
+that serverwide automount must already be enabled (see the description
+of the SET SERVER AUTOMOUNT command).
+
+EXAMPLE: InfoServer> SET DEVICE DK3,DK4 AUTOMOUNT ENABLED
+
+--
+2 SET PARTITION
+
+SET PARTITION DKn:partition_name MOP {ENABLED | DISABLED}
+
+Use the SET PARTITION command to enable or disable the  partition  for
+downline  loading.   If  a  partition  is  set to be MOP ENABLED, that
+partition cannot be served to the network as a virtual disk and can be
+used  only  for  downline  loading.   If  a partition is set to be MOP
+DISABLED, the partition can be served to the network as a virtual disk
+and cannot be used for downline loading.
+
+EXAMPLE:  SET PARTITION DK1:PR0801ENG MOP ENABLED
+
+--
+
+2 SET SERVER
+
+SET [SERVER]
+
+Use the SET SERVER command to change the  InfoServer  characteristics.
+When  a  SET  command  is  issued,  the  resulting change takes effect
+immediately.  When you issue a SAVE command, all characteristics  that
+have  been  SET  are preserved across InfoServer reboots.  For all SET
+SERVER commands, the keyword SERVER is optional.
+
+Additional information available:
+
+AUTOMOUNT     CACHE          CRASHDUMP      EXTENSION
+GROUP         LASTPORT       LAT_RESPONDER  IDENTIFICATION
+MOP           MULTICAST      NAME           PASSWORD
+PROMPT        REMOTE         STATE          WRITE
+
+++
+3 SET SERVER AUTOMOUNT
+
+SET [SERVER] AUTOMOUNT {ENABLED | DISABLED}
+
+Use the SET AUTOMOUNT command  to  enable  or  disable  the  automatic
+serverwide  mounting  and serving of devices using the volume label as
+the service name.  Tapes are not automounted.  By  default,  AUTOMOUNT
+is enabled.
+
+EXAMPLE: InfoServer> SET SERVER AUTOMOUNT ENABLED
+
+--
+3 SET SERVER CACHE
+
+SET [SERVER] CACHE BUCKETSIZE {8 | 16 | 32}
+
+Use the SET CACHE BUCKETSIZE command to change the  size  of  a  cache
+bucket  in blocks.  Cache bucket size determines how many blocks ahead
+or behind the current block are loaded into cache  when  a  read  from
+disk  takes  place.  The actual number of blocks read is a function of
+both cache bucket size and the service READAHEAD and READBEHIND flags.
+
+SET [SERVER] CACHE SIZE n
+
+The server cache size can be set from 1 to 3 megabytes less  than  the
+total  amount  of system memory.  On an InfoServer with 8 megabytes of
+system memory, the server cache  size  may  be  set  to  5,  6,  or  7
+megabytes.   Any  remaining  server  memory  is  allocated  to pool to
+maintain client connections.  A smaller cache  size  allows  for  more
+concurrent client connections.
+
+Because these values are read at boot time, they take effect when  the
+server is rebooted.
+
+EXAMPLES: InfoServer> SET SERVER CACHE BUCKETSIZE 16
+          InfoServer> SET SERVER CACHE SIZE 2
+
+--
+3 SET SERVER CRASHDUMP
+
+SET [SERVER] CRASHDUMP {ENABLED | DISABLED} [device:]
+
+Use  the  SET  CRASHDUMP  command  to  enable  or  disable   crashdump
+processing  in  the  event of an InfoServer crash.  When you enter the
+SET CRASHDUMP  ENABLED  command,  the  server  creates  an  8000-block
+partition  (called  the CRASH_PARTITION) for the memory dump.  You can
+optionally specify a device to hold the dump.  If you omit the  device
+parameter, the InfoServer system uses, in order, one of the following:
+
+   o The device from which the system booted, if the device is writable
+   o The InfoServer-formatted device with the lowest device number
+
+The partition cannot be deleted with the DELETE PARTITION command  but
+is removed when CRASHDUMP is DISABLED.
+
+By default, CRASHDUMP is DISABLED.
+
+EXAMPLE: InfoServer> SET SERVER CRASHDUMP ENABLED
+
+--
+3 SET SERVER EXTENSION
+
+SET [SERVER] EXTENSION [LIMIT] n
+
+Use the SET EXTENSION command to limit the amount of  disk  space  (in
+blocks)  that  any  single  remote client connection can consume.  The
+command specifies a server-wide upper limit for the  size  of  virtual
+disks created remotely.
+
+EXAMPLE: InfoServer> SET SERVER EXTENSION LIMIT 60000
+
+--
+3 SET SERVER GROUP
+
+SET [SERVER] GROUP [CODES] {ALL | code-list} {ENABLED | DISABLED}
+
+Use the SET GROUP command to enable or disable  the  LAT  group  codes
+that  the  InfoServer  uses  to  advertise its management service.  To
+connect to the InfoServer management interface, a terminal  server  or
+other  LAT  node  must have at least one group code in common with the
+group codes set for the InfoServer system.
+
+Specifying ENABLE adds the specified LAT  group  codes  to  the  list;
+DISABLE  removes  them.   The  "code-list"  can  include multiple code
+numbers from 0 to 255, separated by a comma or by a hyphen to indicate
+a  list.   Additionally, the keyword ALL can be used for the code list
+to indicate that all  group  codes  should  be  enabled/disabled.   By
+default, group code 0 is enabled.
+
+EXAMPLE: InfoServer> SET SERVER GROUP CODES 1, 10-20, 250-255 ENABLED
+
+
+--
+3 SET SERVER IDENTIFICATION
+
+SET [SERVER] IDENTIFICATION "string"
+
+Use the SET IDENTIFICATION command to set a descriptive string of 0 to
+64  characters  to  be  associated  with  the InfoServer.  This string
+advertised with each LAT announcement and can be displayed  by  remote
+terminal  servers  to  help  identify  the  particular InfoServer.  By
+default, no identification string is set.
+
+EXAMPLE: InfoServer> SET IDENTIFICATION "Server located on floor 3, pole G"
+
+
+--
+3 SET SERVER LAT_RESPONDER
+
+SET [SERVER] LAT_RESPONDER {ENABLED | DISABLED}
+
+The SET LAT_RESPONDER command enables or disables the InfoServer's LAT
+responder  capability.   When LAT_RESPONDER is enabled, the InfoServer
+system maintains a database of all LAT services available on  the  LAN
+and  responds  to requests for this information from nodes that do not
+maintain such a database.
+
+EXAMPLE: InfoServer> SET SERVER LAT_RESPONDER ENABLED
+
+--
+3 SET SERVER MOP
+
+SET [SERVER] MOP [V4] {ENABLED | DISABLED}
+
+Use the SET MOP command to enable or disable MOP downline  loading  by
+the  InfoServer.   By  default,  the  server enables the MOP multicast
+address and performs downline loading for any MOP images installed  on
+the  server.   If  no  downline  load images are installed, MOP can be
+disabled.
+
+The  InfoServer  supports  both  Version  3.0  and  Version  4.0   MOP
+protocols.   The default configuration enables MOP V3 downline loading
+and disables MOP V4.  When MOP V4 is enabled, the InfoServer  responds
+to both V3 and V4 downline load requests.
+
+In local area networks with multiple servers, MOP V4 downline  loading
+should  be  enabled  only  if there is a specific need to do so -- for
+example, to downline load 802.3-only products.  In that case,  MOP  V4
+should  be  enabled on only one server at a time.  Otherwise, attempts
+by multiple servers to respond  to  a  load  request  within  a  brief
+interval might conflict and cause the load to fail.
+
+EXAMPLES: InfoServer> SET SERVER MOP ENABLED
+          InfoServer> SET SERVER MOP V4 ENABLED
+
+--
+3 SET SERVER MULTICAST
+
+SET [SERVER] MULTICAST [TIMER] value
+
+Use the SET MULTICAST  command  to  change  the  frequency  which  the
+InfoServer  advertises its LAT management service to the network.  The
+timer value is expressed in seconds and can be in the range from 10 to
+255.   By  default,  the  multicast  value  is  60,  meaning  that the
+InfoServer management service is advertised to the  LAT  network  once
+per minute.
+
+EXAMPLE: InfoServer> SET SERVER MULTICAST TIMER 30
+
+
+--
+3 SET SERVER NAME
+
+SET [SERVER] NAME string
+
+Use the SET NAME command to associate  a  new  name  string  with  the
+InfoServer  system.  The NAME string is used as the management service
+advertised over LAT.  The server name can be from 1 to  16  characters
+in length and can include only the characters A-Z, 0-9, ".", "-", "_",
+"$", or multinational characters  in  the  ASCII  range  192-255.   By
+default,  the  server  name  is LAD_address, where "address" is the 12
+hexadecimal digits representing  the  InfoServer's  Ethernet  address.
+InfoServer names must be unique across the extended LAN.
+
+EXAMPLE: InfoServer> SET SERVER NAME TEST_INFOSERVER
+
+
+--
+3 SET SERVER PASSWORD
+
+SET [SERVER] PASSWORD [PRIVILEGED | NONPRIVILEGED]
+SET [SERVER] NOPASSWORD [PRIVILEGED | NONPRIVILEGED]
+
+Use the SET  PASSWORD  command  to  change  either  of  the  passwords
+required  to  access  the  InfoServer  management interface.  You must
+enter the password at the console or at the local  terminal  interface
+before a LAT connection is allowed to the remote management interface.
+A password can be up to 16 characters long.  Either  password  may  be
+set to the null string by specifying NOPASSWORD.
+
+The default privileged password is "ESS".  The default  non-privileged
+password  is  "INFOSERVER".   If both the PRIVILEGED and NONPRIVILEGED
+keywords  are  omitted,  the  default  is  PRIVILEGED.   If  both  the
+privileged and nonprivileged passwords are identical, the session will
+be logged in as a privileged session.
+
+EXAMPLE: InfoServer> SET SERVER PASSWORD
+          _New_password: SECRET (not echoed)
+          _Verification: SECRET (not echoed)
+
+--
+3 SET SERVER PROMPT
+
+SET [SERVER] PROMPT "prompt-string"
+
+
+Use the SET PROMPT command  to  change  the  server  prompt  from  the
+default   prompt   "InfoServer>".    The   prompt   can  be  a  useful
+identification aid when connecting to various servers using LAT.   The
+maximum  prompt  string  length is 24 characters.  One space is always
+appended to the specified string.
+
+EXAMPLE: InfoServer> SET PROMPT "My Server>"
+          My Server> SHOW SERVER
+
+--
+3 SET SERVER REMOTE
+
+SET [SERVER] REMOTE [DEVICES] DKn:[,...] [{ENABLED | DISABLED}]
+
+Use the SET REMOTE command to allow (or disallow)  remote  clients  to
+create  virtual  disks  on  InfoServer  writable  disks.   To create a
+service remotely on a specific device,  the  device  must  be  in  the
+remote  device  list.   You use the SET REMOTE command to maintain the
+remote device list.  To add devices  to  the  current  list,  use  the
+ENABLED  keyword.   To  remove devices from the list, use the DISABLED
+keyword.  If both keywords are omitted, the entire list is replaced by
+the list on the command line.  (Use the SHOW SERVER command to display
+the remote device list.)
+
+EXAMPLES:  InfoServer> SET SERVER REMOTE DEVICES DK1,DK15
+                (The remote devices list is now DK1,DK15.)
+           InfoServer> SET SERVER REMOTE DEVICES DK1 DISABLED
+                (The remote devices list is now DK15.)
+           InfoServer> SET SERVER REMOTE DEVICES DK1 ENABLED
+                (The remote devices list is now DK1,DK15.)
+
+--
+3 SET SERVER STATE
+
+SET [SERVER] STATE {ON | OFF | SHUT}
+
+Use the SET SERVER STATE command to change the  operational  state  of
+the server.
+
+When the state is set ON (default), connections  to  InfoServer  disks
+are allowed.
+
+When the state is set OFF,  no  new  connections  to  the  server  are
+allowed,  and  any  existing  connections  to  disks are broken.  This
+setting is used during problem diagnosis, or if a parameter  needs  to
+be changed that cannot be modified with existing connections.
+
+Specify SHUT when shutting the server down.  No  new  connections  are
+allowed  to InfoServer disks, but any existing connections are allowed
+to continue until terminated by the remote client.
+
+EXAMPLE: InfoServer> SET SERVER STATE SHUT
+
+
+--
+3 SET SERVER LASTPORT
+
+SET [SERVER] LASTPORT [GROUP] value
+
+Use the SET SERVER  LASTPORT  GROUP  command  to  set  the  InfoServer
+LASTport group code.  LASTport groups are a method for segmenting LANs
+so that only certain clients and InfoServer systems  can  communicate.
+The  server  communicates  only  with  clients that belong to the same
+LASTport group as the server.
+
+The LASTPORT GROUP value is a decimal number in the range 0-1023.   By
+default,  the  InfoServer  system  belongs  to  group 0.  Changing the
+LASTport group changes the LASTport protocol  multicast  address  that
+the server uses.
+
+EXAMPLE: InfoServer> SET SERVER LASTPORT GROUP 20
+
+--
+3 SET SERVER WRITE
+
+SET [SERVER] WRITE [ACCESS] {BLOCKING | PRE-EMPTIVE}
+
+Use the SET SERVER WRITE ACCESS command to change the  server's  write
+access  policy.  The Server allows only one write session at a time to
+a virtual disk and blocks all other sessions during the write session.
+The  SET  SERVER  WRITE  ACCESS  command  controls how write access is
+granted.
+
+Specifying PRE-EMPTIVE (default) means  that  all  read  sessions  are
+disconnected  when  a  write  session is initiated.  Read sessions are
+allowed once the write session disconnects.
+
+Specifying BLOCKING means that a write session cannot be initiated  if
+read  sessions  are current.  The write session cannot start until all
+read sessions are disconnected and the virtual disk is idle.
+
+EXAMPLE: InfoServer> SET SERVER WRITE ACCESS BLOCKING
+
+--
+2 SET SERVICE
+
+SET SERVICE service_name [FOR DKn:[partition_name]] [CLASS class_name]
+
+Use the SET SERVICE  command  to  modify  the  characteristics  of  an
+existing service.  The SET SERVICE command accepts a service name as a
+parameter.  Wild-card service names are allowed.  The SET command also
+accepts  an  optional  device  or partition name and an optional CLASS
+name to further qualify the service.  If either  of  these  parameters
+are  omitted,  all  services that match the specified service name are
+modified.
+
+The SET SERVICE command also takes a  number  of  optional  qualifiers
+listed below.
+
+EXAMPLES: InfoServer> SET SERVICE CON_DIST FOR DK2: WRITERS 0
+          InfoServer> SET SERVICE DISK FOR DK2: CLASS V2.0 STATIC_RATING 0
+
+Additional information available for optional qualifiers:
+
+DYNAMIC_RATING  PASSWORD        STATIC_RATING   READAHEAD
+READBEHIND      READERS         WRITERS
+
+++
+3 SET SERVICE DYNAMIC_RATING
+
+SET SERVICE service_name DYNAMIC_RATING
+
+The  DYNAMIC_RATING  option  indicates  that  the  InfoServer   should
+calculate  a  dynamic  rating  for the created service.  The rating is
+used to load-balance clients across redundant services.  Clients  will
+select the highest rated service when the same service is offered more
+than once on the network.  The InfoServer will calculate a new dynamic
+rating  for the service every 10 seconds, based on server CPU load and
+the I/O load to the service.
+
+EXAMPLE:  InfoServer> SET SERVICE TEST FOR DK2: DYNAMIC_RATING
+
+--
+3 SET SERVICE PASSWORD
+
+SET SERVICE service_name PASSWORD [string]
+SET SERVICE service_name NOPASSWORD
+
+The PASSWORD option indicates that a password is required from  client
+systems  before  connections to the created service are accepted.  The
+string specifies the required password.  If  the  password  string  is
+omitted,  and  the  PASSWORD  option is the last option on the command
+line, the server prompts you for the password.
+
+The NOPASSWORD option indicates  that  no  password  is  required  for
+clients  to  connect  to the specified service.  This command clears a
+password previously set for a service.
+
+EXAMPLES:  InfoServer> SET SERVICE TEST FOR DK2: PASSWORD SECRET
+
+           InfoServer> SET SERVICE TEST FOR DK2: PASSWORD
+           _Password: SECRET (not echoed)
+           _Verification: SECRET (not echoed)
+
+
+--
+
+3 SET SERVICE STATIC_RATING
+
+SET SERVICE service_name STATIC_RATING rating
+
+The  STATIC_RATING  option  indicates  that  the  server  should   not
+periodically  calculate  a  rating for the service based on InfoServer
+load.  Instead, the service has a constant rating which is  the  value
+specified  on  the command line.  The rating value can be in the range
+of 0-65535.  Larger rating  values  mean  better  service  access  for
+clients.
+
+EXAMPLE:  InfoServer> SET SERVICE TEST STATIC_RATING 1
+
+
+--
+3 SET SERVICE READAHEAD
+
+SET SERVICE service_name READAHEAD
+SET SERVICE service_name NOREADAHEAD
+
+The READAHEAD option determines whether blocks following a request are
+also inserted into cache.  The number of blocks read into the cache is
+determined by the CACHE BUCKETSIZE parameter on the  server.   If  the
+READAHEAD  attribute  is  enabled,  the blocks following a request are
+loaded into cache up to the next cache bucket boundary.
+
+EXAMPLES:  InfoServer> SET SERVICE CONDOC FOR DK2: READAHEAD
+           InfoServer> SET SERVICE PAGEFILE NOREADAHEAD
+
+--
+3 SET SERVICE READBEHIND
+
+SET SERVICE service_name READBEHIND
+SET SERVICE service_name NOREADBEHIND
+
+The  READBEHIND  option  for  a  service  determines  whether   blocks
+preceding  a  request  are  also  inserted  into cache.  The number of
+blocks read into the cache  is  determined  by  the  CACHE  BUCKETSIZE
+parameter  on the server.  If the READBEHIND attribute is enabled, the
+blocks preceding a request are loaded into cache from the beginning of
+the bucket up to the current request.
+
+EXAMPLES:  InfoServer> SET SERVICE CONDOC FOR DK2: READBEHIND
+           InfoServer> SET SERVICE PAGEFILE READBEHIND
+
+--
+3 SET SERVICE READERS
+
+SET SERVICE service_name READERS number
+SET SERVICE service_name NOREADERS
+
+The  READERS  option  indicates  the  number  of   concurrent   client
+connections  allowed  for  read  access to the service.  The number of
+readers can be from 0 to 1000.
+
+The NOREADERS option indicates that client read access to the  created
+service is not allowed.  This option is the same as specifying READERS
+as 0.
+
+EXAMPLE:  InfoServer> SET SERVICE TEST FOR DK2: READERS 1
+
+
+--
+3 SET SERVICE WRITERS
+
+SET SERVICE service_name WRITERS number
+SET SERVICE service_name NOWRITERS
+
+The  WRITERS  option  indicates  the  number  of   concurrent   client
+connections  allowed  for  write access to the service.  The number of
+writers can be either 0 or 1.
+
+The NOWRITERS option indicates that client write access to the created
+service is not allowed.  This option is the same as specifying WRITERS
+as 0.
+
+EXAMPLE:  InfoServer> SET SERVICE TEST WRITERS 0
+
+
+--
+1 SHOW
+
+SHOW
+
+The SHOW command is used to display server parameters and counters.
+
+Additional information available:
+
+DEVICE       ETHERNET     FUNCTIONS     LAT
+LASTPORT     MOP          PARTITIONS    RECORDER
+SERVER       SERVICE      SESSIONS      TAPE
+
+++
+2 SHOW DEVICE
+
+SHOW DEVICE [DKn:] [BRIEF | FULL]
+
+Use the SHOW DEVICE command to display counters and other  information
+about  the  disk  drives  connected  to  a server.  Information can be
+displayed about one device or all the devices on a server.   Full  and
+abbreviated  information is available.  If the optional device name is
+omitted, BRIEF information is displayed.   If  a  specific  device  is
+selected, FULL information is displayed.
+
+EXAMPLES: InfoServer> SHOW DEVICE DK0: BRIEF
+          InfoServer> SHOW DEVICE FULL
+
+--
+2 SHOW ETHERNET
+
+SHOW ETHERNET Use the SHOW ETHERNET command to  display  counters  and
+other  information about the server's Ethernet device and the LASTport
+protocol.
+
+EXAMPLE: InfoServer> SHOW ETHERNET
+
+--
+2 SHOW FUNCTIONS
+
+SHOW FUNCTIONS
+
+Use the SHOW FUNCTIONS command to list the InfoServer  functions  that
+have  been enabled as well as additional functions that can be enabled
+by purchasing additional function compact disks.
+
+EXAMPLE: InfoServer> SHOW FUNCTIONS
+
+--
+2 SHOW LAT
+
+
+SHOW LAT
+
+Use the SHOW LAT command to display LAT counters, characteristics,  or
+session information.
+Additional information available:
+
+COUNTERS    SESSIONS
+
+++
+3 SHOW LAT COUNTERS
+
+
+SHOW LAT COUNTERS
+
+Use the  SHOW  LAT  COUNTERS  command  to  display  both  counter  and
+characteristic information for the server.
+
+EXAMPLE: InfoServer> SHOW LAT COUNTERS
+
+--
+3 SHOW LAT SESSIONS
+
+
+SHOW LAT SESSIONS
+
+Use the SHOW LAT SESSIONS command to  display  connection  information
+for the four LAT process slots.
+
+EXAMPLE: InfoServer> SHOW LAT SESSIONS
+
+--
+2 SHOW LASTPORT
+
+SHOW LASTPORT [SESSIONS] [CLASS service-class]
+
+Use the SHOW LASTPORT command to display  information  about  LASTPORT
+(virtual  disk)  sessions.   You  can  qualify  this  command  to show
+sessions connected to a particular service class.
+
+EXAMPLES: InfoServer> SHOW LASTPORT
+          InfoServer> SHOW LASTPORT CLASS TAPE
+
+--
+2 SHOW MOP
+
+SHOW MOP
+
+Use the SHOW MOP command to display counters for server downline  load
+attempts.
+
+EXAMPLE: InfoServer> SHOW MOP
+
+--
+2 SHOW PARTITIONS
+
+SHOW PARTITIONS DKn:[partition_name] [BRIEF | FULL]
+
+Use SHOW PARTITIONS command to display  information  about  partitions
+that  have  been  created for an InfoServer disk.  The command takes a
+device name and optionally a specific partition name as  a  qualifier.
+Full   and   abbreviated  information  is  available  for  partitions.
+Wild-card partition name specifications are allowed.
+
+EXAMPLES: InfoServer> SHOW PARTITION DK1:FULL
+          InfoServer> SHOW PARTITION DK1:PART*
+
+--
+2 SHOW RECORDER
+
+SHOW RECORDER [DKn:] [BRIEF | FULL]
+
+Use the SHOW DEVICE command to display counters and other  information
+about  the  CDROM recorders connected to a server.  Information can be
+displayed about one recorder or all the recorders on a  server.   Full
+and abbreviated information is available.
+
+EXAMPLES: InfoServer> SHOW RECORDER DK0: BRIEF
+          InfoServer> SHOW RECORDER FULL
+
+--
+2 SHOW SERVER
+
+SHOW SERVER
+
+Use the SHOW SERVER commands to  display  server  counters  and  other
+information.   If  none of the keywords (CHARACTERISTICS, COUNTERS, or
+STATISTICS) are entered, the default is CHARACTERISTICS.
+
+Additional information available:
+
+CHARACTERISTICS    COUNTERS    STATISTICS
+
+++
+3 SHOW SERVER CHARACTERISTICS
+
+
+SHOW SERVER CHARACTERISTICS
+
+Use the SHOW SERVER CHARACTERISTICS command to  display  many  of  the
+settable server characteristics.
+
+EXAMPLE: InfoServer> SHOW SERVER CHARACTERISTICS
+
+--
+3 SHOW SERVER COUNTERS
+
+
+SHOW SERVER COUNTERS
+
+Use the SHOW SERVER COUNTERS command to  display  the  server's  disk,
+tape, system, and session counters.
+
+EXAMPLE: InfoServer> SHOW SERVER COUNTERS
+
+--
+3 SHOW SERVER STATISTICS
+
+
+SHOW SERVER STATISTICS Use  the  SHOW  SERVER  STATISTICS  command  to
+display the server pool and cache statistics.
+
+EXAMPLE: InfoServer> SHOW SERVER STATISTICS
+
+--
+2 SHOW SERVICE
+
+SHOW  SERVICE   [[service_name]   |   *]   [BRIEF   |   FULL]   [CLASS
+service-class]]
+
+Use the SHOW SERVICE command to display information about one or  more
+services  or  a  list  of  all  services in either full or abbreviated
+format.  By default, brief information is provided if the service name
+option  is  omitted.   Full information is displayed by default if the
+service  name  parameter  is  specified.    Wild-card   service   name
+specifications  are  allowed.  The services displayed can be qualified
+by service class.  The service name is required if the FULL, BRIEF, or
+CLASS qualifiers are specified.
+
+EXAMPLES: InfoServer> SHOW SERVICE CD*
+          InfoServer> SHOW SERVICE BOOKREADER FULL
+          InfoServer> SHOW SERVICE * BRIEF CLASS ISO_9660
+
+--
+2 SHOW SESSIONS
+
+SHOW SESSIONS
+
+Use the SHOW  SESSIONS  command  to  display  information  about  both
+LASTPORT and LAT sessions.
+
+EXAMPLE: InfoServer> SHOW SESSIONS
+
+--
+2 SHOW TAPE
+
+SHOW TAPE
+
+Use the SHOW TAPE command to display tape counter information.
+
+EXAMPLE: InfoServer> SHOW TAPE
+
+--
+1 UNBIND
+
+UNBIND [VDK1:]
+
+Use the UNBIND  command  to  delete  the  virtual  device  VDK1:   and
+terminate the connection to the remote service.
+
+EXAMPLE:  InfoServer> UNBIND VDK1:
+
+--
+
+1 UNLOAD
+
+
+UNLOAD TPn
+
+Use the UNLOAD command to rewind and unload the specified tape.
+
+EXAMPLE: InfoServer> UNLOAD TP13
+
+--
+1 UPDATE
+
+
+UPDATE
+
+Use the UPDATE command to move InfoServer  data  from  one  device  to
+another.   InfoServer  data  is  any  disk  data  used  to control the
+operation of the InfoServer system, such as the load image.
+
+Additional information available:
+
+FUNCTIONS   SYSTEM    VXT
+
+++
+2 UPDATE FUNCTIONS
+
+
+UPDATE FUNCTIONS DKn:  [DKn:]
+
+Use  the  UPDATE  FUNCTIONS  command  to  enable   additional   server
+functions.  The first parameter specifies the source device containing
+the new function compact disc,  and  the  second,  optional  parameter
+specifies  the  read/write destination device.  If you omit the second
+parameter, the InfoServer system uses, in order, one of the following:
+
+   o NVRAM for InfoServer 1000 systems
+   o The device from which the system booted, if the device is writable
+   o The InfoServer-formatted device with the lowest device number
+
+EXAMPLE: InfoServer> UPDATE FUNCTIONS DK2: DK1:
+
+--
+2 UPDATE SYSTEM
+UPDATE SYSTEM DKn:  [device[:]]
+
+Use the UPDATE SYSTEM command to update the InfoServer software from a
+source  device  to a target device.  The first parameter specifies the
+drive containing the InfoServer  distribution  compact  disc  and  the
+second, optional parameter specifies the read/write target device.  If
+you omit the second parameter, the InfoServer system uses,  in  order,
+one of the following:
+
+   o FLASH for InfoServer 1000 systems
+   o The device from which the system booted, if the device is writable
+   o The InfoServer-formatted device with the lowest device number
+
+Note that you must reboot the server to run the new software.
+
+EXAMPLE: InfoServer> UPDATE SYSTEM DK2: DK1:
+
+--
+2 UPDATE VXT
+
+
+UPDATE VXT DKn:  [DKm:]
+
+Use the UPDATE VXT command to install/update X terminal  files,  which
+come  on  a  special  compact disc from Digital Equipment Corporation.
+The UPDATE VXT command installs the files from the compact  disc  onto
+the  target disk you specify.  The first parameter, the source device,
+must be an InfoServer drive that contains the VXT installation compact
+disc.   The second, optional parameter specifies the target read/write
+InfoServer disk.  If you omit the  second  parameter,  the  InfoServer
+system uses, in order, one of the following:
+
+   o The device from which the system booted, if the device is writable
+   o The InfoServer-formatted device with the lowest device number
+
+When you enter the command, the system asks if you want to purge older
+VXT  software  versions  now.  Answer NO if you want to delete the old
+files later using the PURGE VXT command.
+
+EXAMPLE: InfoServer> UPDATE VXT DK2: DK1:
+
+--
+1 VERIFY
+
+VERIFY DKn:  [{REPAIR | NOREPAIR}]
+
+Use the VERIFY command to analyze and correct any errors found  on  an
+InfoServer-formatted  read/write  disk.   If  you  specify REPAIR (the
+default), the  system  attempts  to  correct  errors  in  the  on-disk
+structure.  If you specify NOREPAIR, the system marks the partition as
+suspect but does not attempt to repair the damage.
+
+At  boot   time,   the   system   performs   verification   for   each
+InfoServer-formatted  read/write  disk  on the system as if VERIFY DKn
+NOREPAIR was specified.
+
+EXAMPLE: InfoServer> VERIFY DK1 NOREPAIR
+
+-
+1 ZERO
+
+ZERO
+
+Use the ZERO command to zero some or all of  the  server  counters  By
+default,  all  server  counters  are  zeroed.   Optionally, any of the
+listed subset of counters can also be zeroed.
+
+Additional information available:
+
+ALL   ETHERNET  MOP     LAT    SERVER    TAPE
+
+++
+2 ZERO ALL
+
+ZERO ALL [COUNTERS]
+
+The ZERO ALL command initializes all  server  counters.   The  keyword
+COUNTERS is optional.
+
+EXAMPLE: InfoServer> ZERO ALL
+
+--
+2 ZERO ETHERNET
+
+ZERO ETHERNET [COUNTERS]
+
+The ZERO ETHERNET command initializes the counters  displayed  in  the
+SHOW ETHERNET display.  The keyword COUNTERS is optional.
+
+EXAMPLE: InfoServer> ZERO ETHERNET
+
+--
+2 ZERO MOP
+
+ZERO MOP [COUNTERS]
+
+The ZERO MOP command initializes the counters displayed  in  the  SHOW
+MOP command.  The keyword COUNTERS is optional.
+
+EXAMPLE: InfoServer> ZERO MOP
+
+--
+2 ZERO LAT
+
+ZERO LAT [COUNTERS]
+
+The ZERO LAT command initializes the counters displayed  in  the  SHOW
+LAT command.  The keyword COUNTERS is optional.
+
+EXAMPLE: InfoServer> ZERO LAT
+
+--
+2 ZERO SERVER
+
+ZERO SERVER [COUNTERS]
+
+The ZERO SERVER command initializes the counters displayed in the SHOW
+SERVER display.  The keyword COUNTERS is optional.
+
+EXAMPLE: InfoServer> ZERO SERVER
+
+--
+2 ZERO TAPE
+
+ZERO TAPE [COUNTERS]
+
+The ZERO TAPE command initializes the counters displayed in  the  SHOW
+TAPE display.  The keyword COUNTERS is optional.
+
+EXAMPLE: InfoTape> ZERO TAPE
+
+--

@@ -1,0 +1,2178 @@
+	.TITLE PARAMTBL  
+	.IDENT /V01-002/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications
+; 001 	Oct 1996		PB	Creation		
+; 002	Aug 18 1997		PB 	Added Hierarchical table names
+;					to facilitate easier access and
+;					automate table addition.
+;++
+;1 PARAMTBL  
+; Interactive programme to List,Add,Modify and Delete items in 
+; MAPPER.DAT
+; The resulting file is used by PARAMXLT to format DB recs.
+; Additionaly this routine manages the table names in a hierarchical 
+; fashion. The translation routines to not use these records.
+;2 Table_names
+; As per the output file format (which see) there are 3 fields used for
+; table names and the interpretation and use of these fields is different
+; than in paramater data.
+;	Field			Desc
+;	TBL	If top byte of this field is non 0 then it is a table
+;		name. The PARAM field points to the next level down.
+;	PARAM	If the top byte of this field in non 0 then there are
+;		further table names in the hierarchy. If the top byte = 0 
+;		then this is the table that contains the desired params.
+;	KEYW (and KEWYLEN) are the table names.
+;3 Description
+; Paramaters are organised into tables. Some (Ethernet for example) are a
+; single level table and so the top level table would look like:
+;	TBL		PARAM			Keyword
+;	01000000	00010001		Ethernet
+;	
+; Top level tables are always identified by 01000000. The param field
+; contains a 0 in the top byte and so this is the table param that 
+; contains the actual paramater values and a series of records like:
+;	00010001	1		Name
+;	00010001	2		Address
+; and so on is expected.
+; In most other cases (eg) OSI there are 2 levels:
+;	TBL		PARAM			Keyword
+;	01000000	02000003 		OSI 
+;	02000003 	0001000A                OSI Node
+;	02000003	0001000B		OSI Alias
+;	02000003	0001000C		OSI Alias Port
+;	.
+;	.
+;	0101000A	1			Name
+;	0101000A	2			Address
+; To facilitate automatic MIB insertion (for SNMP), the IP tables
+; are 3 levels:
+;	TBL		PARAM			Keyword
+;	01000000	02000007		SNMP
+;	02000007	03000001 		MIB File name
+;	02000007	03000002		MIB File name
+;	.
+;	And so on, one for each MIB added to EMU. There is no
+;	practical limit.
+;	03000001	0000xxxx  		Table in Mib
+;	The sequence number for a file name is generated at MIB_REGISTER
+;	time and is used in this context simply as an id. In other routines
+;	in is used to locate the correct MIB to apply.
+;	xxxxx:
+;	16 bit crc of the Object identifier of the table. Because all 
+;	possible SNMP params and tables have a unique object id, this 
+;	is unlikely to duplicate but inevitably will.
+;
+; 
+;2 Inputs  
+;	Top level menu select either params or tables and then
+;	in either case:
+;	     1. List:
+;		Lists known entries and items on sys$output
+;	     2. Add:
+;		Records details in PARAMTBL.DAT file
+;	     3. Modify:
+;		Allows modification of modifiable fields
+;            4. Delete:
+;		Erase corresponding record
+;
+;2 Output
+; File format:
+;	Field		Datatype       offset	Len
+;	TBL		.LONG		0       4
+;	PARAM		.LONG		4       4
+;	SEC		.QUAD		8       8
+;	KEYWLEN		.LONG		16      4
+;	KEYW		.BLKB		20      64
+;	FMTTYP		.LONG		84      4
+;	FMTSTR		.BLKB		88      32
+;	POLFLG		.LONG		120     4
+;	RPTLVL		.LONG		124     4
+; TBL is the table this param is in. It is defined by EMU and is set either 
+; by definition (_EMUDBDEF) or by calculation (in case of SNMP).
+; All defined tables are in range 65536 - max .long
+; All SNMP tables are calculated from the ObjID and are in range 1 - 65535
+; 
+; Param is the paramater number in the table. It is either the network defined
+; number (as in CMIP, SNMP and NICE, MOP) or defined by EMU.
+;
+; Table and param together form the primary key to this file. Table is 
+; defined as a secondary key. Note, in order to keep this confusing, when
+; table records are being accessed, the table field is a number indicating
+; the level in the hierarchy this table is at and the param field is the 
+; table.
+;
+; SEC. Security patttern that must be met to detect this param. It is the 
+; VMS .quad security bits. Not used in table names 
+;
+; KEYLEN. Len of following string.
+; KEYW  . String that preceedes any translation of this param.
+;
+; FMTYP . One of:
+;	Len of following string (hi bit not set)
+;	Routine number	(hi bit set)
+; If the hi bit is set the param is translated using the routine specified
+; by this number(After hi bit is cleared).
+; If the Hi bit is clear, this is the len of the following FAO control string.
+; FMTSRT. A string suitable for input to FAO. Not used in table names.
+; 
+; POLFLG
+; Bit pattern directing various polling routine actions:
+;	Bit		When set
+;	0	Exclude from param polling. By default any param NOT 
+;		a counter is included.
+;	1	Include in counter processing. By default counters
+;		are not included.
+;	2	Alert on create. If this param is created in EMUDB
+;		EMUDB_ACCESS returns SS$_CREATED if this bit is set.
+;		Otherwise EMUDB_ACCESS returns SS$_NORMAL.
+;	3	Alert on Modify. If this param is Modified in EMUDB
+;		EMUDB_ACCESS returns SS$_WASSET if this bit is set.
+;		Otherwise EMUDB_ACCESS returns SS$_NORMAL.
+;	4	Alert on delete. If this param is deleted from EMUDB
+;		EMUDB_ACCESS returns SS$_DELETED if this bit is set.
+;		Otherwise EMUDB_ACCESS returns SS$_NORMAL.
+;   By default alerts are generated on Modify and Delete only. This 
+;   This behaviour can be changed on a param by param basis with this routine.
+; RPTLVL
+; A defined level (1-5) this param falls in. In reporting, the user
+; sets the level of detail required and this param directs whether or
+; not to include it in a report.
+;--
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+
+	$RMSDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	EMUCTRLDEF
+	EMUSYSDEF
+	EMUDBDEF
+	EMUSNMPDEF
+;
+
+	.PSECT PARAMTBL_DATA,WRT,NOEXE,QUAD,pic
+KEY_BUF:	.QUAD	0                            
+
+	.ALIGN	LONG
+MAPPERFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		FOP = CIF,-			; Create if doesn't exist
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <EMU5_DAT:MAPPER.DAT>,-	; Default Filename 
+		FNM = <MAPPER>,-			; Filename 
+		XAB = MAPPERXAB0                  ; Keys
+
+MAPPERRAB:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = MAPPERREC_BUF,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = MAPPERREC_BUF,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		ROP = <RRL>,-
+		RAC = KEY,-			; Keyed file
+		KBF = KEY_BUF,-			; Key location
+		KSZ = 8
+
+MAPPERRAB2:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = TBLRECBUF,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = TBLRECBUF,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		ROP = <NLK,RRL>,-
+		RAC = KEY,-			; Keyed file
+		KBF = TBLRECBUF,-		; Key location
+		KRF = 1,-
+		KSZ = 4
+
+MAPPERXAB0:	$XABKEY	REF = 0,-  		; TBL,PARAM
+		DTP = BN8,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+		NXT = MAPPERXAB1
+
+MAPPERXAB1:	$XABKEY	REF = 1,-  	; TBL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP,-
+		NXT = MAPPERXAB2
+
+MAPPERXAB2:	$XABKEY	REF = 2,-  	; PARAM
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+;
+MAPPERREC_BUF:	
+MAPPER_KEY:
+MAPPER_TBL:		.LONG	0	; Table 
+MAPPER_PARAM:		.LONG	0	; Paramater
+MAPPER_SEC:		.QUAD	0	; Prives req'ed to detect. VMS sec
+MAPPER_KEYWLEN:		.LONG	0	; Len of following string
+MAPPER_KEYW:		.BLKB	32      ; Standard keyword this param
+MAPPER_FMTTYP:		.LONG	0	; Either len of following or rtn num.
+MAPPER_FMTSTR:		.BLKB	72	; FAO directive str
+
+MAPPERREC_SIZE = .-MAPPERREC_BUF        ; = 128
+TBLRECBUF:	.BLKB	MAPPERREC_SIZE
+;	
+
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 	30      ; 
+VD_COLS: 	.LONG 	60      ;
+VD_DISP2:	.LONG		; Display 2
+VD_ROW2:	.LONG 	3
+VD_COL2:	.LONG  	80      ; Position for DISP2
+VD_DISP3:	.LONG		; Display 3
+VD_ROW3:	.LONG 	30
+VD_COL3:	.LONG	20      ; Position for DISP3
+;
+;
+; Menu Items
+;
+T_LIST:		.ASCII	/Paramaters    /
+		.ASCII	/Tables        /
+T_LIST_SIZE = .-T_LIST	
+M_LIST:		.ASCII	/List          /
+		.ASCII	/Add           /
+		.ASCII	/Modify        /
+		.ASCII	/Delete        /
+M_LIST_SIZE = .-M_LIST	
+
+
+PRIV_MENU:
+	.ASCII	/CMKRNL        /	; 0
+	.ASCII	/CMEXEC        /	; 1
+	.ASCII	/SYSNAM        /	; 2
+	.ASCII	/GRPNAM        /	; 3
+	.ASCII	/ALLSPOOL      /	; 4
+	.ASCII	/DETACH        /	; 5
+	.ASCII	/DIAGNOSE      /	; 6
+	.ASCII	/LOG_IO        /	; 7
+	.ASCII	/GROUP         /	; 8
+	.ASCII	/NOACNT        /	; 9
+	.ASCII	/PRMCEB        /	; 10
+	.ASCII	/PRMMBX        /	; 11
+	.ASCII	/PSWAPM        /	; 12
+	.ASCII	/SETPRI        /	; 13
+	.ASCII	/SETPRV        /	; 14
+	.ASCII	/TMPMBX        /	; 15
+	.ASCII	/WORLD         /	; 16
+	.ASCII	/MOUNT         /	; 17
+	.ASCII	/OPER          /	; 18
+	.ASCII	/EXQUOTA       /	; 19
+	.ASCII	/NETMBX        /	; 20
+	.ASCII	/VOLPRO        /	; 21
+	.ASCII	/PHY_IO        /	; 22
+	.ASCII	/BUGCHK        /	; 23
+	.ASCII	/PRMGBL        /	; 24
+	.ASCII	/SYSGBL        /	; 25
+	.ASCII	/PFNMAP        /	; 26
+	.ASCII	/SHMEM         /	; 27
+	.ASCII	/SYSPRV        /	; 28
+	.ASCII	/BYPASS        /	; 29
+	.ASCII	/SYSLCK        /	; 30
+	.ASCII	/SHARE         /	; 31
+	.ASCII	/UPGRADE       /	; 32
+	.ASCII	/DOWNGRADE     /	; 33
+	.ASCII	/GRPPRV        /	; 34
+	.ASCII	/READALL       /	; 35
+	.ASCII	/IMPORT        /	; 36
+	.ASCII	/AUDIT         /	; 37
+	.ASCII	/SECURITY      /	; 38
+PRIV_MENU_SIZE = .-PRIV_MENU
+;
+; **NOTE** Folowing menu must stay in sync with routine selector CASE 
+; statement in PARAMXLT. Or else.
+;
+RTN_MENU:
+	.ASCII	/XLATE_ENETPTY /
+	.ASCII	/BITPTOASCIC   /
+	.ASCII	/EADRTOASCII   /
+	.ASCII	/ASCTOBITP     /
+	.ASCII	/XLATE_CMIP    /
+	.ASCII	/XLATE_NSAP    /
+	.ASCII	/XLATE_CIRCTYP /
+	.ASCII	/XLATE_CMIP_VER/
+	.ASCII	/XLATE_SNMP    /
+	.ASCII	/NML_HARDWARE  /
+	.ASCII	/NML_HOSTID    /
+	.ASCII	/LAT_GROUPS    /
+	.ASCII	/ASCII_STRING  /
+	.ASCII	/XLATE_MOP     /
+	.ASCII	/NML_CHANNEL   /
+	.ASCII	/SNMP_INTERFACE/
+	.ASCII	/LAN_ADDR_TYPE /
+	.ASCII	/BRIDGE        /
+	.ASCII	/DECNET_ADDR   /
+	.ASCII	/NETWARE_SAP   /
+	.ASCII	/NML_OBJECT    /
+	.ASCII	/BRIDGE_ID     /
+	.ASCII	/CMIP_ADDRESS  /
+	.ASCII	/CMIP_STRINGS  /
+	.ASCII	/XLT_CMIPTBL   /
+RTN_MENU_SIZE = .-RTN_MENU 
+
+
+; 
+;Menu Display Characteristics
+;
+M_DCS:		.WORD	14                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+MADDR:		.ADDRESS M_LIST             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+MSIZE:		.LONG   0		    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+
+MAXDYN_ITEMS = 200
+DYNMEN:		.BLKB	20*MAXDYN_ITEMS		; Dynamic menu items here
+DYNCHOICE:	.BLKQ	MAXDYN_ITEMS		; Max items in menu
+; Optional Display Characteristics
+;
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 2
+W3:    		.LONG 3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+UPCASE:		.LONG	TRM$M_TM_CVTLOW 	;Convert lower to upper case
+DELITM:		.LONG	SMG$M_REMOVE_ITEM       ; Remove selected item from menu
+CHOICE:		.WORD
+MAIN_TBL_CHOICE: .WORD	0
+SEC_TBL_CHOICE: .WORD	0
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	5
+PB_COL2:	.LONG	1      ; Position for DISP2
+PB_ROW2:	.LONG 	1
+PB_COL3:	.LONG	60      ; Position for DISP3
+PB_ROW3:	.LONG 	5
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+;
+; Prompt strings and parameters
+; FAO
+STRINGOUT:	.BLKB	256
+STRINGOUT2:	.BLKB	256
+FAOBUF:		.BLKB	132
+FAODESC:
+FAOLEN: 	.LONG		.-FAOBUF
+        	.ADDRESS        FAOBUF
+
+;
+EXITMSG:	.ASCII	/Press Return/
+NEWFILEMSG:	.ASCID	/Creating new File .../
+TABLVLTBL:	.ASCID	/Enter Level [1-255] <CR> to Exit: /
+PROIDMSG:	.ASCID	/Enter Protocol ID (2-18): /
+TBLPOINT:	.ASCID	/Enter table pointer [HEX]: /
+TBLNAME:	.ASCID	/Enter Table Name (1-32 char]: /
+LISTENDMSG:	.ASCID	\ End of list. Any key to Continue\
+;
+PARAMPRMPT:	.ASCID	/Enter Paramater        : /
+KEYWPRMPT:	.ASCID	/Enter Keyword          : /
+RPTLVLPRMPT:	.ASCID	/Enter Report Level(0-5) [0] : /
+USERTNMSG:	.ASCID	/Use Routine? [n]       : /
+XLTSTRPRMPT:	.ASCID	/Enter FAO String       :/
+MAPRECHDR:	.ASCID	\Prm    Keyword                 Ctl/Rtn         Flg    LvL\
+TABLEHDR:	.ASCID	\Level  Number      Name\
+MAPPERRECSTR:	.ASCID	/ !5<!UL!> !28<!AD!> !10<!AD!> !XL  !UL/
+MAPPERRECSTR2:	.ASCID	/ !5<!UL!> !28<!AD!> !10<!UL!> !XL  !UL/
+MAPPERFULSTR:	.ASCID	/!6<!UL!> !6<!UL!>  !8<!XL!XL!> !32<!AD!> !68<!AD!> !UL/
+TABLEFULSTR:	.ASCID	/!10<!XL!> !10<!XL!>  !32<!AD!>/
+MAPPERFULRTN:	.ASCID	/!6<!UL!> !6<!UL!>  !8<!XL!XL!> !32<!AD!> !UL/
+FLAGS1PRMPT:	.ASCID	/ Include in Database? [Y] : /
+FLAGS2PRMPT:	.ASCID	/ Include in Monitors? [N] : /
+FLAGS3PRMPT:	.ASCID	/ Alert on Create? [N] : /
+FLAGS4PRMPT:	.ASCID	/ Alert on Modify? [N] : /
+FLAGS5PRMPT:	.ASCID	/ Alert on Delete? [N] : /
+FILWRTERR:	.ASCID	/ Could not write file. Error = !XL.../
+FILRDERR:	.ASCID	/ Could not read file. Error = !XL.../  
+CFMDELSTR:	.ASCID	/ Delete [N]?/
+DELERRSTR:	.ASCID	/ Could not delete record. Error = !XL.../  
+;
+; Misc data areas
+	.ALIGN	LONG
+;
+OUTINT:		.LONG
+LVL1TBL:	.LONG	^X01000000
+BYTCNT:		.WORD
+
+;
+;	.End data definitions
+;
+	.PSECT PARAMTBL_CODE,EXE,pic
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL
+;
+; Open file 
+;
+	BSBW	CREATE_ENVIRONMENT
+;
+; Display Menu
+5$:
+	MOVW	#14,M_DCS			; Item size
+	MOVAL	T_LIST,MADDR
+	MOVL	#T_LIST_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBC	R0,30$			; Assume any error = eof
+	CASEW	CHOICE,#1,#1
+10$:
+	.WORD	11$-10$
+	.WORD	12$-10$
+	RET
+11$:
+	CALLS	#0,G^PARAMTBL_P
+	BRW	5$
+12$:
+	CALLS	#0,G^PARAMTBL_T
+	BRW	5$
+30$:
+	PUSHAL	VD_DISP                        ; EXIT
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP3
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	RET
+;
+
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_P
+;
+PSTART:
+	MOVW	#14,M_DCS			; Item size
+	MOVAL	M_LIST,MADDR
+	MOVL	#M_LIST_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBC	R0,30$			; Assume any error = eof
+	CASEW	CHOICE,#1,#3
+10$:
+	.WORD	11$-10$
+	.WORD	12$-10$
+	.WORD	13$-10$
+	.WORD	14$-10$
+	RET
+11$:
+	BRW	1000$		; List
+12$:
+	BRW	2000$		; Add
+13$:
+	BRW	3000$		; Modify
+14$:
+	BRW	4000$		; Delete
+
+30$:    
+	RET				; EXIT
+
+;
+;
+1000$:
+; Get table to display.
+; Display all params this table.
+	$CREATE	FAB = MAPPERFAB		;Open input file
+	CMPL	R0,#RMS$_CREATED		; New File?
+	BNEQU	1010$			; No
+;
+; This Section should only run once. The first time the system starts, the 
+; data file does not exist. Create it with 0  records.
+;
+ 	$CONNECT RAB = MAPPERRAB		;Connect input stream
+ 	$CONNECT RAB = MAPPERRAB2		;Connect input stream
+	MOVAL	NEWFILEMSG,R1
+	BSBW	PRINT2
+	BRB	1020$
+;
+1010$:	
+	BSBW	ERROR_CHK
+1020$:
+ 	$CONNECT RAB = MAPPERRAB		;Connect input stream
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = MAPPERRAB2		;Connect input stream
+	BSBW	ERROR_CHK
+; Get the table
+	PUSHAL	KEY_BUF
+	CALLS	#1,PARAMTBL_GETTABLE  
+	BLBS	R0,1030$
+	BRW	1900$				; Exit
+
+1030$:
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC
+	MOVB 	#1,MAPPERRAB+RAB$B_KRF
+	MOVB 	#4,MAPPERRAB+RAB$B_KSZ
+	MOVAL	MAPRECHDR,R1
+	BSBW	PRINT
+
+1060$:
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,1080$
+	CMPL	R0,#RMS$_RNF		; RNF?
+	BEQLU	1070$                   ; YES
+	CMPL	R0,#RMS$_EOF		; EOF?
+	BEQLU	1070$                   ; YES
+	BSBW	ERROR_CHK		; NO = Error
+1070$:
+	PUSHAL	LISTENDMSG
+	CALLS	#1,G^READ_PROMPT
+	BRW	1900$			; exit
+1080$:
+; See if we have reached the end of this table. If so end.
+	CMPL	MAPPERREC_BUF+DB_MAP_L_TBL,KEY_BUF
+	BNEQU	1070$
+; Format and display
+	PUSHAL	MAPPERREC_BUF
+	CALLS	#1,G^PARAMTBL_DISPLAY_REC  
+; Change to seq access and display all recs
+	MOVB 	#RAB$C_SEQ,MAPPERRAB+RAB$B_RAC
+	BRB	1060$
+1900$:
+	$CLOSE	FAB=MAPPERFAB
+	BRW	PSTART
+2000$:
+; Change file access to keyed and set primary key
+	CLRB MAPPERRAB+RAB$B_KRF
+	MOVB #4,MAPPERRAB+RAB$B_KSZ
+
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC	
+	MOVC5	#0,#0,#0,#DB_MAP_C_RECSIZ,MAPPERREC_BUF	; Init outp rec
+	$CREATE	FAB = MAPPERFAB			; Open input file
+	CMPL	R0,#RMS$_CREATED		; New File?
+	BNEQU	2005$				; No
+;
+; This Section should only run once. The first time the system starts, the 
+; data file does not exist. Create it with 0  records.
+;
+ 	$CONNECT RAB = MAPPERRAB		;Connect input stream
+ 	$CONNECT RAB = MAPPERRAB2		;Connect input stream
+	MOVAL	NEWFILEMSG,R1
+	BSBW	PRINT2
+	$CLOSE FAB=MAPPERFAB
+	BRB	2000$
+;
+2005$:
+	MOVAL	MAPPERREC_BUF,R6
+ 	$CONNECT RAB = MAPPERRAB		;Connect input stream
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = MAPPERRAB2		;Connect input stream
+	BSBW	ERROR_CHK
+; Get the table
+	PUSHL	R6
+	CALLS	#1,PARAMTBL_GETTABLE
+	BLBS	R0,2100$
+	BRW	2900$				; Exit
+; Get param number
+2100$:
+	PUSHL	R6	
+	CALLS	#1,G^PARAMTBL_GETPARAM
+	BLBS	R0,2110$
+	BRW	2900$				; Exit
+; Set Security
+2110$:
+	PUSHL	R6
+	CALLS	#1,G^PARAMTBL_SETSECURE 
+	BLBS	R0,2120$
+	BRW	2900$				; Exit
+; Set keyword
+2120$:
+	PUSHL	R6
+	CALLS	#1,G^PARAMTBL_SETKEYW
+	BLBS	R0,2130$
+	BRW	2900$           		; Exit   
+2130$:				
+; Set fmt 
+	PUSHL	R6
+	CALLS	#1,G^PARAMTBL_SETFMT
+	BLBS	R0,2140$
+	BRW	2900$           		; Exit   
+2140$:				
+; Write rec
+	MOVW	#MAPPERREC_SIZE,MAPPERRAB+RAB$W_RSZ
+	$PUT	RAB=MAPPERRAB
+	BLBS	R0,2900$         	; BR no error
+	MOVL	#60,FAODESC
+	PUSHL	R0			; Error
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	FILWRTERR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^READ_PROMPT
+2900$:
+	$CLOSE	FAB=MAPPERFAB
+	BRW	PSTART
+
+3000$:
+; Change file access to keyed and set primary key
+	CLRB 	MAPPERRAB+RAB$B_KRF
+	MOVB 	#8,MAPPERRAB+RAB$B_KSZ
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC	
+	$OPEN	FAB = MAPPERFAB			; Open input file
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = MAPPERRAB		;Connect input stream
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = MAPPERRAB2		;Connect input stream
+	BSBW	ERROR_CHK
+	MOVAL	MAPPERREC_BUF,R6
+; Get the table
+	PUSHAL	KEY_BUF
+	CALLS	#1,PARAMTBL_GETTABLE
+	BLBS	R0,3100$
+	BRW	3900$				; Exit
+; Get param number
+3100$:
+	PUSHAL	KEY_BUF	
+	CALLS	#1,G^PARAMTBL_GETPARAM
+	BLBS	R0,3110$
+	BRW	3900$				; Exit
+; Get this rec
+3110$:
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,3120$         	; BR no error
+	MOVL	#60,FAODESC
+	PUSHL	R0			; Error
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	FILRDERR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^READ_PROMPT
+        BRW	3000$
+3120$:
+; Display this rec in top line
+	PUSHL	R6
+	CALLS	#1,G^PARAMTBL_DISPLAY_REC_FULL
+; Ask for each param. Any param not answered is not changed
+
+; Set Security
+	PUSHL	R6
+	CALLS	#1,G^PARAMTBL_SETSECURE 
+; Set keyword
+	PUSHL	R6
+	CALLS	#1,G^PARAMTBL_SETKEYW
+; Set fmt 
+	PUSHL	R6
+	CALLS	#1,G^PARAMTBL_SETFMT
+; Set report level
+	PUSHL	R6
+	CALLS	#1,G^PARAMTBL_SETRPTLVL
+; Set flags
+	PUSHL	R6
+	CALLS	#1,G^PARAMTBL_SETFLAGS
+
+; Write rec
+	$UPDATE	RAB=MAPPERRAB
+	BLBS	R0,3900$         	; BR no error
+	MOVL	#60,FAODESC
+	PUSHL	R0			; Error
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	FILWRTERR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^READ_PROMPT
+	
+3900$:
+	$CLOSE	FAB=MAPPERFAB
+	BRW	PSTART
+
+
+4000$:
+; Change file access to keyed and set primary key
+	CLRB 	MAPPERRAB+RAB$B_KRF
+	MOVB 	#8,MAPPERRAB+RAB$B_KSZ
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC	
+	$OPEN	FAB = MAPPERFAB			; Open input file
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = MAPPERRAB		;Connect input stream
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = MAPPERRAB2		;Connect input stream
+	BSBW	ERROR_CHK
+	MOVAL	MAPPERREC_BUF,R6
+; Get the table
+	PUSHAL	KEY_BUF
+	CALLS	#1,PARAMTBL_GETTABLE
+	BLBS	R0,4100$
+	BRW	4900$				; Exit
+; Get param number
+4100$:
+	PUSHAL	KEY_BUF	
+	CALLS	#1,G^PARAMTBL_GETPARAM
+	BLBS	R0,4110$
+	BRW	4900$				; Exit
+; Get this rec
+4110$:
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,4120$         	; BR no error
+	MOVL	#60,FAODESC
+	PUSHL	R0			; Error
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	FILRDERR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^READ_PROMPT
+        BRW	4900$
+4120$:
+; Display this rec in top line
+	PUSHL	R6
+	CALLS	#1,G^PARAMTBL_DISPLAY_REC_FULL
+; Confirm delete
+	PUSHAL	UPCASE
+	PUSHAL	CFMDELSTR
+	CALLS	#2,G^READ_PROMPT
+	BLBC	R0,4900$              ; Br any error
+        TSTW	BYTCNT                ; Br if no input
+	BEQL	4900$
+	CMPB	#^A/Y/,KB_BUF         ; Br if not 'Y'es
+	BNEQU	4900$
+; OK - Delete it:
+
+	$DELETE	RAB=MAPPERRAB
+	BLBS	R0,4900$         	; BR no error
+	MOVL	#60,FAODESC
+	PUSHL	R0			; Error
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	DELERRSTR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^READ_PROMPT
+	
+4900$:
+	$CLOSE	FAB=MAPPERFAB
+	BRW	PSTART
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_T
+;++
+;2 PARAMTBL_T
+; Routine to manipilate table entries.
+;3 Inputs
+;4 LIST 
+; The routine displays all top level tables in a menu and displays
+; the full record in the other display. Upon selection, 
+; displays the next level table and it's translations and so on until the 
+; lowest level is reached.
+;4 ADD
+; Routine asked for level (1-x),table number and keyword to add. 
+; If level.table is unique the records is added.
+;4 Modify
+; Routine asked for level (1-x),table number to modify
+; If the record is found prompts to change table,kewyword
+; are displayed. Any input is written to record and if key remains
+; unique, it is added
+;4 Delete
+; Routine asked for level (1-x),and table number.
+; If rec is found user is asked to confirm. On confirm, record is 
+; deleted. Note this routine does not check for records below. It can
+; break the chain in the hierarchy and leave lower level inaccssible.
+;--
+TSTART:
+	TSTW	MAPPERFAB+FAB$W_IFI
+	BNEQ	3$
+
+	$OPEN	FAB = MAPPERFAB			; Open input file
+	BLBS	R0,1$
+	RET
+1$:
+ 	$CONNECT RAB = MAPPERRAB		;Connect input stream
+	BLBS	R0,2$
+	RET
+2$:
+ 	$CONNECT RAB = MAPPERRAB2		;Connect input stream
+	BLBS	R0,3$
+	RET
+3$:
+
+
+	MOVW	#14,M_DCS			; Item size
+	MOVAL	M_LIST,MADDR
+	MOVL	#M_LIST_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBC	R0,30$			; Assume any error = eof
+	CASEW	CHOICE,#1,#3
+10$:
+	.WORD	11$-10$
+	.WORD	12$-10$
+	.WORD	13$-10$
+	.WORD	14$-10$
+	RET
+11$:
+	BRW	1000$		; List
+12$:
+	BRW	2000$		; Add
+13$:
+	BRW	3000$		; Modify
+14$:
+	BRW	4000$		; Delete
+
+30$:    
+	$CLOSE	FAB=MAPPERFAB
+	RET				; EXIT
+
+;
+;
+1000$:
+; Display tables
+	CALLS	#0,PARAMTBL_DISPTABLE  
+	$CLOSE	FAB=MAPPERFAB
+	BRW	TSTART
+2000$:
+; Change file access to keyed and set primary key
+	CLRB MAPPERRAB+RAB$B_KRF
+	CLRB MAPPERRAB+RAB$B_KSZ
+
+	MOVAL	MAPPERREC_BUF,R6
+; Get the table level
+2005$:
+	PUSHAL	TABLVLTBL
+	CALLS	#1,G^READ_PROMPT
+	BLBC	R0,2010$  			; Br on exit
+	TSTW	CHOICE
+	BNEQ	2020$				; Default = br
+2010$:
+	BRW	TSTART				; 
+2020$:
+	CVTWL	BYTCNT,KB_DES		; Reset Len
+	PUSHAL	OUTINT			; Output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TU_L	; Convert to Bin
+	BLBC	R0,2005$			; On error try again
+	MOVL	#80,KB_DES		; Rest Len
+	CASEW	CHOICE,#0,#1
+2030$:
+; 0 is not allowed, 1 is special case, all others process common.
+	.WORD	2031$-2030$
+	.WORD	2032$-2030$
+	BRW	2033$
+2031$:
+	BRW	2005$                   ; Retry on error
+2032$:
+	ROTL	#24,OUTINT,OUTINT	; Move to top byte
+	BRW	2100$                   ; Nothing further this param
+2033$:
+; Check res is in valid range (<256)
+	CMPL	#256,OUTINT
+	BLSS	2005$			; Retry on error
+	ROTL	#24,OUTINT,R2		; Move to top byte and save
+; Get Protocol to complete this field
+2040$:
+	PUSHAL	PROIDMSG
+	CALLS	#1,G^READ_PROMPT
+	BLBC	R0,2050$  			; Br on exit
+	TSTW	CHOICE
+	BNEQ	2060$				; Br if some input
+2050$:
+	BRW	TSTART				; 
+2060$:
+	CVTWL	BYTCNT,KB_DES		; Reset Len
+	PUSHAL	OUTINT			; Output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TU_L	; Convert to Bin
+	BLBC	R0,2040$			; On error try again
+	MOVL	#80,KB_DES		; Rest Len
+; Mask 2 values together
+	BISL	R2,OUTINT
+2100$:
+	MOVL	OUTINT,(R6)		; Set level
+; Get table pointer
+2105$:
+	PUSHAL	TBLPOINT
+	CALLS	#1,G^READ_PROMPT
+	BLBC	R0,2110$  			; Br on exit
+	TSTW	CHOICE
+	BNEQ	2120$				; Br if some input
+2110$:
+	BRW	TSTART				; 
+2120$:
+	CVTWL	BYTCNT,KB_DES		; Reset Len
+	PUSHAL	OUTINT			; Output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TZ_L	; Convert to Bin
+	BLBC	R0,2105$			; On error try again
+	MOVL	#80,KB_DES		; Rest Len
+	MOVL	OUTINT,4(R6)		; Set level
+; Get keyword (table name)
+2130$:
+	PUSHAL	TBLNAME
+	CALLS	#1,G^READ_PROMPT
+	BLBC	R0,2140$  			; Br on exit
+	TSTW	CHOICE
+	BNEQ	2150$				; Br if some input
+2140$:
+	BRW	TSTART				; 
+2150$:
+	MOVZWL	BYTCNT,R2
+	CMPL	#32,R2
+	BLSS	2130$			; Retry on too long
+	MOVL	R2,DB_MAP_L_KEYWLEN(R6)
+	MOVC3	R2,KB_BUF,DB_MAP_A64_KEYW(R6)
+	$PUT	RAB=MAPPERRAB
+	BLBS	R0,2200$
+	MOVL	#60,FAODESC
+	PUSHL	R0			; Error
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	FILWRTERR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^READ_PROMPT
+2200$:
+	$CLOSE	FAB=MAPPERFAB
+	BRW	TSTART
+
+3000$:
+; Change file access to keyed and set primary key
+	CLRB 	MAPPERRAB+RAB$B_KRF
+	MOVB 	#8,MAPPERRAB+RAB$B_KSZ
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC	
+	MOVAL	MAPPERREC_BUF,R6
+; Get the table
+	PUSHAL	KEY_BUF
+	CALLS	#1,PARAMTBL_GETTABLE
+	BLBS	R0,3100$
+	BRW	3900$				; Exit
+3100$:
+; Get the indicated rec
+; The table returned appears exactly once in the param field of the 
+; MAPPER data record. We use this fact to locate the rec.
+	MOVB 	#2,MAPPERRAB+RAB$B_KRF
+	MOVB 	#4,MAPPERRAB+RAB$B_KSZ
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC	
+        MOVL	KEY_BUF,(R6)
+
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,3120$         	; BR no error
+	MOVL	#60,FAODESC
+	PUSHL	R0			; Error
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	FILRDERR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^READ_PROMPT
+        BRW	3000$
+3120$:
+; Display this rec in top line
+	PUSHL	R6
+	CALLS	#1,G^PARAMTBL_DISPLAY_REC_FULL
+; Ask for each param. Any param not answered is not changed
+
+; Set keyword
+	PUSHL	R6
+	CALLS	#1,G^PARAMTBL_SETKEYW
+
+; Write rec
+	$UPDATE	RAB=MAPPERRAB
+	BLBS	R0,3900$         	; BR no error
+	MOVL	#60,FAODESC
+	PUSHL	R0			; Error
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	FILWRTERR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^READ_PROMPT
+	
+3900$:
+	$CLOSE	FAB=MAPPERFAB
+	BRW	TSTART
+
+
+4000$:
+; Change file access to keyed and set primary key
+	CLRB 	MAPPERRAB+RAB$B_KRF
+	MOVB 	#8,MAPPERRAB+RAB$B_KSZ
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC	
+	MOVAL	KEY_BUF,R6
+; Get the table
+	PUSHL	R6
+	CALLS	#1,PARAMTBL_GETTABLE
+	BLBS	R0,4100$
+	BRW	4900$				; Exit
+; Get TBLPOINTER
+4100$:
+	MOVL	(R6),4(R6)	; In this case, the table is the param
+	PUSHAL	TABLVLTBL
+	CALLS	#1,G^READ_PROMPT
+	BLBC	R0,4110$  			; Br on exit
+	TSTW	BYTCNT
+	BNEQ	4120$				; Default = br
+4110$:
+	BRW	TSTART				; 
+4120$:
+	CVTWL	BYTCNT,KB_DES		; Reset Len
+	PUSHAL	OUTINT			; Output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TU_L	; Convert to Bin
+	MOVL	#80,KB_DES		; Rest Len
+	BLBC	R0,4100$			; On error try again
+
+	ROTL	#24,OUTINT,R2	; Move to top byte
+
+; Get Protocol to complete this field
+4140$:
+	PUSHAL	PROIDMSG
+	CALLS	#1,G^READ_PROMPT
+	BLBC	R0,4150$  			; Br on exit
+	TSTW	BYTCNT
+	BNEQ	4160$				; Br if some input
+4150$:
+	BRW	TSTART				; 
+4160$:
+	CVTWL	BYTCNT,KB_DES		; Reset Len
+	PUSHAL	OUTINT			; Output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TU_L	; Convert to Bin
+	MOVL	#80,KB_DES		; Rest Len
+	BLBC	R0,4140$			; On error try again
+; Mask 2 values together
+	BISL	R2,OUTINT
+	MOVL	OUTINT,(R6)		; Set level
+
+
+; Get this rec
+4210$:
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,4220$         	; BR no error
+	MOVL	#60,FAODESC
+	PUSHL	R0			; Error
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	FILRDERR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^READ_PROMPT
+        BRW	4900$
+4220$:
+; Display this rec in top line
+	PUSHAL	MAPPERREC_BUF
+	CALLS	#1,G^PARAMTBL_DISPLAY_REC_FULL
+; Confirm delete
+	PUSHAL	UPCASE
+	PUSHAL	CFMDELSTR
+	CALLS	#2,G^READ_PROMPT
+	BLBC	R0,4900$              ; Br any error
+        TSTW	BYTCNT                ; Br if no input
+	BEQL	4900$
+	CMPB	#^A/Y/,KB_BUF         ; Br if not 'Y'es
+	BNEQU	4900$
+; OK - Delete it:
+
+	$DELETE	RAB=MAPPERRAB
+	BLBS	R0,4900$         	; BR no error
+	MOVL	#60,FAODESC
+	PUSHL	R0			; Error
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	DELERRSTR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^READ_PROMPT
+	
+4900$:
+	$CLOSE	FAB=MAPPERFAB
+	BRW	TSTART
+
+; Subroutines
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_TOPLVL  
+;++
+;2 PARAMTBL_TOPLVL
+; Routine to create top level table. The user must input the 2nd level
+; param specifiying if it is a 'terminating' table or not.
+	ret
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=READ_PROMPT  
+;++
+;2 READ_PROMPT  
+; Routine to write prompt on screen and get the input in KB_DES
+;3 Inputs	.address of .ascid prompt
+;		.addr of input conversion. Optionsl. If not present
+;		input is not forced to uppercase
+;3 Outputs:
+;	In KB_DES any user input
+;3 Returns:
+;	Any return from SMG$READ_STRING
+;--
+; Check if options param present
+	CLRL	UPCASE			; Assume not present
+	CMPL	#2,(AP)
+	BNEQ	10$
+	MOVL	#TRM$M_TM_CVTLOW,UPCASE ; Force to upper
+10$:
+	PUSHAL	VD_DISP                 ; Output display
+	CLRL	-(SP)                   ; Blank 
+	PUSHAL	BYTCNT                  ; Bytes to display
+	CLRL	-(SP)                   ; Blank 
+	CLRL	-(SP)                   ; Blank 
+	PUSHAL	UPCASE                  ; Make input UPCASE 
+	CLRL	-(SP)                   ; Blank 
+	PUSHL	4(AP)                      ; Output DSC
+	PUSHAL	KB_DES                  ; Input buf
+	PUSHAL	KB_BOARD                ; Input ID
+	CALLS	#10,G^SMG$READ_STRING
+	RET
+;
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHL	R1
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+PRINT2:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHL	R1
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+10$:		RSB
+EXPRMPT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Display exit prompt
+;			
+		PUSHAL	VD_DISP                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes input
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	EXITMSG                 ; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		BSBW	ERROR_CHK               ; RETURN
+	RSB
+;
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Virtual Display
+;
+CR_DISP:
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK            		; Error Check
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP2
+	PUSHAL	VD_COL2
+        PUSHAL	VD_ROW2
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP3
+	PUSHAL	VD_COL3
+        PUSHAL	VD_ROW3
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL2		;Column
+	PUSHAL	PB_ROW2		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP2
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL3		;Column
+	PUSHAL	PB_ROW3		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP3
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+50$:	RSB
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		BLBC	R0,10$
+		RSB
+10$:
+	MOVL	R0,R6			; Save Error
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP3
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	R6,R0			; Restore
+		RET
+; Callable routines
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_GETTABLE 
+;++
+;2 PARAMTBL_GETTABLE 
+; Routine to display all possible tables in a menu and after selection, set
+; the chosen table in the DB_MAP_L_TBL field in the input param
+;3 Inputs:
+;	.address of .long where .long table is written
+;3 Outputs:
+; 	.long value of the table (symbols in _EMUDBDEF)
+;3 Returns:
+;	SS$_NORMAL	did it
+;	SS$_ACCVIO	Cant write it
+;--
+	PROBEW  #0,#4,@4(AP)            ; Check for write access
+        BNEQ	 10$			 ; Br OK
+	MOVL	#SS$_ACCVIO,R0
+	RET
+10$:            
+	MOVB 	#RAB$C_KEY,MAPPERRAB2+RAB$B_RAC
+	MOVAL	TBLRECBUF,R6
+	MOVL	LVL1TBL,DB_MAP_L_TBL(R6)
+	MOVAL	DYNMEN,R7   			; Menu items
+	MOVAL	DYNCHOICE,R8                    ; Index
+	CLRL	R11
+20$:
+	$GET	RAB=MAPPERRAB2
+    	BLBS	R0,30$
+	BRW	100$
+30$:
+; Place index in choice tbl, string in menu.
+; Check if too many items
+	CMPL	LVL1TBL,DB_MAP_L_TBL(R6)
+	BEQLU	35$
+	BRW	100$
+35$:
+	INCL	R11
+	CMPL	R11,#MAXDYN_ITEMS
+	BLEQ	40$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+40$:
+	MOVC5	DB_MAP_L_KEYWLEN(R6),DB_MAP_A64_KEYW(R6),#^A/ /,#20,(R7)
+	ADDL	#20,R7
+	MOVQ	(R6),(R8)+
+	CMPL	#1,R11
+	BNEQ	20$
+; Change to seq access on 2nd and subsequent reads
+	MOVB 	#RAB$C_SEQ,MAPPERRAB2+RAB$B_RAC
+	BRW	20$
+100$:
+; Calc menu size
+	MULL	#20,R11
+	
+
+	MOVW	#20,M_DCS			; Item size
+	MOVAL	DYNMEN,MADDR
+	MOVL	R11,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP3
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	MAIN_TBL_CHOICE
+	PUSHAL	MAIN_TBL_CHOICE
+	PUSHAL	VD_DISP3
+	PUSHAL	KB_BOARD
+	CALLS	#4,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,130$			; Assume any error = eof
+	BRW	2000$			; Cleanup and exit
+130$:
+	MOVZWL	MAIN_TBL_CHOICE,R1
+	DECL	R1
+	MOVAL	DYNCHOICE,R8                    ; Index
+; If the top byte of the .quad @ this choice - 0 then this is the table
+	MULL3	#8,R1,R2
+	ADDL	R2,R8
+        TSTB    7(R8)
+	BNEQ	150$
+	MOVL	4(R8),@4(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+150$:
+	MOVB 	#RAB$C_KEY,MAPPERRAB2+RAB$B_RAC
+	MOVAL	TBLRECBUF,R6
+	MOVL	4(R8),DB_MAP_L_TBL(R6)
+	MOVL	4(R8),R10
+	MOVAL	DYNMEN,R7   			; Menu items
+	MOVAL	DYNCHOICE,R8                    ; Index
+	CLRL	R11
+160$:
+	$GET	RAB=MAPPERRAB2
+    	BLBS	R0,170$
+	BRW	200$
+170$:
+; Place index in choice tbl, string in menu.
+; Check if too many items
+	CMPL	R10,DB_MAP_L_TBL(R6)
+	BEQLU	175$
+	BRW	200$
+175$:
+	INCL	R11
+	CMPL	R11,#MAXDYN_ITEMS
+	BLEQ	180$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+180$:
+	MOVC5	DB_MAP_L_KEYWLEN(R6),DB_MAP_A64_KEYW(R6),#^A/ /,#20,(R7)
+	ADDL	#20,R7
+	MOVQ	(R6),(R8)+
+	CMPL	#1,R11
+	BNEQ	160$
+; Change to seq access on 2nd and subsequent reads
+	MOVB 	#RAB$C_SEQ,MAPPERRAB2+RAB$B_RAC
+	BRW	160$
+200$:
+; Calc menu size
+	MULL	#20,R11
+	
+	MOVW	#20,M_DCS			; Item size
+
+	MOVAL	DYNMEN,MADDR
+	MOVL	R11,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP3
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	SEC_TBL_CHOICE
+	PUSHAL	SEC_TBL_CHOICE
+	PUSHAL	VD_DISP3
+	PUSHAL	KB_BOARD
+	CALLS	#4,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,230$			; Assume any error = eof
+	BRW	2000$			; Cleanup and exit
+230$:
+	MOVZWL	SEC_TBL_CHOICE,R1
+	DECL	R1
+	MOVAL	DYNCHOICE,R8                    ; Index
+; If the top byte of the .quad @ this choice - 0 then this is the table
+	MULL3	#8,R1,R2
+	ADDL	R2,R8
+        TSTB    7(R8)
+	BEQL	250$
+	BRW	150$
+250$:
+	MOVL	4(R8),@4(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+2000$:
+	MOVL	R0,R6				; Save status
+	PUSHAL	VD_DISP3
+	CALLS   #1,G^SMG$ERASE_DISPLAY
+	MOVL	R6,R0
+	RET
+
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_DISPTABLE 
+;++
+;2 PARAMTBL_DISPTABLE 
+; Routine to display all possible tables in a menu on one display and 
+; the full record translation on the other.
+;3 Inputs:
+;	MAPPER.DAT is assumed to be open before entry
+;3 Outputs:
+; 	None
+;3 Returns:
+;	SS$_NORMAL	did it
+;	Any from RMS, FAO
+;--
+	PUSHAL	VD_DISP3
+	CALLS   #1,G^SMG$ERASE_DISPLAY
+	MOVAL	TABLEHDR,R1
+	BSBW	PRINT
+
+	MOVB 	#RAB$C_KEY,MAPPERRAB2+RAB$B_RAC
+	MOVAL	TBLRECBUF,R6
+	MOVL	LVL1TBL,DB_MAP_L_TBL(R6)        ; Top level
+	MOVAL	DYNMEN,R7   			; Menu items
+	MOVAL	DYNCHOICE,R8                    ; Index
+	CLRL	R11
+	SUBL3	#5,VD_ROWS,R9		; This many lines/disp
+20$:
+	$GET	RAB=MAPPERRAB2
+    	BLBS	R0,30$
+	BRW	100$
+30$:
+; Place index in choice tbl, string in menu.
+; Check if too many items
+	CMPL	LVL1TBL,DB_MAP_L_TBL(R6)
+	BEQLU	35$
+	BRW	100$
+35$:
+	INCL	R11
+	CMPL	R11,#MAXDYN_ITEMS
+	BLEQ	40$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+40$:
+	MOVC5	DB_MAP_L_KEYWLEN(R6),DB_MAP_A64_KEYW(R6),#^A/ /,#20,(R7)
+	ADDL	#20,R7
+	MOVQ	(R6),(R8)+
+; format and display this rec
+	MOVL	#80,FAODESC
+	ADDL3	#DB_MAP_A64_KEYW,R6,-(SP)	; Name
+	PUSHL	DB_MAP_L_KEYWLEN(R6)		; Len
+	PUSHL	4(R6)				; Table
+	PUSHL	(R6)				; Level
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+        PUSHAL	TABLEFULSTR
+	CALLS	#7,G^SYS$FAO
+	BLBS	R0,50$
+	RET
+50$:
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+; Change to seq access on 2nd and subsequent reads
+	MOVB 	#RAB$C_SEQ,MAPPERRAB2+RAB$B_RAC
+	SOBGTR	R9,60$	
+	PUSHAL	LISTENDMSG
+	CALLS	#1,G^READ_PROMPT
+	SUBL3	#5,VD_ROWS,R9		; This many lines/disp
+60$:
+	BRW	20$
+100$:
+; Calc menu size
+	MULL	#20,R11
+	MOVW	#20,M_DCS			; Item size
+	MOVAL	DYNMEN,MADDR
+	MOVL	R11,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP3
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	MAIN_TBL_CHOICE
+	PUSHAL	MAIN_TBL_CHOICE
+	PUSHAL	VD_DISP3
+	PUSHAL	KB_BOARD
+	CALLS	#4,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,130$			; Assume any error = eof
+	BRW	2000$			; Cleanup and exit
+130$:
+	PUSHAL	VD_DISP
+	CALLS   #1,G^SMG$ERASE_DISPLAY
+	MOVAL	TABLEHDR,R1
+	BSBW	PRINT
+
+	MOVZWL	MAIN_TBL_CHOICE,R1
+	DECL	R1
+	MOVAL	DYNCHOICE,R8                    ; Index
+; If the top byte of the .quad @ this choice - 0 then this is the table
+	MULL3	#8,R1,R2
+	ADDL	R2,R8
+        TSTB    7(R8)
+	BNEQ	150$
+	MOVL	#SS$_NORMAL,R0
+	RET
+150$:
+	MOVB 	#RAB$C_KEY,MAPPERRAB2+RAB$B_RAC
+	MOVAL	TBLRECBUF,R6
+	MOVL	4(R8),DB_MAP_L_TBL(R6)
+	MOVL	4(R8),R10
+	MOVAL	DYNMEN,R7   			; Menu items
+	MOVAL	DYNCHOICE,R8                    ; Index
+	CLRL	R11
+	SUBL3	#5,VD_ROWS,R9		; This many lines/disp
+160$:
+	$GET	RAB=MAPPERRAB2
+    	BLBS	R0,170$
+	BRW	200$
+170$:
+; Place index in choice tbl, string in menu.
+; Check if too many items
+	CMPL	R10,DB_MAP_L_TBL(R6)
+	BEQLU	175$
+	BRW	200$
+175$:
+	INCL	R11
+	CMPL	R11,#MAXDYN_ITEMS
+	BLEQ	180$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+180$:
+	MOVC5	DB_MAP_L_KEYWLEN(R6),DB_MAP_A64_KEYW(R6),#^A/ /,#20,(R7)
+	ADDL	#20,R7
+	MOVQ	(R6),(R8)+
+
+; format and display this rec
+	MOVL	#80,FAODESC
+	ADDL3	#DB_MAP_A64_KEYW,R6,-(SP)	; Name
+	PUSHL	DB_MAP_L_KEYWLEN(R6)		; Len
+	PUSHL	4(R6)				; Table
+	PUSHL	(R6)				; Level
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+        PUSHAL	TABLEFULSTR
+	CALLS	#7,G^SYS$FAO
+	BLBS	R0,190$
+	RET
+190$:
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+; Change to seq access on 2nd and subsequent reads
+	MOVB 	#RAB$C_SEQ,MAPPERRAB2+RAB$B_RAC
+	SOBGTR	R9,195$
+	PUSHAL	LISTENDMSG
+	CALLS	#1,G^READ_PROMPT
+	SUBL3	#5,VD_ROWS,R9		; This many lines/disp
+195$:
+	BRW	160$
+200$:
+; Calc menu size
+	MULL	#20,R11
+	
+	MOVW	#20,M_DCS			; Item size
+
+	MOVAL	DYNMEN,MADDR
+	MOVL	R11,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP3
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	SEC_TBL_CHOICE
+	PUSHAL	SEC_TBL_CHOICE
+	PUSHAL	VD_DISP3
+	PUSHAL	KB_BOARD
+	CALLS	#4,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,230$			; Assume any error = eof
+	BRW	2000$			; Cleanup and exit
+230$:
+	PUSHAL	VD_DISP
+	CALLS   #1,G^SMG$ERASE_DISPLAY
+	MOVAL	TABLEHDR,R1
+	BSBW	PRINT
+
+	MOVZWL	SEC_TBL_CHOICE,R1
+	DECL	R1
+	MOVAL	DYNCHOICE,R8                    ; Index
+; If the top byte of the .quad @ this choice - 0 then this is the table
+	MULL3	#8,R1,R2
+	ADDL	R2,R8
+        TSTB    7(R8)
+	BEQL	250$
+	BRW	150$
+250$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+2000$:
+	MOVL	R0,R6				; Save status
+	PUSHAL	VD_DISP3
+	CALLS   #1,G^SMG$ERASE_DISPLAY
+	MOVL	R6,R0
+	RET
+
+
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_DISPLAY_REC  
+;++
+;2 PARAMTBL_DISPLAY_REC 
+; Routine to format and display a paramater map in VD_DISP
+; 
+;3 Inputs:
+;	.address of rec to display
+;3 Outputs:
+;	None
+;3 Returns:
+;	The ususal
+;--
+	MOVL	4(AP),R6
+	TSTL	DB_MAP_L_FMTTYP(R6)
+	BLSS	10$			; Br if routine type
+
+	MOVL	#132,FAODESC
+	PUSHL	DB_MAP_L_RPTLVL(R6)
+	PUSHL	DB_MAP_L_POLFLG(R6)
+	ADDL3	#DB_MAP_A32_FMTSTR,R6,-(SP)	; Keyword
+	PUSHL	DB_MAP_L_FMTTYP(R6)
+	ADDL3	#DB_MAP_A64_KEYW,R6,-(SP)	; Keyword
+	PUSHL	DB_MAP_L_KEYWLEN(R6)
+	PUSHL	DB_MAP_L_PARAM(R6)          ; Param
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	MAPPERRECSTR
+	CALLS	#10,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	MOVL	#SS$_NORMAL,R0
+	RET
+10$:
+	MOVL	#132,FAODESC
+	PUSHL	DB_MAP_L_RPTLVL(R6)
+	PUSHL	DB_MAP_L_POLFLG(R6)
+	MOVZWL	DB_MAP_L_FMTTYP(R6),-(SP)
+	ADDL3	#DB_MAP_A64_KEYW,R6,-(SP)	; Keyword
+	PUSHL	DB_MAP_L_KEYWLEN(R6)
+	MOVZWL	DB_MAP_L_PARAM(R6),-(SP)          ; Table
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	MAPPERRECSTR2
+	CALLS	#9,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_DISPLAY_REC_FULL   
+;++
+;2 PARAMTBL_DISPLAY_REC_FULL   
+; Routine to format and display a full paramater map in VD_DISP1
+; There are 2 forms: 1. uses FAO control string
+;		     2. Uses a routine
+;		Distiguished by FMTTYP being < 0
+;3 Inputs:
+;	.address of rec to display
+;3 Outputs:
+;	None
+;3 Returns:
+;	The ususal
+;--
+	MOVL	4(AP),R6
+	TSTL	DB_MAP_L_FMTTYP(R6)
+	BLSS	10$			; Br if routine type
+
+	ADDL3	#DB_MAP_Q_SECURE,R6,R1		; Get addr of security
+	MOVL	#132,FAODESC
+	PUSHL	DB_MAP_L_POLFLG(R6)		
+	PUSHL	DB_MAP_L_RPTLVL(R6)		; Report level
+	ADDL3	#DB_MAP_A32_FMTSTR,R6,-(SP)	; Keyword
+	PUSHL	DB_MAP_L_FMTTYP(R6)
+	ADDL3	#DB_MAP_A64_KEYW,R6,-(SP)	; Keyword
+	PUSHL	DB_MAP_L_KEYWLEN(R6)
+	PUSHL	4(R1)				; Security
+	PUSHL	(R1)                            ; Security
+	MOVZWL	DB_MAP_L_PARAM(R6),-(SP)        ; Paramater
+	MOVZWL	DB_MAP_L_TBL(R6),-(SP)          ; Table
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	MAPPERFULSTR
+	CALLS	#13,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT2
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+10$:	
+	ADDL3	#DB_MAP_Q_SECURE,R6,R1		; Get addr of security
+	MOVL	#132,FAODESC
+	PUSHL	DB_MAP_L_RPTLVL(R6)		; Report level
+	MOVZWL	DB_MAP_L_FMTTYP(R6),-(SP)             ; RTN
+	ADDL3	#DB_MAP_A64_KEYW,R6,-(SP)	; Keyword
+	PUSHL	DB_MAP_L_KEYWLEN(R6)
+	PUSHL	4(R1)				; Security
+	PUSHL	(R1)                            ; Security
+	MOVZWL	DB_MAP_L_PARAM(R6),-(SP)        ; Paramater
+	MOVZWL	DB_MAP_L_TBL(R6),-(SP)          ; Table
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	MAPPERFULRTN
+	CALLS	#11,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT2
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_SETSECURE  
+;++
+;2 PARAMTBL_SETSECURE  
+; Routine to display all VMS privs in menu, convert selection to bitmask
+; and return bitmask.
+; Menu is redisplayed and bits set until ^z
+;3 Inputs:
+;	.addr of quad where to write bits
+;3 Outputs
+;     	The selected bits 
+;3 Returns:
+;	The usual
+;--	  
+	MOVL	4(AP),R6
+	PROBEW  #0,#8,DB_MAP_Q_SECURE(R6)        ; Check for write access
+        BNEQ	1$			 	; Br OK
+	MOVL	#SS$_ACCVIO,R0
+	RET
+1$:
+
+	MOVAL	PRIV_MENU,MADDR
+	MOVL	#PRIV_MENU_SIZE,MSIZE
+	CLRW	CHOICE
+	CLRQ	DB_MAP_Q_SECURE(R6)		; None selected (so far)
+	MOVW	#14,M_DCS			; Item size
+10$:
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP3
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE                          ; Def choice
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP3
+	PUSHAL	KB_BOARD
+	CALLS	#4,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,1010$			; Assume any error = eof
+	MOVL	#SS$_NORMAL,R0
+	RET
+1010$:
+	CLRL	R8
+	SUBW3	#1,CHOICE,R8			; Set this bit
+	BBSS	R8,DB_MAP_Q_SECURE(R6),10$	; Set it
+        BRB	10$
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_SETFLAGS 
+;++
+;2 PARAMTBL_SETFLAGS  
+; Routine to set flags of this paramater.
+; Currently defined flags are:
+; 	Bit		When set
+;	0		Do not include in database
+;	1		Flag as candidate for 'real time' monitor
+;	2		Signal alert on create
+;	3		Signal alert on modify
+;	4		Signal alert on delete
+;3 Inputs:
+;	.addr of mapper rec
+;	user input
+;3 Outputs
+;     	validated user input is written to flags field
+;3 Returns:
+;	The usual
+;--	  
+
+	MOVL	4(AP),R6
+	MOVL	#DB_MAP_FLG_C_DEFAULT,DB_MAP_L_POLFLG(R6)  ; Set defaults
+	PUSHAL	UPCASE			; Force uppercase
+	PUSHAL	FLAGS1PRMPT   		; Default is YES
+	CALLS	#2,G^READ_PROMPT
+	TSTL	BYTCNT
+	BEQL	10$                     ; Br if no input
+	CMPB	#^A/N/,KB_BUF		; No?
+	BNEQU	10$
+	BISL	#DB_MAP_FLG_M_EXCLDB,DB_MAP_L_POLFLG(R6) 
+10$:
+	PUSHAL	UPCASE			; Force uppercase
+	PUSHAL	FLAGS2PRMPT   		; Default is No
+	CALLS	#2,G^READ_PROMPT
+	TSTL	BYTCNT
+	BEQL	20$                     ; Br if no input
+	CMPB	#^A/Y/,KB_BUF		; Yes?
+	BNEQU	20$
+	BISL	#DB_MAP_FLG_M_INCMON,DB_MAP_L_POLFLG(R6) 
+20$:
+	PUSHAL	UPCASE			; Force uppercase
+	PUSHAL	FLAGS3PRMPT   		; Default is No
+	CALLS	#2,G^READ_PROMPT
+	TSTL	BYTCNT
+	BEQL	30$                     ; Br if no input
+	CMPB	#^A/Y/,KB_BUF		; Yes?
+	BNEQU	30$
+	BISL	#DB_MAP_FLG_M_ALTCRT,DB_MAP_L_POLFLG(R6) 
+30$:
+	PUSHAL	UPCASE			; Force uppercase
+	PUSHAL	FLAGS4PRMPT   		; Default is No
+	CALLS	#2,G^READ_PROMPT
+	TSTL	BYTCNT
+	BEQL	40$                     ; Br if no input
+	CMPB	#^A/Y/,KB_BUF		; Yes?
+	BNEQU	40$
+	BISL	#DB_MAP_FLG_M_ALTMOD,DB_MAP_L_POLFLG(R6) 
+40$:
+	PUSHAL	UPCASE			; Force uppercase
+	PUSHAL	FLAGS5PRMPT   		; Default is No
+	CALLS	#2,G^READ_PROMPT
+	TSTL	BYTCNT
+	BEQL	50$                     ; Br if no input
+	CMPB	#^A/Y/,KB_BUF		; Yes?
+	BNEQU	50$
+	BISL	#DB_MAP_FLG_M_ALTDEL,DB_MAP_L_POLFLG(R6) 
+50$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_SETRPTLVL  
+;++
+;2 PARAMTBL_SETRPTLVL  
+; Routine to set report level of this paramater.
+;3 Inputs:
+;	.addr of mapper rec
+;	user input
+;3 Outputs
+;     	validated user input is written to rptlvl field
+;3 Returns:
+;	The usual
+;--	  
+	MOVL	4(AP),R6
+	PROBEW  #0,#4,DB_MAP_L_RPTLVL(R6)        ; Check for write access
+        BNEQ	1$			 	; Br OK
+	MOVL	#SS$_ACCVIO,R0
+	RET
+1$:
+	PUSHAL	RPTLVLPRMPT
+	CALLS	#1,G^READ_PROMPT
+	TSTL	BYTCNT
+	BNEQ	10$
+	CLRL	DB_MAP_L_RPTLVL(R6)
+	RET
+10$:
+	CVTWL	BYTCNT,KB_DES		; Reset Len
+	PUSHAL	OUTINT			; Output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TU_L	; Convert to Bin
+	MOVL	#80,KB_DES		; Rest Len
+	BLBC	R0,1$			; On error try again
+	CMPL	OUTINT,#5		; Highest allowed
+	BGTRU	1$
+	
+	MOVL	OUTINT,DB_MAP_L_RPTLVL(R6)
+	MOVL	#SS$_NORMAL,R0
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_SETKEYW
+;++
+;2 PARAMTBL_SETKEYW
+; Routine to get and set the displayable keyword for a paramater
+;3 Inputs:
+;	.addr of maprec
+;3 Outputs:
+;	Keyword and len are written to the designated areas
+;3 Returns:
+;	SS$_NORMAL	OK
+;	SS$_ACCVIO	Couldn't write
+;       SS$_NODATA	no input
+;--
+	MOVL	4(AP),R6		; Map rec
+	PROBEW  #0,#36,(R6)        ; Check for write access
+        BNEQ	1$			 	; Br OK
+	MOVL	#SS$_ACCVIO,R0
+	RET
+
+1$:
+	PUSHAL	KEYWPRMPT
+	CALLS	#1,G^READ_PROMPT
+	TSTL	BYTCNT
+	BNEQ	10$
+	MOVL	#SS$_NODATA,R0 
+	RET
+10$:
+	CMPW	#32,BYTCNT              ; Check > max len
+	BLSS	1$			; Br if too big
+	MOVZWL	BYTCNT,R8
+	MOVL	R8,DB_MAP_L_KEYWLEN(R6)		; Set len of input
+	MOVC3	R8,KB_BUF,DB_MAP_A64_KEYW(R6)     ; Write keyword
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_SETFMT 
+;++
+;2 PARAMTBL_SETFMT 
+; Routine to get and set the format routine or len + string for a paramater
+;3 Inputs:
+;	.addr of maprec
+;3 Outputs:
+;	Routine (or len and str) are written to the designated area(s)
+;3 Returns:
+;	SS$_NORMAL	OK
+;	SS$_ACCVIO	Couldn't write
+;--
+	MOVL	4(AP),R6
+	PROBEW  #0,#76,DB_MAP_L_FMTTYP(R6)        ; Check for write access
+        BNEQ	1$			 	; Br OK
+	MOVL	#SS$_ACCVIO,R0
+	RET
+1$:
+	PUSHAL	UPCASE			; Force uppercase
+	PUSHAL	USERTNMSG           	; Wants to use routine?
+	CALLS	#2,G^READ_PROMPT
+	TSTW	BYTCNT                  ; Any input
+	BEQL	10$			; Use default
+	CMPB	#^A/Y/,KB_BUF		; Answer Y?
+        BEQLU	100$			; Yes - use routine
+10$:
+	PUSHAL	UPCASE			; Force uppercase
+	PUSHAL	XLTSTRPRMPT
+	CALLS	#2,G^READ_PROMPT
+	TSTL	BYTCNT
+	BNEQ	20$
+	MOVL	#SS$_NODATA,R0 
+	RET
+20$:
+	CMPW	#28,BYTCNT              	; Check > max len
+	BLSS	10$				; Br if too big
+	MOVZWL	BYTCNT,R8
+	MOVL	R8,DB_MAP_L_FMTTYP(R6)			; Set len of input
+	MOVC3	R8,KB_BUF,DB_MAP_A32_FMTSTR(R6)     	; Write keyword
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+100$:
+	MOVW	#14,M_DCS			; Item size
+	MOVAL	RTN_MENU,MADDR
+	MOVL	#RTN_MENU_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP3
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP3
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,110$			; Assume any error = eof
+	MOVL	#SS$_NORMAL,R0
+	RET
+110$:
+	DECW	CHOICE				; Selection starts at 0
+	MOVZWL	CHOICE,DB_MAP_L_FMTTYP(R6)	; Set Routine number
+	BBSS	#31,DB_MAP_L_FMTTYP(R6),120$	; Set top bit
+120$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARAMTBL_GETPARAM  
+;++
+;2 PARAMTBL_GETPARAM  
+; Get paramater number and write it as a .long at offset DB_MAP_L_PARAM	 
+;3 Inputs:
+;	.addr of .long where param number is written
+;  		This should be an area of at least DB_MAP_C_KEYSIZ long
+;      		The param is written as .word at offset DB_MAP_L_PARAM	 
+;3 Outputs:
+;	The input param converted to bin
+;3 Returns:
+;	SS$_NORMAL	OK
+;	SS$_ACCVIO	cant write
+;	SS$_NODATA 	No input
+;--
+	MOVL	4(AP),R6
+	PROBEW  #0,#4,DB_MAP_L_PARAM(R6)        ; Check for write access
+        BNEQ	1$			 	; Br OK
+	MOVL	#SS$_ACCVIO,R0
+	RET
+1$:
+	PUSHAL	PARAMPRMPT
+	CALLS	#1,G^READ_PROMPT
+	CMPW	#0,BYTCNT               ; Any Input ?
+	BNEQU	10$                   	; Yes
+	MOVL	#SS$_NODATA,R0          ; No input
+	RET
+10$:
+	CVTWL	BYTCNT,KB_DES		; Reset Len
+	PUSHAL	OUTINT			; Output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TU_L	; Convert to Bin
+	BLBC	R0,1$			; On error try again
+	MOVL	#80,KB_DES		; Rest Len
+	MOVL	OUTINT,DB_MAP_L_PARAM(R6)
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+		.END PARAMTBL

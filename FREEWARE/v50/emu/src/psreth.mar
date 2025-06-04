@@ -1,0 +1,756 @@
+        .title  PSRETH    
+        .ident  /V05-001/                   
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 PSRETH 
+; Program to receive Ethernet frames from Listen, process them and
+; build the internal Ethernet DB.
+;
+;2 Database
+; For each Ethernet address found, the address is stored and a table
+; showing all protocol types is maintained. If the table becomes full
+; an algorithm selects the most recent addition to the table and overwrites
+; it. This is expected to be a rare occurence.
+;-- 
+
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	$LCKDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUCNTDEF
+	EMURLTDEF
+	EMUMSGDEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+THIS_PROCESS = SYS_PID_C_PSRETH
+THIS_PROCESS_FLAG = SYS_FLG_C_PSRETH  
+
+       
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+INADDR:		.QUAD	0
+EBUFFS_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+ETHDB_A: 	.QUAD	0
+PSRTBL_A:	.QUAD   0
+COUNTERS_A:	.QUAD	0
+INTPTYTYP:	.QUAD	0
+GBLSIZ:		.LONG	0
+RLTCXT:		.LONG	0
+;
+ENTRYCNT: 	.LONG	0		; Count of db entries
+PSRTBLCNT:	.LONG	0		; Count of psr table entries
+PASS_COUNT:	.LONG	0               ; COunt of buffs rec'ed 1 cycle
+BOXID:		.LONG	0
+RELDIS:		.LONG	0
+; Locking
+; Lock value block
+ETHDBLVB:
+ETHLVBSTA:	.WORD	0		; Status
+ETHLVBRES:	.WORD	0		; Reserved
+ETHLVBID:	.LONG	0		; Lock id
+ETHLVBSIZ:	.LONG	0		; Begining of LVB (Size of DB in pages)
+ETHLVBSPR:	.BLKL	3		; Unused 12 bytes
+; $ENQ call frame
+ETHDBLOCK:	
+		.LONG	12		; Arguments
+		.LONG	0		; EFN
+LKMODE:		.LONG	LCK$K_EXMODE	; Lock mode
+		.ADDRESS ETHDBLVB	; Lock value block
+LKFLGS:         .LONG 	<LCK$M_SYSTEM!LCK$M_VALBLK>	; Use value block
+LKNAM:		.ADDRESS ETHDBLKNAM 	; Resourse name
+		.LONG	0		; Parent id 
+                .LONG	0               ; AST
+		.LONG	0		; AST Param
+		.LONG	0		; BLAST
+		.LONG	0		; ACC Mode
+		.LONG	0		; RSDM_ID
+		.LONG	0		; Null
+
+
+; Error Log
+; The error system works as follows:
+; Fill in MSGDCE, PARCNT and required params and call EMU_LOGGER with 
+; the addr of this message as the param. 
+; MSGCDE is the EMU message code. Symbols are defined in _EMUMSGDEF
+; PARCNT is the count of params in the MSGPARAMS area. There may be up to 
+; 7 params in any message. The params are FAO directives as required
+; by the message. See EMUMSG.MSG
+; Error System Params
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/PSRMOP/
+
+
+	.ALIGN	LONG
+ETHSECFAB:	
+		$FAB	FAC = <GET,PUT>,-        ; Access
+			FNM = <EMU5_ROOT:[DAT]EMU_PSRETH.SEC>
+ETHSECRAB:	
+		$RAB	FAB = ETHSECFAB,-            ; Record 
+			RAC = SEQ,-
+       			RBF = ETHSECREC,-			; 
+       			UBF = ETHSECREC,-			; 
+       			USZ = ETHSECREC_SIZE,-		; 
+       			RSZ = ETHSECREC_SIZE   		; 
+		
+
+ETHSECREC:	 .BLKB	PSR_ETH_C_RECSIZ   
+ETHSECREC_SIZE = .-ETHSECREC
+
+
+	.ALIGN	LONG
+EXIT_STATUS:	.LONG	0
+EXIT_BLOCK:	.LONG	0
+		.ADDRESS PSRETH_EXIT
+		.LONG	1
+		.ADDRESS EXIT_STATUS
+
+FLAGS:		.LONG	0
+DEFRECCNT:      .LONG	3000			; DEF dbsize
+
+EFLAGS1:	.ASCID	/EFLAGS1/	; Event Flag Cluster (64-95)
+EFLAGS2:	.ASCID	/EFLAGS2/	; Event Flag Cluster (96-127)
+ETHDBLKNAM:	.ASCID	/EMU_ETHDB/	; DB Lock name 
+ETHSECNAM:	.ASCID	/EMU_PSRETH/	; DB section name 
+
+
+
+
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=PSRETH
+
+
+; Ensure death if control process dies
+	calls	#0, g^get_control_lock	; 
+  	bsbw	error_chk		; 
+
+; 
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	calls	#0, g^asn_tempmbx_system
+	bsbw	error_chk		; 
+
+;	
+; Create and Map to sections 
+;
+
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	BSBW	ERROR_CHK
+	PUSHAL  EBUFFS_A        	; Ebuffs section return addresses
+	CALLS   #1, G^MAP_EBUFFS	; Create and map ebuffs
+	BSBW    ERROR_CHK       	; check errors
+	PUSHAL  CONTROL_A       	; Control section return addresses
+	CALLS   #1, G^MAP_CONTROl	; Create and map control section
+	BSBW    ERROR_CHK       	; check errors
+	PUSHAL  PSRTBLCNT       	; Count of entries found
+	PUSHAL  PSRTBL_A        	; PSR table start addr
+	CALLS   #2,G^MAP_PSRTBL 
+	BSBW    ERROR_CHK       
+
+
+; Lock and map our database
+        CALLS	#0,G^MAP_ETHDB  
+	BLBS	R0,10$
+        MOVL	#MSG_GENPSR_MAPDB,MSGCDE     ; General PSR error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	ETHSECNAM,(R1)
+	PUSHAL	ERRORMSG                     ; Section name
+	CALLS	#1,G^EMU_LOGGER
+	RET
+10$:
+; Declare exit handler
+	$DCLEXH_S DESBLK=EXIT_BLOCK	; 
+	BLBS	R0,20$
+        MOVL	#MSG_GENPSR_NOHNDLR,MSGCDE   ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+20$:
+
+; Register constants
+; R6 = Current buffer
+; R8 = current datarec
+; R9 = addr of que header
+; R11 = counters
+	MOVL	EBUFFS_A,R9            ; que heads
+
+; Common Event flag Cluster:
+;
+	$ASCEFC_S	EFN = #64,-
+			NAME = EFLAGS1
+	BSBW	ERROR_CHK       	; Fatal
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	BSBW	ERROR_CHK       	; Fatal
+; Locate our place in the PSR table to store counts
+        MOVL	PSRTBL_A,R6			; 
+	MOVL	PSRTBLCNT,R3			; Count of entries
+100$:
+	CMPL	#THIS_PROCESS_FLAG,PSR_TBL_L_PSRID(R6)
+        BEQLU	110$
+	ADDL	#PSR_TBL_C_SIZE,R6   	; Next entry
+	SOBGTR	R3,100$			; Loop for all
+	MOVL	#SS$_ITEMNOTFOUND,R0	; We could not find ourselves
+	RET
+110$:
+; Find our area in counters section and init
+	MOVL	COUNTERS_A,R11      	; Start of counters
+	ADDL	#CNT_PSR_C_START,R11    ; Start of PSRs
+	MULL3	#THIS_PROCESS,#CNT_PSR_C_ASIZE,R1	; Offset
+	ADDL	R1,R11					; Our space
+        MOVC5	#0,#0,#0,#CNT_PSR_C_ASIZE,(R11)		; Clear
+        MOVQ	PSR_TBL_Q_DNAM(R6),CNT_PSR_Q_NAME(R11)   ; Our name
+        MOVL	PSR_TBL_L_RELDIS(R6),RELDIS		; Relater disable
+; Send message to relater to enable us
+
+	MOVL	#100,R2			; Try this many times
+120$:
+	CLRL	RLTCXT
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGSTART	; Start us
+	PUSHAL	BOXID			; Dummy Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#4,G^CREATE_RELATER_FRAME
+	BLBS    R0,130$
+	SOBGTR	R2,120$
+; Fatal error - log it and exit
+        MOVL	#MSG_GENPSR_SNDRLT,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+130$:	
+  	PUSHL	RLTCXT                       ; Context
+	CALLS	#1,G^SEND_RELATER_FRAME
+140$:
+
+WAIT:
+	$wflor_s  	EFN=#96,-       ; Wait for our flag set
+			MASK=#THIS_PROCESS_FLAG
+
+	$READEF_S 	EFN=#96,-      ; Get EBUFF Flags
+			STATE=FLAGS     ; Current state
+
+READ:
+; When our flag is set:
+; 1. Clear our CEF
+; 2. Attempt to remove a command buffer. If any received, process
+; 3. Scan all ebuffs for any with our flag set.
+; If any found, process the buffer and clear our flag.
+; repeat 3. until no buffs are found for us
+; Wait for our CEF
+; Clear our CEF 
+	ADDL3	#96,#THIS_PROCESS,R1
+	PUSHL	R1
+	CALLS	#1,G^SYS$CLREF
+; Here call process command buffer
+
+	CLRL	PASS_COUNT			; Clear cycle count
+MAIN:
+	MOVL	EBUFFS_A,R6            		; que heads
+	ADDL	#IPC_EBUF_C_BUFSTART,R6 	; Buffers
+	MOVL	#IPC_ETH_C_BUFNO,R7		; Number of buffers
+10$:
+	BBS	#THIS_PROCESS,IPC_HDR_L_RFLAGS(R6),PROCESS   ; Br if buffer is ours
+	ADDL	#IPC_ETH_C_BUFSIZE,R6	
+	SOBGTR	R7,10$
+	TSTL    PASS_COUNT			; Did we process any?
+	BNEQU	READ				; Cycle again
+	BRW	WAIT
+
+PROCESS:
+20$:
+	INCL	CNT_PSR_L_PRCV(R11) 	; Count 1 buff in
+	PUSHL	#1			; Create if not found
+	PUSHL	#THIS_PROCESS   	; This process is creator
+	PUSHAL	BOXID       		; BOXID - always = 0
+	PUSHAL	ETHDB_A			; Section
+	ADDL3	#IPC_ETH_EA_SA,R6,-(SP)		; Addr of ETH addr	
+	PUSHL	#PSR_ETH_EA_ADDR       ; Offset to addr
+	PUSHL	#6	        	; Push len
+	CALLS	#7,G^LOCATE_PSRREC
+	BSBW	ERROR_CHK			; Restart on error
+	CMPL	R0,#SS$_CREATED
+	BNEQ	100$
+;; Alert new addr
+100$:
+; Found this rec
+	MOVL	R1,R8
+	MOVQ	EXE$GQ_SYSTIME,COM_HDR_Q_LSTHRD(R8)  	; Heard this addr now
+	INCL	COM_HDR_L_ACNT(R8)			; Count access
+
+CHECK_ENTRY:
+; Search for this protocol type on this address.
+; If not found then add to table
+; Rules for add to table:
+; Always search entire table
+; During sea note 1st empty (=0) element
+; If not found then add at 1st empty position
+; If no empty position then increment .long at PSR_ETH_L_TBLCNT 
+; Calc: PSR_ETH_L_TBLCNT/ PSR_ETH_C_MAXPTYTYP
+; The remainder is the number of the entry to replace
+; Replace the type at this position.
+; This should create a circular buffer that shows the x most recent types
+; present and provide an indicater as to how often replacement happens
+;
+	PUSHAL	INTPTYTYP 
+	PUSHL	R6
+	CALLS	#2,G^CVTPTYTYP			; No status return
+	MOVAL	INTPTYTYP,R10			; Returned ptytyp
+;
+	CLRL	R9				; Save empty slot here
+	ADDL3	#PSR_ETH_TQ_PTYTBL,R8,R1       ; Start of table
+	MOVL	#PSR_ETH_C_MAXPTYTYP,R2		; Loop control
+210$:
+	CMPL	(R10),(R1)                      ; Check lo long
+	BEQLU	250$                            ; Br if same
+220$:
+	TSTL	(R1)				; Empty slot?
+	BEQL	240$	                        ; Br if yes
+230$:
+	ADDL	#8,R1				; Next slot
+	SOBGTR	R2,210$				; Loop for all
+	BRB	300$				; Did not find
+240$:
+	TSTL	R9				; Have saved entry?
+	BNEQ	230$				; Yes - br
+	MOVL	R1,R9				; No - save this spot
+	BRB	230$
+250$:
+	CMPL	4(R10),4(R1)			; Check hi long
+	BNEQU	230$				; Nope
+	BRW	DONE				; Found - OK
+300$:
+; Send alert - New protocol started on this address
+; Add to table
+	BISL	#SYS_COM_M_UPDATE,COM_HDR_L_SYSCTL(R8)    ; Indicate updated
+	INCL	PSR_ETH_L_TBLCNT(R8)		; Next position
+	TSTL	R9				; Found vacant slot?
+	BEQL	350$                            ; Br if not
+	MOVL	(R10),(R9)                      ; Put it in vacant slot
+	MOVL	4(R10),4(R9)
+	BRW	DONE
+350$:
+; Table is full. Select least recent addition to replace.
+; 
+	CLRQ	R1
+	MOVL	PSR_ETH_L_TBLCNT(R8),R1	; Set up for ediv
+	EDIV	#PSR_ETH_C_MAXPTYTYP,R1,R3,R4 ; R4 = entry number
+	MULL	#8,R4				; Offset
+	ADDL3	#PSR_ETH_TQ_PTYTBL,R8,R1       ; Start of table
+	ADDL	R4,R1				; Write it here
+	MOVL	(R10),(R1)
+	MOVL	4(R10),4(R1)
+	BRW	DONE
+
+DONE:
+; Make sure we are in the Relater DB
+; The ease pressure on relater, and based on the assumption that many
+; higher layer protocols will 'make' the relationship back to Ethernet,
+; only send a relater frame when:
+;	1. we have had more than 2 accesses
+;	2. We are still not in relater
+;
+	CLRL	RLTCXT 			; Start with new frame
+	CMPL	#2,COM_HDR_L_ACNT(R8)
+	BGTR	10$
+	BBS	#THIS_PROCESS,RELDIS,10$
+	BBS	#THIS_PROCESS,COM_HDR_L_PTYBITS(R8),10$
+	ADDL3	#PSR_ETH_EA_ADDR,R8,-(SP)	; Our addr   
+	PUSHL	#6			; Len of our addr
+  	PUSHL	#THIS_PROCESS		; Add our address
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,10$                  ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)    ; count err
+10$:
+; send relater frame.
+	TSTL	RLTCXT			; Any frame to send?
+	BEQL	100$                    ; Br if not
+  	PUSHL	RLTCXT                  ; Context (Addr of buffer)
+	CALLS	#1,G^SEND_RELATER_FRAME
+	CLRL	RLTCXT			; Saftey - don't reuse
+
+	BLBS	R0,40$                  ; br no err
+	INCL	CNT_PSR_L_ERROR(R11)    ; count err
+        MOVL	#MSG_GENPSR_SNDRLT,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	100$                    ; skip
+40$:
+	INCL	CNT_PSR_L_PREL(R11)     ; Count relater frame sent
+	BRW	100$
+
+
+
+100$:
+; clear our bit in return
+; reque this buff back to listen
+	BICL  	#THIS_PROCESS_FLAG,IPC_HDR_L_RFLAGS(R6)
+	INCL	CNT_PSR_L_RET(R11)
+	BRW	MAIN
+; Subroutines
+ERROR_CHK:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	MOVL	R0,R6
+        MOVL	#MSG_GENPSR_SNDNAM,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+	$EXIT_S
+	RET
+
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CVTPTYTYP
+; ++
+; Inputs:	.address of ebuff (emu format)
+;		.address of .quad to return converted type
+; Outputs:
+;		.quad converted type
+; Returns:
+;		None
+;
+; Convert Ethernet protocol type field to internaly used format.
+; There are 2 Ethernet frame types with one type in two parts, effectively
+; 3 types. In order to speed processing convert to a standard internal.
+; As in P5 receive:
+; Type		 position	Len		Desc
+; Enet II	12		2	The familiar 2 byte field
+; IEEE		12		3	3 bytes are: DSAP,SSAP,CTRL
+; IEEE SNAP	12		8	When DSAP, SSAP = AAAA then
+;					5 byte field follows CTRL (ofset 15)
+; These are converted to an internal format used ONLY internaly:
+; Type		Byte 0 		Remainder of quad
+; Enet		  1		bytes 6,7 = bytes 12,13 of original
+; IEEE		  2		Byte 7 = DSAP (byte 12 of original
+; SNAP		  3		Bytes 3 - 7 = bytes 15 - 20 or original
+;  
+;__
+	MOVL	4(AP),R6		; Input
+	MOVL	8(AP),R9		; Output 
+;
+	CLRQ	(R9)  	       			; Init 
+	MOVB	#SYS_ETP_C_ETHERNET,(R9)	; Assume ether II
+	TSTL	IPC_ETH_L_TYPIND(R6)          	; Control field = 0?
+	BNEQ	10$		       		; Br if not
+	MOVW	IPC_ETH_W_PTY(R6),SYS_ETP_W_ETYPII(R9) 	; Move in protocol type
+	RET
+10$:
+	MOVB	#SYS_ETP_C_IEEE,(R9)			; Assume 802.3
+	CMPW	IPC_ETH_W_PTY(R6),#SYS_ETP_C_SNAPVAL  	; SNAP frame?
+	BEQL	20$		       			; Br if so
+	MOVB	IPC_ETH_W_PTY(R6),SYS_ETP_B_DSAP(R9) 	; Move DSAP
+	RET
+20$:
+	MOVB	#SYS_ETP_C_SNAP,(R9)			; SNAP Type
+	ADDL3	R6,#IPC_ETH_5_SNAPPID,R1                ; Inpt addr
+	ADDL3	R9,#SYS_ETP_5_EPID,R2                  ; Outp addr
+	MOVL	(R1),(R2)	 		; Move in protocol type
+	MOVB	4(R1),4(R2)			; Move in protocol type
+	RET
+;
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=MAP_ETHDB   
+;++
+;2 MAP_ETHDB   
+; Routine to create and initialise the ETH db. This is a standard routine
+; that any DB creator execxutes on it's own DB:
+;	Acquire exclusive lock on this database. 
+;		Fatal error if not granted.
+;	Open file - if file not opened used hardcoded defaults.
+;	Create section. Fatal error ir we did not CREATE.
+;	Initalise with either file contents or defaults
+;	Write section size (in pages) to LVB
+;	Convert lock to CW
+;	That's it!
+;--
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	$ENQW_G	ETHDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	ETHLVBSTA,10$            ; Br if got it
+	CMPW	#SS$_VALNOTVALID,ETHLVBSTA ; IGNORE NOT VALID
+	BEQL	10$
+	RET
+10$:
+	$OPEN	FAB= ETHSECFAB			; Attempt to open
+	BLBS	R0,20$                          ; Br if OK
+	BRW	1000$				; Use defaults
+20$:
+	$CONNECT RAB=ETHSECRAB
+	BLBS	R0,30$
+	BRW	280$			; Abandon and use defaults
+30$:
+	$GET	RAB=ETHSECRAB		; Get 1st rec
+	BLBS	R0,40$
+	BRW	280$			; Abandon and use defaults
+40$:
+; Calc memory/file size, Get memory & Map section
+       	MOVAL	ETHSECREC,R7
+	MULL3	COM_DBHDR_L_MAXENTRIES(R7),COM_DBHDR_L_RECSIZE(R7),GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+100$:	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR		; returned address
+	PUSHL	GBLSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BSBW	ERROR_CHK		; check ok
+; map section	
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	GBLSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	ETHSECNAM		; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	ETHDB_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	BSBW	ERROR_CHK
+	CMPL	#SS$_CREATED,R0
+	BEQL	200$
+	$CLOSE	FAB=ETHSECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	RET
+200$:
+; We created the section. Load it with file contents
+; Move the 1st rec to rec header
+; 1st rec cannot exceed common header size...
+	MOVAL	ETHDB_A,R11			; Start of section
+	MOVL	(R11),R7                        ;
+	MOVC3	#COM_HDR_C_SIZE,ETHSECREC,(R7)     ; Init header
+	ADDL3	COM_DBHDR_L_RECSIZE(R7),R7,R8       ; Location of 1st rec
+	CLRL	COM_DBHDR_L_ENTRIES(R7)		; No entries yet
+	MOVL	COM_DBHDR_L_RECSIZE(R7),R9    ; rec size
+210$:
+	MOVL	R8,ETHSECRAB+RAB$L_UBF    ; Write rec here
+	MOVW	R9,ETHSECRAB+RAB$W_RSZ		; Record size
+	MOVW	R9,ETHSECRAB+RAB$W_USZ		; Record size
+	$GET	RAB = ETHSECRAB		; Get a record
+	BLBC	R0,260$			; BR IF  error 
+	INCL	COM_DBHDR_L_ENTRIES(R7)			; Count
+	ADDL	R9,R8     		; Next slot
+	ADDL3	R9,R8,R10		; Check if enough room
+	CMPL	R10,4(R11)		; OK?
+	BLEQU	210$			; OK
+	BRW	280$			; Undo
+	
+260$:
+	CMPL	R0,#RMS$_EOF		; Was error end of file
+	BEQLU	270$			; Yes - OK
+	RET				; No - Die
+270$:
+	$CLOSE	FAB=ETHSECFAB
+	BRW	2000$
+280$:
+; Undo and set to default
+	$CLOSE	FAB=ETHSECFAB
+	CLRQ	-(SP)
+	PUSHAL	ETHDB_A			; returned address
+	CALLS	#3,G^SYS$DELTVA
+	BLBS	R0,1000$
+	RET
+1000$:
+; File was not found, or otherwise unloadable
+; Use defaults
+	MULL3	#PSR_ETH_C_RECSIZ,DEFRECCNT,GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR			; returned address
+	PUSHL	GBLSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BSBW	ERROR_CHK		; check ok
+; map section	
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	GBLSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	ETHSECNAM		; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	ETHDB_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	CMPL	#SS$_CREATED,R0
+	BEQL	1100$
+	$CLOSE	FAB=ETHSECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	RET
+; init header rec
+1100$:
+	MOVL	ETHdb_a,R6
+	MOVL	#PSR_ETH_C_RECSIZ,COM_DBHDR_L_RECSIZE(R6)   ; write recsize 
+	MOVL	#THIS_PROCESS,COM_DBHDR_L_FLAG(R6)          ; Write flag
+	MOVL	DEFRECCNT,COM_DBHDR_L_MAXENTRIES(R6)
+2000$:
+	$ERASE	FAB= ETHSECFAB			  ; Delete all versions
+	BLBS	R0,2000$                          ; Br until no more
+	SUBL3	ETHDB_A,ETHDB_A+4,R10 		; Size if section (bytes)
+	DIVL3	#512,R10,ETHLVBSIZ              ; Size (Pages) in LVB
+	INCL	ETHLVBSIZ			; Real number
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	MOVL	#LCK$K_CWMODE,LKMODE		; COnvert to CW
+	$ENQW_G	ETHDBLOCK 			; Convert DB lock 
+	MOVW	ETHLVBSTA,R0
+	RET					; Return with any errors
+
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=PSRETH_EXIT
+
+
+; Here at exit
+; Disable ourselves
+        MOVL	PSRTBL_A,R6			; 
+	MOVL	PSRTBLCNT,R3			; Count of entries
+10$:
+	CMPL	#THIS_PROCESS_FLAG,PSR_TBL_L_PSRID(R6)
+        BNEQU	15$
+	BICL	#PSR_CFLG_M_DISAB,PSR_TBL_L_CFLGS(R6)  ; Disable
+15$:
+	ADDL	#PSR_TBL_C_SIZE,R6   	; Next entry
+	SOBGTR	R3,10$			; Loop for all
+; Get lock
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	$ENQW_G	ETHDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	ETHLVBSTA,20$
+        MOVL	#MSG_EMUSYS_LOCKDB,MSGCDE    ; General PSR error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	LKNAM,(R1)+
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	RET
+20$:
+; create new file
+	$CREATE	FAB=ETHSECFAB
+	BLBS	R0,30$
+	RET
+30$:
+	$CONNECT RAB=ETHSECRAB
+	BLBS	R0,40$
+40$:
+; analyse section, dec entry count for any deleted recs
+	TSTL	ETHDB_A
+	BNEQ	45$
+	RET
+45$:
+	MOVL	ETHDB_A,R10			; Top of section
+        MOVL	COM_DBHDR_L_ENTRIES(R10),R6      ; Number of entries
+	BEQL	65$				; Br if none
+        MOVL	COM_DBHDR_L_RECSIZE(R10),R7      ; Size of entries
+	ADDL3	R7,R10,R8				; 1st rec
+50$:
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R8),60$ ; Br if not deleted
+	DECL	COM_DBHDR_L_ENTRIES(R10)			   ; uncount
+60$:
+	ADDL	R7,R8 
+	SOBGTR	R6,50$
+; The count is now the count of valid recs
+; Calc a new MAXENTRY
+65$:
+	MULL3	#100,COM_DBHDR_L_ENTRIES(R10),R1
+        DIVL	#15,R1			; increase by 15 %
+	CMPL	#100,R1			; must be > 100
+	BLSS	70$
+	MOVL	#100,R1			; Set min
+	BRB	100$
+70$:
+	CMPL	#1000,R1			; must be < 1000
+	BGTR	100$
+	MOVL	#1000,R1			; Set max
+100$:
+; Set header and write it
+; 
+	MOVW	COM_DBHDR_L_RECSIZE(R10),ETHSECRAB+RAB$W_RSZ     ; rec size
+	ADDL3	R1,COM_DBHDR_L_ENTRIES(R10),COM_DBHDR_L_MAXENTRIES(R10)	; Set new max size
+	MOVL	#-1,COM_HDR_L_ACNT(R10)	; Set this field Max count (FOR SORT)
+	MOVL	R10,ETHSECRAB+RAB$L_RBF    ; Write this rec 
+	$PUT	RAB = ETHSECRAB		; Write a record
+	BLBS	R0,110$			; BR IF no error 
+	RET
+
+110$:
+; Write out all recs (skip deletes)
+        MOVL	COM_DBHDR_L_ENTRIES(R10),R6      ; Number of entries
+	BEQL	200$				; Br if none
+        MOVL	COM_DBHDR_L_RECSIZE(R10),R7      ; Size of entries
+        MOVW	COM_DBHDR_L_RECSIZE(R10),ETHSECRAB+RAB$W_RSZ    ; Size of record
+	ADDL3	R7,R10,R8			; 1st rec
+120$:
+	MOVL	R8,ETHSECRAB+RAB$L_RBF    ; Write this rec 
+	$PUT	RAB = ETHSECRAB		; Write a record
+	BLBC	R0,210$			; BR IF  error 
+	ADDL	R7,R8 
+	SOBGTR	R6,120$
+200$:
+	$CLOSE	FAB= ETHSECFAB	; 
+        RET
+210$:
+	$CLOSE	FAB= ETHSECFAB	; 
+	$ERASE	FAB= ETHSECFAB			; Delete Partial
+        RET
+
+	.END	PSRETH

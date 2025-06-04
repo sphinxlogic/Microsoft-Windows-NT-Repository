@@ -1,0 +1,64 @@
+To anyone with any interest in SEND, RJOB etc... read on
+
+With the introduction of the "new" SEND etc. procedures, here is a brief
+explanation of how it works and how to circumvent it if necessary and
+where possible.
+
+The following two lines are extracted from NODES.DAT and will be used
+in the explanations.
+
+-----------
+JHG     ,alpha-7.1      /cfg    /saf    /plus   /pwrk   /swxcr  /ck7.0
+KIN%ip  ,alpha-7.1-2    /cfg            /plus   /pwrk           /ck7.0  /est
+-----------
+
+NODES.DAT contains a list of all the nodes on the network that are likely
+to be addressed via SEND, RJOB etc.  Nodes like ONL3, ONL7, ONLX25, ONL4,
+ONLDEM and any other "test" systems are excluded.
+
+The general format of the lines is "<node>[%<transport>] [,<options>]".
+The "<node>" is the DECnet nodename (which should match the IP nodename in
+most cases).  The "%<transport>" is optional and with no indication to the
+contrary will default to DECnet.  Without any further network configuration
+complications, the new structure should work without intervention.
+The most likely problem areas will be in situations where things are being
+tested or during installations as per the forthcoming installation at
+Kinghorn where ONLDEM will be in the picture.
+
+Using the JHG and KIN examples above;  any activity directed towards JHG
+will use the "default" transport, anything to KIN will use IP.
+
+The definition of the "default" transport is controlled via a logical
+(a wonderfully versatile - and sometimes under-utilised - feature of VMS).
+The logical is RSTUFF_DEFAULT_TRANSPORT.  This is defined on KIN as a system
+logical with a value of IP, elsewhere this logical is NOT defined and as a
+result will default to DECnet.
+Any activity from KIN will use IP (the default on KIN) - regardless of
+where it goes.
+
+This combination implies that from ONL3, access to all nodes in NODES.DAT
+will be via DECnet except for KIN, which will be via IP.  The explicit
+inclusion of IP as the transport within NODES.DAT will mean that ANY
+reference to KIN will use IP - you cannot override this if you use "KIN"
+as the destination.  To bypass the transport in NODES.DAT, use the DECnet
+address (in this case 1.606).  This will then use the default transport
+as defined above.  To override the system default transport, simply define
+the logical RSTUFF_DEFAULT_TRANSPORT to DECnet within your process before
+doing whatever you want to do.
+
+Specifying the nodelist with these procedures can be "tested" if you are
+unsure about how the nodelist is processed.  To see where you will end up
+in your travels, you can use SYS_FIND_NODES (and I said it didn't do anything
+that would interest you!) as indicated below.  This procedure simply takes
+what you specify and cleans it up a bit to produce a "valid" list of nodes
+for the utility that called it.  The "mumble" parameter is the name of a
+symbol that will contain the final list.  If you specify anything at all as
+the third parameter, you will get a debug list of the lists at various stages
+in processing.
+
+	$ @olga$sys:sys_find_nodes mumble <your_list> [<anything>]
+	$ show symbol mumble
+
+If you find this confusing and require any further clarification... ask.
+
+Dave.

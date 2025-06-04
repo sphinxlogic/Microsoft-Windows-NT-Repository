@@ -1,0 +1,237 @@
+$!
+$!                             COPYRIGHT (C) 1999 BY
+$!                       COMPAQ COMPUTER CORPORATION, HOUSTON
+$!                        TEXAS.  ALL RIGHTS RESERVED.
+$!
+$!     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+$!     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+$!     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+$!     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+$!     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+$!
+$!     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+$!     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+$!     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+$!
+$!     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+$!     ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+$!     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+$!     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+$!
+$!
+$!
+$!
+$!     This file provides an example of an RPC client/server where the
+$!     client activates a routine in the server that returns the hashed
+$!     password to the client. A structure is passed to the server that
+$!     returns a hexadecimal coded string representing the encrypted pass-
+$!     word.
+$!     
+$!     The ONC RPC Programming manual states it is difficult to debug an RPC
+$!     server. However, the command procedure below includes a small simple
+$!     program named lnkflg which enables to compile, link with debug and to
+$!     run the image as RUN/DETACH/DUMP without Debugger's activation at image
+$!     startup. When a exception occurs such as an ACCVIO in the server code,
+$!     an image dump is generated and because all symbols are in the EXE, it
+$!     is possible to debug the program only once the dump has occurred.
+$!
+$!
+$!
+$!
+$ define/nolog rpc tcpip$rpc
+$ create rpc_crypt.x
+struct parameters_to_crypt {
+        char password[33];
+        char usrnam[50];
+};
+typedef struct parameters_to_crypt *crypt_parameters;
+program MY_CRYPT {
+      version MY_CRYPT_VERS {
+        string CRYPT(crypt_parameters)  = 1;
+      } = 1;
+} = 0x20000099;
+$! compile our protocol specification file
+$ rpcgen rpc_crypt
+$! compile the two generated files which are needed for
+$! linking the RPC server crypt service.
+$ cc/debug/noopt rpc_crypt_svc
+$ cc/debug/noopt rpc_crypt_xdr
+$ create rpc_server_crypt.c
+#include <stdio.h>
+#include <string.h>
+#include <descrip.h>
+#include <starlet.h>
+#include <uaidef.h>
+#include <ssdef.h>
+#include <rpc/rpc.h>
+#include "rpc_crypt.h"
+
+/*
+ * This is the server part of the RPC. For this example it contains
+ * only one routine which is crypt, a well U*IX known routine, which
+ * does not exist on OpenVMS.
+ */
+/*
+ * With RPC calls one must specify pointers to objects.
+ */
+char **crypt_1(crypt_parameters crypt_param){
+    static char encrypted[9];
+    static char *cp = encrypted;
+    char **dummy;
+    struct dsc$descriptor_s pwddsc  = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
+    struct dsc$descriptor_s usrnamdsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
+    unsigned long int hash[2];
+    int status;
+
+    pwddsc.dsc$w_length = strlen(crypt_param->password);
+    pwddsc.dsc$a_pointer = crypt_param->password;
+    usrnamdsc.dsc$w_length = strlen(crypt_param->usrnam);
+    usrnamdsc.dsc$a_pointer = crypt_param->usrnam;
+
+    status = sys$hash_password (&pwddsc,     /* Descriptor tro password */
+                                UAI$C_AD_II, /* Hashing algorythm */
+                                0,           /* salt */
+                                &usrnamdsc,  /* Descriptor to user name */
+                                hash);       /* Two longwords array */
+    /*
+     * If status from system service odd, return the encrypted password
+     * as eight hexadecimal digits.
+     */
+    if ((status & 1)){
+         sprintf(encrypted,"%8x%c",hash[0],'\0');
+         dummy = &cp;
+         return(dummy);
+    }
+    return(NULL);
+}
+$ cc/debug/noopt rpc_server_crypt
+$ link/debug rpc_crypt_svc,rpc_crypt_xdr,rpc_server_crypt,sys$input:/option
+sys$share:tcpip$rpcxdr_shr/share
+$ create lnkflg.c
+/*
+ * This program clears the LNKDEBUG flag in the image header
+ * enabling to run without the debugger at image startup while enabling
+ * symbolic debugging (ANALYZE/PROCESS_DUMP) when the detached process
+ * raises an exception and the process' memory is dumped to a file.
+ */
+#include unixio
+#include stdlib
+#include file
+
+#define BLOCKSIZE 512
+#define EIHD$M_LNKDEBUG  1
+#ifdef __ALPHA
+#define POS_LNK_FLG 0x50
+#endif
+#ifdef __VAX
+#define POS_LNK_FLG 0x20
+#endif
+int main(int argc,char **argv){
+
+  unsigned long buffer[BLOCKSIZE/sizeof (long)];
+  int fic;
+  int ret;
+
+  if (argc != 2) exit(0);
+  fic = open (argv[1],O_RDWR,0);
+  /*
+   * Read Image header (first block).
+   */
+  ret = read(fic,buffer,BLOCKSIZE);
+  /*
+   * Clear the EIHD$M_LNKDEBUG flag.
+   */
+  buffer[POS_LNK_FLG/sizeof(long)] &= ~EIHD$M_LNKDEBUG;
+  /*
+   * Reposition at beginning of file (modified after the read).
+   */
+  lseek (fic,0,SEEK_SET);
+  /*
+   * Write out modified buffer.
+   */
+  ret = write(fic,buffer,BLOCKSIZE);
+  /*
+   * Flush RMS buffers and close file.
+   */
+  close(fic);
+}
+$ cc/prefix=all lnkflg
+$ link lnkflg
+$ this_proc = f$env("procedure")
+$ this_dev=f$parse(this_proc,,,"DEVICE")
+$ this_dir=f$parse(this_proc,,,"DIRECTORY")
+$!
+$! lnkflg executable is executed in foreign DCL command.
+$! Hence the syntax.
+$ lnkflg :== $'this_dev''this_dir'lnkflg.exe;
+$!
+$! Clear the EIHD$M_LNKDEBUG flag in image header of rpc_crypt_svc.exe
+$!
+$ lnkflg rpc_crypt_svc.exe
+$ run/detach/dump rpc_crypt_svc
+$ create rpc_client_crypt.c
+#include <stdlib.h>
+#include <stdio.h>
+#include <rpc/rpc.h>
+#include "rpc_crypt.h"
+
+main(int argc, char **argv){
+  CLIENT *cl;
+  crypt_parameters param;
+  char **encrypted;
+
+  if (argc != 4){
+      printf ("usage: client_crypt <host> <username> <password>\n");
+      exit(0);
+  }
+  if (strlen(argv[3]) >= 32){
+      printf ("password %s too long. Specify at most 32 characters\n",argv[3]);
+      exit(0);
+  }
+  param = malloc(sizeof(struct parameters_to_crypt));
+  strcpy(param->password,argv[3]);
+  strcpy(param->usrnam,argv[2]);
+  /*
+   * Create the client handle used for calling CRYPT on the server
+   * specified on the command line.
+   */
+  if((cl=clnt_create(argv[1],MY_CRYPT,MY_CRYPT_VERS,"tcp")) == NULL){
+     /*
+      * Could not etasblish connection with server.
+      */
+     clnt_pcreateerror(argv[1]);
+     exit(0);
+  }
+  encrypted = crypt_1(&param,cl);
+  if (encrypted == NULL) {
+      /*
+       * An error occured while calling the server or there is a bug
+       * in sys$hash_password parameters.
+       */
+       clnt_perror(cl,argv[1]);
+       exit(0);
+  }
+
+  printf ("%s is encrypted to %s\n",param->password,*encrypted);
+  exit(1);
+}
+$ cc/debug/noopt rpc_client_crypt
+$ cc/debug/noopt rpc_crypt_clnt
+$ link rpc_client_crypt,rpc_crypt_clnt,rpc_crypt_xdr,sys$input:/options
+sys$share:tcpip$rpcxdr_shr/share
+$ nodename = f$getsyi ("NODENAME")
+$ ucx show host 'nodename'/output=t.tmp
+$ open/read fred t.tmp
+$loop:
+$ read/end=eof fred line
+$ goto loop
+$eof:
+$ close fred
+$ ucx_host_address = f$extract (0, f$locate (" ",line),line)
+$ if f$search ("t.tmp") .nes. "" then delete/nolog/noconfirm t.tmp;
+$ mcr 'this_dev''this_dir'rpc_client_crypt 'ucx_host_address' vouters hello
+$ exit

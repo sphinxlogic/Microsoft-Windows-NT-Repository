@@ -1,0 +1,67 @@
+	.TITLE NTIMER
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 NTIMER
+; Routine to return elapsed time between two calls to itself. The caller 
+; calls this routine twice, the first time with the argument = 0 and 
+; the second with the the argument = result from 1st call.
+; On the 1st call (when P1 = 0), RSCC is called and replaces P1. 
+; On 2nd call (P1 .ne. 0) RSCC is called and P1 is subtracted from it.
+; Using HWPRB structures, the routine determines how often RSCC is updated
+; and converts the difference (as a count) to microseconds. This is returned
+; on the 2nd call.
+;2 Inputs
+;   	.address of .quad
+;2 Outputs:
+;   	If P1 = 0 then P1 is made equal to the result from RSCC
+;	If P1 .ne. 0 then call RSCC, subract P1 from it and convert to
+;	microseconds. This result is returned. 
+;2 Restriction
+;   AXP only. This does not work on VAX.
+;--
+
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$HWRPBDEF
+
+	.PSECT	NTIMER_C,NOWRT,EXE,SHR,PIC,LONG
+
+       .CALL_ENTRY     	 MAX_ARGS=2, -
+			 HOME_ARGS=TRUE, -
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			 LABEL=NTIMER
+; Get current time
+	EVAX_RSCC
+;
+	MOVL	4(AP),R6			; get param addr
+	TSTL	(R6)    		        ; if Not 0 ...
+	BNEQ	10$    			        ; br
+	TSTL	4(R6)  			        ; top long
+	BNEQ	10$          			; br
+; 1st call, return result
+	EVAX_STQ	R0,(R6) ; Write quad
+	MOVL	#SS$_NORMAL,R0
+	RET
+10$:
+; 2nd call, do calc               			
+	EVAX_LDQ	R7,(R6)                 	; Get 1st sample
+	EVAX_SUBQ	R0,R7,(R6)                      ; Curr - 1st
+; Determine processor cycle time and convert to Microsec.
+	MOVL	EXE$GPQ_HWRPB,R10                    ; Base addr
+	MOVL	HWRPB$IQ_CYCLE_COUNT_FREQ(R10),R11      ; Get freq this prcesr
+	DIVL	#1000000,R11                            ; Make micro
+	EDIV	R11,(R6),(R6),R1                        ; real time
+	MOVL	#SS$_NORMAL,R0
+	RET
+	.END	

@@ -1,0 +1,223 @@
+MODULE Read_Map;	! James M Synge		July 30, 1990
+
+!*****************************************************************************
+!*                                                                           *
+!*  COPYRIGHT (c) 1990  BY                                                   *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.                   *
+!*  ALL RIGHTS RESERVED.                                                     *
+!*                                                                           *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED    *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE    *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER    *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY    *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY    *
+!*  TRANSFERRED.                                                             * 
+!*                                                                           *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE    *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT    *
+!*  CORPORATION.                                                             *
+!*                                                                           *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS    *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.                  *
+!*                                                                           *
+!*****************************************************************************
+
+INCLUDE FILE 'Annotate_ImageRec.SCI';
+
+EXTERNAL PROCEDURE HexToInteger(STRING) OF INTEGER;
+
+CONSTANT SS$_Normal     EXTERNAL INTEGER;
+CONSTANT RMS$_Normal    EXTERNAL INTEGER;
+CONSTANT RMS$_NMF       EXTERNAL INTEGER;
+CONSTANT SCN$_ENDINPSTM EXTERNAL INTEGER;
+
+EXTERNAL PROCEDURE LIB$Find_File(DESCRIPTOR STRING,     ! filespec
+                                 DESCRIPTOR STRING,     ! resultant-filespec
+                                 REFERENCE INTEGER,     ! context
+                                 DESCRIPTOR STRING,     ! default-spec
+                                 DESCRIPTOR STRING,     ! related-spec
+                                 REFERENCE INTEGER,     ! status-value
+                                 REFERENCE INTEGER      ! flags
+                                ) OF INTEGER;           ! condition
+
+EXTERNAL PROCEDURE LIB$Find_File_End(INTEGER) OF INTEGER;
+
+! Character set definitions:
+
+SET alpha	('A' .. 'Z');
+SET numeric	('0' .. '9');
+SET hd			( numeric OR 'A' .. 'F' );
+
+SET init_chars		( alpha OR '$' OR '_' );
+SET symbol_chars	( init_chars OR numeric );
+
+! Token definitions:
+
+TOKEN symbol_by_value_tkn
+			{ 'Symbols By Value' };
+TOKEN r_tkn		{ '     R-' };
+TOKEN ru_tkn		{ '    RU-' };
+
+TOKEN value_tkn		{ '0' hd hd hd hd hd hd hd };
+
+TOKEN symbol_tkn	{ init_chars symbol_chars... };
+
+TOKEN eol_tkn		{ s'eol' };
+
+DECLARE record_data : BOOLEAN;
+DECLARE the_image : POINTER TO ImageRec;
+
+MACRO start_recording TRIGGER { symbol_by_value_tkn };
+
+	record_data = TRUE;
+	WRITE 'Found symbol data...';
+
+END MACRO;
+
+MACRO gsymbol TRIGGER { eol_tkn {v:value_tkn} {r_tkn | ru_tkn} {s:symbol_tkn}};
+	DECLARE i: INTEGER;
+
+	IF record_data THEN
+		the_image->.Globals->(s) = HexToInteger(v);
+	END IF;
+
+END MACRO;
+
+DECLARE input_file: FILE;
+DECLARE input_buffer: VARYING STRING(256);
+
+PROCEDURE FastForward(len: REFERENCE INTEGER,
+		      buffer: REFERENCE POINTER TO FIXED STRING( 256 ))
+		OF INTEGER;
+
+	! Skip over the input until we get to the Symbols By Value section.
+
+	IF ENDFILE(input_file) THEN
+		RETURN SCN$_ENDINPSTM;
+	END IF;
+
+	IF NOT record_data THEN
+		READ FILE(input_file) input_buffer;
+
+		WHILE NOT ENDFILE(input_file);
+			IF INDEX(input_buffer, 'Symbols By Value') <> 0 THEN
+				len = LENGTH(input_buffer);
+				buffer->[1..len] = input_buffer;
+				RETURN SS$_NORMAL;
+			END IF;
+
+			READ FILE(input_file) input_buffer;
+		END WHILE;
+
+		WRITE 'Reached end of file without finding the symbol definitions!';
+		RETURN SCN$_ENDINPSTM;
+	ELSE
+		READ FILE(input_file) input_buffer;
+		IF ENDFILE(input_file) THEN
+			RETURN SCN$_ENDINPSTM;
+		END IF;
+
+		len = LENGTH(input_buffer);
+		buffer->[1..len] = input_buffer;
+
+		RETURN SS$_NORMAL;
+	END IF;
+END PROCEDURE;
+
+
+PROCEDURE BitBucket(len: INTEGER, fix: FIXED STRING(132));
+	RETURN;                                           
+END PROCEDURE;
+
+PROCEDURE Read_Map OF POINTER TO ImageRec;
+	DECLARE filename, base_address: STRING;
+	DECLARE s,map,out: STRING;
+	DECLARE i: INTEGER;
+	DECLARE filespec, name: STRING;
+	DECLARE status, context, rms_status, flags: INTEGER;
+
+	! Get the name of the file.
+
+	filespec = '';
+
+	WHILE filespec = '';
+		READ PROMPT('Enter name of next map file to read: ') filename;
+		IF filename = '' THEN
+			RETURN NIL;
+		END IF;
+
+		! Search for a file which matches the specified name.
+
+		context = 0;
+		flags = 0;
+
+		status = LIB$Find_File(filename, filespec, context,
+					'*.MAP', *, rms_status, flags);
+
+		IF status <> RMS$_Normal THEN
+			WRITE 'Unable to find file ', filename;
+		ELSE
+			! Free the LIB$Find_File context.
+
+			status = LIB$Find_File_End(context);
+			IF (status AND 1) <> 1 THEN
+				WRITE 'Error freeing the LIB$Find_File context.';
+				RETURN NIL;
+			END IF;
+		END IF;
+	END WHILE;
+
+	! Parse the name of the file.
+
+	i = INDEX(filespec, ':');
+	name = filespec[i + 1 ..];
+
+	i = INDEX(name, ']');
+	name = name[i + 1 ..];
+
+	i = INDEX(name, '.');
+	name = name[1 .. i - 1];
+
+	! Create and initialize the needed data structures.
+
+	ALLOCATE the_image;
+	ALLOCATE the_image->.Globals;
+	ALLOCATE the_image->.Name;
+
+	the_image->.Name-> = name;
+
+	! Get the base address, if known.
+
+	READ PROMPT('Enter the base address (HEX) of image ' & name & ' if known: ')
+		base_address;
+
+	IF base_address = '' THEN
+		the_image->.BaseAddress = 0;
+		the_image->.UserSpecified = FALSE;
+	ELSE
+		the_image->.BaseAddress = HexToInteger(base_address);
+		the_image->.UserSpecified = TRUE;
+	END IF;
+
+	! Start scanning the file.
+
+	record_data = FALSE;
+
+	WRITE 'Scanning file ', filespec, ' ...';
+
+	OPEN FILE(input_file) AS filespec FOR INPUT;
+
+	START SCAN
+!		INPUT FILE filespec
+		INPUT PROCEDURE FastForward
+		OUTPUT PROCEDURE BitBucket;
+
+	WRITE 'Done scanning file ', filespec;
+	WRITE '';
+
+	CLOSE FILE(input_file);
+
+	RETURN the_image;
+END PROCEDURE;
+
+END MODULE;

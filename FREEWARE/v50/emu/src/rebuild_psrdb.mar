@@ -1,0 +1,426 @@
+        .title  REBUILD_PSRDB    
+        .ident  /V01-001/                   
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	PB	Aug 1999	Creation
+;
+;++
+;1 REBUILD_PSRDB 
+; Subroutine called when PSR initialises and saved section does not exist.
+; This routine attempts to rebuild the PSR db with data from EMUDB.DAT.
+; The common reason for this is EMU was abnormally shut down (System crash)
+; and the memory sections were lost. These sections form the database for EMU
+; operations and provide indexes to EMUDB for querry/report purposes. 
+; EMUDB.DAT is on disk and writes to it are always FLUSHED. It therefore
+; is a reliable source to extract from in all predicted circumstances.
+;
+;2 Inputs
+;	.long	Value of PSRid. This is the SYS_PID_PSRxxx of the caller.
+;	.long	Value of Table in EMUDB the paramater is in
+;	.long	Value of the paramater number
+;	.long	Address .quad 1st and last addr of the newly created PSR 
+;		section
+; P2 and P3 are keys in EMUDB and point to specific params. In the case
+; of a rebuild, the param wanted is the PSRDB key, for example:
+;	PSR	Key
+;	ETH	Ethernet address
+;	IP	IP address
+;	DN4	DECnet address
+;	   etc.
+;2 Outputs
+;	For each paramater read from EMUDB, the param is processed PID
+;	specificaly and added to the PSRDB per normal operations.
+;2 Abstract
+;	Extract the raw param	 - Make key
+;	Call LOCATE_PSRREC       - Add to DB
+;	If created (normal case):
+;		CREATE_RELATER_FRAME
+;		SEND_RELATER_FRAME
+;	If not created then ignore
+;	Next EMUDB rec until No more recs.
+;  Each address is verified before adding to DB. On error, ignore.
+;  Any error returned from LOCATE_PSRREC causes an exit with error. If 
+; the error is insufficient memory the caller may resize the section and
+; call this routine again.
+; Errors from CREATE_RELATER and SEND_RELATER are ignored - they will correct
+; in later processing.
+;-- 
+
+        .LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMURLTDEF
+	EMUMSGDEF
+	EMUDBDEF
+	$LCKDEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+TEMPDESC:	.QUAD	0
+
+
+; Error Log
+; The error system works as follows:
+; Fill in MSGDCE, PARCNT and required params and call EMU_LOGGER with 
+; the addr of this message as the param. 
+; MSGCDE is the EMU message code. Symbols are defined in _EMUMSGDEF
+; PARCNT is the count of params in the MSGPARAMS area. There may be up to 
+; 7 params in any message. The params are FAO directives as required
+; by the message. See EMUMSG.MSG
+; Error System Params
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/REBUILD_PSRDB/
+
+
+	.align long
+SCANNERFAB:	
+		$FAB	FAC = <GET,PUT>,-        ; Access
+			SHR = <GET,PUT>,-
+			RFM = FIX,-
+			MRS = SCANNERREC_SIZE,-
+			ORG = REL,-
+			FNM = <EMU5_ROOT:[DAT]EMU_SCANNER.DAT>
+SCANNERRAB:	
+		$RAB	FAB = SCANNERFAB,-            ; Record 
+			RAC = KEY,-
+			KBF = RECNO,-
+       			RBF = SCANNERREC,-			; 
+       			UBF = SCANNERREC,-			; 
+       			USZ = SCANNERREC_SIZE,-		; 
+       			RSZ = SCANNERREC_SIZE   		; 
+		
+
+SCANNERREC:	 .BLKB	SCN_C_RECSIZE   
+SCANNERREC_SIZE = .-SCANNERREC
+	.align long
+
+
+RECBUF:
+EMUDB_KEYBUF:	.BLKB	DB_C_KSZ 			; 
+RECDAT:		.BLKB	DB_REC_C_MRS-DB_C_KSZ		; 768 (Total)
+RECBUF_DESC:	.LONG	.-RECBUF
+		.ADDRESS  RECBUF
+RECNO:		.LONG	0
+RECCNT:		.LONG   0
+RESCNT:		.LONG   0
+BOXID:		.LONG	0
+KEY_LEN:	.LONG	0
+KEY_LOC:	.LONG	0
+KEY_OFFS:	.LONG	0
+PAUSE:		.FLOAT	0.1		   ; Time to wait between IPC sends
+HIORD:	    	.BYTE	^XAA,^X00,^X04,^X00
+RLTCXT:		.LONG	0
+
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=4, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=REBUILD_PSRDB
+
+	CMPL	4(AP),#SYS_PID_C_NAMER 	; Special processing for Name DB
+	BNEQU	10$
+	CALLS	#0,G^REBUILD_NAMER
+	RET
+10$:
+
+	CLRL	RECCNT			; 
+	MOVAL	RECBUF,R1               ; Set key
+	MOVL	8(AP),DB_REC_L_TABLE(R1)
+	MOVL	12(AP),DB_REC_L_PARAM(R1)
+
+
+; Get each occurence of param.tbl
+50$: 
+	MOVL	#DB_REC_C_MRS,RECBUF_DESC
+	PUSHAL	RECCNT			; Record count
+	PUSHL	#5			; Report level
+	CLRL	-(SP)			; Search direction
+	PUSHAL	RECBUF_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_TAB_PAR 	; Key of ref
+	CALLS	#5,G^EMUDB_READ
+; Check if wanted rec before error check
+	MOVAL	RECBUF,R1               ; Set key
+	CMPL	8(AP),DB_REC_L_TABLE(R1)
+	BNEQU	100$
+	CMPL	12(AP),DB_REC_L_PARAM(R1)
+	BNEQU	100$
+
+	BLBS	R0,200$                    ; Br if got rec
+	CMPL	#RMS$_RNF,R0               ; Rec not found?
+	BEQLU	100$                       ; OK
+	CMPL	#RMS$_EOF,R0               ; End of file?
+	BEQLU	100$                       ; OK
+; Log error
+        MOVL	#MSG_RBUILD_EXIT,MSGCDE   ; General PSR error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                      ; VMS error
+	MOVL	4(AP),(R1)
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET                                ; 
+100$:
+        MOVL	#MSG_RBUILD_END,MSGCDE   ; General PSR error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	RESCNT,(R1)+                 ; Count
+	MOVL	4(AP),(R1)
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+200$:
+; PSR Specific processing to extract the key (address).
+	CASEL	4(AP),#0,#18		; Select routine
+299$:
+
+	.WORD	300$ -299$	; SYS_PID_C_LISTEN		; Main listener
+	.WORD	301$ -299$	; UNDEF	
+	.WORD	302$ -299$	; SYS_PID_C_PSRDN4	
+	.WORD	303$ -299$	; SYS_PID_C_PSRDN5	
+	.WORD	304$ -299$	; SYS_PID_C_PSRSCS	
+	.WORD	305$ -299$	; SYS_PID_C_PSRLAT	
+	.WORD	306$ -299$	; SYS_PID_C_PSRMOP	
+	.WORD	307$ -299$	; SYS_PID_C_PSRIP		
+	.WORD	308$ -299$	; SYS_PID_C_PSRIPX	
+	.WORD	301$ -299$	; SYS_PID_C_PSRDNS	
+	.WORD	301$-299$	; SYS_PID_C_PSRDTS	
+	.WORD	301$-299$	; SYS_PID_C_PSRARP	
+	.WORD	312$-299$	; SYS_PID_C_PSRETH	
+	.WORD	301$-299$	; SYS_PID_C_PSRREC	
+	.WORD	314$-299$	; SYS_PID_C_PSRBRD	
+	.WORD	301$-299$	; SYS_PID_C_UNASS1	
+	.WORD	301$-299$	; SYS_PID_C_UNASS2	
+	.WORD	301$-299$	; SYS_PID_C_RELATER  	
+	.WORD	301$-299$	; SYS_PID_C_NAMER  	
+; Error - Unrecog PID
+300$:
+301$:
+        MOVL	#MSG_RBUILD_INVPID,MSGCDE   ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	4(AP),(R1)
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	#SS$_BADPARAM,R0
+	RET
+
+; in each case:
+;	set the len and address of the raw address
+;	set the params for call to LOCATE_PSRREC
+302$:				; DN4	
+	MOVAL	RECBUF,R6
+	ADDL3	R6,#DB_REC_C_DATA,KEY_LOC
+	MOVL	#2,KEY_LEN
+	BRW	400$
+303$:				; DN5	
+	MOVAL	RECBUF,R6
+	ADDL3	R6,#DB_REC_C_CDATA,KEY_LOC
+	MOVL	DB_REC_L_CLEN(R6),KEY_LEN
+	BRW	400$
+304$:				; SCS	
+305$:				; LAT	
+306$:				; MOP	
+	MOVAL	RECBUF,R6
+	ADDL3	R6,#DB_REC_C_DATA,KEY_LOC
+	MOVL	#6,KEY_LEN
+	BRW	400$
+307$:				; IP		
+	MOVAL	RECBUF,R6
+	ADDL3	R6,#DB_REC_C_SDATA,KEY_LOC
+	MOVL	#4,KEY_LEN
+	BRW	400$
+308$:				; IPX	
+	MOVAL	RECBUF,R6
+	ADDL3	R6,#DB_REC_C_DATA,KEY_LOC
+	MOVL	#10,KEY_LEN
+	BRW	400$
+
+312$:				; ETH	
+314$:				; BRD	
+	MOVAL	RECBUF,R6
+	ADDL3	R6,#DB_REC_C_DATA,KEY_LOC
+	MOVL	#6,KEY_LEN
+	BRW	400$
+400$:
+	PUSHL	#1			; Create if not found
+	PUSHL	4(AP)	        	; This process is creator
+	ADDL3	#DB_REC_L_BOXID,R6,-(SP)  ; BOXID 
+	PUSHL	16(AP)			; Section
+	PUSHL	#KEY_LOC		; Addr of key	
+	PUSHL	#COM_HDR_C_SIZE        ; Offset to addr
+	PUSHL	KEY_LEN	        	; Push len
+	CALLS	#7,G^LOCATE_PSRREC
+	BLBS	R0,410$
+; There may be valid addresses in EMUDB that are invalid in PSRDB: 
+; example 127.0.0.1 is valid IP address but cannot appear in PSRdb.
+; Any error from LOCATE_PSRREC is ignored.
+	BRW     50$			; NEXT EMUDB
+
+410$:
+; It is assumed that the PSR record is ALWAYS created.
+; Make sure we are in the Relater DB
+	MOVAL	RECBUF,R1               ; This rec
+	CLRL	RLTCXT 			; Start with new frame
+	PUSHL	KEY_LOC			; Our addr   
+	PUSHL	KEY_LEN			; Len of our addr
+  	PUSHL	4(AP)	    		; Add our address
+	PUSHL	4(AP)			; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#DB_REC_L_BOXID,R1,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,420$                   ; Br no err
+; error
+        MOVL	#MSG_RBUILD_LOCPSR,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	50$				; Skip
+420$:
+  	PUSHL	RLTCXT                  ; Context
+	CALLS	#1,G^SEND_RELATER_FRAME
+	BLBS	R0,430$                   ; Br no err
+        MOVL	#MSG_RBUILD_LOCPSR,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+430$:
+	PUSHAL	PAUSE
+	CALLS	#1,G^LIB$WAIT
+	BRW	50$	
+
+
+
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=REBUILD_NAMER
+;++
+;2 REBUILD_NAMER
+; The procedure to rebuild all other PSRdbs will not work for the NAMER db
+; as there is insufficient information avaialble to relate the names found
+; to any particular address - we can rebuild the name DB but cannot know 
+; who the name belongs to. Therefore other mechanisms are required...
+; There are 2 methods used to propogate names to the DB: If the protocol
+; sends a name in the frame, the PSR sends it to the relater and it is
+; added to the DB. The scanner process scans (hence the name) EMUDB.DAT 
+; looking for specific recods containing names. If it finds one, it sends a 
+; relater frame which again propogates it into the DB. In both cases a flag
+; is set indicating the name has been sent and the routine skips it. 
+; This routine undoes the scanner part by reversing the effect of the scanner.
+; The PSR bit is handled by the relater at startup. If the DB is being 
+; rebuilt in the case of the NAMER, it will start with 0 recs causing the 
+; relater to 'unrelate' all names in all PSR dbs.
+;--
+	CLRL	RECNO
+	$OPEN	FAB=SCANNERFAB
+	BLBC	R0,10$
+	$CONNECT RAB=SCANNERRAB
+	BLBS	R0,20$
+10$:
+        MOVL	#MSG_RBUILD_SCNDB,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+20$:
+	INCL	RECNO
+	$GET	RAB=SCANNERRAB
+	BLBS	R0,50$
+	CMPL	R0,#RMS$_RNF
+	BEQLU	30$
+
+        MOVL	#MSG_RBUILD_READSCN,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+30$:
+	MOVL	#SS$_NORMAL,R0
+	RET     
+50$:
+	CMPL	#SYS_PID_C_NAMER,SCN_REC_L_DESTPID(R6)
+        BNEQU	20$
+
+
+	CLRL	RECCNT
+	MOVAL	SCANNERREC,R6
+	MOVAL	RECBUF,R2
+	MOVL	SCN_REC_L_TABLE(R6),DB_REC_L_TABLE(R2)
+	MOVL	SCN_REC_L_PARAM(R6),DB_REC_L_PARAM(R2)
+; Get all recs for this tbl.prm
+100$:
+	MOVAL	RECBUF,R8
+	MOVL	#DB_REC_C_MRS,RECBUF_DESC
+	PUSHAL	RECCNT			; Record count
+	PUSHL	#5			; Report level
+	CLRL	-(SP)			; Search direction
+	PUSHAL	RECBUF_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_TAB_PAR 	; Key of ref
+	CALLS	#5,G^EMUDB_READ
+; 
+	BLBS	R0,110$                    ; Br if got rec
+	CMPL	#RMS$_RNF,R0               ; Rec not found?
+	BEQLU	105$                       ; OK
+	CMPL	#RMS$_EOF,R0               ; Rec not found?
+	BEQLU	105$                       ; OK
+; Log error
+
+        MOVL	#MSG_RBUILD_DBREAD,MSGCDE    ; Input file error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; RMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+105$:
+        BRW	20$				; Next scanner
+110$:
+; Clear 'record' bit and update this rec
+	BICL	#DB_FLG_M_RECORD,DB_REC_L_FLAGS(R8) ; 'Unprocess'
+	SUBL3	#DB_C_KSZ,RECBUF_DESC,TEMPDESC		; Len
+	ADDL3	#DB_C_KSZ,RECBUF_DESC+4,TEMPDESC+4	; Addr
+	PUSHAL	TEMPDESC
+	PUSHL	R8
+	CALLS	#2,G^EMUDB_WRITE
+	BLBS	R0,120$
+;
+        MOVL	#MSG_RBUILD_DBWRITE,MSGCDE    ; Input file error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; RMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+120$:
+	BRW	100$                         ; Next EMUDB
+
+
+
+        .END
+

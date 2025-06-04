@@ -1,0 +1,165 @@
+/*
+ *                            COPYRIGHT (C) 2000 BY
+ *                      COMPAQ COMPUTER CORPORATION, HOUSTON
+ *                       TEXAS.  ALL RIGHTS RESERVED.
+ *
+ *    THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+ *    ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+ *    OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+ *    THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+ *    PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+ *
+ *    THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+ *    SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+ *    SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+ *
+ *    NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+ *    ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+ *    PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+ *    CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+ */
+/*
+ *    This example shows a way to read MS word Unicode text files on 
+ *    OpenVMS or Tru64 UNIX.
+ *    
+ *    Create a file containing text using MS Word followed by saving it using
+ *    unicode text format. Transfer it to a Tru64 UNIX or OpenVMS computer
+ *    using FTP. Extract the following program.
+ *    
+ *    Compile and link it the following way for OpenVMS:
+ *    
+ *         $ cc unicode
+ *         $ link unicode
+ *         $ unicode :== $disk:[directory]unicode.exe
+ *    
+ *    On Tru64 Unix, compile and link it the following way:
+ *    
+ *         % cc -o unicode -liconv unicode.c
+ *    
+ *    On both systems:
+ *    
+ *         ($)/(%)  unicode WordInputFileName
+ */
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <wchar.h>
+#include <iconv.h>
+
+#define ARGS    "h"
+
+static char Usage[] = "\
+[-h] | [filename] \n\
+\n\
+Options:\n\
+   -h\n\
+        This text help.\n\
+";
+
+static void usage(char *argv0){
+  (void) fprintf (stderr, "Usage:\n\n%s %s\n",argv0,Usage);
+  exit(-1);
+}
+
+void main(int argc, char **argv) {
+  extern char *optarg;
+  extern int optind;
+  int  c;
+
+  char *filename = "TEST_UNICODE.txt";
+  char *locale = "";
+  char *buffer;
+  FILE *fs;
+  struct stat stats;
+  wchar_t *wc;
+  char *cp, *cp1;
+  iconv_t cd;
+  size_t inleft,outleft;
+
+  /*
+   * Get program's options. It can be -h or a filename.
+   */
+  while ((c=getopt(argc,argv,ARGS)) != EOF) {
+    switch(c) {
+      case 'h' : usage(argv[0]);                      break;
+      default  : usage(argv[0]);
+    }
+  }
+
+  /*
+   * Get filename in the command. If not provided, it defaults to
+   * "TEST_UNICODE.txt".
+   */
+  if (argc > optind)
+    filename = argv[optind];
+  /*
+   * Display the input file name.
+   */
+  fprintf(stderr,"file is %s\n",filename);
+
+  /*
+   * Open the file with a read access.
+   */
+  if ((fs = fopen(filename,"r")) == NULL ){
+    perror("fopen");
+    exit (-1);
+  }
+  /*
+   * Get the file statistics.
+   */
+  if (stat(filename, &stats) < 0){
+    perror("fstat");
+    exit (-1);
+  }
+  /*
+   * Use the file size to allocate space on the heap.
+   */
+  cp = buffer = malloc((size_t) stats.st_size);
+  if (!buffer){
+    perror("malloc");
+    exit (-1);
+  }
+  /*
+   * Destination buffer allocation
+   */
+  wc = malloc((size_t) stats.st_size * sizeof(wc));
+  if (!wc){
+    perror("malloc");
+    exit (-1);
+  }
+  cp1 = (char *)wc;
+  /*
+   * Read the entire file in the buffer.
+   */
+  fprintf(stderr,"%i octets read.\n",fread(buffer, 1, stats.st_size, fs));
+  /*
+   * MS Windows encodes UNICODE text files with the UNICODE Character Set
+   * using 16 bits (hence UCS-2). We need wide characters that are coded
+   * on Tru64 Unix and OpenVMS on 32-bits (hence ISO8859-1).
+   */
+  if ((cd = iconv_open("ISO8859-1","UCS-2")) == (iconv_t)-1){
+      perror ("iconv_open");
+      exit(-1);
+  }
+  /*
+   * Call iconv to convert the MS Windows Unicode text to wide characters.
+   */
+  inleft = stats.st_size;
+  outleft = stats.st_size * sizeof(wchar_t);
+  fprintf(stderr,"iconv() = %i\n",iconv(cd,&cp,&inleft,&cp1, &outleft));
+  /*
+   * Close the converter channel.
+   */
+  iconv_close(cd);
+  /*
+   * Print out the resultant converted string using wprintf.
+   */
+  wprintf(L"wc: >%.*s<\n",stats.st_size * sizeof(wchar_t) - outleft, wc);
+}

@@ -1,0 +1,61 @@
+OSU-HTTPd Patch
+Author: Charles Lane <lane@duphy4.physics.drexel.edu>
+Date: 11-Jun-1999 (reformatted & this header written 7 Feb 2000)
+Applies to:  OSU HTTP Server, version 3.3b...other versions too?
+Description: 
+   This code checks for HTTP headers returned from a CGI
+   script and dumps the CGI output for an error return if the CGI 
+   doesn't supply what this code considers a "minimal" amount of
+   header information. 
+
+   This runs into problems with handling some "newfangled" requests 
+   via CGI (primarily DELETE, RENAME, PUT, etc. used by Netscape's
+   Roaming capability). 
+
+   This patch contains a minor typo fix (for the length of "STATUS:",
+   and makes the s/w less picky about what gets returned from the CGI
+   code.   
+
+   Apply patch from the OSU HTTP server's "home" directory.
+
+
+--- base_code/script_cgiexecute.c-orig	Mon Nov  2 07:43:34 1998
++++ base_code/script_cgiexecute.c	Fri Jun 11 13:52:26 1999
+@@ -176,6 +176,7 @@
+     tu_init_stream ( link, 
+ 	text_mode ? read_cgi_recmode_header : read_cgi_header, &input );
+     stsline[0] = '\0';
++    content[0] = '\0';
+     sts_offset = scb->rsphdr->l;
+     need_server_label = 1;
+     need_mime_label = 1;
+@@ -241,11 +242,12 @@
+ 	    tu_strcpy ( content, "Content-type: " );
+ 	    tu_strnzcpy ( &content[14], &buffer[i], sizeof(content)-14 );
+ 	    if ( mode < 2 ) mode = 2;
+-	} else if ( tu_strncmp ( label, "STATUS:", 13) == 0 ) {
++        } else if ( tu_strncmp ( label, "STATUS:", 7) == 0 ) {
+ 	    /*
+ 	     * Override status line to return.
+ 	     */
+ 	    tu_strnzcpy ( stsline, &buffer[i], sizeof(stsline)-1 );
++            if (mode < 2) mode = 2;
+ 	} else if ( tu_strncmp ( label, "CONTENT-LENGTH:", 15) == 0 ) {
+ 	    /*
+ 	     * Note that content-length present and decode.
+@@ -263,6 +265,7 @@
+ 	     */
+ 	    mode = 3;
+ 	    status = http_add_response ( scb->rsphdr, buffer, 0 );
++        } else {
+ 	    /*
+ 	     * Check if header label is one we normally generate and set
+ 	     * flag to suppress generating it.
+@@ -309,6 +312,7 @@
+ 	    tu_strcpy ( &stsline[12], http_server_version );
+     	    status = http_add_response ( scb->rsphdr, stsline, 0 );
+         }
++        if (content[0])
+ 	status = http_add_response ( scb->rsphdr, content, 0 );
+ 	if ( has_content_length && 
+ 		(scb->keepalive_count < scb->keepalive_limit) ) {

@@ -1,0 +1,336 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.SCRIPTING]SCRIPTING_PERL.SDML">
+<META NAME="date" CONTENT="Fri, 26 Jan 2001 12:57:26">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Perl</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Scripting Environment</H1>
+
+<A NAME="100">
+<H2>8 - Perl</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+8.1 - <A HREF="scripting_0800.html#101" TARGET="_self">Activating Perl</A>
+<BR>8.2 - <A HREF="scripting_0800.html#105" TARGET="_self">CGI Environment</A>
+<BR>8.3 - <A HREF="scripting_0800.html#106" TARGET="_self">POSTed Requests</A>
+<BR>8.4 - <A HREF="scripting_0800.html#107" TARGET="_self">Reducing Latency</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;8.4.1 - <A HREF="scripting_0800.html#108" TARGET="_self">CGIplus</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;8.4.2 - <A HREF="scripting_0800.html#109" TARGET="_self">Run-Time Environment</A>
+<BR>8.5 - <A HREF="scripting_0800.html#110" TARGET="_self">Requirements</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="scripting_0900.html" TARGET="_self">next</A>] [<A HREF="scripting_0700.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0800.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> WASD supports Perl scripting in the CGI, CGIplus and RTE environments.&nbsp; 
+Generally no source changes are required to use standard CGI Perl scripts!&nbsp;
+Information in this section pertains specifically to VMS Perl 5.6 and
+following.&nbsp;  Earlier versions may have some limitations.&nbsp; VMS Perl 5.6 is a
+relatively complete Perl implementation and standard distributions contain
+some VMS-specific functionality.&nbsp;  In particular the VMS::DCLsym and VMS::Stdio
+can make life simpler for the VMS perl developer.&nbsp;
+
+<P> Users of VMS Perl are directed to the &quot;VMS Perl FAQ (Unofficial)&quot;
+
+<A TARGET="_top" HREF="http://w4.lns.cornell.edu/~pvhp/perl/VMS.html">http://w4.lns.cornell.edu/~pvhp/perl/VMS.html</A>,
+
+an extensive and detailed resource, and to &quot;Perl on VMS&quot; at
+
+<A TARGET="_top" HREF="http://www.sidhe.org/vmsperl/">http://www.sidhe.org/vmsperl/</A>,
+
+providing access to the latest release of Perl for VMS.&nbsp;
+<BLOCKQUOTE><CENTER><B>Please Note</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+The author is very much the Perl novice and this chapter  probably reflects
+that.&nbsp;  Additional material and improved code always gratefully received.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<A NAME="101">
+<H3><BR><U>8.1 - Activating Perl</U></H3>
+</A>
+
+<P> There are a number of ways to activate a Perl script under VMS.&nbsp;  Any of
+these may be used with the WASD server.&nbsp;  If the script file is accessable via
+the <I>exec</I> or <I>script</I> rules of the HTTPD$MAP configuration
+file it can be activated by the server.&nbsp;  The simplest example is to place the
+scripts somewhere in the CGI-BIN:[000000] path and execute via /cgi-bin/,
+although in common with other scripts it may be located anywhere a rule
+provides a path to access it (see <A HREF="scripting_0100.html#28" TARGET="_self">1.2 - Script Mapping</A>).&nbsp;
+
+<A NAME="102">
+<H3><BR>Directly</H3>
+</A>
+
+<P> When Perl is available from the command-line, either as a DCLTABLES defined
+verb, a DCL$PATH available verb, or as a <I>foreign</I> verb.&nbsp;  The script
+(the file containg the Perl source) is provided to the Perl interpreter as a
+parameter to the Perl verb.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ PERL <I>perl-script-file-name</I>
+</PRE></FONT>
+
+<A NAME="103">
+<H3><BR>DCL Procedure Wrapped</H3>
+</A>
+
+<P> If DCL pre-processing, or some other specific environment needs to be set
+up, the activation of the Perl script can be placed inside a DCL
+<I>wrapper</I> procedure.&nbsp;  This is often used to allow the transparent
+activation of Perl scripts via the DCL$PATH mechanism.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ PERL = "$PERL_ROOT:[000000]PERL.EXE"
+  $ DEFINE /USER PERL_ENV_TABLES CLISYM_GLOBAL,LNM$PROCESS
+  $ PERL <I>perl-script-file-name</I>
+</PRE></FONT>
+
+<A NAME="104">
+<H3><BR>DCL Procedure Embedded</H3>
+</A>
+
+<P> The Perl source is embedded as in-line data within a DCL procedure.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ DEFINE /USER PERL_ENV_TABLES CLISYM_GLOBAL,LNM$PROCESS
+  $ PERL
+  $ DECK /DOLLARS="__END__"
+  # start of Perl script
+  print "Hello \"$ENV{'WWW_REMOTE_HOST'}\"\n";
+  __END__
+</PRE></FONT>
+
+<A NAME="105">
+<H3><BR><U>8.2 - CGI Environment</U></H3>
+</A>
+
+<P> Due to changes in environment handling sometime between versions 5.0 and
+5.6 it was impossible to access DCL symbols via the %ENV hash, making CGI-based
+scripts impossible to use under VMS Web servers without modification.&nbsp;  Version
+5.6 addresses this issue by providing a versatile mechanism for controlling
+where the environment variables are manipulated.&nbsp;  The logical name
+PERL_ENV_TABLES specifies this location, or if defined as a search list, the
+locations.&nbsp;
+
+<BR>
+
+<BR><CENTER>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=1>
+<TR><TD>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=0>
+<TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Name</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Location</U></TH></TR>
+<TD ALIGN=left VALIGN=top>CRTL_ENV</TD><TD ALIGN=left VALIGN=top>C run-time environment array (i.e. getenv())</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>CLISYM_LOCAL</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>get DCL symbols, set local</TD></TR>
+<TD ALIGN=left VALIGN=top>CLISYM_GLOBAL</TD><TD ALIGN=left VALIGN=top>get DCL symbols, set global</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><I>logical name table</I></TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>any logical name table, including
+LNM$FILE_DEV</TD></TR>
+</TABLE>
+</TD></TR>
+</TABLE>
+</CENTER><BR>
+
+
+<P> For WASD Perl scripting it is recommended that this be defined as
+CLISYM_GLOBAL,LNM$PROCESS.&nbsp;  The CLISYM_GLOBAL allows access to the CGI variable
+environment, and LNM$PROCESS to significant logical name definitions for the
+subprocess (e.g. HTTP$INPUT and callout sequences).&nbsp;  This can be done on a
+system-wide basis (i.e. for all Perl scripting) using
+
+<FONT COLOR="#333333"><PRE>  $ DEFINE /SYSTEM PERL_ENV_TABLES CLISYM_GLOBAL,LNM$PROCESS
+</PRE></FONT>
+ during system startup, or by defining a user-mode logical in a DCL
+procedure <I>wrapper</I> immediately before activating the Perl
+interpreter (as show in the examples in this section).&nbsp;
+
+<A NAME="106">
+<H3><BR><U>8.3 - POSTed Requests</U></H3>
+</A>
+
+<P> Requests using the POST method contain all the content in the body of the
+request.&nbsp;  In particular, requests generated via HTML &lt;FORM&gt;
+contructs do not deliver the form data via the request query string, it is
+provided in a URL-form-encoded body.&nbsp;  This requires some explicit processing
+to recover the form elements.&nbsp;  A number of Perl CGI modules exist to ease this
+chore, including the most popular CGI.pm.&nbsp;  All of these should work in the VMS
+environment, and of course then with WASD.&nbsp;
+
+<P> For POSTed requests it is necessary for the script to have access to the
+request body.&nbsp;  In Unix environments this is available via the
+&lt;stdin&gt; stream, and under Perl via STDIN, &lt;&gt;, etc.&nbsp;  This
+equates to SYS$INPUT under VMS.&nbsp;
+
+<P> With WASD, when activating the .PL script file directly via a
+[DclScriptRunTime] entry (i.e. without a DCL procedure wrapper) STDIN is
+directly available without further issues.&nbsp;
+
+<P> If the script has a DCL wrapper procedure the DCL CLI has control of the
+SYS$INPUT stream and it becomes  necessary to temporarily redirect this for the
+duration of the script.&nbsp;  WASD provides the HTTP$INPUT process-level logical
+name to identify the script body stream (along with WWW_IN and APACHE$INPUT
+names for easing script portability).&nbsp;  The redirection is simply done, as shown
+in the following example.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ DEFINE /USER PERL_ENV_TABLES CLISYM_GLOBAL,LNM$PROCESS
+  $ DEFINE /USER SYS$INPUT HTTP$INPUT
+  $ PERL <I>perl-script-file-name</I>
+</PRE></FONT>
+
+<P> If the script is embedded in a DCL procedure the DCL CLI is using SYS$INPUT
+to provide the script source to the Perl interpreter and so is completely
+unavailable for use.&nbsp;  The request body is still available to the script however
+but must be explicitly read from HTTP$INPUT.&nbsp;  This example provides the basics.&nbsp;
+
+<FONT COLOR="#333333"><PRE>
+  $ DEFINE /USER PERL_ENV_TABLES CLISYM_GLOBAL,LNM$PROCESS
+  $ PERL
+  $ DECK /DOLLARS="__END__"
+  # start of Perl script
+  print "HTTP method is \"$ENV{'WWW_REQUEST_METHOD'}\"\n";
+  # read POSTed body stream
+  open (HTTPIN, $ENV{"HTTP\$INPUT"})
+     or die "Could not open $ENV{'HTTP\$INPUT'}\n";
+  while (&lt;HTTPIN&gt;)
+  {
+    chop;  # remove trailing newline
+    print "&lt;HTTPIN&gt; |$_|\n";
+  }
+  __END__
+</PRE></FONT>
+
+<A NAME="107">
+<H3><BR><U>8.4 - Reducing Latency</U></H3>
+</A>
+
+<P> Perl is an interpreter, meaning scripts are provided and activated as
+source form, the interpreter processing the program &quot;on-the-fly&quot;.&nbsp; Perl
+actually translates the entire script into an intermediate form before
+beginning execution.&nbsp;  This has the advantage of discovering and reporting
+syntax errors before beginning any actual processing, and also improves the
+final run-time performance.&nbsp;
+
+<P> While having Perl an interpreter eases development and portability it does
+incur a performance penalty, particularly in activation latency, due to both
+interpreter image activation, and script  and associated Perl module
+preprocessing.&nbsp;  With standard CGI, where each request processed is handled as
+an autonomous activation, this becomes quite noticable and can have significant
+system impact.&nbsp;
+
+<P> WASD provides two solutions for this and other persistent scripting issues.&nbsp;
+
+<A NAME="108">
+<H3><BR><U>8.4.1 - CGIplus</U></H3>
+</A>
+
+<P> CGIplus substantially eliminates the overhead associated with CGI
+processing by allowing the subprocess and any associated image/application to
+continue executing between uses.&nbsp;  For detailed information see
+<A HREF="scripting_0300.html#58" TARGET="_self">3 - CGIplus</A>.&nbsp;  The good news is, CGIplus is
+relatively simple to support, even using Perl.&nbsp;  The great news is,
+<B>CGIplus can reduce latency and improve performance by some
+twenty-fold!!</B>
+
+<P> With CGIplus the Perl script remains active for the life of the subprocess.&nbsp; 
+That is it persists!&nbsp;  Read the general philosphy and implementation details in
+the above reference.&nbsp;  Note that it is still substantially CGI!&nbsp;  The notable
+differences are two.&nbsp;  CGI variables are obtained by reading a stream, not using
+the %ENV hash.&nbsp;  The end-of-script is indicated by writing a special byte
+sequence (detected and used by the server).&nbsp;  Of course the request body is
+still available via the usual stream.&nbsp;
+
+<P> Using the basic principles described in the CGIplus Chapter a Perl CGIplus
+script would be relatively simple to build from scratch.&nbsp;  To assist in
+deploying CGIplus Perl scripting a CGIplus.pm Perl module has been provided.&nbsp; 
+This allows a function reference to be passed to a module function and
+then using the module's own <I>environment</I> hash CGI variables may be
+simply accessed.&nbsp;  The module also provides other functionality to ease the
+sending of binary response streams (which can be a problem with the VMS perl
+interpreter).&nbsp;
+
+<P> Examples for this may be found in the
+
+<A TARGET="_top" HREF="/ht_root/src/perl/">HT_ROOT:[SRC.PERL]</A>
+
+directory.&nbsp;
+
+<A NAME="109">
+<H3><BR><U>8.4.2 - Run-Time Environment</U></H3>
+</A>
+
+<P> A Run-Time Environment (RTE) is almost identical to CGIplus.&nbsp;  It allows an
+environment to persist between requests, substantially improving response
+latency and reducing system impact.&nbsp;  For information see
+<A HREF="scripting_0400.html#65" TARGET="_self">4 - Run-Time Environments</A>.&nbsp; There is a significant difference between
+RTE and CGIplus scripts.&nbsp;  With CGIplus the script itself persists between uses,
+retaining all of it's state.&nbsp;  With an RTE the script does not persist or retain
+state, only the RTE itself.&nbsp;
+
+<P> WASD provides an RTE Perl interpreter.&nbsp;  This contains an embedded Perl
+engine and an associated Perl module that allows multiple scripts to be
+activated, preprocessed once and remain loaded <I>read-to-run</I>.&nbsp;  This
+eliminates the overhead associated with activating the interpreter and Perl
+script with each request.&nbsp;  This mechanism parallels the Apache
+<I>perl_mod</I> module and works on substantially unmodified CGI scripts.&nbsp; 
+<B>The test-bench indicates an improvement of some twenty-five
+fold!&nbsp;</B>
+
+<P> Examples for RTE Perl may be found in the
+
+<A TARGET="_top" HREF="/ht_root/src/perl/">HT_ROOT:[SRC.PERL]</A>
+
+directory.&nbsp;
+<BLOCKQUOTE><CENTER><B>NOTE</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+The Perl RTE is new to WASD 7.1 and to this extent has not received any wide
+and general deployment.&nbsp;  There may still be issues to be resolved, particularly
+with script isolation within the interpreter.&nbsp;  Please experiment with this
+environment - it's potential for improving performance is substantial - and
+provide feedback to the author on any successes or problems in use.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<A NAME="110">
+<H3><BR><U>8.5 - Requirements</U></H3>
+</A>
+
+<P> These are the basic configuration requirements for using Perl.&nbsp;
+<UL>
+
+<LI> HTTPD$CONFIG configuration file.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  [DclScriptRunTime]
+  .PL PERL
+  .CGI PERL
+</PRE></FONT>
+<P>
+<LI> The following content types are configured, also in HTTPD$CONFIG.&nbsp; 
+
+<FONT COLOR="#333333"><PRE>  [AddType]
+  .PL  text/plain  -  Perl source
+  .POD  text/plain  -  Perl documentation
+  .CGI  text/plain  -  Perl source
+</PRE></FONT>
+<LI> Some mapping is required to use the Perl RTE interpreter.&nbsp;  Something like
+the following will provide a Perl RTE path for development purposes.&nbsp; 
+
+<FONT COLOR="#333333"><PRE>  exec /plrte/* (cgi-bin:[000000]perlrte.exe)/ht_root/src/perl/*
+</PRE></FONT>
+
+<P> For further information see <A HREF="scripting_0400.html#72" TARGET="_self">4.2 - Server Configuration</A>.&nbsp;
+</UL>
+
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="scripting_0900.html" TARGET="_self">next</A>] [<A HREF="scripting_0700.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0800.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

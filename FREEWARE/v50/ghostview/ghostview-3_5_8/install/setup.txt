@@ -1,0 +1,88 @@
+Description of the setup procedure [.COMMAND]SETUP.COM
+
+February 1996, Johannes Plass
+
+##################################################################
+
+SETUP.COM accepts the following parameters:
+
+ MINIMAL : Provide a minimal configuration, just to run the executables.
+ COMPILE : Set up additional logicals and symbols needed during
+           compilation of this package.   
+ DISTRIB : Set up symbols and logicals only for the software included
+           in this package. It is not recommended to leave
+           this parameter away.
+ INSTALL : Define most logicals in the system table and INSTALL the
+           libraries.
+ NOLOG   : Suppress messages.
+
+Parameter parsing is not case sensitive and is order independant. Unknown
+parameters are ignored without warning, white space and tabulators are
+eliminated before parsing. All parameters are optional.
+
+#####
+           
+SETUP.COM first defines a minimal set of logicals required at run time:
+
+ X11_ROOT 		concealed logical pointing to the top directory
+			of this X11 tree.
+ BITMAP_DIRECTORY	X11_ROOT:[BITMAPS]
+ X11_LIBRARY		X11_ROOT:[EXE]       on OpenVMS VAX
+			X11_ROOT:[EXE_ALPHA] on OpenVMS AXP         
+ XMULIBSHR		X11_LIBRARY:XMULIBSHR.EXE
+ XAW3DLIBSHR		X11_LIBRARY:XAW3DBSHR.EXE
+
+#####
+
+In case the MINIMAL parameter is not present the following logicals
+are defined:
+
+ X11_DIRECTORY		DECW$INCLUDE
+ XAW_DIRECTORY		X11_ROOT:[XAW3D]
+ XMU_DIRECTORY		X11_ROOT:[XMU]
+
+They may be needed during the compilation of Xaw3D clients.
+
+#####
+
+SETUP.COM proceeds by (re)defining DECW$USER_DEFAULTS in the process table as
+the list of translations that results from appending "X11_ROOT:[DEFAULTS]" to
+the list of all translations of DECW$USER_DEFAULTS in the logical name table
+returned by F$TRNLNM("DECW$USER_DEFAULTS",,,,,"TABLE_NAME").
+   
+#####
+
+In presence of the COMPILE parameter, the following foreign commands
+will be defined:
+
+ XMMK   A low-level command used to build particular parts of the software.
+        XMMK invokes either MMS or MMK with some platform dependant macros.
+        For instance XMMK may be defined as
+          $MMK_DIR:MMK/MAC=("__DECC__=CC/DECC",X11R5=1)
+        or as
+          MMS/MAC=(__VAX__=1,"__VAXC__=CC/VAXC",X11R4=1)
+        or as
+          MMS/MAC=(__ALPHA__=1,"__DECC__=CC/DECC",X11R5=1)
+        The macros X11R4 and X11R5 are used in the makefiles as flags for
+        X11 R4 and X11 R5 environments. The decision about the X11 release is
+        based on the (non)presence of the library DECW$XTLIBSHRR5.EXE
+        in SYS$SHARE.
+        The macros __VAX__ and __ALPHA__ indicate the platform.
+        The macros __DECC__=CC/DECC and __VAXC__=CC/VAXC specify the compiler
+        and its invocation command.
+        XMMK may be used from within a particular source directory to build
+        the software that resides in it. XMMK does not place the resulting
+        libraries or executables in the correct destination directories.
+        XMMK should be used if problems are encountered when using XMAKE.
+        XMMK will not copy resulting executables, libraries etc. into
+        X11_LIBRARY.
+ XMAKE  The high-level command used to build particular or all parts of this
+        software. For help about XMAKE type
+         $ XMAKE 
+        on the command line.
+
+#####
+
+SETUP.COM also defines all necessary logicals and foreign commands to
+invoke any client that is part of this package.
+

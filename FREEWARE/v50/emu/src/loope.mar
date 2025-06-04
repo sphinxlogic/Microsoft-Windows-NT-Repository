@@ -1,0 +1,324 @@
+	.TITLE LOOPE
+	.IDENT /V01-003/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+
+; Modifications:
+; 	Routine to find and assign channel to Ethernet Device is improved
+;	Now called as library function
+;	Options:
+;	Reponse time to station. Time in 100th sec intervals representing
+;	round trip time to this station is returned
+; 002	10-Jun-1994	PB 	Modified to allow shared dest mode.
+; 003	Sep 1999	PB	Upgrade for v5
+;
+;++
+;1 LOOPE
+; This routine will test the specified MAC layer address on the Ethernet with 
+; an ETHERNET format LOOP packet.
+;
+; NOTE: This programme is largely based on example 6-1 in I/O User's Reference
+; Manual
+;
+;
+;2 Inputs
+;	P1	.address of 6 byte Ethernet address of target node
+;    Optional:
+;	P2 	.address of .long  where reponse time is written
+;2 Ouputs
+; If P2 is specified, it is written with the response time as 1/100 sec units.
+;
+;2 Returns
+;	SS$_NORMAL	All Requested loops were succesful
+;	SS$_BADPARAM	Input param error:
+;			Number of params was .NE. 1 or .NE. 2
+;	SS$_UNREACHABLE	Failed to receive loop response from target
+;	SS$_ACCVIO	Can' read input params or can't write outp field
+;--
+; Data
+
+	.PSECT	DATA,WRT,NOEXE,QUAD
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+
+	$IODEF		; I/O functions
+	$NMADEF		; Network Management Functions
+;Arg lists for $QIO
+WRITE_IT:
+       		.LONG	12			; No. of args
+       		.LONG	0			; Event
+ETHCHN:		.LONG	0			; Channel
+       		.LONG	IO$_WRITEVBLK		; Function
+       		.LONG	IOSB			; Pointer to IOSB
+       		.LONG   0                        ; AST Address
+       		.LONG	0			; AST Param
+       		.LONG	XMTBUF			; P1
+       		.LONG	XMTBUFLEN		; P2
+       		.LONG	0			; P3
+       		.LONG	0			; P4
+		.ADDRESS E_ADDR			; Target Address Pointer
+       		.LONG	0			; P6
+READ_IT:
+		.LONG	12			; No. of args
+		.LONG	0			; Event
+WETHCHN:	.LONG	0			; Channel
+       		.LONG	IO$_READVBLK		; Function
+       		.LONG	IOSB			; Pointer to IOSB
+       		.LONG	0			; AST Param
+       		.LONG   0                        ; AST Address
+       		.LONG	RCVBUF			; P1
+       		.LONG	1500			; P2
+       		.LONG	0			; P3
+       		.LONG	0			; P4
+       		.LONG	RCVP5			; RCVP5 Pointer
+       		.LONG	0			; P6
+;
+E_ADDR:		.BLKB  	6	; Target address here
+		.WORD	^X0090	; Our PTYTYP
+; Local Definitions
+;
+RCVBUFLEN = 1500
+;
+; Setmode param buff. For Ethernet we must state packet type (PTYTYP)
+;
+SETPARM:
+        .WORD   NMA$C_PCLI_PTY          ; Protocol Type
+        .LONG   ^X0090
+	.WORD	NMA$C_PCLI_PAD
+	.LONG	NMA$C_STATE_ON
+	.WORD	NMA$C_PCLI_PAD
+	.LONG	NMA$C_STATE_OFF
+	.WORD	NMA$C_PCLI_BFN
+	.LONG	4
+	.WORD	NMA$C_PCLI_BUS
+	.LONG	1498
+        .WORD   NMA$C_PCLI_ACC          ; Access mode
+        .LONG   NMA$C_ACC_LIM		; Shar with destination
+        .WORD   NMA$C_PCLI_DES          ; Destination
+	.WORD	8			; Char count
+	.WORD	NMA$C_LINMC_SET			; Set or clear
+EADDR:	.BLKB	6
+
+SETPARMLEN =	.-SETPARM
+SETPARMDSC:	.LONG		SETPARMLEN
+		.ADDRESS	SETPARM
+PREVPRIO:	.LONG
+;
+; P2 transmit buffer
+;
+XMTBUF:		.WORD	00	; Skip Count
+		.WORD	02      ; Forward Request
+FORW:		.BLKB	6       ; Our Address
+		.WORD	01      ; Reply request
+		.WORD	00	
+	
+XMTBUFLEN = .-XMTBUF
+
+;
+; P2 Receive buffer
+;
+RCVBUF:		.BLKB	RCVBUFLEN
+;
+; P5 receive buffer
+;
+RCVP5:
+RVCDA:		.BLKB	6
+RVCSA:		.BLKB	6
+RVCPTY:		.BLKB	2
+RCVP5FILL:	.BLKB	6
+;
+; Misc
+;
+	.ALIGN	QUAD
+
+RESTIME:	.QUAD	0
+IOSB:		.QUAD	0			; 
+INTLTIM:	.QUAD	0
+INTIM_D:	.LONG	16
+		.ADDRESS  INTIM
+INTIM:		.ASCII	/0000 00:00:03.50/      ; Max Wait for response
+;
+; Code
+;
+		.PSECT	CODE,NOWRT,EXE,LONG
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=LOOPE
+
+;
+; Get and Validate Params
+	PROBER	#0,#6,4(AP)  		; Read Ethernet address?
+	BEQL	10$			; No
+	CMPL	#2,(AP)			; 2 params?
+	BNEQU	20$
+	PROBEW	#0,#4,8(AP)  		; Write response time?
+	BNEQ	20$			; Yes
+10$:
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+20$:
+ 	TSTL	ETHCHN		; Init?
+	BNEQ	START	; Done - Br
+
+; Initialisation
+	PUSHAL	FORW
+	CALLS	#1,G^PHYSADR           ; First get our physical address 
+	BSBW	ERROR_CHK
+	PUSHAL	ETHCHN                 
+	CALLS	#1,ASSETHCHN           ; Assign chan to Ethernet
+	BSBW	ERROR_CHK
+	MOVL	ETHCHN,WETHCHN		; Use same channel for RD/WRT
+
+START:
+	MOVL	4(AP),R1
+	MOVL	(R1),EADDR
+	MOVW	4(R1),EADDR+4
+; Start up channel and set characteristics
+        $QIOW_S FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>,-
+                CHAN=ETHCHN,-
+                IOSB=IOSB,-
+                P2=#SETPARMDSC
+	BSBW	ERROR_CHK
+	MOVZWL	IOSB,R0				; Check IOSB return
+	BSBW	ERROR_CHK
+;
+; Set our priority up to mimimise effect of system load on results
+	PUSHAL	PREVPRIO	; Current Priority
+	MOVL	#16,-(SP)	; New prio
+	CLRL	-(SP)		; this process
+ 	CLRL	-(SP)		; this process
+	CALLS	#4,G^SYS$SETPRI
+	BSBW	ERROR_CHK 
+	MOVL	#50,R8
+; Transmit TEST
+;
+ROUTINE_LOOP:
+	BSBW	SET_TIME                    ; Set time limit for test
+	PUSHAL	RESTIME
+	CLRQ	RESTIME			; Init timer
+	CALLS	#1,G^NTIMER             ; Set start time
+	BLBS	R0,1$
+        RET
+1$:
+	MOVL	4(AP),R1
+	MOVL	(R1),E_ADDR
+	MOVW	4(R1),E_ADDR+4
+	CMPL	#2,(AP)                     ; Wants response time?
+	BNEQU	10$
+5$:
+	MOVL	R8,R9
+10$:
+	$QIOW_G	WRITE_IT	         ; Send Loop Request
+	BSBW	ERROR_CHK                   ;
+	MOVZWL	IOSB,R0			    ; Check IOSB return
+	BSBW	ERROR_CHK
+; Queue Read
+20$:
+	$QIOW_G	READ_IT      ; Receive response
+	BSBW	ERROR_CHK
+	BLBS	IOSB,30$                
+	CLRL	-(SP)		; 
+	PUSHL	PREVPRIO	; Previous Priority
+	CLRL	-(SP)		; this process
+ 	CLRL	-(SP)		; this process
+	CALLS	#4,G^SYS$SETPRI
+	MOVL	#SS$_UNREACHABLE,R0     ; ASSUME Signal Timeout
+	BSBW	ERROR_CHK
+; Check that the response was from the target address
+30$:
+	CMPL	E_ADDR,RVCSA		;
+	CMPW	E_ADDR+4,RVCSA+4 
+	BNEQ	20$			; Not our message
+; Message OK
+	PUSHAL	RESTIME                 ; Return start time
+	CALLS	#1,G^NTIMER             ; Calc time (microseconds)
+	BLBS	R0,35$
+	RET
+35$:
+; Stop Timeout
+	CLRL	-(SP)
+	CLRL	-(SP)
+	CALLS	#2,G^SYS$CANTIM		; Stop Read timer - No error Check
+	MOVL	#SS$_NORMAL,R0		; Signal Success on last packet
+	CMPL	#1,(AP)                   ; Parameter Count
+	BEQLU	EXIT			; Skip If Single loop requested
+	MOVL	RESTIME,@8(AP)		; Write reponse time
+EXIT:
+	CLRL	-(SP)		; 
+	PUSHL	PREVPRIO	; Previous Priority
+	CLRL	-(SP)		; this process
+ 	CLRL	-(SP)		; this process
+	CALLS	#4,G^SYS$SETPRI
+	BSBW	ERROR_CHK 
+        $QIOW_S FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_SHUTDOWN>,-
+                CHAN=ethchn,-
+                IOSB=IOSB
+	MOVL	#SS$_NORMAL,R0	; Signal Success
+	RET                     ; Exit to caller
+
+; Here on Read Timout
+;
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=LOOPE_LOST_MSG
+	PUSHL	ETHCHN
+	CALLS	#1,G^SYS$CANCEL		; Cancel I/O - No error check
+	RET                             ; Exit to main
+
+; Subroutines
+;
+;
+; Routine Error
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	MOVL	R0,R7		; Save Error
+        $QIOW_S FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_SHUTDOWN>,-
+                CHAN=ETHCHN,-
+                IOSB=IOSB
+	$DASSGN_S CHAN=ETHCHN   ; No error Check
+	CLRL	ETHCHN
+	TSTL	PREVPRIO	; Changed Priority?
+	BNEQU	20$
+	CLRL	-(SP)		; 
+	PUSHL	PREVPRIO	; Previous Priority
+	CLRL	-(SP)		; this process
+ 	CLRL	-(SP)		; this process
+	CALLS	#4,G^SYS$SETPRI
+20$:
+	MOVL	R7,R0	        ; Restore error
+	RET
+	
+SET_TIME:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+
+; Set the timeout for read
+;
+;
+; Set the timer
+; Convert the input time - must be DELTA
+;
+	$BINTIM_S-	
+		TIMBUF=INTIM_D,-
+		TIMADR=INTLTIM
+;
+	$SETIMR_S-
+		DAYTIM=INTLTIM,-
+		ASTADR=LOOPE_LOST_MSG             ; AST address
+        RSB
+		.END								
+		
+

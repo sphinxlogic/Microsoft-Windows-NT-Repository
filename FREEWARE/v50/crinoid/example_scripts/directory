@@ -1,0 +1,57 @@
+#!  perl
+#
+#   this script makes a directory listing of all CGIs in its
+#   home directory (where the script lives) and all subdirectories.
+#
+#   "CGI"s are identified as having a .cgi, .pl or .  filetype.
+#
+#   warning: this can reveal scripts you'd rather have hidden!
+#
+#   C. Lane   lane@duphy4.physics.drexel.edu
+#
+
+$CRINOID::Reuse = 1;
+
+print "Content-type: text/html\n\n";
+print "<HTML><HEAD><TITLE>Directory of CGIs</TITLE></HEAD>\n";
+print "<BODY>\n";
+print "<H1>Directory of CGIs</H1>\n";
+
+$where = substr($ENV{'SCRIPT_PATH'},length($ENV{'SCRIPT_PREFIX'}));
+$where =~ s#/$##;
+
+chdir($where);
+list('.','');
+print "</BODY></HTML>\n";
+
+
+sub list
+{
+    my $current = shift;
+    my $subdir  = shift;
+
+    if ($subdir ne '') {
+        chdir($subdir);
+        $current .= '/'.$subdir;
+    }
+    my $prefix = $current.'/';
+    $prefix =~ s#^\.?/##;
+
+    my @files = <*.*>;
+    my $virgin = 1;
+
+    foreach (@files) {
+        if (/\.cgi$/i || /\.pl$/i || /\.$/) {
+            if ($virgin) {
+                print "<UL>\n";
+                $virgin = 0;
+            }
+            s/\.$//;
+            print "<LI><A HREF=\"$prefix$_\">$prefix$_</A>\n";
+        } elsif (/\.dir$/i) {
+            list($current,$`);
+        }
+    }
+    print "</UL>\n" if (!$virgin);
+    chdir('[-]');
+}

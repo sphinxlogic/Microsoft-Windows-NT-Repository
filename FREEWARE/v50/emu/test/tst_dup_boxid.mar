@@ -1,0 +1,310 @@
+ 	.TITLE	TST_DUP_BOXID  
+	.IDENT /V01-002/
+; Test for dup boxids in sections that cannot have them
+
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY        /EMU5_LIB:EMU5.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$NMADEF
+	$LCKDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUCNTDEF
+	EMUPSRDEF
+	EMUPSRDEF
+	EMUMSGDEF
+	EMURLTDEF
+	EMUDBDEF
+;
+
+	.psect	listen_sec,wrt,noexe,pic,shr,page
+;
+; 
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+PSRTBL_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+COUNTERS_A:	.QUAD	0
+INADDR:		.QUAD	0
+GBLSIZ:		.LONG	0
+BOXID:		.LONG	0
+NEWBOX:		.LONG	0
+RECCNT:		.LONG	0
+TRACKERTBL:	.BLKL	32			; PSR tracking table
+; 
+
+DBTBL:
+; Ordering in this table is important - the order in which they
+; appear is the order in which the PID was assigned
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 0 = invalid
+		.BLKB	SYS_MAP_C_MAPSIZ        ; = listener (no db)
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN4
+		.LONG	PSR_DN4_W_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRDN4
+		.ADDRESS EMU_DN4DB
+		.ADDRESS EMU_PSRDN4
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN5
+		.LONG	PSR_DN5_B20_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRDN5
+		.ADDRESS EMU_DN5DB
+		.ADDRESS EMU_PSRDN5
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRSCS
+		.LONG	PSR_SCS_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRSCS
+		.ADDRESS EMU_SCSDB
+		.ADDRESS EMU_PSRSCS
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRLAT
+		.LONG	PSR_LAT_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRLAT
+		.ADDRESS EMU_LATDB
+		.ADDRESS EMU_PSRLAT
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRMOP
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIP
+		.LONG	PSR_IP_L_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRIP
+		.ADDRESS EMU_IPDB
+		.ADDRESS EMU_PSRIP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIPX
+		.LONG	PSR_IPX_L_NET
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRIPX
+		.ADDRESS EMU_IPXDB
+		.ADDRESS EMU_PSRIPX
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 9 = DNS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 10 = DTS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 11 = ARP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRETH
+		.LONG	PSR_ETH_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRETH
+		.ADDRESS EMU_ETHDB
+		.ADDRESS EMU_PSRETH
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 13 = Recorder (no tst_dup_boxid) 
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRBRD
+		.LONG	PSR_BRD_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRBRD
+		.ADDRESS EMU_BRDDB
+		.ADDRESS EMU_PSRBRD
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 15 = unassigned  
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 16 = unassigned  
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 17 = Tst_dup_boxid - not used here  
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_NAMER
+		.LONG	NAM_DB_L_PID
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_NAMER
+		.ADDRESS EMU_NAMERDB
+		.ADDRESS EMU_NAMER
+
+
+DBTBL_DESC:	.LONG 	.-DBTBL
+		.ADDRESS  DBTBL
+
+
+	.ALIGN 	LONG
+
+
+
+;
+; Lock Names
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_IPXDB:	
+		.ASCID	\EMU_IPXDB\            ; Lock name
+EMU_BRDDB:	
+		.ASCID	\EMU_BRDDB\            ; Lock name
+EMU_IPDB:	
+		.ASCID	\EMU_IPDB\            ; Lock name
+EMU_SCSDB:	
+		.ASCID	\EMU_SCSDB\            ; Lock name
+EMU_DN5DB:	
+		.ASCID	\EMU_DN5DB\            ; Lock name
+EMU_DN4DB:	
+		.ASCID	\EMU_DN4DB\            ; Lock name
+EMU_LATDB:	
+		.ASCID	\EMU_LATDB\            ; Lock name
+EMU_ETHDB:	
+		.ASCID	\EMU_ETHDB\            ; Lock name
+EMU_NAMERDB:		
+		.ASCID	/EMU_NAMERDB/	; DB Lock name 
+; Section names
+EMU_PSRMOP:
+		.ASCID	/EMU_PSRMOP/
+EMU_PSRIPX:
+		.ASCID	/EMU_PSRIPX/
+EMU_PSRBRD:
+		.ASCID	/EMU_PSRBRD/
+EMU_PSRIP:
+		.ASCID	/EMU_PSRIP/
+EMU_NAMER:
+		.ASCID	/EMU_NAMER/
+EMU_PSRSCS:	
+		.ASCID	\EMU_PSRSCS\  		; Section name
+EMU_PSRDN5:	
+		.ASCID	\EMU_PSRDN5\  		; Section name
+EMU_PSRDN4:	
+		.ASCID	\EMU_PSRDN4\  		; Section name
+EMU_PSRLAT:	
+		.ASCID	\EMU_PSRLAT\  		; Section name
+EMU_PSRETH:	
+		.ASCID	\EMU_PSRETH\  		; Section name
+
+
+; Misc
+	.align	long
+; Routine scans each entry and sets the bit corresponding to the boxid.
+; If the bit is already set - a dup has been found.
+;following table allows for max boxid = 65536
+
+boxids:	.blkb	8192
+
+
+	.PSECT	TST_DUP_BOXID_C,NOWRT,EXE,SHR,PIC,LONG
+	.sbttl	tst_dup_boxid ()
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TST_DUP_BOXID
+
+; Errors between here and READ: are fatal
+;
+; Ensure death if control process dies
+	CALLS	#0, G^GET_CONTROL_LOCK	     ; routine exits if lock rec'ed 
+	BLBS	R0,10$
+	RET
+;
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+10$:
+
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BLBS	R0,20$
+	RET
+
+;	
+; Map to all active PSRs
+        MOVAL	DBTBL,R9
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R7   ; End of table
+	
+100$:
+	MOVAL	BOXIDS,R6
+	MOVC5	#0,#0,#0,#65535,(R6)          ; CLEAR
+110$:
+	CMPL	R9,R7                         ; AT END?
+	BGTR	1000$			      ; Br if end
+	CMPL	SYS_MAP_L_PID(R9),R6
+	BEQLU	120$			; br if this DB
+
+	ADDL	#SYS_MAP_C_MAPSIZ,R9    ; Next
+	BRB	110$                     ; Loop
+120$:
+	PUSHL	R9				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	TSTL	SYS_MAP_Q_ADDR(R9)	; Active?
+	BNEQ	70$                     ; Br if OK
+; Write error on screen..... could not map.
+
+
+
+
+70$:
+	CALLS	#0,G^REL_MAPDB
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REL_GETDB 
+;++
+;2 REL_GETDB
+; Returns pointer to the mapped db entry specified by the input pid
+;3 Input
+; .long of PID of db to check/map
+; The table used for lookup is hard coded in this routine (DBTBL)
+;3 Output
+;  The address of the entry is returned in R1 if mapped successfuly.
+;3 Return
+;  SS$_NORMAL		OK
+;  SS$_ITEMNOTFOUND     Unknown db specified
+;  SS$_INSFMAP		Could not map specified db
+;--
+	MOVL	4(AP),R6
+70$:
+	MOVL	#SS$_NORMAL,R0
+	MOVL	R9,R1
+	RET
+100$:
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REL_MAPDB 
+;++
+;2 REL_MAPDB
+; Maps all known DBs in the table. If the section is already
+; mapped the entry is skipped.
+;3 Inputs
+;	None. The input table is hard coded here.
+;3 Outputs
+;	Any section newly mapped has it's 1st and last addr written
+;	to the map structure.
+;3 Returns
+; 	None
+;--
+
+	MOVAL	DBTBL,R9
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R10	; Last addr to map
+60$:
+	TSTL	SYS_MAP_Q_ADDR(R9)		; ALready mapped?
+	BNEQ	70$				; Skip if so
+	PUSHL	R9				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+
+70$:
+	ADDL	#SYS_MAP_C_MAPSIZ,R9
+	CMPL	R9,R10				; Done mapping?
+	BLSSU	60$                             ; Br if more
+	RET
+
+	.END	TST_DUP_BOXID

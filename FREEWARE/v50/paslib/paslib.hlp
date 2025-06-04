@@ -1,0 +1,307 @@
+1 Pascal_Users
+
+Digital provides hundreds of Run-Time Library (RTL) and Utility routines
+that  are  callable  from  user programs written in almost any language.
+There  are  routines  to  perform  a  great  variety  of tasks including
+sophisticated  mathematical procedures, file and data manipulation, text
+handling,   program-callable   file   editing,  system  interfacing  and
+information requests, screen management and hardware instructions.
+
+To  use  these  routines  in Pascal, it is necessary to provide EXTERNAL
+declarations  for  them, as well as some associated TYPE definitions and
+CONSTANT declarations.
+
+PASLIB  has  been  developed  to  allow  Pascal programmers to take full
+advantage of these routines which increase the ease of use, and scope of
+application  of  the language.  In combination with the Digital-supplied
+programming  language  facilities such as STARLET,  PASLIB  provides the
+Pascal programmer with a comprehensive  environment for both application
+and systems programming.  It is usual to INHERIT environment files which
+contain  the  appropriate  declarations  for the programming environment
+concerned.  The files available in STARLET are detailed in the HELP sub-
+topic entitled Source_Code.
+
+All available Run-Time Library and Utility routines that are not already
+available  in  Digital-supplied  software  are declared in PASLIB.  Some
+routines  have been omitted where the same functionality is available in
+intrinsic  Pascal  functions.   These intrinsic functions should be used
+in preference to any equivalent RTL or Utility routines.  
+
+2 Contents
+
+PASLIB contains declarations/definitions for the following:
+
+PAS$     - Pascal file routines, condition codes and status values.
+SYS$     - system service definitions missing from STARLET.
+
+2 Examples
+
+The  following  examples show the principles of using PASLIB and STARLET
+in the context of System Services, RTL and Utility routines.  For a full
+description  of  the  routines  used, refer to the manuals listed in the
+"Further_Information" section of this HELP information.
+
+
+ 1. The  following  program example shows the use of the MTH$RANDOM  RTL
+    routine and the $GETTIM system service.
+
+
+    [ INHERIT ('SYS$LIBRARY:STARLET',
+               'SYS$LIBRARY:PASCAL$LIB_ROUTINES',
+               'SYS$LIBRARY:PASCAL$MTH_ROUTINES') ]
+
+    PROGRAM  Pick_A_Number (OUTPUT) ;  { Pick an integer; 0 <= n < 100 }
+
+    VAR  Rst : UNSIGNED := 0 ;      { Return Status from routine call }
+         Number : INTEGER := 0 ;    { Our generated random integer }
+         Time_Now : RECORD          { Current time as a quad-word }
+                      Seed , Chaff : UNSIGNED ;
+                    END ;
+
+    BEGIN
+    Rst := $GETTIM (Time_Now) ;     { Get current time as a quad-word }
+    IF NOT ODD (Rst)  THEN
+       LIB$SIGNAL (Rst) ;           { Signal any error returned }
+    Number := MTH$RANDOM (Time_Now.Seed) * 100 ;
+    WRITELN ('The number is ',Number:1) ;
+    END.
+
+
+ 2. The  following  program  shows  how  to  use the LIB$DAY_OF_WEEK RTL
+    function.    LIB$DAY_OF_WEEK  takes  a  system  time  as  its  first
+    parameter,  passed  by  reference.    Either a variable containing a
+    valid  quad-word  system time or the value zero (meaning the current
+    system time) may be passed.  If the value zero is passed, it must be
+    passed  by  immediate  value,  not  by reference.  Consequently, the
+    %IMMED  foreign  mechanism specifier must be specified on the actual
+    value.
+
+
+    [ INHERIT ('SYS$LIBRARY:STARLET',
+               'SYS$LIBRARY:PASCAL$LIB_ROUTINES') ]
+
+    PROGRAM  What_Day (OUTPUT) ;
+
+    VAR  Rst ,                       { Return Status from routine call }
+         Day_Num : UNSIGNED := 0 ;
+
+    BEGIN
+    Rst := LIB$DAY_OF_WEEK (%IMMED 0,Day_Num) ;
+    IF NOT ODD (Rst)  THEN
+       LIB$SIGNAL (Rst)              { Signal any error returned }
+     ELSE
+       WRITELN ('Today is ',Day_Num:1) ;
+    END.
+
+
+ 3. The  following  program  shows the use of different string parameter
+    types to the same routine.
+
+
+    [ INHERIT ('SYS$LIBRARY:STARLET',
+               'SYS$LIBRARY:PASCAL$LIB_ROUTINES',
+               'SYS$LIBRARY:PASCAL$STR_ROUTINES') ]
+
+    PROGRAM String_Example (OUTPUT) ;
+
+    VAR  Rst : UNSIGNED := 0 ;
+         Start_Pos , End_Pos : INTEGER := 0 ;
+
+         V_Dest , Src_Str , Rpl_Str : VARYING [20] OF CHAR := '' ;
+         P_Dest : PACKED ARRAY [1..20] OF CHAR := '' ;
+
+    BEGIN
+    Src_Str := 'How can this be?' ;
+    Rpl_Str := 'izz' ;
+    Rst := STR$REPLACE (V_Dest,Src_Str,5,7,Rpl_Str) ;
+    IF Rst <> SS$_NORMAL  THEN
+       LIB$SIGNAL (Rst)
+     ELSE
+       WRITELN (V_Dest) ;  { ==> 'How izz this be?' }
+
+    Src_Str := 'Why is it so?' ;
+    Rpl_Str := 'iz' ;
+    Start_Pos := 5 ;
+    End_Pos := 6 ;
+    Rst := STR$REPLACE (%STDESCR P_Dest,Src_Str,
+                                 Start_Pos,End_Pos,Rpl_Str) ;
+    IF Rst <> SS$_NORMAL  THEN
+       LIB$SIGNAL (Rst)
+     ELSE
+       WRITELN (P_Dest) ;  { ==> 'Why iz it so?' }
+    END.
+
+
+ 4. The  following  program  statements  show  the use of positional and
+    non-positional syntax.
+
+
+    VAR  Rst ,        { Return status from RTL routine invocation }
+         Paste_Board : UNSIGNED := 0 ;   { New pasteboard id. }
+
+    Rst := SMG$CREATE_PASTEBOARD (Paste_Board,Flags:=0) ;
+
+    Rst := SMG$DELETE_PASTEBOARD (Paste_Board) ;
+
+    Rst := SMG$CREATE_PASTEBOARD (Paste_Board,,,,0) ;
+
+
+2 Further_Information
+
+The following on-line sources and printed manuals provide significant
+additional information:
+
+
+On-line HELP:     (Enter  $ HELP topic )
+
+$ HELP PASCAL
+$ HELP Pascal_Users            ! (Produces this HELP information)
+$ HELP RTL_Routines
+$ HELP System_Services
+
+Printed Manuals:  (Copies kept by I.T.S. HotLine)
+
+DEC System Services Manual
+DEC Run-Time Library Routines Manuals
+DEC Pascal Reference Manual
+DEC Pascal User Manual
+
+2 How_To_Use
+
+PASLIB  may be used by INHERITing the PASLIB environment file as follows
+at the top of a Pascal program or module:
+
+  [ INHERIT ('SYS_LIBRARY:PASLIB') ]
+
+STARLET  may  be  used  by  INHERITing  the  STARLET environment file as
+follows at the top of a Pascal program or module:
+
+  [ INHERIT ('SYS$LIBRARY:STARLET') ]
+
+To use both PASLIB and STARLET, combine the two INHERITs as follows:
+
+  [ INHERIT ('SYS$LIBRARY:STARLET','SYS_LIBRARY:PASLIB') ]
+
+To use both PASLIB and other STARLET environments, use INHERITs as
+appropriate as in the example that follows:
+
+    [ INHERIT ('SYS$LIBRARY:STARLET',
+               'SYS_LIBRARY:PASLIB',
+               'SYS$LIBRARY:PASCAL$LIB_ROUTINES',
+               'SYS$LIBRARY:PASCAL$OTS_ROUTINES') ]
+
+
+2 Implementation_Conventions
+
+Digital automatically generate the Pascal source code for STARLET from a
+general description of the contents of STARLET which is used to generate
+similar  code  for other programming languages.  The conventions used to
+generate  the  Pascal source may not always be considered to be the most
+suitable  implementation  for  some  Pascal  users.    In order that any
+transition  from  using  PASLIB to using STARLET (as more information is
+incorporated  into  STARLET in future releases) may be as transparent as
+possible,  similar  implementation  conventions  have  been  adopted  in
+PASLIB.
+
+Some  features of the implementation of PASLIB are noted below.  Some of
+these features differ from the conventions used in STARLET:
+
+-  All  routine  names  are  the same  as indicated  in the  VMS  system
+   routines  manuals,  with  the  exception  of  a  few  routines  whose
+   parameters  may  be  of different data types depending on the program
+   context.    In  particular, these exceptions are in the LBR$ facility
+   where  any  routine  of the form LBR$xxxxxx_KEY will be of either the
+   form LBR$xxxxxx_KEY_A if the Key is ASCII, or LBR$xxxxxx_KEY_B if the
+   Key  is  binary.    Refer  to  the  LBR$  documentation  for  further
+   information.
+
+-  All  formal  parameter names are  the same  as indicated  in  the VMS
+   system  routines manuals, with the exception of a few names which are
+   reserved words in Pascal and which cannot be re-declared as variables
+   (e.g.  "Record"); these parameters have an underscore ("_") prepended
+   to  the indicated name (e.g. "_Record").  This allows the free use of
+   non-positional syntax if desired.
+
+-  Formal  parameter  lists  for formal routine parameters have not been
+   declared.    This may mean an Informational message will be generated
+   by the compiler if the passed routine itself passes parameters.  This
+   should not affect the working of the program.
+
+-  Actual  string  parameters passed as READONLY may be any valid string
+   expression or variable.
+
+-  In most cases, actual string parameters passed as WRITEONLY or MODIFY
+   are  presumed to be of type VARYING OF CHAR.  In some cases, a string
+   passed  by  "fixed length descriptor" is required; a variable of type
+   PACKED  ARRAY  OF  CHAR must be passed.  In neither case can a string
+   expression be passed.  Where the formal parameter is declared as type
+   VARYING  OF  CHAR  and  it is desired to pass a PACKED ARRAY OF CHAR,
+   this  can  be  done  by  specifying  the  %STDESCR  foreign mechanism
+   specifier on the actual parameter (see the "Examples" section in this
+   HELP information).
+
+2 Missing_Symbols
+
+There  are  some  symbolic  constants  which  are not declared in either
+PASLIB  or  STARLET.    In particular, condition code values for several
+facilities  (e.g.  LBR$)  are not included.  It is possible, however, to
+use  such  constants  in  a  Pascal program without knowing their actual
+values.    This  is done by declaring a VARIABLE of the same name as the
+constant,  with  the  attributes  EXTERNAL and VALUE.  The variable type
+must  be  appropriate  to  the  constant  value's  type.  Generally, for
+condition code values and the like, type UNSIGNED should be used.
+
+For  example,  to  reference  the  symbolic  constants  LBR$_ILLFMT  and
+LBR$_NOFILNAM in a program which uses the LBR$ Utility routines, declare
+variables as follows:
+
+    VAR  LBR$_ILLFMT , LBR$_NOFILNAM : [EXTERNAL,VALUE] UNSIGNED ;
+
+These "variables" will be treated as READONLY constants whose values are
+specified in a system library  referenced  at  link time.  At link time,
+link against the appropriate system symbol table (usually) as follows:
+
+    $ LINK  /SYSEXE  MYPROG,SYS$LOADABLE_IMAGES:SYSDEF.STB/SELECT
+
+If  constants  which  must  be declared this way are at some future date
+incorporated  into  either STARLET or PASLIB, these program declarations
+may simply be removed when the program is re-compiled to obtain the same
+functionality.    (This  assumes  that  the  program INHERITs STARLET or
+PASLIB (or both) as appropriate.)
+
+2 Problems_and_Enquiries
+
+All  enquiries  and  problems  should be directed to the I.T.S. HotLine
+(ext. 4488).
+
+2 Source_Code
+
+The complete Pascal source code for STARLET is in the following files:
+
+     SYS$LIBRARY:STARLET.PAS
+     SYS$LIBRARY:PASCAL$*_ROUTINES.PAS
+
+The Pascal source code for the elements of PASLIB is in the single file
+
+     SYS_LIBRARY:PASLIB.SRC
+
+N.B.  These  sources do  NOT need to be used in programs.  They are for
+      reference  only.  This source for PASLIB is not  compilable as it
+      appears here.
+
+2 STARLET_Modules
+
+STARLET  is  a  Digital-supplied  facility  to  enable  VMS  programming
+languages  to have access to system constants, data types and  routines.
+In the case of  Pascal,  STARLET  is  usually  used  by  INHERITing  the
+required STARLET environment file(s) in each program or module that uses
+any system elements which are not intrinsic to Pascal.
+
+In  theory,  STARLET  should  provide  most,  if not all the information
+contained in PASLIB.  However, at the moment, PASLIB supplies the (quite
+significant)  information  that, as yet, Digital have not implemented in
+STARLET.   As this information is gradually incorporated into STARLET in
+new  releases,  the corresponding information in PASLIB will be removed.
+
+For  examples  of the use of STARLET and PASLIB, refer to the "Examples"
+section in this HELP information.

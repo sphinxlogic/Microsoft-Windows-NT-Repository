@@ -1,0 +1,484 @@
+		.TITLE	TPUSUBS
+
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;	This file contains TPU CALL_USER support routines for VI.
+;
+;	Written by Gregg Wonderly, June, 1987
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+		$ssdef
+		$rmsdef
+		$lnmdef
+		$iodef
+		$qiodef
+		$trmdef
+		$ttdef
+	 	$dcdef
+		$jpidef
+		$dvidef
+		$prcdef
+
+TPU_CWD=1
+TPU_TRNLNM_JOB=2
+TPU_TRNLNM_PROC=3
+TPU_TRNLNM_SYS=4
+TPU_TRNLNM_GROUP=5
+TPU_GETMSG=6
+TPU_SET_SYSDISK=7
+TPU_SLEEP=8
+TPU_PASTHRU_ON=9
+TPU_PASTHRU_OFF=10
+
+DEBUG = 0
+
+		.psect	data,rd,wrt,noexe,pic
+
+;+ ---
+;
+;- ---
+		.MACRO	DEBUG,str
+		.IF NE DEBUG
+		pushab	str
+		calls	#1,g^lib$put_output
+		.ENDC
+		.ENDM
+
+;+ ---
+;
+;- ---
+		.MACRO	trnlnm_item,code,len,bufaddr,retlenaddr
+		.WORD	len
+		.WORD	code
+		.ADDRESS -
+			bufaddr
+		.ADDRESS -
+			retlenaddr
+		.ENDM
+
+;+ ---
+;
+;- ---
+		.MACRO	put_item,buf,code,len,bufaddr,retlenaddr
+		MOVW	len,buf
+		MOVW	code,buf+2
+		MOVAL	bufaddr,buf+4
+		MOVAL	retlenaddr,buf+8
+		.ENDM
+;+ ---
+;
+;- ---
+iosb:
+		.quad	0
+
+sysc_descr:
+		.ASCID	/SYS$COMMAND/
+
+iochan:
+		.word	0
+
+newchar_buf:
+		.blkl	3
+newchar_buf_len = .-newchar_buf
+;
+tempchar_buf:
+		.blkb	newchar_buf_len
+;
+par_settings:
+		.long	0
+
+tt_descr:
+		.ASCID	/TT:/
+job_descr:
+		.ASCID	/LNM$JOB/
+sys_descr:
+		.ASCID	/LNM$SYSTEM/
+proc_descr:
+		.ASCID	/LNM$PROCESS/
+group_descr:
+		.ASCID	/LNM$GROUP/
+sysdisk_descr:
+		.ASCID	/SYS$DISK/
+
+itemlist:
+		trnlnm_item	0,0,0,0
+itemlist_2:
+		trnlnm_item	0,0,0,0
+		.long		0
+
+msgnum:
+		.long	0
+stat:
+		.long	0
+i_parm_descr:
+		.blkb	8
+i_res_descr:
+		.blkb	8
+i_parm:
+		.blkb	512
+i_res:
+		.blkb	512
+
+timebuf:
+		.long	0
+		.long	0
+
+dummy:
+		.long	0
+
+tenths=-1000000
+
+		.psect	code,exe,rd,nowrt,pic
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+		.entry	sleep,^m<r2,r3,r4,r5,r6>
+		movl	4(ap),r0
+		mull3	r0,#tenths,r1
+		movl	r1,timebuf
+		movl	#-1,timebuf+4
+		$schdwk_s -
+			daytim=timebuf
+		blbc	r0,10$
+		$hiber_s
+		blbs	r0,20$
+10$:
+		pushl	r0
+		calls	#1,g^lib$signal
+20$:
+		ret
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+		.entry	atoi,^m<r2,r3,r4,r5>
+		movl	4(ap),r0		;Get the descriptor address
+		clrl	r1			;Clear the accumulator
+		movl	4(r0),r2		;Get the string address
+		cvtwl	(r0),r0			;Get the length
+10$:
+		mull2	#10,r1			;multiply by 10
+		cvtbl	(r2)+,r3
+		addl3	r3,#-48,r4		;Add in digit
+		addl	r4,r1
+		sobgtr	r0,10$
+		movl	r1,r0
+		ret
+
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+		.entry	tpu$calluser,^m<r2,r3,r4,r5>
+
+		movl	#512,i_res_descr	;Build result descriptor
+		movab	i_res,i_res_descr+4
+
+		movl	#512,i_parm_descr	;Build parameter copy descriptor
+		movab	i_parm,i_parm_descr+4
+
+		pushl	8(ap)			;Make a copy of the parameter
+		pushab	i_parm_descr
+		calls	#2,g^str$copy_dx
+
+		pushab	dummy			;Set the length of the string
+		pushab	i_parm_descr
+		pushl	8(ap)
+		calls	#3,g^str$analyze_sdesc
+
+		put_item -			;Set descriptor up for $TRNLNM
+				itemlist,#lnm$_string,-
+				#512,i_res,i_res_descr
+
+		put_item -
+				itemlist_2,#0,#0,#0,#0	;Dummy up descriptor
+
+		movl	4(ap),r1		;Get address of case value
+		casew	(r1),#TPU_CWD,#TPU_PASTHRU_OFF;Do case
+case_1:
+		.word	do_cwd - case_1
+		.word	do_trnlnm_job - case_1
+		.word	do_trnlnm_proc - case_1
+		.word	do_trnlnm_sys - case_1
+		.word	do_trnlnm_group - case_1
+		.word	do_getmsg - case_1
+		.word	do_set_sysdisk - case_1
+		.word	do_sleep - case_1
+		.word	do_pasthru_on - case_1
+		.word	do_pasthru_off - case_1
+;
+		.word	case_2 - case_1
+case_2:
+		movl	#SS$_BADPARAM,r0
+		ret
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+do_cwd:
+		movw	i_parm_descr,r1		;Get the length of parameter
+		tstl	r1			;If zero, then get current dir
+		bneq	10$
+		pushal	i_res_descr		;Push args
+		pushal	i_res_descr
+		pushl	#0
+		calls	#3,g^sys$setddir
+		brw	out
+10$:						;Otherwise set the current dir
+		pushal	i_res_descr
+		pushal	i_res_descr
+		pushal	i_parm_descr
+		calls	#3,g^sys$setddir
+		brw	out
+		
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+do_trnlnm_job:
+		$trnlnm_s -
+			attr=#LNM$M_CASE_BLIND,-
+			tabnam=job_descr,-
+			lognam=i_parm_descr,-
+			itmlst=itemlist
+		brw	out
+
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+do_trnlnm_proc:
+		$trnlnm_s -
+			attr=#LNM$M_CASE_BLIND,-
+			tabnam=proc_descr,-
+			lognam=i_parm_descr,-
+			itmlst=itemlist
+		brw	out
+
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+do_trnlnm_sys:
+		$trnlnm_s -
+			attr=#LNM$M_CASE_BLIND,-
+			tabnam=sys_descr,-
+			lognam=i_parm_descr,-
+			itmlst=itemlist
+		brw	out
+
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+do_trnlnm_group:
+		$trnlnm_s -
+			attr=#LNM$M_CASE_BLIND,-
+			tabnam=group_descr,-
+			lognam=i_parm_descr,-
+			itmlst=itemlist
+		brw	out
+
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+do_getmsg:
+		pushal	i_parm_descr		;Convert the string to a number
+		calls	#1,atoi
+		movl	r0,msgnum		;Store the result
+		movl	#512,i_res_descr
+		$getmsg_s -
+			msgid=msgnum,-
+			msglen=i_res_descr,-
+			bufadr=i_res_descr
+		brw	out
+
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+do_set_sysdisk:
+		pushal	i_parm_descr
+		pushal	sysdisk_descr
+		calls	#2,g^lib$set_logical
+		clrl	i_res_descr
+		brw	out
+
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+do_sleep:
+		pushal	i_parm_descr		;Convert the string to a number
+		calls	#1,atoi
+		pushl	r0
+		calls	#1,sleep
+		clrl	i_res_descr
+		brw	out
+
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+do_pasthru_on:
+		$assign_s -
+			devnam=tt_descr,-
+			chan=iochan
+		blbs	r0,10$
+5$:
+		pushl	r0
+		pushl	r0
+		calls	#1,g^lib$signal
+		movl	(sp)+,r0
+		brw	out
+10$:
+		movab	dassign,(fp)
+		$qiow_s -
+			chan=iochan,-
+			func=#IO$_SENSEMODE,-
+			p1=newchar_buf,-
+			p2=#newchar_buf_len
+		blbs	r0,20$
+15$:
+		movl	r0,r2
+		$dassgn_s -
+			chan=iochan
+		clrw	iochan
+		movl	r2,r0
+		brw	5$
+;
+20$:
+		bisl2	#TT2$M_PASTHRU,newchar_buf+8
+		$qiow_s -
+			chan=iochan,-
+			func=#IO$_SETMODE,-
+			p1=newchar_buf,-
+			p2=#newchar_buf_len
+		blbc	r0,15$
+
+		$dassgn_s -
+			chan=iochan
+		clrw	iochan
+		clrl	(fp)
+		clrl	i_res_descr
+		brw	out
+
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+		.entry	dassign,^m<>
+		tstw	iochan
+		beql	10$
+		$dassgn_s -
+			chan=iochan
+		clrw	iochan
+10$:
+		clrl	i_res_descr
+		ret
+
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+do_pasthru_off:
+		$assign_s -
+			devnam=tt_descr,-
+			chan=iochan
+		blbs	r0,10$
+5$:
+		pushl	r0
+		pushl	r0
+		calls	#1,g^lib$signal
+		movl	-(sp),r0
+		brw	out
+10$:
+		movab	dassign,(fp)
+		$qiow_s -
+			chan=iochan,-
+			func=#IO$_SENSEMODE,-
+			p1=newchar_buf,-
+			p2=#newchar_buf_len
+		blbs	r0,20$
+15$:
+		movl	r0,r2
+		$dassgn_s -
+			chan=iochan
+		clrw	iochan
+		movl	r2,r0
+		brw	5$
+;
+20$:
+		bicl2	#TT2$M_PASTHRU,newchar_buf+8
+		$qiow_s -
+			chan=iochan,-
+			func=#IO$_SETMODE,-
+			p1=newchar_buf,-
+			p2=#newchar_buf_len
+		blbc	r0,15$
+
+		$dassgn_s -
+			chan=iochan
+		clrw	iochan
+		clrl	(fp)
+		clrl	i_res_descr
+		brw	out
+
+;+ *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+;
+;
+;
+;
+;- *=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*=*
+
+out:
+		blbc	r0,err
+		pushal	i_res_descr
+		pushl	12(ap)
+		calls	#2,g^str$copy_dx
+
+		movl	12(ap),r1
+		movw	i_res_descr,(r1)
+		movl	#SS$_NORMAL,r0
+err:
+		ret
+		.end

@@ -1,0 +1,235 @@
+	.TITLE	TST_MOPCNTANAL  
+	.IDENT /V01-001/
+;
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+	EMUCMIPDEF
+	EMUDBDEF
+	EMUPSRDEF
+	EMUSYSDEF
+	EMUMOPDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	$SECDEF				; Global Section 
+	.PSECT	DATA WRT,NOEXE,QUAD
+
+; returned addresses
+MOPDB_A:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+NAMEDESC:	.QUAD	0
+FAOBUF:		.BLKL	132
+FAODESC:
+FAOLEN:		.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+PARAMSTR:	.ASCID	/Prot: !UL Tbl: !UL Parm: !UL Val !@UQ /
+RESPMSG:	.ASCID	/ !XB-!XB-!XB-!XB-!XB-!XB, Return: !XL/
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_PSRMOP:	
+		.ASCID	\EMU_PSRMOP\  		; Section name
+
+
+; Return packet
+	.ALIGN	LONG
+RETURN:	 	.BLKB	960		
+RETURN_D:       .LONG	.-RETURN
+		.ADDRESS  RETURN
+FAKE_REC:	.BLKB	PSR_MOP_C_RECSIZ
+MOPRET:		.BLKB	64
+;
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 48
+VD_COLS: 	.LONG 132
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+BYTCNT:		.WORD		; Input Byte counter
+OSITYP: 	.WORD   ^XFE00
+; Misc SMG ...
+PROMPT:		.ASCII	/YEAM> /
+CMDCOL:		.LONG	1
+CMDROW:		.LONG	1
+CURCOL:		.LONG   1
+CURROW:		.LONG   3
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+TIMEOUT:	.LONG	15
+CHARCNT:	.LONG	15
+FIRSTFLG:	.LONG	0
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+;
+
+	.PSECT	CODE	EXE,NOWRT,LONG
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TST_MOPCNTANAL
+; Command interface MBX. Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	calls	#0, g^asn_tempmbx_system
+	bsbw	sca_error_chk		; 
+;
+
+; Build Initial Display
+	
+	BSBW	CREATE_ENVIRONMENT
+; Create and Map to sections 
+	PUSHAL	MOPDB_A				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,10$                          ; Log error if DB not mapped
+	RET
+10$:
+	MOVL	MOPDB_A,R11				; Top of table
+	ADDL3	#PSR_MOP_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	20$					; Br if some entries
+	RET						; Exit if no entries
+20$:
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),40$ ; Br if not deleted
+30$:
+	ADDL	#PSR_MOP_C_RECSIZ,R6		; Next entry
+	SOBGTR	R11,20$
+        RET
+40$:
+	BBC	#MOP_FNB_V_COUNTS,PSR_MOP_W_FUNC(R6),30$
+
+
+
+	MOVL	#960,RETURN_D
+	PUSHAL	RETURN_D
+	ADDL3	#PSR_MOP_EA_ADDR,R6,-(SP)
+	CALLS	#2,G^EMU_MOPCNTANAL
+	MOVL	R0,R8                  ; Save return
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_MOP_EA_ADDR,R6,R1
+	PUSHL	R0			; Return
+	MOVZBL	5(R1),-(SP) 
+	MOVZBL	4(R1),-(SP) 
+	MOVZBL	3(R1),-(SP) 
+	MOVZBL	2(R1),-(SP) 
+	MOVZBL	1(R1),-(SP) 
+	MOVZBL	(R1),-(SP) 
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RESPMSG
+	CALLS	#10,G^SYS$FAO
+	BSBW	PRINT
+	BLBS	R8,50$
+	BRW     30$
+50$:
+	MOVQ	RETURN_D,R8
+	MOVL	#17,R10
+100$:
+        MOVL	#132,FAODESC
+	ADDL3	#12,R9,-(SP)
+;	PUSHL	16(R9)           ; val (low long only)
+	PUSHL	8(R9)           ; PRM
+	PUSHL	4(R9)           ;TBL
+	PUSHL	(R9)            ;PROT
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PARAMSTR
+	CALLS	#7,G^SYS$FAO
+	BSBW	PRINT
+	ADDL	#20,R9
+	SOBGTR	R10,100$
+	BRW	30$
+	
+	
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+;		BSBW	SCA_ERROR_CHK
+		RSB
+
+PRINTH:		
+		PUSHL	R1			; Addr of .ascid in R1
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	SCA_ERROR_CHK
+		RSB
+
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Virtual Display
+;
+CR_DISP:
+	CLRL	-(SP)
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	SCA_ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	SCA_ERROR_CHK
+;
+; Enable Unsolocited Input
+;
+;	PUSHAL	GET_INPUT                        ; AST Routine
+;	PUSHAL	PB_BOARD                         ; PB ID
+;	CALLS	#2,G^SMG$ENABLE_UNSOLICITED_INPUT
+;	BSBW	SCA_ERROR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	SCA_ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	SCA_ERROR_CHK
+;
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	RSB
+SCA_ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	$EXIT_S	R0
+	.END	TST_MOPCNTANAL
+
+
+

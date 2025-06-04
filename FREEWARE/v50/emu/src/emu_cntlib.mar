@@ -1,0 +1,617 @@
+        .title  EMU_CNTLIB    
+        .ident  /V01-001/                   
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 EMUCNTLIB
+; Various routines to implement performance monitoring
+;--
+; Modifications
+; 01-001	PB	Nov 1999 	Creation
+
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+	EMUCMIPDEF
+	EMUUIDEF
+	EMUDBDEF
+	EMUPSRDEF
+	EMUSYSDEF
+	EMUMOPDEF
+	EMUCTPDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	$SECDEF				; Global Section 
+	.PSECT	DATA WRT,NOEXE,QUAD
+
+; returned addresses
+	.ALIGN	LONG
+CNTRFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; 
+		ORG = IDX,-			; Keyed file (Finally)
+		DNM = <EMU5_DAT:EMU_CNTPOLL.DAT>,-; Default Filename 
+		FOP = CIF,-		; Create if doesn't exist
+		XAB = CNTRXAB
+CNTRRAB:	
+	$RAB	FAB = CNTRFAB,-		; pointer to FAB
+		RBF = CNTREC_BUF,-		; o/p buffer 
+		RSZ = CNTREC_SIZE,-	; Write this many bytes
+		UBF = CNTREC_BUF,-		; i/p buffer 
+		USZ = CNTREC_SIZE,-		; Write this many bytes
+		RAC = KEY,-		; Keyed file
+		KBF = CNTREC_BUF,-		; Key location
+		KSZ = 40
+CNTRXAB:
+		$XABKEY	REF = 0,-  	; Protocol 
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len
+		FLG = <DUP>,-		; dups
+		NXT = CNTRXAB1
+CNTRXAB1:
+		$XABKEY	REF = 1,-  	; Address
+		DTP = STG,-             ; Key = 4 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 24,-              ; Key len
+		FLG = <CHG,DUP>,-	; Change, dups
+		NXT = CNTRXAB2
+CNTRXAB2:
+		$XABKEY	REF = 2,-  	; Entity 
+		DTP = STG,-             ; Key = 12 bytes binary (ascending)
+		POS = 28,-               ; Key position
+		SIZ = 12,-              ; Key len
+		FLG = <CHG,DUP>,-		; Change, dups
+		NXT = CNTRXAB3
+CNTRXAB3:
+
+		$XABKEY	REF = 3,-  	; Primary key 
+		DTP = STG,-             ; Key = 40 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 40,-              ; Key len
+		FLG = <CHG>,-		; Change, nodups
+		NXT = CNTRXAB4
+CNTRXAB4:
+		$XABKEY	REF = 4,-  	; PROTO, ADDRESS 
+		DTP = STG,-             ; Key = 24 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 28,-              ; Key len
+		FLG = <CHG,DUP>		; Change, dups
+
+CNTREC_BUF:	.BLKB	CPL_DB_C_MRS
+CNTREC_SIZE = .-CNTREC_BUF
+
+	.ALIGN	LONG
+CNTRPRCFAB:	$FAB  FAC = <DEL,UPD,GET,PUT>,-        	; Access
+		SHR = <DEL,UPD,GET,PUT>,- ; Share with readers
+		FOP = CIF,-
+		ORG = IDX,-			; Keyed file (Finally)
+		FNM = <EMU_CNTPRC>,-      ; Filename 
+		DNM = <EMU5_DAT:EMU_CNTPRC.DAT.>,-      ; Filename 
+		XAB = CNTRPRCXAB
+CNTRPRCRAB:	
+		$RAB  FAB = CNTRPRCFAB,-            ; Record 
+ 		RBF = CNTRPRCREC,-
+		UBF = CNTRPRCREC,-
+		USZ = CTP_DB_C_RECSIZE,-
+		RSZ = CTP_DB_C_RECSIZE,-
+		RAC = KEY,-		 ; KEY access
+		KBF = CNTRPRCREC,-
+		KSZ = 4
+CNTRPRCXAB:
+	  	$XABKEY	REF = 0,-  		; Primary key
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4                 ; Key len
+
+	.ALIGN	LONG
+CNTRPRCREC:	.BLKB	CTP_DB_C_RECSIZE 
+
+NAMBUF:		.BLKB	80
+NAMDESC:	.LONG	.-NAMBUF
+		.ADDRESS  NAMBUF
+
+FAOBUF:		.BLKB	132
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+FAOARRAY:	BLKB	64
+PARAMARRAY:	BLKB	32
+RECBUF:
+EMUDB_KEYBUF:	.BLKB	DB_C_KSZ 			; 
+RECDAT:		.BLKB	DB_REC_C_MRS-DB_C_KSZ		; 768 (Total)
+RECBUF_DESC:	.LONG	.-RECBUF
+		.ADDRESS  RECBUF
+
+CTP1STR:	.ASCID	/!UL   !AS/
+CTP2STR:	.ASCID	/Last: !%D, Polls: !UL, Responses: !UL, Func: !UL, Count: !UL/
+CPRCSTR:	.ASCID	/!32AS    !4(10UL)/
+CPRTSTR:	.ASCID	/                            !4(10%D)/
+CPRHSTR:	.ASCID	/Strng: !UL, Ltrng: !UL, Stcnt: !UL, Ltcnt: !UL/
+ASFAO:		.ASCII	/!8AS/
+
+LINCNT:		.LONG
+
+;
+; Virtual Display Parameters
+;
+CNT_DISP1:	.LONG		; Virtual Display ID
+CNT_ROWS1: 	.LONG 5         ;
+CNT_COLS1: 	.LONG 132
+
+CNT_DISP2:	.LONG		; Virtual Display ID
+CNT_ROWS2: 	.LONG 3         ; Menu
+CNT_COLS2: 	.LONG 132
+
+CNT_DISP3:	.LONG		; Virtual Display ID
+CNT_ROWS3: 	.LONG           ; Dynamic
+CNT_COLS3: 	.LONG 132
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	1
+
+PB_BOARD2:	.LONG 		; Pasteboard ID
+PB_COL2:		.LONG	1      
+PB_ROW2:		.LONG 	5
+
+PB_BOARD3:	.LONG 		; Pasteboard ID
+PB_COL3:		.LONG	1      
+PB_ROW3:		.LONG 	8
+;
+; Virtual Keyboard Parameters
+;
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+BYTCNT:		.WORD		; Input Byte counter
+CHOICE:		.WORD
+; Misc SMG ...
+SAVE_DISP:	.LONG	0
+SCR_HEIGHT:	.LONG	48
+SCR_WID: 	.LONG	132
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+;
+MENU_STRUCT:
+		.LONG			; Virtual display ID
+KB_BOARD:	.LONG           	; Virtual Keyboard ID
+MSTYPE:		.LONG	SMG$K_HORIZONTAL	; Menu type   
+MSCNT:		.LONG	2		; Number of items
+MSSIZE:		.LONG	8		; Size of item
+MSFLAG:		.LONG	SUI_MEN_C_NOCHECK ; Check for privs
+MSPRIV:		.LONG	0               ; addr of priv list
+MSITEMS:	.LONG	0               ; addr of display items
+
+CNTCTL_MENU:
+	.LONG	SMG$K_HORIZONTAL	; Menu type   
+	.LONG	3		; Number of items
+	.LONG	8		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Don't Check for privs
+
+CNTCTL_ITEMS:
+	.ASCII	/Next    /
+	.ASCII	/Previous/
+	.ASCII	/Exit    /
+
+
+	.PSECT	CODE	EXE,NOWRT,LONG
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DISP_COUNTS
+;++
+;2 DISP_COUNTS
+; Routine to display the counter data for the input PSRDB rec. This routine
+; creates it's own display and destroys it on exit. Data is displayed in 
+; 3 panels:
+;	Upper pannel contains the summary information and is statis
+;	Lower pannel displays the counter name and 4 values. User may 
+;	display next/previous 8 counts via small menu in middle pannel. 
+;3 Inputs
+;  .address of PSRDB rec 
+;3 Outputs
+; Screen only as in description
+;3 Returns
+; SS$_NORMAL	- Always exits with success
+;--
+
+	BSBW	CREATE_CNTDSP_ENVIRONMENT
+        TSTW	CNTRFAB+FAB$W_IFI		; Open?
+	BNEQ	10$
+	$OPEN	FAB=CNTRFAB
+	BLBC	R0,50$
+	$CONNECT RAB=CNTRRAB
+	BLBC	R0,50$
+10$:
+        TSTW	CNTRPRCFAB+FAB$W_IFI		; Open?
+	BNEQ	START
+
+        $OPEN	FAB=CNTRPRCFAB
+	BLBC	R0,50$
+	$CONNECT RAB=CNTRPRCRAB
+	BLBS	R0,START
+50$:
+	RET	
+START:
+;	MOVB	#RAB$C_SEQ,CNTRRAB+RAB$B_RAC
+10$:
+; Make Key
+	MOVAL	CNTREC_BUF,R6
+	MOVL	4(AP),R7
+	MOVL	COM_HDR_L_FLAGS(R7),CPL_DB_L_PROT(R6)	;
+	MOVL	COM_HDR_L_LEN(R7),CPL_DB_B24_ADDR(R6) 
+	ADDL3	#CPL_DB_B24_ADDR,R6,R1
+	ADDL	#4,R1
+	MOVC5	COM_HDR_L_LEN(R7),COM_HDR_C_SIZE(R7),#0,#20,(R1)
+	MOVB	#4,CNTRRAB+RAB$B_KRF
+	MOVB	#28,CNTRRAB+RAB$B_KSZ
+
+	MOVW	#CNTREC_SIZE ,CNTRRAB+RAB$W_RSZ
+	MOVW	#CNTREC_SIZE ,CNTRRAB+RAB$W_USZ
+	$GET	RAB=CNTRRAB 
+	BLBS	R0,20$
+	RET
+20$:
+; Translate and display poll rec...
+	
+	MOVL	#80,NAMDESC
+	PUSHAL	NAMDESC
+	ADDL3	#CPL_DB_B24_ADDR,R6,R1
+	ADDL3	#4,R1,-(SP)
+	PUSHL	CPL_DB_B24_ADDR(R6)
+	PUSHL	CPL_DB_L_PROT(R6)
+	CALLS	#4,ADDR2NAME
+	BLBS	R0,50$
+	RET
+50$:
+; 1st line
+	MOVL	#132,FAODESC
+	PUSHAL	NAMDESC
+	PUSHL	CPL_DB_L_PROT(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	CTP1STR
+	CALLS	#5,SYS$FAO
+	BLBS	R0,60$
+	RET
+60$:
+	BSBW	PRINT
+; 2ND LINE
+; 1st line
+	MOVL	#132,FAODESC
+	PUSHL	CPL_DB_L_TBLCNT(R6) 
+	PUSHL	CPL_DB_L_FUNC(R6)
+	PUSHL	CPL_DB_L_RESP(R6)
+	PUSHL	CPL_DB_L_POLLS(R6)
+	ADDL3	R6,#CPL_DB_Q_LASRESP,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	CTP2STR
+	CALLS	#8,SYS$FAO
+	BLBS	R0,70$
+	RET
+70$:
+	BSBW	PRINT
+; Get each prc rec for this poll rec
+	MOVL	CPL_DB_L_TBLCNT(R6),R11		;loop
+        ADDL	#CPL_DB_C_IDTBL,R6		; Start
+100$:
+	MOVAL	CNTRPRCREC,R7
+	MOVL	CPL_DB_L_CNTID(R6),CTP_DB_L_CNTID(R7)	; Set key
+	MOVW	#CTP_DB_C_RECSIZE ,CNTRPRCRAB+RAB$W_RSZ
+	MOVW	#CTP_DB_C_RECSIZE ,CNTRPRCRAB+RAB$W_USZ
+	$GET	RAB=CNTRPRCRAB
+	BLBS	R0,110$					; Must exist
+	brw	10$
+110$:
+; Header
+	MOVL	#132,FAODESC
+	PUSHL	CTP_DB_L_LTCNT(R6) 
+	PUSHL	CTP_DB_L_STCNT(R6)
+	PUSHL	CTP_DB_L_LTRNG(R6)
+	PUSHL	CTP_DB_L_STRNG(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	CPRHSTR
+	CALLS	#7,SYS$FAO
+	BLBS	R0,130$
+	RET
+130$:
+	BSBW	PRINT
+; Times
+	MOVL	#132,FAODESC
+	ADDL3	#CTP_DB_TQ_TIMTBL,R7,R1
+	ADDL3	#24,R1,-(SP)
+	ADDL3	#16,R1,-(SP)
+	ADDL3	#8,R1,-(SP)
+	PUSHL	R1
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	CPRTSTR
+	CALLS	#7,SYS$FAO
+	BLBS	R0,140$
+	RET
+140$:	
+	BSBW	PRINT3
+	BRW	147$
+
+145$:
+	MOVAL	CNTRPRCREC,R7
+	MOVL	CPL_DB_L_CNTID(R6),CTP_DB_L_CNTID(R7)	; Set key
+	$GET	RAB=CNTRPRCRAB
+	BLBS	R0,147$					; Must exist
+	RET
+147$:	
+
+; Fool paramxlt...
+	MOVAL	RECBUF,R1
+	MOVL	CPL_DB_L_TABLE(R6),DB_REC_L_TABLE(R1)
+	MOVL	CPL_DB_L_PARAM(R6),DB_REC_L_PARAM(R1)
+
+	PUSHL	#DB_XLTOPT_M_SUPDAT	; OPT
+	MOVL	#80,-(SP)		; Line len
+	PUSHAL	LINCNT
+	PUSHAL	NAMDESC
+	PUSHAL	RECBUF_DESC
+	CALLS	#5,G^PARAMXLT
+	BLBS	R0,120$
+	RET
+120$:
+; Counts
+	MOVL	#132,FAODESC
+	ADDL3	#CTP_DB_TL_SAMTBL,R7,R1
+	PUSHL	12(R1)
+	PUSHL	8(R1)
+	PUSHL	4(R1)
+	PUSHL	(R1)
+	PUSHAL	NAMDESC
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	CPRCSTR
+	CALLS	#8,SYS$FAO
+        BLBS	R0,150$
+	RET
+150$:
+	BSBW	PRINT3
+        ADDL	#CPL_DB_C_ENTSIZ,R6		; Start
+        SOBGTR	R11,145$
+;
+; Make menu structure
+	MOVAL	MENU_STRUCT,R1
+	MOVAL	CNT_DISP2,SUI_MEN_L_DISPLAY(R1)
+	MOVQ	CNTCTL_MENU,SUI_MEN_L_MTYPE(R1)  		; Type,count
+	MOVQ	CNTCTL_MENU+8,SUI_MEN_L_ITEMSIZ(R1)       ; Size,check flag
+	MOVAL	CNTCTL_ITEMS,SUI_MEN_L_MENU(R1)        	; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBS	R0,300$		; Any error exits 
+
+
+300$:
+	PUSHAL	CNT_DISP1                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+ 	PUSHAL	CNT_DISP2                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	CNT_DISP3                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+;
+        MOVL	#SS$_NORMAL,R0
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CNTLIB_FORMAT_COUNTS
+;++
+;2 CNTLIB_FORMAT_COUNTS
+; Routine to determine the set of counts to display, and format them
+; for output. At entry, the most recent 8 samples are displayed. The user may
+; page back and forth through the samples displaying a series of next most
+; recent or provious 8 samples.  the counter data for the input PSRDB rec. This routine
+; creates it's own display and destroys it on exit. Data is displayed in 
+; 3 panels:
+;	Upper pannel contains the summary information and is statis
+;	Lower pannel displays the counter name and 4 values. User may 
+;	display next/previous 8 counts via small menu in middle pannel. 
+;3 Inputs
+;  .address of CNTPOLL rec
+;  .address of offset 
+;	The CNTPOLL record provides the indices to the CNTPRC values
+;	The offset is +- number of recs as selected by the next/prev menu
+;3 Outputs
+; Screen only as in description
+;3 Returns
+; SS$_NORMAL	- Always exits with success
+;3 Description
+; The start of the array of 8 values is determines as follows: 
+;	There are 48 possible values of which 8 are displayed. The formula
+;	for which to display is:
+;	TBLPNT-1 (Last stored value in circular buffer) -8 (number of samples)
+;	+ offset (each time user selects 'next' this is incremented by 8 or
+;	'previous' is decremented by 8)
+; Each value is checked and if < 0 is replaced (in the outp) with 'ovf'
+; indicating the value has overflowed. Otherwise is is formatted as UL.
+; The time array (using the same calculated index) is formatted by 
+; placing the 1st full date/time in 1st position and the following 7 as
+; time only. 
+;--
+	MOVL	4(AP),R6		; Input
+	MOVL	@8(AP),R7		; Offset
+; Calc start of array
+	MOVL    CTP_DB_L_TBLPNT(R6),R10
+	SUBL	#9,R10			; Start of array -1
+	ADDL	R7,R10 			; Current offset
+	BGEQ	20$			; Br if .not < 0
+10$:
+	ADDL	#CTP_DB_C_MAXTBL,R10	; Wrap until  .ge. 0
+	BLSS	10$
+20$:
+	CMPL	#CTP_DB_C_MAXTBL,R10	; ensure in array
+	BGEQ	30$
+	SUBL	#CTP_DB_C_MAXTBL,R10	; Wrap until  .lt. max
+	BRW	20$
+30$:
+; We now have a start point in array range.
+; Process each counter in turn.
+	ADDL	#CTP_DB_TL_SAMTBL,R6	; Start of array
+	MOVL	FAOARRAY,R7  		; Build FAO string here
+	MOVL	PARAMARRAY,R8	        ; Params here
+	CLRL	R11			; Loop, Index
+40$:
+	TSTL	(R6)[R10]
+	BGEQ	100$
+	
+	
+	
+		
+	
+	
+
+	RET
+
+
+
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	FAODESC
+		PUSHAL	CNT_DISP1
+		CALLS	#2,G^SMG$PUT_LINE
+;		BSBW	CNT_ERR_CHK
+		RSB
+
+PRINT3:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	FAODESC
+		PUSHAL	CNT_DISP3
+		CALLS	#2,G^SMG$PUT_LINE
+;		BSBW	CNT_ERR_CHK
+		RSB
+
+
+CREATE_CNTDSP_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Virtual Display
+;
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	CNT_ERR_CHK
+
+	PUSHAL	PB_BOARD2
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	CNT_ERR_CHK
+
+	PUSHAL	PB_BOARD3
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	CNT_ERR_CHK
+;
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	PB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,30$
+	RET
+30$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	CNT_ROWS3	      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	CNT_COLS3			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	PB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,40$
+	RET
+40$:
+	SUBL	#9,CNT_ROWS3			; Set our page len
+
+	CLRL	-(SP)
+	PUSHAL	CNT_DISP1
+	PUSHAL	CNT_COLS1
+        PUSHAL	CNT_ROWS1
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	CNT_ERR_CHK
+
+	CLRL	-(SP)
+	PUSHAL	CNT_DISP2
+	PUSHAL	CNT_COLS2
+        PUSHAL	CNT_ROWS2
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	CNT_ERR_CHK
+
+	CLRL	-(SP)
+	PUSHAL	CNT_DISP3
+	PUSHAL	CNT_COLS3
+        PUSHAL	CNT_ROWS3
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	CNT_ERR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	CNT_ERR_CHK
+;
+; Associate the pasteboard and Virtual Displays
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	CNT_DISP1
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	CNT_ERR_CHK
+
+	PUSHAL	PB_COL2		;Column
+	PUSHAL	PB_ROW2		;Row
+	PUSHAL	PB_BOARD2
+	PUSHAL	CNT_DISP2
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	CNT_ERR_CHK
+
+	PUSHAL	PB_COL3		;Column
+	PUSHAL	PB_ROW3		;Row
+	PUSHAL	PB_BOARD3
+	PUSHAL	CNT_DISP3
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	CNT_ERR_CHK
+;
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	RSB
+CNT_ERR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	$EXIT_S	R0
+
+        .END

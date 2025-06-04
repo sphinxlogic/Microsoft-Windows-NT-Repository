@@ -1,0 +1,334 @@
+	.TITLE	TST_SNS
+	.IDENT /V01-001/
+;
+;	.LIBRARY	"EMU_DIR:EMU.MLB"
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	$SECDEF				; Global Section 
+;	$NMADEF
+	.PSECT	DATA WRT,NOEXE,QUAD
+
+
+
+NUM=0
+VER=4
+DECO=0
+UECO=0
+
+NET_CHAN:	.WORD	0
+NET_DEVICE:	.ASCID	/_NET:/
+
+NCB_DESC:	.WORD	NCB_LEN
+		.WORD	0
+		.ADDRESS	-
+			NCB
+NCB:		.BLKB	40
+NCB_LEN=<.-NCB>
+
+NCB_CTRSTR:	.ASCID	?!UL::"25=/?<NUM><NUM>
+NCB_OPTDATA:	.ASCIC	<VER><DECO><UECO>
+		.BLKB	17-<.-NCB_OPTDATA>
+		.ASCII	/"/
+OPT_LEN=<.-NCB_OPTDATA>
+; Request packet
+	.ALIGN	LONG
+
+REQP_DESC:	.WORD	 REQP_LEN
+		.WORD	 0
+		.ADDRESS REQP
+REQP:		.BYTE	0,^XAA,^XAA,^XAA,^XAA,^XAA,^XAA,^XAA
+REQP_LEN:	.LONG .-REQP
+;
+; Misc
+;
+	.ALIGN	QUAD
+
+RETBUF:		.BLKB	512
+RETBUF_LEN = .-RETBUF
+IOSB:		.QUAD	0			; 
+INTLTIM:	.QUAD	0
+RDTIME:		.LONG   0                       ; Time read starts
+WRTIME:		.LONG   0                       ; Time write completes
+RESTIME:	.LONG	0                       ; Time Difference
+;
+
+
+
+
+DADDR:			.QUAD
+DN4TYP:		.WORD	^X0360
+HIORD:		.BYTE	^XAA,^X00,^X04,^X00	; Hi order of decnet address
+FAOBUF:		.BLKL	132
+FAODESC:
+FAOLEN:		.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+
+; Return packet
+RETURN:	 	.LONG		
+
+RESPMSG:      .ASCID	/ !AC Return = !XL, Time = !UL (100th Seconds)/
+;
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 48
+VD_COLS: 	.LONG 132
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+BYTCNT:		.WORD		; Input Byte counter
+; Misc SMG ...
+PROMPT:		.ASCII	/YEAM> /
+CMDCOL:		.LONG	1
+CMDROW:		.LONG	1
+CURCOL:		.LONG   1
+CURROW:		.LONG   3
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+TIMEOUT:	.LONG	15
+CHARCNT:	.LONG	15
+FIRSTFLG:	.LONG	0
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+ADDR:
+;	.WORD	51900
+;	.WORD	51901
+;	.WORD	51902
+;	.WORD	51903
+;	.WORD	51904
+;	.WORD	51905
+;	.WORD	51906
+;	.WORD	51907
+;	.WORD	51908
+;	.WORD	51909
+;	.WORD	51910
+;	.WORD	51911
+;	.WORD	51912
+;	.WORD	51913
+;	.WORD	51991
+	.WORD	51226
+	.WORD	51261
+	.WORD	51262
+
+	.long	0
+;
+NAME:	
+	.ASCIC	/SNSE01 /
+	.ASCIC	/SNSE02 /
+	.ASCIC	/SNSE03 /
+	.ASCIC	/SNSE04 /
+	.ASCIC	/SNSF52 /
+	.ASCIC	/SNSF53 /
+	.ASCIC	/SNSE08 /
+	.ASCIC	/SNSE05 /
+	.ASCIC	/SNSE06 /
+	.ASCIC	/SNSE2A /
+	.ASCIC	/SNSE4A /
+	.ASCIC	/SNSE3A /
+	.ASCIC	/SNSF40 /
+	.ASCIC	/SNSF20 /
+        .ASCIC	/COP1   /
+        .ASCIC	/COP2   /
+	
+
+	.PSECT	CODE	EXE,NOWRT,LONG
+	.ENTRY	TST_SNS,^M<>
+;
+; Build Initial Display
+	
+;	BSBW	CREATE_ENVIRONMENT
+
+	MOVAL	ADDR,R6
+	MOVAL	NAME,R7
+10$:
+20$:
+	TSTL	(R6)
+	BNEQ	40$			; Br if yes
+	$EXIT_S	R0
+40$:
+	MOVL	#132,FAODESC
+	PUSHAL	RETURN                  ; Output block
+	MOVZWL	(R6),-(SP)		; Address
+	CALLS	#2,G^DN4loop
+	PUSHL	RETURN                  ; Time
+	PUSHL	R0			; Status
+	PUSHL	R7			; Name
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RESPMSG
+	CALLS	#6,G^SYS$FAO
+	BLBS	R0,50$
+	RET
+50$:
+	PUSHAL	FAODESC
+ 	CALLS	#1,G^lib$put_output
+	ADDL	#2,R11
+	ADDL	#2,R6
+	ADDL	#8,R7
+	BRW	20$
+
+	
+
+CREATE_ENVIRONMENT:
+;
+; Create Virtual Display
+;
+CR_DISP:
+	CLRL	-(SP)
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+;
+; Enable Unsolocited Input
+;
+;	PUSHAL	GET_INPUT                        ; AST Routine
+;	PUSHAL	PB_BOARD                         ; PB ID
+;	CALLS	#2,G^SMG$ENABLE_UNSOLICITED_INPUT
+;	BSBW	ERROR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	RSB
+ERROR_CHK:
+	BLBC	R0,10$
+	RSB
+10$:
+	$EXIT_S	R0
+
+
+		.ENTRY  DN4LOOP,^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Get and Validate Params
+	CMPL	#2,(AP)			; 2 params?
+	BEQLU	5$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+5$:
+	PROBER	#0,#2,4(AP)  		; Read DECnet address?
+	BEQL	10$			; No
+	PROBEW	#0,#4,8(AP)  		; Write response time?
+	BNEQ	20$			; Yes
+10$:
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+20$:
+; Initialisation
+	TSTW	NET_CHAN
+	BNEQ	25$                     ; Br if we have channel
+	$ASSIGN_S	CHAN=NET_CHAN,-
+		 	DEVNAM=NET_DEVICE
+	BLBS	R0,25$
+	RET
+25$:
+	CLRL	@8(AP)    		; Clear response time
+	MOVW	#NCB_LEN,NCB_DESC	; Make 1st part NCB
+	$FAO_S	CTRSTR=NCB_CTRSTR,-
+		OUTLEN=NCB_DESC,-
+		OUTBUF=NCB_DESC,-
+		P1=4(AP)
+	BLBS	R0,30$
+	RET
+30$:
+	MOVAL	NCB,R6
+	MOVZWL	NCB_DESC,R7     
+	MOVC3	#OPT_LEN,NCB_OPTDATA,(R6)[R7]	; 2nd part 
+	ADDW2	#OPT_LEN,NCB_DESC
+	$QIOW_S	-
+		CHAN=NET_CHAN,-			; Make link
+		FUNC=#IO$_ACCESS,-
+		IOSB=IOSB,-
+		P2=#NCB_DESC
+	BSBW	DN4_ERROR_CHK
+	MOVZWL	IOSB,R0			    ; Check IOSB return
+	BSBW	DN4_ERROR_CHK
+;
+	MOVL	EXE$GL_ABSTIM_TICS,WRTIME       ; Get current time
+	MOVL	#10,R10				; 10 loops
+40$:
+	$QIOW_S	-
+		CHAN=NET_CHAN,-
+		FUNC=#IO$_WRITEVBLK,-   ; Req
+		IOSB=IOSB,-
+		P1=REQP,-
+		P2=REQP_LEN
+	BSBW	DN4_ERROR_CHK
+	MOVZWL	IOSB,R0			    ; Check IOSB return
+	BSBW	DN4_ERROR_CHK
+; Attempt to read response
+	$QIOW_S	-
+		CHAN=NET_CHAN,-
+		FUNC=#IO$_READVBLK,-    ; Resp
+		IOSB=IOSB,-
+		P1=retbuf,-
+		P2=#retbuf_len
+	BSBW	DN4_ERROR_CHK
+	MOVZWL	IOSB,R0			    ; Check IOSB return
+	BSBW	DN4_ERROR_CHK
+;
+; Message OK
+	SOBGTR	R10,40$                     ; 10 loops
+	SUBL3	WRTIME,EXE$GL_ABSTIM_TICS,@8(AP)    ; Write response time
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS!IO$M_ABORT,-
+		IOSB=IOSB
+	MOVL	#SS$_NORMAL,R0	; Signal Success
+	RET                     ; Exit to caller
+
+
+; Subroutines
+;
+;
+; Routine Error
+DN4_ERROR_CHK:
+	BLBC	R0,10$
+	RSB
+10$:
+	MOVL	R0,R7		; Save Error
+	$CANCEL_S	CHAN=NET_CHAN
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS!IO$M_ABORT,-
+		IOSB=IOSB
+	MOVL	R7,R0	        ; Restore error
+	RET
+	
+
+
+	.END	TST_SNS
+

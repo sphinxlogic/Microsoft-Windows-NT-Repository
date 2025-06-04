@@ -1,0 +1,183 @@
+1 ALERT   
+ This subsystem combines to allow alerts to be generated, passed to 
+ further processors, formated and displayed to various connected users.
+ There are 3 discrete stages any alert passes:
+ Generater.
+ 1. Any process wishing to alert a user or other process of unusual 
+    conditions is known as a generator. The generator allocates an alert
+    buffer, fills it it in and passes it to the alert process.
+ 2. Alert (this process)
+    Recieves alerts from generaters, performs initial processing
+    stores the alert in the alert database and then passes them onto the 
+    alert formatter/sender.
+ 3. Formatter. 
+    If there are any active recievers:
+    Formats alerts according to format type requested and sends them to 
+    the active display(s).
+
+ NOTE THAT IN THIS VERSION FUNCTION 2 & 3 ARE COMBINED IN THIS PROCESS
+ This implementation simply reads the input MBX, logs and formats the 
+ message and writes it to the outp MBX. This does not allow for multiple
+ displays or multiple formats to be implemented. A future version will
+ correct this.
+ Filtering.
+ Filtering happens at 2 stages:
+ A global filter is built into ALERT that can disable:
+	All alerts
+	All alerts for specified class
+	All alerts below specified priority.
+ Each connected user can individualy specify filters for all of the above
+ plus:
+	All alerts for specifc device
+	All alerts for specific protocol
+       All Alerts for specified subclass
+
+2 Alert frame
+ This also the Alert log file format
+ For the log file keys are TIME, DBPID.ALTID, CLASS (20 Bytes) 
+   Field	Ofs	Len		Desc
+  Time		0	8	.quad system time when alert generated
+ *DBPID	8	4	DB this alert is for
+ *ALERT BOXID	12	4	Unique device ID (ALERT ONLY)
+ *Class	16	4	Alert Class
+  Subclass	20	4	Alert subclass
+  Expirey	24	4	.long seconds after which alert expires
+ *PID		28	4	EMU system PID of sending process
+  Priority	32	4	Alert priority
+  Param count	44	4	Count of params in paramater field
+  Paramaters	48	464	Paramaters
+ 
+ Those params marked * MUST be set. All others are optional
+3 Time
+  This process sets this field with the current time when alert is 
+  received. It does not change after that. 
+3 Expirey
+  If this field is not 0 then the alert is processed through the
+  timed alert que. If an identical alert is present and not expired
+  in the que, the alert is processed and sent. If not, it is simply
+  placed in the que. This allows for events that when they occur occasionaly 
+  are not problems but when occur frequently are.
+3 PID
+ The EMU defined protocol identifier of the sender. In some cases 
+ an alert is generated on behalf of another process so the PID and the 
+ sender are not always synonomous.
+3 DBPID
+  This param along with the next one (ALTID) serve to uniquely identify
+  the BOX this alert is for. This param is the PSRdb the ALTID exists in.
+3 ALTID
+ This param identifies the BOX within the PSRdb specified by DBPID.
+ Together these params are use to locate the specific box in the DB
+ and:
+	Generate a box name
+	Get counts for recent/related
+	Update the Alert section for this box
+
+
+3 Priority
+  The generater initaly assigns a priority. This process may change that
+ depending on circumstances it discovers in processing. It is in the 
+ range 0-255 where 0 is lowest. The formatter uses this to filter,
+ set colours, sounds and such to denote important errors.
+3 Class
+  This is OSI standard:
+  classes are:
+   Accounting
+    Performance
+    Configuration
+    Fault
+    Security
+    system	*
+ System is not part of the standard but is necessary to allow EMU to 
+ alert operators on internal problems that may require intervention.
+3 Subclass
+  Dictated by the class. If not valid, the field is ignored and processed
+  as default.
+  Class		Subclass		Value (0 = default)
+  Accounting		None
+  Performance		None
+  Configuration	New component		0
+			Modified		1
+			Deleted			2
+  Fault		None
+  Security		None
+  System		None 
+3 Paramater_Count
+	 The number of paramaters in the paramater field.
+3 Paramater_format
+  Each param is formatted as:
+  	.long	Len of following param
+	EMUDB rec. That is:
+	Key of 24 bytes
+	Data for len of len param - key len
+ eg: for MOP Version:
+	.long	27	total len
+ Key
+	.long	6	Mop protocol
+	.long	x	boxid
+	.long	65539	Mop table id
+	.long	0	Instance (not used in MOP)
+	.long	1	Param (version)
+	.long	x	Key flags
+	.blkb	3	3,0,0	(data)
+
+ Followed by the next n-1 params in same format
+
+2 Alert database
+  Each alert is recorded by this process after processing and 
+  before sending to the formatter/ distributer.
+ 
+2 Control_flags
+ Global filtering of alerts can be programmed at this level:
+ A .long pattern is set in the control section
+ Byte 0 :
+	Bit		When set
+	0	Do not foward Accounting alerts
+	1	Do not foward Performance alerts
+	2	Do not foward Configuration alerts
+	3	Do not foward Fault alerts
+	4	Do not foward Security alerts
+	5	Do not foward system alerts
+ Byte 1:
+  Any alert below priority set here is not forwarded
+ Byte 2:
+ Not used
+ Byte 3:
+	7		Do not forward any alerts to formatter
+2 ALERT_READ  
+ Routine run when an incoming alert complete waiting QIO.
+ The frame is read from the incoming MBX, validated, logged, formatted 
+ and send to the output MBX
+2 ALERT_LOG
+ Routine to write a binary alert message to the alert log
+3 Input
+	.address of binary alert message
+	.long len of message
+  ** It is assumed that the counters section is mapped and 
+	the secion 1st and last addresses are in COUNTERS_A **
+3 Output
+  The message is written to the log file
+3 Return
+	SS$_NORMAL	OK
+	Any from RMS
+2 ALERT_TIMED  
+ If an alert is recieved with EXP .ne. 0 it is a timed alert. This 
+ means that occasional alert of this type do not consitute a problem.
+ The generator will determine how long (in seconds) between alerts
+ of this type are acceptable and put this number in the alert. This
+ routine scans the current que for a matching alert and if found and not
+ expired, generates the 'real' alert.
+3 Matching
+ A matching alert in this context is when both of:
+	PID
+	NAME	(Boxid)
+ are identical.
+ If a match is found the alert is processed and sent. The priority is 
+ adjused by a constant to ensure a continious event is noticed.
+
+ In all cases the alert is added to the que.
+3 Adding_to_que
+  The que is limited in len (16 by default). In the scan the 1st expired
+ entry is noted and the new alert is added there.
+ If all entries are current, lowest priority event is replaced and this
+ occurence is counted. This count is used to adjust the size of the
+ que on next startup.

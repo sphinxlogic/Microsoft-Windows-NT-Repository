@@ -1,0 +1,2943 @@
+	.TITLE REPORTING  
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications
+; 001 	Deb 1998		PB	Creation		
+;++
+;1 REPORTING  
+; Interactive programme to create and generate reports on the contents of
+; the EMU daabases.
+;
+;2 Inputs  
+;	Files
+;		MAPPER.DAT. EMU paramater file
+;		*.RPT. Previously created report param files
+;       Interactive
+;	Top level menu:
+;	     1. Display: 
+;		Displays currently loaded or created report param file
+;	     2. Load: 
+;		Loads a previously created and saved report param file.
+;		File names are displayed in menu for selection.
+;	     3. Create:
+;		Displays contents of MAPPER.DAT in menus. Paramaters
+;		selected are included in report. If a param is
+;		selected that is already in the report params, it is removed. 
+;            4. Save:
+;		Saves the cuurent report params in a file with type RPT.
+;		The file name is selected by user.
+;	     5. Create report:
+;		Creates a raw report as per report params selected.
+;	     6. Pre-defined reports:
+;		Displays a menu of predefined reports. Selection causes
+;		the selected report to be created
+;
+;2 Output
+; Report param file format:
+;	Field		Siz		Desc
+;	Param		8	The table.param of a param from MAPPER.DAT
+;	Max Size	4	Max size outp field this param
+;	Flags		4	Bit field:
+;				Bit		When set
+;				0	If not present do not include this box
+; Report Format
+;	Comma seperated list of params selected by report params.
+;	Formated such that each line contains 1 instance of each param
+;	selected. If param does not exist or has already been displayed
+;	then blank field is produced.
+;3 Example_output
+;       If a report asking for DECnet address and IP address is requested
+;	and the box has 1 decnet address and 3 IP addresses then the 
+;	following 4 records are written:
+;	DECnet Address,IP Address
+;	50.1,165.47.1.1
+;	,165.47.1.2
+;	,165.47.1.3
+;	,,
+
+;2 Returns
+;	ANY from $RMS
+;--
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+
+	$RMSDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	EMUCTRLDEF
+	EMUSYSDEF
+	EMUDBDEF
+	EMUUIDEF
+	EMUPSRDEF
+	EMURLTDEF
+	EMUIPCDEF
+;
+; TEMP SYMBOLS
+RPT_PRM_C_SECSIZ	= 16		; Pages
+RPT_PRM_C_ITMSIZ 	= 32		; Bytes
+RPT_PRM_L_TBL		= 0
+RPT_PRM_L_PARAM		= 4
+RPT_PRM_L_FLAGS		= 8
+RPT_PRM_L_MAXLEN	= 12
+RPT_PRM_L_PROTID 	= 16
+RPT_SEC_C_MAXID		= 256
+;
+RPT_PRMFLG_V_DEL	= 0		; Rec is deleted
+RPT_PRMFLG_M_DEL	= 1		; Rec is deleted
+RPT_PRMFLG_V_MLS	= 1		; Max len is set
+RPT_PRMFLG_M_MLS	= 2		; Max len is set
+;
+
+RPT_SEC_L_STA          =  0       ; Status of last sea
+RPT_SEC_L_RECCNT       =  4       ; Number of retrieved recs this scan
+; Note the key struc follows _EMUDBDEF
+RPT_SEC_B24_KEY        =  8       ; Location of EMUDB key
+RPT_SEC_L_PROTID       =  8	 ; Pid table belongs to
+RPT_SEC_L_BOXID        =  12	 ; 
+RPT_SEC_L_TBL	       =  16	 ; Table to get from
+RPT_SEC_L_INST	       =  20	 ; 
+RPT_SEC_L_PARAM	       =  24	 ; Param to get 
+RPT_SEC_L_FLAG	       =  28	 ;  
+;
+RPT_SEC_L_LEN          =  32      ; Len of final formatted param
+RPT_SEC_Q_RFA         =  36      ; LAST REC
+RPT_SEC_C_DATA         =  44      ; displayed data here
+RPT_SEC_C_MAXDATA      = 212     ; Max size any single data item
+RPT_SEC_C_SIZE         = 256     ; Size of 1 PID's area
+	.PSECT REPORTING_DATA,WRT,NOEXE,QUAD,pic
+RPTSEC_A:	.QUAD	0
+RPTPRM_A:	.QUAD	0
+INADDR:		.QUAD	0
+TEMPDESC:	.QUAD	0
+TMPFIL:		.BLKB	20
+TMPFILDESC:     .LONG	.-TMPFIL
+		.ADDRESS  TMPFIL
+DBTBL:
+; Ordering in this table is important - the order in which they
+; appear is the order in which the PID was assigned
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 0 = invalid
+		.BLKB	SYS_MAP_C_MAPSIZ        ; = listener (no db)
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN4
+		.LONG	PSR_DN4_W_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN4DB
+		.ADDRESS EMU_PSRDN4
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN5
+		.LONG	PSR_DN5_B20_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN5DB
+		.ADDRESS EMU_PSRDN5
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRSCS
+		.LONG	PSR_SCS_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_SCSDB
+		.ADDRESS EMU_PSRSCS
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRLAT
+		.LONG	PSR_LAT_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_LATDB
+		.ADDRESS EMU_PSRLAT
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIP
+		.LONG	PSR_IP_L_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPDB
+		.ADDRESS EMU_PSRIP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIPX
+		.LONG	PSR_IPX_L_NET
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPXDB
+		.ADDRESS EMU_PSRIPX
+;
+
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 9 = DNS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 10 = DTS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 11 = ARP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRETH
+		.LONG	PSR_ETH_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_ETHDB
+		.ADDRESS EMU_PSRETH
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 13 = unassigned  
+
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRBRD
+		.LONG	PSR_BRD_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_BRDDB
+		.ADDRESS EMU_PSRBRD
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 15 = unassigned  
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 16 = unassigned  
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_NAMER
+		.LONG	NAM_DB_AS_NAME
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_NAMERDB
+		.ADDRESS EMU_NAMER
+
+MAPRELATER:
+                .QUAD	0
+		.LONG	SYS_PID_C_RELATER
+		.LONG	0
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_RELATERDB
+		.ADDRESS EMU_RELATER
+
+DBTBL_DESC:	.LONG 	.-DBTBL
+		.ADDRESS  DBTBL
+
+; Files
+; Report item list
+RPTITMFAB: 
+	$FAB 	FAC = <GET,PUT,UPD>,-	; Access
+		SHR = <GET,PUT,UPD>,-	; Sharing
+		FOP = CTG,-		;Make contiguous
+		DNM = <EMU5_ROOT:[DAT]OUTP.RPTP>		;Def filtype
+RPTITMRAB:	$RAB	FAB = RPTITMFAB		; pointer to FAB
+; Report output file
+
+RPTFAB:	
+		$FAB	FAC = <GET,PUT,DEL>,-        ; Access
+			SHR = <GET,PUT,DEL>,-
+			RAT = <CR>,-
+			MRS = RPTREC_SIZE,-
+			ORG = SEQ,-
+			DNM = <EMU5_ROOT:[RPT]EMU_RPT.RPT>
+RPTRAB:	
+		$RAB	FAB = RPTFAB,-            ; Record 
+			RAC = SEQ,-
+       			RBF = RPTREC,-			; 
+       			UBF = RPTREC,-			; 
+       			USZ = RPTREC_SIZE,-		; 
+       			RSZ = RPTREC_SIZE   		; 
+		
+
+RPTREC:	 .BLKB	1024   
+RPTREC_SIZE = .-RPTREC
+RPTDESC:	.LONG	.-RPTREC
+		.ADDRESS  RPTREC
+
+
+
+	.ALIGN	LONG
+MAPPERFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		FOP = CIF,-			; Create if doesn't exist
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <EMU5_DAT:MAPPER.DAT>,-	; Default Filename 
+		FNM = <MAPPER>,-			; Filename 
+		XAB = MAPPERXAB0                  ; Keys
+
+MAPPERRAB:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = MAPPERREC_BUF,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = MAPPERREC_BUF,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		KBF = MAPPERREC_BUF,-			; Key location
+		KSZ = 8
+
+MAPPERXAB0:	$XABKEY	REF = 0,-  		; TBL,PARAM
+		DTP = BN8,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+		NXT = MAPPERXAB1
+
+MAPPERXAB1:	$XABKEY	REF = 1,-  	; TBL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP,-
+		NXT = MAPPERXAB2
+
+MAPPERXAB2:	$XABKEY	REF = 2,-  	; PARAM
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+;
+MAPPERREC_BUF:	
+MAPPER_KEY:
+MAPPER_TBL:		.LONG	0	; Table 
+MAPPER_PARAM:		.LONG	0	; Paramater
+MAPPER_SEC:		.QUAD	0	; Prives req'ed to detect. VMS sec
+MAPPER_KEYWLEN:		.LONG	0	; Len of following string
+MAPPER_KEYW:		.BLKB	32      ; Standard keyword this param
+MAPPER_FMTTYP:		.LONG	0	; Either len of following or rtn num.
+MAPPER_FMTSTR:		.BLKB	72	; FAO directive str
+
+MAPPERREC_SIZE = .-MAPPERREC_BUF        ; = 128
+PARAMTBL:	.LONG
+	.ALIGN	LONG
+; Temp - intermediate files created on each call. File name is derived from
+; EXE$GL_ABSTIM_TICS so multiple copies of this proc running will not 
+; interfere with each other.
+; Selected params are store here temporarily then report is built from 
+; these files. deleted at end.
+EMUTMP2FAB:	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 768,-                     ; Largest rec
+		RFM = VAR,-			; Variable len
+		GBC = 10,-                      ; Use global buffers
+		DNM = <EMU5_DAT:EMUTMP.TMP2>,-	; Default Filename 
+		FNM = <EMUTMP>,-			; Filename 
+		XAB = EMUTMPXAB0                  ; Keys
+; Read RAB
+EMUTMP2RAB:	$RAB	FAB = EMUTMP2FAB,-		; pointer to FAB
+		RBF = EMUTMPREC_BUF,-		; i/o buffer 
+		RSZ = EMUTMPREC_SIZE,-		; Write this many bytes
+		UBF = EMUTMPREC_BUF,-		; i/o buffer 
+		USZ = EMUTMPREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		ROP = NXT,-
+		KBF = EMUTMPREC_BUF,-
+		KSZ = DB_C_KSZ
+;
+EMUTMPFAB:	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 768,-                     ; Largest rec
+		RFM = VAR,-			; Variable len
+		GBC = 10,-                      ; Use global buffers
+		DNM = <EMU5_DAT:EMUTMP.TMP>,-	; Default Filename 
+		FNM = <EMUTMP>,-			; Filename 
+		XAB = EMUTMPXAB0                  ; Keys
+; Read RAB
+EMUTMPRAB:	$RAB	FAB = EMUTMPFAB,-		; pointer to FAB
+		RBF = EMUTMPREC_BUF,-		; i/o buffer 
+		RSZ = EMUTMPREC_SIZE,-		; Write this many bytes
+		UBF = EMUTMPREC_BUF,-		; i/o buffer 
+		USZ = EMUTMPREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		ROP = NXT,-
+		KBF = EMUTMPREC_BUF,-
+		KSZ = DB_C_KSZ
+;
+EMUTMPXAB0:	$XABKEY	REF = 0,-  		; PROTOCOL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP>,-		; Duplicates, changes allowed
+		NXT = EMUTMPXAB1
+;
+EMUTMPXAB1:	$XABKEY	REF = 1,-  		; BOXID
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUTMPXAB2
+;
+EMUTMPXAB2:	$XABKEY	REF = 2,-  		; TABLE
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 8,-               ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUTMPXAB3
+;
+EMUTMPXAB3:	$XABKEY	REF = 3,-  		; Instance
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 12,-              ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUTMPXAB4
+;
+EMUTMPXAB4:	$XABKEY	REF = 4,-  		; Paramater
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 16,-              ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUTMPXAB5
+;
+EMUTMPXAB5:	$XABKEY	REF = 5,-  	; Protocol,boxid
+		DTP = BN8,-             ; Key = 4 byte binary (ascending)
+		POS = 0,-              ; Key position
+		SIZ = 8,-               ; Key len
+                FLG = <DUP,CHG>,-		; Duplicates, changes allowed
+		NXT = EMUTMPXAB6
+;
+EMUTMPXAB6:	$XABKEY	REF = 6,-  	; Unique param
+		DTP = STG,-             ; String
+		POS = 0,-               ; Key position
+		SIZ = 20,-              ; Key len 
+                FLG = <CHG>,-		; No Duplicates, changes allowed
+		NXT = EMUTMPXAB7
+;
+EMUTMPXAB7:	$XABKEY	REF = 7,-  	; BOXID,TABLE
+		DTP = BN8,-             ; 8 BYTES
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		POS = 4,-               ; Key position
+		SIZ = 8,-                 ; Key len 
+		NXT = EMUTMPXAB8
+;
+EMUTMPXAB8:	$XABKEY	REF = 8,-  	 ; TABLE,PARAM
+		DTP = STG-               ; 8 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = <8,16>-            ; Key position
+		SIZ = <4,4>,-              ; Key len 
+		NXT = EMUTMPXAB9
+;
+EMUTMPXAB9:	$XABKEY	REF = 9,-  	 ; BOXID TABLE,PARAM
+		DTP = STG,-               ; 12 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = <4,8,16>-            ; Key position
+		SIZ = <4,4,4>,-              ; Key len 
+		NXT = EMUTMPXAB10
+
+EMUTMPXAB10:	$XABKEY	REF = 10,-  	 ; Flag field
+		DTP = BN4-               ; 4 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = 20,-            	 ; Key position
+		SIZ = 4,-               	 ; Key len 
+		NXT = EMUTMPXAB11
+
+EMUTMPXAB11:	$XABKEY	REF = 11,-  	 ; box,table,inst,param
+		DTP = STG-               ; 16 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = 4,-            	 ; Key position
+		SIZ = 16               	 ; Key len 
+
+
+EMUTMPREC_BUF:	.BLKB	768		; 
+EMUTMPREC_SIZE = .-EMUTMPREC_BUF
+EMUTMPREC_DESC:   .LONG		EMUTMPREC_SIZE
+		  .ADDRESS	EMUTMPREC_BUF
+
+RECBUF:
+EMUDB_KEYBUF:	.BLKB	DB_C_KSZ 			; 
+RECDAT:		.BLKB	DB_REC_C_MRS-DB_C_KSZ		; 768 (Total)
+RECBUF_DESC:	.LONG	.-RECBUF
+		.ADDRESS  RECBUF
+
+
+; Sort structures
+SORT_KEY:
+	.WORD	3		;key count
+
+	.WORD	DSC$K_DTYPE_LU 		; type
+	.WORD	0	       		; ascending
+	.WORD	DB_REC_L_BOXID		; Offset
+	.WORD	4			; Len
+
+	.WORD	DSC$K_DTYPE_LU 		; type
+	.WORD	0	       		; ascending
+	.WORD	DB_REC_L_TABLE		; Offset
+	.WORD	4			; Len
+
+	.WORD	DSC$K_DTYPE_LU 		; type
+	.WORD	0	       		; ascending
+	.WORD	DB_REC_L_PARAM 		; Offset
+	.WORD	4			; Len
+
+SORT_LRL:	.LONG	DB_REC_C_MRS 	; Max rec size
+SORT_OPT:	.LONG	0 		; None
+SORT_FAC:	.LONG	1000		; Allocation (this is default)
+SORT_CXT:	.LONG	0		; Context
+
+
+;	
+
+; Virtual Display Parameters
+;
+REPORT_DISP:	.LONG		; Virtual Display ID
+REPORT_ROWS: 	.LONG 	0       ; Dynamic
+REPORT_COLS: 	.LONG 	66      ;
+REPORT_DISP2:	.LONG		; Display 2
+REPORT_ROW2:	.LONG 	0       ; Dynamic
+REPORT_COL2:	.LONG  	66      ; Position for DISP2
+REPORT_DISP3:	.LONG		; Display 3
+REPORT_ROW3:	.LONG 	3
+REPORT_COL3:	.LONG	132      ; Position for DISP3
+;
+;
+; Menu Items
+;
+; 
+MENU_STRUCT:
+		.LONG			; Virtual display ID
+KB_BOARD:	.LONG           	; Virtual Keyboard ID
+MSTYPE:		.LONG	SMG$K_VERTICAL	; Menu type   
+MSCNT:		.LONG	0		; Number of items
+MSSIZE:		.LONG	0		; Size of item
+MSFLAG:		.LONG	SUI_MEN_C_CHECK ; Check for privs
+MSPRIV:		.LONG	0               ; addr of priv list
+MSITEMS:	.LONG	0               ; addr of display items
+
+REPORT_MAIN_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	6		; Number of items
+	.LONG	16		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Don't Check for privs
+REPORT_MAIN_PRIVS:	
+	.QUAD	0 		; None Required
+PARAM_SEL_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	0		; Number of items
+	.LONG	48		; Size of item
+	.LONG	SUI_MEN_C_CHECK ; Check for privs
+REPORT_MAIN_ITEMS:
+	.ASCII	/Display_Reports /
+	.ASCII	/Load_Saved_List /
+	.ASCII	/Create_New_list /
+	.ASCII	/Save_Current    /
+	.ASCII	/Create_Report   /
+	.ASCII	/Other_Reports   /
+
+; 
+;Menu Display Characteristics
+;
+M_DCS:		.WORD	48                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+MADDR:		.ADDRESS DYNMEN             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+MSIZE:		.LONG   0		    ; Size of array
+		.LONG	48
+		.LONG 	1		    ; 
+		.LONG	48
+		.LONG 	1		    ; 
+
+MAXDYN_ITEMS = 200
+DYNMEN:		.BLKB	48*MAXDYN_ITEMS		; Dynamic menu items here
+DYNCHOICE:	.BLKQ	MAXDYN_ITEMS            ; Dyn choice index
+; Optional Display Characteristics
+;
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 2
+W3:    		.LONG 3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+CURSON:		.LONG	<SMG$M_CURSOR_ON!SMG$M_SCROLL_JUMP>
+UPCASE:		.LONG	TRM$M_TM_CVTLOW 	;Convert lower to upper case
+DELITM:		.LONG	SMG$M_REMOVE_ITEM       ; Remove selected item from menu
+SAVE_DISP:	.LONG	0		; Saved char
+SCR_WID:	.LONG	132
+SCR_HEIGHT:	.LONG	48
+CURCOL:		.LONG   1
+CURROW:		.LONG   3
+SAVE_ID:	.LONG	0
+REPORT_MAIN_CHOICE: .WORD	0
+SEC_TBL_CHOICE: .WORD	0
+TBL_CHOICE:	.WORD	0
+PRM_CHOICE:	.WORD	0
+CHOICE:		.WORD
+	.ALIGN	LONG
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	5
+PB_COL2:	.LONG	66      ; Position for DISP2
+PB_ROW2:	.LONG 	5
+PB_COL3:	.LONG	1      ; Position for DISP3
+PB_ROW3:	.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+;
+; FAO
+FAOBUF:		.BLKB	132
+FAODESC:
+FAOLEN: 	.LONG		.-FAOBUF
+        	.ADDRESS        FAOBUF
+FAOLIST:	.BLKB	2048		; up to 256 params/line
+TITLELIST:	.BLKB	2048		; Title desc here
+TITLE_STRINGS:	.BLKB	8192            ; Title strings here
+TITLE_STRING_LEN =.-TITLE_STRINGS
+; Section Names
+EMU_RPTPRM:	.ASCID	/EMU_RPTPRM/
+EMU_RPT:	.ASCID	/EMU_RPT/
+; Prompt strings and parameters
+;
+DYNCTLDESC:	.LONG	0
+		.ADDRESS DYNCTLSTR
+DYNCTLSTR:	.BLKQ	256			; Build dyn str here
+DYNITM:		.ASCII	/!AD,/
+EXITMSG:	.ASCII	/Press Return/
+NEWFILEMSG:	.ASCID	/Creating new File .../
+LISTENDMSG:	.ASCID	\ End of list. Any key to Continue\
+FILNAMPRMPT:	.ASCID	/Report Name [<CR> to exit]: /
+PARAMNAMPRMPT:	.ASCID	/Name of param file: /
+;
+CANTRPTMSG:	.ASCID	/ Can't Report on this table. <CR> to continue/
+ITMCNTMSG:	.ASCID	/ Report Paramater File. !UL Items/
+RPTDELCURSTR:	.ASCID	/ Save changes [Y]? /
+RPTDELCNTSTR:	.ASCID	/ DELETED !UL file!%S ... /
+RPTPURGESTR:	.ASCID	/ Purge old versions [N]? /
+RPTPRMRECSTR:	.ASCID	/ !AC !32<!AD!> !XL !XL/
+RPTTITLESTR:	.ASCID	/ !AC !AD/
+FILWRTERR:	.ASCID	/ Could not write file. Error = !XL.../
+FILDELERR:	.ASCID	/ Could not DELETE file. Error = !XL.../
+FILDELSTR:	.ASCID	/ DELETED !AS ... /
+FILRDERR:	.ASCID	/ Could not read file. Error = !XL.../  
+TBL2PIDERR:	.ASCID	/ Error in TBL2PID. <Any Key> to exit /
+XLTPIDERR:	.ASCID	/ Error in XLTPID. <Any Key> to exit /
+RPTDELSTR:	.ASCID	/ Delete [N]?/
+DELERRSTR:	.ASCID	/ Could not delete record. Error = !XL.../  
+MAXLENPRMPT:	.ASCID	/ Maximum output len [None] ? /
+NOITMMSG:	.ASCID	/ Please either create or load a report before creation/
+RPTERRMSG:	.ASCII	/error   /
+STATHDR1:	.ASCID	/      Selected From          Received From         Read from               Lines Written/
+STATHDR:	.ASCID	/    Database (to sort)       Sort (to Temp)      Temp (to Report)           To  Report/
+STATMSG:	.ASCID	\!21<!UL!> !21<!UL/!UL!> !21<!UL/!UL!> !21<!UL!> \
+;
+; Lock Names
+EMU_IPDB:	
+		.ASCID	\EMU_IPDB\            ; Lock name
+EMU_IPXDB:	
+		.ASCID	\EMU_IPXDB\            ; Lock name
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_BRDDB:	
+		.ASCID	\EMU_BRDDB\            ; Lock name
+EMU_SCSDB:	
+		.ASCID	\EMU_SCSDB\            ; Lock name
+EMU_DN5DB:	
+		.ASCID	\EMU_DN5DB\            ; Lock name
+EMU_DN4DB:	
+		.ASCID	\EMU_DN4DB\            ; Lock name
+EMU_LATDB:	
+		.ASCID	\EMU_LATDB\            ; Lock name
+EMU_ETHDB:	
+		.ASCID	\EMU_ETHDB\            ; Lock name
+EMU_NAMERDB:		
+		.ASCID	/EMU_NAMERDB/	; DB Lock name 
+EMU_RELATERDB:		
+		.ASCID	/EMU_RELATERDB/	; DB Lock name 
+; Section names
+EMU_RPTSEC:	.ASCID	/EMU_RPTSEC/
+EMU_RELATER:
+		.ASCID	/EMU_RELATER/
+EMU_PSRIP:
+		.ASCID	/EMU_PSRIP/
+EMU_PSRIPX:
+		.ASCID	/EMU_PSRIPX/
+EMU_PSRMOP:
+		.ASCID	/EMU_PSRMOP/
+EMU_PSRBRD:
+		.ASCID	/EMU_PSRBRD/
+EMU_NAMER:
+		.ASCID	/EMU_NAMER/
+EMU_PSRSCS:	
+		.ASCID	\EMU_PSRSCS\  		; Section name
+EMU_PSRDN5:	
+		.ASCID	\EMU_PSRDN5\  		; Section name
+EMU_PSRDN4:	
+		.ASCID	\EMU_PSRDN4\  		; Section name
+EMU_PSRLAT:	
+		.ASCID	\EMU_PSRLAT\  		; Section name
+EMU_PSRETH:	
+		.ASCID	\EMU_PSRETH\  		; Section name
+RPTFILDEF:	.ASCID  /EMU5_DAT:*.RPTP/
+RPTRESDEF:	.ASCID  /EMU5_RPT:*.RPT;*/
+
+; TPU
+TPU_INFILE:		.ASCII	/EMU5_RPT:/
+TPU_DIRSPEC = .-TPU_INFILE
+TPUFILE:		.BLKB	128
+TPU_INFILE_DESC:	.LONG 	.-TPU_INFILE
+			.ADDRESS  TPU_INFILE
+TPU_OUTFILE_DESC:	.QUAD
+;
+; Misc data areas
+	.ALIGN	LONG
+;
+STATCNT:
+FRMDB:		.LONG	0
+FRMSRT:		.LONG	0
+FRMSRT2:	.LONG	0
+FRMTMP:		.LONG   0
+FRMTMP2:	.LONG   0
+TORPT:		.LONG	0
+RECCNT:		.LONG	0
+PURVER:		.ASCII	/;-1 /		; .long !
+GBLSIZ:		.LONG   0
+RPTITMCNT:	.LONG   0
+RPTMAXITM:	.LONG	0
+OUTINT:		.LONG
+LVL1TBL:	.LONG	^X01000000
+LNCNT:		.LONG	
+BLNCNT:		.LONG	
+PIDNAM:		.LONG
+RPCASE:		.LONG
+RELENTCNT:	.LONG
+PXLTOPT:	.LONG	<DB_XLTOPT_M_NOTRAN!DB_XLTOPT_M_SUPKEW>
+BYTCNT:		.WORD
+
+;
+;	.End data definitions
+;
+	.PSECT REPORTING_CODE,EXE,pic
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING
+;
+; Open file 
+;
+	BSBW	REPORT_CREATE_ENVIRONMENT
+;
+; Display Menu
+10$:
+	MOVAL	MENU_STRUCT,R1
+	MOVAL	REPORT_DISP,SUI_MEN_L_DISPLAY(R1)
+	MOVQ	REPORT_MAIN_MENU,SUI_MEN_L_MTYPE(R1)  		; Type,count
+	MOVQ	REPORT_MAIN_MENU+8,SUI_MEN_L_ITEMSIZ(R1)       ; Size,check flag
+	MOVAL	REPORT_MAIN_PRIVS,SUI_MEN_L_PRIVLST(R1)        ; privs
+	MOVAL	REPORT_MAIN_ITEMS,SUI_MEN_L_MENU(R1)        	; Display items
+; Make menu
+	CLRW	REPORT_MAIN_CHOICE
+	PUSHAL	REPORT_MAIN_CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBS	R0,90$				; Assume any error = ^Z
+
+	PUSHAL	REPORT_DISP                        ; EXIT
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	REPORT_DISP2
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	REPORT_DISP3
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	RET
+90$:
+
+	CASEW	REPORT_MAIN_CHOICE,#1,#5
+100$:
+	.WORD	101$-100$
+	.WORD	102$-100$
+	.WORD	103$-100$
+	.WORD	104$-100$
+	.WORD	105$-100$
+	.WORD	106$-100$
+	RET
+101$:
+	CALLS	#0,G^REPORTING_DISPLAY_REPORT
+	BRW	10$
+102$:
+	CALLS	#0,G^REPORTING_LOAD
+	BRW	10$
+103$:
+	CALLS	#0,G^REPORTING_CREATE_NEW
+	BRW	10$
+104$:
+	CALLS	#0,G^REPORTING_SAVE
+	BRW	10$
+105$:
+	CALLS	#0,G^REPORTING_CREATE_REPORT
+	BRW	10$
+106$:
+	CALLS	#0,G^REPORTING_PREDEF
+	BRW	10$
+;
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_GETRSPACE 
+;++
+;3 REPORTING_GETRSPACE 
+;  Create section of size RPT_SEC_C_SIZE(256 Bytes) * RPTITMCNT to store 
+;  results of paramater retrievals. 1 instance of each param that 
+;  exists for the current boxid is stored here. 
+;  Init the section with params from PRM section.
+; Also init the dynamic control string with 1x '!AD,' per item
+
+;4 Inputs
+;	None
+;4 Outputs
+; The reporting secion is created and initalized.
+;4 Returns
+;  Any from  SYS$EXPREG, SYS$CRMPSC
+;-- 
+; Get mem and init section
+
+	MULL3	RPTITMCNT,#RPT_SEC_C_SIZE,GBLSIZ   ; Size in bytes
+	DIVL	#512,GBLSIZ				     ; Pages
+	INCL	GBLSIZ					     ; Round up
+; Get Memory
+	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR			; returned address
+	PUSHL	GBLSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BLBS	R0,110$
+	RET
+; map section	
+110$:
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	GBLSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	EMU_RPT			; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	RPTSEC_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	BLBS	R0,120$
+	RET
+120$:
+200$:
+; init section. For each entry in RPTPRM_A copy the tbl.param.pid to the 
+; correct place in the RPTSEC just created.
+	MOVL	RPTPRM_A,R6
+	MOVL	RPTSEC_A,R7
+        MOVL	RPTITMCNT,R11		; Number of items
+210$:
+	MOVL	RPT_PRM_L_TBL(R6),RPT_SEC_L_TBL(R7)
+	MOVL	RPT_PRM_L_PARAM(R6),RPT_SEC_L_PARAM(R7)
+	MOVL	RPT_PRM_L_PROTID(R6),RPT_SEC_L_PROTID(R7)
+        ADDL	#RPT_PRM_C_ITMSIZ,R6
+	ADDL	#RPT_SEC_C_SIZE,R7
+	SOBGTR	R11,210$
+; Control string
+; This string is what translated each record, There is 1 '!AD,' per param.
+; processing builds a list of params and formats it though $FAO such that
+; any missing param produces ',' and any present produce 'xxxx,'
+	MOVAL	DYNCTLSTR,R6
+	MOVL	RPTITMCNT,R11
+300$:
+	MOVL	DYNITM,(R6)+
+	SOBGTR	R11,300$
+	MULL3	RPTITMCNT,#4,DYNCTLDESC		; Set len
+
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_GETPSPACE 
+;++
+;3 REPORTING_GETPSPACE 
+;  Create section of size RPT_PRM_SECSIZ (16 pages) to store selected params
+;  Format is same as for report param file. If saved, this section is 
+; written to file.
+;4 Inputs
+;	None
+;4 Outputs
+;	Max items is calculated and written
+;	Current items is cleared
+;4 Returns
+;  Any from  SYS$EXPREG, SYS$CRMPSC
+;-- 
+
+; Get mem for param storage.
+
+	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR			; returned address
+	PUSHL	#RPT_PRM_C_SECSIZ       ; no. of pages
+ 	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BLBS	R0,10$
+	RET
+10$:
+; map section	
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	#RPT_PRM_C_SECSIZ       ; no. of pages
+ 	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	EMU_RPTPRM			; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	RPTPRM_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	BLBS	R0,20$
+	RET
+20$:
+	MULL3	#512,#RPT_PRM_C_SECSIZ,R1
+	DIVL3	#RPT_PRM_C_ITMSIZ,R1,RPTMAXITM  	; Max entries
+        CLRL	RPTITMCNT				; None yet
+	MOVL	#SS$_NORMAL,R0
+	RET
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_DISPLAY
+;++
+;3 REPORTING_DISPLAY
+;  Displays the current report param file in the right screen as:
+;   Protocol	ParamName  Flags	Spare
+;--
+	PUSHAL	REPORT_DISP2
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+
+	MOVL	#132,FAODESC
+	PUSHL	RPTITMCNT
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	ITMCNTMSG
+	CALLS	#4,G^SYS$FAO
+
+	PUSHAL	FAODESC
+        PUSHAL	REPORT_DISP2
+	CALLS	#2,G^SMG$PUT_LINE
+
+	MOVL	RPTITMCNT,R11		; Any items to display?
+	BNEQ	10$                    ; Br if some
+	MOVL	#SS$_NORMAL,R0
+	RET
+10$:
+        TSTW	MAPPERFAB+FAB$W_IFI     ; File open?
+	BNEQ    30$                    	; Br if so
+	$OPEN	FAB = MAPPERFAB		; Open input file
+	BLBS	R0,20$
+	RET
+20$:
+ 	$CONNECT RAB = MAPPERRAB		;Connect input stream
+	BLBS	R0,30$
+	RET
+30$:
+	MOVL	RPTPRM_A,R6			; top of table
+	CLRL	MAPPERRAB+RAB$L_ROP		; No Options
+	BISL	#RAB$M_RRL,MAPPERRAB+RAB$L_ROP	; Read if locked
+        MOVB	#8,MAPPERRAB+RAB$B_KSZ
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC  ; Keyed lookup
+	CLRB	MAPPERRAB+RAB$B_KRF                 	
+	MOVL	RPTPRM_A,R6			; Top of param list
+	MOVL	RPTITMCNT,R11			; Count of items
+130$:	
+	BBC	#RPT_PRMFLG_V_DEL,RPT_PRM_L_FLAGS(R6),135$ ; Br if not deleted
+	ADDL	#RPT_PRM_C_ITMSIZ,R6
+	BRB	130$
+135$:	
+	MOVQ	(R6),MAPPER_KEY
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,140$
+	RET					; Should never happen!
+
+140$:
+; xlate pid
+	PUSHAL	PIDNAM			; outp
+	PUSHL	RPT_PRM_L_PROTID(R6)	; Pid 
+	CALLS	#2,G^XLATE_PSRID
+	BLBS	R0,145$
+;
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_DISP2
+	PUSHAL	XLTPIDERR 
+	CALLS	#3,G^RPT_READ_PROMPT
+	RET
+145$:
+; Print this param
+	MOVAL	MAPPERREC_BUF,R7
+	MOVL	#132,FAODESC
+	PUSHL	RPT_PRM_L_MAXLEN(R6)
+	PUSHL	RPT_PRM_L_FLAGS(R6)
+	ADDL3	R7,#DB_MAP_A64_KEYW,-(SP)
+	PUSHL	DB_MAP_L_KEYWLEN(R7)		; Table LEN
+	PUSHAL	PIDNAM
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RPTPRMRECSTR
+	CALLS	#8,G^SYS$FAO
+	BLBS	R0,150$
+150$:
+	PUSHAL	FAODESC
+        PUSHAL	REPORT_DISP2
+	CALLS	#2,G^SMG$PUT_LINE
+160$:
+	ADDL	#RPT_PRM_C_ITMSIZ,R6
+	SOBGTR	R11,170$
+;
+	MOVL	#SS$_NORMAL,R0
+	RET
+170$:
+	BRW	130$
+
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_WRITE_TITLES
+;++
+;3 REPORTING_WRITE_TITLES
+;  Formats param file items into titles used in report as :
+;  ' Protocol ParamName'
+;   There is 1 title /entry. The pointers (len and addr) are held in
+;   titlelist, and the translated strings in title_strings. This routine
+;   builds these areas and the caller may then simply print them any number
+;   of times therafter.
+;4  Input
+;   No params passed in. All I/O is hardcoded in this routine.
+;   Areas Used:
+;   report param section
+;   MAPPER.dat 
+;4 Output
+;  The titles are translated into TITLES_STRINGS, and the pointers are
+;  held in TITLELIST. Passing TITLLIST and the dynamic control string
+;  build in GETRSPACE will produce 1 line of comma seperated titles.
+;4 Returns
+;  Any from $RMS, $FAO
+;--
+
+	MOVL	RPTITMCNT,R11		; Any items to display?
+	BNEQ	10$                    ; Br if some
+	MOVL	#SS$_NORMAL,R0
+	RET
+10$:
+        TSTW	MAPPERFAB+FAB$W_IFI     ; File open?
+	BNEQ    30$                    	; Br if so
+	$OPEN	FAB = MAPPERFAB		; Open input file
+	BLBS	R0,20$
+	RET
+20$:
+ 	$CONNECT RAB = MAPPERRAB		;Connect input stream
+	BLBS	R0,30$
+	RET
+30$:
+	MOVAL	TITLELIST,R8			; Pointers here
+	MOVAL	TITLE_STRINGS,R9		; Strings
+	MOVL	#TITLE_STRING_LEN,R10		; Max outp space
+
+	MOVL	RPTPRM_A,R6			; top of table
+	CLRL	MAPPERRAB+RAB$L_ROP		; No Options
+	BISL	#RAB$M_RRL,MAPPERRAB+RAB$L_ROP	; Read if locked
+        MOVB	#8,MAPPERRAB+RAB$B_KSZ
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC  ; Keyed lookup
+	CLRB	MAPPERRAB+RAB$B_KRF                 	
+	MOVL	RPTPRM_A,R6			; Top of param list
+	MOVL	RPTITMCNT,R11			; Count of items
+130$:	
+	BBC	#RPT_PRMFLG_V_DEL,RPT_PRM_L_FLAGS(R6),135$ ; Br if not deleted
+	ADDL	#RPT_PRM_C_ITMSIZ,R6
+	BRB	130$
+135$:	
+	MOVQ	(R6),MAPPER_KEY
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,140$
+	RET					; Should never happen!
+
+140$:
+; xlate pid
+	PUSHAL	PIDNAM			; outp
+	PUSHL	RPT_PRM_L_PROTID(R6)	; Pid 
+	CALLS	#2,G^XLATE_PSRID
+	BLBS	R0,145$
+;
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_DISP2
+	PUSHAL	XLTPIDERR 
+	CALLS	#3,G^RPT_READ_PROMPT
+	RET
+145$:
+; Print this param
+; Set up outp desc
+	MOVL	R10,(R8)		; Len
+	MOVL	R9,4(R8)
+
+	MOVAL	MAPPERREC_BUF,R7
+	MOVL	#132,FAODESC
+	PUSHL	RPT_PRM_L_MAXLEN(R6)
+	PUSHL	RPT_PRM_L_FLAGS(R6)
+	ADDL3	R7,#DB_MAP_A64_KEYW,-(SP)
+	PUSHL	DB_MAP_L_KEYWLEN(R7)		; Table LEN
+	PUSHAL	PIDNAM
+	PUSHL	R8
+	PUSHL	R8
+	PUSHAL	RPTTITLESTR
+	CALLS	#8,G^SYS$FAO
+	BLBS	R0,150$
+150$:
+; Adjust pointers
+	SUBL	(R8),R10		; Len left
+	ADDL	(R8),R9                 ; Next string here
+	ADDL	#8,R8			; Next pointer here
+	
+
+160$:
+	ADDL	#RPT_PRM_C_ITMSIZ,R6
+	SOBGTR	R11,170$
+;
+	MOVL	#SS$_NORMAL,R0
+	RET
+170$:
+	BRW	130$
+
+
+
+
+
+
+
+
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_DISPLAY_REPORT
+;++
+;3 REPORTING_DISPLAY_REPORT
+; A menu containing all previously CREATED reports is displayed. Any item
+; selected causes that report to be displayed in the TPU editor.
+;4 Inputs
+;  	None
+;4 Outputs
+;  A new version of the selected report is always created. At edit exit
+; user may purge all previous versions.
+;4 Returns
+;  SS$_NORMAL
+;--
+; Display all saved files in menu. If any selected open file and 
+; load contents into report param area. 
+	MULL3	#MAXDYN_ITEMS,#32,TEMPDESC	; Size of array
+	MOVAL	DYNMEN,TEMPDESC+4			; Addr
+
+        CLRL	-(SP)                   ; Full file name
+	PUSHL	#32			; Return 32 char/file
+	PUSHAL	RPTITMCNT		; Number of files
+	PUSHAL	TEMPDESC		; Array pointer
+	PUSHAL	RPTRESDEF		; type desc
+	CALLS	#5,G^FILELIST
+	BLBS	R0,210$
+
+; Create menu
+210$:
+	MOVAL	DYNMEN,MADDR		; Menu location
+	MOVW	#32,M_DCS		; SIze of items
+	MULL3	#32,RPTITMCNT,MSIZE              ; Total size
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	REPORT_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BLBS	R0,220$
+	RET
+220$:
+	PUSHAL	CHOICE
+	PUSHAL	REPORT_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,230$
+	CLRL    RPTITMCNT
+	RET
+230$:
+	MOVZWL	CHOICE,R11
+	DECL	R11
+	MULL	#32,R11		; Offset
+	MOVAL	DYNMEN,R6	;
+	ADDL	R11,R6		; Location of string
+	LOCC	#^A/ /,#32,(R6)
+	TSTL	R0
+	BNEQ	240$
+	RET				; ERROR
+240$:
+; InFile is the full file (with version)
+; Outfile is same without version
+	SUBL3	R6,R1,R7		
+	MOVC3	R7,(R6),TPUFILE			; Move name
+        ADDL3	#TPU_DIRSPEC,R7,TPU_INFILE_DESC	; SET SIZE
+	MOVQ	TPU_INFILE_DESC,TPU_OUTFILE_DESC
+	LOCC	#^A/;/,#32,(R6)         	; Find version
+	SUBL3	R6,R1,TPU_OUTFILE_DESC
+        ADDL	#TPU_DIRSPEC,TPU_OUTFILE_DESC	; SET SIZE
+
+
+
+        PUSHAL	SAVE_ID
+	PUSHAL	PB_BOARD
+	CALLS	#2,G^SMG$SAVE_PHYSICAL_SCREEN
+
+	PUSHAL	CURSON                    	; Cursor on
+	PUSHAL	PB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+
+
+	PUSHAL	TPU_OUTFILE_DESC 
+	PUSHAL	TPU_INFILE_DESC
+	CALLS	#2,G^TPU$EDIT
+
+        PUSHAL	SAVE_ID
+	PUSHAL	PB_BOARD
+	CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN
+
+	PUSHAL	CURSOR_FLAGS                    	; Cursor off
+	PUSHAL	PB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+; A new file is always created - the call to TPU always sets the buffer as 
+; modified. Unless the user 'quits' out, a new version is created.
+; Ask user if changes are to be saved (def = yes)
+; If no then delete current version
+; If yes ask if files should be purged (def = no)
+; If yes then delete ;-1 version until no more
+	PUSHL	#TRM$M_TM_CVTLOW
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_DISP
+	PUSHAL	RPTDELCURSTR 
+	CALLS	#4,G^RPT_READ_PROMPT
+	BLBS	R0,300$
+	RET
+300$:
+	TSTW	BYTCNT
+	BEQL	304$
+	CMPB	KB_BUF,#^A/N/
+	BEQLU	305$
+304$:
+	BRW	350$
+; delete current version
+305$:
+	MOVQ	TPU_OUTFILE_DESC,R6             ; r6 = ln, r7 = addr
+	MOVB	#^A/;/,(R7)[R6]
+	MOVL	R7,RPTFAB+FAB$L_FNA             ; File name
+	ADDB3	#1,R6,RPTFAB+FAB$B_FNS          ; File name size
+	$ERASE	FAB=RPTFAB
+	BLBS	R0,320$
+
+	MOVL	#132,FAODESC
+	PUSHL	R0
+        PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	FILDELERR
+	CALLS	#4,G^SYS$FAO
+	BLBS	R0,310$
+	RET
+310$:
+
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_DISP
+	PUSHAL	FAODESC 
+	CALLS	#3,G^RPT_READ_PROMPT
+	RET
+320$:
+	MOVL	#132,FAODESC
+	PUSHAL	TPU_OUTFILE_DESC
+        PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	FILDELSTR
+	CALLS	#4,G^SYS$FAO
+	BLBS	R0,330$
+	RET
+330$:
+
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_DISP
+	PUSHAL	FAODESC 
+	CALLS	#3,G^RPT_READ_PROMPT
+	RET
+350$:
+	PUSHL	#TRM$M_TM_CVTLOW
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_DISP
+	PUSHAL	RPTPURGESTR 
+	CALLS	#4,G^RPT_READ_PROMPT
+	BLBS	R0,360$
+	RET
+360$:
+	TSTW	BYTCNT
+	BEQL	370$
+	CMPB	KB_BUF,#^A/Y/
+	BEQLU	380$
+370$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+380$:
+
+; delete all -1 versions
+	MOVQ	TPU_OUTFILE_DESC,R6             ; r6 = ln, r7 = addr
+	ADDL3	R6,R7,R8
+	MOVL	PURVER,(R8)			; Set version to ;-1
+	MOVL	R7,RPTFAB+FAB$L_FNA             ; File name
+	ADDB3	#3,R6,RPTFAB+FAB$B_FNS          ; File name size
+	CLRL	R9				; Delete count
+390$:
+	$ERASE	FAB=RPTFAB
+	BLBC	R0,400$
+	INCL	R9
+	BRB	390$
+
+
+400$:
+	MOVL	#132,FAODESC
+	PUSHL	R9
+        PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RPTDELCNTSTR
+	CALLS	#4,G^SYS$FAO
+	BLBS	R0,410$
+	RET
+410$:
+
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_DISP
+	PUSHAL	FAODESC 
+	CALLS	#3,G^RPT_READ_PROMPT
+	RET
+
+
+
+	.CALL_ENTRY	MAX_ARGS=5, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=RPT_READ_PROMPT 
+
+
+;2 RPT_READ_PROMPT
+; Displays the prompt specified by the input on the specified 
+; display, waits for user input and returns the input in KB_BUF.
+;	
+;3 Input
+;	P1. address of desc pointing to ascii string to display
+;	P2. address of display
+;	P3. address of bytcnt, where READ_STRING writes the count 
+;	    of user input bytes.
+;	P4. address of case flag. Optional. May be 1 of:
+;		0		Not uppercased
+;		TRM$M_TM_CVTLOW Uppercased
+;	P5. Address of desc pointing to where READ_STRING 
+;	    places the user input. If not present input is 
+;	    placed in KB_BUF
+;3 Output
+;	The prompt is displayed on the specified display
+;	Any user input is returned in KB_BUF
+;
+;3 Return
+;	Any return from SMG$READ_STRING
+;--
+		MOVL	#TRM$M_TM_CVTLOW,RPCASE	; Set def		
+		MOVAL	KB_DES,R6		; Set def outp
+		CMPL	#4,(AP)                  ; Present?
+		BGTR	20$			; No options
+		MOVL	16(AP),RPCASE		; Set case
+;
+		CMPL	#5,(AP)                  ; Present?
+		BNEQ	20$			; Br if not
+		MOVL	20(AP),R6               ; Set oupt
+20$:
+		PUSHL	8(AP)                   ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	12(AP)                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	RPCASE                  ; Case 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	4(AP)                 	; Output DSC
+		PUSHL	R6                      ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		RET                             ; Any error handled by caller
+		  
+
+
+
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_CREATE_NEW 
+;++
+;3 REPORTING_CREATE_NEW
+;  Create new report param file. Params are selected from menu and added
+; to the section. The section can be saved using REPORTING_SAVE.
+;4 Inputs
+;	None
+;4 Outputs
+;	RPTPRM section is cleared at begin and selectied items are then added
+;	Current items is cleared then incermented for each add
+;	If existing item is selected again, option to modify or delete
+;	is offered
+;4 Returns
+;  Any from  SYS$EXPREG, SYS$CRMPSC
+;-- 
+	TSTL	RPTPRM_A
+	BNEQ	100$
+	CALLS	#0,G^REPORTING_GETPSPACE
+	BLBS	R0,100$
+	RET
+100$:
+	CLRL	RPTITMCNT
+
+110$:
+; Get the table to list
+	PUSHAL	PARAMTBL
+	CALLS	#1,G^REPORTING_GETTABLE
+	BLBS	R0,200$
+	RET
+200$:
+; Got table. 
+
+; Get params and put in menu
+; As the table came from MAPPER is is safe to ASSUME it is open
+;
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC
+	MOVB 	#1,MAPPERRAB+RAB$B_KRF
+	MOVB 	#4,MAPPERRAB+RAB$B_KSZ
+	MOVAL	MAPPERREC_BUF,R6                      ; Key (rec) buf
+	MOVL	PARAMTBL,DB_MAP_L_TBL(R6)             ; Set tabl
+        CLRL	R11
+	MOVAL	DYNCHOICE,R8
+	MOVAL	DYNMEN,R7   			; Menu items
+
+220$:
+	$GET	RAB=MAPPERRAB
+    	BLBS	R0,230$
+	BRW	300$
+230$:
+; Place index in choice tbl, string in menu.
+	CMPL	PARAMTBL,DB_MAP_L_TBL(R6)
+	BEQLU	235$
+	BRW	300$
+235$:
+; Check if too many items
+	INCL	R11
+	CMPL	R11,#MAXDYN_ITEMS
+	BLEQ	240$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+240$:
+	MOVC5	DB_MAP_L_KEYWLEN(R6),DB_MAP_A64_KEYW(R6),#^A/ /,#48,(R7)
+	ADDL	#48,R7
+	MOVQ	(R6),(R8)+
+	CMPL	#1,R11
+	BNEQ	220$
+; Change to seq access on 2nd and subsequent reads
+	MOVB 	#RAB$C_SEQ,MAPPERRAB+RAB$B_RAC
+	BRW	220$
+300$:
+; Calc menu size
+	MULL	#48,R11
+	BNEQ	305$
+; If recs for this table are not in MAPPER then inform user - can't report
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_DISP2
+	PUSHAL	CANTRPTMSG 
+	CALLS	#3,G^RPT_READ_PROMPT
+	BRW	110$
+305$:
+	MOVW	#48,M_DCS			; Item size
+	MOVAL	DYNMEN,MADDR
+	MOVL	R11,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	BSBW	RPT_ERROR_CHK
+310$:
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	REPORT_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	RPT_ERROR_CHK
+	PUSHAL	PRM_CHOICE
+	PUSHAL	PRM_CHOICE
+	PUSHAL	REPORT_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#4,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,320$			; Assume any error = eof
+	BRW	110$
+320$:
+	MOVZWL	PRM_CHOICE,R1
+	DECL	R1
+	MOVAL	DYNCHOICE,R8                    ; Index
+	MULL	#8,R1
+	ADDL	R1,R8
+; Process the selected param
+	PUSHL	R8				; Addr of param
+	CALLS	#1,G^REPORTING_PROC_PARAM	; Do it
+	BRW	310$
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_PROC_PARAM 
+;++
+;3 REPORTING_PROC_PARAM
+;  Process a selected paramater into the report pram list. 
+;  Possible actions:
+;	Param is not in list - add it
+;	Param is in list - delete it. 
+;4 Inputs
+;	.address of .quad tbl.param
+;4 Outputs
+;	report param list section may be modified
+;4 Returns
+;-- 
+	MOVL	4(AP),R8		; Param
+	MOVL	RPTPRM_A,R6		; List
+	MOVL	RPTITMCNT,R11		; Items
+	BEQL	220$			; Br if none
+	CLRL	R10			; Save deleted space here
+100$:
+	BBC	#RPT_PRMFLG_V_DEL,8(R6),110$	; Br if not deleted
+	MOVL	R6,R10				; Save deleted space
+	ADDL	#RPT_PRM_C_ITMSIZ,R6
+	BRB	100$
+110$:
+	CMPL	(R6),(R8)
+	BNEQU	120$
+	CMPL	4(R6),4(R8)
+	BEQLU	300$
+
+120$:
+	ADDL	#RPT_PRM_C_ITMSIZ,R6
+	SOBGTR	R11,100$
+	BRW	200$
+
+200$:
+; Item does not exist - add it
+	TSTL	R10			; Deleted space?
+	BEQL	210$
+	MOVL	R10,R6			; Replace with deleted
+210$:
+	CMPL	RPTITMCNT,RPTMAXITM
+	BLSSU	220$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+220$:
+	INCL	RPTITMCNT		; Items
+	MOVQ	(R8),(R6)
+	CLRQ	RPT_PRM_L_FLAGS(R6)     ; Clear opts
+;Get associated pid and store it.
+             
+	ADDL3	#RPT_PRM_L_PROTID,R6,-(SP)
+	PUSHL	(R8)
+	CALLS	#2,G^XLATE_TBL2PID
+	BLBS	R0,230$
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_DISP2
+	PUSHAL	TBL2PIDERR 
+	CALLS	#3,G^RPT_READ_PROMPT
+	RET
+230$:
+
+	CALLS	#0,G^REPORTING_DISPLAY
+	RET
+
+300$:
+; Item exists - Ask user for modifications/delete
+;	PUSHAL	BYTCNT
+;	PUSHAL	REPORT_DISP2
+;	PUSHAL	MAXLENPRMPT 
+;	CALLS	#3,G^RPT_READ_PROMPT
+;	BLBS	R0,310$
+;	BRW	400$
+;310$:
+;	TSTW	BYTCNT
+;	BEQL	320$
+;	CVTWL	BYTCNT,KB_DES		; Reset Len
+;
+;	ADDL3	RPT_PRM_L_MAXLEN,R6,-(SP) ; Output
+;	PUSHAL	KB_DES			; Input
+;	CALLS	#2,G^OTS$CVT_TU_L	; Convert to Bin
+;	MOVL	#80,KB_DES		; Rest Len
+;	BLBC	R0,300$			; On error try again
+;	BISL	#RPT_PRMFLG_M_MLS,RPT_PRM_L_FLAGS(R6)    ; Signal set
+;320$:
+;	PUSHL	#TRM$M_TM_CVTLOW			; Uppercase
+;	PUSHAL	BYTCNT
+;	PUSHAL	REPORT_DISP2
+;	PUSHAL	RPTDELSTR
+;	CALLS	#4,G^RPT_READ_PROMPT
+;	BLBS	R0,330$
+;	BRW	400$
+;330$:
+;	TSTW	BYTCNT
+;	BEQL	340$
+;        CMPB	#^A/Y/,KB_BUF
+;	BNEQ	340$
+	BISL	#RPT_PRMFLG_M_DEL,RPT_PRM_L_FLAGS(R6)    ; delete
+        DECL	RPTITMCNT
+340$:
+400$:
+	CALLS	#0,G^REPORTING_DISPLAY
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_CREATE_REPORT 
+;++
+;3 REPORTING_CREATE_REPORT
+;  Create report from report param file. 
+;4 Inputs
+;	Report param file curently in memory. Must have been previously
+;	created or loaded.
+;4 Outputs
+;	Report file is created. Format is 1 instance per param per rec as
+;	comma seperated list.
+;4 Description
+;  	A temporary file is created and populated with all params
+;	selected from EMUDB. This file is the same format as EMUDB.
+;	The temp file is then processed. Purpose here is to force
+;	final param selection to follow EMUDB sort order. 
+; Each databse is probed and for each response, the corresponding field is
+; is formatted and filled in. If no response, the field is blanked.
+; Once all fields are written, the record is stored. If all fields are
+; blank, the next BOX is processed. The resulting display (in Excel) 
+; should look something like:
+; 
+;  DECnet IV|DECnet V   |SCS Address|SCS Name|Lan Address | IP Addr |Name
+;    1.1     49:00 ...   08-00-2b... CCCIx    08-00-2b...   1.2.3.4  CCCI4
+;            49:01 ...                        AA-00-04...   1.2.3.5  ccci4.com
+;							    1.2.3.6
+;							    1.2.3.7
+;         ---- blank rec ----------
+;    1.2     49:00 ...   08-00-2b... CCCIx    08-00-2b...            CCCI2
+;            49:01 ...                        AA-00-04...            CCCI2
+; The intended result is that all known values are present and can be 
+; futher formatted  easily.
+
+;4 Returns
+;  Any from  SYS$EXPREG, SYS$CRMPSC
+;-- 
+	PUSHAL	REPORT_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	PUSHAL	REPORT_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+
+	TSTL	RPTITMCNT
+	BNEQ	10$
+
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_DISP2
+	PUSHAL	NOITMMSG
+	CALLS	#3,G^RPT_READ_PROMPT
+10$:
+; Set up counts
+	PUSHL	#1 				; Init stats
+	CALLS	#1,G^REPORTING_DISPSTATS
+; Get mem
+	CALLS	#0,G^REPORTING_GETRSPACE
+	BLBS	R0,20$
+	RET
+20$:
+; Get file name
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_DISP
+	PUSHAL	FILNAMPRMPT
+	CALLS	#3,G^RPT_READ_PROMPT
+	BLBC	R0,20$			; Repeat on error
+	TSTW	BYTCNT			; Any input?
+	BNEQ	40$ 			; Br if some
+	BRW	1000$                   ; exit if none
+40$:
+	MOVAL	KB_BUF,RPTFAB+FAB$L_FNA
+	MOVB	BYTCNT,RPTFAB+FAB$B_FNS
+
+; Create file 
+	$CREATE	FAB=RPTFAB
+	BLBS	R0,50$
+	BRW	1000$
+50$:
+	$CONNECT RAB=RPTRAB
+	BLBS	R0,60$
+	BRW	1000$
+60$:
+	CALLS	#0,G^REPORTING_MAKETEMPFILE
+	BLBS	R0,70$
+	BRW	1000$
+70$:
+
+
+140$:
+; Write titles
+	CALLS	#0,G^REPORTING_WRITE_TITLES	; Sets up title strings
+
+	MOVL	#1024,RPTDESC			; Max size
+	PUSHAL	TITLELIST
+	PUSHAL	RPTDESC
+	PUSHAL	RPTDESC
+	PUSHAL	DYNCTLDESC
+	CALLS	#4,G^SYS$FAOL
+	BLBS	R0,145$
+	BRW	1000$
+145$:
+	MOVW	RPTDESC,RPTRAB+RAB$W_RSZ
+	$PUT	RAB=RPTRAB
+	BLBS	R0,150$
+	BRW	1000$
+	
+150$:	
+; Open temp file
+        MOVB	#DB_REC_KEY_BX_TAB_PAR,EMUTMPRAB+RAB$B_KRF
+
+	$OPEN	FAB=EMUTMP2FAB
+	BLBS	R0,155$
+	BRW	1000$
+155$:
+	$OPEN	FAB=EMUTMPFAB
+	BLBS	R0,160$
+	BRW	1000$
+160$:
+	$CONNECT RAB=EMUTMP2RAB
+	BLBS	R0,165$
+	BRW	1000$
+165$:
+	$CONNECT RAB=EMUTMPRAB
+	BLBS	R0,170$
+	BRW	1000$
+170$:
+
+200$:
+; Map all sections. Any section unavailable will not be represented in the 
+; final report. 
+
+	PUSHAL	DBTBL_DESC
+	CALLS	#1,MAP_ALL_DB
+
+210$:
+	MOVAL	MAPRELATER,R6			; 
+	MOVL	SUI_QRY_Q_DBASE(R6),R9		; Top of table
+	MOVL	COM_DBHDR_L_ENTRIES(R9),RELENTCNT	; Entries
+	BNEQ	220$				; br if Some
+	CLRL	R1				; No pointer
+	MOVL	#SS$_ITEMNOTFOUND,R0		; 
+	BRW	1000$				; Clear up and exit
+220$:
+; R6 = Current relater rec
+; R8 = relater entries remaining
+	ADDL3	#RLT_C_RECSIZE,R9,R6                	; 1st entry
+300$:
+; Here at start of new rec
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),320$ ; Br if not deleted
+310$:
+	ADDL	#RLT_C_RECSIZE,R6				; Next entry
+	SOBGTR	RELENTCNT,300$
+	MOVL	#SS$_NORMAL,R0
+	BRW	1000$				; Clear up and exit
+320$:
+; R6 = Current relater rec
+; R7 = relater rec size
+; R8 = relater entries remaining
+; R9
+; R10 = CURRENT RPT structure
+; R11 = Items left to process
+	MOVL	RPTSEC_A,R10
+	MOVL	RPTITMCNT,R11
+330$:
+; Init all fields
+	CLRL	RPT_SEC_L_STA(R10)		; Init Status
+	CLRL	RPT_SEC_L_RECCNT(R10)		; No recs
+	CLRL	RPT_SEC_L_INST(R10)		; No instance
+	CLRL	RPT_SEC_L_FLAG(R10)		; No flag
+	CLRL	RPT_SEC_L_LEN(R10)		; No data
+        ADDL	#RPT_SEC_C_SIZE,R10		; Next 
+        SOBGTR	R11,330$       			; Loop for all
+; 
+	ADDL3	#RLT_DB_TL_BOXIDS,R6,R7         ; BOXID Table
+
+
+400$:
+; Scan down RPTSEC and for each param check if this box has a 
+; boxid in PID location sepecified by RPT_SEC_L_PROTID;
+; That is to say - does this box run this protocol?
+;
+	MOVL	RPTSEC_A,R10
+	MOVL	RPTITMCNT,R11		; Loop control
+410$:
+	MOVL	RPT_SEC_L_PROTID(R10),R9
+	TSTL	(R7)[R9]		; BOXID here?
+	BNEQ	430$			; Br if present
+
+420$:
+        ADDL	#RPT_SEC_C_SIZE,R10		; Next 
+	SOBGTR	R11,410$
+	BRW	500$				; Finished this Scan
+430$:
+; Get next rec this box,tbl,param. If current status is SUCCESS 
+; or INIT (0) then there may be more items. If not - skip.
+	TSTL	RPT_SEC_L_STA(R10)
+	BEQL	435$				; BR  if INIT
+	BLBC	RPT_SEC_L_STA(R10),420$		; Br if not good
+435$:
+; Set boxid. The tbl.param has been set by section init. This completes
+; the EMUDB key. 
+	MOVL	(R7)[R9],RPT_SEC_L_BOXID(R10)	; Set BOXID 
+;
+; Copy key to keybuf
+440$:
+	MOVAL	RECBUF,R8
+	MOVQ	RPT_SEC_L_PROTID(R10),(R8)
+	MOVQ	RPT_SEC_L_TBL(R10),8(R8)
+	MOVQ	RPT_SEC_L_PARAM(R10),16(R8)
+
+	MOVL	#DB_REC_C_MRS,RECBUF_DESC
+	ADDL3	#RPT_SEC_Q_RFA,R10,-(SP)	; RFA
+	CLRL	-(SP)				; Not unlock
+	ADDL3	#RPT_SEC_L_RECCNT,R10,-(SP)			; Record count
+	PUSHL	#5			; Report level
+	CLRL	-(SP)			; Search direction
+	PUSHAL	RECBUF_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_BX_TAB_PAR  ; Key of ref
+	TSTL	RPT_SEC_L_RECCNT(R10)   ; If not 1st read then br
+	BNEQ	443$
+
+	CALLS	#7,G^REPORTING_READ
+	BRW	445$
+443$:
+	CALLS	#7,G^REPORTING_READ_RFA
+
+445$:
+; Check if wanted rec before error check
+	CMPL	RPT_SEC_L_BOXID(R10),DB_REC_L_BOXID(R8)
+	BNEQ	450$
+	CMPL	RPT_SEC_L_TBL(R10),DB_REC_L_TABLE(R8)
+	BNEQ	450$
+	CMPL	RPT_SEC_L_PARAM(R10),DB_REC_L_PARAM(R8)
+	BNEQ	450$
+;	CMPL	RPT_SEC_L_INST(R10),DB_REC_L_INST(R8)
+;	BNEQ	450$
+	BLBS	R0,460$
+
+450$:
+	MOVL	#SS$_ITEMNOTFOUND,RPT_SEC_L_STA(R10)
+	CLRL	RPT_SEC_L_LEN(R10)
+	BRW	420$
+; Format this param
+460$:
+	INCL	FRMTMP
+	CALLS	#0,G^REPORTING_DISPSTATS
+; Save key
+	MOVQ	(R8),RPT_SEC_L_PROTID(R10)
+	MOVQ	8(R8),RPT_SEC_L_TBL(R10)
+	MOVQ	16(R8),RPT_SEC_L_PARAM(R10)
+
+; Setup desc in section for this pid
+	MOVL	#RPT_SEC_C_MAXDATA,TEMPDESC 		; Max len
+	ADDL3	#RPT_SEC_C_DATA,R10,TEMPDESC+4           ; Write here
+
+	PUSHL	PXLTOPT			; Supress keyword, No def xlate
+	PUSHL	#RPT_SEC_C_MAXDATA	; Line len
+	PUSHAL	LNCNT
+	PUSHAL	TEMPDESC
+	PUSHAL	RECBUF_DESC
+	CALLS	#5,G^PARAMXLT
+	BLBS	R0,470$
+; On any error print 'error  ' on report
+	MOVL	#8,RPT_SEC_L_LEN(R10)		; Len of message
+	MOVQ	RPTERRMSG,RPT_SEC_C_DATA(R10)   ; Message
+	MOVL	#SS$_NORMAL,RPT_SEC_L_STA(R10)  ; Signal write this param
+	BRW	420$				; Next pid
+470$:
+; Successful xlate:
+	MOVL	TEMPDESC,RPT_SEC_L_LEN(R10)	; Len of message
+	MOVL	#SS$_NORMAL,RPT_SEC_L_STA(R10)  ; Signal write this param
+	BRW	420$
+
+
+500$:
+; Here after each cycle through the report section table
+; We have processed each param 1 time and any results are
+; in the section.
+; Print the line. If no returns will result in blank line
+; Check all results. If any success cycle again, else next relater
+	MOVL	RPTSEC_A,R10
+	CLRL	R11				; Flag
+	MOVL	RPTITMCNT,R9                    ;
+	MOVAL	FAOLIST,R8
+	
+530$:
+        TSTL	RPT_SEC_L_STA(R10)
+	BEQL	540$			  	; Br if status was INIT
+        BLBC	RPT_SEC_L_STA(R10),540$  	; Br if status was bad
+	INCL	R11				; Indicate 1 more good one
+540$:
+        MOVL	RPT_SEC_L_LEN(R10),(R8)+             ; Len of this param on list
+	ADDL3	#RPT_SEC_C_DATA,R10,(R8)+       ; Addr this param on list
+
+        ADDL	#RPT_SEC_C_SIZE,R10		; Next PID
+        SOBGTR	R9,530$       ; Loop for all
+; Format record
+	MOVL	#1024,RPTDESC			; Max size
+	PUSHAL	FAOLIST
+	PUSHAL	RPTDESC
+	PUSHAL	RPTDESC
+	PUSHAL	DYNCTLDESC
+	CALLS	#4,G^SYS$FAOL
+	BLBS	R0,550$
+	BRW	1000$
+550$:
+	TSTL	R11 			;Any params?
+	BNEQ	555$
+	TSTL	BLNCNT			; Blank already written?
+	BNEQ	570$
+555$:
+	INCL	BLNCNT
+	MOVW	RPTDESC,RPTRAB+RAB$W_RSZ
+	$PUT	RAB=RPTRAB
+	BLBS	R0,560$
+	BRW	1000$
+560$:
+; IF there were any new recs printed then cycle though Relater table again.
+; Else next relater
+	INCL	TORPT
+	CALLS	#0,G^REPORTING_DISPSTATS
+	TSTL	R11
+	BEQL	570$
+	CLRL	BLNCNT
+	BRW	400$			; Cycle
+570$:
+	BRW	310$			; Next relater
+	
+
+
+1000$:
+; Here at exit.
+	MOVL	R0,R6		; Save exit status
+	$CLOSE	FAB=RPTFAB
+	$CLOSE	FAB=EMUTMPFAB
+	$ERASE	FAB=EMUTMPFAB	; Delete temporary file
+	$CLOSE	FAB=EMUTMP2FAB
+	$ERASE	FAB=EMUTMP2FAB	; Delete temporary file
+	CLRQ	-(SP)           ; No return, no access mode
+	PUSHAL	RPTSEC_A		; Delete these pages
+	CALLS   #3,G^SYS$DELTVA ; ASSUME success
+	MOVL	R6,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_DISPSTATS
+;++
+;3 REPORTING_DISPSTATS
+;  Displays statistics in top display to record progress when 
+;  creating new report.
+;4 Inputs
+;	Init Flag. Optional. If present the counts and display are 
+;	cleared and titles written.
+;4 Outputs
+;	Display on DISP1
+;4 Returns
+;	Any from $FAO
+;-- 
+	BLBS	(AP),100$
+10$:
+	PUSHAL	CURCOL			; Column (1)
+	PUSHAL	CURROW			; Row (2)
+	PUSHAL	REPORT_DISP3
+	CALLS	#3,G^SMG$SET_CURSOR_ABS
+
+	MOVL	#132,FAODESC
+	PUSHAL	STATCNT
+        PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	STATMSG
+	CALLS	#4,G^SYS$FAOL
+	BLBS	R0,20$
+	RET
+20$:
+	PUSHAL	FAODESC
+        PUSHAL	REPORT_DISP3
+	CALLS	#2,G^SMG$PUT_LINE
+        RET
+
+
+100$:
+
+	CLRQ	FRMDB
+	CLRQ	FRMTMP
+
+	PUSHAL	REPORT_DISP3
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	PUSHAL	STATHDR1
+        PUSHAL	REPORT_DISP3
+	CALLS	#2,G^SMG$PUT_LINE
+	PUSHAL	STATHDR
+        PUSHAL	REPORT_DISP3
+	CALLS	#2,G^SMG$PUT_LINE
+  	BRW	10$
+
+	.CALL_ENTRY	MAX_ARGS=4, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_MAKETEMPFILE
+;++
+;3 REPORTING_MAKETEMPFILE
+;  Create 2 teporary files with the list of params directed by RPTPRM section.
+;
+;4 Inputs
+;	Report param section. 
+;4 Outputs
+;	Temporary files. Deleted after report creation.
+;4 Returns
+;  Any from  RMS
+;-- 
+; output
+; Make the name by converting time_tics to ascii
+	MOVL	#20,TMPFILDESC		; Set max len
+	PUSHL	#20			; Always make max size
+	PUSHAL	TMPFILDESC
+	PUSHL	#EXE$GL_ABSTIM_TICS
+	CALLS	#3,G^OTS$CVT_L_TU
+	BLBS	R0,5$
+	RET
+5$:
+	MOVB	TMPFILDESC,EMUTMPFAB+FAB$B_FNS
+	MOVL	TMPFILDESC+4,EMUTMPFAB+FAB$L_FNA
+        MOVB	#DB_REC_KEY_FULL,EMUTMPRAB+RAB$B_KRF
+	MOVB	TMPFILDESC,EMUTMP2FAB+FAB$B_FNS
+	MOVL	TMPFILDESC+4,EMUTMP2FAB+FAB$L_FNA
+        MOVB	#DB_REC_KEY_FULL,EMUTMP2RAB+RAB$B_KRF
+	$CREATE	FAB=EMUTMPFAB
+	BLBS	R0,7$
+	RET
+7$:
+	$CREATE	FAB=EMUTMP2FAB
+	BLBS	R0,10$
+	RET
+10$:
+	$CONNECT RAB=EMUTMPRAB
+	BLBS	R0,15$
+	BRW	500$
+15$:
+	$CONNECT RAB=EMUTMP2RAB
+	BLBS	R0,20$
+	BRW	500$
+20$:
+; Init sort
+	PUSHAL	SORT_CXT
+	CLRQ	-(SP)		; No work files, No process
+	PUSHAL	REPORTING_ADDFIL2	; Any dups processed here
+	CLRL	-(SP)		; No user routines
+	PUSHAL	SORT_FAC	; File allocation
+	PUSHAL	SORT_OPT		; Options
+	PUSHAL	SORT_LRL	; Longest rec
+	PUSHAL	SORT_KEY
+	CALLS	#9,G^SOR$BEGIN_SORT
+	BLBS	R0,30$
+	BRW	500$
+30$:
+
+
+100$:
+	MOVL	RPTPRM_A,R10
+	MOVL	RPTITMCNT,R11		; Loop control
+110$:
+; Get 1st rec this tbl,param. 
+	MOVAL	EMUTMPREC_BUF,R8
+	MOVL	RPT_PRM_L_TBL(R10),DB_REC_L_TABLE(R8)
+	MOVL	RPT_PRM_L_PARAM(R10),DB_REC_L_PARAM(R8)
+
+	CLRL	RECCNT
+120$:
+	MOVL	#DB_REC_C_MRS,EMUTMPREC_DESC
+	PUSHAL	RECCNT			; Record count
+	PUSHL	#5			; Report level
+	CLRL	-(SP)			; Search direction
+	PUSHAL	EMUTMPREC_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_TAB_PAR  	; Key of ref
+	CALLS	#5,G^EMUDB_READ
+; Check if wanted rec before error check
+	CMPL	RPT_PRM_L_TBL(R10),DB_REC_L_TABLE(R8)
+	BNEQU	200$
+	CMPL	RPT_PRM_L_PARAM(R10),DB_REC_L_PARAM(R8)
+	BNEQU	200$
+	BLBC	R0,200$
+;Give this rec to sort
+	INCL	FRMDB
+	CALLS	#0,G^REPORTING_DISPSTATS
+	PUSHAL	SORT_CXT
+	PUSHAL	EMUTMPREC_DESC
+	CALLS	#2,G^SOR$RELEASE_REC
+	BLBS	R0,120$
+	BRW	500$
+; Next rptitm
+200$:
+	ADDL	#RPT_PRM_C_ITMSIZ,R10
+	SOBGTR  R11,110$
+;Sort records
+	PUSHAL	SORT_CXT		
+	CALLS	#1,G^SOR$SORT_MERGE
+	BLBS	R0,210$
+	BRW	500$
+
+
+
+; Get all recs back from sort	
+210$:
+	PUSHAL	SORT_CXT
+	PUSHAL	EMUTMPREC_DESC
+	PUSHAL	EMUTMPREC_DESC
+	CALLS	#3,G^SOR$RETURN_REC
+	BLBS	R0,250$
+	CMPL	#SS$_ENDOFFILE,R0
+	BEQLU	260$
+	BRW	500$
+250$:
+	INCL	FRMSRT
+	CALLS	#0,G^REPORTING_DISPSTATS
+	MOVW	EMUTMPREC_DESC,EMUTMPRAB+RAB$W_RSZ		; Write rec here
+	MOVW	EMUTMPREC_DESC,EMUTMPRAB+RAB$W_USZ		; Write rec here
+	$PUT	RAB=EMUTMPRAB
+	BLBS	R0,210$
+
+	MOVL	#132,FAODESC
+	PUSHL	R0
+        PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	FILWRTERR
+	CALLS	#4,G^SYS$FAO
+
+	PUSHAL	FAODESC
+        PUSHAL	REPORT_DISP
+	CALLS	#2,G^SMG$PUT_LINE
+	BRW	210$
+260$:
+	PUSHAL	SORT_CXT
+	CALLS	#1,G^SOR$END_SORT
+
+	$CLOSE	FAB=EMUTMPFAB
+	$CLOSE	FAB=EMUTMP2FAB
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+500$:
+; Exit here on error
+	MOVL	R0,R6
+	PUSHAL	SORT_CXT
+	CALLS	#1,G^SOR$END_SORT
+
+	$CLOSE	FAB=EMUTMPFAB
+	$CLOSE	FAB=EMUTMP2FAB
+        MOVL	R6,R0
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_ADDFIL2  
+;++
+;3 REPORTING_ADDFIL2 
+;  Called by sort routines when a duplicate record is detected in the 
+;  input screen.
+;4 Inputs
+;	As by sort:
+;		.addr rec1
+;		.addr rec2
+;		.len  rec1
+;		.len  rec2
+;		.long context 
+;4 Outputs
+;	The duplicate (rec2) is added to the second temp file and the 
+;	return instructs this rec to be deleted from the 1st file.
+;4 Returns
+;  	SOR$_DELETE2
+;-- 
+	MOVL	8(AP),EMUTMP2RAB+RAB$L_RBF
+	MOVL	8(AP),EMUTMP2RAB+RAB$L_UBF
+	MOVW	@16(AP),EMUTMP2RAB+RAB$W_RSZ
+	MOVW	@16(AP),EMUTMP2RAB+RAB$W_RSZ
+	$PUT	RAB=EMUTMP2RAB
+	BLBC	R0,10$
+	INCL	FRMSRT2
+	MOVL	#SOR$_DELETE2,R0
+10$:
+
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_LOAD 
+;++
+;3 REPORTING_LOAD
+;  Displays known report param files in menu. Selection causes the 
+;  selected file to be opened and loaded into RPTPRM section. 
+;4 Inputs
+;	Report param file as selected by user. 
+;4 Outputs
+;	Contents of RPTPRM secion overwritten. RPTITMCNT is updated
+;4 Returns
+;  Any from  SYS$EXPREG, SYS$CRMPSC
+;-- 
+	TSTL	RPTPRM_A
+	BNEQ	100$
+	CALLS	#0,G^REPORTING_GETPSPACE
+	BLBS	R0,100$
+	RET
+100$:
+
+
+; Here test if there are any items in PRMSEC. If so confirm overwrite.
+
+
+	CLRL	RPTITMCNT
+
+; Display all saved files in menu. If any selected open file and 
+; load contents into report param area. 
+	MULL3	#MAXDYN_ITEMS,#32,TEMPDESC	; Size of array
+	MOVAL	DYNMEN,TEMPDESC+4			; Addr
+
+
+	PUSHL	#32			; Return 32 char/file
+	PUSHAL	RPTITMCNT		; Number of files
+	PUSHAL	TEMPDESC		; Array pointer
+	PUSHAL	RPTFILDEF		; type desc
+	CALLS	#4,G^FILELIST
+	BLBS	R0,210$
+
+; Create menu
+210$:
+	MOVAL	DYNMEN,MADDR		; Menu location
+	MOVW	#32,M_DCS		; SIze of items
+	MULL3	#32,RPTITMCNT,MSIZE              ; Total size
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	REPORT_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BLBS	R0,220$
+	RET
+220$:
+	PUSHAL	CHOICE
+	PUSHAL	REPORT_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,230$
+	CLRL    RPTITMCNT
+	RET
+230$:
+	MOVZWL	CHOICE,R11
+	DECL	R11
+	MULL	#32,R11		; Offset
+	MOVAL	DYNMEN,R4	;
+	ADDL	R11,R4		; Location of string
+	LOCC	#^A/ /,#32,(R4)
+	TSTL	R0
+	BNEQ	240$
+	RET				; ERROR
+240$:
+	MOVL	R4,RPTITMFAB+FAB$L_FNA	; Location of name
+	SUBL	R4,R1		
+	MOVB	R1,RPTITMFAB+FAB$B_FNS	; Size of name
+	$OPEN	FAB=RPTITMFAB
+	BLBS	R0,242$
+	RET
+242$:
+	$CONNECT RAB=RPTITMRAB
+	BLBS	R0,244$
+	RET
+244$:
+	MOVW	#RPT_PRM_C_ITMSIZ,RPTITMRAB+RAB$W_RSZ
+	MOVW	#RPT_PRM_C_ITMSIZ,RPTITMRAB+RAB$W_USZ
+; Loop to READ recs
+	MOVL	RPTPRM_A,R11
+	CLRL	RPTITMCNT
+250$:
+	MOVL	R11,RPTITMRAB+RAB$L_UBF             ; This rec
+	$GET	RAB=RPTITMRAB
+	BLBC	R0,260$				; Assume err = EOF
+	ADDL	#RPT_PRM_C_ITMSIZ,R11
+	AOBLEQ	#RPT_SEC_C_MAXID,RPTITMCNT,250$
+	$CLOSE	FAB=RPTITMFAB
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+260$:
+	$CLOSE	FAB=RPTITMFAB
+; Display results
+	CALLS	#0,G^REPORTING_DISPLAY
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_PREDEF 
+;++
+;3 REPORTING_CREATE_PREDEF
+;  Displays further menu of 'canned' reports. Upon selection that report is 
+; created
+;4 Inputs
+;	None
+;4 Outputs
+;	report
+;4 Returns
+;  Any from  SYS$EXPREG, SYS$CRMPSC
+;-- 
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_SAVE 
+;++
+;3 REPORTING_CREATE_SAVE
+;	Saves contents of RPTPRM section to file. File name is set by
+;	user - no check for dups. File type is always .RPTP Saved in
+;	EMU5_DAT.
+;4 Inputs
+;	None
+;4 Outputs
+;	Report param file
+;4 Returns
+;  Any from  SYS$EXPREG, SYS$CRMPSC
+;-- 
+;  Save list
+	TSTL	RPTITMCNT
+	BNEQ	100$
+	RET
+100$:
+	PUSHAL	REPORT_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	PUSHAL	REPORT_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_DISP
+	PUSHAL	PARAMNAMPRMPT
+	CALLS	#3,RPT_READ_PROMPT 
+	BLBS	R0,110$
+	RET
+110$:
+	TSTW	BYTCNT
+	BEQL	100$
+
+; Open the file
+	MOVAL	KB_BUF,RPTITMFAB+FAB$L_FNA	; Location of name
+	MOVB	BYTCNT,RPTITMFAB+FAB$B_FNS	; Size of name
+	$CREATE	FAB=RPTITMFAB
+	BLBS	R0,120$
+	RET
+120$:
+	$CONNECT RAB=RPTITMRAB
+
+150$:
+	MOVL	RPTPRM_A,R11
+	MOVL	RPTITMCNT,R9
+	MOVW	#RPT_PRM_C_ITMSIZ,RPTITMRAB+RAB$W_USZ
+	MOVW	#RPT_PRM_C_ITMSIZ,RPTITMRAB+RAB$W_RSZ
+
+250$:
+	MOVL	R11,RPTITMRAB+RAB$L_UBF             ; This rec
+	MOVL	R11,RPTITMRAB+RAB$L_RBF             ; This rec
+	$PUT	RAB=RPTITMRAB
+	BLBC	R0,260$				; Assume err = EOF
+	ADDL	#RPT_PRM_C_ITMSIZ,R11
+	SOBGTR	R9,250$
+	$CLOSE	FAB=RPTITMFAB
+	MOVL	#SS$_NORMAL,R0
+	RET
+260$:
+	MOVL	R0,R6
+	$CLOSE	FAB=RPTITMFAB
+	MOVL	R6,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_GETTABLE 
+;++
+;3 REPORTING_GETTABLE 
+; Routine to display all possible tables in a menu and after selection, set
+; the chosen table in the DB_MAP_L_TBL field in the input param
+;4 Inputs:
+;	.address of .long where .long table is written
+;4 Outputs:
+; 	.long value of the table (symbols in _EMUDBDEF)
+;4 Returns:
+;	SS$_NORMAL	did it
+;	Any from $RMS, $SMG
+;--
+        TSTW	MAPPERFAB+FAB$W_IFI
+	BNEQ    10$
+	$OPEN	FAB = MAPPERFAB		;Open input file
+	BLBS	R0,5$
+	RET
+5$:
+ 	$CONNECT RAB = MAPPERRAB	;Connect input stream
+	BLBS	R0,10$
+	RET
+10$:
+        MOVB	#4,MAPPERRAB+RAB$B_KSZ
+	MOVB	#1,MAPPERRAB+RAB$B_KRF                 	
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC
+	MOVAL	MAPPERREC_BUF,R6
+	MOVL	LVL1TBL,DB_MAP_L_TBL(R6)
+	MOVAL	DYNMEN,R7   			; Menu items
+	MOVAL	DYNCHOICE,R8                    ; Index
+	CLRL	R11
+20$:
+	$GET	RAB=MAPPERRAB
+    	BLBS	R0,30$
+	BRW	100$
+30$:
+; Place index in choice tbl, string in menu.
+; Check if too many items
+	CMPL	LVL1TBL,DB_MAP_L_TBL(R6)
+	BEQLU	35$
+	BRW	100$
+35$:
+	INCL	R11
+	CMPL	R11,#MAXDYN_ITEMS
+	BLEQ	40$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+40$:
+	MOVC5	DB_MAP_L_KEYWLEN(R6),DB_MAP_A64_KEYW(R6),#^A/ /,#48,(R7)
+	ADDL	#48,R7
+	MOVQ	(R6),(R8)+
+	CMPL	#1,R11
+	BNEQ	20$
+; Change to seq access on 2nd and subsequent reads
+	MOVB 	#RAB$C_SEQ,MAPPERRAB+RAB$B_RAC
+	BRW	20$
+100$:
+; Calc menu size
+	MULL	#48,R11
+	MOVW	#48,M_DCS			; Item size
+	MOVAL	DYNMEN,MADDR
+	MOVL	R11,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	BSBW	RPT_ERROR_CHK
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	REPORT_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	RPT_ERROR_CHK
+	PUSHAL	TBL_CHOICE
+	PUSHAL	TBL_CHOICE
+	PUSHAL	REPORT_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#4,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,130$			; Assume any error = eof
+	RET
+130$:
+	MOVZWL	TBL_CHOICE,R1
+	DECL	R1
+	MOVAL	DYNCHOICE,R8                    ; Index
+; If the top byte of the .quad @ this choice - 0 then this is the table
+	MULL3	#8,R1,R2
+	ADDL	R2,R8
+        TSTB    7(R8)
+	BNEQ	150$
+	MOVL	4(R8),@4(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+150$:
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC
+	MOVAL	MAPPERREC_BUF,R6
+	MOVL	4(R8),DB_MAP_L_TBL(R6)
+	MOVL	4(R8),R10
+	MOVAL	DYNMEN,R7   			; Menu items
+	MOVAL	DYNCHOICE,R8                    ; Index
+	CLRL	R11
+160$:
+	$GET	RAB=MAPPERRAB
+    	BLBS	R0,170$
+	BRW	200$
+170$:
+; Place index in choice tbl, string in menu.
+; Check if too many items
+	CMPL	R10,DB_MAP_L_TBL(R6)
+	BEQLU	175$
+	BRW	200$
+175$:
+	INCL	R11
+	CMPL	R11,#MAXDYN_ITEMS
+	BLEQ	180$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+180$:
+	MOVC5	DB_MAP_L_KEYWLEN(R6),DB_MAP_A64_KEYW(R6),#^A/ /,#48,(R7)
+	ADDL	#48,R7
+	MOVQ	(R6),(R8)+
+	CMPL	#1,R11
+	BNEQ	160$
+; Change to seq access on 2nd and subsequent reads
+	MOVB 	#RAB$C_SEQ,MAPPERRAB+RAB$B_RAC
+	BRW	160$
+200$:
+; Calc menu size
+	MULL	#48,R11
+	MOVW	#48,M_DCS			; Item size
+
+	MOVAL	DYNMEN,MADDR
+	MOVL	R11,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	BSBW	RPT_ERROR_CHK
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	REPORT_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	RPT_ERROR_CHK
+	PUSHAL	SEC_TBL_CHOICE
+	PUSHAL	SEC_TBL_CHOICE
+	PUSHAL	REPORT_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#4,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,230$			; Assume any error = eof
+	RET
+230$:
+	MOVZWL	SEC_TBL_CHOICE,R1
+	DECL	R1
+	MOVAL	DYNCHOICE,R8                    ; Index
+; If the top byte of the .quad @ this choice - 0 then this is the table
+	MULL3	#8,R1,R2
+	ADDL	R2,R8
+        TSTB    7(R8)
+	BEQL	250$
+	BRW	150$
+250$:
+	MOVL	4(R8),@4(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=7, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_READ  
+;++
+;3 EMUDB_READ  
+; Routine to read from EMUDB. Records are scanned and returned 1 by 1 
+; in sort order as specified by the key of reference. Each record is 
+; checked against the report level and if >, the record is skipped.
+; Each record is also checked against the current privs of the caller
+; and if insufficient, the record is (silently) skipped.
+; NOTE: The record is unlocked as soon as it is written to the caller's 
+; buffer. 
+;
+;4 Inputs
+; 1. KEY OF REFERENCE. EMU symbol denoting the key elements present to 
+;    find a particular record.
+; 2 .long	Output buffer
+;   .address of descriptor pointing to buffer where record is written
+;    The key elements specified by the KRF argument must be supplied 
+;    in the record format:
+;    Protocol	.long
+;    Boxid	.long
+;    Table	.long
+;    Instance	.long
+;    Param	.long
+;    Flags	.long
+;    the len of the returned record is written in the descriptor.
+;
+; 3. .long	search direction 
+; 4. .long report level
+; 5. .address record count. Count of recs returned kept here. Used to 
+;	determine ROP field.
+; 6. Flags. Optional. If present AND = 1  the record is NOT unlocked 
+;    immediately after read. By default the record is unlocked.
+; 7. RFA. optional .address of .quad where RFA is written. 
+;    Note only bottom 6 bytes are written
+;
+;4 Key of reference:
+;        DB_REC_KEY_PROTO	0       ; Protocol            
+;        DB_REC_KEY_BOXID	1       ; BOXID               
+;        DB_REC_KEY_TABLE	2       ; Table               
+;        DB_REC_KEY_INST	3       ; Instance            
+;        DB_REC_KEY_PARAM	4       ; Paramater           
+;        DB_REC_KEY_PRO_BOX	5	; Protocol, boxid     
+;        DB_REC_KEY_FULL	6	; Primary             
+;        DB_REC_KEY_BOX_TAB	7	; Boxid, Table             
+;	 DB_REC_KEY_TAB_PAR     8       ; Table, Param
+;	 DB_REC_KEY_BX_TAB_PAR  9       ; Boxid, Table, Param
+
+; Symbols are in EMUDBDEF                                     
+;4 Returns
+; R0 = status:
+;	SS$_NORMAL	 Record found, filters passed and written to outp
+;	SS$_INSFMAP      Could not find map record
+;	SS$_BADPARAM	 Unknown key
+;   Any error returned by RMS
+;--
+	MOVQ	@8(AP),R7
+
+        BRB	READ_PARAMS_OK
+READ_PARAMS_OK:
+; Set search direction
+; Set defaults
+	CLRL    EMUTMPRAB+RAB$L_ROP 	        	; Clear all opts
+	BISL    #RAB$M_RRL,EMUTMPRAB+RAB$L_ROP         	; Read if read locked
+	TSTL	@20(AP)                                 ; 1st interation?
+	BEQL	5$                                      ; Br if yes
+	MOVB	#RAB$C_SEQ,EMUTMPRAB+RAB$B_RAC
+	BRW	150$					; 
+5$:
+	MOVB	#RAB$C_KEY,EMUTMPRAB+RAB$B_RAC   ; Indexed read
+;	BISL    #RAB$M_EQNXT,EMUTMPRAB+RAB$L_ROP         	; get next
+	CASEL	4(AP),#0,#10		; Select processing routine
+10$:                                   
+	.WORD	100$-10$          ; Protocol            
+	.WORD	101$-10$          ; BOXID               
+	.WORD	102$-10$          ; Table               
+	.WORD	103$-10$          ; Instance            
+	.WORD	104$-10$          ; Paramater           
+	.WORD	105$-10$          ; Protocol, boxid     
+	.WORD	106$-10$          ; Primary                               
+	.WORD	107$-10$          ; Boxid, table                               
+	.WORD	108$-10$          ; Table,param                              
+	.WORD	109$-10$          ; Boxid,table,param
+	.WORD	110$-10$          ; Boxid,table,param
+	MOVL	#SS$_BADPARAM,R0         
+	RET                                             
+
+100$:
+	MOVAL	EMUTMPREC_BUF,R2
+	MOVL	DB_REC_L_PROTO(R8),(R2)
+	MOVB	4(AP),EMUTMPRAB+RAB$B_KRF	; Set key 
+	MOVB    #4,EMUTMPRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+101$:
+	MOVAL	EMUTMPREC_BUF,R2
+	MOVL	DB_REC_L_BOXID(R8),(R2)
+	MOVB	4(AP),EMUTMPRAB+RAB$B_KRF	; Set key 
+	MOVB    #4,EMUTMPRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+102$:
+	MOVAL	EMUTMPREC_BUF,R2
+	MOVL	DB_REC_L_TABLE(R8),(R2)
+	MOVB	4(AP),EMUTMPRAB+RAB$B_KRF	; Set key 
+	MOVB    #4,EMUTMPRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+103$:
+	MOVAL	EMUTMPREC_BUF,R2
+	MOVL	DB_REC_L_INST(R8),(R2)
+	MOVB	4(AP),EMUTMPRAB+RAB$B_KRF	; Set key 
+	MOVB    #4,EMUTMPRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+
+104$:
+	MOVAL	EMUTMPREC_BUF,R2
+	MOVL	DB_REC_L_PARAM(R8),(R2)
+	MOVB	4(AP),EMUTMPRAB+RAB$B_KRF	; Set key 
+	MOVB    #4,EMUTMPRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+105$:
+	MOVAL	EMUTMPREC_BUF,R2
+	MOVL	DB_REC_L_PROTO(R8),(R2)+
+	MOVL	DB_REC_L_BOXID(R8),(R2)
+	MOVB	4(AP),EMUTMPRAB+RAB$B_KRF	; Set key 
+	MOVB    #8,EMUTMPRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+106$:
+	MOVAL	EMUTMPREC_BUF,R2
+	MOVQ	DB_REC_L_PROTO(R8),(R2)+
+	MOVQ	DB_REC_L_TABLE(R8),(R2)+
+	MOVL	DB_REC_L_PARAM(R8),(R2)
+	CLRB	EMUTMPRAB+RAB$B_KRF		; Set key = PROTOCOL
+	MOVB    #DB_C_PRMKSZ ,EMUTMPRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+107$:
+	MOVAL	EMUTMPREC_BUF,R2
+	MOVL	DB_REC_L_BOXID(R8),(R2)+
+	MOVL	DB_REC_L_TABLE(R8),(R2)
+	MOVB	4(AP),EMUTMPRAB+RAB$B_KRF	; Set key 
+	MOVB    #8,EMUTMPRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+108$:
+	MOVAL	EMUTMPREC_BUF,R2
+	MOVL	DB_REC_L_TABLE(R8),(R2)+
+	MOVL	DB_REC_L_PARAM(R8),(R2)
+	MOVB	4(AP),EMUTMPRAB+RAB$B_KRF	; Set key 
+	MOVB    #8,EMUTMPRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+109$:
+	MOVAL	EMUTMPREC_BUF,R2
+	MOVL	DB_REC_L_BOXID(R8),(R2)+
+	MOVL	DB_REC_L_TABLE(R8),(R2)+
+	MOVL	DB_REC_L_PARAM(R8),(R2)
+	MOVB	4(AP),EMUTMPRAB+RAB$B_KRF	; Set key 
+	MOVB    #12,EMUTMPRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+110$:
+	MOVAL	EMUTMPREC_BUF,R2
+	MOVL	DB_REC_L_FLAGS(R8),(R2)+
+	MOVB	4(AP),EMUTMPRAB+RAB$B_KRF	; Set key 
+	MOVB    #12,EMUTMPRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+
+150$:
+; 2nd or subsequent read.
+	MOVL	28(AP),R1
+	MOVL	(R1),EMUTMPRAB+RAB$L_RFA0  
+	MOVW	4(R1),EMUTMPRAB+RAB$W_RFA4
+
+200$:
+; See if this rec exists
+	MOVL	R8,EMUTMPRAB+RAB$L_UBF  		; Buffer addr
+	MOVW	R7,EMUTMPRAB+RAB$W_USZ  		; Buffer size
+	$GET	RAB=EMUTMPRAB
+	BLBS	R0,210$
+	RET					; Return with any error
+210$:
+; Get map rec for this table.param
+	CMPL	#6,(AP)			; Unlock param present?
+	BNEQU	213$			; Br if param not present
+	TSTL	24(AP)			; Set?
+	BNEQU	215$
+213$:
+	$RELEASE RAB=EMUTMPRAB 		; Unlock
+215$:
+	CMPL	#7,(AP)			; RFA param present?
+	BNEQU	217$			; Br if param NOT present
+	MOVL	28(AP),R1
+	MOVL	EMUTMPRAB+RAB$L_RFA0,(R1)  
+	MOVW	EMUTMPRAB+RAB$W_RFA4,4(R1)
+217$:
+
+
+	PUSHL	R8			; Record addr
+	CALLS	#1,EMUDB_GETMAP		; Returns pointer in r1
+	BLBS	R0,220$                 ; Br if xlate available
+  	MOVL	#SS$_INSFMAP,R0
+	RET
+
+220$:
+; Check privs
+	MOVAL	MAPPERREC_BUF,R8
+	$CHECK_PRIVILEGEW_S PRVADR= DB_MAP_Q_SECURE(R8)    ; Check for priv
+	BLBS	R0,230$                          ; Br if priv
+        BRW	200$				 ; Ignore this rec
+230$:
+; Check report level
+	CMPL	16(AP),DB_MAP_L_RPTLVL(R8)
+	BGEQU	240$
+        BRW	200$				 ; Ignore this rec
+240$:
+	MOVZWL	EMUTMPRAB+RAB$W_RSZ,@8(AP)	; Return len
+	INCL	@20(AP)				; Count returned record
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=7, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REPORTING_READ_RFA  
+;++
+;3 REPORTING_READ_RFA  
+; Routine to read from EMUTMP using record file address. Purpose here is to 
+; retrieve param and build record by row rather as RMS dictates, by column.
+; Notes:
+; The RFA file MUST be provided. To have this the caller must have previously
+; read using EMUTMP_READ. This routine restores the location and retrieves
+; the next record on the specified key.
+;
+;4 Inputs
+;	 SAME AS REPORTING_READ. This routine simply sets the last
+;	 read record as given by the RFA and then GTEs next sequntal
+;	 rec
+;
+;4 Returns
+; R0 = status:
+;	SS$_NORMAL	 Record found, filters passed and written to outp
+;	SS$_BADPARAM	 The record count = 0 . Implies this is 1st read
+;			 on this key. Not allowed for RFA access.
+;   Any error returned by RMS, EMUTMP_READ
+;--
+
+
+; Set search direction
+; Set defaults
+	MOVQ	@8(AP),R7
+	CLRL    EMUTMPRAB+RAB$L_ROP 	        	; Clear all opts
+	BISL    #RAB$M_RRL,EMUTMPRAB+RAB$L_ROP         	; Read if read locked
+	TSTL	@20(AP)                                 ; 1st interation?
+	BNEQ	5$ 
+	MOVL	#SS$_BADPARAM,R0
+	RET
+5$:
+	MOVL	R8,EMUTMPRAB+RAB$L_UBF  		; Buffer addr
+	MOVW	R7,EMUTMPRAB+RAB$W_USZ  		; Buffer size
+
+	MOVB	#RAB$C_RFA,EMUTMPRAB+RAB$B_RAC   	; RFA read
+        MOVL	28(AP),R1
+	MOVL	(R1),EMUTMPRAB+RAB$L_RFA0  
+	MOVW	4(R1),EMUTMPRAB+RAB$W_RFA4
+100$:
+; See if this rec exists
+	$GET	RAB=EMUTMPRAB
+	BLBS	R0,110$
+	RET
+110$:
+	MOVB	#RAB$C_SEQ,EMUTMPRAB+RAB$B_RAC   	; RFA read
+	$GET	RAB=EMUTMPRAB
+	BLBS	R0,120$
+	RET
+120$:
+	MOVL	28(AP),R1
+	MOVL	EMUTMPRAB+RAB$L_RFA0,(R1)  
+	MOVW	EMUTMPRAB+RAB$W_RFA4,4(R1)
+	MOVZWL	EMUTMPRAB+RAB$W_RSZ,@8(AP)	; Return len
+	INCL	@20(AP)				; Count returned record
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+;
+REPORT_CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Virtual Display
+;
+
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	PB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,30$
+	RET
+30$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	REPORT_ROWS	      	      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	REPORT_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	PB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,40$
+	RET
+40$:
+	SUBL	#5,REPORT_ROWS			; Set our page len
+	MOVL	REPORT_ROWS,REPORT_ROW2			; Set our page len
+
+
+
+	PUSHAL	BORDER
+	PUSHAL	REPORT_DISP
+	PUSHAL	REPORT_COLS
+        PUSHAL	REPORT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	RPT_ERROR_CHK            		; Error Check
+	PUSHAL	BORDER
+	PUSHAL	REPORT_DISP2
+	PUSHAL	REPORT_COL2
+        PUSHAL	REPORT_ROW2
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	RPT_ERROR_CHK
+	PUSHAL	BORDER
+	PUSHAL	REPORT_DISP3
+	PUSHAL	REPORT_COL3
+        PUSHAL	REPORT_ROW3
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	RPT_ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	RPT_ERROR_CHK
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	RPT_ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	REPORT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	RPT_ERROR_CHK
+	PUSHAL	PB_COL2		;Column
+	PUSHAL	PB_ROW2		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	REPORT_DISP2
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	RPT_ERROR_CHK
+	PUSHAL	PB_COL3		;Column
+	PUSHAL	PB_ROW3		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	REPORT_DISP3
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	RPT_ERROR_CHK
+50$:	RSB
+RPT_ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		BLBC	R0,10$
+		RSB
+10$:
+	MOVL	R0,R6			; Save Error
+	PUSHAL	REPORT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	REPORT_DISP2
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	REPORT_DISP3
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	R6,R0			; Restore
+		RET
+
+	.END 

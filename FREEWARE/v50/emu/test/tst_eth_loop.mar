@@ -1,0 +1,197 @@
+	.TITLE	TST_ETH_LOOP
+	.IDENT /V01-001/
+;
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+	EMUSYSDEF
+	EMUPSRDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	$SECDEF				; Global Section 
+	.PSECT	DATA WRT,NOEXE,QUAD
+
+; returned addresses
+ETHMAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRETH
+		.LONG	PSR_ETH_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRETH
+		.ADDRESS EMU_ETHDB
+		.ADDRESS EMU_PSRETH
+
+FAOBUF:		.BLKL	132
+FAODESC:
+FAOLEN:		.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+
+; Return packet
+RETURN:	 	.LONG
+TYPE:		.LONG		
+
+RESPMSG:      .ASCID	/ !XB-!XB-!XB-!XB-!XB-!XB Return = !XL, Type = !UL Time = !UL/
+EMU_ETHDB:	
+		.ASCID	\EMU_ETHDB\            ; Lock name
+EMU_PSRETH:	
+		.ASCID	\EMU_PSRETH\  		; Section name
+;
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 48
+VD_COLS: 	.LONG 132
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+BYTCNT:		.WORD		; Input Byte counter
+; Misc SMG ...
+PROMPT:		.ASCII	/YEAM> /
+CMDCOL:		.LONG	1
+CMDROW:		.LONG	1
+CURCOL:		.LONG   1
+CURROW:		.LONG   3
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+TIMEOUT:	.LONG	15
+CHARCNT:	.LONG	15
+FIRSTFLG:	.LONG	0
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+;
+
+	.PSECT	CODE	EXE,NOWRT,LONG
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TST_ETH_LOOP
+;	
+; Create and Map to sections 
+;
+	PUSHAL	ETHMAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+
+	BLBS	R0,1$
+	BRW	1000$
+1$:
+	MOVL	ETHMAPS,R11		; Top of table
+	ADDL3	#PSR_ETH_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	BRW	1000$				; br if None
+10$:
+
+;
+; Build Initial Display
+	
+;	BSBW	CREATE_ENVIRONMENT
+
+
+
+
+
+30$:
+40$:
+	MOVL	#132,FAODESC
+	CLRL	RETURN
+	CLRL	TYPE
+	PUSHAL	RETURN                ; Output block
+	PUSHAL	TYPE
+	ADDL3	#PSR_ETH_EA_ADDR,R6,-(SP)            ; Node number
+	CALLS	#3,G^ETH_loop
+	ADDL3	#PSR_ETH_EA_ADDR,R6,R1            ; Node number
+	PUSHL	RETURN
+	PUSHL	TYPE
+	PUSHL	R0			; Return
+        MOVZBL	5(R1),-(SP)
+        MOVZBL	4(R1),-(SP)
+        MOVZBL	3(R1),-(SP)
+        MOVZBL	2(R1),-(SP)
+        MOVZBL	1(R1),-(SP)
+        MOVZBL	(R1),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RESPMSG
+	CALLS	#12,G^SYS$FAO
+	BLBS	R0,50$
+	RET
+50$:
+	PUSHAL	FAODESC
+;	PUSHAL	VD_DISP
+ 	CALLS	#1,G^LIB$PUT_OUTPUT
+
+
+	ADDL	#PSR_ETH_C_RECSIZ,R6		; Next entry
+	SOBGTR	R11,10$
+1000$:
+	MOVL	#SS$_NORMAL,R0
+	$EXIT_S	R0
+
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Virtual Display
+;
+CR_DISP:
+	CLRL	-(SP)
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+;
+; Enable Unsolocited Input
+;
+;	PUSHAL	GET_INPUT                        ; AST Routine
+;	PUSHAL	PB_BOARD                         ; PB ID
+;	CALLS	#2,G^SMG$ENABLE_UNSOLICITED_INPUT
+;	BSBW	ERROR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	RET
+
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	$EXIT_S	R0
+	.END	TST_ETH_LOOP
+

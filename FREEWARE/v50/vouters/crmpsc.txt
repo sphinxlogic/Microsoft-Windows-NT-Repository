@@ -1,0 +1,135 @@
+/*
+/*
+ *                          COPYRIGHT (C) 1998, 2000 BY
+ *                      COMPAQ COMPUTER CORPORATION, HOUSTON
+ *                         TEXAS.  ALL RIGHTS RESERVED.
+ *
+ *    THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+ *    ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+ *    OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+ *    THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+ *    PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+ *
+ *    THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+ *    SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+ *    SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+ *
+ *    NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+ *    ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+ *    PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+ *    CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+ */
+/*
+    Compilation and link commands:
+
+     $ CC/DEBUG/NOOPT CRMPSC.C
+     $ LINK/DEBUG CRMPSC,SYS$INPUT/OPT
+       PSECT_ATTR=G_SNS_COMMON,PIC,NOEXE,SHR
+
+*/
+
+#include <string.h>
+#include <stdlib.h>
+#include <starlet.h>         /* For the usage of sys$crmpsc */
+#include <descrip.h>         /* Because we need the macro $DESCRIPTOR */
+#include <secdef.h>          /* For the SEC$M_ flags */
+#include <stsdef.h>          /* For the $VMS_STATUS_SUCCESS macro */
+#include <rms.h>
+#include <lib$routines.h>
+#include <psldef.h>
+#include <syidef.h>
+
+#define PAGELET_SIZE 512     /* CRMPSC, for the flags we use, counts in number
+                              * of pagelets, so define the size of a pagelet.
+                              */
+int dummy_array_for_offsets [10];
+#pragma extern_model save
+#pragma extern_model common_block
+struct {
+        int starting;
+        int ending;
+}  g_sns_common;
+#pragma extern_model restore
+
+#pragma member_alignment save
+#pragma nomember_alignment
+typedef struct {
+        unsigned short buflen;
+        unsigned short item_code;
+        void *buffer;
+        unsigned int *retadr;
+} item_t;
+#pragma member_alignment restore
+
+main(){
+  unsigned long inadr[2];
+  unsigned long retadr[2];
+  struct FAB fab;
+  item_t *itmlst;
+  unsigned int pagesize;
+  char *filename = "IARRAY.DAT";
+  int pagcount,flags,status;
+  $DESCRIPTOR (global_section_name_descriptor,"IARRAY");
+
+  itmlst = calloc(2,sizeof(item_t));
+  /*
+   * Get the CPU specific page size.
+   */
+  itmlst[0].buflen = sizeof(unsigned int);
+  itmlst[0].item_code = SYI$_PAGE_SIZE;
+  itmlst[0].buffer = &pagesize;
+  itmlst[0].retadr = NULL;
+  status = sys$getsyiw(0,0,0,itmlst,0,0,0);
+  if (!$VMS_STATUS_SUCCESS(status)) lib$signal (status);
+  /*
+   * Compute the starting and ending addresses to the next CPU-specific
+   * page boundary,because we are on an Alpha System and we do NOT use
+   * SEC$M_EXPREG in the flags argument.
+   */
+  inadr[0] = (unsigned long)&g_sns_common.starting;
+  inadr[1] = (unsigned long)((char *)&g_sns_common.ending +
+                sizeof(int)+pagesize)/pagesize*pagesize - 1;
+  pagcount = (inadr[1]-inadr[0])/PAGELET_SIZE;
+  /*
+   * As we are mapping a new page file section, create the file with $ create.
+   */
+  fab = cc$rms_fab;
+  fab.fab$l_alq = pagcount;
+  fab.fab$b_fac = FAB$M_GET | FAB$M_PUT;
+  fab.fab$l_fna = filename;
+  fab.fab$b_fns = strlen(filename);
+  fab.fab$l_fop = FAB$M_UFO | FAB$M_CIF;
+  status = sys$create(&fab);
+  if (!$VMS_STATUS_SUCCESS(status)) lib$stop(status);
+  /*
+   * Specify the desired flags
+   */
+  flags =  SEC$M_GBL | SEC$M_WRT | SEC$M_SYSGBL | SEC$M_DZRO;
+
+  /* Now create the global section */
+  status = sys$crmpsc ( inadr,
+                        retadr,
+                        PSL$C_USER /* acmod not specified */,
+                        flags,
+                        &global_section_name_descriptor,
+                        0 /* ident not specified */,
+                        0 /* relpag not specified */ ,
+                        fab.fab$l_stv /* file channel returned by $create */,
+                        pagcount,
+                        0 /* vbn not specified */,
+                        0 /* prot not specified */,
+                        0 /* pfc not specified */);
+  /*
+     With the debugger check status with an EXAMINE/CONDITION status
+     Examine in hexadecimal retadr
+     Still with the debugger, type SPAWN and with the VMS prompt, enter
+     INSTAL. Under INSTAL type LIST/GLOBAL. Locate the section IARRAY.
+     Is the number of pagelets rounded up to next machine page size correct
+     for our section ?
+   */
+   return status;
+}

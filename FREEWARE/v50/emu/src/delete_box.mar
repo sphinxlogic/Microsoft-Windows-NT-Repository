@@ -1,0 +1,137 @@
+ 	.TITLE	DELETE_BOX  
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+;	May 1999	PB	Creation v1
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY        /EMU5_LIB:EMU5.MLB/
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUCNTDEF
+	EMUPSRDEF
+	EMUPSRDEF
+	EMUMSGDEF
+	EMURLTDEF
+	EMUDBDEF
+;
+	.PSECT	DELETE_BOXID_D,WRT,NOEXE,PIC,SHR,PAGE
+RELATER_DB:     .QUAD	0
+		.LONG	SYS_PID_C_RELATER
+		.LONG	0
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_RELATERDB
+		.ADDRESS EMU_RELATER
+
+RECBUF:
+EMUDB_KEYBUF:	.BLKB	DB_C_KSZ 			; 
+RECDAT:		.BLKB	DB_REC_C_MRS-DB_C_KSZ		; 768 (Total)
+RECBUF_DESC:	.LONG	.-RECBUF
+		.ADDRESS  RECBUF
+
+RECCNT:		.LONG	0
+BOXID:		.LONG	0
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/DELBOX/
+
+EMU_RELATERDB:		
+		.ASCID	/EMU_RELATERDB/	; DB Lock name 
+EMU_RELATER:
+		.ASCID	/EMU_RELATER/
+
+	.PSECT	DELETE_BOXID_C,NOWRT,EXE,SHR,PIC,LONG
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DELETE_BOX
+;++
+;1 DELETE_BOX
+; Subroutine to delete specified box. This box, all it's relationships
+; and EMUDB recs are erased.
+;2 Inputs
+;  1  .address of .quad PSR section
+;  2  .long boxid
+;2 Outputs
+;  The relater rec is found and all PSR recs associated are deleted.
+;  All EMUDB recs associated are deleted
+;  The relater record is deleted at the start (if found). Any error
+;  exit makes any remaining records inaccessable. Functionaly OK, this
+;  will simpply waste some space. 
+;2 Returns
+;  
+;  SS$_NORMAL	- OK
+;  Any from LOCATE_RELATER_BOXID, MAPLVB_DB,   
+;--
+; Ensure relater is mapped...
+	TSTL	RELATER_DB
+	BNEQ	10$
+	PUSHAL	RELATER_DB
+	CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,10$
+	RET
+10$:
+;
+; Find this relater rec
+	MOVQ	@4(AP),R6			; PSR section
+	MOVL	8(AP),BOXID				; Boxid
+	ADDL3	#COM_DBHDR_L_FLAG,R6,-(SP)       ; PSR id
+	PUSHAL	RELATER_DB
+	PUSHAL	BOXID				; Boxid
+	CALLS	#3,G^LOCATE_RELATER_BOXID
+	BLBS	R0,100$
+	RET
+; Addr this relater rec = R1
+;
+100$:
+; Delete this relater record
+	BISL	#SYS_COM_M_DELETE,COM_HDR_L_SYSCTL(R1)
+;Sea table - delete all entries found 
+ 
+	ADDL3	R1,#RLT_DB_TL_BOXIDS,R6		; Table of boxids
+	CLRL	R7		; Max number of
+110$:
+	TSTL	(R6)[R7]       			; BOXID?
+	BNEQU	150$                            ; Br if yes
+120$:
+	AOBLEQ	#RLT_DB_C_MAXBOXID,R7,110$	; Max number of
+	MOVL	#SS$_NORMAL,R0                  ; OK
+	RET
+150$:
+
+	PUSHL	R7				; This DB
+	PUSHL	(R6)[R7]				; This boxid
+	CALLS	#2,G^DELETE_BOXID		; All errs logged in rtn
+;
+; Delete all EMUDB recs for this BOXID 
+        MOVAL	RECBUF,R1
+	MOVL	(R6)[R7],DB_REC_L_BOXID(R1)
+	CLRL	RECCNT
+	MOVL	#DB_REC_C_MRS,RECBUF_DESC
+	PUSHAL	RECCNT			; Record count
+	PUSHAL	RECBUF_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_BOXID	; Key of ref (all this protocol)
+	CALLS	#3,G^EMUDB_DELETE_ALL
+; Write status 
+        MOVL	#MSG_TSTDUP_DELETE,MSGCDE    	; error
+	MOVL	#2,PARCNT                    	; 2 params
+	MOVAL	MSGPARAMS,R1                 	; Plist
+	MOVL	RECCNT,(R1)+                    ; Count of deleted recs
+	MOVL	R0,(R1)    			; returned status
+	PUSHAL	ERRORMSG                     	; Log it
+	CALLS	#1,G^EMU_LOGGER
+        BRW	120$
+	.END	

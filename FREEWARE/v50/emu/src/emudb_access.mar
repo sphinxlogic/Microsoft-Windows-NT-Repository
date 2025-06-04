@@ -1,0 +1,1096 @@
+	.TITLE	EMUDB_ACCESS 
+	.IDENT /V01-002/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications
+; 001	PB	aug-1996		Creation
+; 002	PB	MAR-2000	Added option on read to skip GET_MAP.
+;++
+;1 EMUDB_ACCESS 
+; Collection of routines which together provide the API to EMUDB
+;--
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+	EMUDBDEF
+	EMUUIDEF
+	EMUSYSDEF
+	.PSECT  RW_DATA, NOEXE, RD, WRT, QUAD ,PIC, NOSHR 
+;++
+;2 Main database file.
+; Keys are:
+; Protocol, Boxid, table, instance, param
+; Protocol: (4)The EMU assigned PID this entry is assiciated with.
+; Boxid   : (4)system generated unique physical device id
+; Table   : (4)EMU defined table this param is in eg 
+;              DN4.line, LAT.Service etc
+; Instance: (4)the specific instance of an entity. This is a 16 bit CRC
+; 	       of the entity identifier. 
+; Param   : (4)The paramater number of this particular instance
+;
+; Primary key is concatination of all of the above and dups 
+; are not allowed. Any other key or combination may be duplicated
+; A 6th .long is provided in the key field for use as processing 
+; flags. This field is defined as part of the key but never used 
+; as such. 
+;
+;--                     
+RETDESC:	.QUAD                 
+REC_HEAD:
+KEY_BUF:	
+PROTO:		.LONG
+BOXID:		.LONG
+MAPKEY_BUF:	
+DBTBL:		.LONG
+DBINST:		.LONG
+DBPARM:		.LONG
+KEY_SPARE:	.LONG
+KEY_LEN = .-KEY_BUF
+KEY_BUF2:	.BLKL	6
+KEY_BUF3:	.BLKL	6
+REC_HEAD_LEN = .-REC_HEAD
+EMUDBFAB:	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 768,-                     ; Largest rec
+		RFM = VAR,-			; Variable len
+		GBC = 10,-                      ; Use global buffers
+		RTV = 48,-                      ; LOTS of retreival pointers
+		DNM = <EMU5_DAT:EMUDB.DAT>,-	; Default Filename 
+		FNM = <EMUDB>,-			; Filename 
+		FOP = CIF,-			; Create if doesn't exist
+		XAB = EMUDBXAB0                  ; Keys
+; Read RAB
+EMUDBRAB:	$RAB	FAB = EMUDBFAB,-		; pointer to FAB
+		RBF = EMUDBREC_BUF,-		; i/o buffer 
+		RSZ = EMUDBREC_SIZE,-		; Write this many bytes
+		UBF = EMUDBREC_BUF,-		; i/o buffer 
+		USZ = EMUDBREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		ROP = NXT,-
+		KBF = KEY_BUF,-
+		KSZ = DB_C_KSZ
+; Write RAB
+EMUDBWRAB:	$RAB	FAB = EMUDBFAB,-		; pointer to FAB
+		RBF = EMUDBREC_BUF,-		; i/o buffer 
+		RSZ = EMUDBREC_SIZE,-		; Write this many bytes
+		UBF = EMUDBREC_BUF,-		; i/o buffer 
+		USZ = EMUDBREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		KBF = KEY_BUF2,-
+		KSZ = DB_C_KSZ
+
+
+;
+EMUDBXAB0:	$XABKEY	REF = 0,-  		; PROTOCOL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP>,-		; Duplicates, changes allowed
+		NXT = EMUDBXAB1
+;
+EMUDBXAB1:	$XABKEY	REF = 1,-  		; BOXID
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUDBXAB2
+;
+EMUDBXAB2:	$XABKEY	REF = 2,-  		; TABLE
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 8,-               ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUDBXAB3
+;
+EMUDBXAB3:	$XABKEY	REF = 3,-  		; Instance
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 12,-              ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUDBXAB4
+;
+EMUDBXAB4:	$XABKEY	REF = 4,-  		; Paramater
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 16,-              ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUDBXAB5
+;
+EMUDBXAB5:	$XABKEY	REF = 5,-  	; Protocol,boxid
+		DTP = BN8,-             ; Key = 4 byte binary (ascending)
+		POS = 0,-              ; Key position
+		SIZ = 8,-               ; Key len
+                FLG = <DUP,CHG>,-		; Duplicates, changes allowed
+		NXT = EMUDBXAB6
+;
+EMUDBXAB6:	$XABKEY	REF = 6,-  	; Unique param
+		DTP = STG,-             ; String
+		POS = 0,-               ; Key position
+		SIZ = 20,-              ; Key len 
+                FLG = <CHG>,-		; No Duplicates, changes allowed
+		NXT = EMUDBXAB7
+;
+EMUDBXAB7:	$XABKEY	REF = 7,-  	; BOXID,TABLE
+		DTP = BN8,-             ; 8 BYTES
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		POS = 4,-               ; Key position
+		SIZ = 8,-                 ; Key len 
+		NXT = EMUDBXAB8
+;
+EMUDBXAB8:	$XABKEY	REF = 8,-  	 ; TABLE,PARAM
+		DTP = STG-               ; 8 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = <8,16>-            ; Key position
+		SIZ = <4,4>,-              ; Key len 
+		NXT = EMUDBXAB9
+;
+EMUDBXAB9:	$XABKEY	REF = 9,-  	 ; BOXID TABLE,PARAM
+		DTP = STG,-               ; 12 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = <4,8,16>-            ; Key position
+		SIZ = <4,4,4>,-              ; Key len 
+		NXT = EMUDBXAB10
+
+EMUDBXAB10:	$XABKEY	REF = 10,-  	 ; Flag field
+		DTP = BN4-               ; 4 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = 20,-            	 ; Key position
+		SIZ = 4               	 ; Key len 
+EMUDBREC_BUF:	.BLKB	768		; 
+EMUDBREC_SIZE = .-EMUDBREC_BUF
+
+
+	.ALIGN 	LONG
+;
+
+	.ALIGN 	LONG
+LOGFAB:	$FAB	FAC = <PUT>,-        	; Access
+		FNM = <EMUDB>,-    ; Filename 
+		DNM = <EMU5_LOG:EMUDB.LOG>,-    ; Filename 
+		SHR = <DEL,UPD,GET,PUT>,- ; Share access R/W
+		FOP = CIF		; Create if doesn't exist
+LOGRAB:	$RAB	FAB = LOGFAB,-           
+		RAC = SEQ,-		; Sequential access
+		ROP = EOF		; Open for append
+
+	.ALIGN	LONG
+MAPPERFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		RFM = FIX,-
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <EMU5_Dat:MAPPER.DAT>,-	; Default Filename 
+		FNM = <MAPPER>,-			; Filename 
+		XAB = MAPPERXAB0                  ; Keys
+
+MAPPERRAB:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = MAPPERREC_BUF,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = MAPPERREC_BUF,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		ROP = <NLK,RRL>,-			; Do not lock rec
+		KBF = MAPKEY_BUF,-		; Key location
+		KSZ = 8
+
+MAPPERXAB0:	$XABKEY	REF = 0,-  		; TBL,PARAM
+		DTP = BN8,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+		NXT = MAPPERXAB1
+
+MAPPERXAB1:	$XABKEY	REF = 1,-  	; TBL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP,-
+		NXT = MAPPERXAB2
+
+MAPPERXAB2:	$XABKEY	REF = 2,-  	; PARAM
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+MAPPERREC_BUF:	
+MAPPER_KEY:
+MAPPER_TBL:		.LONG	0	; Table 
+MAPPER_PARAM:		.LONG	0	; Paramater
+MAPPER_SEC:		.QUAD	0	; Prives req'ed to detect. VMS sec
+MAPPER_KEYW_LEN:	.LONG	0	; Len of following string
+MAPPER_KEYW:		.BLKB	32      ; Standard keyword this param
+MAPPER_FMTTYP:		.LONG	0	; Either len of following of rtn num.
+MAPPER_FMTSTR:		.BLKB	68	; FAO directive str
+MAPPER_RPTLVL:		.LONG	0
+MAPPERREC_SIZE = .-MAPPERREC_BUF        ; = 128
+;	
+
+
+	.PSECT	CODE NOWRT,EXE,QUAD
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMUDB_WRITE  
+;++
+;2 EMUDB_WRITE  
+; Routine to write to EMUDB. 
+;3 Inputs
+; .address of 24 byte key (full key must be specified)
+; .address of descriptor pointing to buffer containing data to write
+; .address of .long option flags                     (opt)
+; .address of desc pointing to buffer to contain returned information (opt)
+;4 Options:
+;   Bit		When Set
+;   0		Check current value of param before write. Return 
+;		old value in P4 if .ne.
+;   1		Always set update flag in header. If set, any record 
+;		processed sets this flag in flags field of key. Used to 
+;		locate any params deleted from target. After processing
+;		complete entity and setting this flag for each param, any 
+;		param with flag not set has been deleted from target.
+;3 Returns
+; R1 = addr of desc popiting to rec just written (if success)
+; R0 = status:
+; The MAPPER rec corresponding to this 
+; param is fetched and if present, the return is affected as follows:
+;  Check result		Flag 			Return
+;  Rec Created		Alert On create		SS$_CREATED
+;  Rec Created		NoAlert On create	SS$_NORMAL
+;  Rec Modified		Alert On Modify		SS$_WASSET
+;  Rec Modified		NoAlert On Modify	SS$_NORMAL
+;  Rec Deleted		Alert On DElete		SS$_DELETED
+;  Rec Deleted		NoAlert On Delete	SS$_NORMAL
+;	                     
+;	SS$_BADPARAM	 Param is incorrectly formatted
+;	SS$_NODATA	 The len of data (not including key) was <= 0
+;   Any error returned by RMS
+;--
+; Check all files open:
+	TSTW 	EMUDBFAB+FAB$W_IFI	; DB file open
+	BNEQ	20$			; Br if open
+	CALLS	#0,G^EMUDB_OPEN		; Open file
+	BLBS	R0,20$
+	RET
+20$:
+        TSTW	MAPPERFAB+FAB$W_IFI	; File open?
+	BNEQ	30$			; Br if open
+	CALLS	#0,G^EMUDB_OPEN_MAPPER		; Open file
+	BLBS	R0,30$
+	RET
+30$:
+; Check params
+
+        PROBER  #0,#DB_C_KSZ,4(AP)      ; Check for read access
+        BEQL    40$                     ; No
+        MOVQ    @8(AP),R6               ; Get Outp desc
+        PROBER  #0,R6,(R7)              ; Check for read access
+        BEQL    40$                     ; No
+	CMPL	#2,(AP)			; Optional params present?
+	BEQL	PARAMS_OK		; No - branch
+        PROBER  #0,#4,12(AP)            ; Check for read access
+        BEQL    40$                     ; No
+        MOVQ    @16(AP),R8              ; Get Outp desc
+        PROBEW  #0,R8,(R9)              ; Check for write access
+        BEQL    40$                     ; No
+        BRB	PARAMS_OK
+40$:
+        MOVL    #SS$_ACCVIO,R0          ; Signal Error
+        RET                             ; Die
+PARAMS_OK:
+; 
+	MOVB	#RAB$C_KEY,EMUDBWRAB+RAB$B_RAC   	; Indexed write
+	MOVB	#DB_REC_KEY_FULL,EMUDBWRAB+RAB$B_KRF	; Set key = FULL
+	CLRL	EMUDBWRAB+RAB$L_ROP		; No Options
+	MOVB    #DB_C_PRMKSZ,EMUDBWRAB+RAB$B_KSZ    ; Set key size = full
+	MOVAL	KEY_BUF2,EMUDBWRAB+RAB$L_KBF	; Set key buffer
+; See if this rec exists
+	MOVC3	#DB_C_KSZ,@4(AP),KEY_BUF2
+	$GET	RAB=EMUDBWRAB
+	BLBS	R0,10$
+	BRW	300$				; Doesn't exist - create it
+10$:
+	MOVL	#SS$_NORMAL,R10         	; Assume this end
+	CMPL	#2,(AP)				; Optional params present?
+	BNEQ	15$
+	BRW	200$				; No - branch
+15$:
+ 	BBC	#DB_OPT_V_SETUPD,@12(AP),20$	; Option not selected
+        BISL	#DB_FLG_M_UPDAT,EMUDBREC_BUF+DB_REC_L_FLAGS
+20$:
+ 	BBS	#DB_OPT_V_RETURN,@12(AP),30$	; Option  selected
+	BRW	200$                            ; Not
+30$:
+; Check input against stored data
+	CLRL 	R1			; loop control
+	MOVAL	EMUDBREC_BUF,R2		; stored rec
+	ADDL	#DB_C_KSZ,R2		; Data location
+50$:
+	CMPB	(R7)[R1],(R2)[R1]
+	BNEQU	100$
+	AOBLSS	R6,R1,50$
+; If updat flag is set, write out rec
+        BBC	#DB_FLG_V_UPDAT,EMUDBREC_BUF+DB_REC_L_FLAGS,60$
+55$:
+	$UPDATE	RAB=EMUDBWRAB
+	BLBC 	R0,70$
+	$FLUSH	RAB=EMUDBWRAB 
+60$:
+	MOVZWL	EMUDBWRAB+RAB$W_RSZ,RETDESC     ; Len
+	MOVAL	EMUDBREC_BUF,RETDESC+4		; Addr
+	MOVAL	RETDESC,R1			; Return rec desc	
+	MOVL	#SS$_NORMAL,R0          ; 
+70$:
+	RET	                        ; Done
+100$:
+; Recs .ne. - Check what we do with this param
+; If either no translation available or AlertOnModify not set
+; then return normal (already set). Else signal modified.
+	
+;
+	MOVL	#SS$_NORMAL,R10		; ASSUME final status
+	PUSHAL	EMUDBREC_BUF		; Record addr
+	CALLS	#1,EMUDB_GETMAP		; Returns pointer in r1
+	BLBC	R0,130$                 ; Br if no xlate available
+
+        BBC	#DB_MAP_FLG_V_ALTMOD,DB_MAP_L_POLFLG(R1),130$
+	MOVL	#SS$_WASSET,R10		; Set final status
+130$:
+	MOVZWL	EMUDBWRAB+RAB$W_RSZ,R1	; Rec size
+	MOVL	R1,@16(AP)		; Return len of data
+	MOVC3	R1,EMUDBREC_BUF,(R9)    ; Return record
+		
+200$:
+; Update this rec	
+; Construct the rec from the key+data
+	TSTL	R6			; Any to write?
+	BNEQ	210$                    ; Br if some
+	MOVL	#SS$_NODATA,R0         ; Error
+	RET
+210$:
+	CMPL	#2,(AP)				; Optional params present?
+	BEQLU	220$                            ; No Branch
+ 	BBC	#DB_OPT_V_SETUPD,@12(AP),220$	; Option not selected
+        BISL	#DB_FLG_M_UPDAT,EMUDBREC_BUF+DB_REC_L_FLAGS
+220$:
+	ADDW3	#DB_C_KSZ,R6,EMUDBWRAB+RAB$W_RSZ		; Set size
+	MOVC5	#0,#0,#0,#EMUDBREC_SIZE,EMUDBREC_BUF	; Clear
+	MOVC3	#DB_C_KSZ,@4(AP),EMUDBREC_BUF           ; Move key
+	MOVC3	R6,(R7),EMUDBREC_BUF+DB_C_KSZ           ; Move data
+	$UPDATE	RAB=EMUDBWRAB
+	BLBC 	R0,230$
+	$FLUSH	RAB=EMUDBWRAB 
+	MOVL	R10,R0
+230$:
+	MOVZWL	EMUDBWRAB+RAB$W_RSZ,RETDESC     ; Len
+	MOVAL	EMUDBREC_BUF,RETDESC+4		
+	MOVAL	RETDESC,R1			; Return rec desc	
+	RET
+300$:
+; Create this rec
+	TSTL	R6			; Any to write?
+	BNEQ	305$                    ; Br if some
+	MOVL	#SS$_NODATA,R0         ; Error
+	RET
+305$:
+	ADDW3	#DB_C_KSZ,R6,EMUDBWRAB+RAB$W_RSZ		; Set size
+	CMPW	#EMUDBREC_SIZE,EMUDBWRAB+RAB$W_RSZ	; Too big?
+	BGEQU	307$					; OK
+	BRW	340$					; too big
+307$:
+	MOVC5	#0,#0,#0,R6,EMUDBREC_BUF		; Clear
+	MOVC3	#DB_C_KSZ,@4(AP),EMUDBREC_BUF  
+	MOVC3	R6,(R7),EMUDBREC_BUF+DB_C_KSZ
+	CMPL	#2,(AP)				; Optional params present?
+	BEQLU	309$                            ; No Branch
+ 	BBC	#DB_OPT_V_SETUPD,@12(AP),309$	; Option not selected
+        BISL	#DB_FLG_M_UPDAT,EMUDBREC_BUF+DB_REC_L_FLAGS
+309$:
+	$PUT	RAB=EMUDBWRAB
+	BLBC 	R0,330$
+	$FLUSH	RAB=EMUDBWRAB 
+; If either no translation available or AlertOnCreate not set
+; then return normal. Else signal created.
+	
+	PUSHAL	EMUDBREC_BUF		; Record addr
+	CALLS	#1,EMUDB_GETMAP		; Returns pointer in r1
+	BLBS	R0,320$                 ; Br if xlate available
+310$:
+	MOVL	#SS$_NORMAL,R0
+	MOVZWL	EMUDBWRAB+RAB$W_RSZ,RETDESC     ; Len
+	MOVAL	EMUDBREC_BUF,RETDESC+4		
+	MOVAL	RETDESC,R1			; Return rec desc	
+	RET
+320$:
+        BBC	#DB_MAP_FLG_V_ALTCRT,DB_MAP_L_POLFLG(R1),310$
+	MOVL	#SS$_CREATED,R0
+330$:
+	MOVZWL	EMUDBWRAB+RAB$W_RSZ,RETDESC     ; Len
+	MOVAL	EMUDBREC_BUF,RETDESC+4		
+	MOVAL	RETDESC,R1			; Return rec desc	
+	RET
+340$:
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=7, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMUDB_READ  
+;++
+;2 EMUDB_READ  
+; Routine to read from EMUDB. Records are scanned and returned 1 by 1 
+; in sort order as specified by the key of reference. Each record is 
+; checked against the report level and if >, the record is skipped.
+; Each record is also checked against the current privs of the caller
+; and if insufficient, the record is (silently) skipped.
+; NOTE: The record is unlocked as soon as it is written to the caller's 
+; buffer. 
+;
+;3 Inputs
+; 1. KEY OF REFERENCE. EMU symbol denoting the key elements present to 
+;    find a particular record.
+; 2 .long	Output buffer
+;   .address of descriptor pointing to buffer where record is written
+;    The key elements specified by the KRF argument must be supplied 
+;    in the record format:
+;    Protocol	.long
+;    Boxid	.long
+;    Table	.long
+;    Instance	.long
+;    Param	.long
+;    Flags	.long
+;    the len of the returned record is written in the descriptor.
+;
+; 3. .long	search direction 
+; 4. .long report level
+; 5. .address record count. Count of recs returned kept here. Used to 
+;	determine ROP field.
+; 6. Flags. Optional. If present AND = 1  the record is NOT unlocked 
+;    immediately after read. By default the record is unlocked.
+; 7. RFA. optional .address of .quad where RFA is written. 
+;    Note only bottom 6 bytes are written
+;
+;4 Key of reference:
+;        DB_REC_KEY_PROTO	0       ; Protocol            
+;        DB_REC_KEY_BOXID	1       ; BOXID               
+;        DB_REC_KEY_TABLE	2       ; Table               
+;        DB_REC_KEY_INST	3       ; Instance            
+;        DB_REC_KEY_PARAM	4       ; Paramater           
+;        DB_REC_KEY_PRO_BOX	5	; Protocol, boxid     
+;        DB_REC_KEY_FULL	6	; Primary             
+;        DB_REC_KEY_BOX_TAB	7	; Boxid, Table             
+;	 DB_REC_KEY_TAB_PAR     8       ; Table, Param
+;	 DB_REC_KEY_BX_TAB_PAR  9       ; Boxid, Table, Param
+
+; Symbols are in EMUDBDEF                                     
+;3 Returns
+; R0 = status:
+;	SS$_NORMAL	 Record found, filters passed and written to outp
+;	SS$_INSFMAP      Could not find map record
+;	SS$_BADPARAM	 Unknown key
+;   Any error returned by RMS
+;--
+; Check all files open:
+	TSTW 	EMUDBFAB+FAB$W_IFI	; DB file open
+	BNEQ	20$			; Br if open
+	CALLS	#0,G^EMUDB_OPEN		; Open file
+	BLBS	R0,20$
+	RET
+20$:
+        TSTW	MAPPERFAB+FAB$W_IFI	; File open?
+	BNEQ	30$			; Br if open
+	CALLS	#0,G^EMUDB_OPEN_MAPPER		; Open file
+	BLBS	R0,30$
+	RET
+
+30$:
+; Check params
+	MOVQ	@8(AP),R7
+
+        BRB	READ_PARAMS_OK
+READ_PARAMS_OK:
+; Set search direction
+; Set defaults
+	CLRL    EMUDBRAB+RAB$L_ROP 	        	; Clear all opts
+	BISL    #RAB$M_RRL,EMUDBRAB+RAB$L_ROP         	; Read if read locked
+	MOVAL	KEY_BUF,EMUDBRAB+RAB$L_KBF		; Set key buffer
+	TSTL	@20(AP)                                 ; 1st interation?
+	BEQL	5$                                      ; Br if yes
+	MOVB	#RAB$C_SEQ,EMUDBRAB+RAB$B_RAC
+	BRW	150$					; 
+5$:
+	MOVB	#RAB$C_KEY,EMUDBRAB+RAB$B_RAC   ; Indexed read
+;	BISL    #RAB$M_EQNXT,EMUDBRAB+RAB$L_ROP         	; get next
+	CASEL	4(AP),#0,#10		; Select processing routine
+10$:                                   
+	.WORD	100$-10$          ; Protocol            
+	.WORD	101$-10$          ; BOXID               
+	.WORD	102$-10$          ; Table               
+	.WORD	103$-10$          ; Instance            
+	.WORD	104$-10$          ; Paramater           
+	.WORD	105$-10$          ; Protocol, boxid     
+	.WORD	106$-10$          ; Primary                               
+	.WORD	107$-10$          ; Boxid, table                               
+	.WORD	108$-10$          ; Table,param                              
+	.WORD	109$-10$          ; Boxid,table,param
+	.WORD	110$-10$          ; Boxid,table,param
+	MOVL	#SS$_BADPARAM,R0         
+	RET                                             
+
+100$:
+	MOVAL	KEY_BUF,R2
+	MOVL	DB_REC_L_PROTO(R8),(R2)
+	MOVB	4(AP),EMUDBRAB+RAB$B_KRF	; Set key 
+	MOVB    #4,EMUDBRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+101$:
+	MOVAL	KEY_BUF,R2
+	MOVL	DB_REC_L_BOXID(R8),(R2)
+	MOVB	4(AP),EMUDBRAB+RAB$B_KRF	; Set key 
+	MOVB    #4,EMUDBRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+102$:
+	MOVAL	KEY_BUF,R2
+	MOVL	DB_REC_L_TABLE(R8),(R2)
+	MOVB	4(AP),EMUDBRAB+RAB$B_KRF	; Set key 
+	MOVB    #4,EMUDBRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+103$:
+	MOVAL	KEY_BUF,R2
+	MOVL	DB_REC_L_INST(R8),(R2)
+	MOVB	4(AP),EMUDBRAB+RAB$B_KRF	; Set key 
+	MOVB    #4,EMUDBRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+
+104$:
+	MOVAL	KEY_BUF,R2
+	MOVL	DB_REC_L_PARAM(R8),(R2)
+	MOVB	4(AP),EMUDBRAB+RAB$B_KRF	; Set key 
+	MOVB    #4,EMUDBRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+105$:
+	MOVAL	KEY_BUF,R2
+	MOVL	DB_REC_L_PROTO(R8),(R2)+
+	MOVL	DB_REC_L_BOXID(R8),(R2)
+	MOVB	4(AP),EMUDBRAB+RAB$B_KRF	; Set key 
+	MOVB    #8,EMUDBRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+106$:
+	MOVAL	KEY_BUF,R2
+	MOVQ	DB_REC_L_PROTO(R8),(R2)+
+	MOVQ	DB_REC_L_TABLE(R8),(R2)+
+	MOVL	DB_REC_L_PARAM(R8),(R2)
+	CLRB	EMUDBRAB+RAB$B_KRF		; Set key = PROTOCOL
+	MOVB    #DB_C_PRMKSZ ,EMUDBRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+107$:
+	MOVAL	KEY_BUF,R2
+	MOVL	DB_REC_L_BOXID(R8),(R2)+
+	MOVL	DB_REC_L_TABLE(R8),(R2)
+	MOVB	4(AP),EMUDBRAB+RAB$B_KRF	; Set key 
+	MOVB    #8,EMUDBRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+108$:
+	MOVAL	KEY_BUF,R2
+	MOVL	DB_REC_L_TABLE(R8),(R2)+
+	MOVL	DB_REC_L_PARAM(R8),(R2)
+	MOVB	4(AP),EMUDBRAB+RAB$B_KRF	; Set key 
+	MOVB    #8,EMUDBRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+109$:
+	MOVAL	KEY_BUF,R2
+	MOVL	DB_REC_L_BOXID(R8),(R2)+
+	MOVL	DB_REC_L_TABLE(R8),(R2)+
+	MOVL	DB_REC_L_PARAM(R8),(R2)
+	MOVB	4(AP),EMUDBRAB+RAB$B_KRF	; Set key 
+	MOVB    #12,EMUDBRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+110$:
+	MOVAL	KEY_BUF,R2
+	MOVL	DB_REC_L_FLAGS(R8),(R2)+
+	MOVB	4(AP),EMUDBRAB+RAB$B_KRF	; Set key 
+	MOVB    #12,EMUDBRAB+RAB$B_KSZ    	; Set key size 
+	BRW	200$
+
+150$:
+; 2nd or subsequent read.
+;	MOVQ	@8(AP),R1			; Last rec read
+;	MOVQ	(R2),KEY_BUF
+;	MOVQ	8(R2),KEY_BUF+8
+;	MOVQ	16(R2),KEY_BUF+16
+;	MOVB    #24,EMUDBRAB+RAB$B_KSZ    	; Set key size 
+
+200$:
+; See if this rec exists
+	MOVL	R8,EMUDBRAB+RAB$L_UBF  		; Buffer addr
+	MOVW	R7,EMUDBRAB+RAB$W_USZ  		; Buffer size
+	$GET	RAB=EMUDBRAB
+	BLBS	R0,210$
+	RET					; Return with any error
+210$:
+; Get map rec for this table.param
+	CMPL	#6,(AP)			; Unlock param present?
+	BNEQU	213$			; Br if param not present
+	BBC	#DB_ROPT_V_UNLOCK,24(AP),215$	; Skip if not set
+213$:
+	$RELEASE RAB=EMUDBRAB 		; Unlock
+215$:
+	CMPL	#7,(AP)			; RFA param present?
+	BNEQU	217$			; Br if param NOT present
+	MOVL	28(AP),R1
+	MOVL	EMUDBRAB+RAB$L_RFA0,(R1)  
+	MOVW	EMUDBRAB+RAB$W_RFA4,4(R1)
+217$:
+; Get map rec for this table.param
+	CMPL	#6,(AP)			; Option param present?
+	BNEQU	218$			; Br if param not present
+	BBC	#DB_ROPT_V_MAPCHECK,24(AP),218$	; Skip if not set
+	MOVZWL	EMUDBRAB+RAB$W_RSZ,@8(AP)	; Return len
+	INCL	@20(AP)				; Count returned record
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+218$:
+	PUSHL	R8			; Record addr
+	CALLS	#1,EMUDB_GETMAP		; Returns pointer in r1
+	BLBS	R0,220$                 ; Br if xlate available
+	MOVZWL	EMUDBRAB+RAB$W_RSZ,@8(AP)	; Return len
+	INCL	@20(AP)				; Count returned record
+  	MOVL	#SS$_INSFMAP,R0
+	RET
+
+220$:
+; Check privs
+	MOVAL	MAPPERREC_BUF,R8
+	$CHECK_PRIVILEGEW_S PRVADR= DB_MAP_Q_SECURE(R8)    ; Check for priv
+	BLBS	R0,230$                          ; Br if priv
+        BRW	200$				 ; Ignore this rec
+230$:
+; Check report level
+	CMPL	16(AP),DB_MAP_L_RPTLVL(R8)
+	BGEQU	240$
+        BRW	200$				 ; Ignore this rec
+240$:
+	MOVZWL	EMUDBRAB+RAB$W_RSZ,@8(AP)	; Return len
+	INCL	@20(AP)				; Count returned record
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=7, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMUDB_READ_RFA  
+;++
+;2 EMUDB_READ_RFA  
+; Routine to read from EMUDB using record file address. Purpose here is to 
+; retrieve param and build record by row rather as RMS dictates, by column.
+; Notes:
+; The RFA file MUST be provided. To have this the caller must have previously
+; read using EMUDB_READ. This routine restores the location and retrieves
+; the next record on the specified key.
+;
+;3 Inputs
+;	 SAME AS EMUDB_READ. This routine simply sets the last
+;	 read record as given by the RFA and then calls EMUDB_READ
+;
+;3 Returns
+; R0 = status:
+;	SS$_NORMAL	 Record found, filters passed and written to outp
+;	SS$_BADPARAM	 The record count = 0 . Implies this is 1st read
+;			 on this key. Not allowed for RFA access.
+;   Any error returned by RMS, EMUDB_READ
+;--
+
+
+; Set search direction
+; Set defaults
+	MOVQ	@8(AP),R7
+	CLRL    EMUDBRAB+RAB$L_ROP 	        	; Clear all opts
+	BISL    #RAB$M_RRL,EMUDBRAB+RAB$L_ROP         	; Read if read locked
+	TSTL	@20(AP)                                 ; 1st interation?
+	BNEQ	5$ 
+	MOVL	#SS$_BADPARAM,R0
+	RET
+5$:
+	MOVL	R8,EMUDBRAB+RAB$L_UBF  		; Buffer addr
+	MOVW	R7,EMUDBRAB+RAB$W_USZ  		; Buffer size
+
+	MOVB	#RAB$C_RFA,EMUDBRAB+RAB$B_RAC   	; RFA read
+        MOVL	28(AP),R1
+	MOVL	(R1),EMUDBRAB+RAB$L_RFA0  
+	MOVW	4(R1),EMUDBRAB+RAB$W_RFA4
+100$:
+; See if this rec exists
+	$GET	RAB=EMUDBRAB
+	BLBS	R0,110$
+	RET
+110$:
+	MOVB	#RAB$C_SEQ,EMUDBRAB+RAB$B_RAC   	; RFA read
+	$GET	RAB=EMUDBRAB
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMUDB_DELETE  
+;++
+;2 EMUDB_DELETE  
+; Routine to delete a record from EMUDB. It is assumed that the record
+; has been successfuly read by the caller using EMUDB_READ. This RAB is
+; used in the delete operation. 
+;3 Inputs
+;	None
+;3 Returns
+;	None
+; R0 = status:
+;   Any return from RMS
+;--
+	$DELETE	RAB=EMUDBRAB
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMUDB_UNLOCK  
+;++
+;2 EMUDB_UNLOCK  
+; Routine to unlock a record in EMUDB. It is assumed that the record
+; has been successfuly read by the caller using EMUDB_READ. This RAB is
+; used in the delete operation. 
+;3 Inputs
+;	None
+;3 Returns
+;	None
+; R0 = status:
+;   Any return from RMS
+;--
+	$RELEASE	RAB=EMUDBRAB
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMUDB_DELETE_ALL  
+;++
+;2 EMUDB_DELETE_ALL  
+; Routine to delete all records from EMUDB on a particular key.
+;3 Inputs
+; 1. KEY OF REFERENCE. EMU symbol denoting the key elements present to 
+;    find a particular record.
+; 
+; 2. .address of descriptor pointing to buffer where record is written
+;     The len must be 768 bytes long and contain the values of the keys
+;     specified in P1. Key is made from one or more of the following fields:
+;    Protocol	.long
+;    Boxid	.long
+;    Table	.long
+;    Instance	.long
+;    Param	.long
+;    Flags	.long
+;
+; 3. .address record count. Count of recs deleted returned here. 
+;
+;4 Key of reference:
+;        DB_REC_KEY_PROTO	0       ; Protocol            
+;        DB_REC_KEY_BOXID	1       ; BOXID               
+;        DB_REC_KEY_TABLE	2       ; Table               
+;        DB_REC_KEY_INST	3       ; Instance            
+;        DB_REC_KEY_PARAM	4       ; Paramater           
+;        DB_REC_KEY_PRO_BOX	5	; Protocol, boxid     
+;        DB_REC_KEY_FULL	6	; Primary             
+;        DB_REC_KEY_BOX_TAB	7	; Boxid, Table             
+;	 DB_REC_KEY_TAB_PAR     8       ; Table, Param
+;	 DB_REC_KEY_BX_TAB_PAR  9       ; Boxid, Table, Param
+;3 Output
+; All records found using specifed key are deleted. The count of recs
+; deleted is returned in P3.
+;
+;3 Returns
+; R0 = status:
+;	SS$_NORMAL	 Record found, filters passed and written to outp
+;	SS$_BADPARAM	 Unknown key
+;	SS$_BUFFEROVF	 Buffer len was < DB_REC_C_MRS 
+;   Any error returned by RMS
+;--
+; 
+	CMPL	#DB_REC_C_MRS,@8(AP)
+        BLEQU	5$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+5$:
+	CLRL	@12(AP)			; No recs yet
+	CASEL	4(AP),#0,#10		; Select Key setup routine
+
+10$:
+	.WORD	100$-10$          ; Protocol            
+	.WORD	101$-10$          ; BOXID               
+	.WORD	102$-10$          ; Table               
+	.WORD	103$-10$          ; Instance            
+	.WORD	104$-10$          ; Paramater           
+	.WORD	105$-10$          ; Protocol, boxid     
+	.WORD	106$-10$          ; Primary                               
+	.WORD	107$-10$          ; Boxid, table                               
+	.WORD	108$-10$          ; Table,param                              
+	.WORD	109$-10$          ; Boxid,table,param
+	.WORD	110$-10$          ; Flags
+	
+	MOVL	#SS$_BADPARAM,R0         
+	RET                                             
+
+100$:
+	MOVC5	#0,#0,#0,#DB_C_KSZ,KEY_BUF3	; Clear key
+	MOVQ	@8(AP),R6
+	MOVAL	KEY_BUF3,R8
+	MOVL	(R7),DB_REC_L_PROTO(R8)
+ 	BRW	200$
+101$:
+	MOVC5	#0,#0,#0,#DB_C_KSZ,KEY_BUF3	; Clear key
+	MOVQ	@8(AP),R6
+	MOVAL	KEY_BUF3,R8
+	MOVL	(R7),DB_REC_L_BOXID(R8)
+ 	BRW	200$
+102$:
+	MOVC5	#0,#0,#0,#DB_C_KSZ,KEY_BUF3	; Clear key
+	MOVQ	@8(AP),R6
+	MOVAL	KEY_BUF3,R8
+	MOVL	(R7),DB_REC_L_TABLE(R8)
+ 	BRW	200$
+103$:
+	MOVC5	#0,#0,#0,#DB_C_KSZ,KEY_BUF3	; Clear key
+	MOVQ	@8(AP),R6
+	MOVAL	KEY_BUF3,R8
+	MOVL	(R7),DB_REC_L_INST(R8)
+ 	BRW	200$
+104$:
+	MOVC5	#0,#0,#0,#DB_C_KSZ,KEY_BUF3	; Clear key
+	MOVQ	@8(AP),R6
+	MOVAL	KEY_BUF3,R8
+	MOVL	(R7),DB_REC_L_PARAM(R8)
+ 	BRW	200$
+105$:
+	MOVC5	#0,#0,#0,#DB_C_KSZ,KEY_BUF3	; Clear key
+	MOVQ	@8(AP),R6
+	MOVAL	KEY_BUF3,R8
+	MOVL	(R7),DB_REC_L_PROTO(R8)
+	MOVL	4(R7),DB_REC_L_BOXID(R8)
+ 	BRW	200$
+106$:
+	MOVQ	@8(AP),R6
+	MOVAL	KEY_BUF3,R8
+	MOVC3	#DB_C_KSZ,(R7),KEY_BUF3		; Full key
+ 	BRW	200$
+107$:
+	MOVC5	#0,#0,#0,#DB_C_KSZ,KEY_BUF3	; Clear key
+	MOVQ	@8(AP),R6
+	MOVAL	KEY_BUF3,R8
+	MOVL	(R7),DB_REC_L_BOXID(R8)
+	MOVL	4(R7),DB_REC_L_TABLE(R8)
+ 	BRW	200$
+108$:
+	MOVC5	#0,#0,#0,#DB_C_KSZ,KEY_BUF3	; Clear key
+	MOVQ	@8(AP),R6
+	MOVAL	KEY_BUF3,R8
+	MOVL	(R7),DB_REC_L_TABLE(R8)
+	MOVL	4(R7),DB_REC_L_PARAM(R8)
+ 	BRW	200$
+109$:
+	MOVC5	#0,#0,#0,#DB_C_KSZ,KEY_BUF3	; Clear key
+	MOVQ	@8(AP),R6
+	MOVAL	KEY_BUF3,R8
+	MOVL	(R7),DB_REC_L_BOXID(R8)
+	MOVL	4(R7),DB_REC_L_TABLE(R8)
+	MOVL	8(R7),DB_REC_L_PARAM(R8)
+ 	BRW	200$
+110$:
+	MOVC5	#0,#0,#0,#DB_C_KSZ,KEY_BUF3	; Clear key
+	MOVQ	@8(AP),R6
+	MOVAL	KEY_BUF3,R8
+	MOVL	(R7),DB_REC_L_FLAGS(R8)
+ 	BRW	200$
+
+200$:
+	MOVL	#DB_REC_C_MRS,@8(AP)
+	PUSHL	#1			; Do not unlock after read
+	PUSHL	12(AP)			; Record count
+	PUSHL	#8			; Report level
+	CLRL	-(SP)			; Search direction
+	PUSHL	8(AP)			; Write rec here
+	PUSHL	4(AP) 			; Key of ref
+	CALLS	#6,G^EMUDB_READ
+	BLBS	R0,300$
+	CMPL	R0,#SS$_INSFMAP		; Ingnore no map err
+	BEQLU	300$
+	CMPL	R0,#RMS$_RNF
+	BEQLU	220$
+	CMPL	R0,#RMS$_EOF
+	BEQLU	220$
+	RET
+220$:
+	$RELEASE RAB=EMUDBRAB		; Unlock last read
+	MOVL	#SS$_NORMAL,R0
+	RET
+300$:
+	CLRL	R11			; Loop control
+310$:
+	TSTL	(R8)[R11]		; Used key part here?
+	BEQL	320$			; Br no
+	CMPL	(R8)[R11],(R7)[R11]	; Matching rec?
+	BNEQU	400$			; No - br
+320$:
+	AOBLSS	#6,R11,310$
+	$DELETE	RAB=EMUDBRAB            ; All specified fields EQ - delete
+	BLBS	R0,200$
+	RET				; Return any error
+400$:
+	$RELEASE RAB=EMUDBRAB		; Unlock last read
+	MOVL	#SS$_NORMAL,R0
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMUDB_UPDATE  
+;++
+;2 EMUDB_UPDATE  
+; Routine to modify a record in EMUDB. It is assumed that the record
+; has been successfuly read by the caller using EMUDB_READ. This RAB is
+; used in the update operation. 
+; Note. This procedure is supplied for updating KEY information. If DATA
+; information is intended to be modified, EMUDB_WRITE should be called as
+; it decides whether to create or update record data and has the alert 
+; hooks built in.
+;  
+;3 Inputs
+;	None
+;3 Returns
+;	None
+; R0 = status:
+;   Any return from RMS
+;--
+; 
+	$UPDATE	RAB=EMUDBRAB
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMUDB_GETMAP
+;++
+;2 EMUDB_GETMAP
+; Routine to look up translation rec for this param.
+;3 Inputs
+;	Addr of DB rec
+;3 Outputs
+;	R1 = pointer to map rec if found, 0 if not
+;3 Returns
+; 	SS$_NORMAL		rec found, pointer written
+;	SS$_ACCVIO		Can't read DB rec (Header only)
+;	ANY RMS ERROR		Rec not found, R1 = 0
+;--
+	PROBER	#0,#DB_C_KSZ,@4(AP)
+	BNEQ	10$
+	MOVL	#SS$_ACCVIO,R0
+	RET
+10$:
+        TSTW	MAPPERFAB+FAB$W_IFI		; File open?
+	BNEQ	20$				; Br if open
+	CALLS	#0,G^EMUDB_OPEN_MAPPER		; Open file
+	BLBS	R0,20$
+	RET
+20$:
+        MOVL	4(AP),R6
+	MOVL	DB_REC_L_TABLE(R6),MAPKEY_BUF   
+	MOVL	DB_REC_L_PARAM(R6),MAPKEY_BUF+4   
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,30$
+	CLRL	R1
+	RET					; Return RMS error
+30$:
+	MOVAL	MAPPERREC_BUF,R1		; Return pointer
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMUDB_LOG
+;++
+;2 EMUDB_LOG
+; If logging is enabled, this routine is called on each transaction
+; and writes the record to the log file.
+;3 Input
+;  .long value of operation. May be:
+;	read	0
+;	write	1
+;	update	3
+;	delete	4
+;  .address of RAB
+;3 Output
+; The operation and record are written to the log file as 2 records:
+;	.long	operation
+;	.var	record
+; Note an update operation normally will send 2 records (in 2 calls)
+; the 1st being the old rec and the 2nd the new.
+;3 Returns
+; none - if logging fails do not take any special action.
+;--
+	$CREATE	FAB=LOGFAB
+	BLBS	R0,10$
+	RET
+10$:
+	$CONNECT RAB=LOGRAB
+	BLBS	R0,20$
+	RET	
+20$:
+;	ADDL3	#4,AP,LOGRAB+RAB$L_RBF	; Addr
+;	ADDL3	#4,AP,LOGRAB+RAB$L_UBF
+	ret
+
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMUDB_OPEN
+;++
+;2 EMUDB_OPEN
+; Open Main Database file
+; If file does not exist then it is created
+;3 Input
+;	None
+;3 Output
+;	None
+;3 Return
+;	Any RMS from $CREATE, $CONNECT
+;--
+	$CREATE	FAB=EMUDBFAB
+	BLBS	R0,10$
+	RET
+10$:
+	$CONNECT RAB=EMUDBRAB
+	BLBS	R0,20$
+	RET
+20$:
+	$CONNECT RAB=EMUDBWRAB
+	RET
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMUDB_OPEN_MAPPER
+;++
+;2 EMUDB_OPEN_MAPPER
+; Open Mapper file
+;--
+	$OPEN	FAB = MAPPERFAB		;Open input file
+	BLBS	R0,10$
+	RET
+10$:
+ 	$CONNECT RAB = MAPPERRAB	;Connect input stream
+	RET
+	.end	

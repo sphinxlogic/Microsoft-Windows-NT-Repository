@@ -1,0 +1,141 @@
+%TITLE	'LOCK_CODE'
+MODULE LOCK_CODE (IDENT = '01-000') = 
+BEGIN
+!++
+!
+!  Facility:	LOCK_CODE
+!
+!  Author:	Hunter Goatley
+!		Copyright © 1994, Hunter Goatley.  All Rights Reserved.
+!
+!  Date:	August 9, 1994
+!
+!  Abstract:
+!
+!	This module contains a generic routine for locking down code
+!	that is to be executed at elevated IPL (when pagefaults are
+!	not allowed).
+!
+!  Modified by:
+!
+!	01-000		Hunter Goatley		 9-AUG-1994 21:47
+!		Original version.  Based on ideas and code originally
+!		written by Matt Madison.
+!
+!--
+LIBRARY 'SYS$LIBRARY:LIB';			!Pull stuff from LIB
+
+FORWARD ROUTINE
+	lock_nonpaged_code;
+
+    !
+    !  Create two new PSECTs, $$$BEGIN_LOCKED_CODE and $$$END_LOCKED_CODE.
+    !  COLLECT statements in a linker options file will ensure that these
+    !  PSECTs surround the code that is to be locked down.  The GLOBAL
+    !  variables $$$LOCK_START and $$$LOCK_END delimit the lockdown range.
+    !
+    PSECT
+	NODEFAULT = $$$BEGIN_LOCKED_CODE (READ,WRITE,NOEXECUTE),
+	NODEFAULT = $$$END_LOCKED_CODE   (READ,WRITE,NOEXECUTE);
+
+    GLOBAL
+	$$$LOCK_START   : PSECT ($$$BEGIN_LOCKED_CODE),
+	$$$LOCK_END     : PSECT ($$$END_LOCKED_CODE);
+
+
+%SBTTL	'LOCK_NONPAGED_CODE'
+GLOBAL ROUTINE LOCK_NONPAGED_CODE =
+BEGIN
+!+
+!
+!  Routine:	LOCK_NONPAGED_CODE
+!
+!  Functional Description:
+!
+!	This routine locks down all the pages stored between the
+!	PSECTs $$$BEGIN_LOCKED_CODE and $$$END_LOCKED_CODE by calling
+!	$LKWSET for each page in the range.  It is assumed that a
+!	linker options file was used to collect the PSECTs that are
+!	to be locked down.
+!
+!	Since the pages aren't necessarily contiguous on AXP, each
+!	page in the range is $PROBEd to see if it exists.  If so, it's
+!	locked down, otherwise, it's skipped.  On the VAX, this isn't
+!	necessary, as the PSECTs will reside on contiguous pages.  However,
+!	this routine does the $PROBEs on the VAX too.
+!
+!  Environment:
+!
+!	User-mode
+!
+!  Formal parameters:
+!
+!	None.
+!
+!  Implicit inputs:
+!
+!	$$$LOCK_START, $$$LOCK_END
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!  Side effects:
+!
+!	Locks pages into the working set using $LKWSET.
+!
+!-
+    LOCAL
+    	lcklst	: VECTOR [2,LONG],
+%IF %BLISS(BLISS32E) %THEN
+    	pgsize	: ALIAS,
+    	syilst	: $ITMLST_DECL(ITEMS=1),
+%ELSE
+	pgsize	: INITIAL (512),	!On VAX, it's always 512 bytes
+%FI
+    	status;
+
+    status = SS$_NORMAL;		!Assume success status
+
+%IF %BLISS(BLISS32E) %THEN
+    !
+    !  For AXP systems, call $GETSYI to get the page size, which can
+    !  vary with different implementations of the Alpha AXP chip.
+    !
+    $ITMLST_INIT(ITMLST=syilst,
+    	(ITMCOD=SYI$_PAGE_SIZE, BUFSIZ=%ALLOCATION(pgsize), BUFADR=pgsize));
+    status = $GETSYIW(ITMLST=syilst);
+    IF NOT(.status) THEN RETURN (.status);
+%FI
+
+!++
+! Because on AXP systems we have multiple PSECTs that must be locked down
+! (both code and linkage), and those PSECTs might not be on contiguous
+! pages, we probe each page between the starting and ending points of the
+! locked-down cluster to see if it exists before we try and lock it down.
+!--
+
+    lcklst [0] = $$$LOCK_START;
+
+    WHILE (.lcklst [0] LSSA $$$LOCK_END) DO
+	BEGIN
+    	lcklst [1] = .lcklst [0] + .pgsize-4;
+    	IF $PROBE (.lcklst [0], 4, RQ, 0)	!Does page exist?
+	THEN					!If so, then lock it down
+    	    BEGIN
+    	    status = $LKWSET (INADR=lcklst);
+    	    IF NOT (.status) THEN EXITLOOP;
+	    END;
+    	lcklst [0] = .lcklst [0] + .pgsize;	!Move on to the next page
+	END;
+
+    RETURN (.status);				!Return final status
+
+END;						!LOCK_NONPAGED_CODE
+
+END						!End of module LOCK_CODE
+ELUDOM						!End of module

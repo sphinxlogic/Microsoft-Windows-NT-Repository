@@ -1,0 +1,319 @@
+	.MACRO	EMUDBDEF,$GBL
+	$DEFINI	EMUDBDEF,$GBL
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Symbols used in Database access
+; Each param is accessed by 1 key:
+; Each key consists of:
+;	PROTOCOL	4 bytes	- SYS_PID_XXXX of EMU supported protocol
+;	BOXID		4 bytes - unique physical device
+;	Table        	4 bytes - 1 of the tables below
+;	instance	4 bytes - CRC of identifier
+;	Param		4 bytes - param number
+;	Flags		4 bytes - See below
+; The primary key is 20 bytes - the flag field is ignored for most operations
+; Any key or combinations other than primary can be duplicated.
+;
+$EQU	DB_C_KSZ  		24
+$EQU	DB_C_PRMKSZ  		20	; Primary key size
+; Write Option flags
+$EQU	DB_OPT_V_RETURN		0	; If bit set then check cur value
+$EQU	DB_OPT_V_SETUPD		1	; If bit set then set upd bit in hdr
+;
+$EQU	DB_OPT_M_RETURN		1	; If bit set then check cur value
+$EQU	DB_OPT_M_SETUPD		2	; If bit set then set upd bit in hdr
+; Read Option flags
+$EQU	DB_ROPT_V_UNLOCK	0	; If bit set then dont unlock rec
+$EQU	DB_ROPT_V_MAPCHECK	1	; If bit set then dont check for map
+;
+$EQU	DB_ROPT_M_UNLOCK	1	; If bit set then dont unlock
+$EQU	DB_ROPT_M_MAPCHECK	2	; If bit set then dont check for map
+
+; Record format
+$EQU	DB_REC_20_KEY		0	; Key
+$EQU	DB_REC_L_PROTO		0	; Protocol
+$EQU	DB_REC_L_BOXID		4	; Boxid
+$EQU	DB_REC_L_TABLE		8	; Table number
+$EQU	DB_REC_L_INST		12	; Instance identifier
+$EQU	DB_REC_L_PARAM		16	; Paramater number
+$EQU	DB_REC_L_FLAGS 		20      ; Control flags
+$EQU	DB_REC_C_DATA		24	; Data starts here
+$EQU	DB_REC_C_MRS		768	; Max rec size
+; Defined keys
+$EQU	DB_REC_KEY_PROTO	0
+$EQU	DB_REC_KEY_BOXID	1
+$EQU	DB_REC_KEY_TABLE	2
+$EQU	DB_REC_KEY_INST		3
+$EQU	DB_REC_KEY_PARAM	4
+$EQU	DB_REC_KEY_PRO_BOX	5	; Protocol, boxid
+$EQU	DB_REC_KEY_FULL		6	; 
+$EQU	DB_REC_KEY_BOX_TAB	7	; Boxid, Table
+$EQU	DB_REC_KEY_TAB_PAR	8	; Table, Param
+$EQU	DB_REC_KEY_BX_TAB_PAR	9	; Boxid, Table, Param
+$EQU	DB_REC_KEY_FLAGS	10	; Flag field
+; In case of DN5 table:
+$EQU	DB_REC_W_TCLAS		24	; Tag class
+$EQU	DB_REC_W_TVAL		26	; Tag value
+$EQU	DB_REC_L_CLEN		28	; Len of cmip data
+$EQU	DB_REC_C_CDATA		32	; Start of CMIP data
+; In case of SNMP table:
+$EQU	DB_REC_W_SNMPV		24	; Tag value
+$EQU	DB_REC_L_SNMPL		25	; Len of SNMP data
+$EQU	DB_REC_C_SDATA		26	; Start of SNMP data
+
+; Flags are in 2x.word fields: 
+;	low .word reserved for run time purposes
+;	Hi .word reserved for permanent indicators
+$EQU	DB_FLG_V_UPDAT		0	; Record is updated this pass
+$EQU	DB_FLG_M_UPDAT		1	; Record is updated this pass
+$EQU	DB_FLG_V_RECORD		16	; Record has been recorded in PSR
+$EQU	DB_FLG_M_RECORD		65536	; Record has been recorded in PSR
+
+; tables
+$EQU	DB_FAC_C_ETH		65537
+$EQU	DB_FAC_C_SCS		65538
+$EQU	DB_FAC_C_MOP  		65539
+$EQU	DB_FAC_C_DN5		65540
+$EQU	DB_FAC_C_DN4		65541
+$EQU	DB_FAC_C_IP		65543
+$EQU	DB_FAC_C_IPX		65544
+$EQU	DB_FAC_C_BRD		65545
+;
+; Mapper rec
+$EQU	DB_MAP_C_RECSIZ		128
+$EQU	DB_MAP_L_TBL 		0
+$EQU	DB_MAP_L_PARAM          4
+$EQU	DB_MAP_Q_SECURE         8
+$EQU	DB_MAP_L_KEYWLEN        16
+$EQU	DB_MAP_A64_KEYW         20
+$EQU	DB_MAP_L_FMTTYP         84
+$EQU	DB_MAP_A32_FMTSTR       88
+$EQU	DB_MAP_L_POLFLG		120
+$EQU	DB_MAP_L_RPTLVL		124
+; DB_MAP Flags                                      When set
+$EQU    DB_MAP_FLG_V_EXCLDB     0 		; Do not record in DB
+$EQU    DB_MAP_FLG_V_INCMON     1               ; Include in monitors
+$EQU    DB_MAP_FLG_V_ALTCRT     2               ; Alert on create
+$EQU    DB_MAP_FLG_V_ALTMOD     3               ; Alert on Mod
+$EQU    DB_MAP_FLG_V_ALTDEL     4               ; Alert on Delete
+
+$EQU    DB_MAP_FLG_M_EXCLDB     1
+$EQU    DB_MAP_FLG_M_INCMON     2
+$EQU    DB_MAP_FLG_M_ALTCRT     4               ; Alert on create
+$EQU    DB_MAP_FLG_M_ALTMOD     8               ; Alert on Mod
+$EQU    DB_MAP_FLG_M_ALTDEL     16              ; Alert on Delete
+$EQU    DB_MAP_FLG_C_DEFAULT    0              ; Default settings
+
+; 
+; Translation options
+$EQU	DB_XLTOPT_V_NOTRAN	0
+$EQU	DB_XLTOPT_V_1LINE 	1
+$EQU	DB_XLTOPT_V_SUPKEW	7
+$EQU	DB_XLTOPT_V_SUPDAT	8
+$EQU	DB_XLTOPT_V_INDKEY	15
+$EQU	DB_XLTOPT_V_INDDAT	16
+
+$EQU	DB_XLTOPT_M_NOTRAN	1
+$EQU	DB_XLTOPT_M_1LINE	2
+$EQU	DB_XLTOPT_M_SUPKEW	128
+$EQU	DB_XLTOPT_M_SUPDAT	256
+$EQU	DB_XLTOPT_M_INDKEY	16384
+$EQU	DB_XLTOPT_M_INDDAT	32768
+
+
+$EQU	DB_FAC_C_DN5_TBLOFFS    65536+10
+$EQU	DB_FAC_C_DN4_TBLOFFS    65536+200
+$EQU	DB_FAC_C_LAT_TBLOFFS    65536+300
+$EQU	DB_FAC_C_OTH_TBLOFFS    65536
+
+
+; DECnet V tables
+; **THIS TABLE MUST STAY IN SEQUENCE WITH GD5_FCN_DN5_xxx (_EMUCMIPDEF)**
+; **AND TALBE SELECTOR IN EMU_UILIB**
+$EQU	DB_FAC_C_DN5_NODE		65536+10
+$EQU	DB_FAC_C_DN5_ALIAS		65536+11
+$EQU	DB_FAC_C_DN5_ALIASPORT		65536+12
+$EQU	DB_FAC_C_DN5_CSMACD		65536+13
+$EQU	DB_FAC_C_DN5_CSMACDPORT		65536+14
+$EQU	DB_FAC_C_DN5_CSMACDSTN		65536+15
+$EQU	DB_FAC_C_DN5_DDCMP		65536+16
+$EQU	DB_FAC_C_DN5_DDCMP_LNK		65536+17
+$EQU	DB_FAC_C_DN5_DDCMP_LNKSTN	65536+18
+$EQU	DB_FAC_C_DN5_DDCMP_PORT		65536+19
+$EQU	DB_FAC_C_DN5_DEVICE		65536+20
+$EQU	DB_FAC_C_DN5_DEVICE_UNIT	65536+21
+$EQU	DB_FAC_C_DN5_DNS		65536+22
+$EQU	DB_FAC_C_DN5_DNS_SERV		65536+23
+$EQU	DB_FAC_C_DN5_DNS_SERV_CH	65536+24
+$EQU	DB_FAC_C_DN5_DNS_CLRK		65536+25
+$EQU	DB_FAC_C_DN5_DNS_CLRK_KNS	65536+26
+$EQU	DB_FAC_C_DN5_DNS_CLRK_RCH	65536+27
+$EQU	DB_FAC_C_DN5_DNS_CLRK_MNS	65536+28
+$EQU	DB_FAC_C_DN5_DTS		65536+29
+$EQU	DB_FAC_C_DN5_DTS_GBLSRV		65536+30
+$EQU	DB_FAC_C_DN5_DTS_LOCSRV		65536+31
+$EQU	DB_FAC_C_DN5_EVD		65536+32
+$EQU	DB_FAC_C_DN5_EVD_OS		65536+33
+$EQU	DB_FAC_C_DN5_EVD_REL		65536+34
+$EQU	DB_FAC_C_DN5_EVD_RECLOG		65536+35
+$EQU	DB_FAC_C_DN5_EVD_SNK		65536+36
+$EQU	DB_FAC_C_DN5_EVD_SNKIS		65536+37
+$EQU	DB_FAC_C_DN5_FRAME		65536+38
+$EQU	DB_FAC_C_DN5_FRAME_LINK		65536+39
+$EQU	DB_FAC_C_DN5_FRAME_PORT		65536+40
+$EQU	DB_FAC_C_DN5_HDLC		65536+41
+$EQU	DB_FAC_C_DN5_HDCL_LNK		65536+42
+$EQU	DB_FAC_C_DN5_HDLC_LNKLS		65536+43
+$EQU	DB_FAC_C_DN5_HDLC_PORT		65536+44
+$EQU	DB_FAC_C_DN5_LAPB		65536+45
+$EQU	DB_FAC_C_DN5_LAPB_LINK		65536+46
+$EQU	DB_FAC_C_DN5_LAPB_PORT		65536+47
+$EQU	DB_FAC_C_DN5_LLC2		65536+48
+$EQU	DB_FAC_C_DN5_LLC2_PORT		65536+49
+$EQU	DB_FAC_C_DN5_LLC2_SAP		65536+50
+$EQU	DB_FAC_C_DN5_LLC2_SAPLNK	65536+51
+$EQU	DB_FAC_C_DN5_LOOPBACK		65536+52
+$EQU	DB_FAC_C_DN5_MODEM		65536+53
+$EQU	DB_FAC_C_DN5_MODEM_PORT		65536+54
+$EQU	DB_FAC_C_DN5_MODEM_LINE		65536+55
+$EQU	DB_FAC_C_DN5_MOP		65536+56
+$EQU	DB_FAC_C_DN5_MOP_CIRC		65536+57
+$EQU	DB_FAC_C_DN5_MOP_CIRCOP		65536+58
+$EQU	DB_FAC_C_DN5_MOP_CIRCSTN	65536+59
+$EQU	DB_FAC_C_DN5_MOP_CLIENT		65536+60
+$EQU	DB_FAC_C_DN5_NSP		65536+61
+$EQU	DB_FAC_C_DN5_NSP_LNSAP		65536+62
+$EQU	DB_FAC_C_DN5_NSP_RNSAP		65536+63
+$EQU	DB_FAC_C_DN5_NSP_PORT		65536+64
+$EQU	DB_FAC_C_DN5_OSIT		65536+65
+$EQU	DB_FAC_C_DN5_OSIT_APP		65536+66
+$EQU	DB_FAC_C_DN5_OSIT_LNSAP		65536+67
+$EQU	DB_FAC_C_DN5_OSIT_RNSAP		65536+68
+$EQU	DB_FAC_C_DN5_OSIT_PORT		65536+69
+$EQU	DB_FAC_C_DN5_TEMPL		65536+70
+$EQU	DB_FAC_C_DN5_RTN		65536+71
+$EQU	DB_FAC_C_DN5_RTN_CIRC		65536+72
+$EQU	DB_FAC_C_DN5_RTN_CRICADJ	65536+73
+$EQU	DB_FAC_C_DN5_RTN_CIRCIPAT	65536+74
+$EQU	DB_FAC_C_DN5_RTN_CIRCIPAJ	65536+75
+$EQU	DB_FAC_C_DN5_RTN_CIRCIPRA	65536+76
+$EQU	DB_FAC_C_DN5_RTN_CIRCRA		65536+77
+$EQU	DB_FAC_C_DN5_RTN_DESTAREA	65536+78
+$EQU	DB_FAC_C_DN5_RTN_DESNNODE	65536+79
+$EQU	DB_FAC_C_DN5_RTN_EGPGRP		65536+80
+$EQU	DB_FAC_C_DN5_RTN_EGPNEI		65536+81
+$EQU	DB_FAC_C_DN5_RTN_IPDA		65536+82
+$EQU	DB_FAC_C_DN5_RTN_PERNEI		65536+83
+$EQU	DB_FAC_C_DN5_RTN_PORT		65536+84
+$EQU	DB_FAC_C_DN5_SC			65536+85
+$EQU	DB_FAC_C_DN5_SC_APP   		65536+86
+$EQU	DB_FAC_C_DN5_SC_PORT		65536+87
+$EQU	DB_FAC_C_DN5_SC_TOWMAINT	65536+88
+$EQU	DB_FAC_C_DN5_SC_TRASVC		65536+89
+$EQU	DB_FAC_C_DN5_X25A		65536+90
+$EQU	DB_FAC_C_DN5_X25A_APP		65536+91
+$EQU	DB_FAC_C_DN5_X25A_DTECLASS	65536+92
+$EQU	DB_FAC_C_DN5_X25A_FILT		65536+93
+$EQU	DB_FAC_C_DN5_X25A_PORT		65536+94
+$EQU	DB_FAC_C_DN5_X25A_SECDTE	65536+95
+$EQU	DB_FAC_C_DN5_X25A_REMDTE	65536+96
+$EQU	DB_FAC_C_DN5_X25A_RA		65536+97
+$EQU	DB_FAC_C_DN5_X25A_SECFILT	65536+98
+$EQU	DB_FAC_C_DN5_X25A_TEMPL		65536+99
+$EQU	DB_FAC_C_DN5_X25C		65536+100
+$EQU	DB_FAC_C_DN5_X25P		65536+101
+$EQU	DB_FAC_C_DN5_X25P_DTE		65536+102
+$EQU	DB_FAC_C_DN5_X25P_DTEPVC	65536+103
+$EQU	DB_FAC_C_DN5_X25P_GRP		65536+104
+$EQU	DB_FAC_C_DN5_FDDI		65536+105
+$EQU	DB_FAC_C_DN5_FDDI_STN		65536+106
+$EQU	DB_FAC_C_DN5_FDDI_PORT		65536+107
+$EQU	DB_FAC_C_DN5_HIGHEST    	65536+107
+; DECnet IV tables
+$EQU	DB_FAC_C_DN4_EXEC		65536+200
+$EQU	DB_FAC_C_DN4_CIRC		65536+201
+$EQU	DB_FAC_C_DN4_LINE		65536+202
+$EQU	DB_FAC_C_DN4_LOGGING		65536+203
+$EQU	DB_FAC_C_DN4_X25A		65536+204
+$EQU	DB_FAC_C_DN4_X25P		65536+205
+$EQU	DB_FAC_C_DN4_X25S		65536+206
+$EQU	DB_FAC_C_DN4_OBJ		65536+207
+$EQU	DB_FAC_C_DN4_X25DTE		65536+208	; Known DTE char
+$EQU	DB_FAC_C_DN4_X25DEST		65536+209	; Known Destinations
+$EQU	DB_FAC_C_DN4_X25NET		65536+210	; Known Networks
+$EQU	DB_FAC_C_DN4_HIGHEST    	65536+210
+
+; LAT Tables
+$EQU	DB_FAC_C_LAT_Node		65536+300
+$EQU	DB_FAC_C_LAT_SERVICE		65536+301
+$EQU	DB_FAC_C_LAT_LINK		65536+302
+$EQU	DB_FAC_C_LAT_HIGHEST    	65536+302
+;
+; EMU defined params. Most protocols define param numbers. Those that don't
+; are assigned here.
+$EQU	DB_PRM_ETH_EA_ADDR		1		; Ethernet address
+$EQU	DB_PRM_ETH_Q_PTYTYP 		2		; EMU protocol type
+$EQU	DB_PRM_ETH_W_LANTYP		3		; LAN TYPE
+; Bridge
+$EQU	DB_PRM_BRD_Q_ROOTID		1		; Root id
+$EQU	DB_PRM_BRD_W_TYPE		2		; STP type (dec or 802)
+$EQU	DB_PRM_BRD_L_COST		3		; Cost to root
+$EQU	DB_PRM_BRD_W_FDT		4		; Forward delay
+$EQU	DB_PRM_BRD_W_LIST		5		; Listen timer
+$EQU	DB_PRM_BRD_W_HINT		6		; Hello interval
+$EQU	DB_PRM_BRD_EA_ADDR		7		; Ethernet
+; IPX
+$EQU	DB_PRM_IPX_AS_NAME		1		; Node name
+$EQU	DB_PRM_IPX_L_NET		2		; Netware Segment
+$EQU	DB_PRM_IPX_EA_ADDR		3		; Lan Address
+$EQU	DB_PRM_IPX_W_SERVICE		4		; Service code
+; SCS
+$EQU	DB_PRM_SCS_AC_NAME		1		; Name
+$EQU	DB_PRM_SCS_EA_ADDR		2		; LAN ADDR
+$EQU	DB_PRM_SCS_W_CLUID		3		; Cluster ID
+; MOP - EMU Extensions - current MOP params stop at 600. We will use
+; 1024+ for necessary extension. Conflict is not guaranteed but unlikely
+$EQU	DB_PRM_MOP_Q_LASBOOT		1024		; Last boot req
+$EQU	DB_PRM_MOP_L_BOOTCNT		1025		; Count of bot req
+$EQU	DB_PRM_MOP_BOOTSOFT		1026		; Requested software
+; Mop Counts
+$EQU	DB_PRM_MOPCNT_TIM	1030    ;Seconds since last zeroed          
+$EQU	DB_PRM_MOPCNT_BYTR	1031    ;Bytes received                     
+$EQU	DB_PRM_MOPCNT_BYTS	1032	;Bytes sent                         
+$EQU	DB_PRM_MOPCNT_FRMR	1033	;Frames received                    
+$EQU	DB_PRM_MOPCNT_FRMS	1034	;Frames sent                        
+$EQU	DB_PRM_MOPCNT_MCBR	1035	;Multicast bytes received           
+$EQU	DB_PRM_MOPCNT_MCFR	1036	;Multicast frames received          
+$EQU	DB_PRM_MOPCNT_DEFR	1037	;Frames sent, initially deferred    
+$EQU	DB_PRM_MOPCNT_COL1	1038	;Frames sent, single collision      
+$EQU	DB_PRM_MOPCNT_COLM	1039	;Frames sent, multiple collisions   
+$EQU	DB_PRM_MOPCNT_SNDF	1040	;Send failure                       
+$EQU	DB_PRM_MOPCNT_SFBM	1041	;Send failure reason bitmap         
+$EQU	DB_PRM_MOPCNT_RCVF	1441	;Receive failure                    
+$EQU	DB_PRM_MOPCNT_RFBM	1042	;Receive failure reason bitmap      
+$EQU	DB_PRM_MOPCNT_UNFD	1033	;Unrecognized frame destination     
+$EQU	DB_PRM_MOPCNT_DOVR	1044	;Data overrun                       
+$EQU	DB_PRM_MOPCNT_SBUN	1045	;System buffer unavailable          
+$EQU	DB_PRM_MOPCNT_UBUN	1046	;User buffer unavailable            
+
+; SCANNER
+; Record layout
+$EQU	SCN_REC_L_TABLE			0
+$EQU	SCN_REC_L_PARAM			4
+$EQU	SCN_REC_L_DESTPID		8
+$EQU	SCN_REC_L_FLAGS			12
+$EQU	SCN_C_RECSIZE			16
+; No Link Action
+$EQU	SCN_REC_M_CREATE		1 	; Create PSR rec if missing
+$EQU	SCN_REC_V_CREATE		1
+;
+
+
+
+	$DEFEND	EMUDBDEF,$GBL,DEF
+	.ENDM

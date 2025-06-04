@@ -1,0 +1,155 @@
+	.TITLE	EMU_LAT 
+	.IDENT	/V1-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 EMU_LAT
+; Collection of routines to retrieve, parse and present LAT network
+; information. See individual routines for detail.
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+	$DSCDEF		; 
+	$LATDEF         ; LAT definitions
+	$SSDEF		; System Services
+	EMUCNTDEF
+	.PSECT	EMU_LAT_D,WRT,NOEXE,PIC,SHR,QUAD
+
+LATIOSB:	.QUAD	0
+COUNTERS_A:	.QUAD	0
+LATDEVICE:	.ASCID	/LTA0/
+FULL_OFFSET = LAT$V_SENSE_FULL+16
+
+; Argument list for LAT read
+;
+	.ALIGN	LONG
+READLAT:	.LONG	12				; Arg counter
+		.LONG	0				; Event number
+LATCHAN:	.LONG	0				; Channel
+		.LONG	<IO$_TTY_PORT!IO$M_LT_SENSEMODE> ; Function
+		.ADDRESS LATIOSB			; IO Status block
+		.LONG	0				; AST Routine
+		.LONG	0				; AST Param
+LATBUFFER:	.LONG	0	   			; P1
+LATBUFFER_LEN:	.LONG	0				; P2
+		.LONG	LAT$C_ENT_NODE!<1@FULL_OFFSET>	; P3
+ENTITY:		.LONG	0				; P4
+		.LONG	0				; P5
+		.LONG	0				; P6
+
+
+
+
+       .PSECT EMU_LAT_C,EXE,NOWRT,LONG
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_LAT_XLT_GROUP
+;++
+;2 EMU_LAT_XLT_GROUP
+; Routine to translate LAT group pattern to ascic string.
+; Translation is actualy done by EMU_BITPTOASCIC (which see)
+;3 Input
+; address of .ascic string of bits to translate
+; address of desc pointing to output
+;3 Output
+; ascii tring showing bits set - see EMU_BITPTOASCIC in XLATE_SERVICES.
+;3 Returns
+; Any from EMU_BITPTOASCIC
+;--
+	MOVL	4(AP),R6	; .ascic string input
+	MOVZBL	(R6),R1		; bytes
+	MULL	#8,R1		; Bits
+	DECL	R1		; Less 1 (start at bit 0)
+	PUSHL	8(AP)		; Outp
+	PUSHL	R1		; Number of bits to search
+	ADDL3	#1,R6,-(SP)	; String
+	CALLS	#3,G^EMU_BITPTOASCIC
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETLATNODE
+
+;++
+;2 GETLATNODE
+; Routine to return the LAT node information for the input node name.
+;
+;3 Inputs
+;	.address 	.desc pointing to  LAT node name
+;	.address	desc for service block return
+;3 Outputs
+; The NODE block is returned as formatted by LAT:
+;3 Returns in R0:
+;	SS$_NORMAL	OK - Node reached and data returned
+;	SS$_ACCVIO	Cant read inpt or cant write outp
+;	Any error from $assign or $qio. Note that the error returned 
+; 	in the IOSB from LAT is .long. Use LATMSG.MAR to translate.
+;--
+
+
+; Regs:
+; R6 input node name len
+; R7 input node name addr
+; R8 Len  of outp buff
+; R9 Addr where outp service block is written
+;
+; Set up counters
+	TSTL	COUNTERS_A
+	BNEQ	10$
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	BLBS	R0,10$
+	RET
+10$:
+	MOVL	COUNTERS_A,R11
+	MOVQ	@4(AP), R6	; Node name desc
+	MOVQ	@8(AP), R8		; Outp
+; Check params
+	PROBER	#0, R6, (R7)		; Check for read access
+	BNEQ	20$			; No
+	MOVL	#SS$_ACCVIO, R0		; Signal Error
+	RET				; Die
+20$:	
+	PROBER	#0, R8, (R9)		; Check for read access
+	BNEQ	30$			; No
+	MOVL	#SS$_ACCVIO, R0		; Signal Error
+	RET				; Die
+
+;  Assign a channel to LTA0. This will CLONE us a brand new LTA
+;  device which we can use for collecting the data.
+	
+30$:	
+	TSTL	LATCHAN			; Do we have one?
+	BNEQ	40$			; Yes - skip assign
+	$ASSIGN_S	CHAN=LATCHAN,-
+			DEVNAM=LATDEVICE
+      	BLBS	R0,40$			; 
+	RET				; Error 
+
+40$:	
+	INCL	CNT_POL_L_LATREQ(R11)
+	MOVL	R8,LATBUFFER_LEN
+	MOVL	R9,LATBUFFER
+	MOVL	4(AP),ENTITY
+	$QIOW_G	READLAT
+	BLBS	R0,50$
+	INCL	CNT_POL_L_LATERR(R11)   ; Errors returned
+	RET				; Error 
+
+50$:	BLBS	LATIOSB,60$
+	MOVL	LATIOSB,R0		; Error is full .long
+	INCL	CNT_POL_L_LATERR(R11)   ; Errors returned
+	RET				; Error 
+60$:
+	INCL	CNT_POL_L_LATRESP(R11)   ; Responses
+	MOVL	LATIOSB+4,@8(AP)	; return len
+	RET	
+	.end

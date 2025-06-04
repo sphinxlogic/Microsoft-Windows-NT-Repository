@@ -1,0 +1,376 @@
+	.TITLE	IOC_JACKET Jacket code to test new IOC$HANGUP_TT
+	.IDENT	/V1.1-000/
+	.LIBRARY /SYS$LIBRARY:LIB.MLB/
+
+
+;
+;****************************************************************************
+;*									    *
+;*  COPYRIGHT (c) 1988 BY						    *
+;*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+;*  ALL RIGHTS RESERVED.						    *
+;* 									    *
+;*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+;*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+;*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+;*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+;*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+;*  TRANSFERRED.							    *
+;* 									    *
+;*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+;*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+;*  CORPORATION.							    *
+;* 									    *
+;*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+;*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+;* 									    *
+;*									    *
+;****************************************************************************
+;
+
+
+;++
+;
+;		This is a test jacket program to test the new IOC$HANGUP_TT, 
+;	and IOC$
+;
+;	NOTE:
+;		The required prive to use this are:
+;
+;			1) PHY_IO
+;			2) CMKRNL
+;			3) WORLD
+;			4) OPER
+;			5) PSWAPM
+;			6) SYSPRV not explicity checked for
+;			7) SHARE not explicitly checked for
+;
+; CALLING SEQUENCE:
+;
+;	ret_stat = UNLINK_VT (device_name)
+;
+;	device_name	-	address of a string descriptor, the string must
+;				contain name of VT to be disconnected (ex VTA0:)
+;
+; AUTHOR:
+;
+;	Forrest A. Kenney	28-August-1986
+;
+; REVISION HISTORY:
+;
+;	X.X	XXXNNN	XX-XXX-XXXX
+;		Reason
+;
+;--
+
+	.SBTTL	External and local symbol definitions
+
+;
+; External symbols
+;
+
+	$CCBDEF				; Define CCB
+	$DVIDEF				; Device information
+	$IOCDEF				; Define IOC$SEARCH flags
+	$IPLDEF				; Define various CPU IPL levels
+	$JPIDEF				; Process information
+	$PRVDEF				; Process privilege definitions
+	$SPLCODDEF			; SMP code definitions
+	$SSDEF				; System status codes
+	$UCBDEF				; Unit control block
+	$TTYDEFS			; TTY specific definitions
+	$TTYMACS			; Define terminal macros
+	$TTYUCBDEF			; TTY UCB definitions
+
+
+;+
+; A simple macro to help build item list items
+;-
+  	.MACRO	ITEM	LENGTH,CODE,BUFF_ADDR,RET_LEN=0
+
+	.WORD		LENGTH
+	.WORD		CODE
+	.ADDRESS	BUFF_ADDR
+	.ADDRESS	RET_LEN
+
+	.ENDM	ITEM
+
+	.SBTTL	Allocate local storage
+
+
+	.PSECT	$DATA	LONG,NOEXE,RD,WRT
+
+DEVNAM:	.BLKB	64			; Block hold PHYDEV name 
+	DEVNAM_LEN = .-DEVNAM
+DEVNAM_SIZ:				; Storage for length of PHYDEV name
+	.LONG	0
+
+DISC_FLAG:				; Is device disconnectable
+	.LONG	0
+
+CHANNEL:
+	.WORD	0			; Channel number for assign
+IOSB:	.BLKW	4			; IOSB for $GETJPI & $GETDVI
+
+PROCPRIV:				; QAUDWORD to hold process priv. mask
+	.QUAD	0
+
+
+LOCK_ADDRS:
+	.ADDRESS	BEGIN_KRNL_CODE
+	.ADDRESS	END_KRNL_CODE
+
+JPILST:	ITEM	8,JPI$_CURPRIV,PROCPRIV
+	.LONG	0
+
+	.PSECT	$CODE	LONG,PIC,NOWRT,RD,EXE,CON,REL,LCL,SHR
+	.SBTTL	Validate device & request
+;+
+;
+;		This routine will validate the the device to be disconnected is a 
+;	virtual terminal and the the user has the correct privs to do it.  The process 
+;	sequence is listed below:
+;
+;		1) Assign a channel to the device
+;		2) Validate privs
+;		3) Calls KERNEL mode routine (to get UCB addres and disconnect it)
+;
+;	INPUTS:
+;		4(AP)	- Address of a descriptor containing device name
+;		8(AP)	- Unlink or disconnect flag
+;
+;	OUTPUT:
+;		R0	- Status of operation
+;
+;				SS$_IVDEVNAM
+;				SS$_NOPRIV
+;				any possible returns from $ASSIGN, or $GETJPI
+;
+;-
+
+	.ENTRY	UNLINK_VT,^M<>
+
+;+
+; Get a channel to work with
+;-
+	CLRQ	-(SP)			; Default acmode & no mailbox
+	MOVAW	CHANNEL,-(SP)		; Address of word to hold channel #
+	MOVL	4(AP),-(SP)		; Address of device name string
+	CALLS	#4,G^SYS$ASSIGN		; Assign channel
+	BLBS	R0,50$			; Success continue
+	RET				; Failed return with reason
+
+;+
+; Now lets find out if the call has needed privs
+;-
+50$:	$GETJPIW_S	IOSB=IOSB,-	; Get process priv mask
+			ITMLST=JPILST	;
+	BLBS	R0,60$			; If setup ok cont
+	PUSHL	R0			; Save failure reason
+	BRW	1000$			; Branch to exit code
+60$:	BLBS	IOSB,70$		; If got info cont
+	MOVZWL	IOSB,-(SP)		; Save error reason
+	BRW	1000$			; Branch to exit code
+
+	ASSUME	PRV$V_CMKRNL LE 32	; Make sure privs we care
+	ASSUME	PRV$V_PHY_IO LE 32	; about are in 1st longword
+	ASSUME	PRV$V_WORLD  LE 32	;
+	ASSUME	PRV$V_OPER   LE 32	;
+	ASSUME	PRV$V_PSWAPM LE 32	;
+
+70$:	BICL2	#^C<PRV$M_CMKRNL!-	; Get just the PRIV bits we want
+		    PRV$M_PHY_IO!-	;
+		    PRV$M_WORLD!-	;
+		    PRV$M_OPER!-	;
+		    PRV$M_PSWAPM>,PROCPRIV ;
+	CMPL	#<PRV$M_CMKRNL!-	; Do we have right privs
+		  PRV$M_PHY_IO!-	;
+		  PRV$M_WORLD!-		;
+		  PRV$M_OPER!-		;
+		  PRV$M_PSWAPM>,PROCPRIV ;
+	BEQL	80$			; Ok continue
+	MOVZWL	#SS$_NOPRIV,-(SP)	; Save error reason
+	BRW	1000$			; Branch to exit code
+
+;+
+; Lock down the KERNEL mode code 
+;-
+80$:	$LCKPAG_S		-	; Lock KRNL_CODE into memory
+		INADR=LOCK_ADDRS	; 
+	BLBS	R0,90$			; Success continue
+	PUSHL	R0			; Save error status
+	BRW	1000$			; Error exit
+
+;+
+; Now build arg list & call Kernel mode routine
+;-
+90$:
+	MOVL	AP,-(SP)		; Store argument list on stack
+	MOVAL	KRNL_CODE,-(SP)		; Store address of Kernel routine on stack
+	CALLS	#2,SYS$CMKRNL		; Invoke kernel mode routine
+	PUSHL	R0			; Save status reason
+;+
+; Unlock the KERNEL mode code
+;-
+	$ULKPAG_S		-	; Unlock KRNL_CODE
+		INADR=LOCK_ADDRS	; 
+	BLBS	R0,1000$		; Worked then continue
+	BLBC	(SP),1000$		; Error unlinking use it
+	MOVL	R0,(SP)			; Save $ULKPAG error 
+
+;+
+; We have a channel to free before exiting
+;-
+1000$:	$DASSGN_S	CHAN=CHANNEL	; Free channel
+	BLBS	R0,1010$		; Ok just exit with correct reason
+	MOVL	R0,R1			; Save channel DASSGN error 
+	POPL	R0			; Get previous status code
+	BLBC	R0,1020$		; Use first error
+	MOVL	R0,R1			; Use DASSGN error
+	RET				; Return
+1010$:	POPL	R0			; Restore reason
+1020$:	RET				; Return to caller
+
+
+;+
+; This section of code needs to run at elevalted IPL to prevent process
+; deletion while owning I/O database MUTEX.  It also will use a backdoor
+; hook into the TTDRIVER to UNLINK the VT.
+;
+;	Note:	R4 contains the current processes PCB address it is suppiled by
+;		the change mode dispatcher.  It is needed by SCH$IOLOCKR & 
+;		SCH$IOUNLOCK
+;
+;-
+BEGIN_KRNL_CODE:
+
+	.ENTRY	KRNL_CODE,^M<R3,R5>
+	JSB	G^SCH$IOLOCKR		; Lock the I/O database for read access
+	MOVL	4(AP),R1		; Store device name
+	TSTL	8(AP)			; See if unlink or hangup
+	BEQL	10$			; EQL unlink 
+	JSB	IOC$HANGUP_TT		; hangup terminal 
+	BRB	20$			; Go to common exit code
+
+10$:	JSB	IOC$DISCONNECT_VT	; Disconnect VT
+
+20$:	PUSHL	R0			; Save reason
+	JSB	G^SCH$IOUNLOCK		; Unlock I/O database 
+	POPL	R0			; Restore reason
+	RET
+
+;++
+;
+; IOC$HANGUP_TT - Hangup terminal.
+; IOC$DISCONNECT_VT - Disconnect VT if disconnectable otherwise exit
+;
+; This routine will use the terminal class driver disconnect code to force
+; a either a terminal hangup, or a Virtual terminal to be disconnected.  If you
+; use IOC$HANGUP_TT entry point and the device is disconnectable it will not be
+; hungup, instead it will be disconnected.
+;
+; INPUTS:
+;	R1 = Address of descriptor of device / logical name string
+;	I/O database mutex held, IPL 2
+;
+; OUTPUTS:
+;	R0 = SS$_NORMAL - Device disconnect or hungup depending upon entry point
+;          = SS$_ACCVIO - name string is not readable
+;          = SS$_NONLOCAL - nonlocal device
+;          = SS$_IVLOGNAM - invalid logical name (e.g., too long)
+;          = SS$_TOOMANYLNAM - max. logical name recursion exceeded
+;          = SS$_IVDEVNAM - device cannot be disconnected
+;			  - disconnect requested and device is already disconnected
+;			  - disconnect requested and device is not disconnectable 
+;			  - device is not owned and cannot be disconnected
+;          = SS$_NOSUCHDEV - device not found
+;          = SS$_NODEVAVL - device exists but not available according to rules
+;          = SS$_DEVALLOC - device allocated to other user
+;          = SS$_NOPRIV - failed device protection
+;          = SS$_TEMPLATEDEV - can't allocate template device
+;          = SS$_DEVMOUNT - device already mounted
+;          = SS$_DEVOFFLINE - device marked offline
+;	R1-R11 PRSERVED
+;
+;	IOC$HANGUP_TT	R4 = 0
+;
+;	IOC$UNLINK_VT	R4 = 1
+;
+; Note:	This code relies on the fact that TTDRIVER is supposed to copy
+;	the DLCK from the PHYUCB to the LOGUCB when it creates or relinks
+;	a LOGUCB.  If that changes this will crash with a spinlock error.
+;
+;--
+IOC$HANGUP_TT:				; Terminal hangup entry point
+	PUSHR	#^M<R1,R2,R3,R4,R5>	; Save registers used by operatio
+	CLRL	R4			; Hangup if device not disconnectable
+	BRB	IOC$HANGUP_COMMON	; GOTO common code
+
+IOC$DISCONNECT_VT:			; Disconnect VT entry point
+	PUSHR	#^M<R1,R2,R3,R4,R5>	; Save registers used by operatio
+	MOVL	#1,R4			; Indicate hangup is to be performed
+
+
+IOC$HANGUP_COMMON:			; Hangup up the guy
+	MOVL	4(AP),R1		; Get device descriptor string address
+	CLRL	R3			; No lock value block
+	MOVZBL	#<IOC$M_ANY!	-	; Match any local device 
+		 IOC$M_LOCAL>,R2	;
+	JSB	G^IOC$SEARCH		; Now find the devices UCB
+	CMPW	R0,#SS$_NORMAL		; Is device just free
+	BEQL	20$			; NEQ no use this error
+	MOVL	#SS$_IVDEVNAM,R0	; Signal device is illegal for request
+
+10$:
+	POPR	#^M<R1,R2,R3,R4,R5>	; Restore registers exit
+	RSB
+
+20$:
+	MOVL	#SS$_IVDEVNAM,R0	; Assume device is not legal 
+	BBC	#DEV$V_TRM,	-	; See if device is a terminal
+		UCB$L_DEVCHAR(R1),10$	;
+	BBS	#DEV$V_RTT,	-	; Is this a remote terminal
+		UCB$L_DEVCHAR2(R1),10$	;
+	FORKLOCK LOCK=UCB$B_FLCK(R1),-	; Take fork lock to prevent TTDRIVER
+		SAVIPL=-(SP),	-	; from unlinking device for us
+		PRESERVE=YES		;
+	BBC	#0,R4,30$		; Hangup case keep checking
+	BBC	#TT2$V_DISCONNECT, -	; Is device disconnectable no, disconnect 
+		UCB$L_DEVDEPND2(R1),50$	;  requested exit with error
+	MOVL	UCB$L_TL_PHYUCB(R1),R5	; Get PHYUCB, and verify disconnect request 
+	BNEQ	40$			; Linked go ahead and disconnect it
+	BRB	50$			; Already disconnected just exit
+
+30$:					; Verify HANGUP request
+	MOVL	UCB$L_TL_PHYUCB(R1),R5	; Get physical UCB
+	BNEQ	40$			; Have PHYUCB hangup it up
+	BRB	50$			; Alread disconnected just exit
+
+40$:	
+	DEVICELOCK		-	; Take device lock TTDRIVER assumes it
+		LOCKADDR=UCB$L_DLCK(R5), - ; is held
+		LOCKIPL=UCB$B_DIPL(R5), -  ;
+		SAVIPL=-(SP),	-	;
+		PRESERVE=NO		;
+	MOVL	UCB$L_TT_CLASS(R5),R4	; Get class disptach table address
+	JSB	@CLASS_DISCONNECT(R4)	; Now call disconnect code
+	DEVICEUNLOCK		-	; RElease the device lock
+		LOCKADDR=UCB$L_DLCK(R5), - ;
+		NEWIPL=(SP)+,	-	;
+    		CONDITION=RESTORE, -	;
+		PRESERVE=NO		;
+	MOVZWL	#SS$_NORMAL,R0		; Store success as exit reason
+
+50$:
+	FORKUNLOCK 		-	; Release fork lock so TTDRIVER 
+		LOCK=UCB$B_FLCK(R5), -  ; can run the disconnect fork
+		NEWIPL=(SP)+,	-	;
+		CONDITION=RESTORE, -	;
+		PRESERVE=YES		;
+	POPR	#^M<R1,R2,R3,R4,R5>	; Restore saved registers
+	RSB				; Exit
+
+
+END_KRNL_CODE:
+
+	.END

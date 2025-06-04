@@ -1,0 +1,1757 @@
+	.TITLE VIEW_SECTIONS  
+	.IDENT /V05-002/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 VIEW_SECTIONS  
+; Routine to display contents of EMU global sections.
+; 
+;--
+; Modifications
+; v05-001 23-sep-1996	 PB	Creation
+; v05-002 Aug-1999	 PB	2 Changes:
+;				All sections are now mapped only when aceessed
+;				and unmapped after use.
+;				Added 'E'rase option to mark selected rec
+;				for delete.
+;
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+;	.library	/lib$:macrolib.mlb/
+	EMUIPCDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	$SECDEF				; Global Section 
+	EMUPSRDEF
+	EMUSYSDEF
+	EMURLTDEF
+;
+; Data Section
+;
+
+	.psect	rw_data, noexe, rd, wrt, quad, pic, noshr	;Read/Write data
+; Global Section
+; returned addresses
+EBUFFS_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+COUNTERS_A:	.QUAD	0
+PSRTBL_A:	.QUAD   0
+PSRDB_A:	.QUAD	0
+DADDR:		.QUAD	0
+TMPDESC:	.QUAD	0
+PSRTBLCNT:	.LONG	0
+EBUFF_START:	.LONG	0
+OUTPSTR:	.BLKB	256
+OUTPSTR_D:  	.LONG	.-OUTPSTR
+		.ADDRESS  OUTPSTR
+
+	.ALIGN	QUAD
+MAPSCS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRSCS
+		.LONG	PSR_SCS_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_SCSDB
+		.ADDRESS EMU_PSRSCS
+MAPIPX:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIPX
+		.LONG	PSR_IPX_L_NET
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPXDB
+		.ADDRESS EMU_PSRIPX
+MAPDN5:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN5
+		.LONG	PSR_DN5_B20_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN5DB
+		.ADDRESS EMU_PSRDN5
+MAPDN4:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN4
+		.LONG	PSR_DN4_W_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN4DB
+		.ADDRESS EMU_PSRDN4
+MAPETH:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRETH
+		.LONG	PSR_ETH_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_ETHDB
+		.ADDRESS EMU_PSRETH
+MAPLAT:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRLAT
+		.LONG	PSR_LAT_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_LATDB
+		.ADDRESS EMU_PSRLAT
+MAPIP:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIP
+		.LONG	PSR_IP_L_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPDB
+		.ADDRESS EMU_PSRIP
+
+MAPMOP:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+
+MAPBRD:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRBRD
+		.LONG	PSR_BRD_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_BRDDB
+		.ADDRESS EMU_PSRBRD
+MAPRELATER:
+                .QUAD	0
+		.LONG	SYS_PID_C_RELATER
+		.LONG	0
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_RELATERDB
+		.ADDRESS EMU_RELATER
+MAPNAMER:
+                .QUAD	0
+		.LONG	SYS_PID_C_NAMER
+		.LONG	0
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_NAMERDB
+		.ADDRESS EMU_NAMER
+
+
+; Lock Names
+EMU_IPXDB:	
+		.ASCID	\EMU_IPXDB\            ; Lock name
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_BRDDB:	
+		.ASCID	\EMU_BRDDB\            ; Lock name
+EMU_IPDB:	
+		.ASCID	\EMU_IPDB\            ; Lock name
+EMU_SCSDB:	
+		.ASCID	\EMU_SCSDB\            ; Lock name
+EMU_DN5DB:	
+		.ASCID	\EMU_DN5DB\            ; Lock name
+EMU_RELATERDB:	
+		.ASCID	\EMU_RELATERDB\            ; Lock name
+EMU_NAMERDB:	
+		.ASCID	\EMU_NAMERDB\            ; Lock name
+EMU_DN4DB:	
+		.ASCID	\EMU_DN4DB\            ; Lock name
+EMU_LATDB:	
+		.ASCID	\EMU_LATDB\            ; Lock name
+EMU_ETHDB:	
+		.ASCID	\EMU_ETHDB\            ; Lock name
+; Section names
+EMU_PSRIPX:	
+		.ASCID	\EMU_PSRIPX\  		; Section name
+EMU_PSRMOP:	
+		.ASCID	\EMU_PSRMOP\  		; Section name
+EMU_PSRBRD:	
+		.ASCID	\EMU_PSRBRD\  		; Section name
+EMU_PSRIP:	
+		.ASCID	\EMU_PSRIP\  		; Section name
+EMU_PSRSCS:	
+		.ASCID	\EMU_PSRSCS\  		; Section name
+EMU_PSRDN5:	
+		.ASCID	\EMU_PSRDN5\  		; Section name
+EMU_RELATER:	
+		.ASCID	\EMU_RELATER\  		; Section name
+EMU_NAMER:	
+		.ASCID	\EMU_NAMER\  		; Section name
+EMU_PSRDN4:	
+		.ASCID	\EMU_PSRDN4\  		; Section name
+EMU_PSRLAT:	
+		.ASCID	\EMU_PSRLAT\  		; Section name
+EMU_PSRETH:	
+		.ASCID	\EMU_PSRETH\  		; Section name
+
+
+	.ALIGN	LONG
+; Menu Items
+;
+M_LIST:		
+		.ASCII	/EBUFFS        /
+		.ASCII	/Ethernet DB   /
+		.ASCII	/LAT  DB       /
+		.ASCII	/DECnet  DB    /
+		.ASCII	/SCS  DB       /
+		.ASCII	/DECnet-OSI DB /
+		.ASCII	/Relater DB    /
+		.ASCII	/Namer DB      /
+		.ASCII	/IP  DB        /
+		.ASCII	/MOP  DB       /
+		.ASCII	/Bridge DB     /
+		.ASCII	/Netware DB    /
+M_LIST_SIZE = .-M_LIST	
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 25
+VD_COLS: 	.LONG 132
+VD_DISP2:	.LONG		; Display 2
+VD_ROW2:	.LONG 	3
+VD_COL2:	.LONG  	132      ; Position for DISP2
+;Menu Display Characteristics
+;
+M_DCS:		.WORD	14                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+MADDR:		.ADDRESS M_LIST             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+MSIZE:		.LONG   0		    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+;Dynamic Menu
+DM_LIST:        .BLKB	60*32		   ; Allow up to 300 items
+DMENU_END:	.LONG
+	.ALIGN	LONG
+
+DM_DCS:		.WORD	60                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+		.ADDRESS DM_LIST             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+DM_SIZE:	.LONG   DMENU_END-DM_LIST	    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+
+
+; Optional Display Characteristics
+;
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 2
+W3:    		.LONG 3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CHOICE:		.WORD
+UPCASE:		.LONG	TRM$M_TM_CVTLOW 	;Convert lower to upper case
+DELITM:		.LONG	SMG$M_REMOVE_ITEM       ; Remove selected item from menu
+CMDCOL:		.LONG	1
+CMDROW:		.LONG	24
+STCOL:		.LONG	1
+STROW:		.LONG	3
+TIMEOUT:	.LONG	15
+CHARCNT:	.LONG	15
+BLANK:		.ASCID	/      /
+CURCOL:		.LONG
+CURROW:		.LONG
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+reset_cursor:	.long	<smg$m_cursor_on!smg$m_scroll_smooth>
+;
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	8
+PB_COL2:	.LONG	1      ; Position for DISP2
+PB_ROW2:	.LONG 	1
+
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+BYTCNT:		.WORD		; Input Byte counter
+; Misc SMG ...
+;
+SAVE_DISP:	.LONG	0		; Saved char
+SCR_WID:	.LONG	132
+SCR_HEIGHT:	.LONG	48
+                 
+; Messages
+HEAD1:		.ASCID	/CCCI Ltd 1993          EMU Dump Utility/
+PRMPTMSG:	.ASCID	/  (B)ack, Buffer Number,or  <CR> for next > /
+PSRPRMPT:	.ASCID	/  (B)ack, (D)ump, (E)rase, BOXID,or  <CR> for next > /
+CFMMSG:		.ASCID	/ Confirm [N]: /
+EODMSG:		.ASCID	/ At last rec ... cannot go forward/
+BODMSG:		.ASCID	/ At first rec ... cannot go backward/
+CONTMSG:	.ASCID	/ Any Key to Continue/
+EBUFFSTR:	.ASCID	/ Flags = !XL !XL, Number = !UL, Param = !UL/
+INVINPTMSG:	.ASCID	/ Invalid input/
+NOSEC:		.ASCID	/ Counters not available /
+PSRHDRREC:	.ASCID	/ Entries = !UL, Recsize = !UL, Max Entries = !UL, PID = !XL/
+PSRHDR1:	.ASCID	/ !30<Flags = !XL!>!30<Boxid = !UL!>!30<Ptybits = !XL!>!30<Control = !XL!>/
+PSRHDR2:	.ASCID	/ !30<Last=!%D!>!30<FST=!%D!>!30<ALT=!%D!>/
+PSRHDR3:	.ASCID	/ !30<Status = !XL!>!30<Accesses = !UL!>!30<Len = !UL!>!30<HowSet = !XL!>/
+PSRHDR4:	.ASCID	/ !30<Current readers = !UL!>!30<Current Writers = !UL!>/
+PSRHDR5:	.ASCID	/ !30<Updt=!%D!>!30<LPol=!%D!>!12<Polls = !UL!> !16<Responses = !UL!> Last Response = !XL/
+PSRHDR6:	.ASCID	/ !30<Interval=!UL!>Support = !XL !XL !XL !XL Alert Id = !5<!UL!> AdjCnt = !UL/
+PSRETH1:	.ASCID	/ Address: !XB-!XB-!XB-!XB-!XB-!XB, Type : !UL Loop Type: !UL/
+PSRETH2:	.ASCID	/ Protocol Count: !UL/
+PSRETH3:	.ASCID	/                 !4<!UL!> !AS/
+PSRLAT1:	.ASCID	/ Address: !XB-!XB-!XB-!XB-!XB-!XB/
+PSRLAT2:	.ASCID	/ Timer : !UL, Node Status : !UL,  Change : !UL/ 
+PSRLAT3:	.ASCID	/ Name : !AC /
+PSRMOP1:	.ASCID	/ Address: !XB-!XB-!XB-!XB-!XB-!XB/
+PSRMOP2:	.ASCID	/ Version : !UB.!UB.!UB, Device : !UB,  FUNC : !XW/ 
+PSRMOP3:	.ASCID	/ Name : !AC /
+PSRMOP4:	.ASCID	/ Hardware Address: !XB-!XB-!XB-!XB-!XB-!XB/
+PSRMOP5:	.ASCID	/ Last Boot Req   : !%D, Boot Count : !UL, Soft type: !UL/
+PSRMOP6:	.ASCID	/ Software        : !AD/
+PSRSCS1:	.ASCID	/ Address: !XB-!XB-!XB-!XB-!XB-!XB, CLUID : !UW, Name: !AC/
+PSRDN41:	.ASCID	/ Address: !UW (!UL.!UL) Routing type: !UW/ 
+PSRIPX1:	.ASCID	/ Net: !XL, Address: !XB-!XB-!XB-!XB-!XB-!XB, Service: !XW, Hops: !UW/ 
+PSRIPX2:	.ASCID	/ Name: !AD/
+NOTFOUNDMSG:	.ASCID	/ Did not find /
+RLTSTR:		.ASCID	/ Class = !XL, Layers = !XL/
+RLTSTR2:	.ASCID	/ !8(13UL)/
+DUMPMSG:	.ASCID	/!64<!#(XB)!> !32<!AF!> !XL/
+PSRDN51:	.ASCID	/ NSAP: !AS,  Routing type: !UL/
+NAMER1:		.ASCID	/ PID: !UL, Second Key: !UL,  Name: !AD/
+PSRIP1:		.ASCID	/ Address: !UB.!UB.!UB.!UB/
+PSRBRD1:	.ASCID	/ Address: !XB-!XB-!XB-!XB-!XB-!XB/
+PSRBRD2:	.ASCID	/ STP Type: !UW, RootID : !UW:!XB-!XB-!XB-!XB-!XB-!XB/
+PSRBRD3:	.ASCID	/ Hello : !UW, Listen: !UW, Forward Delay: !UW, Cost: !UL/
+prmlst:
+num_item:	.long	0		;
+str_data:	.blkl	32		;    
+str_len:	.long	0		; String descriptor
+str_adr:	.long	0		; String descriptor
+cnt:		.long	0		; Current line address count
+
+	.ALIGN	LONG
+; 
+; Message Buffer
+FAOBUF:		.BLKB	132 
+FAODESC:
+FAOLEN: 	.LONG		.-FAOBUF
+        	.ADDRESS        FAOBUF
+;
+; Misc
+RESULT:		.LONG	0
+RESULT2:	.LONG	0
+
+ttcdata:	.quad	0		; characteristics to chg
+page_len:	.long	24
+term_wid:	.long	80
+lock_id:	.long	0
+
+
+	.psect	prog_code, rd, nowrt, exe, pic, shr, long
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VIEW_SECTIONS
+
+
+; Ensure death if control process dies
+;	CALLS	#0, G^GET_CONTROL_LOCK	; 
+;	BSBW	ERROR_CHK		; 
+
+; Command interface MBX. Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BSBW	ERROR_CHK		; 
+;
+	BSBW	CREATE_ENVIRONMENT
+
+
+START:
+	MOVAL	M_LIST,MADDR
+	MOVL	#M_LIST_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,5$
+	BRW	30$			; Assume any error = eof
+5$:
+	CASEW	CHOICE,#1,#11
+10$:
+	.WORD	11$-10$
+	.WORD	12$-10$
+	.WORD	13$-10$
+	.WORD	14$-10$
+	.WORD	15$-10$
+	.WORD	16$-10$
+	.WORD	17$-10$
+	.WORD	18$-10$
+	.WORD	19$-10$
+	.WORD	20$-10$
+	.WORD	21$-10$
+	.WORD	22$-10$
+	RET
+11$:
+	CALLS	#0,G^VIEW_EBUFFS
+	BRW	START
+
+12$:
+	PUSHAL	MAPETH			; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBC	R0,1210$                ; Br if DB not mapped
+	PUSHAL	MAPETH       		; View ethernet
+	CALLS	#1,G^VIEW_PSRDB
+	PUSHAL	MAPETH			; Map structure
+        CALLS	#1,G^UNMAPLVB_DB          ; Map db
+1210$:
+	BRW	START
+13$:
+	PUSHAL	MAPLAT			; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBC	R0,1310$                ; Br if DB not mapped
+	PUSHAL	MAPLAT       		; View ethernet
+	CALLS	#1,G^VIEW_PSRDB
+	PUSHAL	MAPLAT			; Map structure
+        CALLS	#1,G^UNMAPLVB_DB          ; Map db
+1310$:
+	BRW	START
+14$:
+	PUSHAL	MAPDN4			; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBC	R0,1410$                ; Br if DB not mapped
+	PUSHAL	MAPDN4       		; View ethernet
+	CALLS	#1,G^VIEW_PSRDB
+	PUSHAL	MAPDN4			; Map structure
+        CALLS	#1,G^UNMAPLVB_DB          ; Map db
+1410$:
+	BRW	START
+15$:
+	PUSHAL	MAPSCS			; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBC	R0,1510$                ; Br if DB not mapped
+	PUSHAL	MAPSCS       		; View ethernet
+	CALLS	#1,G^VIEW_PSRDB
+	PUSHAL	MAPSCS			; Map structure
+        CALLS	#1,G^UNMAPLVB_DB          ; Map db
+1510$:
+	BRW	START
+16$:
+	PUSHAL	MAPDN5			; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBC	R0,1610$                ; Br if DB not mapped
+	PUSHAL	MAPDN5       		; View ethernet
+	CALLS	#1,G^VIEW_PSRDB
+	PUSHAL	MAPDN5			; Map structure
+        CALLS	#1,G^UNMAPLVB_DB          ; Map db
+1610$:
+	BRW	START
+17$:
+	PUSHAL	MAPRELATER			; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBC	R0,1710$                ; Br if DB not mapped
+	PUSHAL	MAPRELATER       		; View ethernet
+	CALLS	#1,G^VIEW_PSRDB
+	PUSHAL	MAPRELATER			; Map structure
+        CALLS	#1,G^UNMAPLVB_DB          ; Map db
+1710$:
+	BRW	START
+18$:
+	PUSHAL	MAPNAMER			; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBC	R0,1810$                ; Br if DB not mapped
+	PUSHAL	MAPNAMER       		; View Namer
+	CALLS	#1,G^VIEW_PSRDB
+	PUSHAL	MAPNAMER			; Map structure
+        CALLS	#1,G^UNMAPLVB_DB          ; Map db
+1810$:
+	BRW	START
+19$:
+	PUSHAL	MAPIP			; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBC	R0,1910$                ; Br if DB not mapped
+	PUSHAL	MAPIP       		; View ethernet
+	CALLS	#1,G^VIEW_PSRDB
+	PUSHAL	MAPIP			; Map structure
+        CALLS	#1,G^UNMAPLVB_DB          ; Map db
+1910$:
+	BRW	START
+20$:
+	PUSHAL	MAPMOP			; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBC	R0,2010$                ; Br if DB not mapped
+	PUSHAL	MAPMOP       		; View ethernet
+	CALLS	#1,G^VIEW_PSRDB
+	PUSHAL	MAPMOP			; Map structure
+        CALLS	#1,G^UNMAPLVB_DB          ; Map db
+2010$:
+	BRW	START
+21$:
+	PUSHAL	MAPBRD			; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBC	R0,2110$                ; Br if DB not mapped
+	PUSHAL	MAPBRD       		; View ethernet
+	CALLS	#1,G^VIEW_PSRDB
+	PUSHAL	MAPBRD			; Map structure
+        CALLS	#1,G^UNMAPLVB_DB          ; Map db
+
+2110$:
+	BRW	START
+22$:
+	PUSHAL	MAPIPX			; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBC	R0,2210$                ; Br if DB not mapped
+	PUSHAL	MAPIPX       		; View ethernet
+	CALLS	#1,G^VIEW_PSRDB
+	PUSHAL	MAPIPX			; Map structure
+        CALLS	#1,G^UNMAPLVB_DB          ; Map db
+2210$:
+	BRW	START
+
+
+30$:    PUSHAL	VD_DISP                        ; Should never get here
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+        PUSHAL  SAVE_DISP
+        PUSHAL  PB_BOARD
+        CALLS   #2,G^SMG$RESTORE_PHYSICAL_SCREEN        ; No error check
+        MOVL    #SS$_NORMAL,R0
+        RET                                     ; EXIT
+;
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VIEW_EBUFFS  
+;++
+;2 VIEW_EBUFFS 
+; Routine to display Ethernet buffers (EBUFFS). 
+;3 Inputs
+;   None
+;3 Outputs
+;  Display Ethernet buffers. Display starts at buffer 0.
+;	<CR> displays next buffer
+;	'B' Displays previous buffer
+;	1-31 Displays buffer specified
+;
+;3 Returns
+;  None
+;--
+        TSTL    EBUFFS_A		; Already mapped?
+	BNEQ	10$			; Br if so                
+        PUSHAL  EBUFFS_A        	; Ebuffs section return addresses
+        CALLS   #1, G^MAP_EBUFFS	; Create and map ebuffs
+        BSBW    ERROR_CHK       	; check errors
+10$:
+	MOVL	EBUFFS_A,EBUFF_START
+	ADDL	#IPC_EBUF_C_BUFSTART,EBUFF_START	; Start of buffers
+	MOVL	EBUFF_START,R6
+	MULL3   #IPC_ETH_C_BUFSIZE,#IPC_ETH_C_BUFNO,R11
+	ADDL	EBUFF_START,R11		; Addr of last buff
+DISP_EBUFF:
+	MOVL	#132,FAODESC
+	PUSHL	R6
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	EBUFFSTR
+	CALLS	#4,G^SYS$FAOL
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	MOVAL	PRMPTMSG,R1
+	BSBW	READ_PROMPT
+	BLBS	R0,10$
+        CLRQ    -(SP)                   ;
+        PUSHAL  EBUFFS_A        	; Ebuffs section return addresses
+        CALLS   #3, G^SYS$DELTVA        ; REMOVE SECTION
+        RET
+; Determine what next rec is: Either <CR> for next, 'B' for back one or
+; number for forward that number of recs OR 'F' to Find inpt and update r6 
+; to next recno at end.
+10$:
+		TSTW	BYTCNT
+		BNEQU	120$			; Other than next
+		ADDL	#IPC_ETH_C_BUFSIZE,R6   ; Next
+		CMPL	R6,R11		; Passed end?
+		BLSSU	DISP_EBUFF		; No - ok
+		MOVAL	EODMSG,R1
+		BSBW	READ_PROMPT
+		SUBL	#IPC_ETH_C_BUFSIZE,R6   ; Next
+	        BRW	DISP_EBUFF		; Redisplay last buff
+120$:
+		CMPB	#^A/B/,KB_BUF   	; Want to 'B'ackup?
+		BNEQU	150$                    ; no
+		SUBL	#IPC_ETH_C_BUFSIZE,R6   ; Next
+		CMPL	R6,EBUFF_START		; Before begin?
+		BGEQU	130$		; No - ok
+		MOVAL	BODMSG,R1
+		BSBW	READ_PROMPT
+		ADDL	#IPC_ETH_C_BUFSIZE,R6   ; Next
+130$:
+	        BRW	DISP_EBUFF		; Redisplay 1ST buff
+
+150$:
+; See if we have a valid number...
+		PUSHAL	RESULT			; Dec output
+       		PUSHAL	KB_BUF                  ; Character input
+       		CVTWL	BYTCNT,-(SP)		; No. of bytes
+       		CALLS	#3,G^LIB$CVT_DTB	; Convert to number
+       		BLBS	R0,160$                  ; Successful Conversion?
+		MOVAL	INVINPTMSG,R1
+       		BSBW	READ_PROMPT             ; No
+		BRW	DISP_EBUFF		; resdisplay last valid
+160$:
+		MULL	#IPC_ETH_C_BUFSIZE,RESULT
+		ADDL3	EBUFF_START,RESULT,R7
+		CMPL	R7,EBUFF_START		; Before begin?
+		BGEQU	170$			; no
+		MOVAL	INVINPTMSG,R1
+       		BSBW	READ_PROMPT             ; No
+		BRW	DISP_EBUFF		; resdisplay last valid
+170$:
+		CMPL	R6,R11		; After end?
+		BLSSU	180$			; no
+		MOVAL	INVINPTMSG,R1
+       		BSBW	READ_PROMPT             ; No
+		BRW	DISP_EBUFF		; resdisplay last valid
+180$:
+		MOVL	R7,R6
+		BRW	DISP_EBUFF		; Display selected 
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VIEW_PSRDB 
+;++
+;2 VIEW_PSRDB 
+; Common routine to view any database using common header.
+; Currently displays:
+;	 dn4
+;	 DN5
+;	 scs
+;	 lat
+;	 ip
+;	 eth
+;	 rec
+;	 relater
+;	 namer
+;        MOP
+;	 BRIDGE
+;	 Netware
+;3 Input
+;	MAP STRUCTURE  of the DB to view
+;3 Output
+;	Formatted records
+;  Display starts at record 0.
+;	<CR> displays next record
+;	'B' Displays previous record
+;	1-2^24-1 Displays BOXID specified
+;3 Returns
+;	None
+;--
+; Map the db
+	MOVQ	@4(AP),PSRDB_A		; This is the flag used throughout
+; 1st rec is always header, use contents to find all others
+	MOVL	PSRDB_A,R6			; Table top
+	MOVL	COM_DBHDR_L_RECSIZE(R6),R10     ; Store recsize
+        MULL3	R10,COM_DBHDR_L_ENTRIES(R6),R11	; DB entry space
+	ADDL	R10,R11				; Total space
+	ADDL	R6,R11				; Last addr
+; Format header rec and display in VD 2
+	MOVL	#132,FAODESC
+	PUSHL	R6
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRHDRREC
+	CALLS	#4,G^SYS$FAOL
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT2
+	ADDL	R10,R6			; 1st rec
+DISP_PSRREC:
+; Format and display standard PSR Record header:
+        PUSHAL  VD_DISP
+        CALLS   #1,G^SMG$ERASE_DISPLAY
+	MOVL	#132,FAODESC
+	PUSHL	R6
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRHDR1
+	CALLS	#4,G^SYS$FAOL
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+	ADDL3	#COM_HDR_Q_LSTALT,R6,-(SP)
+ 	ADDL3	#COM_HDR_Q_FSTHRD,R6,-(SP)
+ 	ADDL3	#COM_HDR_Q_LSTHRD,R6,-(SP)
+ 	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRHDR2
+	CALLS	#6,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+	ADDL3	#COM_HDR_L_STATUS,R6,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRHDR3
+	CALLS	#4,G^SYS$FAOL
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+	ADDL3	#COM_HDR_Q_LOCKFIELD,R6,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRHDR4
+	CALLS	#4,G^SYS$FAOL
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+	PUSHL	COM_CFG_L_LASSTA(R6)
+	PUSHL	COM_CFG_L_RESP(R6)
+	PUSHL	COM_CFG_L_POLLS(R6)
+	ADDL3	#COM_CFG_Q_LASPOL,R6,-(SP)
+	ADDL3	#COM_CFG_Q_LASUPD,R6,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRHDR5
+	CALLS	#8,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+	ADDL3	#COM_CFG_B16_SUPPORT,R6,R1
+	PUSHL	COM_CFG_L_ADJCNT(R6)
+	PUSHL	COM_HDR_L_ALTID(R6)
+	PUSHL	(R1)
+	PUSHL	1(R1)
+	PUSHL	2(R1)
+	PUSHL	3(R1)
+	PUSHL	COM_CFG_L_UPDINT(R6) 
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRHDR6
+	CALLS	#10,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+
+; Select routine to display data:
+	MOVL	4(AP),R1
+	CASEL	SYS_MAP_L_PID(R1),#0,#18
+90$:
+	.WORD	100$-90$	; Undef
+	.WORD	101$-90$	; Listen ( no db)
+	.WORD	102$-90$	; dn4
+	.WORD	103$-90$	; DN5
+	.WORD	104$-90$	; scs
+	.WORD	105$-90$	; lat
+	.WORD	106$-90$	; mop
+	.WORD	107$-90$	; ip
+	.WORD	108$-90$	; ipx
+	.WORD	109$-90$	; dns
+	.WORD	110$-90$	; dts
+	.WORD	111$-90$	; arp
+	.WORD	112$-90$	; eth
+	.WORD	113$-90$	; rec
+	.WORD	114$-90$	; bridge
+	.WORD	115$-90$	; undef
+	.WORD	116$-90$	; undef
+	.WORD	117$-90$	; relater
+	.WORD	118$-90$	; namer
+100$:
+101$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+
+102$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_DN4
+	BRW	1000$
+103$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_DN5
+	BRW	1000$
+104$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_SCS
+	BRW	1000$
+105$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_LAT
+	BRW	1000$
+106$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_MOP
+	BRW	1000$
+107$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_IP
+	BRW	1000$
+108$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_IPX
+	BRW	1000$
+109$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_DNS
+	BRW	1000$
+110$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_DTS
+	BRW	1000$
+111$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_ARP
+	BRW	1000$
+112$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_ETH
+	BRW	1000$
+113$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_REC
+	BRW	1000$
+114$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_BRD
+	BRW	1000$
+
+115$:
+116$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+117$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_RELATER
+	BRW	1000$
+118$:
+	PUSHL	R6
+	CALLS	#1,G^VS_DISP_NAMER
+	BRW	1000$
+
+
+
+1000$:
+	MOVAL	PSRPRMPT,R1
+	BSBW	READ_PROMPT
+	BLBS	R0,1010$
+        CLRQ    -(SP)                   ;
+        PUSHAL  PSRDB_A        	; Ebuffs section return addresses
+        CALLS   #3, G^SYS$DELTVA        ; REMOVE SECTION
+        RET
+; Determine what next rec is: Either <CR> for next, 'B' for back one or
+; number for forward that number of recs OR 'F' to Find inpt and update r6 
+; to next recno at end.
+1010$:
+		TSTW	BYTCNT
+		BNEQU	1120$			; Other than next
+		ADDL	R10,R6   		; Next
+		CMPL	R6,R11			; Passed end?
+		BLSSU	1015$			; No - ok
+		MOVAL	EODMSG,R1
+		BSBW	READ_PROMPT
+		SUBL	R10,R6   		; Next
+1015$:
+	        BRW	DISP_PSRREC		; Redisplay last buff
+1120$:
+		CMPB	#^A/B/,KB_BUF   	; Want to 'B'ackup?
+		BNEQU	1140$                    ; no
+		SUBL	R10,R6   		; Next
+		MOVL	PSRDB_A,R1
+		ADDL3	R1,#COM_DBHDR_L_RECSIZE,R2	; 1st valid
+		CMPL	R6,R2		; Before begin?
+		BGEQU	1130$		; No - ok
+		MOVAL	BODMSG,R1
+		BSBW	READ_PROMPT
+		ADDL	R10,R6   		; Next
+1130$:
+	        BRW	DISP_PSRREC		; Redisplay 1ST buff
+
+1140$:
+		CMPB	#^A/D/,KB_BUF   	; Want to 'D'ump?
+		BNEQU	1145$                    ; no
+		MOVL	4(AP),R1 
+		PUSHL	SYS_MAP_L_PID(R1)
+		PUSHL	R6                      ; addr
+		CALLS	#2,G^SCREEN_DUMP
+		MOVAL	CONTMSG,R1
+		BSBW	READ_PROMPT
+		BRW	DISP_PSRREC
+1145$:
+		CMPB	#^A/E/,KB_BUF   	; Want to 'E'rase?
+		BNEQU	1150$                    ; no
+		MOVAL	CFMMSG,R1               ; CONFIRM
+		BSBW	READ_PROMPT
+		BLBC	R0,1147$		; Skip on any error
+		TSTW	BYTCNT                  ; Any input?
+		BEQL	1147$			; If none take default
+		CMPB	#^A/Y/,KB_BUF           ; Yes?
+		BNEQ    1147$                        ; Br of not
+; If you insist...
+		BISL    #SYS_COM_M_DELETE,COM_HDR_L_SYSCTL(R6)  ; Delete record		
+1147$:
+		BRW	DISP_PSRREC		; resdisplay last valid
+
+1150$:
+; See if we have a valid number...
+; Allow sea for box in relater tables...
+; If ':' is present it is PSRID:boxid
+                LOCC	#^A/:/,BYTCNT,KB_BUF	; Is ':' present
+		TSTL	R0
+		BNEQ	3000$			; Br if yes
+;
+		PUSHAL	RESULT			; Dec output
+       		PUSHAL	KB_BUF                  ; Character input
+       		CVTWL	BYTCNT,-(SP)		; No. of bytes
+       		CALLS	#3,G^LIB$CVT_DTB	; Convert to number
+       		BLBS	R0,1160$                  ; Successful Conversion?
+		MOVAL	INVINPTMSG,R1
+       		BSBW	READ_PROMPT             ; No
+		BRW	DISP_PSRREC		; resdisplay last valid
+1160$:
+; Sea from here to end for this BOXID
+		MOVL	R6,R8			; Save curent
+1170$:
+		ADDL	R10,R6
+		CMPL	R6,R11
+		BGEQU	1500$			; Did no find
+		CMPL	RESULT,COM_HDR_L_BOXID(R6)
+		BEQLU	2000$
+		BRB	1170$
+1500$:
+		MOVAL	NOTFOUNDMSG,R1
+		BSBW	READ_PROMPT
+		MOVL	R8,R6			; Redisplay last valid
+2000$:
+		BRW	DISP_PSRREC		;
+
+3000$:
+; we have 2 numbers seperated by ':' whose addr is in R1
+; We will assume that we are in the relater DB
+; 
+		SUBL3	#KB_BUF,R1,R3		; Len 1st no.
+		BLSS	3100$			; Br if -
+		ADDL3	#1,R1,R2		; Addr 2nd no.
+		SUBL3	#KB_BUF,R2,R4		; Len 2nd no.
+		BLSS	3100$			; Br if -
+ 
+		PUSHAL	RESULT			; Dec output
+       		PUSHAL	KB_BUF                  ; Character input
+       		PUSHL	R3			; No. of bytes
+       		CALLS	#3,G^LIB$CVT_DTB	; Convert to number
+       		BLBC	R0,3100$                ; Br on err
+
+		PUSHAL	RESULT2			; Dec output
+       		PUSHL	R2	                ; Character input
+       		PUSHL	R4			; No. of bytes
+       		CALLS	#3,G^LIB$CVT_DTB	; Convert to number
+       		BLBC	R0,3100$                ; Br on err
+
+
+		PUSHAL	RESULT		; PID
+		PUSHAL	PSRDB_A		; If this is not relater ...
+		PUSHAL	RESULT2		; Box
+		CALLS	#3,G^LOCATE_RELATER_BOXID
+		BLBC	R0,3100$
+		MOVL	R1,R6
+		BRW	DISP_PSRREC
+3100$:
+		MOVAL	INVINPTMSG,R1
+       		BSBW	READ_PROMPT             ; No
+		BRW	DISP_PSRREC		; resdisplay last valid
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_SCS
+;++
+;2 VS_DISP_xxx
+; Formats the DB specific record for display. There is one each of these
+; routines for each DB displayable.
+;--
+
+	MOVL	4(AP),R6
+
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_SCS_EA_ADDR,R6,R7		; Addr
+	ADDL3	#PSR_SCS_AC_NAME,R6,-(SP)	; Name
+	MOVZWL 	PSR_SCS_W_CLUID(R6),-(SP)	; Id	
+	MOVZBL	5(R7),-(SP)
+	MOVZBL	4(R7),-(SP)
+	MOVZBL	3(R7),-(SP)
+	MOVZBL	2(R7),-(SP)
+	MOVZBL	1(R7),-(SP)
+	MOVZBL	(R7),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRSCS1
+	CALLS	#11,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_BRD
+	MOVL	4(AP),R6
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_BRD_EA_ADDR,R6,R7	; Addr
+	MOVZBL	5(R7),-(SP)
+	MOVZBL	4(R7),-(SP)
+	MOVZBL	3(R7),-(SP)
+	MOVZBL	2(R7),-(SP)
+	MOVZBL	1(R7),-(SP)
+	MOVZBL	(R7),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRBRD1
+	CALLS	#9,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+
+
+
+;
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_BRD_Q_ROOT,R6,R1	; ROOT
+	MOVZBL	7(R1),-(SP)
+	MOVZBL	6(R1),-(SP)
+	MOVZBL	5(R1),-(SP)
+	MOVZBL	4(R1),-(SP)
+	MOVZBL	3(R1),-(SP)
+	MOVZBL	2(R1),-(SP)
+; Reverse bytes for prio...
+	CLRL	RESULT
+	MOVB	(R1),RESULT+1
+	MOVB	1(R1),RESULT
+	PUSHL	RESULT
+	MOVZWL	PSR_BRD_W_TYP(R6),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRBRD2
+	CALLS	#11,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+; Reverse bytes for cost...
+	CLRL	RESULT
+	ADDL3	#PSR_BRD_L_COST,R6,R1	
+	MOVB	3(R1),RESULT
+	MOVB	2(R1),RESULT+1
+	MOVB	1(R1),RESULT+2
+	MOVB	(R1),RESULT+3
+	PUSHL	RESULT
+	MOVZWL	PSR_BRD_W_FDT(R6),-(SP)
+	MOVZWL	PSR_BRD_W_LIST(R6),-(SP)
+	MOVZWL	PSR_BRD_W_HINT(R6),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRBRD3
+	CALLS	#7,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+  	RET
+
+
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_ETH
+	MOVL	4(AP),R6
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_ETH_EA_ADDR,R6,R7	; Addr
+
+	PUSHL 	PSR_ETH_L_LTYPE(R6)	
+	PUSHL 	PSR_ETH_W_TYPE(R6)	
+	MOVZBL	5(R7),-(SP)
+	MOVZBL	4(R7),-(SP)
+	MOVZBL	3(R7),-(SP)
+	MOVZBL	2(R7),-(SP)
+	MOVZBL	1(R7),-(SP)
+	MOVZBL	(R7),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRETH1
+	CALLS	#11,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+	PUSHL 	PSR_ETH_L_TBLCNT(R6)	
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRETH2
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	CLRL	R7				; Loop control
+	ADDL3	#PSR_ETH_TQ_PTYTBL,R6,R8	; Protocol table
+10110$:
+	TSTL	(R8)				; Occupied?
+	BEQL	10120$				; br if empty
+	MOVL	#256,OUTPSTR_D
+	PUSHL	#1				; Full translate
+	PUSHAL	OUTPSTR_D				; String output
+	PUSHL	R8				; Count (position)
+	CALLS	#3,G^XLATE_ENETPTY 
+	BSBW	ERROR_CHK
+	MOVL	#132,FAODESC
+	PUSHAL	OUTPSTR_D
+	PUSHL	R7
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRETH3
+	CALLS	#5,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+10120$:
+	ADDL	#8,R8
+	AOBLSS	#PSR_ETH_C_MAXPTYTYP,R7,10110$
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_DN4
+	MOVL	4(AP),R6
+	MOVZWL  PSR_DN4_W_ADDR(R6),DADDR            ; Decnet addr
+        EDIV    #1024,DADDR,R1,R2
+	MOVL	#132,FAODESC
+	MOVZWL	PSR_DN4_W_ROUTYP(R6),-(SP)
+	PUSHL	R2
+	PUSHL	R1
+	MOVZWL	PSR_DN4_W_ADDR(R6),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRDN41
+	CALLS	#7,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	RET
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_LAT
+	MOVL	4(AP),R6
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_LAT_EA_ADDR,R6,R7		; Addr
+	MOVZBL	5(R7),-(SP)                     ; Addr
+	MOVZBL	4(R7),-(SP)                     ;
+	MOVZBL	3(R7),-(SP)                     ;
+	MOVZBL	2(R7),-(SP)                     ;
+	MOVZBL	1(R7),-(SP)                     ;
+	MOVZBL	(R7),-(SP)                      ;
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRLAT1
+	CALLS	#9,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVZBL	PSR_LAT_B_CNGFLG(R6),-(SP)     ; CHange flags
+	MOVZBL	PSR_LAT_B_NODSTA(R6),-(SP)      ; Status
+	MOVZBL	PSR_LAT_B_MCTIM(R6),-(SP)       ; Multicast timer
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRLAT2
+	CALLS	#6,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+; Name	
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_LAT_B_NODNAMSIZE,R6,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRLAT3
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	RET
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_NAMER
+; Note - Unusualy, the len of the data here is a function of the key len.
+; If the key len = 0 then exit - else the UI crashes.
+	MOVL	4(AP),R6
+	TSTL	COM_HDR_L_LEN(R6)
+	BEQL	100$
+	MOVL	#132,FAODESC
+	ADDL3	#NAM_DB_AS_NAME,R6,-(SP)
+	SUBL3	#8,COM_HDR_L_LEN(R6),-(SP)
+	PUSHL	NAM_DB_L_KEY2(R6)
+	PUSHL	NAM_DB_L_PID(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	NAMER1
+	CALLS	#7,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+100$:
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_RELATER
+	MOVL	4(AP),R6
+	MOVL	#132,FAODESC
+	PUSHL	RLT_DB_L_CLASS(R6)
+	PUSHL	RLT_DB_L_LAYERS(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RLTSTR
+	CALLS	#5,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+; Display boxid table as 3 lines of 8 each
+	ADDL	#RLT_DB_TL_BOXIDS,R6
+	MOVL	#3,R11			; Loop
+10$:
+	MOVL	#132,FAODESC
+	PUSHL	R6
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RLTSTR2
+	CALLS	#4,G^SYS$FAOL
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+        ADDL	#32,R6
+	SOBGTR	R11,10$
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_DN5
+
+	MOVL	4(AP),R6
+	MOVL	#256,OUTPSTR_D
+	PUSHAL	OUTPSTR_D	; Outp
+	ADDL3	#PSR_DN5_B20_ADDR,R6,-(SP)
+	PUSHL	COM_HDR_L_LEN(R6)
+	CALLS	#3,G^XLATE_NSAP
+	BSBW	ERROR_CHK
+	MOVL	#132,FAODESC
+	PUSHL	PSR_DN5_L_ROUTYP(R6)
+	PUSHAL	OUTPSTR_D
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRDN51
+	CALLS	#5,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_MOP
+
+
+	MOVL	4(AP),R6
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_MOP_EA_ADDR,R6,R7		; Addr
+	MOVZBL	5(R7),-(SP)                     ; Addr
+	MOVZBL	4(R7),-(SP)                     ;
+	MOVZBL	3(R7),-(SP)                     ;
+	MOVZBL	2(R7),-(SP)                     ;
+	MOVZBL	1(R7),-(SP)                     ;
+	MOVZBL	(R7),-(SP)                      ;
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRMOP1
+	CALLS	#9,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_MOP_3B_VER,R6,R7		; VER
+	MOVZWL	PSR_MOP_W_FUNC(R6),-(SP)     ; Function code
+	MOVZBL	PSR_MOP_B_DEVID(R6),-(SP)      ; Device
+	MOVZBL	2(R7),-(SP)                     ; Version
+	MOVZBL	1(R7),-(SP)                     ;
+	MOVZBL	(R7),-(SP)                      ;
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRMOP2
+	CALLS	#8,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+; Name	
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_MOP_AC_NAME,R6,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRMOP3
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+; Hardware
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_MOP_EA_HWADDR,R6,R7		; Addr
+	MOVZBL	5(R7),-(SP)                     ; Addr
+	MOVZBL	4(R7),-(SP)                     ;
+	MOVZBL	3(R7),-(SP)                     ;
+	MOVZBL	2(R7),-(SP)                     ;
+	MOVZBL	1(R7),-(SP)                     ;
+	MOVZBL	(R7),-(SP)                      ;
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRMOP4
+	CALLS	#9,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+; Boot
+	MOVL	#132,FAODESC
+	PUSHL	PSR_MOP_L_SOFTTYP(R6)		; 
+	PUSHL	PSR_MOP_L_BOOTCNT(R6)		; 
+	ADDL3	#PSR_MOP_Q_LASBOOT,R6,-(SP)		; 
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRMOP5
+	CALLS	#6,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+; Software
+	TSTL	PSR_MOP_L_SOFTTYP(R6)
+	BLEQ	100$			; Skip (name not present)
+
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_MOP_A16_FILNAM,R6,-(SP)		; 
+	PUSHL	PSR_MOP_L_SOFTTYP(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRMOP6
+	CALLS	#5,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+100$:
+	RET
+;
+
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_IP
+
+	MOVL	4(AP),R6
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_IP_L_ADDR,R6,R3
+	PUSHL	3(R3)
+	PUSHL	2(R3)
+	PUSHL	1(R3)
+	PUSHL	(R3)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRIP1
+	CALLS	#7,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_IPX
+
+	MOVL	4(AP),R6
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_IPX_L_NET,R6,R3
+; Reverse bytes for service
+	CLRL	RESULT
+	ADDL3	#PSR_IPX_W_SERVICE,R6,R2
+	MOVB	(R2),RESULT+1
+	MOVB	1(R2),RESULT
+
+	CLRL	RESULT2
+	ADDL3	#PSR_IPX_L_NET,R6,R2
+	MOVB	(R2),RESULT2+3
+	MOVB	1(R2),RESULT2+2
+	MOVB	2(R2),RESULT2+1
+	MOVB	3(R2),RESULT2
+	MOVZWL	12(R3),-(SP)	; HOPS
+	PUSHL	RESULT	        ; SERVICE
+	MOVZBL	9(R3),-(SP)     ; ADDR
+	MOVZBL	8(R3),-(SP)
+	MOVZBL	7(R3),-(SP)
+	MOVZBL	6(R3),-(SP)
+	MOVZBL	5(R3),-(SP)
+	MOVZBL	4(R3),-(SP)
+	PUSHL	RESULT2
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRIPX1
+	CALLS	#12,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+;
+	MOVL	#132,FAODESC
+	ADDL3	#PSR_IPX_AS_NAME,R6,-(SP)  ; NAME
+	MOVZWL	PSR_IPX_W_NAMLEN(R6),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PSRIPX2
+	CALLS	#5,G^SYS$FAO
+	BSBW	ERROR_CHK
+ 	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_DNS
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_DTS
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_ARP
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=VS_DISP_REC
+
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SCREEN_DUMP
+;++
+;2 SCREEN_DUMP
+; Routine to dump data to screen in VMS (like) dump format.
+; Adapted from Keith's FORMAT_DUMP routine
+;3 Inputs
+; 	.addr of data to dump
+;	.value of PSRID
+;3 Outputs
+;	Dumps the data specified by the input.
+;	Param2 specifies the len of data to dump.
+; 
+;3 Return
+; 	SS$_NORMAL
+;	SS$_BADPARAM		; Unknown or unsupported PSRID
+;--
+	 CASEL   8(AP),#2,#16
+90$:
+	.WORD	100$-90$	; dn4
+	.WORD	101$-90$	; dn5
+	.WORD	102$-90$	; scs
+	.WORD	103$-90$	; lat
+	.WORD	104$-90$	; mop
+	.WORD	105$-90$	; ip
+	.WORD	106$-90$	; ipx
+	.WORD	107$-90$	; dns
+	.WORD	108$-90$	; dts
+	.WORD	109$-90$	; arp
+	.WORD	110$-90$	; eth
+	.WORD	111$-90$	; undef
+	.WORD	112$-90$	; undef
+	.WORD	113$-90$	; undef
+	.WORD	114$-90$	; rec
+	.WORD	115$-90$	; rel
+	.WORD	116$-90$	; nam
+	MOVL	#SS$_BADPARAM,R0		; Unknown rec type
+	RET
+100$:
+	MOVL	#PSR_DN4_C_RECSIZ,R2		; Set size
+	BRW	200$				; Format and disp
+101$:
+	MOVL	#PSR_DN5_C_RECSIZE,R2		; Set size
+	BRW	200$				; Format and disp
+102$:
+	MOVL	#PSR_SCS_C_RECSIZ,R2		; Set size
+	BRW	200$				; Format and disp
+103$:
+	MOVL	#PSR_LAT_C_RECSIZ,R2		; Set size
+	BRW	200$				; Format and disp
+104$:
+	MOVL	#PSR_MOP_C_RECSIZ,R2		; Set size
+	BRW	200$				; Format and disp
+105$:
+	MOVL	#PSR_IP_C_RECSIZ,R2		; Set size
+	BRW	200$				; Format and disp
+106$:
+	MOVL	#PSR_IPX_C_RECSIZ,R2		; Set size
+	BRW	200$				; Format and disp
+107$:
+	MOVL	#SS$_BADPARAM,R0		; Unsupported rec type
+	RET
+108$:
+109$:
+	MOVL	#SS$_BADPARAM,R0		; Unsupported rec type
+	RET
+110$:
+	MOVL	#PSR_ETH_C_RECSIZ,R2		; Set size
+	BRW	200$				; Format and disp
+111$:
+	MOVL	#SS$_BADPARAM,R0		; Unsupported rec type
+	RET
+112$:
+	MOVL	#PSR_BRD_C_RECSIZ,R2		; Set size
+	BRW	200$				; Format and disp
+
+113$:
+114$:
+	MOVL	#SS$_BADPARAM,R0		; Unsupported rec type
+	RET
+115$:
+	MOVL	#RLT_C_RECSIZE,R2		; Set size
+	BRW	200$				; Format and disp
+116$:
+	MOVL	#NAM_C_RECSIZE,R2		; Set size
+	BRW	200$				; Format and disp
+
+200$:
+
+	movl	4(ap), r3		; R2 - Length of string
+	movzwl	r2, r2			; R3 - Address of string
+	bneq	10$			; Ensure something to show
+	brw	900$			; Exit
+
+10$:	clrl	r4			; String offset
+15$:	subl3	r4, r2, r5		; Enough left
+	cmpl	r5, #32			; 
+    	bleq	20$ 			; Only do whats required of the
+	movl	#32, r5			; last bit, else do 32
+
+20$:	movl	r5, r6			; 
+	moval	str_data, r1		; 
+	addl3	r3, r4, r0		; 
+30$:	movzbl	(r0)+, (r1)+		; 
+	sobgtr	r6, 30$			; 
+	
+	movl	r5, (r1)+		; String descriptor length
+ 	addl3	r3, r4, (r1)+		; 
+	addl3	#1, r4, (r1)+		; Current line offset start count
+	addl2	r5, r4			; Increment work done
+	movl	r5, num_item		; 
+
+	pushal	prmlst			; Parameter list
+	movl	#132, FAODESC	; max fao descriptor length
+	pushal	FAODESC		; fao descriptor address
+	pushal	FAODESC		; fao descriptor address
+ 	pushal	DUMPMSG		; fao control str
+	calls	#4, g^sys$faol
+	bsbw	error_chk		; signal if error
+
+40$:
+	MOVAL	FAODESC,R1
+	BSBW	PRINT           	; Disp
+50$:	bsbw	error_chk		; signal if error
+
+	cmpl	r4, r2			; Increment work done
+	bgeq	900$			; All done
+	brw	15$			; Not all done
+
+900$:	movzwl	#ss$_normal, r0		; return good status
+	ret
+
+
+
+
+
+READ_PROMPT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	VD_DISP                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	UPCASE                  ; Make input UPCASE 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	R1                 	; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		RSB                             ; Any error handled by caller
+PRINT:		
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHL	R1
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+PRINT2:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHL	R1
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+ 
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+;
+; Create Virtual Display
+;
+CR_DISP:
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK            		; Error Check
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP2
+	PUSHAL	VD_COL2
+        PUSHAL	VD_ROW2
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+; Save the current screen set up. Attempt to set it to 48x80. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	PB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BSBW	ERROR_CHK
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	VD_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	VD_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	PB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BSBW	ERROR_CHK
+;
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL2		;Column
+	PUSHAL	PB_ROW2		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP2
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk		;
+
+	rsb
+
+	.sbttl	error_chk
+error_chk:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	blbc	r0,20$
+	rsb
+20$:	ret
+
+	.end  
+

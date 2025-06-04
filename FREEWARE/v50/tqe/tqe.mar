@@ -1,0 +1,471 @@
+	.title	tqe
+	.ident	'V2.1'
+;++
+;
+; Facility:	timer que element list utility
+;
+; Abstract:
+;	This is a program to display the items in the timer queue
+;
+; Author:
+;	Lee K. Gleason
+;	Control-G Consultants
+;	2416 Branard #D
+;	Houston TX 77098
+;	Phone 713/528-1859
+;
+; Modifications:
+;
+;	V2.1		Hunter Goatley		 7-JUN-2000 15:46
+;		When using the mode of the TQE entry for a table lookup,
+;		use only the low 2 bits (equates to ACB$S_MODE).  Thanks
+;		to Tom Chamberlain for pointing this out.
+;
+;	V2.0		Hunter Goatley		 9-JUN-1998 14:57
+;		Use LOCK_CODE.B32 to lock down fault-sensitive pages,
+;		including linkage section on Alpha.
+;
+;	X02-000		Hunter Goatley		 4-JAN-1996 14:27
+;		Modified to compile and run on Alpha.  Also fix occasional
+;		accvio by clearing high nibble in RMOD before using as index.
+;		Still needs to be modified to support 64-bit TQEs in V7.0.
+;		Also, poor-man's lockdown needs to be eliminated.
+;
+;	Hunter Goatley  Academic Computing, WKU
+;	10/8/86  Added process name to output for process TQEs
+;--
+
+	.SBTTL	tqe
+;++
+; Functional Description:
+;
+;	This program enters kernel mode, raises ipl to block clock
+;	events, and copies the timer queue elements to a work area.
+;	It then goes back to user mode, and displays the entries in
+;	a semi-readable form.
+;--
+
+	.library	"sys$library:lib.mlb"
+
+	$JPIDEF		; Get Job/Process Information symbols
+	$tqedef		;timer que element symbols
+	$psldef		;access mode definitions
+	$ipldef		;ipl definitions
+	$acbdef		;ast control block definitions
+	$SYIDEF		; Used to detect VMS V5
+
+;
+;  Define ALPHA if R22 is a register and not a symbol
+;
+	.NTYPE	...IS_IT_ALPHA,R22		;Get the type of R22
+	...IS_IT_ALPHA = <...IS_IT_ALPHA@-4&^XF>-5
+	.IIF EQ,...IS_IT_ALPHA,	ALPHA=1
+
+
+	.psect	tqedat pic,long,usr,con,rel,gbl,noshr,noexe,rd,wrt,novec
+
+maxentry=256	;allow report on 256 entries (this would be a BIG system...)
+		;make this larger, if need be.
+
+	.ALIGN	LONG
+countstr:	;fao string for count
+	.ascid	@!/!UL entries in the timer queue!/@
+
+	.ALIGN	LONG
+outcountstr:	;output buffer for count string
+	.ascid	/                                          /
+
+	.ALIGN	LONG
+; Item list for $GETJPI call
+JPI_LIST:
+	.WORD	15		; Length of process name buffer
+	.WORD	JPI$_PRCNAM	; ...  Code indicating info to return
+	.ADDRESS PRCNAM		; ...  Address of buffer
+	.LONG	PRCNAM_L	; ...  Don't care about return length
+	.WORD	12		; Length of username buffer
+	.WORD	JPI$_USERNAME	; ...  Code indicating info to return
+	.ADDRESS USERNAME	; ...  Address of buffer
+	.LONG	USERNAME_L	; ...  Don't care about return length
+	.LONG	0		; Terminate the item list
+PRCNAM:	.BLKB	15
+	.ALIGN	LONG
+PRCNAM_L:
+	.LONG	0
+USERNAME:
+	.BLKB	12
+USERNAME_L:
+	.LONG	0
+
+
+	DECLARE_PSECT	EXEC$NONPAGED_DATA
+; *** do not rearrange following lines (or you'll be sorry...) ***
+
+tqelst:	.blkb	tqe$c_length*maxentry	;tqe buffer
+
+gettqe_args:		;argument list for call to gettqe routine
+	.long	2	;# of args
+	.address tqelst	;addr of tqe buffer
+	.address count	;addr of count longword
+
+count:	.long	0	;count of entries found
+
+; *** do not rearrange preceding lines (...I'm warning you) ***
+
+
+	.psect	tqecod pic,long,usr,con,rel,gbl,shr,exe,rd,nowrt,novec
+
+	.entry	tqe,^m<>
+
+;+
+;  well, let's get to work...first, lock down all pages that need to
+;  be accessed by routine gettqe, as it will be running at IPL$_TIMER,
+;  and a page fault would cause the system to stop (and the phones to
+;  start ringing.)
+;-
+	CALLS	#0,LOCK_NONPAGED_CODE	; Lock down pages via PSECTs
+	blbc		r0,30$	;if bad, then you want out, in a big hurry
+
+;  call the get elements routine, in kernel mode
+
+	$cmkrnl_s	routin=gettqe,arglst=gettqe_args
+
+;  format the count string attractively ($fao, the heir to $edmsg)
+
+	$fao_s	ctrstr=countstr,-
+		outbuf=outcountstr,-
+		outlen=outcountstr,-
+		p1=count
+
+	pushal	outcountstr
+	calls	#1,g^lib$put_output	;output the count string
+
+	movl	count,r3		;number of entries found->r3
+	moval	tqelst,r2		;addr of list->r2
+ 10$:	pushl	r2			;load arg for format routine
+	blbc	tqe$b_rqtype(r2),15$	;system or process?
+	calls	#1,forsystqe		;do it system style
+	blbc	r0,30$			;how'd we do?
+	brb	20$			;skip process style
+ 15$:	calls	#1,forprotqe		;call format routine
+	blbc	r0,30$			;everything ok?
+20$:	addl	#tqe$c_length,r2	;advance pointer one entry's worth
+	sobgtr	r3,10$			;loop til done
+
+30$:	RET
+	
+
+	.psect	tqepur pic,long,usr,con,rel,gbl,shr,noexe,rd,nowrt,novec
+
+;+
+; here are the FAO format strings for the two types of requests.
+;-
+
+	.ALIGN	LONG
+faopro:	.ascid -	;format string for process based requests
+;	@Forward Link:  !XL Backward Link: !XL Size !XW Block type !XB !/@-
+	@Request type !XB Request is !AS, !AS, !AS !/@-
+	@Process !AD  Username !AD !/@-
+	@EPID !XL  PID !XL   AST !XL  ASTPRM !XL !/@-
+	@Due time !%D, Time(quad) !XL !XL !/@-
+	@!AS!#%T, Delta(quad) !XL !XL !/@-
+	@RMOD !XB !#AS !AS, EFN !XB Unknown !XW ERQPID !XL RQPID !XL !/@
+
+	.ALIGN	LONG
+ndeltstr:
+	.ascid	/No delta time/
+	.ALIGN	LONG
+deltstr:
+	.ascid	/Delta time /
+
+	.ALIGN	LONG
+faosys:.ascid -		;format string for system subroutine requests
+;	@Forward Link: !XL Backward Link: !XL Size !XW Block type !XB !/@-
+	@Request Type !XB Request is system subroutine, !AS, !AS !/@-
+	@PC !XL  FR3 !XL  FR4 !XL !/@-
+	@Due time !%D, Time(quad) !XL !XL !/@-
+	@!AS!#%T, Delta(quad) !XL !XL !/@-
+	@Penultimate longword !XL Ultimate longword !XL !/@
+		
+
+; strings to indicate what type of request we are dealing with
+
+	.ALIGN	LONG
+rel:	.ascid	/relative/
+	.ALIGN	LONG
+abs:	.ascid	/absolute/
+
+	.ALIGN	LONG
+rep:	.ascid	/repeat/
+	.ALIGN	LONG
+one:	.ascid	/one-shot/
+
+	.ALIGN	LONG
+proca:	.ascid	/process timer/
+	.ALIGN	LONG
+procb:	.ascid	/scheduled wake/
+
+	.ALIGN	LONG
+ast:	.ascid	/AST/
+	.ALIGN	LONG
+noast:	.ascid	/no AST/
+
+;  table of names for type of AST requested, if any
+	.ALIGN	LONG
+kernel:	.ascid	/Kernel/
+	.ALIGN	LONG
+exec:	.ascid	/Exec/
+	.ALIGN	LONG
+super:	.ascid	/Super/
+	.ALIGN	LONG
+user:	.ascid	/User/
+
+;  table of addresses of AST types, for use with indexed addressing
+	.ALIGN	LONG
+modtab:	.address	kernel
+	.address	exec
+	.address	super
+	.address	user
+
+	.psect	tqecod pic,long,usr,con,rel,gbl,shr,exe,rd,nowrt,novec
+
+	.entry	forprotqe,^m<r2,r3,r4,r5,r6,r7,r8>
+
+;+  
+; let's build the output string on the stack..it's the modular thing to do
+;-
+	subl	#1024,sp	;a little elbow room for the output string
+	pushl	sp		;push the address of the buffer onto the stack
+	pushl	#1024		;push the length onto the stack
+	movl	sp,r6		;put address of descriptor into r6
+	movl	4(ap),r7	;put the address of tqe to be formatted->r7
+
+	pushl	tqe$l_rqpid(r7)		;push requesting internal pid
+
+; convert requesting pid to external form, then push it, too		
+
+	movl	tqe$l_rqpid(r7),r0	;internal pid loaded in r0
+.IF DEFINED ALPHA
+	jsb	exe$cvt_ipid_to_epid	;call the routine
+.IFF
+	jsb	exe$ipid_to_epid	;call the routine
+.ENDC
+	pushl	r0			;push result for output
+
+.IF DEFINED ALPHA
+	PUSHL	#0			;No "unknown" word on Alpha
+	PUSHL	TQE$L_EFN(R7)		; Push the event flag
+.IFF
+	pushl	tqe$b_efn+1(r7)		;push the "unknown" word
+	pushl	tqe$b_efn(r7)		;push the event flag
+.ENDC
+
+	moval	ast,r8			;assume it wants AST delivery
+.IF DEFINED ALPHA
+	bbs	#acb$v_quota,TQE$L_RMOD(r7),10$  ;then check
+.IFF
+	bbs	#acb$v_quota,tqe$b_rmod(r7),10$  ;then check
+.ENDC
+	moval	noast,r8		;yup
+10$:	pushl	r8			;record the result
+.IF DEFINED ALPHA
+	bbc	#acb$v_quota,TQE$L_RMOD(r7),11$  ;test again
+.IFF
+	bbc	#acb$v_quota,tqe$b_rmod(r7),11$  ;test again
+.ENDC
+
+;  construct an index to get AST type text (if any)  from a table
+	clrl	r0			;place to work
+.IF DEFINED ALPHA
+	BICL3	#^XFFFFFFFC,TQE$L_RMOD(R7),R0	; Only want the low 2 bits
+.IFF
+	bicb3	#^XFC,tqe$b_rmod(r7),r0	;clear the 40 in high nibble
+.ENDC
+	movl	modtab[r0],-(sp)	;load addr of type string
+	movzwl	@(sp),-(sp)		;load it's length
+	brb	12$			;then pass on
+11$:	pushl	modtab			;push dummy address
+	pushl	#0			;push 0 length
+		
+12$:
+.IF DEFINED ALPHA
+	pushl	TQE$L_RMOD(r7)		;push the rmod byte (used in ACB)
+.IFF
+	pushl	tqe$b_rmod(r7)		;push the rmod byte (used in ACB)
+.ENDC
+	pushl	tqe$q_delta+4(r7)	;second delta longword
+	pushl	tqe$q_delta(r7)		;first delta longword
+	pushaq	tqe$q_delta(r7)		;delta time, as a time
+	bbc	#tqe$v_repeat,tqe$b_rqtype(r7),1$  ;is it a repeat request?
+	pushl	#11			;yes, then it's length is 11
+	pushal	deltstr			;describe it as time
+	brb	2$			;skip this
+1$:	clrl	-(sp)			;it's not time, so it's 0 length
+	pushal	ndeltstr		;explain that it's not a delta time
+2$:	pushl	tqe$q_time+4(r7)	;second due time longword
+	pushl	tqe$q_time(r7)		;first due time longword
+	pushaq	tqe$q_time(r7)		;due time, as date/time
+	pushl	tqe$l_astprm(r7)	;ast parameter
+	pushl	tqe$l_ast(r7)		;ast address
+	pushl	tqe$l_pid(r7)		;target internal PID
+	movl	tqe$l_pid(r7),r0	;convert internal to external
+.IF DEFINED ALPHA
+	jsb	exe$cvt_ipid_to_epid	;call the routine
+.IFF
+	jsb	exe$ipid_to_epid	;call the routine
+.ENDC
+	pushl	r0			;push it too
+
+;*****  Added 10/8/86 by Hunter Goatley -- print the process name
+;*****	      10/13/86			   and the username
+	MOVL	SP,R0
+	$GETJPIW_S -			; Get the process name
+		ITMLST=JPI_LIST, -	; ...
+		PIDADR=(R0)		; ...
+	PUSHAB	USERNAME		; Push the address of the username
+	PUSHL	USERNAME_L		; Push its length
+	PUSHAB	PRCNAM			; Push the address of the process name
+	PUSHL	PRCNAM_L		; Push its length
+;*****
+
+	moval	abs,r8			;assume it's absolute
+	bbs	#tqe$v_absolute,tqe$b_rqtype(r7),3$  ;then check
+	moval	rel,r8			;no, it wasn't
+3$:	pushl	r8			;push it
+
+	moval	rep,r8			;assume it's repeat
+	bbs	#tqe$v_repeat,tqe$b_rqtype(r7),4$  ;then check
+	moval	one,r8			;no, not really
+4$:	pushl	r8			;push the result
+
+	moval	procb,r8		;assume scheduled wake
+	bbs	#1,tqe$b_rqtype(r7),5$  ;make sure
+	moval	proca,r8		;no, not at all
+5$:	pushl	r8			;push result
+
+	pushl	tqe$b_rqtype(r7)	;request type byte
+;	pushl	tqe$b_type(r7)		;block type byte
+;	pushl	tqe$w_size(r7)		;block size byte
+
+;	pushl	tqe$l_tqbl(r7)		;backward link
+;	pushl	tqe$l_tqfl(r7)		;forward link
+	
+	$faol_s	ctrstr=faopro,-		;format it attractively
+		outlen=(r6),-
+		outbuf=(r6),-
+		prmlst=(sp)
+	blbc	r0,6$			;better be ok
+
+	pushl	r6			;push outstr pointer
+	calls	#1,g^lib$put_output	;then get to writing
+6$:	ret				;get back
+
+	.entry	forsystqe,^m<r2,r3,r4,r5,r6,r7,r8>
+
+	subl	#1024,sp	;allocate some space
+	pushl	sp		;push it's address
+	pushl	#1024		;push it's length
+	movl	sp,r6		;put descriptors address to r6
+	movl	4(ap),r7	;move addr of current tqe to r7
+
+	pushl	tqe$l_rqpid(r7)		;push last longword
+.IF DEFINED ALPHA
+	pushl	TQE$L_RMOD(r7)		;push next to last longword
+.IFF
+	pushl	tqe$b_rmod(r7)		;push next to last longword
+.ENDC
+	pushl	tqe$q_delta+4(r7)	;push second delta longword
+	pushl	tqe$q_delta(r7)		;push first delta longword
+	pushaq	tqe$q_delta(r7)		;push delta as time
+	bbc	#tqe$v_repeat,tqe$b_rqtype(r7),1$  ;repeat request?
+	pushl	#11			;yes, then it's length is 11
+	pushal	deltstr			;describe it as time
+	brb	2$			;skip this
+1$:	clrl	-(sp)			;it's not time, so it's 0 length
+	pushal	ndeltstr		;explain that it's not a delta time
+2$:	pushl	tqe$q_time+4(r7)	;second due time longword
+	pushl	tqe$q_time(r7)		;first due time longword
+	pushaq	tqe$q_time(r7)		;due time, as time
+
+	pushl	tqe$l_astprm(r7)	;push fork block r4
+	pushl	tqe$l_ast(r7)		;push fork block r3
+	pushl	tqe$l_pid(r7)		;push fork pc
+	
+	moval	abs,r8			;assume it's absolute request
+	bbs	#tqe$v_absolute,tqe$b_rqtype(r7),3$  ;test it
+	moval	rel,r8			;it's not
+3$:	pushl	r8			;push it, either way
+
+	moval	rep,r8			;assume it's a repeat request
+	bbs	#tqe$v_repeat,tqe$b_rqtype(r7),4$  ;but is it really?
+	moval	one,r8			;not even close
+4$:	pushl	r8			;push whatever it is
+
+	pushl	tqe$b_rqtype(r7)	;push request type
+;	pushl	tqe$b_type(r7)		;push block type
+;	pushl	tqe$w_size(r7)		;push block size
+;	
+;	pushl	tqe$l_tqbl(r7)		;push backward link
+;	pushl	tqe$l_tqfl(r7)		;push forward link
+	
+	$faol_s	ctrstr=faosys,-		;format the string
+		outlen=(r6),-
+		outbuf=(r6),-
+		prmlst=(sp)
+
+	blbc	r0,5$			;how'd it go?
+	pushl	r6			;push addr of output string
+
+	calls	#1,g^lib$put_output	;write it out
+5$:	ret				;get on home
+
+	DECLARE_PSECT	EXEC$NONPAGED_CODE
+;	.psect	tqecod pic,long,usr,con,rel,gbl,shr,exe,rd,nowrt,novec
+
+	.entry	gettqe,^m<r2,r3,r4,r5,r6,r7>
+;+
+;  this subroutine executes in kernel mode, and at IPL$_TIMER.
+;  If the thunder don't get you, then the lightning will...
+;-
+	MOVAL	PFM_FULL_HANDLER,(FP)		; So we don't CRASH!!!
+.if defined SYI$_SMP_CPUS			; *** VMS V5.x code
+	tstb	end_of_page			; Lock down this section of code
+	lock	lockname=timer,-		; Grab the TIMER spinlock and
+		savipl=-(sp)			; ... raise IPL
+.iff						; *** VMS v4.x code
+	setipl	endpri			;lock this code, and raise ipl
+.endc						; *** End of VMS version check
+	clrl	r7			;start with zero entries
+	movl	exe$gl_tqfl,r6		;listhead to r6
+	movl	4(ap),r3		;pointer to place to copy entries to r3
+
+n:	cmpl	G^exe$ar_tqenorept,r6	;reached the end?
+	beql	unexec			;then get out
+	movc3	#tqe$c_length,(r6),(r3)	;else copy one
+	movl	(r6),r6			;next link, please
+	aoblss	#maxentry,r7,n		;count it, and do it again, if room
+
+unexec:
+.if defined SYI$_SMP_CPUS			; *** VMS V5.x code
+	unlock	lockname=timer,-		; Release the TIMER spinlock and
+		newipl=(sp)+,-			; ... raise IPL
+		condition=RESTORE		; ...
+.iff						; *** VMS v4.x code
+	setipl	#0				; Lower IPL now
+.endc						; *** End of VMS version check
+end_of_page:
+	movl	r7,@8(ap)		;return the count to the caller
+	ret				;gotta get back to where you belong
+					;ret restores ipl for us
+
+.IF NOT_DEFINED ALPHA
+endpri:	.long	ipl$_timer		;ipl to raise to (block timer events)
+	assume<endpri-gettqe> le 512	;make sure this code will lock
+.ENDC
+
+;
+;  Condition handler to handle kernel mode exceptions
+;
+	.ENTRY	PFM_FULL_HANDLER,^M<R6>
+	$EXIT_S				; Delete this process (instead of
+					; ...  crashing the system!)
+	.end	tqe

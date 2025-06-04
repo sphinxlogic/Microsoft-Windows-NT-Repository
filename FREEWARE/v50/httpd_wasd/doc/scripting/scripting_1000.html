@@ -1,0 +1,134 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.SCRIPTING]SCRIPTING_RAW.SDML">
+<META NAME="date" CONTENT="Fri, 26 Jan 2001 12:57:26">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Raw TCP/IP Socket</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Scripting Environment</H1>
+
+<A NAME="113">
+<H2>10 - Raw TCP/IP Socket</H2>
+</A>[next] [<A HREF="scripting_0900.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_1000.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> For subprocess scripting the raw TCP/IP socket can be made available for
+scripts to transfer data directly to the client.&nbsp;  The socket
+BG<I>nnnn</I>: device name is made available via the CGI variable
+WWW_GATEWAY_BG.&nbsp;  This is enabled using the [DclGatewayBg] configuration
+directive.&nbsp;  As it is a completely raw stream it cannot be used, and is not made
+available for SSL (&quot;https:&quot;) encrypted requests.&nbsp; 
+<BLOCKQUOTE><CENTER><B>NOTE</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+Although one might imagine this direct transfer to be significantly more
+efficient than the standard script mailbox the test-bench indicates that to all
+purposes it provides a negligable improvement in throughput, even under high
+load.&nbsp;  It probably only translates into measurable benefits for scripts
+producing large quantities of output (for instance hundreds of thousands or
+millions of bytes).&nbsp;  For the average script the overhead of opening a stream to
+the raw TCP/IP device (which is not insignificant) and complications of the
+callout requirements isn't worth the effort.&nbsp;  Still, it's there if someone
+wants or requires it.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<P> The socket is created shareable between processes, and so a
+channel may be assigned by the script subprocess and have data written to it.&nbsp; 
+The data is raw, in the sense the script must provide all carriage control,
+etc.&nbsp;  All data transfered this way is outside of the server and so may not be
+WATCHed, etc.&nbsp; 
+
+<P> The script must supply a full HTTP response.&nbsp;  This means a NPH-style header
+(see <A HREF="scripting_0200.html#52" TARGET="_self">2.2.2 - Non-Parsed-Header Output</A>) and body, with full carriage-control as
+required, etc.&nbsp;  The server <U>must</U> be notified that the script is
+using the gateway device, by providing a CGI callout (see
+<A HREF="scripting_0500.html#73" TARGET="_self">5 - CGI Callouts</A>) before any script output and after
+output is concluded.&nbsp;  The first callout provides the response HTTP status code,
+the second the number of bytes transfered.&nbsp;  These are also required for correct
+logging of the request.&nbsp; If a channel to the BG: device is opened it should
+always be closed when it is finished with.&nbsp;  Failure to do so could lead to
+resource starvation for the server.&nbsp;
+
+<P> The
+
+<A TARGET="_top" HREF="/cgi-bin/gateway_bg_example">HT_ROOT:[SCRIPT]GATEWAY_BG_EXAMPLE.COM</A>
+
+example script demonstrates the use of the raw socket from DCL.&nbsp;  The priciples
+can be applied to any scripting laguage.&nbsp;
+
+<P> The following code fragment shows the essential requirements using the C
+language.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  int  byteCount;
+  char  *gatewayBg;
+ 
+  /* see if there's a raw socket available */
+  if (gatewayBg = getenv ("WWW_GATEWAY_BG"))
+  {
+     /* yes, begin a callout */
+     fputs (getenv("CGIPLUSESC"), stdout);
+     fflush (stdout);
+ 
+     /* notify of script response and HTTP status */
+     fprintf (stdout, "GATEWAY-BEGIN: %d", 200);
+     fflush (stdout);
+ 
+     /* reopen &lt;stdout&gt; to the raw TCP/IP device */
+     if ((stdout = freopen (gatewayBgPtr, "w", stdout, "ctx=bin")) == NULL)
+        exit (vaxc$errno);
+  }
+ 
+  byteCount = fprintf (stdout,
+  "HTTP/1.0 200 OK\n\
+  Content-Type: text/plain\n\
+  \n");
+ 
+  ... <I>processing to &lt;stdout&gt;
+     e.g. byteCount += fprintf (stdout, "Hello world!\n");</I>
+ 
+  if (gatewayBg)
+  {
+     /* reopen &lt;stdout&gt; so that it's communicating via the mailbox again */
+     if ((stdout = freopen ("SYS$OUTPUT:", "w", stdout, "ctx=rec")) == NULL)
+        exit (vaxc$errno);
+ 
+     /* continue callout, notify of request data transfered */
+     fprintf (stdout, "GATEWAY-END: %d", byteCount);
+     fflush (stdout);
+ 
+     /* end the callout */
+     fputs (getenv("CGIPLUSEOT"), stdout);
+     fflush (stdout);
+  }
+</PRE></FONT>
+
+<A NAME="114">
+<H3><BR>Not Supported?&nbsp;</H3>
+</A>
+
+<P> Not all vendor's TCP/IP package BG drivers, or not all older versions, may
+support the C_SHARE option when creating sockets.&nbsp;  Symptoms may range from it
+being ignored (and the script being unable to open a channel to the
+BG<I>nnnn</I>: device) to an error being reported as the socket is being
+created (and the server being unable to start at all).&nbsp;  If this occurs merely
+disable the [DclGatewayBg] configuration option.&nbsp;  Script output is of course
+still available via the standard script output mailbox.&nbsp;
+
+<P> For portability scripts that use the raw socket for output should always
+use a construct similar to the above example code so only to redirect output
+when the GATEWAY_BG device is indicated as available.&nbsp;
+
+<P>
+<HR SIZE=2 NOSHADE>
+[next] [<A HREF="scripting_0900.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_1000.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

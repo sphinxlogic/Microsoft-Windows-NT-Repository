@@ -1,0 +1,138 @@
+	.TITLE	LOCK_NONPAGED_CODE
+	.IDENT	/V1.0/
+;+
+;
+;  Facility:	Various
+;
+;  Author:	Hunter Goatley
+;
+;  Date:	October 31, 1994
+;
+;  Abstract:
+;
+;	Contains a routine that can be called to lockdown all code and
+;	linkage sections in clustered program sections.
+;
+;	All the program sections that should be locked down must be
+;	clustered together using a linker options file like:
+;
+;	!
+;	!  Options file needed to gather the nonpaged code into a cluster
+;	!  delimited by the PSECTs $$$BEGIN_LOCKED_CODE and $$$END_LOCKED_CODE.
+;	!
+;	COLLECT=$$$BEFORE_LOCKED_CLUSTER,$$$BEGIN_LOCKED_CODE
+;	COLLECT=$$$LOCKED_CLUSTER,-
+;	        EXEC$NONPAGED_CODE,-
+;	        EXEC$NONPAGED_LINKAGE,-
+;		$$$115_LINKAGE,-
+;		$$$000_DRIVER,-
+;		$$$115_DRIVER,-
+;	        EXEC$NONPAGED_DATA
+;	COLLECT=$$$AFTER_LOCKED_CLUSTER,$$$END_LOCKED_CODE
+;
+;
+;  Modified by:
+;
+;	V1.0		Hunter Goatley		31-OCT-1994 20:27
+;		Original version.
+;-	
+	.SBTTL Declarations
+
+	.DSABL	GLOBAL				; Declare all external refs
+	.ENABLE	SUPPRESSION			; Suppress .LIS unref'd symbols
+
+	$SYIDEF					; $GETSYI symbols
+
+	.EXTRN	SYS$LCKPAG			; $LCKPAG system service
+
+
+	.SBTTL	Data
+
+	.PSECT	$$$BEGIN_LOCKED_CODE,NOWRT,EXE,LONG
+$$$LOCK_START:	.LONG	0
+	.PSECT	$$$END_LOCKED_CODE,NOWRT,EXE,LONG
+$$$LOCK_END:	.LONG	0
+
+	.PSECT	_DATA_,NOEXE,WRT,LONG
+.IF DEFINED SYI$_PAGE_SIZE		;* Is PAGE_SIZE defined
+GET_PAGE_SIZE:	.WORD	4		; Item list to get the system pagesize
+		.WORD	SYI$_PAGE_SIZE	; ...
+		.ADDRESS ARCH_PAGE_SIZE	; ...
+		.LONG	0
+		.LONG	0		; End of item list
+ARCH_PAGE_SIZE:	.LONG	0		; Place to hold the system page size
+.IFF
+ARCH_PAGE_SIZE:	.LONG	512		; VAX pages are always 512 bytes
+.ENDC
+
+
+	.SBTTL	Code
+	.PSECT	_CODE_,EXE,NOWRT,LONG
+;+
+;
+;  Routine:	LOCK_NONPAGED_CODE
+;
+;  Functional description:
+;
+;	This routine locks down all pages in a given image section
+;	using the $LCKPAG system service.  All pages between $$$LOCK_START
+;	and $$$LOCK_END are locked down.  Linker options files should be
+;	used to cluster the desired program sections between these PSECTs.
+;
+;	Note: each page is checked for read access before it is locked
+;	down.  This isn't necessary on a VAX---all of the code can be
+;	locked down in a single call.  However, on AXP, not all of the
+;	pages in the section will actually exist and trying to lock down
+;	non-existent pages will not work.
+;
+;  Inputs:
+;
+;	None.
+;
+;  Outputs:
+;
+;	None.
+;
+;  Returns:
+;
+;	R0	- Status (from $LCKPAG)
+;
+;-
+	.ENTRY	LOCK_NONPAGED_CODE, ^M<R2,R3>
+
+.IF DEFINED SYI$_PAGE_SIZE		;* If SYI$_PAGE_SIZE is defined.....
+	$GETSYI_S   -			; Get the page size for the
+		ITMLST=GET_PAGE_SIZE	;  ... architecture
+	BLBC	R0,30$			; Branch on error
+.ENDC
+	MOVL	ARCH_PAGE_SIZE,R2	; Move  the pagesize  to  R2
+;
+; We're going to create our own 2-longword address array on the stack.
+;
+	SUBL2	#4,SP			; Get longword on stack
+;	MOVL	4(AP),R0		; Get address of two-longword array
+;	MOVL	(R0)+,-(SP)		; Get starting address on stack
+;	MOVL	(R0),R3			; Get ending address
+	MOVAB	$$$LOCK_START,-(SP)	; Get starting address on stack
+	MOVAB	$$$LOCK_END,R3		; Get ending address
+
+ 10$:	CMPL	(SP),R3			; Gone past ending address?
+	BGEQU	30$			; Branch if so
+;
+; Store the end-of-page-address - 4 in the array to lock down.  Then
+; PROBE the page to make sure it exists.  On AXP, the pages aren't
+; necessarily contiguous and we can't lock down pages that aren't there.
+;
+	ADDL3	R2,(SP),R1		; Calculate end of this page
+	MOVAB	-4(R1),4(SP)		; Put addr of end in array
+	PROBER	#0,#4,@0(SP)		; Does the page exist?
+	BEQL	20$			; Branch if not
+	CLRQ	-(SP)			; Lock the page  into memory
+	PUSHAB	8(SP)			; ...
+	CALLS	#3,G^SYS$LCKPAG		; ...
+	BLBC	R0,30$			; Branch on error
+ 20$:	ADDL2	R2,(SP)			; Point to the next page
+	BRB	10$			; And test next page
+ 30$:	RET				; Return to caller
+
+	.END

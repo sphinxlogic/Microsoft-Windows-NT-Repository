@@ -1,0 +1,872 @@
+        .title  PSRIPX    
+        .ident  /V05-001/                   
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+;++
+;1 PSRIPX 
+; Program to receive IPX frames from Listen, process them and
+; build the internal PSRIPX DB.
+;
+;2 Database
+;    Symbol	       offs	   Desc
+; PSR_IPX_L_NET         128     ; Net number
+; PSR_IPX_EA_ADDR       132     ; Ethernet address  
+; PSR_IPX_L_ADDRLO      134     ; Ethernet address  (Low long)
+; PSR_IPX_W_SERVICE     138     ; service
+; PSR_IPX_W_HOPS        140     ; Router hops to station
+; PSR_IPX_W_NAMLEN      142     ; Len of following name
+; PSR_IPX_AS_NAME       144     ; Name
+; PSR_IPX_L_SPR         188     ; Spare/align
+; PSR_IPX_C_RECSIZ      192     ; Total rec size
+;-- 
+
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUCNTDEF
+	EMURLTDEF
+	EMUMSGDEF
+	$LCKDEF
+
+        .PSECT  RW_DATA, NOEXE, RD, WRT, QUAD, PIC, NOSHR       
+
+THIS_PROCESS = SYS_PID_C_PSRIPX
+THIS_PROCESS_FLAG = SYS_FLG_C_PSRIPX  
+
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+INADDR:		.QUAD	0
+EBUFFS_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+IPXDB_A: 	.QUAD	0
+PSRTBL_A:	.QUAD   0
+COUNTERS_A:	.QUAD	0
+IPXCOUNTS:	.LONG	0
+RLTCXT:		.LONG	0		; Relater context
+GBLSIZ:		.LONG	0
+RELDIS:		.LONG	0
+; temp - move to section
+PSRTBLCNT:	.LONG	0		; Count of psr table entries
+PASS_COUNT:	.LONG	0               ; COunt of buffs rec'ed 1 cycle
+BOXID:		.LONG	0
+NAMFRM:		
+NF_PID:		.LONG
+NF_KEY2:	.LONG
+NF_NAM:		.BLKB	48
+; Locking
+; Lock value block
+IPXDBLVB:
+IPXLVBSTA:	.WORD	0		; Status
+IPXLVBRES:	.WORD	0		; Reserved
+IPXLVBID:	.LONG	0		; Lock id
+IPXLVBSIZ:	.LONG	0		; Begining of LVB (Size of DB in pages)
+IPXLVBSPR:	.BLKL	3		; Unused 12 bytes
+; $ENQ call frame
+IPXDBLOCK:	
+		.LONG	12		; Arguments
+		.LONG	0		; EFN
+LKMODE:		.LONG	LCK$K_EXMODE	; Lock mode
+		.ADDRESS IPXDBLVB	; Lock value block
+LKFLGS:         .LONG 	<LCK$M_SYSTEM!LCK$M_VALBLK>	; Use value block
+LKNAM:		.ADDRESS IPXDBLKNAM 	; Resourse name
+		.LONG	0		; Parent id 
+                .LONG	0               ; AST
+		.LONG	0		; AST Param
+		.LONG	0		; BLAST
+		.LONG	0		; ACC Mode
+		.LONG	0		; RSDM_ID
+		.LONG	0		; Null
+
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/PSRIPX/
+	.ALIGN	LONG
+IPXSECFAB:	
+		$FAB	FAC = <GET,PUT>,-        ; Access
+			FNM = <EMU5_ROOT:[DAT]EMU_PSRIPX.SEC>
+IPXSECRAB:	
+		$RAB	FAB = IPXSECFAB,-            ; Record 
+			RAC = SEQ,-
+       			RBF = IPXSECREC,-			; 
+       			UBF = IPXSECREC,-			; 
+       			USZ = IPXSECREC_SIZE,-		; 
+       			RSZ = IPXSECREC_SIZE   		; 
+		
+
+IPXSECREC:	 .BLKB	PSR_IPX_C_RECSIZ   
+IPXSECREC_SIZE = .-IPXSECREC
+
+
+	.ALIGN	LONG
+EXIT_STATUS:	.LONG	0
+EXIT_BLOCK:	.LONG	0
+		.ADDRESS PSRIPX_EXIT
+		.LONG	1
+		.ADDRESS EXIT_STATUS
+
+EFLAGS1:		.ASCID	/EFLAGS1/	; Event Flag Cluster (64-95)
+EFLAGS2:		.ASCID	/EFLAGS2/	; Event Flag Cluster (96-127)
+IPXDBLKNAM:		.ASCID	/EMU_IPXDB/	; DB Lock name 
+IPXSECNAM:		.ASCID	/EMU_PSRIPX/	; DB section name 
+;misc
+	.align long
+FLAGS:		.LONG	0
+DEFRECCNT:      .LONG	2000			; DEF dbsize
+
+
+
+        .PSECT  PROG_CODE, RD, NOWRT, EXE, PIC, SHR, QUAD
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=PSRIPX
+
+
+; Ensure death if control process dies
+	calls	#0, g^get_control_lock	; 
+  	bsbw	error_chk		; 
+; 
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	calls	#0, g^asn_tempmbx_system
+	bsbw	error_chk		; 
+
+;	
+; Create and Map to sections 
+;
+
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	BSBW	ERROR_CHK
+	pushal	ebuffs_a		; Ebuffs section return addresses
+	calls	#1, g^map_ebuffs	; Create and map ebuffs
+	bsbw	error_chk		; check errors
+	pushal	control_a		; Control section return addresses
+	calls	#1, g^map_control	; Create and map control section
+	bsbw	error_chk		; check errors
+	PUSHAL	PSRTBLCNT  		; Count of entries found
+	PUSHAL	PSRTBL_A		; PSR table start addr
+	CALLS	#2,G^MAP_PSRTBL
+	BSBW	ERROR_CHK
+; Lock and map our database
+        CALLS	#0,G^MAP_IPXDB  
+	BLBS	R0,10$
+	BSBW	ERROR_CHK		; Record error
+	RET
+10$:
+; Declare exit handler
+	$DCLEXH_S DESBLK=EXIT_BLOCK	; 
+	BSBW	ERROR_CHK		; 
+
+;
+; Register constants
+; R6 = Current buffer
+; R8 = current datarec
+; R9 = addr of que header
+; R11 = counters
+	MOVL	EBUFFS_A,R9            ; que heads
+
+; Common Event flag Cluster:
+;
+	$ASCEFC_S	EFN = #64,-
+			NAME = EFLAGS1
+	BSBW	ERROR_CHK       	; Fatal
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	BSBW	ERROR_CHK       	; Fatal
+; Locate our place in the PSR table to store counts
+        MOVL	PSRTBL_A,R6			; 
+	MOVL	PSRTBLCNT,R3			; Count of entries
+100$:
+	CMPL	#THIS_PROCESS_FLAG,PSR_TBL_L_PSRID(R6)
+        BEQLU	110$
+	ADDL	#PSR_TBL_C_SIZE,R6   	; Next entry
+	SOBGTR	R3,100$			; Loop for all
+	MOVL	#SS$_ITEMNOTFOUND,R0	; We could not find ourselves
+	RET
+110$:
+; Find our area in counters section and init
+	MOVL	COUNTERS_A,R11      	; Start of counters
+	ADDL	#CNT_PSR_C_START,R11    ; Start of PSRs
+	MULL3	#THIS_PROCESS,#CNT_PSR_C_ASIZE,R1	; Offset
+	ADDL	R1,R11					; Our space
+	MOVL	R11,IPXCOUNTS
+        MOVC5	#0,#0,#0,#CNT_PSR_C_ASIZE,(R11)		; Clear
+        MOVQ	PSR_TBL_Q_DNAM(R6),CNT_PSR_Q_NAME(R11)   ; Our name
+        MOVL	PSR_TBL_L_RELDIS(R6),RELDIS   		; Relater disable
+
+; Send message to relater to enable us
+
+	MOVL	#100,R2			; Try this many times
+120$:
+	CLRL	RLTCXT
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGSTART	; Start us
+	PUSHAL	BOXID			; Dummy Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#4,G^CREATE_RELATER_FRAME
+	BLBS    R0,130$
+	SOBGTR	R2,120$
+; Fatal error - log it and exit
+        MOVL	#MSG_GENPSR_SNDRLT,MSGCDE    ; General PSR error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+130$:	
+  	PUSHL	RLTCXT                       ; Context
+	CALLS	#1,G^SEND_RELATER_FRAME
+140$:
+
+
+WAIT:
+	$wflor_s  	EFN=#96,-       ; Wait for our flag set
+			MASK=#THIS_PROCESS_FLAG
+
+	$READEF_S 	EFN=#96,-      ; Get EBUFF Flags
+			STATE=FLAGS     ; Current state
+
+READ:
+; When our flag is set:
+; 1. Clear our CEF
+; 2. Attempt to remove a command buffer. If any received, process
+; 3. Scan all ebuffs for any with our flag set.
+; If any found, process the buffer and clear our flag.
+; repeat 3. until no buffs are found for us
+; Wait for our CEF
+; Clear our CEF 
+	ADDL3	#96,#THIS_PROCESS,R1
+	PUSHL	R1
+	CALLS	#1,G^SYS$CLREF
+; Here call process command buffer
+
+	CLRL	PASS_COUNT			; Clear cycle count
+	MOVL	EBUFFS_A,R6            		; Ethernet buffers
+	ADDL	#IPC_EBUF_C_BUFSTART,R6 	; Buffers
+	MOVL	#IPC_ETH_C_BUFNO,R7		; Number of buffers
+MAIN:
+	BBS	#THIS_PROCESS,IPC_HDR_L_RFLAGS(R6),PROCESS   ; Br if buffer is ours
+	ADDL	#IPC_ETH_C_BUFSIZE,R6	
+	SOBGTR	R7,MAIN
+	TSTL    PASS_COUNT			; Did we process any?
+	BNEQU	READ				; Cycle again
+	BRW	WAIT
+
+PROCESS:
+;++
+;2 Processing_notes
+; Unusualy, we do not process the MAC header here. The mac source
+; address is in the IPX header along with the net portion - the 
+; address we really want (really really want).
+; Additionaly, since each of the frames we process contains info
+; about other nets/addresses, we simply find the packet type and 
+; process it. All new and/or changed params are found in the checking 
+; procedures.
+;--
+	INCL	CNT_PSR_L_PRCV(R11)		; Count 1 buff in
+	ADDL3	#IPC_ETH_1500_DATA,R6,R10       ; Data
+;
+	CMPB	#PSR_IPX_PTYPE_C_RIP,PSR_IPX_HDR_B_PTYPE(R10)	; RIP?
+	BNEQU	110$
+	PUSHL	R10		; Inc frame
+	CALLS	#1,G^IPX_CHECK_RIP
+	BRW	DONE
+110$:
+	CMPB	#PSR_IPX_PTYPE_C_SAP,PSR_IPX_HDR_B_PTYPE(R10)	; RIP?
+	BNEQU	120$
+	PUSHL	R10		; Inc frame
+	CALLS	#1,G^IPX_CHECK_SAP 
+120$:
+	BRW	DONE
+DONE:
+; clear our bit in return
+; reque this buff back to listen
+	BICL  	#THIS_PROCESS_FLAG,IPC_HDR_L_RFLAGS(R6)
+	INCL	CNT_PSR_L_RET(R11)
+	BRW	MAIN
+
+; Subroutines
+ERROR_CHK:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	MOVAL	ERRORMSG,R1
+	MOVL	#MSG_GENPSR_EXITERR,MSGCDE
+	MOVL	R0,MSGPARAMS 
+	MOVL	#1,PARCNT
+	PUSHL	R1
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	MSGPARAMS,R0
+	$EXIT_S R0
+
+COMMAND:
+; Later addition
+;	INCL	CNT_PSR_L_COMMNDS(R11)
+; 	REMQTI	(R9),R6		; Get buffer
+;	BCS	READ			; Try again on collision 
+;	BVC	20$			; Br if got one
+;	$READEF_S 	EFN=#96,-      ; Get EBUFF Flags
+			STATE=FLAGS     ; Current state
+
+	BRW	READ
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=IPX_CHECK_SAP 
+;++
+;2 IPX_CHECK_SAP 
+; Process a service announcement frame. All addresses and params contained
+; are tested for either new or changes adn alerts are generated.
+;3 Input
+; 	.address of incoming IPX frame
+;3 Output
+; 	New addresses create new records
+;	Changed params are written to records
+; 	Alerts are generated for:
+;		New addresses
+;		Changed params
+;		Routing changes (hop count changed)
+;		Nodes down	(hop count >= 16)
+;3 Return
+;	SS$_NORMAL	OK
+;--
+	MOVL	4(AP),R6		; IPX frame
+	MOVL	IPXCOUNTS,R11
+	CLRL	RLTCXT 			; Start with new relater frame
+; Reverse bytes
+	CLRL	GBLSIZ			; Spare long
+	ADDL3	#PSR_IPX_HDR_W_PLEN,R6,R1
+	MOVB	(R1),GBLSIZ+1
+	MOVB	1(R1),GBLSIZ
+        MOVL	GBLSIZ,R10
+; Skip the IPX header and SAP header
+	ADDL	#32,R6  		; Point to 1st SAP entry
+	SUBL	#32,R10	                ; Deduct processed
+100$:
+	CMPL	R10,#PSR_IPX_SAP_C_SIZE
+	BGEQU	110$
+	MOVL	#SS$_NORMAL,R0
+	RET
+110$:
+; Ensure the address is valid.
+	TSTL	PSR_IPX_SAP_L_NET(R6)       ; If net = 0
+	BNEQ	120$                        ; Br if not
+	INCL	CNT_PSR_L_INFMT(R11)        ; Count format err
+	BRW	400$                        ; Skip entry
+120$:
+; We are not interested in the socket entry. To speed processing
+; replace the socket entry in the source packet with the service type.
+; This arranges the frame keys in the order defined in the db.
+	MOVW	PSR_IPX_SAP_W_TYPE(R6),PSR_IPX_SAP_W_SOCK(R6) 
+	CLRL	BOXID
+	PUSHL	#1			; Create if not found
+	PUSHL	#THIS_PROCESS   	; This process is creator
+	PUSHAL	BOXID       		; BOXID - always = 0
+	PUSHAL	IPXDB_A			; Section
+	ADDL3	#PSR_IPX_SAP_L_NET,R6,-(SP)	; Addr of IPX net/addr	
+	PUSHL	#PSR_IPX_L_NET          ; Offset to addr
+	PUSHL	#12	        	; Push len
+	CALLS	#7,G^LOCATE_PSRREC
+	BSBW	ERROR_CHK			; Restart on error
+	CMPL	R0,#SS$_CREATED
+        BNEQ	200$
+
+; Alert new service
+200$:
+	MOVL	R1,R8
+	MOVQ	EXE$GQ_SYSTIME,COM_HDR_Q_LSTHRD(R8)  	; Heard this addr now
+	INCL	COM_HDR_L_ACNT(R8)		; Count this access
+; Check hops (if 16 then alert node down. If < stored value then change.
+; else OK
+; Reverse bytes
+	CLRL	GBLSIZ			; Spare long
+	ADDL3	#PSR_IPX_SAP_W_HOPS,R6,R1
+	MOVB	(R1),GBLSIZ+1
+	MOVB	1(R1),GBLSIZ
+        MOVL	GBLSIZ,R1
+	CMPW	R1,#16
+	BNEQ	210$
+; Send alert - node is down
+210$:
+	TSTW	PSR_IPX_W_HOPS(R8)		; Not set?
+	BEQL	215$                            ; Br if not set
+	CMPW	R1,PSR_IPX_W_HOPS(R8)           ; This count > stored?
+        BGEQU	220$                            ; Br if so
+215$:
+	MOVW	R1,PSR_IPX_W_HOPS(R8)  ; Replace
+220$:
+; find len inc name
+	ADDL3	#PSR_IPX_SAP_AS_NAME,R6,R1
+	CLRL	R9
+230$:
+	TSTB	(R1)[R9]
+	BEQL	240$
+	AOBLEQ	#48,R9,230$
+; Illegal name - too long
+	BRW	400$
+240$:
+	CMPW	R9,PSR_IPX_W_NAMLEN(R8) 
+	BNEQU	250$
+; Names are equal len - compare them
+	CMPC3	R9,PSR_IPX_AS_NAME(R8),PSR_IPX_SAP_AS_NAME(R6)
+	BEQLU	265$
+250$:
+	TSTW	PSR_IPX_W_NAMLEN(R8)	; New name? 
+	BEQLU	260$                    ; Br if so
+; Send alert - name changed
+260$:
+	MOVC3	R9,PSR_IPX_SAP_AS_NAME(R6),PSR_IPX_AS_NAME(R8)
+	MOVW	R9,PSR_IPX_W_NAMLEN(R8)
+	BICL	#SYS_FLG_C_NAMER,COM_HDR_L_PTYBITS(R8)	; Signal send name
+265$:
+; Make sure we are in the Relater DB
+	BBS	#THIS_PROCESS,RELDIS,270$
+	BBS	#THIS_PROCESS,COM_HDR_L_PTYBITS(R8),270$
+	PUSHL	R8
+	CALLS	#1,G^IPX_SEND_RELATER
+	BRW	400$
+270$:
+; as this came from ethernet...
+	TSTL	PSR_IPX_EA_ADDR(R8) 			; Valid Mac?
+	BEQL    280$                                    ; Br not
+	BBS	#SYS_PID_C_PSRETH,RELDIS,280$
+	BBS	#SYS_PID_C_PSRETH,COM_HDR_L_PTYBITS(R8),280$
+	PUSHL	R8
+	CALLS	#1,G^IPX_SEND_RELATER
+	BRW	400$
+
+280$:
+	BBS	#SYS_PID_C_NAMER,RELDIS,400$
+	BBS	#SYS_PID_C_NAMER,COM_HDR_L_PTYBITS(R8),400$
+; Name has not been sent - send it
+	PUSHL	R8
+	CALLS	#1,G^IPX_SEND_RELATER
+	BRW	400$
+400$:
+	ADDL	#PSR_IPX_SAP_C_SIZE,R8
+	SUBL	#PSR_IPX_SAP_C_SIZE,R10
+	BRW	100$
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=IPX_SEND_RELATER   
+;++
+;2 IPX_SEND_RELATER   
+; Routine to extract the components from the input record, contruct 
+; a relater frame and send it. Note that ALL componnets are sent in 1 
+; frame to ensure the relater has complete information.
+; 
+;3 Input
+;	.address of IPXDB Rec
+;3 Output
+;  A relater frame is sent containing:
+; Netware Addr (includes net,mac,service)
+; Ethernet Addr  If true mac address then send to eth
+; Name, A name frame is formatted as follows:
+;	PID	.long protocol id of sending process
+;	KEY2	.long key for multiple names - this is the CRC of the 
+;		name
+;	Name	.ascii name
+;       The len is the len of the name +8
+; Return
+;	None
+;--
+	MOVL	COUNTERS_A,R11
+	MOVL	4(AP),R8
+	CLRL	RLTCXT			; New frame
+
+	ADDL3	#PSR_IPX_L_NET,R8,-(SP)	; Our addr   
+	PUSHL	#12			; Len of our addr
+  	PUSHL	#THIS_PROCESS		; Target
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,10$                  ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)    ; count err
+	RET
+;
+; IPX addresses may be 'internal' in which case the ethernet address is 
+; a dummy entry. If not send the valid ethernet address.
+10$:
+	TSTL	PSR_IPX_EA_ADDR(R8)
+	BEQL    20$
+;
+	ADDL3	#PSR_IPX_EA_ADDR,R8,-(SP)	; Our addr   
+	PUSHL	#6			; Len of our addr
+  	PUSHL	#SYS_PID_C_PSRETH		; Add our address
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,20$                  ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)    ; count err
+	BRW	100$
+20$:
+; Name
+	MOVL	#THIS_PROCESS,NF_PID 	; Move PID in
+	ADDL3	#PSR_IPX_AS_NAME,R8,R6	; .ascii name
+	MOVZWL	PSR_IPX_W_NAMLEN(R8),R2 ; Get len
+	BEQL	100$			; Br if len = 0
+	CMPL	#48,R2			; Max name len?
+	BGEQU	30$			; Br if OK
+	MOVL	#48,R2			; Truncate
+30$:
+	CLRL	R3			; Index
+	MOVAL	NF_NAM,R4
+40$:
+; Move name in
+	MOVB	(R6)[R3],(R4)[R3]
+	AOBLSS	R2,R3,40$
+; CRC this name and place result in KEY2
+	PUSHL	R6			; addr of name
+	PUSHL	R2			; Len
+	CALLS	#2,G^MAKE_CRC		; No errors returned
+	MOVL	R0,NF_KEY2		; Returned crc
+; Add the name frame to relater frame
+	PUSHAL	NAMFRM			; Our addr   
+	ADDL3	#8,R2,-(SP)		; Len of our addr
+  	PUSHL	#SYS_PID_C_NAMER	; Add name
+	PUSHL	#THIS_PROCESS		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,100$                  ; Br no err
+	INCL	CNT_PSR_L_NOIPC(R11)    ; count err
+100$:
+	TSTL	RLTCXT
+	BEQL	200$
+
+  	PUSHL	RLTCXT                  ; Context (Addr of buffer)
+	CALLS	#1,G^SEND_RELATER_FRAME
+	CLRL	RLTCXT			; Saftey - don't reuse
+
+	BLBS	R0,200$                  ; br no err
+	INCL	CNT_PSR_L_ERROR(R11)    ; count err
+	MOVAL	ERRORMSG,R1
+	MOVL	#MSG_GENPSR_SNDRLT,MSGCDE
+	MOVL	R0,MSGPARAMS 
+	MOVL	#1,PARCNT
+	PUSHL	R1
+	CALLS	#1,G^EMU_LOGGER
+	RET
+200$:	
+	INCL	CNT_PSR_L_PREL(R11)			; Count REL frame sent
+	RET	
+
+
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=IPX_CHECK_RIP 
+;++
+;2 IPX_CHECK_RIP 
+; Process a Routing Information frame. All addresses and params contained
+; are tested for either new or changes adn alerts are generated.
+;3 Input
+; 	.address of incoming IPX frame
+;3 Output
+;3 Return
+;	SS$_NORMAL	OK
+;--
+	MOVL	4(AP),R6		; IPX frame
+	MOVL	IPXCOUNTS,R11
+        MOVZWL	PSR_IPX_HDR_W_PLEN(R6),R10	; Total len
+	MOVL	#SS$_NORMAL,R0
+	RET
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=MAP_IPXDB   
+;++
+;2 MAP_IPXDB   
+; Routine to create and initialise the IPX db. This is a standard routine
+; that any DB creator execxutes on it's own DB:
+;	Acquire exclusive lock on this database. 
+;		Fatal error if not granted.
+;	Open file - if file not opened used hardcoded defaults.
+;	Create section. Fatal error ir we did not CREATE.
+;	Initalise with either file contents or defaults
+;	Write section size (in pages) to LVB
+;	Convert lock to CW
+;	That's it!
+;--
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	$ENQW_G	IPXDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	IPXLVBSTA,10$            ; Br if got it
+	CMPW	#SS$_VALNOTVALID,IPXLVBSTA  ;  Ignore LVB not valid error
+	BEQLU	10$
+
+	MOVAL	ERRORMSG,R1
+	MOVL	#MSG_GENPSR_MAPDB,MSGCDE
+	MOVL	R0,MSGPARAMS 
+	MOVL	#1,PARCNT
+	PUSHL	R1
+	CALLS	#1,G^EMU_LOGGER
+	RET
+10$:
+	$OPEN	FAB= IPXSECFAB			; Attempt to open
+	BLBS	R0,20$                          ; Br if OK
+	BRW	1000$				; Use defaults
+20$:
+	$CONNECT RAB=IPXSECRAB
+	BLBS	R0,30$
+	BRW	280$			; Abandon and use defaults
+30$:
+	$GET	RAB=IPXSECRAB		; Get 1st rec
+	BLBS	R0,40$
+	BRW	280$			; Abandon and use defaults
+40$:
+; Calc memory/file size, Get memory & Map section
+       	MOVAL	IPXSECREC,R7
+	MULL3	COM_DBHDR_L_MAXENTRIES(R7),COM_DBHDR_L_RECSIZE(R7),GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+100$:	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR		; returned address
+	PUSHL	GBLSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BSBW	ERROR_CHK		; check ok
+; MAP SECTION	
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	GBLSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	IPXSECNAM		; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	IPXDB_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	BSBW	ERROR_CHK
+	CMPL	#SS$_CREATED,R0
+	BEQL	200$
+	$CLOSE	FAB=IPXSECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	RET
+200$:
+; We created the section. Load it with file contents
+; Move the 1st rec to rec header
+; 1st rec cannot exceed common header size...
+	MOVAL	IPXDB_A,R11			; Start of section
+	MOVL	(R11),R7                        ;
+	MOVC3	#COM_HDR_C_SIZE,IPXSECREC,(R7)     ; Init header
+	ADDL3	COM_DBHDR_L_RECSIZE(R7),R7,R8       ; Location of 1st rec
+	CLRL	COM_DBHDR_L_ENTRIES(R7)		; No entries yet
+	MOVL	COM_DBHDR_L_RECSIZE(R7),R9    ; rec size
+210$:
+	MOVL	R8,IPXSECRAB+RAB$L_UBF    ; Write rec here
+	MOVW	R9,IPXSECRAB+RAB$W_RSZ		; Record size
+	MOVW	R9,IPXSECRAB+RAB$W_USZ		; Record size
+	$GET	RAB = IPXSECRAB		; Get a record
+	BLBC	R0,260$			; BR IF  error 
+	INCL	COM_DBHDR_L_ENTRIES(R7)			; Count
+	ADDL	R9,R8     		; Next slot
+	ADDL3	R9,R8,R10		; Check if enough room
+	CMPL	R10,4(R11)		; OK?
+	BLEQU	210$			; OK
+	BRW	280$			; Undo
+	
+260$:
+	CMPL	R0,#RMS$_EOF		; Was error end of file
+	BEQLU	270$			; Yes - OK
+	RET				; No - Die
+270$:
+	$CLOSE	FAB=IPXSECFAB
+	BRW	2000$
+280$:
+; Undo and set to default
+	$CLOSE	FAB=IPXSECFAB
+	CLRQ	-(SP)
+        PUSHL	4(AP)
+	CALLS	#3,G^SYS$DELTVA
+
+1000$:
+; File was not found, or otherwise unloadable
+; Use defaults
+	MULL3	#PSR_IPX_C_RECSIZ,DEFRECCNT,GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR			; returned address
+	PUSHL	GBLSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BSBW	ERROR_CHK		; check ok
+; MAP SECTION	
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	GBLSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	IPXSECNAM		; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	IPXDB_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	CMPL	#SS$_CREATED,R0
+	BEQL	1100$
+	$CLOSE	FAB=IPXSECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	RET
+; init header rec
+1100$:
+	MOVL	IPXDB_A,R6
+	MOVL	#PSR_IPX_C_RECSIZ,COM_DBHDR_L_RECSIZE(R6)   ; write recsize 
+	MOVL	#THIS_PROCESS,COM_DBHDR_L_FLAG(R6)          ; Write flag
+	MOVL	DEFRECCNT,COM_DBHDR_L_MAXENTRIES(R6)
+2000$:
+	$ERASE	FAB= IPXSECFAB			  ; Delete all versions
+	BLBS	R0,2000$                          ; Br until no more
+	SUBL3	IPXDB_A,IPXDB_A+4,R10 		; Size if section (bytes)
+	DIVL3	#512,R10,IPXLVBSIZ              ; Size (Pages) in LVB
+	INCL	IPXLVBSIZ			; Real number
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	MOVL	#LCK$K_CWMODE,LKMODE		; COnvert to CW
+	$ENQW_G	IPXDBLOCK 			; Convert DB lock 
+	MOVW	IPXLVBSTA,R0
+	RET					; Return with any errors
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=PSRIPX_EXIT
+; Here at exit
+; Disable ourselves
+        MOVL	PSRTBL_A,R6			; 
+	MOVL	PSRTBLCNT,R3			; Count of entries
+10$:
+	CMPL	#THIS_PROCESS_FLAG,PSR_TBL_L_PSRID(R6)
+        BNEQU	15$
+	BICL	#PSR_CFLG_M_DISAB,PSR_TBL_L_CFLGS(R6)  ; Disable
+15$:
+	ADDL	#PSR_TBL_C_SIZE,R6   	; Next entry
+	SOBGTR	R3,10$			; Loop for all
+
+; Get lock
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	$ENQW_G	IPXDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	IPXLVBSTA,20$
+	CMPW	#SS$_VALNOTVALID,IPXLVBSTA  ;  Ignore LVB not valid error
+	BEQLU	20$
+
+	MOVAL	ERRORMSG,R1
+	MOVL	#MSG_GENPSR_MAPDB,MSGCDE
+	MOVL	R0,MSGPARAMS 
+	MOVL	#1,PARCNT
+	PUSHL	R1
+	CALLS	#1,G^EMU_LOGGER
+	RET
+	
+20$:
+; create new file
+	$CREATE	FAB=IPXSECFAB
+	BLBS	R0,30$
+	RET
+30$:
+	$CONNECT RAB=IPXSECRAB
+	BLBS	R0,40$
+40$:
+; analyse section, dec entry count for any deleted recs
+	MOVL	IPXDB_A,R10			; Top of section
+        MOVL	COM_DBHDR_L_ENTRIES(R10),R6      ; Number of entries
+	BEQL	65$				; Br if none
+        MOVL	COM_DBHDR_L_RECSIZE(R10),R7      ; Size of entries
+	ADDL3	R7,R10,R8				; 1st rec
+50$:
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R8),60$ ; Br if not deleted
+	DECL	COM_DBHDR_L_ENTRIES(R10)			   ; uncount
+60$:
+	ADDL	R7,R8 
+	SOBGTR	R6,50$
+; The count is now the count of valid recs
+; Calc a new MAXENTRY
+65$:
+	MULL3	#100,COM_DBHDR_L_ENTRIES(R10),R1
+        DIVL	#15,R1			; increase by 15 %
+	CMPL	#10,R1			; must be > 10
+	BLSS	70$
+	MOVL	#10,R1			; Set min
+	BRB	100$
+70$:
+	CMPL	#100,R1			; must be < 100
+	BGTR	100$
+	MOVL	#100,R1			; Set min
+100$:
+; Set header and write it
+; 
+	MOVW	COM_DBHDR_L_RECSIZE(R10),IPXSECRAB+RAB$W_RSZ     ; rec size
+	ADDL3	R1,COM_DBHDR_L_ENTRIES(R10),COM_DBHDR_L_MAXENTRIES(R10)	; Set new max size
+	MOVL	#-1,COM_HDR_L_ACNT(R10)	; Set this field Max count (FOR SORT)
+	MOVL	R10,IPXSECRAB+RAB$L_RBF    ; Write this rec 
+	$PUT	RAB = IPXSECRAB		; Write a record
+	BLBS	R0,110$			; BR IF no error 
+	BRW	210$
+
+110$:
+; Write out all recs (skip deletes)
+        MOVL	COM_DBHDR_L_ENTRIES(R10),R6      ; Number of entries
+	BEQL	200$				; Br if none
+        MOVL	COM_DBHDR_L_RECSIZE(R10),R7      ; Size of entries
+        MOVW	COM_DBHDR_L_RECSIZE(R10),IPXSECRAB+RAB$W_RSZ    ; Size of record
+	ADDL3	R7,R10,R8			; 1st rec
+120$:
+	MOVL	R8,IPXSECRAB+RAB$L_RBF    ; Write this rec 
+	$PUT	RAB = IPXSECRAB		; Write a record
+	BLBC	R0,210$			; BR IF  error 
+	ADDL	R7,R8 
+	SOBGTR	R6,120$
+200$:
+	$CLOSE	FAB= IPXSECFAB	; 
+ 	MOVZWL  #SS$_RESIGNAL, R0    
+        RET
+210$:
+	$CLOSE	FAB= IPXSECFAB	; 
+	$ERASE	FAB= IPXSECFAB			; Delete Partial
+ 	MOVZWL  #SS$_RESIGNAL, R0    
+        RET
+
+
+        .END	PSRIPX
+

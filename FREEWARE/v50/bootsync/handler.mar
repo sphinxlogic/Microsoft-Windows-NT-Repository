@@ -1,0 +1,44 @@
+;  Kernel mode exception handler.
+
+	.PSECT	NONSHARED_DATA	PIC, NOEXE, LONG
+
+	.LIBRARY	'SYS$LIBRARY:LIB.MLB'
+	$CHFDEF
+
+HANDLER_SIG::	.BLKL	10		; reserve 10 longwords
+HANDLER_REGS::	.BLKL	12		; for registers
+
+	.PSECT	CODE		PIC, SHR, NOWRT, LONG
+
+	.ENTRY	HANDLER	^M<>
+	MOVL	CHF$L_SIGARGLST(AP), R0		; get signal array address
+	CMPL	CHF$L_SIG_NAME(R0), #SS$_UNWIND	; was condition unwind?
+	BEQL	10$				; yes, resignal it
+
+	PUSHL	R2				; save R2
+	ADDL3	CHF$L_SIG_ARGS(R0), #1, R2	; get length of signal array,
+						;   account for count longword,
+						;   keep count in R2
+	MOVAL	CHF$L_SIG_ARGS(R0), R0		; point to source
+	MOVAL	HANDLER_SIG, R1			; point to destination
+5$:	MOVL	(R0)+, (R1)+			; copy
+	SOBGTR	R2, 5$				; loop if more
+	POPL	R2				; restore R2
+
+	MOVL	CHF$L_SIGARGLST(AP), R0		; get signal array address
+	MOVL	CHF$L_MCHARGLST(AP), R1		; get mechanism array address
+
+	MOVQ	CHF$L_MCH_SAVR0(R1), HANDLER_REGS ; save R0, R1
+	MOVQ	R2, HANDLER_REGS+8		; save R2, R3
+	MOVQ	R4, HANDLER_REGS+16		; save R4, R5
+	MOVQ	R6, HANDLER_REGS+24		; save R6, R7
+	MOVQ	R8, HANDLER_REGS+32		; save R8, R9
+	MOVQ	R10, HANDLER_REGS+40		; save R10, R11
+
+	MOVL	CHF$L_SIG_NAME(R0), CHF$L_MCH_SAVR0(R1)	; put condition in R0
+	$UNWIND_S
+
+10$:	MOVL	#SS$_RESIGNAL, R0
+	RET
+
+	.END

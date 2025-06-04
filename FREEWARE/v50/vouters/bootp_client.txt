@@ -1,0 +1,1031 @@
+$!
+$!                             COPYRIGHT (C) 1996 BY
+$!                       DIGITAL EQUIPMENT CORPORATION, MAYNARD
+$!                        MASSACHUSETTS.  ALL RIGHTS RESERVED.
+$!
+$!     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+$!     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+$!     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+$!     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+$!     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+$!
+$!     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+$!     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.
+$!
+$!     DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+$!     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL.
+$!
+$!     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+$!     ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL EQUIPMENT CORPORATION.
+$!
+$!     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY DIGITAL SOFTWARE
+$!     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+$!     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+$!
+$!
+$! Procedure parameter P1 can have three options : not specified, DECC or VAXC
+$! If both compilers are present and none is specified, the default selection
+$! is VAX C compiler
+$!
+$! This command procedure contains a BOOTP client which broadcasts to all nodes
+$! on the network a BOOTP request and awaits for a BOOTP reply from a server.
+$! The BOOTP request is filled with a broadcast IP address (255.255.255.255)
+$! for the destination field and a source IP address (0.0.0.0). The type
+$! and length are set to an Ethernet address type and length (respectively
+$! htype = 1 (for 10 mb Ethernet) and hlen = 6 for six bytes hardware address).
+$! This program gets dynamically the Ethernet address; if the BOOTP server is
+$! a DEC/TCPIP OpenVMS server, then this hardware address (sent in the BOOTP
+$! request packet) must match the Ethernet hardware address in the BOOTP
+$! database of the BOOTP server and also, as this matching Ethernet address
+$! is also used as the Ethernet destination of the BOOTP reply packet,
+$! it must match the Ethernet address of the node running this BOOTP client.
+$! Therefore, if the node running this BOOTP client, also runs DECnet,
+$! the Ethernet address will be "aa-00-04-00-xx-yy" with "xx-yy" being
+$! computed as area*1024+node (xx being the low order byte of this computed
+$! value and yy the high order byte).
+$!
+$! Most of the BOOTP reply packet fields are output on the screen. All sort
+$! of Vendor informations are output if present in the BOOTP reply packet
+$! Vendor field.
+$!
+$! This program makes use of $DEVICE_SCAN and $GETDVI to get the Ethernet
+$! device name. If your system has several Ethernet controllers, then the
+$! first one returned by these system services will be used.
+$!
+$!
+$!
+$!
+$!
+$! The following is an example of the output from the "SETUP" and "RUN"
+$! procedures for a BOOTP client and a UCX BOOTP server:
+$! 
+$!      B_Serv$ UCX SET BOOTP b_cl /FILE=t1.t1 /HARD=ADD=AA-00-04-00-64-FC
+$!      B_Cl$ @BOOTP DECC                         ! Compile, link, setup
+$!      B_Cl$ BOOTP /ADD=AA-00-04-00-64-FC        ! Run the BOOTP client
+$!      Ethernet source : aa-00-04-00-64-fc       ! The reply contents are
+$!      Ethernet destination : 08-00-2b-30-81-92  !   displayed ...
+$!      Ethernet Protocol : 08-00                 !   ...
+$!      OP = BOOTREPLY                            !   ...
+$!      ... etc. (htype, hlen, hops, hlen, xid, secs, chaddr, ciaddr, yiaddr,
+$!               siaddr, giaddr, sname, file, Vendor Information)
+$!     B_Cl$
+$! 
+$! 
+$! Extract the command file to an OpenVMS file named BOOTP.COM and issue
+$! the following command to build BOOTP.EXE:
+$! 
+$!      $ @BOOTP DECC
+$! 
+$!      Extract the command procedure from the first to the last lines
+$!      beginning with '$'.
+$! 
+$! 
+$! Send a BOOTP request after the BOOTP.EXE build is finished as follows:
+$! 
+$!      $ BOOTP [/FILE= filename] [/ADDRESS = Ethernet_address] [/CHECKSUM]
+$! 
+$!      Using parameters between square brackets are optional. If the
+$!      /ADDRESS qualifier is omitted, the address of the node running
+$!      BOOTP.EXE is used.
+$! 
+$! 
+$! The procedure parameter 'P1' can have the following three options:
+$! 
+$!      not specified
+$!      DECC
+$!      VAXC
+$! 
+$! If both compilers are present and none is specified, the default selection
+$! is VAX C compiler. This procedure produces a BOOTP.EXE that can be run. The
+$! BOOTP.EXE program does not ask for any input, yet is configurable using the
+$! Digital Command Language (DCL) qualifiers.
+$! 
+$!
+$!
+$!
+$!
+$!
+$!
+$ verify = f$verify(0)
+$ compiler_switch = "/"+ P1
+$ decc = f$search ("sys$system:decc$compiler.exe")
+$ vaxc_compiler = f$search ("sys$system:vaxc.exe")
+$ if vaxc_compiler .eqs. "" .and. decc .eqs. "" then goto end
+$ if vaxc_compiler .eqs. "" .and. decc .nes. ""
+$ then
+$     compiler_switch = ""
+$     compiler = "DECC"
+$ endif
+$ if vaxc_compiler .nes. "" .and. decc .eqs. ""
+$ then
+$     compiler_switch = ""
+$     compiler = "VAXC"
+$ endif
+$ if vaxc_compiler .nes. "" .and. decc .nes. ""  .and. P1 .eqs. ""
+$ then
+$     compiler_switch = "/VAXC"
+$     compiler = "VAXC"
+$ else
+$ if P1 .nes. ""
+$ then
+$     compiler_switch = "/"+ P1
+$     compiler = P1
+$ endif
+$ endif
+$ create bootp_sysdefs.mar
+$ deck
+
+    .library "sys$library:lib.mlb"
+    $nmadef  GLOBAL
+    $ucbdef  GLOBAL
+    $dvsdef  GLOBAL
+    .end
+
+$ eod
+$ macro bootp_sysdefs
+$ create bootp.c
+$ deck
+#ifdef __DECC
+#pragma module BOOTPC "V1.0-00"
+#else
+#module BOOTPC "V1.0-00"
+#endif
+#include <stdarg.h>
+#include <varargs.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unixio.h>
+#include <socket.h>
+#include <in.h>
+#include <inet.h>
+#include <ctype.h>
+#include <errno.h>
+#include <ctype.h>
+#include <descrip.h>
+#include <ssdef.h>
+#include <stsdef.h>
+#include <dvidef.h>
+#include <devdef.h>
+#include <dcdef.h>
+#include <iodef.h>
+#include <starlet.h>
+#include <lib$routines.h>
+#include <cli$routines.h>
+
+#ifdef __DECC
+#include <dvsdef.h>
+/* For OpenVMS VAX and AXP V6.1 TO V7.0 NMADEF.H is found in sys$examples: */
+#if defined(__VAX)
+#  if ((__VMS_VER >= 50510822) && (__VMS_VER < 70000000))
+#     pragma extern_model save
+#     pragma extern_model globalvalue
+         extern const int UCB$M_TEMPLATE;
+#     pragma extern_model restore
+#        include "sys$examples:nmadef.h"
+#     endif
+#endif
+#ifdef __ALPHA
+#  include <ucbdef.h>
+#include <nmadef.h>/* found in sys$library:sys$lib_c.tlb in OpenVMS AXP V7.0 */
+#endif
+#pragma extern_model save
+#pragma extern_model globalvalue
+extern const int CLI$_ABSENT,CLI$_NEGATED, CLI$_PRESENT;
+#pragma extern_model restore
+#else /* VAX C*/
+#if !defined (SS$_NOMOREDEV)
+globalvalue SS$_NOMOREDEV;
+#endif
+globalvalue NMA$C_STATE_ON;
+globalvalue NMA$C_STATE_OFF;
+globalvalue NMA$C_PCLI_PHA;
+globalvalue NMA$C_PCLI_PRM;
+globalvalue NMA$C_PCLI_PAD;
+globalvalue NMA$C_PCLI_BUS;
+globalvalue DVS$_DEVCLASS;
+globalvalue DVS$_DEVTYPE;
+globalvalue UCB$M_TEMPLATE;
+globalvalue int CLI$_ABSENT,CLI$_NEGATED, CLI$_PRESENT;
+#endif
+
+#define BOOTREQUEST 1
+#define BOOTREPLY   2
+#define READ_EFN    2
+#define TIMER_EFN   3
+#define RETRIES     10
+#define BOOTP_SERVER 67
+#define BOOTP_REQUESTER 68
+#define IP_PROTOCOL   0x08
+#define UDP_PROTOCOL 17
+#define ETHERNET_SIZE 1500
+
+#define PAD_TAG 0
+#define NETWORK_MASK_TAG 1
+#define TIME_OFFSET_TAG 2
+#define GATEWAY_TAG 3
+#define TIME_SERVER_TAG 4
+#define IEN_TAG 5
+#define DOMAIN_SERVER_TAG 6
+#define LOG_SERVER_TAG 7
+#define COOKIE_TAG 8
+#define LPR_TAG 9
+#define IMPRESS_TAG 10
+#define RLP_TAG 11
+#define HOSTNAME_TAG 12
+#define BOOT_FILE_SIZE_TAG 13
+#define END_TAG 255
+
+#define success(code) ((code) & STS$M_SUCCESS)
+#define failure(code) (~(code) & STS$M_SUCCESS)
+/* Convert short port number from host to network byte order */
+#define htons(x) ((unsigned short)((x<<8)|(x>>8)))
+/* Convert short port number from network to host byte order */
+#define ntohs(x) ((unsigned short)((x<<8)|(x>>8)))
+
+#pragma member_alignment save
+#pragma nomember_alignment word
+
+typedef struct {  /* I/O Status Block */
+    unsigned short status;
+    unsigned short count;
+    unsigned long funcdep;
+} iosb_t;
+
+typedef struct {  /* Structure descriptor */
+    unsigned long length;
+    void *address;
+} struct_desc_t;
+
+typedef struct {  /* Standard item for VMS system services */
+    unsigned short length;
+    unsigned short code;
+    void *buffer;
+    unsigned short *retlen;
+} item_t;
+#pragma nomember_alignment byte
+
+/* Declare IP protocol header. */
+struct ip {
+        u_char  ip_hl:4,                /* header length */
+                ip_v:4;                 /* version */
+        u_char  ip_tos;                 /* type of service */
+#ifdef __VAX
+        u_short ip_len;                 /* total length */
+#else
+        short   ip_len;                 /* total length */
+#endif
+        u_short ip_id;                  /* identification */
+#ifdef __VAX
+        u_short ip_off;                 /* fragment offset field */
+#else
+        short   ip_off;                 /* fragment offset field */
+#endif
+#define IP_DF 0x4000                    /* dont fragment flag */
+#define IP_MF 0x2000                    /* more fragments flag */
+        u_char  ip_ttl;                 /* time to live */
+        u_char  ip_p;                   /* protocol */
+        u_short ip_sum;                 /* checksum */
+        struct  in_addr ip_src,ip_dst;  /* source and dest address */
+};
+
+/*
+ * Udp protocol header.
+ * Per RFC 768, September, 1981.
+ */
+struct udphdr {
+        u_short uh_sport;               /* source port */
+        u_short uh_dport;               /* destination port */
+        u_short uh_ulen;                /* udp length */
+        u_short uh_sum;                 /* udp checksum */
+};
+/*
+ * Declare  BOOTP request/reply packet.
+ * as per RFC 951
+ */
+struct bootppacket {
+
+         char  op;      /*      packet op code / message type.
+                         *      1 = BOOTREQUEST, 2 = BOOTREPLY
+                         */
+         char  htype;   /*      hardware address type,
+                         *      see ARP section in "Assigned Numbers" RFC.
+                         *      '1' = 10mb ethernet
+                         */
+         char   hlen;   /*      hardware address length
+                         *      (eg '6' for 10mb ethernet).
+                         */
+         char   hops;   /*      client sets to zero,
+                         *      optionally used by gateways
+                         *      in cross-gateway booting.
+                         */
+         int    xid;    /*      transaction ID, a random number,
+                         *      used to match this boot request with the
+                         *      responses it generates.
+                         */
+         short  secs;   /*      filled in by client, seconds elapsed since
+                         *      client started trying to boot.
+                         */
+         short  rsvd;   /*      unused
+                         */
+         int    ciaddr; /*      client IP address;
+                         *      filled in by client in bootrequest if known.
+                         */
+         int    yiaddr; /*      'your' (client) IP address;
+                         *      filled by server if client doesn't
+                         *      know its own address (ciaddr was 0).
+                         */
+         int    siaddr; /*     server IP address;
+                         *      returned in bootreply by server.
+                         */
+         int giaddr;    /*     gateway IP address,
+                         *      used in optional cross-gateway booting.
+                         */
+         char  chaddr[16];/*    client hardware address,
+                         *     filled in by client.
+                         */
+         char   sname[64];/*     optional server host name,
+                         *      null terminated string.
+                         */
+         char   file[128];/*     boot file name, null terminated string;
+                         *      'generic' name or null in bootrequest,
+                         *      fully qualified directory-path
+                         *      name in bootreply.
+                         */
+         char   vend[64];/*     optional vendor-specific area,
+                         *      e.g. could be hardware type/serial on request,
+                         *      or 'capability' / remote file system handle
+                         *      on reply.  This info may be set aside for use
+                         *      by a third phase bootstrap or kernel.
+                         */
+};
+/*
+ * format of a Ethernet containing UDP/BOOTP packet.
+ */
+struct opacket {
+        struct ip ip;
+        struct udphdr udp;
+        struct bootppacket bootp;       /* bootp packet left */
+};
+
+struct ether_header {
+        unsigned char src[6];
+        unsigned char dest[6];
+        unsigned short protocol;
+};
+#pragma member_alignment restore
+
+typedef struct {
+     struct ether_header hdr;
+     char additionnal[6];
+     struct opacket *buffer;
+     iosb_t iosb;
+     char *my_addr;
+     unsigned short chan;
+     char ast_delivered;
+} signal_t;
+
+char *hexa_string =  "0123456789ABCDEF-";
+
+void bootpc();
+
+
+
+main(){
+   int cli_status;
+   unsigned char compute_sum;
+   struct dsc$descriptor_s file_in = {128,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+   struct dsc$descriptor_s address = {20,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+   char *cp,*j;
+   unsigned char *cp1;
+   unsigned char hrdwre_addr[6];
+   int i;
+   unsigned char l;
+   $DESCRIPTOR (indsc,"FILE");
+   $DESCRIPTOR (adddsc,"ADDRESS");
+   $DESCRIPTOR (chkdsc,"CHECKSUM");
+
+   /*
+    * in struct bootppacket, the file filed has a
+    * 128 bytes length, hence the calloc 128 bytes.
+    */
+   file_in.dsc$a_pointer = calloc (1,128);
+   if (cli$present (&indsc) == CLI$_PRESENT) {
+       /*
+        * Get input file name if present.
+        */
+       cli_status = cli$get_value (&indsc,&file_in,
+                                      &file_in.dsc$w_length) ;
+       if (!(cli_status&1)) lib$signal (cli_status);
+       file_in.dsc$a_pointer[file_in.dsc$w_length] = 0;
+       }
+   /*
+    * Get qualifier if present.
+    */
+   cli_status = cli$present (&chkdsc);
+   if (cli_status == CLI$_PRESENT)
+       compute_sum = 1;
+   else
+       compute_sum = 0;
+   address.dsc$a_pointer = calloc (1,20);
+   if (cli$present (&adddsc) == CLI$_PRESENT) {
+       /*
+        * Get ethernet hardware addresss  if present.
+        */
+       cli_status = cli$get_value (&adddsc,&address,
+                                      &address.dsc$w_length) ;
+       if (!(cli_status&1)) lib$signal (cli_status);
+       address.dsc$a_pointer[address.dsc$w_length] = 0;
+       if ((strlen(address.dsc$a_pointer) != 17)){
+            printf("%%BOOTP-F-BADETHER,Bad ethernet address %s",
+                                address.dsc$a_pointer);
+            exit(1);
+       }
+       for (cp=address.dsc$a_pointer;*cp != '\0';cp++)
+            *cp=_toupper(*cp);
+       i = 0;
+       cp1 = (unsigned char *)hrdwre_addr;
+       for (cp=address.dsc$a_pointer;*cp != '\0';cp++){
+            j= strchr(hexa_string,*cp);
+            if(j==NULL) {
+               printf("%%BOOTP-F-INVETHER,Invalid address digit %c",*cp);
+               exit(1);
+            }
+            if ( i%3 == 0)
+                 l=(u_char)((int)j-(int)hexa_string)<<4;
+            if ( i%3 == 1)
+                 l += (u_char)((int)j-(int)hexa_string);
+            if ( i%3 == 2)
+                 *cp1++ = l;
+            i++;
+      }
+      *cp1 = l;
+   }
+   if (cli$present(&adddsc) == CLI$_PRESENT)
+       bootpc(file_in.dsc$a_pointer,compute_sum,hrdwre_addr);
+   else
+       bootpc(file_in.dsc$a_pointer,compute_sum);
+}
+
+
+
+char *format_ethernet (unsigned char *src,short length)
+{
+   static char cvt_buffer[100];
+   register int i;
+   unsigned char chr;
+
+   for (i=0;i<length; i++) {
+        chr = *src++;
+        sprintf (&cvt_buffer[3*i],"%1x%1x-",
+                 (chr & 0xf0) >>4, chr & 0xf);
+        }
+   cvt_buffer[strlen(cvt_buffer)-1] = '\0';
+   return (cvt_buffer);
+}
+
+char *format_ia(ia)
+unsigned long   ia;
+{
+        static char     str[16];
+
+        sprintf (str, "%d.%d.%d.%d", ia&0xFF, (ia>>8)&0xFF, (ia>>16)&0xFF,
+                (ia>>24)&0xFF);
+
+        return (str);
+}
+
+
+
+/*
+ *                      I N _ C K S U M
+ *
+ * Checksum routine for Internet Protocol family headers (C Version)
+ *
+ */
+in_cksum(addr, len)
+u_short *addr;
+int len;
+{
+        register int nleft = len;
+        register u_short *w = addr;
+        register u_short answer;
+        register int sum = 0;
+        u_short odd_byte = 0;
+
+        /*
+         *  Our algorithm is simple, using a 32 bit accumulator (sum),
+         *  we add sequential 16 bit words to it, and at the end, fold
+         *  back all the carry bits from the top 16 bits into the lower
+         *  16 bits.
+         */
+        while( nleft > 1 )  {
+                sum += *w++;
+                nleft -= 2;
+        }
+
+        /* mop up an odd byte, if necessary */
+        if( nleft == 1 ) {
+               *(u_char *)(&odd_byte) = *(u_char *)w;
+               sum += odd_byte;
+        }
+
+        return (sum);
+}
+
+
+
+void send_probe(unsigned short chan,struct opacket *op,char *my_addr,char *file,
+                        unsigned char compute_checksum)
+{
+    struct ip *ip = &op->ip;
+    struct udphdr *up = &op->udp;
+    int i,datalen,status;
+    iosb_t  iosb;
+    unsigned int *magic;
+    int sum = 0;
+    struct udp_pseudo_header {
+                int source;
+                int dest;
+                char zero;
+                char proto;
+                short length;
+                } pseudo_hdr;
+    struct bootppacket *bootp_reply = &op->bootp;
+    struct ether_header eth_header;
+
+    datalen = sizeof (struct opacket);
+    ip->ip_hl = sizeof (struct ip)>> 2;
+    ip->ip_v= 4;
+    ip->ip_tos = 0;
+    ip->ip_len = htons(datalen);
+    ip->ip_id = 0x2345;
+    ip->ip_off = 0;
+    ip->ip_ttl = 60;
+    ip->ip_p = IPPROTO_UDP;
+    ip->ip_dst.S_un.S_addr = -1;
+    ip->ip_sum = 0;
+    sum = in_cksum((u_short *)ip,sizeof(struct ip));
+    /*
+     * add back carry outs from top 16 bits to low 16 bits
+     */
+    sum = (sum >> 16) + (sum & 0xffff);     /* add hi 16 to low 16 */
+    sum += (sum >> 16);                     /* add carry */
+    sum = ~sum;                          /* truncate to 16 bits */
+    ip->ip_sum = sum & 0xffff;
+    up->uh_sport = htons(BOOTP_REQUESTER);
+    up->uh_dport = htons(BOOTP_SERVER);
+    up->uh_ulen = htons((u_short)(datalen - sizeof(struct ip)));
+    up->uh_sum = 0;
+    pseudo_hdr.source = 0;
+    pseudo_hdr.dest = -1;
+    pseudo_hdr.zero = 0;
+    pseudo_hdr.proto = IPPROTO_UDP;
+    pseudo_hdr.length = up->uh_ulen;
+    bootp_reply->op = BOOTREQUEST;
+    bootp_reply->htype = 1;
+    bootp_reply->hlen = 6;
+    memcpy (bootp_reply->chaddr,my_addr,bootp_reply->hlen);
+    strcpy (bootp_reply->file,file);
+    magic = (unsigned int *)bootp_reply->vend;
+    *magic = 0x63538263;
+    bootp_reply->vend[4] = 0xFF;
+    bootp_reply->xid = 0xBFB71EBF;
+    sum = in_cksum((u_short *)up, sizeof (struct udphdr) +
+                                         sizeof (struct bootppacket));
+    sum += in_cksum((u_short *)&pseudo_hdr, sizeof (pseudo_hdr));
+    /*
+     * add back carry outs from top 16 bits to low 16 bits
+     */
+    sum = (sum >> 16) + (sum & 0xffff);     /* add hi 16 to low 16 */
+    sum += (sum >> 16);                     /* add carry */
+    sum = ~sum;                          /* truncate to 16 bits */
+    if (compute_checksum)
+        up->uh_sum = sum & 0xffff;
+    for (i=0;i<sizeof (eth_header.dest);i++) eth_header.dest[i] = 255;
+    eth_header.protocol = IP_PROTOCOL;
+
+    status = sys$qiow (0, chan, IO$_WRITEVBLK, &iosb, 0, 0, op, datalen,
+        0, 0,eth_header.dest, 0);
+    if (status&1) status = iosb.status;
+    if failure (status) lib$stop (status);
+    if (iosb.count != datalen + sizeof (eth_header)){
+         printf("%%BOOTP-F-NOSEND,Can't send BOOTP request packet");
+         exit(1);
+         }
+    return;
+}
+
+
+
+/*
+ * This routine displays the vendor information contained in a bootreply
+ * packet. As per RFC 1084.
+ */
+void display_vend (char *vend){
+   u_char *cp;
+   u_char *cp1;
+   u_long magic = 0x63538263;
+   short unseen;
+   u_char count;
+   int i;
+
+   cp = (u_char *)vend;
+   if (*((u_long *)cp) != magic) return;
+   cp = cp + sizeof(magic);
+   unseen = unseen - sizeof(magic);
+   while (*cp != END_TAG)
+        {
+        switch (*cp) {
+          case PAD_TAG :
+                   count = 0;
+                   break;
+          case TIME_OFFSET_TAG :
+                   cp++;
+                   count = *cp;
+                   cp1 = cp+1;
+                   printf ("Subnet time offset : %d seconds\n",(*(int *)cp1));
+                   break;
+          case TIME_SERVER_TAG:
+          case IEN_TAG:
+          case DOMAIN_SERVER_TAG:
+          case GATEWAY_TAG:
+          case LOG_SERVER_TAG:
+          case COOKIE_TAG:
+          case LPR_TAG:
+          case IMPRESS_TAG:
+          case RLP_TAG:
+                   switch (*cp) {
+                     case TIME_SERVER_TAG :
+                                printf ("Time Servers : ");
+                                break;
+                     case IEN_TAG :
+                                printf ("IEN 116 Name Servers : ");
+                                break;
+                     case DOMAIN_SERVER_TAG:
+                                printf ("Domain Name Servers : ");
+                                break;
+                     case GATEWAY_TAG :
+                                printf ("Gateways : ");
+                                break;
+                     case LOG_SERVER_TAG:
+                                printf ("Log servers : ");
+                                break;
+                     case COOKIE_TAG :
+                                printf ("Cookie/Quote Servers : ");
+                                break;
+                     case LPR_TAG :
+                                printf ("Line Printer Servers : ");
+                                break;
+                     case IMPRESS_TAG :
+                                printf ("Impress Servers : ");
+                                break;
+                     case RLP_TAG :
+                                printf ("Ressource Location Servers : ");
+                                break;
+                   }
+        cp++; /* cp now points to the N counter of GATEWAY IP addresses */
+        count = *cp; /* Get the number of bytes (#gateways*4) */
+        cp1 = cp+1;
+        for (i=0; i<*cp/4;i++) {
+        printf ("%s\n",format_ia((*(int *)cp1)));
+        cp1 = cp1+4;
+                   }
+                   break;
+          case NETWORK_MASK_TAG:
+                   cp++;
+     count = *cp; /* cp now points to the N counter of data (network mask) */
+     cp1 = cp+1; /* cp1 now points to the data field (network mask) */
+     printf("Network mask : %s\n",format_ia((*(int *)cp1)));
+                   break;
+          case BOOT_FILE_SIZE_TAG:
+                   cp++;
+      count = *cp; /* cp now points to the N counter of data (client name) */
+      cp1 = cp+1; /* cp1 now points to the data field (client name) */
+                   printf("File size %d blocks\n",ntohs(*((u_short *)cp1)));
+                   break;
+          case HOSTNAME_TAG :
+                   cp++;
+      count = *cp; /* cp now points to the N counter of data (client name) */
+      cp1 = cp+1; /* cp1 now points to the data field (client name) */
+                   printf ("Host name : %.*s\n",count,cp1);
+                   break;
+          default: cp++;
+                   count = *cp;
+        }/*end switch */
+        cp = cp + count + 1;
+   }/* end while */
+}
+
+
+
+void ast (signal_t *signal) {
+    int status;
+    struct opacket *op ;
+    struct ip *ip ;
+    struct udphdr *up;
+    struct bootppacket *bootp_reply;
+
+    if (failure (signal->iosb.status) &&
+        (signal->iosb.status !=SS$_DATAOVERUN)) lib$stop (signal->iosb.status);
+    if ((signal->hdr.protocol != IP_PROTOCOL) ||
+          (signal->iosb.status == SS$_DATAOVERUN)) {
+        status = sys$qio (0,signal->chan,IO$_READVBLK,&signal->iosb,
+                          &ast,signal,
+                           signal->buffer,
+                           sizeof(struct opacket),0,0,
+                           &signal->hdr,0);
+        if failure (status) lib$stop (status);
+        return;
+        }
+    op = signal->buffer;
+    ip = &op->ip;
+    up = &op->udp;
+    bootp_reply = &op->bootp;
+    if ((bootp_reply->op == BOOTREPLY) && (ip->ip_p == IPPROTO_UDP)
+          &&(up->uh_sport == htons(BOOTP_SERVER)) &&
+             (strncmp(bootp_reply->chaddr,signal->my_addr,6) == 0)) {
+         signal->ast_delivered++;
+         status = sys$setef(READ_EFN);
+         }
+    else {
+        status = sys$qio (0,signal->chan,IO$_READVBLK,&signal->iosb,
+                          &ast,signal,
+                           signal->buffer,
+                           sizeof(struct opacket),0,0,
+                           &signal->hdr,0);
+        if failure (status) lib$stop (status);
+        }
+}
+char *get_physical_address (short channel)
+{
+    unsigned long status;
+    iosb_t iosb;
+    static unsigned char device_mode [256];
+    struct { int size; void *buffer;} p2;
+    unsigned char *mode_end;
+    unsigned char *mp;
+    unsigned short *item_type,*string_size;
+
+    p2.size = sizeof (device_mode);
+    p2.buffer = device_mode;
+    status = sys$qiow (0, channel, IO$_SENSEMODE | IO$M_CTRL, &iosb,
+        0, 0, 0, &p2, 0, 0, 0, 0);
+    if (failure (status) || failure (iosb.status))
+        return 0;
+
+    /* Try to find an ethernet hardware address in the buffer. */
+
+    mode_end = device_mode + iosb.count;
+    mp = device_mode;
+    while (mp < mode_end) {
+       item_type = (unsigned short*)mp;
+       if ((*item_type & 0x1000) == 0) /* Not a string parameter */
+           mp += 6;
+       else {
+           string_size = (unsigned short*)(mp + 2);
+           mp += 4;
+           if ((*item_type & 0x00FFF) == NMA$C_PCLI_PHA)
+               return ((char *)mp);
+           else mp += *string_size;
+       }
+    }
+
+    return 0;
+}
+
+
+
+void bootpc(char *va_alist){
+    char buffer[80];
+    va_list ptr;
+    int number_of_args;
+    int i,status,retries;
+    char *hard_address;
+    char *file = NULL;
+    unsigned char compute_cksum;
+    struct opacket *outpacket;
+    struct opacket inpacket;
+    struct bootppacket *bootp_reply;
+    unsigned short chan;
+    signal_t signal_bootp;
+    iosb_t iosb;
+    unsigned int timval[2];
+    $DESCRIPTOR(timbuf_dsc,"0 00:00:10.00");
+    /* $DEVICE_SCAN parameters: scan all "synchronous communication" devices */
+    unsigned long scan_ctx [2];
+    char device_name [64];
+    $DESCRIPTOR (device_name_d, "");
+    static $DESCRIPTOR (const all_devices_d, "*");
+    static unsigned long dc_scom = DC$_SCOM;
+    /* declare DEVICE_SCAN item_list (partially initialized) */
+    static item_t scan_itmlst [] = {
+        {0, DVS$_DEVCLASS, NULL, NULL},
+        {0, 0, NULL, NULL}};
+    /* $GETDVI parameters: get device characteristics and status */
+    unsigned long device_char, device_status /* (partially initialized)*/;
+    item_t dvi_itmlst [] = {
+        {0, DVI$_DEVCHAR, NULL, NULL},
+        {0, DVI$_STS, NULL, NULL},
+        {0, 0, NULL, NULL}};
+    struct { int size; void *buffer;} p2;
+#pragma member_alignment save
+#pragma nomember_alignment word
+    struct {
+        unsigned short p_id;
+        int p2val;
+    }p2xcb[] = {{NMA$C_PCLI_PRM,NMA$C_STATE_ON},
+               {NMA$C_PCLI_PAD,NMA$C_STATE_OFF},
+               {NMA$C_PCLI_BUS,sizeof (struct opacket)}};
+#pragma member_alignment save
+
+
+    /*
+     * Has the user specified an optional Ethernet address
+     * or do we have to get this computer Ethernet address ?
+     */
+
+    /* get the number of arguments */
+    va_count (number_of_args);
+    /* get pointer to first optional argument */
+    va_start(ptr);
+    file = va_arg(ptr, char *);
+    compute_cksum = va_arg(ptr, int);
+    if (number_of_args == 3)
+       hard_address = va_arg(ptr, char *);
+     va_end(ptr);
+
+
+    /* Prepare looking for the Ethernet interface */
+    scan_ctx[0] = 0;
+    scan_ctx[1] = 0;
+    device_name_d.dsc$w_length = sizeof(device_name);
+    device_name_d.dsc$a_pointer= device_name;
+
+    /* complete the initialization of partially initialized variables */
+    scan_itmlst[0].length = sizeof (dc_scom);
+    scan_itmlst[0].buffer = &dc_scom;
+
+    dvi_itmlst[0].length =  sizeof (device_char);
+    dvi_itmlst[0].buffer =  &device_char;
+    dvi_itmlst[1].length =  sizeof (device_status);
+    dvi_itmlst[1].buffer =  &device_status;
+
+    /* Loop until $DEVICE_SCAN reports "no more device" */
+    for (;;) {
+
+        /* Scan one more device */
+
+        device_name_d.dsc$w_length = sizeof (device_name);
+        status = sys$device_scan (&device_name_d, &device_name_d.dsc$w_length,
+            &all_devices_d, scan_itmlst, scan_ctx);
+        if (status == SS$_NOMOREDEV)
+            sys$exit (status); /* exit loop */
+        if (failure (status))
+            sys$exit (status);
+
+        /* Get device information, break only if the device has the */
+        /* expected characteristics of an ethernet device. */
+
+        status = sys$getdvi (0, 0, &device_name_d, dvi_itmlst, &iosb, 0, 0, 0);
+        if (failure (status) ||
+            failure (iosb.status) ||
+            (device_char & DEV$M_NET) == 0 ||
+            (device_status & UCB$M_TEMPLATE) == 0)
+            continue; /* Give up for this device */
+        else
+            break;
+        }
+
+    /* Assign channel on found Ethernet device */
+
+    status = sys$assign (&device_name_d,&chan,0,0);
+    if failure(status) lib$stop(status);
+    p2.size = sizeof(p2xcb) ;
+    p2.buffer = &p2xcb ;
+    status = sys$qiow (0 ,chan,IO$_SETMODE | IO$M_CTRL | IO$M_STARTUP, &iosb,
+                                                0,0,0,&p2,0,0,0,0);
+    if (status&1) status = iosb.status;
+    if failure (status) lib$stop (status);
+    status = sys$bintim(&timbuf_dsc,&timval);
+    if failure (status) lib$stop (status);
+    status = sys$clref (READ_EFN);
+    if failure (status) lib$stop (status);
+    outpacket = calloc (1,sizeof(struct opacket));
+    if (outpacket == NULL) lib$stop (SS$_VASFULL);
+    signal_bootp.buffer = outpacket;
+    if (number_of_args < 3)
+        signal_bootp.my_addr = get_physical_address(chan);
+    else
+        signal_bootp.my_addr = hard_address;
+    signal_bootp.chan = chan;
+    memset (&inpacket,0,sizeof (struct opacket));
+    if (number_of_args < 3)
+        send_probe (chan,&inpacket,get_physical_address(chan),
+                        file,compute_cksum);
+    else
+        send_probe (chan,&inpacket,hard_address,
+                        file,compute_cksum);
+    status = sys$qio (0,chan,IO$_READVBLK,&signal_bootp.iosb,
+                      &ast,&signal_bootp,
+                      signal_bootp.buffer,
+                      sizeof(struct opacket),0,0,
+                      &signal_bootp.hdr,0);
+    if failure (status) lib$stop (status);
+    while (1) {
+       signal_bootp.ast_delivered = 0;
+       while (!(signal_bootp.ast_delivered)) {
+           status = sys$clref (TIMER_EFN);
+           if failure (status) lib$stop (status);
+           status = sys$setimr (TIMER_EFN, timval,0,0,0);
+           if failure (status) lib$stop (status);
+           status = sys$wflor(READ_EFN,(1<<(TIMER_EFN% 32))|(1<<(READ_EFN%32)));
+           if failure (status) lib$stop (status);
+           if (!(signal_bootp.ast_delivered)){
+                printf ("Retrying send ...\n");
+                if (number_of_args < 3)
+                    send_probe (chan,&inpacket,get_physical_address(chan),
+                                        file,compute_cksum);
+                else
+                    send_probe (chan,&inpacket,hard_address,
+                                        file,compute_cksum);
+                }
+        }
+        status = sys$readef (READ_EFN,&i);
+        if failure (status) lib$stop (status);
+        if (status == SS$_WASSET) break;
+      }
+    status = sys$qiow (0, chan, IO$_SETMODE|IO$M_CTRL|IO$M_SHUTDOWN,
+                                 &iosb, 0, 0, 0, 0, 0, 0,0, 0);
+    if (status&1) status = iosb.status;
+    if failure (status) lib$stop (status);
+    status = sys$dassgn (chan);
+    if failure(status) lib$stop (status);
+    printf ("Ethernet source : %s\n",
+                format_ethernet(signal_bootp.hdr.src,6));
+    printf ("Ethernet destination : %s\n",
+                format_ethernet(signal_bootp.hdr.dest,6));
+    printf ("Ethernet Protocol : %s\n",
+                format_ethernet(&signal_bootp.hdr.protocol,2));
+
+    bootp_reply = &outpacket->bootp;
+    printf ("OP = BOOTREPLY \n");
+    printf ("htype = %d\n",bootp_reply->htype);
+    printf ("hlen = %d\n",bootp_reply->hlen);
+    printf ("hops = %d\n",bootp_reply->hops);
+    printf ("hlen = %d\n",bootp_reply->hlen);
+    printf ("xid = %d\n",bootp_reply->xid);
+    printf ("secs = %d\n",bootp_reply->secs);
+ printf ("chaddr = %s\n",format_ethernet ((unsigned char *)bootp_reply->chaddr,
+                                            bootp_reply->hlen));
+    printf ("ciaddr = %s\n",format_ia(bootp_reply->ciaddr));
+    printf ("yiaddr = %s\n",format_ia(bootp_reply->yiaddr));
+    printf ("siaddr = %s\n",format_ia(bootp_reply->siaddr));
+    printf ("giaddr = %s\n",format_ia(bootp_reply->giaddr));
+    printf ("sname = %s\n",bootp_reply->sname);
+    printf ("file = %s\n",bootp_reply->file);
+    printf ("**** Vendor Information ****\n");
+    display_vend (bootp_reply->vend);
+    exit(0);
+}
+$ eod
+$ open/write fred bootp.cld
+$ write fred "DEFINE VERB BOOTP"
+$ this_proc = f$env("procedure")
+$ this_dev=f$parse(this_proc,,,"DEVICE")
+$ this_dir=f$parse(this_proc,,,"DIRECTORY")
+$ write fred "IMAGE ''this_dev'''this_dir'bootp.exe"
+$ write fred "QUALIFIER CHECKSUM,NEGATABLE,VALUE (DEFAULT = 'NOCHECKSUM')"
+$ write fred "QUALIFIER FILE, NONNEGATABLE,VALUE (type=$file)"
+$ write fred "QUALIFIER ADDRESS,NONNEGATABLE, VALUE (type=$file)"
+$ close fred
+$ set command/replace bootp
+$ AXP = F$GETSYI("ARCH_TYPE") .Eq. 2
+$ VAX = F$GETSYI("ARCH_TYPE") .Eq. 1
+$ set verify
+$ if compiler .eqs. "DECC" .and. AXP
+$ then
+$     cc bootp+sys$library:sys$lib_c/lib
+$     link bootp
+$ endif
+$ if compiler .eqs. "DECC" .and. VAX
+$ then
+$     cc'compiler_switch' bootp
+$     link bootp,bootp_sysdefs
+$ endif
+$ if compiler .eqs. "VAXC" then cc'compiler_switch' bootp
+$ if compiler .eqs. "VAXC"
+$ then
+$     link bootp,bootp_sysdefs,sys$library:vaxcrtl/lib
+$ endif
+$ delete bootp_sysdefs.*;*
+$ delete bootp.c;*, bootp.obj;*
+$ set noverify
+$ write sys$output "Type : $ bootp[/checksum][/file=filespec]
+$ [/address=ethernet_address]"
+$ if verify .eq. 1 then set verify
+$ exit
+$end:
+$ WRITE SYS$OUTPUT "Fatal- No C compiler present in this system"
+$ if verify .eq. 1 then set verify
+$ exit

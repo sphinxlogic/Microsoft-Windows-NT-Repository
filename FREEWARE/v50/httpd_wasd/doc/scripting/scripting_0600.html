@@ -1,0 +1,205 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.SCRIPTING]SCRIPTING_ISAPI.SDML">
+<META NAME="date" CONTENT="Fri, 26 Jan 2001 12:57:25">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>ISAPI</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Scripting Environment</H1>
+
+<A NAME="76">
+<H2>6 - ISAPI</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+6.1 - <A HREF="scripting_0600.html#77" TARGET="_self">CGIsapi</A>
+<BR>6.2 - <A HREF="scripting_0600.html#78" TARGET="_self">Writing ISAPI Scripts</A>
+<BR>6.3 - <A HREF="scripting_0600.html#80" TARGET="_self">Server Configuration</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="scripting_0700.html" TARGET="_self">next</A>] [<A HREF="scripting_0500.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0600.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> ISAPI (procounced <I>eye-sap-ee</I>) was developed by Process Software
+Corporation (the developer of Purveyor Encrypt Web Server available under VMS),
+Microsoft Corporation and a small number of other vendors.&nbsp;  It has an
+software infrastructure similar to CGI but a different architecture.&nbsp;  It is
+designed to eliminate the expensive process creation overheads of CGI (under
+Unix, let alone VMS), reduce latency for expensive-to-activate resources, and
+generally improve server throughput, particularly on busy sites.&nbsp;
+
+<P> Unlike standard CGI, which creates a child process to service each request,
+ISAPI is designed to load additional sharable code (DLLs, or Dynamic Link
+Libraries in MSWindows, shareable images under VMS) into the Web server's
+process space.&nbsp; These are known as server <I>extensions</I>.&nbsp; This radically
+reduces the overheads of subsequent request processing and makes possible
+server functionality that can maintain resources between requests (for instance
+keep open a large database), again contributing to reduced latency and
+increased throughput.&nbsp;
+
+<P> Of course there is a down-side!&nbsp;  Loading foreign executable code into the
+server compromises it's integrity.&nbsp;  Poorly written extensions can seriously
+impact server performance and in the worst-case even crash a server process.&nbsp;
+The other significant concern is the multi-threaded environment of most
+servers.&nbsp;  Extensions must be carefully constructed so as not to impact the
+granularity of processing in a server and to be <I>thread-safe</I>, not
+creating circumstances where processing corruption or deadlock occurs.&nbsp;
+
+<A NAME="77">
+<H3><BR><U>6.1 - CGIsapi</U></H3>
+</A>
+
+<P> WASD provides an environment for executing ISAPI based extensions.&nbsp;  Unlike
+classic ISAPI the DLLs are not loaded into server space but into separate
+subprocesses, in much the same way as CGIplus scripts are handled (see
+<A HREF="scripting_0300.html#58" TARGET="_self">3 - CGIplus</A>).&nbsp;  This still offers significantly
+improved performance through the persistance of the ISAPI extension between
+requests.&nbsp;  Measurements show a potential four-fold increase in throughput
+compared to an equivalent CGI script!&nbsp;  This is comparable to reported
+performance differences between the two environments in the Microsoft IIS
+environment.&nbsp;
+
+<P> While the subprocess context does add more overhead than if the DLL was
+loaded directly into the server process space, it does have two significant
+advantages.&nbsp;
+<OL>
+
+<LI> Buggy DLL code will generally not directly affect the integrity of the
+server process.&nbsp;  At worst the subprocess may terminate.&nbsp;
+<P>
+<LI> Each subprocess services only the one request at a time.&nbsp;  This eliminates
+the threading issues.&nbsp;
+</OL>
+
+
+<P> WASD implements the ISAPI environment as an instance of it's CGIplus
+environment.&nbsp;  CGIplus shares two significant characteristics with ISAPI,
+persistance and a CGI-like environment.&nbsp;  This allows a simple CGIplus
+<I>wrapper</I> script to be used to load and interface with the ISAPI DLL.&nbsp;
+After being loaded the ISAPI-compliant code cannot tell the difference between
+the WASD environment and any other vanilla ISAPI one!&nbsp;
+
+<P> This wrapper is known as <B>CGIsapi</B> (pronounced
+<I>see-gee-eye-sap-ee</I>).&nbsp;
+
+<P> Wrapping another layer does introduce overhead not present in
+the native CGIplus itself, however measurements indicate in <I>the real
+world</I> (tm) performance of the two is quite comparable.&nbsp; See
+&quot;Technical Overview, Performance&quot; for further information.&nbsp;  The
+advantage of  ISAPI over CGIplus is not performance but the fact it's a well
+documented interface.&nbsp;  Writing a script to that specification may be an easier
+option, particularly for sites with a mixture or history of different Web
+servers, than learning the CGIplus interface (simple as CGIplus is).&nbsp;
+
+<A NAME="78">
+<H3><BR><U>6.2 - Writing ISAPI Scripts</U></H3>
+</A>
+
+<P> This section is by-no-means a tutorial on how to write for ISAPI.&nbsp;
+
+<P> First, get a book on ISAPI.&nbsp;  Second, ignore most of it!&nbsp;  Generally these
+tomes concentrate on the Microsoft environment.&nbsp;  Still, information on the
+basic behaviour of ISAPI extensions and the Internet Server API is valuable.&nbsp; 
+Other resources are available at no cost from the Microsoft and Process
+Software Corporation sites.&nbsp;
+
+<P> Have a look at the WASD example DLL and it's build procedure in
+
+<A TARGET="_top" HREF="/ht_root/src/cgiplus/*isapi*.*?httpd=index&readme=no">HT_ROOT:[SRC.CGIPLUS]</A>.
+
+
+<P> The CGIsapi wrapper,
+
+<A TARGET="_top" HREF="/ht_root/src/cgiplus/cgisapi.c">HT_ROOT:[SRC.CGIPLUS]CGISAPI.C</A>,
+
+is relatively straight-forward, relying on CGIplus for IPC with the parent
+server process.&nbsp;  A brief description of the detail of the implementation is
+provided in the source code.&nbsp;
+
+<P> CGIsapi has a simple facility to assist with debugging DLLs.&nbsp; When enabled,
+information on passed parameters is output whenever a call is made to an ISAPI
+function.&nbsp;  This debugging can be toggled on and off whenever desired.&nbsp;  Once
+enabled DLL debugging remains active through multiple uses of a CGISAPI
+instance, or until disabled, or until the particular CGISAPI subprocess'
+lifetime expires.&nbsp;  Check detail in the CGIsapi source code description.&nbsp;
+
+<A NAME="79">
+<H3><BR>CGIsapi Considerations</H3>
+</A>
+
+<P> The wrapper is designed to be ISAPI 1.0 compliant.&nbsp;  It should also be
+vanilla ISAPI 2.0 compliant (not the Microsoft WIN32 variety, so don't think
+you'll necessarily be able to grab all those IIS extensions and just recompile
+and use ;^)
+
+<P> With CGIsapi multiple instances of any one extension may be active on the
+one  server (each in an autonomous subprocess, unlike a server-process-space
+loaded extension where only one would ever be active at any one time).&nbsp;  Be
+aware this could present different concurrency issues than one multiple or
+single threaded instance.&nbsp;
+
+<P> When CGIplus subprocesses are idle they can be sys$delprc()ed at any time
+by the server at expiry of lifetime or to free up required server resources.&nbsp; 
+For this reason ISAPI extensions (scripts) should finalize the processing of
+transactions when finished, not leave anything in a state where it's unexpected
+demise might corrupt resources or otherwise cause problems (which is fairly
+good general advice anyway ;^)  That is, when finished tidy up as much as is
+necessary.&nbsp;
+
+<P> CGIsapi loaded extensions can exit at any time they wish.&nbsp;  The subprocess
+context allows this.&nbsp;  Of course, normally a server-process-space loaded
+instance would not be able to do so!&nbsp;
+
+<P> For other technical detail refer to the description with the source code.&nbsp;
+<BLOCKQUOTE><CENTER><B>Hint!&nbsp;</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+Whenever developing ISAPI extensions don't forget that after compiling,
+the old version must be purged from the server before trying out the new!!!
+
+<P> Scripting subprocesses may be purged or deleted using (see
+&quot;Techncial Overview, Server Command Line Control&quot;):
+
+<FONT COLOR="#333333"><PRE>  $ HTTPD /DO=DCL=DELETE
+  $ HTTPD /DO=DCL=PURGE
+</PRE></FONT>
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<A NAME="80">
+<H3><BR><U>6.3 - Server Configuration</U></H3>
+</A>
+
+<P> Ensure the following are in the appropriate sections of HTTPD$CONFIG.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  [DclScriptRunTime]
+  .DLL  $CGI-BIN:[000000]CGISAPI.EXE
+ 
+  [AddType]
+  .DLL  application/octet-stream  -  ISAPI extension DLL
+</PRE></FONT>
+
+<P> Ensure this rule exists in the scripting section of HTTPD$MAP.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  exec+ /isapi/* /cgi-bin/*
+</PRE></FONT>
+
+<P> With this rule DLLs may be accessed using something like
+
+<FONT COLOR="#333333"><PRE>  http://host.name.domain/isapi/isapiexample.dll
+</PRE></FONT>
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="scripting_0700.html" TARGET="_self">next</A>] [<A HREF="scripting_0500.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0600.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

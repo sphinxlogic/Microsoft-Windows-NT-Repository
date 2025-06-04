@@ -1,0 +1,6691 @@
+	.TITLE	EMU_UILIB   
+	.IDENT	/V1-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	FEB-1997	PB	Creation
+;	
+;++
+;1 EMU_UILIB   
+; Collection of routines used to implement a user interface. 
+; This library uses SMG with symbols in _EMUUIDEF
+; See individual routines for detail
+;--
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+	.LIBRARY        /EMU5_LIB:MACROLIB.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$SMGDEF
+	$TRMDEF
+	$PRVDEF
+	EMUUIDEF
+	EMUPSRDEF
+	EMUSYSDEF
+	EMUIPCDEF
+	EMUSNMPDEF
+	EMUDBDEF
+	EMURLTDEF
+	EMUCTRLDEF	
+
+	.PSECT	EMU_UILIB_DATA,WRT,NOEXE,PIC,SHR,QUAD
+;
+STRBUF:		.BLKB	512
+STRBUF_LEN = .- STRBUF
+STRBUF_DESC:	.LONG	  STRBUF_LEN
+		.ADDRESS  STRBUF
+; Database params
+RECBUF:
+EMUDB_KEYBUF:	.BLKB	DB_C_KSZ 			; 
+RECDAT:		.BLKB	DB_REC_C_MRS-DB_C_KSZ		; 768 (Total)
+RECBUF_DESC:	.LONG	.-RECBUF
+		.ADDRESS  RECBUF
+RETBUF:       	.BLKB	1024
+RETBUF_DESC:	.LONG	.-RETBUF
+		.ADDRESS  RETBUF
+PREV_RECHDR:	.BLKL	6
+DBTBL:
+; Ordering in this table is important - the order in which they
+; appear is the order in which the PID was assigned
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 0 = invalid
+		.BLKB	SYS_MAP_C_MAPSIZ        ; = listener (no db)
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN4
+		.LONG	PSR_DN4_W_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN4DB
+		.ADDRESS EMU_PSRDN4
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN5
+		.LONG	PSR_DN5_B20_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN5DB
+		.ADDRESS EMU_PSRDN5
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRSCS
+		.LONG	PSR_SCS_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_SCSDB
+		.ADDRESS EMU_PSRSCS
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRLAT
+		.LONG	PSR_LAT_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_LATDB
+		.ADDRESS EMU_PSRLAT
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIP
+		.LONG	PSR_IP_L_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPDB
+		.ADDRESS EMU_PSRIP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIPX
+		.LONG	PSR_IPX_L_NET
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPXDB
+		.ADDRESS EMU_PSRIPX
+;
+
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 9 = DNS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 10 = DTS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 11 = ARP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRETH
+		.LONG	PSR_ETH_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_ETHDB
+		.ADDRESS EMU_PSRETH
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 13 = unassigned  
+
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRBRD
+		.LONG	PSR_BRD_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_BRDDB
+		.ADDRESS EMU_PSRBRD
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 15 = unassigned  
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 16 = unassigned  
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_NAMER
+		.LONG	NAM_DB_AS_NAME
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_NAMERDB
+		.ADDRESS EMU_NAMER
+
+MAPRELATER:
+                .QUAD	0
+		.LONG	SYS_PID_C_RELATER
+		.LONG	0
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_RELATERDB
+		.ADDRESS EMU_RELATER
+
+DBTBL_DESC:	.LONG 	.-DBTBL
+		.ADDRESS  DBTBL
+
+DBXLTTBL:
+		.LONG	0
+		.LONG	0
+		.ASCIC	/DN4/
+		.ASCIC	/DN5/
+		.ASCIC	/SCS/
+		.ASCIC	/LAT/
+		.ASCIC	/MOP/
+		.ASCIC	/IP /
+		.ASCIC	/IPX/
+		.ASCIC	/DNS/
+		.ASCIC	/DTS/
+		.ASCIC	/ARP/
+		.ASCIC	/ETH/
+		.LONG	0
+		.LONG	0
+		.LONG	0
+		.LONG	0
+		.ASCIC	/RLT/
+		.ASCIC	/NAM/
+MAX_DBXLTTBL = 18
+PARMLVL1TBL:
+; This table is a PID to paratbl lookup table use in GETTABLE. Any PID with
+; a single level table is coded here
+	   .LONG	12,65537	;ETH
+	   .LONG	4,65538		;SCS
+	   .LONG	6,65539		;MOP
+	   .LONG	8,65544		;IPX
+	   .LONG	14,65545	;BRD
+PARAMLVL1_ITEMS = 5
+GENBUF:		.BLKB	256
+GENBUFDESC:	.LONG	.-GENBUF
+		.ADDRESS  GENBUF
+GENBUF2:	.BLKB	132
+GENBUFDESC2:	.LONG	.-GENBUF2
+		.ADDRESS  GENBUF2
+
+	.ALIGN	LONG
+MAPPERFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		RFM = FIX,-
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <EMU5_Dat:MAPPER.DAT>,-	; Default Filename 
+		FNM = <MAPPER>,-			; Filename 
+		XAB = MAPPERXAB0                  ; Keys
+
+MAPPERRAB:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = MAPPERREC_BUF,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = MAPPERREC_BUF,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		ROP = <NLK,RRL>-			; Do not lock rec
+		KBF = MAPPER_KEY,-		; Key location
+		KSZ = 8
+
+MAPPERRAB2:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = TBLRECBUF,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = TBLRECBUF,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		ROP = <NLK,RRL>-			; Do not lock rec
+		KBF = TBLRECBUF,-		; Key location
+		KRF = 1,-
+		KSZ = 4
+
+MAPPERXAB0:	$XABKEY	REF = 0,-  		; TBL,PARAM
+		DTP = BN8,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+		NXT = MAPPERXAB1
+
+MAPPERXAB1:	$XABKEY	REF = 1,-  	; TBL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP,-
+		NXT = MAPPERXAB2
+
+MAPPERXAB2:	$XABKEY	REF = 2,-  	; PARAM
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+
+;
+MAPPERREC_BUF:	
+MAPPER_KEY:
+MAPPER_TBL:		.LONG	0	; Table 
+MAPPER_PARAM:		.LONG	0	; Paramater
+MAPPER_SEC:		.QUAD	0	; Prives req'ed to detect. VMS sec
+MAPPER_KEYW_LEN:	.LONG	0	; Len of following string
+MAPPER_KEYW:		.BLKB	32      ; Standard keyword this param
+MAPPER_FMTTYP:		.LONG	0	; Either len of following of rtn num.
+MAPPER_FMTSTR:		.BLKB	68	; FAO directive str
+MAPPER_RPTLVL:		.LONG	0
+MAPPERREC_SIZE = .-MAPPERREC_BUF        ; = 128
+TBLRECBUF:	.BLKB	MAPPERREC_SIZE
+	.ALIGN	LONG
+
+SUI_MEN_C_MAXITEM = 1024 
+CHOICE_TBL: 	.BLKB	SUI_MEN_C_MAXITEM*2       ; Choice table
+REPORT_MAXITM	  = 128
+REPORT_TABLE:	.BLKB	16*REPORT_MAXITM	  ; Report items
+RPTITMCNT:	.LONG	0		; Count of current report items
+	.ALIGN	QUAD
+MENUTBL:	.QUAD	0		; Build menus here
+TEMPDESC:	.QUAD	0
+RPTSEC_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+INADDR:		.QUAD
+ERPT_A:		.QUAD	0
+RPTSECSIZ:	.LONG	16		; Def section size
+GBLSIZ:		.LONG   0
+; Dynamic menu:
+MAXDYN_ITEMS = 256
+DYNITEM_SIZE = 32
+PARAMTBL:	.BLKQ	MAXDYN_ITEMS			; Max table names
+PARAMLST:	.BLKB	MAXDYN_ITEMS*DYNITEM_SIZE	; List of table names
+
+	.ALIGN	LONG
+;Menu Display Characteristics
+;
+MENUDESC:		
+		.WORD	0                   ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+MADDR:		.LONG	0	            ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+MSIZE:		.LONG   0		    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+; Optional Display Characteristics
+;
+MENU_STRUCT:
+		.LONG			; Virtual display ID
+KB_BOARD:	.LONG           	; Virtual Keyboard ID
+MSTYPE:		.LONG	SMG$K_VERTICAL	; Menu type   
+MSCNT:		.LONG	2		; Number of items
+MSSIZE:		.LONG	12		; Size of item
+MSFLAG:		.LONG	SUI_MEN_C_CHECK ; Check for privs
+MSPRIV:		.LONG	0               ; addr of priv list
+MSITEMS:	.LONG	0               ; addr of display items
+	.ALIGN QUAD
+MANAGE_PRIVS:
+	.QUAD	0		; Any priv
+	.QUAD	0	 	; Any
+	.QUAD	0	 	; Any
+	.QUAD	0	 	; Any
+	.QUAD	PRV$M_SYSPRV	; System
+	.QUAD	PRV$M_SYSPRV	; System
+	.QUAD	PRV$M_SYSPRV	; System
+	.QUAD	PRV$M_SYSPRV	; System
+	.QUAD	PRV$M_SYSPRV	; System
+	.QUAD	PRV$M_SYSPRV	; System
+ANY_PRIVS:	
+	.QUAD	0
+SETMIB_PRIVS:
+	.QUAD	PRV$M_SYSPRV
+	.QUAD	PRV$M_SYSPRV
+	.QUAD	PRV$M_SYSPRV
+;
+XLTTBL_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	4		; Number of items
+	.LONG	16		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Don't Check for privs
+SCANNER_MAIN_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	4		; Number of items
+	.LONG	16		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Don't Check for privs
+SYSCONTROL_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	2		; Number of items
+	.LONG	16		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Don't Check for privs
+PARAM_SEL_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	0		; Number of items
+	.LONG	48		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Don't Check for privs
+MANAGE_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	10		; Number of items
+	.LONG	16		; Size of item
+	.LONG	SUI_MEN_C_CHECK ; Check for privs
+SETMIB_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	3		; Number of items
+	.LONG	16		; Size of item
+	.LONG	SUI_MEN_C_CHECK ; Check for privs
+DEVICE_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	2		; Number of items
+	.LONG	16		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Don't Check for privs
+REPORT_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	6		; Number of items
+	.LONG	16		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Don't Check for privs
+QUERY_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	4		; Number of items
+	.LONG	16		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Check for privs
+QUERY_NET_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	9		; Number of items
+	.LONG	16		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Check for privs
+PID_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	17		; Number of items
+	.LONG	8		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Check for privs
+LAN_QUERY_MENU1:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	2		; Number of items
+	.LONG	16		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Check for privs
+XLTTBL_ITEMS:
+	.ASCII	/Netware SAP     /
+	.ASCII	/MOP Device      /
+	.ASCII	/Ethernet Type   /
+	.ASCII	/Ethernet UOI    /
+SCANNER_ITEMS:
+	.ASCII	/List_File       /
+	.ASCII	/Add_Entry       /
+	.ASCII	/Modify_Entry    /
+	.ASCII	/Delete_Entry    /
+SYSCONTROL_ITEMS:
+	.ASCII	/List Paramaters /
+	.ASCII	/Modify Paramater/
+SETMIB_ITEMS:
+	.ASCII	/Set MIB         /
+	.ASCII	/Set Password    /
+	.ASCII	/Create Password /
+MANAGE_ITEMS:
+	.ASCII	/Monitor Listener/
+	.ASCII	/Monitor PSRs    /
+	.ASCII	/Monitor Probes  /
+	.ASCII	/Monitor Process /
+	.ASCII	/View_Sections   /
+	.ASCII	/Dump_Database   /
+	.ASCII	/Trace           /
+	.ASCII	/Scanner         /
+	.ASCII	/Translate Tables/
+	.ASCII	/System_Control  /
+
+NETWORK_ITEMS:
+	.ASCII	/Query           /
+	.ASCII	/Report          /
+REPORT_ITEMS:
+	.ASCII	/Display_Current /
+	.ASCII	/Load_Saved_List /
+	.ASCII	/Create_New_List /
+	.ASCII	/Save_Current    /
+	.ASCII	/Create_Report   /
+	.ASCII	/Create_Excel    /
+QUERY_NET_ITEMS:
+	.ASCII	/Ethernet        /
+	.ASCII	/Internet        /
+	.ASCII	/DECnet IV       /
+	.ASCII	/DECnet V        /
+	.ASCII	/Netware         /
+	.ASCII	/LAT             /
+	.ASCII	/MOP             /
+	.ASCII	/VMSCluster      /
+	.ASCII	/Bridge          /
+
+
+QUERY_ITEMS:
+	.ASCII	/Name            /
+	.ASCII	/LAN             /
+	.ASCII	/IP              /
+	.ASCII	/DECnet Phase_IV /
+PID_ITEMS:
+	.ASCII	/DECNET  /	;2
+	.ASCII	/OSI     /	;3
+	.ASCII	/LAVC    /	;4
+	.ASCII	/LAT     /	;5
+	.ASCII	/MOP     /	;6
+	.ASCII	/IP      /	;7
+	.ASCII	/IPX     /	;8
+	.ASCII	/DECDNS  /	;9
+	.ASCII	/DECDTS  /	;10
+	.ASCII	/ARP     /	;11
+	.ASCII	/ETHERNET/	;12
+	.ASCII	/RECORD  /	;13
+	.ASCII	/BRIDGE  /
+	.ASCII	/UNDEF   /
+	.ASCII	/UNDEF   /
+	.ASCII	/RELATER /	;17
+	.ASCII	/NAMER   /	;18
+
+
+LAN_QUERY_ITEMS1:
+	.ASCII	/LAN_Address     /
+	.ASCII	/Protocol_Type   /
+LAN_QUERY_ITEMS2:
+	.ASCII	/Ethernet    /
+	.ASCII	/FDDI        /
+	.ASCII	/Token Ring  /
+
+;
+	.ALIGN	QUAD
+PARMHLPLIB:	.LONG	0
+PARMHLPFLG:	.LONG	0
+PARMIPLIB:	.ASCII	/EMU5_HLP:/
+PARMIPFIL:	.BLKB	55		; TOTAL 64 BYTES
+PARAMIP_DESC:   .QUAD
+PARMHLP_LIST:
+	.ADDRESS	PARAMDEFLIB	; UNDEF             
+	.ADDRESS	PARAMDEFLIB     ; LISTEN     
+	.ADDRESS	PARAMDN4LIB     ;  PSRDN4    
+	.ADDRESS	PARAMDN5LIB     ;  PSRDN5    
+	.ADDRESS	PARAMDEFLIB     ;  PSRSCS    
+	.ADDRESS	PARAMLATLIB     ;  PSRLAT    
+	.ADDRESS	PARAMDEFLIB     ;  PSRMOP    
+	.ADDRESS	PARAMDEFLIB     ;  PSRIP     
+	.ADDRESS	PARAMDEFLIB     ;  PSRIPX    
+	.ADDRESS	PARAMDEFLIB     ;  PSRDNS    
+	.ADDRESS	PARAMDEFLIB     ;  PSRDTS    
+	.ADDRESS	PARAMDEFLIB     ;  PSRARP    
+	.ADDRESS	PARAMDEFLIB     ;  PSRETH    
+	.ADDRESS	PARAMDEFLIB     ;  PSRREC    
+	.ADDRESS	PARAMDEFLIB     ;  PSRBRD    
+	.ADDRESS	PARAMDEFLIB     ;  UNASS1    
+	.ADDRESS	PARAMDEFLIB     ;  UNASS2    
+	.ADDRESS	PARAMDEFLIB     ;  RELATER   
+	.ADDRESS	PARAMDEFLIB     ;  NAMER     
+        .ADDRESS	PARAMDEFLIB     ;  SCANNER   
+
+HELPLIB:	.ASCID	/EMU5_HLP:EMU5_USER_HELP.HLB/
+PARAMDN4LIB:	.ASCID	/EMU5_HLP:PARMDN4.HLB/
+PARAMDN5LIB:	.ASCID	/EMU5_HLP:PARMDN5/
+PARAMLATLIB:	.ASCID	/EMU5_HLP:PARMLAT.HLB/
+PARAMDEFLIB:	.ASCID	/EMU5_HLP:PARMDEF.HLB/
+	.ALIGN	QUAD
+DADDR:		.QUAD	0
+RELATER_DB:     .QUAD	0
+QUERY_BLOCK:
+	.QUAD	0		; Current DB
+	.QUAD	0		; sea desc
+	.LONG	0		; Search direction
+	.LONG	0		; Context
+	.LONG	0		; Param
+	.LONG	0		; PID (DB id)
+QUERY_STRING:	.BLKB	132
+; Menus
+	.ALIGN LONG
+EMUQUERY_MENU:
+	.LONG	SMG$K_BLOCK	; Menu type   
+EMUQUERY_MENU_CNT:
+	.LONG			; Number of items
+	.LONG	8		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Check for privs
+EMUQUERY_ITEMS:
+	.ASCII	/Next    /      ; 1st 2 items
+	.ASCII	/Previous/
+EMUQUERY_PROT_MENU:
+	.BLKB	248		; Up to 30 (More)items
+EMUQUERY_ITEM_INDEX:
+	.BLKL	2 		; 1st 2 items fixed
+EMUQUERY_PROT_INDEX:
+	.BLKL	30		; Store actual choices here
+
+CNTPARAM_ITEMS:
+	.ASCII	/Counters/
+	.ASCII	/Params  /
+EMUQUERY_ITEM_LIST:
+	.BLKQ	2		; 1st 2 items fixed
+	.ASCII	/DECnetIV/     ;  2 
+	.ASCII	/DECnet V/      ;  3 
+	.ASCII	/LAVC    /      ;  4 
+	.ASCII	/LAT     /      ;  5 
+	.ASCII	/MOP     /      ;  6 
+	.ASCII	/IP      /      ;  7 
+	.ASCII	/Netware /      ;  8 
+	.ASCII	/DECdns  /      ;  9 
+	.ASCII	/DECdts  /      ;  10
+	.ASCII	/ARP     /      ;  11
+	.ASCII	/Ethernet/      ;  12
+	.ASCII	/Record  /      ;  13
+	.ASCII	/Bridge  /      ;  14
+
+CNTPARAM_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	2		; Number of items
+	.LONG	8		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Check for privs
+
+EMU_QUERY_MENU2:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	3		; Number of items
+	.LONG	8		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Check for privs
+EMU_QUERY_ITEMS2:
+ 	.BLKB	32		
+; EMU_QUERY Submenu params
+; This menu appears on ^\ and is built dynamicaly by using the 
+; current MOPTS to select which of the params should appear as a menu
+; item in each section. Purpose is to sho the current setting and if 
+; selected change the item also. 
+; Local symbols:
+; Options used in query menu
+EMQ_MOPTS_C_DIRECT =	0		; DIrection
+EMQ_MOPTS_C_LOGF   =    4		; 
+EMQ_MOPTS_C_RPTL   =    8
+CUR_MOPTS:		; Current menu options
+	.LONG	0
+	.LONG	0
+	.LONG	4
+	.LONG	0
+CUR_MOPTS_SIZ = .-CUR_MOPTS	; Size
+
+EMQ_LOG:
+	.ASCII	/NoLoging/
+	.ASCII	/Loging  /
+EMQ_UPDATE:
+	.ASCII	/Update  /
+EMQ_RPTLVL_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	5		; Number of items
+	.LONG	8		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Check for privs
+EMQ_RPTLVL_ITEMS:
+	.ASCII	/Summary /
+	.ASCII	/Brief   /
+	.ASCII	/Normal  /
+	.ASCII	/Full    /
+	.ASCII	/Verbose /
+; Log file
+	.align	long
+LOGFAB:	$FAB	FAC = <PUT>,-			; Access
+		ORG = SEQ,-
+		RAT = CR			; 
+
+LOGRAB:	$RAB	FAB = LOGFAB		; pointer to FAB
+	.ALIGN	LONG
+; report itm list
+RPTITMFAB: $FAB DNA = RPTITMDEF,-		;Def filtype
+		DNS = RPTITMLEN,-
+		FAC = <GET,PUT,UPD>,-	; Access
+		SHR = <GET,PUT,UPD>,-	; Sharing
+		FOP = CTG		;Make contiguous
+RPTITMRAB:	$RAB	FAB = RPTITMFAB		; pointer to FAB
+; Report output file
+RPTOUTFAB: $FAB DNA = RPTOUTDEF,-		;Def filtype
+		DNS = RPTOUTLEN,-
+		FAC = <GET,PUT,UPD>,-	; Access
+		SHR = <GET,PUT,UPD>,-	; Sharing
+		FOP = CTG		;Make contiguous
+RPTOUTRAB:	$RAB	FAB = RPTOUTFAB		; pointer to FAB
+	.ALIGN	LONG
+;
+SCANNERFAB:	
+		$FAB	FAC = <GET,PUT,DEL>,-        ; Access
+			SHR = <GET,PUT,DEL>,-
+			FOP = CIF,-		 ; Create if
+			RFM = FIX,-
+			MRS = SCANNERREC_SIZE,-
+			ORG = REL,-
+			FNM = <EMU5_ROOT:[DAT]EMU_SCANNER.DAT>
+SCANNERRAB:	
+		$RAB	FAB = SCANNERFAB,-            ; Record 
+			RAC = KEY,-
+			KBF = RECNO,-
+       			RBF = SCANNERREC,-			; 
+       			UBF = SCANNERREC,-			; 
+       			USZ = SCANNERREC_SIZE,-		; 
+       			RSZ = SCANNERREC_SIZE   		; 
+		
+
+SCANNERREC:	 .BLKB	SCN_C_RECSIZE   
+SCANNERREC_SIZE = .-SCANNERREC
+
+ERPTFAB:	
+		$FAB	FAC = <GET,PUT,DEL>,-        ; Access
+			SHR = <GET,PUT,DEL>,-
+			RAT = <CR>,-
+			MRS = ERPTREC_SIZE,-
+			ORG = SEQ,-
+			FNM = <EMU5_ROOT:[DAT]EMU_ERPT.DAT>
+ERPTRAB:	
+		$RAB	FAB = ERPTFAB,-            ; Record 
+			RAC = SEQ,-
+       			RBF = ERPTREC,-			; 
+       			UBF = ERPTREC,-			; 
+       			USZ = ERPTREC_SIZE,-		; 
+       			RSZ = ERPTREC_SIZE   		; 
+		
+
+ERPTREC:	 .BLKB	1024   
+ERPTREC_SIZE = .-ERPTREC
+ERPTDESC:	.LONG	.-ERPTREC
+		.ADDRESS  ERPTREC
+
+
+
+	.ALIGN	LONG
+OCCSTATE:	.LONG
+RECNO:		.LONG		; Record number for scanner file
+CONTEXT:	.LONG
+CONTEXT2:	.LONG
+MIBCONTEXT:	.LONG	0
+LINCNT:		.LONG
+RECCNT:		.LONG
+LVL1TBL:	.LONG	^X01000000
+LVL2MSK:	.LONG	^X02000000
+CHOICE:		.WORD
+BYTCNT:		.WORD		; Input Byte counter
+PARMCHOICE:	.WORD
+; Virtual Keyboard Parameters
+;
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+; SMG
+; Virtual Display Parameters
+;Main display
+MAINPB_BOARD:	.LONG 	0	; Pasteboard ID
+; Individual SUbroutine Displays
+
+MANAGE_EMU_MAIN_DISP:	.LONG	0	; Virtual Display ID
+MANAGE_EMU_MAIN_ROWS: 	.LONG   0       ; Set by routine (page size-7)
+MANAGE_EMU_MAIN_COLS: 	.LONG 132
+MANAGE_EMU_MAINPB_COL:	.LONG	1      
+MANAGE_EMU_MAINPB_ROW:	.LONG 	6
+;
+MANAGE_EMU_HINT_DISP:	.LONG		; Virtual Display2 ID
+MANAGE_EMU_HINT_ROWS: 	.LONG   3       ; Static
+MANAGE_EMU_HINT_COLS: 	.LONG 132
+MANAGE_EMU_HINT_PBCOLS:	.LONG	1      
+MANAGE_EMU_HINT_PBROWS:	.LONG 	1
+;
+XLTTBL_EMU_MAIN_DISP:	.LONG	0	; Virtual Display ID
+XLTTBL_EMU_MAIN_ROWS: 	.LONG   0       ; Set by routine (page size-7)
+XLTTBL_EMU_MAIN_COLS: 	.LONG 132
+XLTTBL_EMU_MAINPB_COL:	.LONG	1      
+XLTTBL_EMU_MAINPB_ROW:	.LONG 	6
+;
+XLTTBL_EMU_HINT_DISP:	.LONG		; Virtual Display2 ID
+XLTTBL_EMU_HINT_ROWS: 	.LONG   3       ; Static
+XLTTBL_EMU_HINT_COLS: 	.LONG 132
+XLTTBL_EMU_HINT_PBCOLS:	.LONG	1      
+XLTTBL_EMU_HINT_PBROWS:	.LONG 	1
+;
+SYSCONTROL_MAIN_DISP:       .LONG   0       ; Virtual Display ID
+SYSCONTROL_MAIN_ROWS:       .LONG   0       ; Set by routine (page size-7)
+SYSCONTROL_MAIN_COLS:       .LONG 132
+SYSCONTROL_MAINPB_COL:      .LONG   1      
+SYSCONTROL_MAINPB_ROW:      .LONG   6
+;         
+SYSCONTROL_HINT_DISP:       .LONG           ; Virtual Display2 ID
+SYSCONTROL_HINT_ROWS:       .LONG   3       ; Static
+SYSCONTROL_HINT_COLS:       .LONG 132
+SYSCONTROL_HINT_PBCOLS:     .LONG   1      
+SYSCONTROL_HINT_PBROWS:     .LONG   1
+;
+SCANNER_MAIN_DISP:	.LONG	0	; Virtual Display ID
+SCANNER_MAIN_ROWS: 	.LONG   0       ; Set by routine (page size-7)
+SCANNER_MAIN_COLS: 	.LONG 132
+SCANNER_MAINPB_COL:	.LONG	1      
+SCANNER_MAINPB_ROW:	.LONG 	7
+;
+SCANNER_HINT_DISP:	.LONG		; Virtual Display2 ID
+SCANNER_HINT_ROWS: 	.LONG  3        ; Static
+SCANNER_HINT_COLS: 	.LONG 132
+SCANNER_HINT_PBCOLS:	.LONG	1      
+SCANNER_HINT_PBROWS:	.LONG 	1
+;
+NETWORK_QUERY_MAIN_DISP:	.LONG	0	; Virtual Display ID
+NETWORK_QUERY_MAIN_ROWS: 	.LONG   0       ; Set by routine (page size-9)
+NETWORK_QUERY_MAIN_COLS: 	.LONG 132
+NETWORK_QUERY_MAINPB_COL:	.LONG	1      
+NETWORK_QUERY_MAINPB_ROW:	.LONG 	7
+; Hint display
+;
+NETWORK_QUERY_HINT_DISP:	.LONG		; Virtual Display2 ID
+NETWORK_QUERY_HINT_ROWS: 	.LONG  3        ; Static
+NETWORK_QUERY_HINT_COLS: 	.LONG 132
+NETWORK_QUERY_HINT_PBCOLS:	.LONG	1      
+NETWORK_QUERY_HINT_PBROWS:	.LONG 	1
+;
+NETWORK_QUERY_STAT_DISP:	.LONG		; Virtual Display2 ID
+NETWORK_QUERY_STAT_ROWS: 	.LONG  1        
+NETWORK_QUERY_STAT_COLS: 	.LONG 132
+NETWORK_QUERY_STAT_PBCOLS:	.LONG	1      
+NETWORK_QUERY_STAT_PBROWS:	.LONG 	0 	; Set to last physical line at run   
+;
+DEVICE_QUERY_MAIN_DISP:	.LONG	0	; Virtual Display ID
+DEVICE_QUERY_MAIN_ROWS: 	.LONG   0       ; Set by routine (page size-9)
+DEVICE_QUERY_MAIN_COLS: 	.LONG 132
+DEVICE_QUERY_MAINPB_COL:	.LONG	1      
+DEVICE_QUERY_MAINPB_ROW:	.LONG 	7
+; Hint display
+;
+DEVICE_QUERY_HINT_DISP:	.LONG		; Virtual Display2 ID
+DEVICE_QUERY_HINT_ROWS: 	.LONG  3        ; Static
+DEVICE_QUERY_HINT_COLS: 	.LONG 132
+DEVICE_QUERY_HINT_PBCOLS:	.LONG	1      
+DEVICE_QUERY_HINT_PBROWS:	.LONG 	1
+;
+DEVICE_QUERY_STAT_DISP:	.LONG		; Virtual Display2 ID
+DEVICE_QUERY_STAT_ROWS: 	.LONG  1        
+DEVICE_QUERY_STAT_COLS: 	.LONG 132
+DEVICE_QUERY_STAT_PBCOLS:	.LONG	1      
+DEVICE_QUERY_STAT_PBROWS:	.LONG 	0 	; Set to last physical line at run   
+
+;
+REPORT_MAIN_DISP:	.LONG	0	; Virtual Display ID
+REPORT_MAIN_ROWS: 	.LONG   0       ; Set by routine (page size-9)
+REPORT_MAIN_COLS: 	.LONG 132
+REPORT_MAINPB_COL:	.LONG	1      
+REPORT_MAINPB_ROW:	.LONG 	7
+; Hint display
+;
+REPORT_HINT_DISP:	.LONG		; Virtual Display2 ID
+REPORT_HINT_ROWS: 	.LONG  3        ; Static
+REPORT_HINT_COLS: 	.LONG 132
+REPORT_HINT_PBCOLS:	.LONG	1      
+REPORT_HINT_PBROWS:	.LONG 	1
+;
+REPORT_STAT_DISP:	.LONG		; Virtual Display2 ID
+REPORT_STAT_ROWS: 	.LONG  1        
+REPORT_STAT_COLS: 	.LONG 132
+REPORT_STAT_PBCOLS:	.LONG	1      
+REPORT_STAT_PBROWS:	.LONG 	0 	; Set to last physical line at run   
+;
+SUI_QUERY_MAIN_DISP:	.LONG	0	; Virtual Display ID
+SUI_QUERY_MAIN_ROWS: 	.LONG   0       ; Set by routine (page size-7)
+SUI_QUERY_MAIN_COLS: 	.LONG 132
+SUI_QUERY_MAINPB_COL:	.LONG	1      
+SUI_QUERY_MAINPB_ROW:	.LONG 	5
+; Hint display
+;
+SUI_QUERY_HINT_DISP:	.LONG		; Virtual Display2 ID
+SUI_QUERY_HINT_ROWS: 	.LONG  3        ; Static
+SUI_QUERY_HINT_COLS: 	.LONG 132
+SUI_QUERY_HINT_PBCOLS:	.LONG	1      
+SUI_QUERY_HINT_PBROWS:	.LONG 	1
+;
+EMU_QUERY_MAIN_DISP:	.LONG	0	; Virtual Display ID
+EMU_QUERY_MAIN_ROWS: 	.LONG   0       ; Set by routine (page size-7)
+EMU_QUERY_MAIN_COLS: 	.LONG 132
+EMU_QUERY_MAINPB_COL:	.LONG	1      
+EMU_QUERY_MAINPB_ROW:	.LONG 	7
+;
+EMU_QUERY_STAT_DISP:	.LONG		; Virtual Display2 ID
+EMU_QUERY_STAT_ROWS: 	.LONG  1        
+EMU_QUERY_STAT_COLS: 	.LONG 132
+EMU_QUERY_STAT_PBCOLS:	.LONG	1      
+EMU_QUERY_STAT_PBROWS:	.LONG 	0 	; Set to last physical line at run   
+;
+EMU_QUERY_TITL_DISP:	.LONG		; Virtual Display2 ID
+EMU_QUERY_TITL_ROWS: 	.LONG  3        ; Static
+EMU_QUERY_TITL_COLS: 	.LONG 132
+EMU_QUERY_TITL_PBCOLS:	.LONG	1      
+EMU_QUERY_TITL_PBROWS:	.LONG 	1
+;
+EMU_QUERY_MENU_DISP:	.LONG		; Virtual Display2 ID
+EMU_QUERY_MENU_ROWS: 	.LONG  1        ; Static
+EMU_QUERY_MENU_COLS: 	.LONG 132
+EMU_QUERY_MENU_PBCOLS:	.LONG	1      
+EMU_QUERY_MENU_PBROWS:	.LONG 	5
+;
+EMU_QUERY_CTLMENU_DISP:		.LONG		; Virtual Display2 ID
+EMU_QUERY_CTLMENU_ROWS: 	.LONG  10        ; Static
+EMU_QUERY_CTLMENU_COLS: 	.LONG  30
+EMU_QUERY_CTLMENU_PBCOLS:	.LONG	30      
+EMU_QUERY_CTLMENU_PBROWS:	.LONG 	10
+OOB_MASK:	.LONG	^B00010000000000000000000000000000
+;                         _^]\[ZYXWVUTSRQPONMLKJIHGFEDCBA  
+EMU_QUERY_RPTMENU_DISP:		.LONG		; Virtual Display2 ID
+EMU_QUERY_RPTMENU_ROWS: 	.LONG  10        ; Static
+EMU_QUERY_RPTMENU_COLS: 	.LONG  15
+EMU_QUERY_RPTMENU_PBCOLS:	.LONG	25      
+EMU_QUERY_RPTMENU_PBROWS:	.LONG 	20
+
+; Misc SMG ...
+BORDER:		.LONG	SMG$M_BORDER
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+SAVE_DISP:	.LONG	0		; Saved char
+SAVE_DISP2:	.LONG	0		; Saved char
+SCR_WID:	.LONG	132
+SCR_HEIGHT:	.LONG	48
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+RPCASE:		.LONG	0
+TIMEOUT:	.LONG	15
+CURCOL:		.LONG   1
+CURROW:		.LONG   3
+CURROW2:	.LONG   2
+ONEROW:		.LONG	1
+NOLINE:		.LONG	0
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+CURSOR_ON:	.LONG	<SMG$M_CURSOR_ON!SMG$M_SCROLL_JUMP>
+OUTINT:		.LONG	0
+
+MENUTYP:	.LONG	SMG$K_BLOCK
+REVERSE:	.LONG	SMG$M_REVERSE
+W2:		.LONG 2
+W3:    		.LONG 3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+	.ALIGN	LONG
+FAOBUF:		.BLKB	132
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+FAOLIST:	.BLKL	24
+SYSCONTROL_TBL:
+; Each item in the control section is referenced here by a .quad:
+;	.long	address of FAO xlate string
+;	.long	len of field
+; Note: this table MUST be is same order as specified in _EMUCTRLDEF
+;	and assumes no vacant cells
+; Next Boxid
+	.ADDRESS	SYSC_BOXID
+	.LONG	4
+; Global Alert filter
+	.ADDRESS	SYSC_GALTF
+	.LONG	4
+; TRACE ENA
+	.ADDRESS	SYSC_TRACE
+	.LONG	4
+; Lost Trace Count
+	.ADDRESS	SYSC_LOSTTRC
+	.LONG	4
+; PSRTBL Entries
+	.ADDRESS	SYSC_PSRTBL
+	.LONG	4
+; PERM Alert filter
+	.ADDRESS	SYSC_PALTF
+	.LONG	4
+; Relater disable
+	.ADDRESS	SYSC_RELDIS
+	.LONG	4
+	
+
+; Prompts and messages
+NYIMSG:		.ASCID 	/ This function not yet implemented. Returm to exit/
+SYSC_BOXID:	.ASCID	/ Next Boxid         :    !UL/
+SYSC_GALTF:	.ASCID	/ Global Alert Filter:    !XL/
+SYSC_TRACE:	.ASCID	/ Trace Flags        :    !XL/
+SYSC_LOSTTRC:	.ASCID	/ Lost Trace Frames  :    !UL/
+SYSC_PSRTBL:	.ASCID	/ PSR Table Entries  :    !UL/
+SYSC_PALTF:	.ASCID	/ Perm Alert Filter  :    !XL/
+SYSC_RELDIS:	.ASCID	/ Relater Disabled   :    !XL/
+ERPTHDR:	.ASCII	/DECnet IV,OSI NSAP,SCS Address,SCS Cluster,LAT Address,MOP Address,Device,IP Address,IPX Address,LAN Address,Name/
+ERPTHDR_LEN = .-ERPTHDR
+ERPTDAT:	.ASCID	/!AS,!AS,!AS,!AS,!AS,!AS,!AS,!AS,!AS/
+FILEPRMPT:	.ASCID	/ File Name: /
+EMQMORPMT:	.ASCID	/         More... <Any Key> to continue or <^Z> for Menu/
+EMQEODMSG:	.ASCID	/ No More data this device /
+RPTENDMSG:	.ASCID	/ Report status = !XL./
+LISTENDMSG:	.ASCID	/ End of Listing. Any key to continue/
+PTBNOXLT:	.ASCID	/!48<!UL!>/
+EMQTITMSG:	.ASCID	/ Protocol : !UL, Table : !UL/
+EMQTBLNAM:	.ASCID	/ !AD/
+SCANERRECMSG:	.ASCID	/ !4(8UL)/
+SCANERRECDEL:	.ASCID	/ Record !3<!UL!>   !4(8UL)/
+SCANERDELCFM:	.ASCID	/ Delete Record !3<!UL!>(!4(8UL)) [N]? /
+SCANNERDELMSG:	.ASCID	/ Enter Record number to delete <CR> to Exit : /
+SCANERRECPRMPT:	.ASCID	/ Enter Destination Database for !UL.!UL: /
+DBCNTMSG:	.ASCID	/ Mapped !UL databases/
+QRYHINT1:	.ASCID	/ The system will now prompt for what to searh for./
+QRYHINT2:	.ASCID	/ Each query type is in specific format:/
+QRYHINT3:	.ASCID	/     Names contain 1 - 400 printable characters/
+QRYHINT4:	.ASCID	/     Lan Address    : xx-xx-xx-xx-xx-xx (xx  = hexidecimal digit 0-F)/
+QRYHINT5:	.ASCID	/     IP Address     : ddd.ddd.ddd.ddd   (ddd = decimal digit in range 0-255)/
+QRYHINT6:	.ASCID	/     DECnet Address : dd.dddd           (dd  = decimal digit 1-63, dddd = decimal digit 1 - 1023) /
+QRYHINT7:	.ASCID	/ Search is case insensitive and wildcards are allowed:/ 
+QRYHINT8:	.ASCID	/     '*' matches any number of characters/
+QRYHINT9:	.ASCID	/     '%' matches any single character/ 
+NODENAMPMT:	.ASCID	/ Enter NodeName [Printable String]: /
+DN4ADRPMT:	.ASCID	/ Enter DECnet address [dd.dddd]: /
+DN4ADRSTR:	.ASCID	/!UL.!UL/
+ETHADRSTR:	.ASCID	/!XB-!XB-!XB-!XB-!XB-!XB/
+IPADRSTR:	.ASCID	/!UB.!UB.!UB.!UB/
+EMQNODEID:	.ASCID	/ Node = !AS/
+LANADRPMT:	.ASCID	/ Enter LAN Address [xx-xx-xx-xx-xx-xx]:/
+IPADDRPMT:	.ASCID	/ Enter IP Address  [ddd.ddd.ddd.ddd]:/
+LANTYPPMT:	.ASCID	/ Enter LAN Type :/
+MANAGE_LABEL:	.ASCID	/ System Management/
+EMU_QUERY_STAT_LABEL:	.ASCID	/ Hints/
+EMQTIMSTR:	.ASCID	/Last Heard: !%D, Last Updated: !%D/
+XLTERRSTR:	.ASCID	/Translation Error. Param: !UL.!UL,  Error: !XL/
+RLTSTR:		.ASCID	/ Class = !XL, Device = !XL/
+BLANKLINE:	.ASCID	/ /
+EMQ_TITLE1:	.ASCID	/This    Next                   Report/
+EMQ_TITLE2:	.ASCID	/Device	 Device  Direction File Level/
+RPTPFILTYP:	.ASCID	/RPTP/		; File type of report params
+LISTNAMPRMPT:	.ASCID	/ Enter name of list to save [max 15 char] :/
+RPTOUTP:	.ASCID	/ Report Name [!AD] (^Z to exit): /
+SETMIBSTR:	.ASCID	/ MIBs Set = !XL !XL !XL !XL Comunity String = !UL/
+SELPROTPRMPT:	.ASCID	/ Select a protocol first/
+UPDRESPRMPT:	.ASCID	/ Update result = !XL/
+RPTITMDEF:	.ASCII  /EMU5_DAT:.RPTP/
+RPTITMLEN = .-RPTITMDEF
+RPTOUTDEF:	.ASCII  /EMU5_LOG:DB.RPT/
+RPTOUTLEN = .-RPTOUTDEF
+RPTFILDEF:	.ASCID  /EMU5_DAT:*.RPTP/
+SETMIBITM:	.ASCII	/Set MIB Params/
+SETMIBITM_LEN =.-SETMIBITM
+; Lock Names
+EMU_IPDB:	
+		.ASCID	\EMU_IPDB\            ; Lock name
+EMU_IPXDB:	
+		.ASCID	\EMU_IPXDB\            ; Lock name
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_BRDDB:	
+		.ASCID	\EMU_BRDDB\            ; Lock name
+EMU_SCSDB:	
+		.ASCID	\EMU_SCSDB\            ; Lock name
+EMU_DN5DB:	
+		.ASCID	\EMU_DN5DB\            ; Lock name
+EMU_DN4DB:	
+		.ASCID	\EMU_DN4DB\            ; Lock name
+EMU_LATDB:	
+		.ASCID	\EMU_LATDB\            ; Lock name
+EMU_ETHDB:	
+		.ASCID	\EMU_ETHDB\            ; Lock name
+EMU_NAMERDB:		
+		.ASCID	/EMU_NAMERDB/	; DB Lock name 
+EMU_RELATERDB:		
+		.ASCID	/EMU_RELATERDB/	; DB Lock name 
+; Section names
+EMU_RPTSEC:	.ASCID	/EMU_RPTSEC/
+EMU_RELATER:
+		.ASCID	/EMU_RELATER/
+EMU_PSRIP:
+		.ASCID	/EMU_PSRIP/
+EMU_PSRIPX:
+		.ASCID	/EMU_PSRIPX/
+EMU_PSRMOP:
+		.ASCID	/EMU_PSRMOP/
+EMU_PSRBRD:
+		.ASCID	/EMU_PSRBRD/
+EMU_NAMER:
+		.ASCID	/EMU_NAMER/
+EMU_PSRSCS:	
+		.ASCID	\EMU_PSRSCS\  		; Section name
+EMU_PSRDN5:	
+		.ASCID	\EMU_PSRDN5\  		; Section name
+EMU_PSRDN4:	
+		.ASCID	\EMU_PSRDN4\  		; Section name
+EMU_PSRLAT:	
+		.ASCID	\EMU_PSRLAT\  		; Section name
+EMU_PSRETH:	
+		.ASCID	\EMU_PSRETH\  		; Section name
+EMU_ERPT:	
+		.ASCID	\EMU_ERPT\		; Temp report section
+; Misc
+	.ALIGN	LONG
+CURTBL:		.LONG	0
+PARAMCNT:	.LONG	0
+CURPID:		.LONG	0
+MITEMS:		.LONG	0
+MIBTBLSEL:	.BYTE   7,0,0,2
+       .PSECT EMU_UILIB,EXE,NOWRT,LONG
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_PARAMTBL_GETTABLE 
+;++
+;2 PARAMTBL_GETTABLE 
+; Routine to display all possible tables in a menu and after selection, set
+; the chosen table in the DB_MAP_L_TBL field in the input param
+;3 Inputs:
+;	.address of .long where .long table is written
+;	.address of virtual display to place menu on
+;3 Outputs:
+; 	.long value of the table (symbols in _EMUDBDEF)
+;3 Returns:
+;	SS$_NORMAL	did it
+;	SS$_ACCVIO	Cant write it
+;--
+	PROBEW  #0,#4,@4(AP)            ; Check for write access
+        BNEQ	 10$			 ; Br OK
+	MOVL	#SS$_ACCVIO,R0
+	RET
+
+10$:            
+        TSTW	MAPPERFAB+FAB$W_IFI
+	BNEQ    15$
+	$OPEN	FAB = MAPPERFAB		;Open input file
+	BLBS	R0,11$
+	RET
+11$:
+ 	$CONNECT RAB = MAPPERRAB	;Connect input stream
+	BLBS	R0,12$
+	RET
+12$:
+ 	$CONNECT RAB = MAPPERRAB2	;Connect input stream
+	BLBS	R0,15$
+	RET
+15$:
+
+
+	MOVB 	#RAB$C_KEY,MAPPERRAB2+RAB$B_RAC
+	MOVAL	TBLRECBUF,R6
+	MOVL	LVL1TBL,DB_MAP_L_TBL(R6)
+	MOVAL	PARAMLST,R7   			; Menu items
+	MOVAL	PARAMTBL,R8                     ; Index
+	CLRL	R11
+20$:
+	$GET	RAB=MAPPERRAB2
+    	BLBS	R0,30$
+	BRW	100$
+30$:
+; Place index in choice tbl, string in menu.
+; Check if too many items
+	CMPL	LVL1TBL,DB_MAP_L_TBL(R6)
+	BEQLU	35$
+	BRW	100$
+35$:
+	INCL	R11
+	CMPL	R11,#MAXDYN_ITEMS
+	BLEQ	40$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+40$:
+	MOVC5	DB_MAP_L_KEYWLEN(R6),DB_MAP_A64_KEYW(R6),#^A/ /,#DYNITEM_SIZE,(R7)
+	ADDL	#DYNITEM_SIZE,R7
+	MOVQ	(R6),(R8)+
+	CMPL	#1,R11
+	BNEQ	20$
+; Change to seq access on 2nd and subsequent reads
+	MOVB 	#RAB$C_SEQ,MAPPERRAB2+RAB$B_RAC
+	BRW	20$
+100$:
+; Calc menu size
+	MULL	#DYNITEM_SIZE,R11
+	MOVW	#DYNITEM_SIZE,MENUDESC			; Item size
+	MOVAL	PARAMLST,MADDR
+	MOVL	R11,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	MAINPB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	BLBS	R0,105$
+	RET
+105$:
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	MENUDESC
+	PUSHL	8(AP)
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BLBS	R0,110$
+	RET
+110$:
+	PUSHAL	HELPLIB
+	CLRL	-(SP)			; Flags
+	PUSHAL	CHOICE
+	PUSHAL	CHOICE
+	PUSHL	8(AP)
+	PUSHAL	KB_BOARD
+	CALLS	#6,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,130$			; Assume any error = eof
+	BRW	2000$			; Cleanup and exit
+130$:
+	MOVZWL	CHOICE,R1
+	DECL	R1
+	MOVAL	PARAMTBL,R8                    ; Index
+; If the top byte of the .quad @ this choice - 0 then this is the table
+	MULL3	#8,R1,R2
+	ADDL	R2,R8
+        TSTB    7(R8)
+	BNEQ	150$
+	MOVL	4(R8),@4(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+150$:
+	MOVB 	#RAB$C_KEY,MAPPERRAB2+RAB$B_RAC
+	MOVAL	TBLRECBUF,R6
+	MOVL	4(R8),DB_MAP_L_TBL(R6)
+	MOVL	4(R8),R10
+	MOVAL	PARAMLST,R7   			; Menu items
+	MOVAL	PARAMTBL,R8                    ; Index
+	CLRL	R11
+160$:
+	$GET	RAB=MAPPERRAB2
+    	BLBS	R0,170$
+	BRW	200$
+170$:
+; Place index in choice tbl, string in menu.
+; Check if too many items
+	CMPL	R10,DB_MAP_L_TBL(R6)
+	BEQLU	175$
+	BRW	200$
+175$:
+	INCL	R11
+	CMPL	R11,#MAXDYN_ITEMS
+	BLEQ	180$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+180$:
+	MOVC5	DB_MAP_L_KEYWLEN(R6),DB_MAP_A64_KEYW(R6),#^A/ /,#DYNITEM_SIZE,(R7)
+	ADDL	#DYNITEM_SIZE,R7
+	MOVQ	(R6),(R8)+
+	CMPL	#1,R11
+	BNEQ	160$
+; Change to seq access on 2nd and subsequent reads
+	MOVB 	#RAB$C_SEQ,MAPPERRAB2+RAB$B_RAC
+	BRW	160$
+200$:
+; Calc menu size
+	MULL	#DYNITEM_SIZE,R11
+	MOVW	#DYNITEM_SIZE,MENUDESC			; Item size
+	MOVAL	PARAMLST,MADDR
+	MOVL	R11,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	MAINPB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	BLBS	R0,205$
+	RET
+205$:
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	MENUDESC
+	PUSHL	8(AP)
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BLBS	R0,210$
+	RET
+210$:
+
+	PUSHAL	HELPLIB
+	CLRL	-(SP)			; Flags
+	PUSHAL	CHOICE
+	PUSHAL	CHOICE
+	PUSHL	8(AP)
+	PUSHAL	KB_BOARD
+	CALLS	#6,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,230$			; Assume any error = eof
+	BRW	2000$			; Cleanup and exit
+230$:
+	MOVZWL	CHOICE,R1
+	DECL	R1
+	MOVAL	PARAMTBL,R8                    ; Index
+; If the top byte of the .quad @ this choice - 0 then this is the table
+	MULL3	#8,R1,R2
+	ADDL	R2,R8
+        TSTB    7(R8)
+	BEQL	250$
+	BRW	150$
+250$:
+	MOVL	4(R8),@4(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+2000$:
+	MOVL	R0,R6				; Save status
+	PUSHL	8(AP)
+	CALLS   #1,G^SMG$ERASE_DISPLAY
+	MOVL	R6,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=5, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_PARAM_SEL 
+;++
+;2 SUI_PARAM_SEL
+;  Routine to:
+;	Present all params in selected table in menu and upon selection:
+;	Add selected table/param to output list.
+;3 Inputs
+;	.address of .long where number of items selected is written
+;	.address of desc pointing to outp area
+;	.address of virtual display
+; -------- Optional Params --------
+;	.long	value of len of each item
+;	.long	flags
+;       MAPPER.DAT is the input data file
+;4 Len_of_Item
+;    Optional param. If not present def = 8. If present must be
+;    >= 8.
+;    The selected table/param is 2x.long. This routine places each
+;    selected .quad in the list and advances the output pointer the 
+;    number of bytes specified by len. The output areas skipped are not
+;    read or written. The caller can use this routine to init a 
+;    table with the params selected and complete it using others. 
+;4 Flags
+;   Optional param. If present the bits are interpreted as follows:
+;	bit		When set
+;	0		Exit after 1 selection
+;3 Output
+;	A list of selected table/param pairs seperated by number of 
+;       bytes specified in Len_of_item.
+;3 Return
+;	SS$_NORMAL	OK
+;	SS$_BUFFEROVF	Output buffer too small
+;	SS$_BADPARAM	Len was < 8
+;	Any from RMS
+;--
+	CLRL	@4(AP)			; No selections yet
+	CMPL	#3,(AP)
+	BEQLU	5$			; BR IF Options not present
+	CMPL	#8,16(AP)
+	BLEQ	1$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+1$:
+	MOVL	16(AP),R6		; Set outp len
+	BRW	7$
+;; Param 4 not yet implemented
+5$:
+	MOVL	#8,R6			; Set outp len
+7$:
+	MOVQ	@8(AP),R9		; Oupt r9 = len , r10 = addr
+8$:
+	PUSHL	12(AP)
+	PUSHAL 	CURTBL
+	CALLS	#2,G^SUI_PARAMTBL_GETTABLE
+	BLBS	R0,10$
+	RET
+10$:
+        TSTW	MAPPERFAB+FAB$W_IFI
+	BNEQ    50$
+	$OPEN	FAB = MAPPERFAB		;Open input file
+	BLBS	R0,20$
+	RET
+20$:
+ 	$CONNECT RAB = MAPPERRAB	;Connect input stream
+	BLBS	R0,30$
+	RET
+30$:
+ 	$CONNECT RAB = MAPPERRAB2	;Connect input stream
+	BLBS	R0,40$
+	RET
+40$:
+
+50$:
+; Set to key access on 1st read
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC
+	MOVB	#1,MAPPERRAB+RAB$B_KRF		; Set key 
+	MOVB    #4,MAPPERRAB+RAB$B_KSZ    	; Set key size 
+	CLRL    MAPPERRAB+RAB$L_ROP  		; get exact
+	MOVL	CURTBL,MAPPER_TBL		; This tbl
+	MOVAL	PARAMLST,R7   			; Menu items
+	MOVAL	PARAMTBL,R8                     ; Index
+	CLRL	R11
+
+100$:
+	$GET	RAB=MAPPERRAB
+    	BLBS	R0,110$
+	BRW	500$
+110$:
+	MOVAL	MAPPERREC_BUF,R4
+
+; Place index in choice tbl, string in menu.
+; Check if too many items
+	CMPL	CURTBL,DB_MAP_L_TBL(R4)
+	BEQLU	120$
+	BRW	200$
+120$:
+	INCL	R11
+	CMPL	R11,#MAXDYN_ITEMS
+	BLEQ	130$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+130$:
+	MOVQ	(R4),(R8)+
+	MOVC5	DB_MAP_L_KEYWLEN(R4),DB_MAP_A64_KEYW(R4),#^A/ /,#DYNITEM_SIZE,(R7)
+	ADDL	#DYNITEM_SIZE,R7
+	CMPL	#1,R11
+	BNEQ	100$
+; Change to seq access on 2nd and subsequent reads
+	MOVB 	#RAB$C_SEQ,MAPPERRAB+RAB$B_RAC
+	BRW	100$
+200$:
+; Calc menu size
+	MULL	#DYNITEM_SIZE,R11
+	MOVW	#DYNITEM_SIZE,MENUDESC			; Item size
+	MOVAL	PARAMLST,MADDR
+	MOVL	R11,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	MAINPB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	BLBS	R0,205$
+	RET
+205$:
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	MENUDESC
+	PUSHL	12(AP)
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BLBS	R0,210$
+	RET
+210$:
+	PUSHAL	HELPLIB
+	CLRL	-(SP)			; Flags
+	PUSHAL	CHOICE
+	PUSHAL	CHOICE
+	PUSHL	12(AP)
+	PUSHAL	KB_BOARD
+	CALLS	#6,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,230$			; Assume any error = eof
+	BRW	8$			; redisplay tables
+230$:
+; Move selected index to outp
+
+	MOVZWL	CHOICE,R1
+	DECL	R1
+	MOVAL	PARAMTBL,R8                    ; Index
+	MULL3	#8,R1,R2
+	ADDL	R2,R8
+; Enough room?
+	SUBL3	R6,R9,R3		; Len left
+	BLSS	240$                    ; Br if no enough
+	MOVQ	(R8),(R10)              ; Move index
+	ADDL	R6,R10                  ; Adjust pointer
+	SUBL	R6,R9                   ; Adjust len
+	INCL	@4(AP)			; 1 more selection
+	BRW	205$
+240$:
+	MOVL	#SS$_BUFFEROVF,R0
+	RET	
+500$:
+; End of param selection. Calc return len of desc
+	MOVQ	@8(AP),R1
+	SUBL3	R9,R1,@8(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_MAKE_MENU
+;++
+;2 SUI_MAKE_MENU
+;
+; Routine to display a menu on the specified display.
+; If privilege checking is requested, each menu item has a corresponding
+; priv mask in which the required priv to display this item is specified.
+; If the caller does not have the required priv, the item is not part of
+; the resulting menu. This routine accounts for any suppressed item such
+; that the choice number returned to the caller always relates to the 
+; original position the item selected was in.
+;
+;3 Inputs
+;	p1	.address pointing to a menu structure
+;	p2	.address of .word choice returned
+;	p3	.long menu type. Optional SMG symbol. If not 
+;		present, default is SMG$K_VERTICAL.
+;4 Menu_structure
+; A menu structure supplies display location and required priv information
+; in the following format:
+; 	.long	Virtual display the menu will appear on. 
+;	.long	Virtual keyboard address
+;	.long	Menu type
+;	.long	Number of items in the menu
+;	.long	Size of each item
+;	.long	flag indicating whether or not to check privs
+;	.long	address of priv list
+;	 If priv checking is on, 
+;	 one quad for each item, which is a VMS privilege mask specifying
+;	 any privs necessary to display the corresponding item
+;	 If the priv is not enabled, the item is not displayed.
+;	 If checking is NOT on this param is ignored.
+;       .long address of Display items
+;	 The series of .ascii strings displayed in the menu. 
+;	 These must be:
+;		The number specified in P2
+;		Each must be of len specified in P3
+;	
+;3 Outputs
+;	.word 	choice number
+;        The choice number always points to the corresponding item in 
+;	 the original input, even if intervening items are suppressed by
+;	 priv checking.
+;3 Returns
+; 	SS$_NORMAL  	OK
+; 	SS$_BADPARAM	
+;	SS$_NOPRIV	Caller does not have sufficient privs to 
+;		        display ANY item.
+;	SS$_INSFMEM  	More than MAXITEM items are in the menu and checking
+;			is enabled.
+;	any return from SMG menu or memory expansion operations, 
+;3 Description
+;	If checking is not on, the input menu is simply displayed
+;	and upon user input, the choice is returned to the caller.
+;	If checking is on, each item has a corresponding priv mask
+;	and this is checked through CHECK_PRIVS (which see.
+;	A table internal to this routine is maintained per call 
+;	indexed by the resulting menu. The table contains the 
+;	actual returned choice number which corresponds to the
+;	the original input menu. For example:
+;	A 5 item menu is input with checking enabled and the user
+;	has privs to display items 1-3 and 5 but not 4
+;	In this case items 1-3 and 5 (4 items) are  displayed. If the 
+;	user selects item 4 (which is 5 in the original), 5 
+;	is returned.
+;--  
+	MOVL	4(AP),R6
+	CMPL	SUI_MEN_L_CHECK(R6),#SUI_MEN_C_CHECK 	; Priv check on?
+	BEQL	10$					; Br if on
+	BRW	300$                                    ; Must be off
+10$:
+	CMPL	SUI_MEN_L_ITEMCNT(R6),#SUI_MEN_C_MAXITEM
+	BLEQ	20$
+	MOVL	#SS$_INSFMEM,R0
+	RET
+20$:
+; Calc how much mem needed to display this menu
+       	MULL3	SUI_MEN_L_ITEMCNT(R6),SUI_MEN_L_ITEMSIZ(R6),R11
+	DIVL	#512,R11   		; Get pages
+	INCL	R11                     ; round up
+	TSTL	MENUTBL			; Have any mem?
+	BEQL	30$			; Br if none
+; Calc current:
+	SUBL3	MENUTBL,MENUTBL+4,R10
+	DIVL	#512,R10   		; Get pages
+	INCL	R10                     ; round up
+	CMPL	R10,R11
+	BGEQ	50$                     ; Br if enough
+	CLRQ	-(SP)                   ;  else...
+	PUSHAL	MENUTBL                 ; ... Give back
+	CALLS	#3,G^SYS$DELTVA         ; ... and get more
+	BLBS	R0,30$
+	RET
+30$:
+; Get mem
+	CLRL	-(SP)		; P0 Space
+	CLRL	-(SP)		; Access mode
+	PUSHAL	MENUTBL		; Returned address
+	PUSHL	R11           	; No. of pages
+	CALLS	#4,G^SYS$EXPREG
+	BLBS	R0,50$          ; Br no error
+	RET			; Die
+50$:
+	MOVL	SUI_MEN_L_PRIVLST(R6),R7	; Start of priv list
+	MOVL	SUI_MEN_L_MENU(R6),R8		; Start of items
+	MOVL	#1,R11				; Choice index
+	MOVL	#1,R10				; Loop control
+	MOVAL	CHOICE_TBL,R9			;
+	MOVL	MENUTBL,R5
+60$:
+	PUSHL	R7				; Required privs
+	CALLS	#1,G^CHECK_PRIVS		; Check if req present
+	BLBC	R0,80$                          ; Br if no priv
+;
+	MOVW   	R10,(R9)[R11]			; Set choice number
+	INCL	R11
+	CLRL	R1 				; Loop control
+70$:
+	MOVB	(R8)[R1],(R5)+                     ; Move item
+	AOBLSS	SUI_MEN_L_ITEMSIZ(R6),R1,70$
+80$:
+	ADDL	#8,R7                		; Next priv mask
+	ADDL	SUI_MEN_L_ITEMSIZ(R6),R8	; Next display item
+	AOBLEQ	SUI_MEN_L_ITEMCNT(R6),R10,60$	; Loop for all items
+
+100$:
+; Menu and choice table now built.
+; Set up pointers for menu create
+	MOVL	MENUTBL,MADDR
+	MOVW    SUI_MEN_L_ITEMSIZ(R6),MENUDESC	; Size of items
+	SUBL3	MENUTBL,R5,MSIZE		; Total menu size
+	BNEQ	110$				; Br if some items
+	MOVL	#SS$_NOPRIV,R0			; No displayable items
+	RET
+110$:
+	BRW	1000$
+300$:
+; No checking - just display given menu
+	MOVL	SUI_MEN_L_MENU(R6),MADDR	; Set to start of menu
+	MOVW    SUI_MEN_L_ITEMSIZ(R6),MENUDESC	; Size of items
+       	MULL3	SUI_MEN_L_ITEMCNT(R6),SUI_MEN_L_ITEMSIZ(R6),MSIZE
+	BRW	1000$
+
+1000$:
+	MOVL	4(AP),R11
+	MOVL	SUI_MEN_L_MTYPE(R11),MENUTYP	; Set type
+
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	MENUTYP
+	PUSHAL	MENUDESC
+	PUSHL	SUI_MEN_L_DISPLAY(R11)		; Display
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BLBS	R0,1050$
+	RET
+1050$:
+	PUSHAL	HELPLIB
+	CLRL	-(SP)				; Flags
+	PUSHL	8(AP)				; DEF Choice
+	PUSHL	8(AP)				; Choice
+	PUSHL	SUI_MEN_L_DISPLAY(R11)		; Display
+	ADDL3	#SUI_MEN_L_KEYBOARD,R11,-(SP)	; Keyboard
+	CALLS	#6,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,1100$			; Br no error
+	RET
+1100$:
+	CMPL	SUI_MEN_L_CHECK(R6),#SUI_MEN_C_CHECK 	; Priv check on?
+	BEQL	1110$					; Br if on
+	MOVL	#SS$_NORMAL,R0                          ; Choice OK
+	RET
+1110$:
+	MOVZWL	@8(AP),R1
+	MOVW   	(R9)[R1],@8(AP)				; fixed choice number
+	MOVL	#SS$_NORMAL,R0
+	RET
+	
+
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_MANAGE_EMU
+
+	BSBW	CREATE_MANAGE_ENVIRONMENT
+1$:
+	PUSHAL	MANAGE_EMU_MAINPB_COL		;Column
+	PUSHAL	MANAGE_EMU_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	MANAGE_EMU_MAIN_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	MANAGE_EMU_HINT_PBCOLS		;Column
+	PUSHAL	MANAGE_EMU_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	MANAGE_EMU_HINT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+
+
+
+	PUSHAL	MANAGE_EMU_MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	PUSHAL	MANAGE_EMU_MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	MANAGE_EMU_MAIN_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	MANAGE_MENU,SUI_MEN_L_MTYPE(R6)  		; Type,count
+	MOVQ	MANAGE_MENU+8,SUI_MEN_L_ITEMSIZ(R6)       ; Size,check flag
+	MOVAL	MANAGE_PRIVS,SUI_MEN_L_PRIVLST(R6)        ; privs
+	MOVAL	MANAGE_ITEMS,SUI_MEN_L_MENU(R6)        	; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBS	R0,5$  			; Any error exits 
+	BRW	100$
+5$:
+	CASEW	CHOICE,#1,#9		; Select processing routine
+10$:                             
+	.WORD	11$-10$          	; Listen Mon
+	.WORD	12$-10$          	; PSR Mon
+	.WORD	16$-10$          	; Probes
+	.WORD	18$-10$                 ; Processes
+	.WORD	13$-10$                 ; View
+	.WORD	14$-10$                 ; Dump DB
+	.WORD	15$-10$                 ; Trace
+	.WORD	17$-10$                 ; Scanner
+	.WORD	19$-10$                 ; Verify
+	.WORD	20$-10$                 ; Control
+
+	BRB	100$
+11$:
+	CALLS	#0,G^EMU_DISP_LISTEN	
+	BRW	1$
+12$:
+	CALLS	#0,G^EMU_DISP_PSR	
+	BRW	1$
+13$:
+	CALLS	#0,G^VIEW_SECTIONS	
+	BRW	1$
+14$:
+	CALLS	#0,G^DUMP_EMUDB	
+	BRW	1$
+15$:
+	CALLS	#0,G^EMU_TRACE	
+	BRW	1$
+16$:
+	CALLS	#0,G^MON_PROBES	
+	BRW	1$
+17$:
+	CALLS	#0,G^SCANNER_DB
+	
+	BRW	1$
+18$:
+	CALLS	#0,G^EMU_DISP_PROC
+	BRW	1$
+19$:
+	CALLS	#0,G^EDIT_XLTTBL
+	BRW	1$
+20$:
+	CALLS	#0,G^SYSCONTROL
+	BRW	1$
+100$:
+	PUSHAL	MANAGE_EMU_MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	MANAGE_EMU_HINT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+;	PUSHAL	SAVE_DISP	
+;	PUSHAL  MAINPB_BOARD
+;	CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+	MOVL	#SS$_NORMAL,R0
+	RET					; EXIT
+
+CREATE_MANAGE_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; Create Pasteboards
+;
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BLBS	R0,10$
+	RET
+10$:
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,30$
+	RET
+30$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	MANAGE_EMU_MAIN_ROWS	      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	MANAGE_EMU_MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,40$
+	RET
+40$:
+	SUBL	#9,MANAGE_EMU_MAIN_ROWS			; Set our page len
+;
+	PUSHAL	BORDER
+	PUSHAL	MANAGE_EMU_MAIN_DISP
+	PUSHAL	MANAGE_EMU_MAIN_COLS
+        PUSHAL	MANAGE_EMU_MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,50$
+	RET
+50$:
+
+	
+;
+	PUSHAL	BORDER
+	PUSHAL	MANAGE_EMU_HINT_DISP
+	PUSHAL	MANAGE_EMU_HINT_COLS
+        PUSHAL	MANAGE_EMU_HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,60$
+	RET
+60$:
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,70$
+	RET         
+70$:
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	MANAGE_EMU_MAINPB_COL		;Column
+	PUSHAL	MANAGE_EMU_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	MANAGE_EMU_MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,80$
+	RET
+80$:
+
+	PUSHAL	MANAGE_EMU_HINT_PBCOLS		;Column
+	PUSHAL	MANAGE_EMU_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	MANAGE_EMU_HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,90$
+	RET
+90$:
+	PUSHAL	MANAGE_LABEL
+	PUSHAL	MANAGE_EMU_MAIN_DISP
+	CALLS	#2,G^SMG$LABEL_BORDER
+
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+	RSB
+
+
+
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SYSCONTROL
+
+	BSBW	CREATE_SYSCONTROL_ENVIRONMENT
+1$:
+	PUSHAL	SYSCONTROL_MAINPB_COL		;Column
+	PUSHAL	SYSCONTROL_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	SYSCONTROL_MAIN_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	SYSCONTROL_HINT_PBCOLS		;Column
+	PUSHAL	SYSCONTROL_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	SYSCONTROL_HINT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+; Ensure mapped to control section
+	TSTL	CONTROL_A
+	BNEQ	50$
+        PUSHAL  CONTROL_A               ; Control section return addresses
+        CALLS   #1, G^MAP_CONTROL       ; Create and map control section
+	BLBS	R0,50$
+	RET
+50$:
+
+
+
+	PUSHAL	SYSCONTROL_MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	PUSHAL	SYSCONTROL_MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	SYSCONTROL_MAIN_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	SYSCONTROL_MENU,SUI_MEN_L_MTYPE(R6)  		; Type,count
+	MOVQ	SYSCONTROL_MENU+8,SUI_MEN_L_ITEMSIZ(R6)       ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R6)        ; privs
+	MOVAL	SYSCONTROL_ITEMS,SUI_MEN_L_MENU(R6)        	; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBS	R0,60$
+	BRW	1000$
+60$:
+	CASEW	CHOICE,#1,#1		; Select processing routine
+100$:                             
+	.WORD	200$-100$          	; List
+	.WORD	300$-100$          	; Modify
+	BRB	1000$
+200$:
+; List items
+	MOVL	CONTROL_A,R6
+	MOVAL	SYSCONTROL_TBL,R7
+	MOVL	#CTL_C_ITEMS,R11
+110$:
+	MOVL	#132,FAODESC
+	PUSHL	(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHL	(R7)
+	CALLS	#4,G^SYS$FAO
+	BLBS	R0,120$
+	BRW 1000$
+120$:
+	PUSHAL	FAODESC
+        PUSHAL	SYSCONTROL_MAIN_DISP
+	CALLS	#2,G^SUI_PRINT
+	ADDL	4(R7),R6		; Next cell
+	ADDL	#8,R7			; Next item
+	SOBGTR	R11,110$		; Loop for all active
+;
+	PUSHAL	BYTCNT
+	PUSHAL	SYSCONTROL_MAIN_DISP
+	PUSHAL	LISTENDMSG 
+	CALLS	#3,G^SUI_READ_PROMPT
+	BRW	50$
+300$:
+1000$:
+	PUSHAL	SYSCONTROL_MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	SYSCONTROL_HINT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	#SS$_NORMAL,R0
+	RET					; EXIT
+
+CREATE_SYSCONTROL_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; Create Pasteboards
+;
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BLBS	R0,10$
+	RET
+10$:
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,30$
+	RET
+30$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	SYSCONTROL_MAIN_ROWS	      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	SYSCONTROL_MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,40$
+	RET
+40$:
+	SUBL	#9,SYSCONTROL_MAIN_ROWS			; Set our page len
+;
+	PUSHAL	BORDER
+	PUSHAL	SYSCONTROL_MAIN_DISP
+	PUSHAL	SYSCONTROL_MAIN_COLS
+        PUSHAL	SYSCONTROL_MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,50$
+	RET
+50$:
+
+	
+;
+	PUSHAL	BORDER
+	PUSHAL	SYSCONTROL_HINT_DISP
+	PUSHAL	SYSCONTROL_HINT_COLS
+        PUSHAL	SYSCONTROL_HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,60$
+	RET
+60$:
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,70$
+	RET         
+70$:
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	SYSCONTROL_MAINPB_COL		;Column
+	PUSHAL	SYSCONTROL_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	SYSCONTROL_MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,80$
+	RET
+80$:
+
+	PUSHAL	SYSCONTROL_HINT_PBCOLS		;Column
+	PUSHAL	SYSCONTROL_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	SYSCONTROL_HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,90$
+	RET
+90$:
+
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+	RSB
+
+
+
+
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EDIT_XLTTBL
+;++
+;2 EDIT_XLTTBL
+; 	Menu only routine to call EMU_XLTTBL routines. A menu of 
+;	tables the underlying routines support is displayed. Upon
+;	selection the routine is called with selection. 
+;3 Input
+;	None
+;3 Output
+;	According to the routine called. 
+;3 Return
+;	any from EMU_XLTTBL
+;--
+
+
+	BSBW	CREATE_XLTTBL_ENVIRONMENT
+1$:
+	PUSHAL	XLTTBL_EMU_MAINPB_COL		;Column
+	PUSHAL	XLTTBL_EMU_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	XLTTBL_EMU_MAIN_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	XLTTBL_EMU_HINT_PBCOLS		;Column
+	PUSHAL	XLTTBL_EMU_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	XLTTBL_EMU_HINT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+
+
+
+	PUSHAL	XLTTBL_EMU_MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	PUSHAL	XLTTBL_EMU_MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	XLTTBL_EMU_MAIN_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	XLTTBL_MENU,SUI_MEN_L_MTYPE(R6)  		; Type,count
+	MOVQ	XLTTBL_MENU+8,SUI_MEN_L_ITEMSIZ(R6)       ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R6)        ; privs
+	MOVAL	XLTTBL_ITEMS,SUI_MEN_L_MENU(R6)        	; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBC	R0,100$  		; Any error is assumed to be ^z
+; Save environment. 
+;  Following routines are not SMG
+
+	PUSHAL	CURSOR_ON                    ; Turn cursor on
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+
+
+
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP2		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,10$
+	RET
+10$:
+	MOVZWL	CHOICE,R1
+	PUSHL	R1
+	CALLS	#1,G^EMU_XLTTBL
+        MOVL	R0,R6			; Save
+
+	PUSHAL	SAVE_DISP2	
+	PUSHAL  MAINPB_BOARD
+	CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+
+	BRW	1$
+100$:
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+
+	PUSHAL	XLTTBL_EMU_MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	XLTTBL_EMU_HINT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	R6,R0
+	RET
+
+
+
+
+CREATE_XLTTBL_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; Create Pasteboards
+;
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BLBS	R0,10$
+	RET
+10$:
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,30$
+	RET
+30$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	XLTTBL_EMU_MAIN_ROWS	      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	XLTTBL_EMU_MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,40$
+	RET
+40$:
+	SUBL	#9,XLTTBL_EMU_MAIN_ROWS			; Set our page len
+;
+	PUSHAL	BORDER
+	PUSHAL	XLTTBL_EMU_MAIN_DISP
+	PUSHAL	XLTTBL_EMU_MAIN_COLS
+        PUSHAL	XLTTBL_EMU_MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,50$
+	RET
+50$:
+
+	
+;
+	PUSHAL	BORDER
+	PUSHAL	XLTTBL_EMU_HINT_DISP
+	PUSHAL	XLTTBL_EMU_HINT_COLS
+        PUSHAL	XLTTBL_EMU_HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,60$
+	RET
+60$:
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,70$
+	RET         
+70$:
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	XLTTBL_EMU_MAINPB_COL		;Column
+	PUSHAL	XLTTBL_EMU_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	XLTTBL_EMU_MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,80$
+	RET
+80$:
+
+	PUSHAL	XLTTBL_EMU_HINT_PBCOLS		;Column
+	PUSHAL	XLTTBL_EMU_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	XLTTBL_EMU_HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,90$
+	RET
+90$:
+
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+	RSB
+
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SCANNER_DB
+;++
+;2 SCANNER_DB
+; Routine to maintain the scanner file. This file is read by SCANNER and
+; directs it's actions.
+;3 Input
+;	File EMU5_DAT:SCANNER.DAT
+;	If the file does not exist, it is created.
+;  File format:
+;	Table		EMUBD table the following param is in
+;	Param		EMUDB param to act on
+;	Action		Which DB to send param to
+;	Spare		Spare/align
+;  User is resented with a a menu that allows:
+;		List	- Format and display contents
+;		Add	- Add an entry
+;		Modify	- Change existing entry
+;		Delete	- delete an entry
+;
+;3 Output
+;	File EMU5_DAT:SCANNER.DAT
+;3 Returns
+;	SS$_NORMAL	OK
+;--
+	BSBW	CREATE_SCANNER_ENVIRONMENT
+
+1$:
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	SCANNER_MAIN_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	SCANNER_MAIN_MENU,SUI_MEN_L_MTYPE(R6)  		; Type,count
+	MOVQ	SCANNER_MAIN_MENU+8,SUI_MEN_L_ITEMSIZ(R6)       ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R6)        ; privs
+	MOVAL	SCANNER_ITEMS,SUI_MEN_L_MENU(R6)        	; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBS	R0,5$ 
+	BRW 20$		 		; Any error exits
+5$:
+	CASEW	CHOICE,#1,#3		; Select processing routine
+10$:                             
+	.WORD	100$-10$          	; List
+	.WORD	200$-10$          	; Add
+	.WORD	300$-10$          	; Mod
+	.WORD	400$-10$          	; Del
+20$:
+	PUSHAL	SCANNER_MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	SCANNER_HINT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	#SS$_NORMAL,R0
+	RET					; EXIT
+100$:
+; List all items in file
+	CLRL	R0
+	$CREATE	FAB=SCANNERFAB
+	BLBS	R0,110$
+	BRW 1000$
+110$:
+	$CONNECT RAB=SCANNERRAB
+	BLBS	R0,120$
+	BRW 1000$
+120$:
+	PUSHAL	SCANNER_MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	PUSHAL	SCANNER_MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	CLRL	RECNO
+130$:
+	INCL	RECNO
+	$GET	RAB=SCANNERRAB
+	BLBS	R0,150$
+	$CLOSE	FAB=SCANNERFAB
+	BRW 1000$
+150$:
+; xlate scanner rec fields
+	MOVL	#132,FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	SCANNERREC
+	CALLS	#2,G^XLATE_SCANNEREREC 
+	BLBS	R0,160$
+; Print xlate err
+	MOVL	#132,FAODESC
+	PUSHL	SCANNERREC+4
+	PUSHL	SCANNERREC
+        PUSHL	R0
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	XLTERRSTR
+	CALLS	#6,G^SYS$FAO
+	BLBS	R0,160$
+	BRW 1000$
+160$:
+	PUSHAL	FAODESC
+        PUSHAL	SCANNER_MAIN_DISP
+	CALLS	#2,G^SUI_PRINT
+	BRW	130$
+200$:
+; Add item
+; Display tables/params in menu(s), return any selected in retbuf
+;
+	MOVL	#1024,RETBUF_DESC
+ 	PUSHL	#16			; Len of each param returned
+	PUSHAL	SCANNER_MAIN_DISP                       
+	PUSHAL	RETBUF_DESC
+	PUSHAL	PARAMCNT
+	CALLS	#4,G^SUI_PARAM_SEL
+	BLBS	R0,210$
+	CMPL	#SMG$_EOF,R0
+	BEQLU	210$
+	BRW 1000$
+210$:
+	TSTL	PARAMCNT
+	BNEQ	220$
+	BRW 1000$
+220$:
+	$CREATE	FAB=SCANNERFAB
+	BLBS	R0,222$
+	BRW 1000$
+222$:
+	$CONNECT RAB=SCANNERRAB
+	BLBS	R0,225$
+	BRW 1000$
+225$:
+	PUSHAL	SCANNER_MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	PUSHAL	SCANNER_MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	CLRL	RECNO
+; Display each selected param one at a time and prompt for action
+	MOVAL	RETBUF,R6
+240$:
+	MOVL	#132,FAODESC
+	PUSHL	R6
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	SCANERRECPRMPT
+	CALLS	#4,G^SYS$FAOL
+	BLBS	R0,245$
+	BRW 	1000$
+245$:
+	PUSHAL	FAODESC
+        PUSHAL	SCANNER_HINT_DISP
+	CALLS	#2,G^SUI_PRINT
+
+; Make menu structure
+	MOVAL	MENU_STRUCT,R3
+	MOVAL	SCANNER_MAIN_DISP,SUI_MEN_L_DISPLAY(R3)
+	MOVQ	PID_MENU,SUI_MEN_L_MTYPE(R3)  		; Type,count
+	MOVQ	PID_MENU+8,SUI_MEN_L_ITEMSIZ(R3)       ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R3)        ; privs
+	MOVAL	PID_ITEMS,SUI_MEN_L_MENU(R3)        	; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBC	R0,260$  		; Any error skips item
+        MOVZWL	CHOICE,R3
+	ADDL3	#1,R3,8(R6)		; Write desination
+	MOVQ	(R6),SCANNERREC
+	MOVQ	8(R6),SCANNERREC+8
+	MOVW	#SCN_C_RECSIZE,SCANNERRAB+RAB$W_RSZ
+	MOVW	#SCN_C_RECSIZE,SCANNERRAB+RAB$W_USZ
+
+; Add this rec
+250$:
+	INCL	RECNO
+	$PUT	RAB=SCANNERRAB
+	BLBS	R0,260$
+	CMPL	#RMS$_REX,R0
+	BEQLU	250$
+	BRW 1000$
+260$:
+	ADDL	#16,R6
+	SOBGTR	PARAMCNT,280$
+270$:
+	$CLOSE	FAB=SCANNERFAB
+	BRW 1000$
+280$:
+	BRW	240$
+
+
+300$:
+; Modify
+; Get record number from user, Prompt for each param with 
+; currrent value as default. Any prompt answered changes value.
+	ret
+400$:
+; List all entries with recno, get recno to delete and delete if confirmed.
+; List all items in file
+	CLRL	R0
+	$CREATE	FAB=SCANNERFAB
+	BLBS	R0,410$
+	BRW 1000$
+410$:
+	$CONNECT RAB=SCANNERRAB
+	BLBS	R0,420$
+	BRW 1000$
+420$:
+	PUSHAL	SCANNER_MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	PUSHAL	SCANNER_MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	CLRL	RECNO
+430$:
+	INCL	RECNO
+	$GET	RAB=SCANNERRAB
+	BLBS	R0,450$
+	BRW 	500$
+450$:
+	MOVL	#132,FAODESC
+	PUSHL	SCANNERREC+12
+	PUSHL	SCANNERREC+8
+	PUSHL	SCANNERREC+4
+	PUSHL	SCANNERREC
+	PUSHL	RECNO
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	SCANERRECDEL
+	CALLS	#8,G^SYS$FAO
+	BLBS	R0,460$
+	BRW 1000$
+460$:
+	PUSHAL	FAODESC
+        PUSHAL	SCANNER_MAIN_DISP
+	CALLS	#2,G^SUI_PRINT
+	BRW	430$
+500$:
+	PUSHAL	BYTCNT
+	PUSHAL	SCANNER_MAIN_DISP
+	PUSHAL	SCANNERDELMSG 
+	CALLS	#3,G^SUI_READ_PROMPT
+	BLBS	R0,510$
+	BRW	1000$
+510$:
+	CVTWL	BYTCNT,KB_DES		; Reset Len
+	PUSHAL	RECNO			; Output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TU_L	; Convert to Bin
+	MOVL	#80,KB_DES		; Rest Len
+	BLBC	R0,500$			; On error try again
+;
+	$GET	RAB=SCANNERRAB
+	BLBS	R0,520$
+	BRW	500$
+520$:
+	MOVL	#132,FAODESC
+	PUSHL	SCANNERREC+12
+	PUSHL	SCANNERREC+8
+	PUSHL	SCANNERREC+4
+	PUSHL	SCANNERREC
+	PUSHL	RECNO
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	SCANERDELCFM
+	CALLS	#8,G^SYS$FAO
+	BLBS	R0,530$
+	BRW 1000$
+530$:
+	PUSHL	#TRM$M_TM_CVTLOW			; Uppercase
+	PUSHAL	BYTCNT
+	PUSHAL	SCANNER_MAIN_DISP
+	PUSHAL	FAODESC 
+	CALLS	#4,G^SUI_READ_PROMPT
+	BLBS	R0,540$
+	BRW	1000$
+540$:
+	TSTL	BYTCNT
+	BNEQ	550$
+	BRW	1000$
+550$:
+	CMPB	#^A/Y/,KB_BUF
+	BEQLU	560$
+	BRW	1000$
+560$:
+	$DELETE	RAB=SCANNERRAB
+	BRW	1000$
+1000$:
+	$CLOSE	FAB=SCANNERFAB
+	PUSHAL	BYTCNT
+	PUSHAL	SCANNER_MAIN_DISP
+	PUSHAL	LISTENDMSG 
+	CALLS	#3,G^SUI_READ_PROMPT
+	BRW	1$
+
+
+
+CREATE_SCANNER_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; Create Pasteboards
+;
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BLBS	R0,10$
+	RET
+10$:
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,30$
+	RET
+30$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	SCANNER_MAIN_ROWS	      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	SCANNER_MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,40$
+	RET
+40$:
+	SUBL	#9,SCANNER_MAIN_ROWS			; Set our page len
+;
+	PUSHAL	BORDER
+	PUSHAL	SCANNER_MAIN_DISP
+	PUSHAL	SCANNER_MAIN_COLS
+        PUSHAL	SCANNER_MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,50$
+	RET
+50$:
+
+	
+;
+	PUSHAL	BORDER
+	PUSHAL	SCANNER_HINT_DISP
+	PUSHAL	SCANNER_HINT_COLS
+        PUSHAL	SCANNER_HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,60$
+	RET
+60$:
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,70$
+	RET         
+70$:
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	SCANNER_MAINPB_COL		;Column
+	PUSHAL	SCANNER_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	SCANNER_MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,80$
+	RET
+80$:
+
+	PUSHAL	SCANNER_HINT_PBCOLS		;Column
+	PUSHAL	SCANNER_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	SCANNER_HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,90$
+	RET
+90$:
+
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+	RSB
+
+
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_NETWORK_QUERY   
+
+        BSBW	CREATE_NETWORK_ENVIRONMENT
+1$:
+	PUSHAL	NETWORK_QUERY_MAINPB_COL		;Column
+	PUSHAL	NETWORK_QUERY_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	NETWORK_QUERY_MAIN_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	NETWORK_QUERY_STAT_PBCOLS		;Column
+	PUSHAL	NETWORK_QUERY_STAT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	NETWORK_QUERY_STAT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	NETWORK_QUERY_HINT_PBCOLS		;Column
+	PUSHAL	NETWORK_QUERY_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	NETWORK_QUERY_HINT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	NETWORK_QUERY_MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	PUSHAL	NETWORK_QUERY_MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	NETWORK_QUERY_MAIN_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	QUERY_NET_MENU,SUI_MEN_L_MTYPE(R6)  		; Type,count
+	MOVQ	QUERY_NET_MENU+8,SUI_MEN_L_ITEMSIZ(R6)       ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R6)        ; privs
+	MOVAL	QUERY_NET_ITEMS,SUI_MEN_L_MENU(R6)        	; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBC	R0,100$  		; Any error exits
+	CASEW	CHOICE,#1,#8		; Select processing routine
+10$:                             
+	.WORD	11$-10$          	; Query
+	.WORD	12$-10$          	; Generate report
+	.WORD	13$-10$          	; Query
+	.WORD	14$-10$          	; Generate report
+	.WORD	15$-10$          	; Query
+	.WORD	16$-10$          	; Generate report
+	.WORD	17$-10$          	; Query
+	.WORD	18$-10$          	; Generate report
+	.WORD	19$-10$          	; Query
+	BRB	100$
+11$:
+12$:
+13$:
+14$:
+15$:
+16$:
+17$:
+18$:
+19$:
+	PUSHAL	BYTCNT
+	PUSHAL	NETWORK_QUERY_MAIN_DISP
+	PUSHAL	NYIMSG 
+	CALLS	#3,G^SUI_READ_PROMPT
+	RET
+100$:
+	PUSHAL	NETWORK_QUERY_MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	NETWORK_QUERY_HINT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	NETWORK_QUERY_STAT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+;	PUSHAL	SAVE_DISP	
+;	PUSHAL  MAINPB_BOARD
+;	CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+	MOVL	#SS$_NORMAL,R0
+	RET					; EXIT
+
+CREATE_NETWORK_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; Create Pasteboards
+;
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BLBS	R0,10$
+	RET
+10$:
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,30$
+	RET
+30$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	NETWORK_QUERY_MAIN_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	NETWORK_QUERY_MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,40$
+	RET
+40$:
+	SUBL	#9,NETWORK_QUERY_MAIN_ROWS		; Set our page len
+; Set status line placement
+	ADDL3	#7,NETWORK_QUERY_MAIN_ROWS,NETWORK_QUERY_STAT_PBROWS	
+;
+	PUSHAL	BORDER
+	PUSHAL	NETWORK_QUERY_MAIN_DISP
+	PUSHAL	NETWORK_QUERY_MAIN_COLS
+        PUSHAL	NETWORK_QUERY_MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,50$
+	RET
+50$:
+;
+	PUSHAL	BORDER
+	PUSHAL	NETWORK_QUERY_HINT_DISP
+	PUSHAL	NETWORK_QUERY_HINT_COLS
+        PUSHAL	NETWORK_QUERY_HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,55$
+	RET
+55$:
+	PUSHAL	BORDER
+	PUSHAL	NETWORK_QUERY_STAT_DISP
+	PUSHAL	NETWORK_QUERY_STAT_COLS
+        PUSHAL	NETWORK_QUERY_STAT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,60$
+	RET
+60$:
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,70$
+	RET         
+70$:
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	NETWORK_QUERY_MAINPB_COL		;Column
+	PUSHAL	NETWORK_QUERY_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	NETWORK_QUERY_MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,80$
+	RET
+80$:
+
+	PUSHAL	NETWORK_QUERY_STAT_PBCOLS		;Column
+	PUSHAL	NETWORK_QUERY_STAT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	NETWORK_QUERY_STAT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,85$
+	RET
+85$:
+	PUSHAL	NETWORK_QUERY_HINT_PBCOLS		;Column
+	PUSHAL	NETWORK_QUERY_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	NETWORK_QUERY_HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,90$
+	RET
+90$:
+
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+	RSB
+
+
+
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_DEVICE_QUERY   
+
+
+	BSBW	CREATE_DEVICE_ENVIRONMENT
+	PUSHAL	DBTBL_DESC
+	CALLS	#1,MAP_ALL_DB
+; Print DB mapping status
+	MOVL	#132,FAODESC
+	PUSHL	R1       	; Number of DBs mapped
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	DBCNTMSG
+	CALLS	#4,G^SYS$FAO
+	BLBC	R0,1$		; Skip print if error (not important)
+	PUSHAL	FAODESC
+	CALLS	#1,G^SUI_PRINT_STATUS
+
+
+
+1$:
+	PUSHAL	DEVICE_QUERY_MAINPB_COL		;Column
+	PUSHAL	DEVICE_QUERY_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	DEVICE_QUERY_MAIN_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	DEVICE_QUERY_STAT_PBCOLS		;Column
+	PUSHAL	DEVICE_QUERY_STAT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	DEVICE_QUERY_STAT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	DEVICE_QUERY_HINT_PBCOLS		;Column
+	PUSHAL	DEVICE_QUERY_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	DEVICE_QUERY_HINT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	DEVICE_QUERY_MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	PUSHAL	DEVICE_QUERY_MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	DEVICE_QUERY_MAIN_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	DEVICE_MENU,SUI_MEN_L_MTYPE(R6)  		; Type,count
+	MOVQ	DEVICE_MENU+8,SUI_MEN_L_ITEMSIZ(R6)       ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R6)        ; privs
+	MOVAL	NETWORK_ITEMS,SUI_MEN_L_MENU(R6)        	; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBC	R0,100$  		; Any error exits
+	CASEW	CHOICE,#1,#1		; Select processing routine
+10$:                             
+	.WORD	11$-10$          	; Query
+	.WORD	12$-10$          	; Generate report
+	BRB	100$
+11$:
+	CALLS	#0,G^SUI_QUERY	
+	BRW	1$
+12$:
+	CALLS	#0,G^EMU_RPT	
+	BRW	1$
+100$:
+	PUSHAL	DEVICE_QUERY_MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	DEVICE_QUERY_HINT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	DEVICE_QUERY_STAT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+;	PUSHAL	SAVE_DISP	
+;	PUSHAL  MAINPB_BOARD
+;	CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+	MOVL	#SS$_NORMAL,R0
+	RET					; EXIT
+
+
+
+
+CREATE_DEVICE_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; Create Pasteboards
+;
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BLBS	R0,10$
+	RET
+10$:
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,30$
+	RET
+30$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	DEVICE_QUERY_MAIN_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	DEVICE_QUERY_MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,40$
+	RET
+40$:
+	SUBL	#9,DEVICE_QUERY_MAIN_ROWS		; Set our page len
+; Set status line placement
+	ADDL3	#7,DEVICE_QUERY_MAIN_ROWS,DEVICE_QUERY_STAT_PBROWS	
+;
+	PUSHAL	BORDER
+	PUSHAL	DEVICE_QUERY_MAIN_DISP
+	PUSHAL	DEVICE_QUERY_MAIN_COLS
+        PUSHAL	DEVICE_QUERY_MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,50$
+	RET
+50$:
+;
+	PUSHAL	BORDER
+	PUSHAL	DEVICE_QUERY_HINT_DISP
+	PUSHAL	DEVICE_QUERY_HINT_COLS
+        PUSHAL	DEVICE_QUERY_HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,55$
+	RET
+55$:
+	PUSHAL	BORDER
+	PUSHAL	DEVICE_QUERY_STAT_DISP
+	PUSHAL	DEVICE_QUERY_STAT_COLS
+        PUSHAL	DEVICE_QUERY_STAT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,60$
+	RET
+60$:
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,70$
+	RET         
+70$:
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	DEVICE_QUERY_MAINPB_COL		;Column
+	PUSHAL	DEVICE_QUERY_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	DEVICE_QUERY_MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,80$
+	RET
+80$:
+
+	PUSHAL	DEVICE_QUERY_STAT_PBCOLS		;Column
+	PUSHAL	DEVICE_QUERY_STAT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	DEVICE_QUERY_STAT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,85$
+	RET
+85$:
+	PUSHAL	DEVICE_QUERY_HINT_PBCOLS		;Column
+	PUSHAL	DEVICE_QUERY_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	DEVICE_QUERY_HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,90$
+	RET
+90$:
+
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+	RSB
+
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_QUERY 
+;++
+;2 SUI_QUERY 
+; Routine to establish a search context and pass it to the 
+; appropriate routines. The query screen is then constructed and 
+; displayed and the results diplayed there.
+;3 QUERY_STRUCTURE
+; A query structure is created at the beginning of each query
+; and used until another query starts. Format:
+;	.quad	DB to search in. This is the 1st and last
+;		address of the DB written when it was mapped.
+;	.quad	Search descriptor. Pointing to the user input
+;		search string.
+;	.long	Search direction. Either forward of backward.
+;	.long	Context. Maintained by the search facility showing
+;		last 'hit'. Used to walk through a DB displaying 
+;		associated recs one at a time.
+;	.long	param number. PSR specific
+;	.long	DB ID - The PID of the DB owner
+;-- 
+
+
+	BSBW	CREATE_QUERY_ENVIRONMENT
+1$:
+
+	PUSHAL	SUI_QUERY_MAINPB_COL		;Column
+	PUSHAL	SUI_QUERY_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	SUI_QUERY_MAIN_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	SUI_QUERY_HINT_PBCOLS		;Column
+	PUSHAL	SUI_QUERY_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	SUI_QUERY_HINT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	SUI_QUERY_MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	PUSHAL	SUI_QUERY_MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	SUI_QUERY_MAIN_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	QUERY_MENU,SUI_MEN_L_MTYPE(R6)  		; Type,count
+	MOVQ	QUERY_MENU+8,SUI_MEN_L_ITEMSIZ(R6)       ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R6)        ; privs
+	MOVAL	QUERY_ITEMS,SUI_MEN_L_MENU(R6)        	; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBS	R0,5$
+	BRW	100$  		; Any error exits
+5$:
+	CASEW	CHOICE,#1,#3		; Select processing routine
+10$:                             
+	.WORD	11$-10$          	; Name lookup
+	.WORD	12$-10$          	; LAN
+	.WORD	13$-10$          	; IP
+	.WORD	14$-10$          	; DECnet
+	BRW	100$
+
+
+11$:
+	MOVAL	QUERY_BLOCK,R6
+	PUSHAL	DBTBL_DESC
+	PUSHL	#SYS_PID_C_NAMER	       	; Find this DB
+	CALLS	#2,G^SUI_LOCATE_DB          	; Returns pointer in R1
+	BLBS	R0,1110$
+	BRW	1$
+
+1110$:
+        MOVQ	(R1),SUI_QRY_Q_DBASE(R6)		; this DB
+; Clear screen, display preamble
+	CALLS	#0,G^SUI_QRY_HINTS
+; Get search string
+
+	MOVL	#SUI_QRY_C_MAXSEALEN,SUI_QRY_L_SDESCL(R6)	; Len of inp
+	MOVAL	QUERY_STRING,SUI_QRY_L_SDESCA(R6)		; Addr
+	ADDL3	#SUI_QRY_Q_SDESC,R6,-(SP)		; User input here
+	CLRL	-(SP)			; No uppercase
+	PUSHAL	BYTCNT
+	PUSHAL	SUI_QUERY_MAIN_DISP
+	PUSHAL	NODENAMPMT
+	CALLS	#5,G^SUI_READ_PROMPT
+	BLBS	R0,1120$
+; display error
+	BRW	1$
+1120$:
+	MOVZWL	BYTCNT,R1
+	BNEQ	1130$			; Br if some input
+	BRW	1$			; ... Else exit to menu
+1130$:
+	MOVL	#SYS_PID_C_NAMER,SUI_QRY_L_DBID(R6)	; Namer DB
+	MOVL	R1,SUI_QRY_L_SDESCL(R6)			; Len of inp
+	MOVL	#SUI_QRY_C_FDW,SUI_QRY_L_DIRECT(R6)     ; Start forward sea
+        CLRL	SUI_QRY_L_CONTEXT(R6)			; New query
+	CLRL	SUI_QRY_L_PARAM(R6)			; No param
+1140$:
+	PUSHL	R6
+	CALLS	#1,G^SUI_FIND_RELATER			; R1 = relater rec
+	BLBS	R0,1150$				; Br if no error
+	RET
+1150$:	
+;*********************patch here to display counters ************
+; 
+
+	PUSHL	R1                                      ; Relater
+	PUSHL	R6					; Query
+	CALLS	#2,G^EMU_QUERY				; Go!
+	CMPL	#SS$_NORMAL,R0				; COntinue?
+	BNEQU	1160$					; No - exit
+	BRW	1140$ 
+1160$:
+	BRW	1$
+
+12$:                            	;LAN
+	MOVAL	QUERY_BLOCK,R6
+	PUSHAL	DBTBL_DESC
+	PUSHL	#SYS_PID_C_PSRETH            ; Find this DB
+	CALLS	#2,G^SUI_LOCATE_DB           ; Returns pointer in R1
+	BLBS	R0,1210$
+	BRW	1$
+
+1210$:
+        MOVQ	(R1),SUI_QRY_Q_DBASE(R6)		; this DB
+; Get search string and param
+; Make menu structure
+	MOVAL	MENU_STRUCT,R3
+	MOVAL	SUI_QUERY_MAIN_DISP,SUI_MEN_L_DISPLAY(R3)
+	MOVQ	LAN_QUERY_MENU1,SUI_MEN_L_MTYPE(R3)  		; Type,count
+	MOVQ	LAN_QUERY_MENU1+8,SUI_MEN_L_ITEMSIZ(R3)       ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R3)        ; privs
+	MOVAL	LAN_QUERY_ITEMS1,SUI_MEN_L_MENU(R3)        	; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBS	R0,1215$
+	BRW	1$  		; Any error exits
+1215$:
+	CASEW	CHOICE,#1,#1		; Select processing routine
+1220$:                             
+	.WORD	1221$-1220$          	; Addr
+	.WORD	1223$-1220$             ; protocl
+1221$:
+	MOVZWL	CHOICE,SUI_QRY_L_PARAM(R6)			; param
+; Clear screen, display preamble
+	CALLS	#0,G^SUI_QRY_HINTS
+; Sea string
+	MOVL	#SUI_QRY_C_MAXSEALEN,SUI_QRY_L_SDESCL(R6)	; Len of inp
+	MOVAL	QUERY_STRING,SUI_QRY_L_SDESCA(R6)		; Addr
+	ADDL3	#SUI_QRY_Q_SDESC,R6,-(SP)		; User input here
+	PUSHL	#TRM$M_TM_CVTLOW			; Uppercase
+	PUSHAL	BYTCNT
+	PUSHAL	SUI_QUERY_MAIN_DISP
+	PUSHAL	LANADRPMT
+	CALLS	#5,G^SUI_READ_PROMPT
+	BLBC	R0,12212$   
+	BRW	1230$
+12212$:   
+	; display error
+	BRW	1$
+1223$:
+; TBA
+; Prompt for type. If help is asked display menu with all types.
+	BRW	1$	
+	
+1230$:
+	MOVZWL	BYTCNT,R1
+	BNEQ	1240$			; Br if some input
+	BRW	1$			; ... Else exit to menu
+1240$:
+	MOVL	#SYS_PID_C_PSRETH,SUI_QRY_L_DBID(R6)	; Ethernet DB
+	MOVL	R1,SUI_QRY_L_SDESCL(R6)			; Len of inp
+	MOVL	#SUI_QRY_C_FDW,SUI_QRY_L_DIRECT(R6)     ; Start forward sea
+        CLRL	SUI_QRY_L_CONTEXT(R6)			; New query
+	CLRL	SUI_QRY_L_PARAM(R6)			; No param
+1250$:
+	PUSHL	R6
+	CALLS	#1,G^SUI_FIND_RELATER			; R1 = relater rec
+	BLBS	R0,1260$				; Br if no error
+	RET
+1260$:	
+	PUSHL	R1                                      ; Relater
+	PUSHL	R6					; Query
+	CALLS	#2,G^EMU_QUERY				; Go!
+	CMPL	#SS$_NORMAL,R0				; COntinue?
+	BEQLU	1250$                                   ; Br if yes
+	BRW	1$ 					; Exit
+
+13$:
+	MOVAL	QUERY_BLOCK,R6
+	PUSHAL	DBTBL_DESC
+	PUSHL	#SYS_PID_C_PSRIP       		; Find this DB
+	CALLS	#2,G^SUI_LOCATE_DB           ; Returns pointer in R1
+	BLBS	R0,1310$
+	BRW	1$
+
+1310$:					; IP
+        MOVQ	(R1),SUI_QRY_Q_DBASE(R6)		; this DB
+; Clear screen, display preamble
+	CALLS	#0,G^SUI_QRY_HINTS
+
+; Get search string
+
+	MOVL	#SUI_QRY_C_MAXSEALEN,SUI_QRY_L_SDESCL(R6)	; Len of inp
+	MOVAL	QUERY_STRING,SUI_QRY_L_SDESCA(R6)		; Addr
+	ADDL3	#SUI_QRY_Q_SDESC,R6,-(SP)		; User input here
+	CLRL	-(SP)			; No uppercase
+	PUSHAL	BYTCNT
+	PUSHAL	SUI_QUERY_MAIN_DISP
+	PUSHAL	IPADDRPMT
+	CALLS	#5,G^SUI_READ_PROMPT
+	BLBS	R0,1320$
+; display error
+	BRW	1$
+1320$:
+	MOVZWL	BYTCNT,R1
+	BNEQ	1330$			; Br if some input
+	BRW	1$			; ... Else exit to menu
+1330$:
+	MOVL	#SYS_PID_C_PSRIP,SUI_QRY_L_DBID(R6)	; Namer DB
+	MOVL	R1,SUI_QRY_L_SDESCL(R6)			; Len of inp
+	MOVL	#SUI_QRY_C_FDW,SUI_QRY_L_DIRECT(R6)     ; Start forward sea
+        CLRL	SUI_QRY_L_CONTEXT(R6)			; New query
+	CLRL	SUI_QRY_L_PARAM(R6)			; No param
+1340$:
+	PUSHL	R6
+	CALLS	#1,G^SUI_FIND_RELATER			; R1 = relater rec
+	BLBS	R0,1350$				; Br if no error
+	RET
+1350$:
+	PUSHL	R1
+	PUSHL	R6
+	CALLS	#2,G^EMU_QUERY				; Go!
+	CMPL	#SS$_NORMAL,R0				; COntinue?
+	BNEQU	1360$					; No - exit
+	BRW	1340$ 
+1360$:
+	BRW	1$ 
+
+14$:
+	MOVAL	QUERY_BLOCK,R6
+	PUSHAL	DBTBL_DESC
+	PUSHL	#SYS_PID_C_PSRDN4       		; Find this DB
+	CALLS	#2,G^SUI_LOCATE_DB           ; Returns pointer in R1
+	BLBS	R0,1410$
+	BRW	1$
+
+1410$:
+        MOVQ	(R1),SUI_QRY_Q_DBASE(R6)		; this DB
+; Clear screen, display preamble
+	CALLS	#0,G^SUI_QRY_HINTS
+
+; Get search string
+
+
+	MOVL	#SUI_QRY_C_MAXSEALEN,SUI_QRY_L_SDESCL(R6)	; Len of inp
+	MOVAL	QUERY_STRING,SUI_QRY_L_SDESCA(R6)		; Addr
+	ADDL3	#SUI_QRY_Q_SDESC,R6,-(SP)		; User input here
+	CLRL	-(SP)			; No uppercase
+	PUSHAL	BYTCNT
+	PUSHAL	SUI_QUERY_MAIN_DISP
+	PUSHAL	DN4ADRPMT
+	CALLS	#5,G^SUI_READ_PROMPT
+	BLBS	R0,1420$
+; display error
+	BRW	1$
+1420$:
+	MOVZWL	BYTCNT,R1
+	BNEQ	1430$			; Br if some input
+	BRW	1$			; ... Else exit to menu
+1430$:
+	MOVL	#SYS_PID_C_PSRDN4,SUI_QRY_L_DBID(R6)    ; Set this DB
+	MOVL	R1,SUI_QRY_L_SDESCL(R6)	; Len of inp
+	MOVL	#SUI_QRY_C_FDW,SUI_QRY_L_DIRECT(R6)     ; Start forward sea
+        CLRL	SUI_QRY_L_CONTEXT(R6)			; New query
+	CLRL	SUI_QRY_L_PARAM(R6)			; No param
+1440$:
+	PUSHL	R6
+	CALLS	#1,G^SUI_FIND_RELATER			; R1 = relater rec
+	BLBS	R0,1450$				; Br if no error
+	RET
+1450$:	
+	PUSHL	R1                                      ; Relater
+	PUSHL	R6					; Query
+	CALLS	#2,G^EMU_QUERY				; Go!
+	CMPL	#SS$_NORMAL,R0
+	BNEQU	1460$
+	BRW	1440$
+1460$:
+	BRW	1$ 
+
+
+100$:
+	PUSHAL	SUI_QUERY_MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	SUI_QUERY_HINT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+;	PUSHAL	SAVE_DISP	
+;	PUSHAL  MAINPB_BOARD
+;	CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+	MOVL	#SS$_NORMAL,R0
+	RET					; EXIT
+
+
+CREATE_QUERY_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; Create Pasteboards
+;
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BLBS	R0,10$
+	RET
+10$:
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,30$
+	RET
+30$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	SUI_QUERY_MAIN_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	SUI_QUERY_MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,40$
+	RET
+40$:
+	SUBL	#9,SUI_QUERY_MAIN_ROWS			; Set our page len
+;
+	PUSHAL	BORDER
+	PUSHAL	SUI_QUERY_MAIN_DISP
+	PUSHAL	SUI_QUERY_MAIN_COLS
+        PUSHAL	SUI_QUERY_MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,50$
+	RET
+50$:
+;
+	PUSHAL	BORDER
+	PUSHAL	SUI_QUERY_HINT_DISP
+	PUSHAL	SUI_QUERY_HINT_COLS
+        PUSHAL	SUI_QUERY_HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,60$
+	RET
+60$:
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,70$
+	RET         
+70$:
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	SUI_QUERY_MAINPB_COL		;Column
+	PUSHAL	SUI_QUERY_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	SUI_QUERY_MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,80$
+	RET
+80$:
+
+	PUSHAL	SUI_QUERY_HINT_PBCOLS		;Column
+	PUSHAL	SUI_QUERY_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	SUI_QUERY_HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,90$
+	RET
+90$:
+
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+	RSB
+
+	.CALL_ENTRY	MAX_ARGS=1, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_QRY_HINTS
+;++
+;2 SUI_QRY_HINTS
+; Clears screen and writes hint messages for query prompt on query screen.
+;--
+
+
+	PUSHAL	SUI_QUERY_MAIN_DISP 
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+
+	PUSHAL	QRYHINT1
+        PUSHAL	SUI_QUERY_MAIN_DISP   
+	CALLS	#2,G^SUI_PRINT
+	PUSHAL	QRYHINT2
+        PUSHAL	SUI_QUERY_MAIN_DISP   
+	CALLS	#2,G^SUI_PRINT
+	PUSHAL	QRYHINT3
+        PUSHAL	SUI_QUERY_MAIN_DISP   
+	CALLS	#2,G^SUI_PRINT
+	PUSHAL	QRYHINT4
+        PUSHAL	SUI_QUERY_MAIN_DISP   
+	CALLS	#2,G^SUI_PRINT
+	PUSHAL	QRYHINT5
+        PUSHAL	SUI_QUERY_MAIN_DISP   
+	CALLS	#2,G^SUI_PRINT
+	PUSHAL	QRYHINT6
+        PUSHAL	SUI_QUERY_MAIN_DISP   
+	CALLS	#2,G^SUI_PRINT
+	PUSHAL	QRYHINT7
+        PUSHAL	SUI_QUERY_MAIN_DISP   
+	CALLS	#2,G^SUI_PRINT
+	PUSHAL	QRYHINT8
+        PUSHAL	SUI_QUERY_MAIN_DISP   
+	CALLS	#2,G^SUI_PRINT
+	PUSHAL	QRYHINT9
+        PUSHAL	SUI_QUERY_MAIN_DISP   
+	CALLS	#2,G^SUI_PRINT
+	PUSHAL	BLANKLINE
+        PUSHAL	SUI_QUERY_MAIN_DISP   
+	CALLS	#2,G^SUI_PRINT
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=1, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_FIND_RELATER
+;++
+;2 SUI_FIND_RELATER
+; Routine accepts a QUERY_STRUCTURE and returns a pointer to
+; the corresponding relater record (if found)
+;3 Input
+;	.address of query descriptor
+;3 Output
+;	R1 = address of relater record if found, Else R1 = 0
+;	Context field of query structure is written with 
+;	the address of the found record. Used to recursively
+;	find sequences of records.
+;3 Return
+; 	SS$_NORMAL		OK
+;	SS$_ITEMNOTFOUND        Just that
+;	SS$_BADPARAM		- DBid is not recognised
+;       SS$_BADCONTEXT		Context field is invalid
+;	SS$_BADCHAIN		Major error - The underlying DB contained
+;				a BOXID that was not in the relater. This
+;				can be valid for the instant it takes
+;				between the time the boxid is created and
+;				the time the relater record is sent. 
+;				Preliminary advice:
+;				Try query again. If error persists there is
+;				DB inconsistancy and as this DB was designed 
+;				to be consistant, this error cannot happen.
+;				If this impossibility occurs, log it, skip
+;				the query, die, crash and go to the pub
+;				where solutions to this kind of problem 
+;				are normaly worked out.
+;	
+;	Any return from $FAO, 
+;--
+	MOVL	4(AP),R6	; Query structure
+	CASEL	SUI_QRY_L_DBID(R6),#0,#18
+10$:	
+	.WORD	100$-10$	; Undef
+	.WORD	200$-10$	; Listen ( no db)
+	.WORD	300$-10$	; dn4
+	.WORD	400$-10$	; DN5
+	.WORD	500$-10$	; scs
+	.WORD	600$-10$	; lat
+	.WORD	700$-10$	; mop
+	.WORD	800$-10$	; ip
+	.WORD	900$-10$	; ipx
+	.WORD	1000$-10$	; dns
+	.WORD	1100$-10$	; dts
+	.WORD	1200$-10$	; arp
+	.WORD	1200$-10$	; eth
+	.WORD	1300$-10$	; rec
+	.WORD	1400$-10$	; undef
+	.WORD	1500$-10$	; undef
+	.WORD	1600$-10$	; undef
+	.WORD	1700$-10$	; relater
+	.WORD	1800$-10$	; namer
+100$:
+200$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+
+300$:			; DN4
+
+	MOVL	SUI_QRY_Q_DBASE(R6),R9		; Top of table
+	MOVL	COM_DBHDR_L_RECSIZE(R9),R7	; Rec size
+	ADDL3	R7,R9,R8                	; 1st entry
+	MOVL	COM_DBHDR_L_ENTRIES(R9),R11	; Entries
+	BNEQ	310$				; br if Some
+	CLRL	R1				; No pointer
+	MOVL	#SS$_ITEMNOTFOUND,R0		; 
+	RET
+310$:
+	TSTL	SUI_QRY_L_CONTEXT(R6) 		; New query?
+	BEQL	330$				; Br if so
+; Calc new sea values for continuing search.
+	SUBL3	R8,SUI_QRY_L_CONTEXT(R6),R1
+	BGEQU	320$				; Br if positive
+	MOVL	#SS$_BADCONTEXT,R0
+	RET
+320$:
+	DIVL	R7,R1				; Rec number
+	SUBL	R1,R11				; Number left
+	MOVL	SUI_QRY_L_CONTEXT(R6),R8	; New start
+	BRB	340$
+330$:
+.BRANCH_LIKELY
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R8),350$ ; Br if not deleted
+340$:
+	CMPL	SUI_QRY_L_DIRECT(R6),#SUI_QRY_C_BWD	; Back search?
+	BEQLU	345$					; Br if backward	
+	ADDL	R7,R8					; Next entry
+	SOBGTR	R11,330$
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+345$:
+	SUBL	R7,R8					; Prev entry
+	AOBLEQ	COM_DBHDR_L_ENTRIES(R9),R11,330$
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+
+350$:
+; Convert DECnet address to string desc and match with wildcard
+       	MOVZWL  PSR_DN4_W_ADDR(R8), DADDR            ; Decnet address
+        EDIV    #1024, DADDR,R2,R3
+
+        MOVL    #16,FAODESC     ; reset length
+        PUSHL   R3             	; Node
+        PUSHL   R2              ; Area
+        PUSHAL  FAODESC               ;
+        PUSHAL  FAODESC               ;
+        PUSHAL  DN4ADRSTR           ;
+        CALLS   #5, G^SYS$FAO           ;
+	BLBS	R0,360$
+	RET
+360$:
+        ADDL3	#SUI_QRY_Q_SDESC,R6,-(SP)  ; match substring
+        PUSHAL  FAODESC                 ; full decnet address
+        CALLS   #2, G^STRING_COMPARE    ;
+        CMPL    R0, #STR$_MATCH         ;
+        BNEQ    340$                    ; not matched
+	BRW	10000$			; Done this part
+400$:
+
+500$:
+600$:
+700$:
+  	RET
+800$:
+	MOVL	SUI_QRY_Q_DBASE(R6),R9		; Top of table
+	MOVL	COM_DBHDR_L_RECSIZE(R9),R7	; Rec size
+	ADDL3	R7,R9,R8                	; 1st entry
+	MOVL	COM_DBHDR_L_ENTRIES(R9),R11	; Entries
+	BNEQ	810$				; br if Some
+	CLRL	R1				; No pointer
+	MOVL	#SS$_ITEMNOTFOUND,R0		; 
+	RET
+810$:
+	TSTL	SUI_QRY_L_CONTEXT(R6) 		; New query?
+	BEQL	830$				; Br if so
+; Calc new sea values for continuing search.
+	SUBL3	R8,SUI_QRY_L_CONTEXT(R6),R1
+	BGEQU	820$				; Br if positive
+	MOVL	#SS$_BADCONTEXT,R0
+	RET
+820$:
+	DIVL	R7,R1				; Rec number
+	SUBL	R1,R11				; Number left
+	MOVL	SUI_QRY_L_CONTEXT(R6),R8	; New start
+	BRW	840$
+830$:
+.BRANCH_LIKELY
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R8),850$ ; Br if not deleted
+840$:
+	CMPL	SUI_QRY_L_DIRECT(R6),#SUI_QRY_C_BWD	; Back search?
+	BEQLU	845$					; Br if backward	
+
+	ADDL	R7,R8				; Next entry
+	SOBGTR	R11,830$
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+845$:
+	SUBL	R7,R8					; Prev entry
+	AOBLEQ	COM_DBHDR_L_ENTRIES(R9),R11,830$
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+
+850$:
+; Convert IP address to string desc and match with wildcard
+       	ADDL3   #PSR_IP_L_ADDR,R8,R1            ; IP address
+
+        MOVL    #16,FAODESC     ; reset length
+	MOVZBL	3(R1),-(SP) 
+	MOVZBL	2(R1),-(SP) 
+	MOVZBL	1(R1),-(SP) 
+	MOVZBL	(R1),-(SP) 
+        PUSHAL  FAODESC               ;
+        PUSHAL  FAODESC               ;
+        PUSHAL  IPADRSTR           ;
+        CALLS   #7, G^SYS$FAO           ;
+	BLBS	R0,860$
+	RET
+860$:
+        ADDL3	#SUI_QRY_Q_SDESC,R6,-(SP)  ; match substring
+        PUSHAL  FAODESC                 ; full decnet address
+        CALLS   #2, G^STRING_COMPARE    ;
+        CMPL    R0, #STR$_MATCH         ;
+        BNEQ    840$                    ; not matched
+	BRW	10000$			; Done this part
+
+
+900$:
+1000$:
+1100$:
+  	RET
+1200$:
+	MOVL	SUI_QRY_Q_DBASE(R6),R9		; Top of table
+	MOVL	COM_DBHDR_L_RECSIZE(R9),R7	; Rec size
+	ADDL3	R7,R9,R8                	; 1st entry
+	MOVL	COM_DBHDR_L_ENTRIES(R9),R11	; Entries
+	BNEQ	1210$				; br if Some
+	CLRL	R1				; No pointer
+	MOVL	#SS$_ITEMNOTFOUND,R0		; 
+	RET
+1210$:
+	TSTL	SUI_QRY_L_CONTEXT(R6) 		; New query?
+	BEQL	1230$				; Br if so
+; Calc new sea values for continuing search.
+	SUBL3	R8,SUI_QRY_L_CONTEXT(R6),R1
+	BGEQU	1220$				; Br if positive
+	MOVL	#SS$_BADCONTEXT,R0
+	RET
+1220$:
+	DIVL	R7,R1				; Rec number
+	SUBL	R1,R11				; Number left
+	MOVL	SUI_QRY_L_CONTEXT(R6),R8	; New start
+	BRB	1240$
+1230$:
+.BRANCH_LIKELY
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R8),1250$ ; Br if not deleted
+1240$:
+	CMPL	SUI_QRY_L_DIRECT(R6),#SUI_QRY_C_BWD	; Back search?
+	BEQLU	1245$
+	ADDL	R7,R8				; Next entry
+	SOBGTR	R11,1230$
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+1245$:
+	SUBL	R7,R8					; Prev entry
+	AOBLEQ	COM_DBHDR_L_ENTRIES(R9),R11,1230$
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+
+1250$:
+; Get Ethernet address in  string desc and match with wildcard 
+
+       	ADDL3   #PSR_ETH_EA_ADDR,R8,R1            ; address
+
+        MOVL    #132,FAODESC     ; reset length
+	MOVZBL	5(R1),-(SP) 
+	MOVZBL	4(R1),-(SP) 
+	MOVZBL	3(R1),-(SP) 
+	MOVZBL	2(R1),-(SP) 
+	MOVZBL	1(R1),-(SP) 
+	MOVZBL	(R1),-(SP) 
+        PUSHAL  FAODESC               ;
+        PUSHAL  FAODESC               ;
+        PUSHAL  ETHADRSTR           ;
+        CALLS   #9, G^SYS$FAO           ;
+	BLBS	R0,1260$
+	RET
+1260$:
+        ADDL3	#SUI_QRY_Q_SDESC,R6,-(SP)  	; match substring
+        PUSHAL  FAODESC                		; This addr
+        CALLS   #2, G^STRING_COMPARE    ;
+        CMPL    R0, #STR$_MATCH         ;
+        BNEQ    1270$                    ; not matched
+	BRW	10000$			; Done this part
+1270$:
+	BRW	1240$
+
+1300$:
+1400$:
+1500$:
+1600$:
+1700$:
+  	RET
+1800$:
+	MOVL	SUI_QRY_Q_DBASE(R6),R9		; Top of table
+	MOVL	COM_DBHDR_L_RECSIZE(R9),R7	; Rec size
+	ADDL3	R7,R9,R8                	; 1st entry
+	MOVL	COM_DBHDR_L_ENTRIES(R9),R11	; Entries
+	BNEQ	1810$				; br if Some
+	CLRL	R1				; No pointer
+	MOVL	#SS$_ITEMNOTFOUND,R0		; 
+	RET
+1810$:
+	TSTL	SUI_QRY_L_CONTEXT(R6) 		; New query?
+	BEQL	1830$				; Br if so
+; Calc new sea values for continuing search.
+	SUBL3	R8,SUI_QRY_L_CONTEXT(R6),R1
+	BGEQU	1820$				; Br if positive
+	MOVL	#SS$_BADCONTEXT,R0
+	RET
+1820$:
+	DIVL	R7,R1				; Rec number
+	SUBL	R1,R11				; Number left
+	MOVL	SUI_QRY_L_CONTEXT(R6),R8	; Last rec
+	BRB	1840$				; Start sea
+1830$:
+.BRANCH_LIKELY
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R8),1850$ ; Br if not deleted
+1840$:
+	CMPL	SUI_QRY_L_DIRECT(R6),#SUI_QRY_C_BWD	; Back search?
+	BEQLU	1845$
+	ADDL	R7,R8				; Next entry
+	SOBGTR	R11,1830$
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+1845$:
+	SUBL	R7,R8					; Prev entry
+	AOBLEQ	COM_DBHDR_L_ENTRIES(R9),R11,1830$
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+
+1850$:
+; Get NAME in  string desc and match with wildcard 
+; IN future it may be useful to make this CASE_BLIND
+        SUBL3	#8,COM_HDR_L_LEN(R8),DADDR		; Spare quad
+	ADDL3	#NAM_DB_AS_NAME,R8,DADDR+4
+        ADDL3	#SUI_QRY_Q_SDESC,R6,-(SP)  	; match substring
+        PUSHAL  DADDR                		; This name
+        CALLS   #2, G^STRING_COMPARE    ;
+        CMPL    R0, #STR$_MATCH         ;
+        BNEQ    1840$                    ; not matched
+	BRW	10000$			; Done this part
+
+10000$:
+; We have found a matching record whose addr is in R8
+; Set context, find the relater record and return.
+;
+	MOVL	R8,SUI_QRY_L_CONTEXT(R6) ; Replace context	
+	TSTL	RELATER_DB		 ; Know the address?
+	BNEQ	10100$			 ; Br if got it
+	PUSHAL	DBTBL_DESC
+	PUSHL 	#SYS_PID_C_RELATER	
+	CALLS	#2,G^SUI_LOCATE_DB 
+	BLBS	R0,10010$
+	RET
+10010$:
+	MOVQ	(R1),RELATER_DB
+10100$:
+	CLRL	R1			; 
+	ADDL3	#COM_HDR_L_FLAGS,R8,-(SP)
+	PUSHAL	RELATER_DB
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP)
+       	CALLS	#3,G^LOCATE_RELATER_BOXID
+	BLBS	R0,10150$
+	CMPL	R0,#SS$_ITEMNOTFOUND
+	BNEQU	10120$                   ; Br if minor screw up
+	MOVL	#SS$_BADCHAIN,R0         ; Major screw up
+10120$:
+	RET
+10150$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=3, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=STRING_COMPARE
+;++
+;2 STRING_COMPARE
+;  Compares 2 strings for match. String 2 may contain VMS standard
+; widcards. By default, case is ignored. Optionaly, match can be made
+; case sensitive.
+;3 Input
+;  .address of desc pointing to string 1
+;  .address of desc pointing to string 2
+;  .long flags
+;4 Flags
+;  A bit pattern controlling search:
+;   bit		When set
+;   0		Case sesitive search
+; 
+;3 Output
+;  If match is case blind (default), string 2 is converted to uppercase.
+;3 Return
+;  STR$_MATCH		Strings matched  
+;  STR$_NOMATCH		Strings did no match
+;  SS$_ACCVIO		Could not read one of the strings
+;   Any from STR$
+;--
+	MOVL	4(AP),R6      		; STR1
+	MOVL	8(AP),R7
+
+	MOVQ	(R6),R8
+	PROBER	#0,R8,(R9)
+	BNEQ	10$
+	MOVL	#SS$_ACCVIO,R0
+	RET
+10$:
+	MOVQ	(R7),R8
+	PROBER	#0,R8,(R9)
+	BNEQ	20$
+	MOVL	#SS$_ACCVIO,R0
+	RET
+20$:
+	CMPL	#3,(AP)		; Options present?
+	BNEQU	40$             ; br if no opt
+	BLBS	12(AP),100$	; Br if option  set
+40$:
+; Convert both strings to uppercase
+	MOVL	(R6),STRBUF_DESC     ; set outp len
+	MOVAL	STRBUF_DESC,R6
+	MOVL	4(AP),R8
+	PUSHL	R8
+	PUSHL	R6
+	CALLS	#2,G^STR$UPCASE
+	BLBS	R0,50$
+	RET
+50$:
+	PUSHL	R7
+	PUSHL	R7
+	CALLS	#2,G^STR$UPCASE
+	BLBS	R0,60$
+	RET
+60$:
+100$:
+	PUSHL	R7
+	PUSHL	R6
+        CALLS	#2,G^STR$MATCH_WILD
+	RET
+
+  
+
+
+
+
+	.CALL_ENTRY	MAX_ARGS=3, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MAKE_REPORT
+;++
+;2 MAKE_REPORT
+;  Takes as input a list of params to extract from the db, translate and 
+; list them to the screen and the given output file.
+;3 Input
+;  .address of .long number of params in list
+;  .address of param list
+;  .address of rab to write output to
+; Notes:
+;	The params are 8 bytes long each and held in a section
+;	of 16 bytes each leaving 8 bytes for this routine's usage.
+;	The input params (bytes 0-7) are not modified
+;	The 'spare' space (8-15) may be.
+;       The rab param is the address of an RMS rab associated with a 
+;	previously opened file.
+;3 Output
+; Each param specified in the list is extracted from the database, translated
+; and written to file. The output is organised such that all params
+; associated with a specific device are listed together similar to:
+;	NodeId	
+;		Table
+;			Instance Param
+;			 	  .
+;			 	  . 
+;			Instance Param
+;			 	  .
+;			 	  . 
+;		Table
+;			Param
+;			  .
+;			  .
+;	NodeId
+;	  .
+;       And so on
+;	  .
+;3 Description
+; The report is Generated by:
+;	Create an internal section to store returned record headers
+;	If during execution this section is exhausted it is 
+;	doubled and the processing restarts.
+;	In a loop:
+;	Reading the param list and:
+;	Get Next rec from EMUDB matching tbl.param in list
+;	get Relater rec for this boxid
+;	Store pram in section
+;	Store BOXID in section
+;	Store relater record addr in section
+;	
+;  From top of section:
+;   Loop2:
+;	Get next section entry
+;	Print nodeid
+;	While relater recs match:
+;	Print table name
+;	While table matches
+;	Print param
+;      	End loop
+;	Delete section
+;	done
+;--	
+; Map relater section
+	TSTL	RELATER_DB		 ; Know the address?
+	BNEQ	20$			 ; Br if got it
+	PUSHAL	DBTBL_DESC
+	PUSHL 	#SYS_PID_C_RELATER	
+	CALLS	#2,G^SUI_LOCATE_DB 
+	BLBS	R0,10$
+	RET
+10$:
+	MOVQ	(R1),RELATER_DB
+20$:
+	MOVL	@4(AP),R11		; Count of items
+	MOVL	8(AP),R6		; Item list
+100$:
+; Get mem for param storage.
+	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR			; returned address
+	PUSHL	RPTSECSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BLBS	R0,110$
+	RET
+110$:
+; map section	
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	RPTSECSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	EMU_RPTSEC			; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	RPTSEC_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	BLBS	R0,120$
+	RET
+120$:
+	MOVL	RPTSEC_A,R10		; Section
+        CLRL	R9			; Rec count
+
+200$:
+	CLRL	RECCNT			; 
+	MOVAL	RECBUF,R1               ; Set key
+	MOVL	(R6),DB_REC_L_TABLE(R1)
+	MOVL	4(R6),DB_REC_L_PARAM(R1)
+
+210$:
+; Get all occurences of param.tbl 
+	MOVAL	RECBUF,R8
+	MOVL	#DB_REC_C_MRS,RECBUF_DESC
+	PUSHAL	RECCNT			; Record count
+	PUSHL	#5			; Report level
+	CLRL	-(SP)			; Search direction
+	PUSHAL	RECBUF_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_TAB_PAR 	; Key of ref
+	CALLS	#5,G^EMUDB_READ
+; Check if wanted rec before error check
+	CMPL	(R6),DB_REC_L_TABLE(R8)    ; 
+	BNEQU	215$                       ; Br if not
+	CMPL	4(R6),DB_REC_L_PARAM(R8)
+	BNEQU	215$                       ; Br if not
+	BLBS	R0,220$                    ; Br if got rec
+	CMPL	#RMS$_RNF,R0               ; Rec not found?
+	BEQLU	215$                       ; OK
+	CMPL	#RMS$_EOF,R0               ; End of file?
+	BEQLU	215$                       ; OK
+	RET                                ; SOme other error
+215$:
+	BRW	270$
+220$:
+	CLRL	R1			; 
+	ADDL3	#COM_HDR_L_FLAGS,R8,-(SP)
+	PUSHAL	RELATER_DB
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP)
+       	CALLS	#3,G^LOCATE_RELATER_BOXID
+	BLBS	R0,230$
+; This is likely a relater error. A boxid in EMUDB  is not in the relater 
+; section. This may happen legitimately in the instant the rec is created
+; and before it sends the relater message. For now, just ignore this rec.
+	BRW	210$
+230$:
+; Check if this rec already in table
+	MOVL	RPTSEC_A,R3			; Top
+	MOVL	R9,R5				; Loop control
+	BEQL	260$                            ; Br if no recs
+240$:
+	CMPL	DB_REC_L_TABLE(R8),(R3)
+	BNEQU	250$
+;	CMPL	DB_REC_L_PARAM(R8),4(R3)
+;	BNEQU	250$
+	CMPL	DB_REC_L_BOXID(R8),8(R3)
+	BNEQU	250$
+        CMPL	R1,12(R3)
+	BNEQU	250$
+	BRW	210$				; Found it - do not add
+250$:
+	ADDL	#16,R3
+	SOBGTR	R5,240$
+; Did not find.
+; Store tbl.param.box.rel in section
+	ADDL3	#16,R10,R2		; Check enough room
+	CMPL	R2,RPTSEC_A+4           ;
+	BLEQU	260$                    ; Br ok
+	BRW	1000$                   ; Uh-oh!
+260$:
+	MOVL	DB_REC_L_TABLE(R8),(R10)
+	MOVL	DB_REC_L_PARAM(R8),4(R10)
+	MOVL	DB_REC_L_BOXID(R8),8(R10)
+        MOVL	R1,12(R10)
+        ADDL	#16,R10
+	INCL	R9
+	BRW	210$
+270$:
+	ADDL	#16,R6
+	SOBGTR	R11,280$
+	BRB	300$
+280$:
+	BRW	200$
+300$:
+; We now have a table containing:
+;	table
+;	param
+;	boxid
+;	relater rec address
+; for each paramater requested.
+; From top of section:
+;	get and print each param in order:
+;		 relater rec address 
+;			table
+;				Param
+;
+; r6  = currently processing box
+; r7  = moving pointer
+; r10 = last addr passed used section
+	CMPL	R10,RPTSEC_A		; Any recs to process?
+	BNEQU	305$
+	BRW	500$			; No - done
+;
+305$:
+	DECL	R10
+	MOVL 	RPTSEC_A,R7
+	MOVL 	RPTSEC_A,R6
+310$:
+; Get name for this box
+	MOVL	#256,GENBUFDESC
+	PUSHAL	GENBUFDESC
+	PUSHL	12(R7)			; Relater rec addr
+        CALLS	#2,G^NAME_LOOKUP
+        BLBS	R0,320$
+; No name found
+	CLRL	GENBUFDESC
+320$:
+	MOVL	#132,FAODESC
+	PUSHAL	GENBUFDESC
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	EMQNODEID
+	CALLS	#4,G^SYS$FAO
+	BLBC	R0,330$
+; Print line to screen and file
+	PUSHAL	FAODESC
+        PUSHAL	REPORT_MAIN_DISP
+	CALLS	#2,G^SUI_PRINT
+;
+	MOVL	12(AP),R1
+       	MOVW	FAODESC,RAB$W_RSZ(R1)
+       	MOVL	FAODESC+4,RAB$L_RBF(R1)
+       	$PUT	RAB=(R1)
+330$:
+; For each param found with same relater rec: 
+;	get rec,  xlate & print.
+	CMPL	12(R6),12(R7)			; Relater rec addr
+	BEQLU	335$
+	BRW	400$
+335$:
+; get all recs for this boxid,table and check if param is wanted
+	CLRL	RECCNT
+	MOVAL	RECBUF,R8
+	MOVL	8(R7),(R8)
+	MOVL	(R7),4(R8)
+340$:
+	MOVAL	RECBUF,R8
+	MOVL	#DB_REC_C_MRS,RECBUF_DESC
+	PUSHAL	RECCNT			; Record count
+	PUSHL	#5			; Report level
+	CLRL	-(SP)			; Search direction
+	PUSHAL	RECBUF_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_BOX_TAB 	; Key of ref
+	CALLS	#5,G^EMUDB_READ
+; Check if wanted rec before error check
+	CMPL	(R7),DB_REC_L_TABLE(R8)    ; 
+	BNEQU	345$                       ; Br if not
+	CMPL	8(R7),DB_REC_L_BOXID(R8)
+	BNEQU	345$                       ; Br if not
+	BLBS	R0,350$                    ; Br if got rec
+;	CMPL	#RMS$_RNF,R0               ; Rec not found?
+;	BEQLU	345$                       ; OK
+;	RET                                ; SOme other error
+345$:
+	BRW	360$
+350$:
+; Check if we want this param
+	MOVL	@4(AP),R1		; Count of items
+	MOVL	8(AP),R2		; Item list
+351$:
+	CMPL	(R2),DB_REC_L_TABLE(R8)    ; 
+	BNEQU	352$                       ; Br if not
+	CMPL	4(R2),DB_REC_L_PARAM(R8)
+	BEQLU	353$                       ; Br if yes
+352$:
+	ADDL	#16,R2
+	SOBGTR	R1,351$
+	BRW	340$				; Next
+353$:
+
+
+	MOVL	#1024,RETBUF_DESC
+	CLRL	-(SP)			; no opts
+	MOVL	#132,-(SP)		; Line len
+	PUSHAL	LINCNT
+	PUSHAL	RETBUF_DESC
+	PUSHAL	RECBUF_DESC
+	CALLS	#5,G^PARAMXLT
+	CMPL	#SS$_NORMAL,R0
+	BNEQU	355$
+; Print line to screen and file
+	PUSHAL	RETBUF_DESC
+        PUSHAL	REPORT_MAIN_DISP
+	CALLS	#2,G^SUI_PRINT
+;
+	MOVL	12(AP),R1
+       	MOVW	RETBUF_DESC,RAB$W_RSZ(R1)
+       	MOVL	RETBUF_DESC+4,RAB$L_RBF(R1)
+       	$PUT	RAB=(R1)
+	BRW	340$			; Next rec
+355$:
+	MOVL	#132,FAODESC
+	MOVQ	RECBUF_DESC,R1
+	PUSHL	R0		; Error
+	PUSHL	DB_REC_L_PARAM(R2)
+	PUSHL	DB_REC_L_TABLE(R2)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	XLTERRSTR
+	CALLS	#6,G^SYS$FAO
+	PUSHAL	FAODESC
+        PUSHAL	REPORT_MAIN_DISP
+	CALLS	#2,G^SUI_PRINT
+;
+	MOVL	12(AP),R1
+       	MOVW	FAODESC,RAB$W_RSZ(R1)
+       	MOVL	FAODESC+4,RAB$L_RBF(R1)
+       	$PUT	RAB=(R1)
+	BRW	340$
+
+360$:
+	CLRL	12(R7)				; Signal this rec done
+	ACBL	R10,#16,R7,330$			; Loop	
+400$:
+	ACBL	R10,#16,R6,410$			; Loop	
+	BRW	500$
+410$:
+	TSTL	12(R6)				; Processed?
+	BEQL	400$
+	BRW	310$
+500$:
+	CLRQ	-(SP)
+	PUSHAL	RPTSEC_A
+	CALLS	#3,G^SYS$DELTVA
+	MOVL	#SS$_NORMAL,R0
+	RET
+1000$:
+; Delete vmem , Double size and restart
+	CLRQ	-(SP)
+	PUSHAL	RPTSEC_A
+	CALLS	#3,G^SYS$DELTVA
+	MULL	#2,RPTSECSIZ
+	BRW	20$				; restart from top
+
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_REPORT
+;++
+;2 SUI_REPORT
+; Crude interface to generate report on selected params. This is 
+; more of a debug/development tool but is significantly more useable
+; than a dump of the database and subsequent editing.
+;3 Description
+;  User may create a new report or execute a previously defined one. 
+; Previously defined reports are held as param lists in EMU5_DAT: with 
+; filetype '.rptp'. All existing file names of this type are presented
+; in a menu and if any is selected it becomes the current. Otherwise
+; the user is taken through through SUI_PARAM_SEL (Which see) and selects 
+; those params wanted in  the report. The resulting list can be saved.
+;--
+; Intro menu	
+	BSBW	CREATE_REPORT_ENVIRONMENT
+1$:
+	PUSHAL	REPORT_MAINPB_COL		;Column
+	PUSHAL	REPORT_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	REPORT_MAIN_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	REPORT_STAT_PBCOLS		;Column
+	PUSHAL	REPORT_STAT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	REPORT_STAT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	REPORT_HINT_PBCOLS		;Column
+	PUSHAL	REPORT_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	REPORT_HINT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	REPORT_MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	PUSHAL	REPORT_MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	REPORT_MAIN_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	REPORT_MENU,SUI_MEN_L_MTYPE(R6)  		; Type,count
+	MOVQ	REPORT_MENU+8,SUI_MEN_L_ITEMSIZ(R6)       ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R6)        ; privs
+	MOVAL	REPORT_ITEMS,SUI_MEN_L_MENU(R6)        	; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBC	R0,20$  		; Any error exits
+	CASEW	CHOICE,#1,#5		; Select processing routine
+10$:                             
+	.WORD	100$-10$          	; Display
+	.WORD	200$-10$          	; Load
+	.WORD	300$-10$          	; Create
+	.WORD	400$-10$          	; Save
+	.WORD	500$-10$          	; Report
+	.WORD	600$-10$          	; Excel
+20$:
+	BRW	1000$                   ; Exit
+100$:
+; Display current settings
+	TSTL	RPTITMCNT		; Any items to display?
+	BNEQ	101$                    ; Br if some
+	BRW	1$                      ; Nope
+101$:
+        TSTW	MAPPERFAB+FAB$W_IFI     ; File open?
+	BNEQ    120$                    ; Br if so
+	$OPEN	FAB = MAPPERFAB		; Open input file
+	BLBS	R0,110$
+	RET
+110$:
+ 	$CONNECT RAB = MAPPERRAB2	;Connect input stream
+ 	$CONNECT RAB = MAPPERRAB	;Connect input stream
+	BLBS	R0,120$
+	RET
+120$:
+	CLRL	MAPPERRAB+RAB$L_ROP			; No Options
+        MOVB	#8,MAPPERRAB+RAB$B_KSZ
+	MOVB 	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC         ; Keyed lookup
+	CLRB	MAPPERRAB+RAB$B_KRF                 	
+	MOVAL	REPORT_TABLE,R6		; Top of param list
+	MOVL	RPTITMCNT,R11		; COunt of items
+130$:	
+	MOVQ	(R6),MAPPER_KEY
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,140$
+	RET				; Should never happen!
+140$:
+; Print this param
+	MOVAL	MAPPERREC_BUF,R7
+	MOVL	#132,FAODESC
+	ADDL3	R7,#DB_MAP_A64_KEYW,-(SP)
+	PUSHL	DB_MAP_L_KEYWLEN(R7)			; Table LEN
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	EMQTBLNAM
+	CALLS	#5,G^SYS$FAO
+	BLBS	R0,150$
+150$:
+	PUSHAL	FAODESC
+        PUSHAL	REPORT_MAIN_DISP
+	CALLS	#2,G^SMG$PUT_LINE
+	ADDL	#16,R6
+	SOBGTR	R11,130$
+;
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_MAIN_DISP
+	PUSHAL	LISTENDMSG 
+	CALLS	#3,G^SUI_READ_PROMPT
+;
+	BRW	1$
+200$:
+; Display all saved files in menu. If any selected open file and 
+; load contents into report param area. 
+	MULL3	#MAXDYN_ITEMS,#DYNITEM_SIZE,TEMPDESC	; Size of array
+	MOVAL	PARAMLST,TEMPDESC+4			; Addr
+
+
+	PUSHL	#32			; Return 15 char/file
+	PUSHAL	RPTITMCNT		; Number of files
+	PUSHAL	TEMPDESC		; Array pointer
+	PUSHAL	RPTFILDEF		; type desc
+	CALLS	#4,G^FILELIST
+	BLBS	R0,210$
+
+; Create menu
+210$:
+	MOVAL	PARAMLST,MADDR		; Menu location
+	MOVW	#32,MENUDESC		; SIze of items
+	MULL3	#32,RPTITMCNT,MSIZE              ; Total size
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	MENUDESC
+	PUSHAL	REPORT_MAIN_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BLBS	R0,220$
+	RET
+220$:
+
+	PUSHAL	HELPLIB
+	CLRL	-(SP)			; Flags
+	CLRL	-(SP)			; Def
+	PUSHAL	CHOICE
+	PUSHAL	REPORT_MAIN_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#6,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,230$
+	CLRL    RPTITMCNT
+	BRW	1$
+230$:
+	MOVZWL	CHOICE,R11
+	DECL	R11
+	MULL	#32,R11		; Offset
+	MOVAL	PARAMLST,R4	;
+	ADDL	R11,R4		; Location of string
+	LOCC	#^A/ /,#32,(R4)
+	TSTL	R0
+	BNEQ	240$
+	RET				; ERROR
+240$:
+	MOVL	R4,RPTITMFAB+FAB$L_FNA	; Location of name
+	SUBL	R4,R1		
+	MOVB	R1,RPTITMFAB+FAB$B_FNS	; Size of name
+	$OPEN	FAB=RPTITMFAB
+	BLBS	R0,242$
+	RET
+242$:
+	$CONNECT RAB=RPTITMRAB
+	BLBS	R0,244$
+	RET
+244$:
+	MOVW	#8,RPTITMRAB+RAB$W_RSZ
+	MOVW	#8,RPTITMRAB+RAB$W_USZ
+; Loop to READ recs
+	MOVAL	REPORT_TABLE,R11
+	CLRL	RPTITMCNT
+250$:
+	MOVL	R11,RPTITMRAB+RAB$L_UBF             ; This rec
+	$GET	RAB=RPTITMRAB
+	BLBC	R0,260$				; Assume err = EOF
+	ADDL	#16,R11
+	AOBLEQ	#REPORT_MAXITM,RPTITMCNT,250$
+	$CLOSE	FAB=RPTITMFAB
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+260$:
+	$CLOSE	FAB=RPTITMFAB
+	BRW	1$
+300$:
+	MULL3	#16,#REPORT_MAXITM,TEMPDESC	; Len of area
+	MOVAL	REPORT_TABLE,TEMPDESC+4
+; Create new list
+	PUSHL	#16			; Len of each item
+	PUSHAL	REPORT_MAIN_DISP
+	PUSHAL	TEMPDESC		; List here
+	PUSHAL	RPTITMCNT
+	CALLS	#4,G^SUI_PARAM_SEL
+	BRW	1$
+400$:
+;  Save list
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_MAIN_DISP
+	PUSHAL	LISTNAMPRMPT 
+	CALLS	#3,G^SUI_READ_PROMPT
+	BLBS	R0,410$
+	RET
+410$:
+	TSTW	CHOICE
+	BNEQ	420$
+	BRW	1$
+420$:
+	CMPW	#32,BYTCNT
+	BLSS	400$			; Try again on too many
+; Set filename and create it
+	MOVB	BYTCNT,RPTITMFAB+FAB$B_FNS	; Size of name
+	MOVAL	KB_BUF,RPTITMFAB+FAB$L_FNA	; Location of name
+	$CREATE	FAB=RPTITMFAB
+	BLBS	R0,430$
+	RET
+430$:
+	$CONNECT RAB=RPTITMRAB
+	BLBS	R0,440$
+	RET
+440$:	
+	MOVW	#8,RPTITMRAB+RAB$W_RSZ
+; Loop to write recs
+	MOVAL	REPORT_TABLE,R11
+	CLRL	R4
+450$:
+	MOVL	R11,RPTITMRAB+RAB$L_RBF             ; This rec
+	$PUT	RAB=RPTITMRAB
+	ADDL	#16,R11
+	AOBLSS	RPTITMCNT,R4,450$
+	$CLOSE	FAB=RPTITMFAB
+	BRW	1$
+500$:
+; Create report
+; 
+; Get outp file name
+510$:
+; Insert default outp file name from RPTITMFAB name
+	MOVL	#132,FAODESC
+	PUSHL	RPTITMFAB+FAB$L_FNA	; Location of name
+	MOVZBL	RPTITMFAB+FAB$B_FNS,-(SP)	; Size of name
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RPTOUTP
+	CALLS	#5,G^SYS$FAO
+	BLBS	R0,515$
+	RET
+515$:
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_MAIN_DISP
+	PUSHAL	FAODESC 
+	CALLS	#3,G^SUI_READ_PROMPT
+	BLBS	R0,520$
+	BRW	1$
+520$:
+	TSTW	BYTCNT
+	BEQL	535$
+	
+530$:
+	MOVB	BYTCNT,RPTOUTFAB+FAB$B_FNS	; Size of name
+	MOVAL	KB_BUF,RPTOUTFAB+FAB$L_FNA	; Location of name
+535$:
+	$CREATE	FAB=RPTOUTFAB
+	BLBS	R0,540$
+	$CLOSE	FAB=RPTOUTFAB
+        BRW	510$
+540$:
+	$CONNECT RAB=RPTOUTRAB
+	BLBS	R0,550$
+	RET
+550$:
+	PUSHAL	RPTOUTRAB
+	PUSHAL	REPORT_TABLE	
+	PUSHAL  RPTITMCNT
+	CALLS	#3,G^MAKE_REPORT
+	MOVL	#132,FAODESC
+	PUSHL	R0
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RPTENDMSG
+	CALLS	#4,G^SYS$FAO
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_MAIN_DISP
+	PUSHAL	FAODESC 
+	CALLS	#3,G^SUI_READ_PROMPT
+        BRW	1$
+
+600$:
+	CALLS	#0,G^EXCEL_REPORT_BR
+	MOVL	#132,FAODESC
+	PUSHL	R0
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RPTENDMSG
+	CALLS	#4,G^SYS$FAO
+	PUSHAL	BYTCNT
+	PUSHAL	REPORT_MAIN_DISP
+	PUSHAL	FAODESC 
+	CALLS	#3,G^SUI_READ_PROMPT
+        BRW	1$
+
+	
+1000$:
+	PUSHAL	REPORT_MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	REPORT_HINT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	REPORT_STAT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+;	PUSHAL	SAVE_DISP	
+;	PUSHAL  MAINPB_BOARD
+;	CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+	MOVL	#SS$_NORMAL,R0
+	RET					; EXIT
+
+
+
+
+CREATE_REPORT_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; Create Pasteboards
+;
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BLBS	R0,10$
+	RET
+10$:
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,30$
+	RET
+30$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	REPORT_MAIN_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	REPORT_MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,40$
+	RET
+40$:
+	SUBL	#9,REPORT_MAIN_ROWS		; Set our page len
+; Set status line placement
+	ADDL3	#6,REPORT_MAIN_ROWS,REPORT_STAT_PBROWS	
+;
+	PUSHAL	BORDER
+	PUSHAL	REPORT_MAIN_DISP
+	PUSHAL	REPORT_MAIN_COLS
+        PUSHAL	REPORT_MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,50$
+	RET
+50$:
+;
+	PUSHAL	BORDER
+	PUSHAL	REPORT_HINT_DISP
+	PUSHAL	REPORT_HINT_COLS
+        PUSHAL	REPORT_HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,55$
+	RET
+55$:
+	PUSHAL	BORDER
+	PUSHAL	REPORT_STAT_DISP
+	PUSHAL	REPORT_STAT_COLS
+        PUSHAL	REPORT_STAT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,60$
+	RET
+60$:
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,70$
+	RET         
+70$:
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	REPORT_MAINPB_COL		;Column
+	PUSHAL	REPORT_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	REPORT_MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,80$
+	RET
+80$:
+
+	PUSHAL	REPORT_STAT_PBCOLS		;Column
+	PUSHAL	REPORT_STAT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	REPORT_STAT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,85$
+	RET
+85$:
+	PUSHAL	REPORT_HINT_PBCOLS		;Column
+	PUSHAL	REPORT_HINT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	REPORT_HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,90$
+	RET
+90$:
+
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+	RSB
+
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EXCEL_REPORT_BR   
+;++
+;2 EXCEL_REPORT_BR   
+; Routine to create a file that can be uploaded and displayed in Excel
+; spreadsheets. This routine creates a brief reports based on the PSR
+; databases only.
+;3 Inputs
+;  None specified. The routine maps to all PSR databases, extracts and 
+;  formats the data to the output file.
+;3 Outputs
+;  None specified. The file name and location is hardcoded as:
+;   EMU5_DAT:EXCEL_REPORT_BR.DAT
+;  It is formatted as follows:
+; Record 1 is a comma seperated list of headings in this order:
+;	 DECnet IV address
+;	 DECnet V NSAP
+;	 SCS LAN address
+;	 SCS node name
+;	 SCS Cluster Number
+;	 LAT Address
+;	 LAT node name
+;	 MOP Address
+;	 MOP Device type
+;	 MOP Name
+;	 IP address
+;	 IPX Address
+;	 IPX Name
+;	 LAN Address
+;	 Name       
+; Each databse is probed and for each response, the corresponding field is
+; is formatted and filled in. If no repsonse, the field is blanked.
+; Note that hadrcoded here are the databases to skip - there is no 
+; processing and no entries for these.
+; Once all fields are written, the record is stored. If all fields are
+; blank, the next BOX is processed. The resulting display (in Excel) 
+; should look something like:
+; 
+;  DECnet IV|DECnet V   |SCS Address|SCS Name|Lan Address | IP Addr |Name
+;    1.1     49:00 ...   08-00-2b... CCCIx    08-00-2b...   1.2.3.4  CCCI4
+;            49:01 ...                        AA-00-04...   1.2.3.5  ccci4.com
+;							    1.2.3.6
+;							    1.2.3.7
+;         ---- blank rec ----------
+;    1.2     49:00 ...   08-00-2b... CCCIx    08-00-2b...            CCCI2
+;            49:01 ...                        AA-00-04...            CCCI2
+; The intended result is that all known values are present and can be 
+; found in the spreadsheet easily.
+;3 Returns
+; 	SS$_NORMAL	OK
+;	Any from MAP_SECTIONS, $RMS, $FAO, $EXP
+; The final status is printed on the user screen at exit.
+;--
+; Get mem and init section
+	MULL3	#SUI_ERPT_C_MAXID,#SUI_ERPT_C_SIZE,GBLSIZ   ; Size in bytes
+	DIVL	#512,GBLSIZ				     ; Pages
+	INCL	GBLSIZ					     ; Round up
+; Get Memory
+	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR			; returned address
+	PUSHL	GBLSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BLBS	R0,110$
+	RET
+; map section	
+110$:
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	GBLSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	EMU_ERPT			; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	ERPT_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	BLBS	R0,120$
+	RET
+120$:
+; Create file and write headers
+	$CREATE	FAB=ERPTFAB
+	BLBS	R0,130$
+	BRW	1000$
+130$:
+	$CONNECT RAB=ERPTRAB
+	BLBS	R0,140$
+	BRW	1000$
+140$:
+	MOVC3	#ERPTHDR_LEN,ERPTHDR,ERPTREC
+	MOVW	#ERPTHDR_LEN,ERPTRAB+RAB$W_RSZ
+	$PUT	RAB=ERPTRAB
+	BLBS	R0,150$
+	BRW	1000$
+150$:	
+200$:
+; Map all sections. Any section unavailable will not be represented in the 
+; final report. 
+
+	PUSHAL	DBTBL_DESC
+	CALLS	#1,MAP_ALL_DB
+
+; Print DB mapping status
+	MOVL	#132,FAODESC
+	PUSHL	R1       	; Number of DBs mapped
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	DBCNTMSG
+	CALLS	#4,G^SYS$FAO
+	BLBC	R0,210$		; Skip print if error (not important)
+	PUSHAL	FAODESC
+	CALLS	#1,G^SUI_PRINT_STATUS
+210$:
+	MOVAL	MAPRELATER,R6			; 
+	MOVL	SUI_QRY_Q_DBASE(R6),R9		; Top of table
+	MOVL	COM_DBHDR_L_ENTRIES(R9),R8	; Entries
+	BNEQ	220$				; br if Some
+	CLRL	R1				; No pointer
+	MOVL	#SS$_ITEMNOTFOUND,R0		; 
+	BRW	1000$				; Clear up and exit
+220$:
+; R6 = Current relater rec
+; R8 = relater entries remaining
+	ADDL3	#RLT_C_RECSIZE,R9,R6                	; 1st entry
+300$:
+; Here at start of new rec
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),320$ ; Br if not deleted
+310$:
+	ADDL	#RLT_C_RECSIZE,R6				; Next entry
+	SOBGTR	R8,300$
+	MOVL	#SS$_NORMAL,R0
+	BRW	1000$				; Clear up and exit
+320$:
+; R6 = Current relater rec
+; R7 = relater rec size
+; R8 = relater entries remaining
+; R9 = Current PID
+; R10 = ERPT structure
+	MOVL	#2,R9				; Lowest valid PID
+; Clear all CXTs
+        CMPL	#SYS_PID_C_PSRARP,R9		; Don't process
+	BEQL	340$
+        CMPL	#SYS_PID_C_PSRREC,R9		; Don't process
+	BEQL	340$
+        CMPL	#SYS_PID_C_PSRDNS,R9		; Don't process
+	BEQL	340$
+        CMPL	#SYS_PID_C_PSRDTS,R9		; Don't process
+	BEQL	340$
+        CMPL	#SYS_PID_C_PSRBRD,R9		; Don't process
+	BEQL	340$
+        CMPL	#SYS_PID_C_UNASS1,R9		; Don't process
+	BEQL	340$
+        CMPL	#SYS_PID_C_UNASS2,R9		; Don't process
+	BEQL	340$
+        CMPL	#SYS_PID_C_RELATER,R9		; Don't process
+	BEQL	340$
+	
+	MOVL	ERPT_A,R10
+        MULL3	R9,#SUI_ERPT_C_SIZE,R11		; Offset
+	ADDL	R10,R11				; PID section start
+330$:
+
+	CLRQ	(R11)				; Status, Context
+; Ensure valid descriptor exists
+        CLRL	SUI_ERPT_L_LEN(R11)		; ASSUME no data ret
+	ADDL3	#SUI_ERPT_C_DATA,R10,SUI_ERPT_L_ADDR(R11) ; Write here
+340$:
+        ADDL	#SUI_ERPT_C_SIZE,R11		; Next PID
+        AOBLEQ	#SUI_ERPT_C_MAXID,R9,330$       ; Loop for all
+; 
+	MOVL	#2,R9
+	ADDL3	#RLT_DB_TL_BOXIDS,R6,R7         ; BOXID Table
+
+
+400$:
+; 
+	MOVL	ERPT_A,R10
+        MULL3	R9,#SUI_ERPT_C_SIZE,R11		; Offset
+	ADDL	R11,R10				; PID section start
+; Process this PID next rec
+	TSTL	(R7)[R9]		; Pid here?
+	BNEQ	420$			; Br if present
+; Insert blank
+	ADDL3	#SUI_ERPT_Q_DESC,R10,-(SP)	; Outp
+	PUSHL	R9				; PSR Rec
+	CALLS	#2,G^BLANK_PSR_ERPT
+
+410$:
+        AOBLEQ	#SUI_ERPT_C_MAXID,R9,400$       ; Loop for all
+	BRW	500$			; Finished this relater
+420$:
+; Find this PID in DBTBL
+	PUSHAL	DBTBL_DESC
+	PUSHL 	R9	
+	CALLS	#2,G^SUI_LOCATE_DB 
+	BLBS	R0,430$
+	BRW	1000$				; Clear up and exit
+430$:
+; Get next rec this box, this PID
+        CLRL	SUI_ERPT_L_LEN(R10)		; ASSUME no data ret
+
+; Calc addr of BOXID
+	MULL3	#4,R9,R4			; Offset into rel tbl
+	ADDL3	#SUI_ERPT_L_CXT,R10,-(SP) 	; Context
+	PUSHL	R1				; Section
+	ADDL3	R4,R7,-(SP)			; Addr box
+	CALLS	#3,LOCATE_BOXID
+        MOVL	R1,SUI_ERPT_L_CXT(R10)		; Store Context
+        MOVL	R0,SUI_ERPT_L_STA(R10)		; Store return
+	BLBS	R0,440$                         ; Br if got rec
+; Insert blank
+	ADDL3	#SUI_ERPT_Q_DESC,R10,-(SP)	; Outp
+	PUSHL	R9				; PSR Rec
+	CALLS	#2,G^BLANK_PSR_ERPT
+	BRW	410$                            ; Next PID
+440$:
+; Format
+; Setup desc in section for this pid
+        MOVL	#SUI_ERPT_C_MAXDATA,SUI_ERPT_L_LEN(R10)	  ; Max size allowed
+	ADDL3	#SUI_ERPT_C_DATA,R10,SUI_ERPT_L_ADDR(R10) ; Write here
+;
+	ADDL3	#SUI_ERPT_Q_DESC,R10,-(SP)	; Outp
+	PUSHL	R1				; PSR Rec
+	CALLS	#2,G^FORMAT_PSR_ERPT
+	BLBS	R0,450$
+	BRW	1000$				; Clear up and exit
+450$:
+	BRW	410$				; Next pid
+
+500$:
+; Here after each cycle through the relater table
+; We have processed each PID 1 time and any results are
+; in the section.
+; Print the line. If no returns will result in blank line
+; Check all results. If any success cycle again, else next relater
+	MOVL	#2,R9
+	MOVL	ERPT_A,R10
+        MULL3	R9,#SUI_ERPT_C_SIZE,R4		; Offset
+	ADDL	R10,R4				; PID section start
+	CLRL	R11				; Flag
+	MOVAL	FAOLIST,R5			; Params here
+530$:
+; Move address of desc for each on list. If data not present, len= 0
+        CMPL	#SYS_PID_C_PSRARP,R9		; Don't process
+	BEQL	540$
+        CMPL	#SYS_PID_C_PSRREC,R9		; Don't process
+	BEQL	540$
+        CMPL	#SYS_PID_C_UNASS1,R9		; Don't process
+	BEQL	540$
+        CMPL	#SYS_PID_C_UNASS2,R9		; Don't process
+	BEQL	540$
+        CMPL	#SYS_PID_C_RELATER,R9		; Don't process
+	BEQL	540$
+        CMPL	#SYS_PID_C_PSRDNS,R9		; Don't process
+	BEQL	540$
+        CMPL	#SYS_PID_C_PSRDTS,R9		; Don't process
+	BEQL	540$
+        CMPL	#SYS_PID_C_PSRBRD,R9		; Don't process
+	BEQL	540$
+
+	ADDL3	#SUI_ERPT_Q_DESC,R4,(R5)+	; Data address
+        BLBC	SUI_ERPT_L_STA(R4),540$  	; Br if status was bad
+	INCL	R11				; Indicate 1 more good one
+540$:
+        ADDL	#SUI_ERPT_C_SIZE,R4		; Next PID
+        AOBLEQ	#SUI_ERPT_C_MAXID,R9,530$       ; Loop for all
+; Format record
+	MOVL	#1024,ERPTDESC			; Max size
+	PUSHAL	FAOLIST
+	PUSHAL	ERPTDESC
+	PUSHAL	ERPTDESC
+	PUSHAL	ERPTDAT
+	CALLS	#4,G^SYS$FAOL
+	BLBS	R0,550$
+	BRW	1000$
+550$:
+	MOVW	ERPTDESC,ERPTRAB+RAB$W_RSZ
+	$PUT	RAB=ERPTRAB
+	BLBS	R0,560$
+	BRW	1000$
+560$:
+; In there were any new recs printed then cycle though Relater table again.
+; Else next relater
+	TSTL	R11
+	BEQL	570$
+	MOVL	#2,R9			; Reset PID counter
+	BRW	400$			; Cycle
+570$:
+	BRW	310$			; Next relater
+	
+
+
+
+1000$:
+; Here at exit.
+	MOVL	R0,R6		; Save exit status
+	CLRQ	-(SP)           ; No return, no access mode
+	PUSHAL	ERPT_A		; Delete these pages
+	CALLS   #3,G^SYS$DELTVA ; ASSUME success
+	MOVL	R6,R0
+	RET
+; 
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_QUERY   
+;++
+;2 EMU_QUERY   
+; This routine is the entry point into the search & display functions.
+; General:
+;	1 build standard display screen
+;	2 Execute query by passing the query block into the search 
+;	  mechanism. This returns a pointer to the RELATER rec.
+;	4 Using info in relater rec, scan EMUDB for all recs
+;	  in each table 
+;	5 Display any record(s) returned
+; 	6 Update control menu with currently available options
+;	7 Take action based on user input
+;	8 Repeat 2 - 8 until:
+;		User exit
+;		No more records satisfy search string
+;	7. Cleanup and exit
+;3 Input
+;	.address of Query Structure fully filled out
+;	.address of coresponding RELATER record
+;4 QUERY_STRUCTURE
+; A query structure is created at the beginning of each query
+; and used until another query starts. Format:
+;	.quad	DB to search in. This is the 1st and last
+;		address of the DB written when it was mapped.
+;	.quad	Search descriptor. Pointing to the user input
+;		search string.
+;	.long	Search direction. Either forward or backward.
+;	.long	Context. Maintained by the search facility showing
+;		last 'hit'. This is the address of the PSRrec.
+;		Used to walk through a DB displaying 
+;		associated recs one at a time.
+;	.long	param number. PSR specific
+;	.long	Spare - Future use
+;3 Output
+;	Formatted records displayed on screen one at a time
+;	Optionaly, user may log output to file
+;3 Returns
+;	SS$_NORMAL
+;	SS$_INVARG 	addresses in query block = 0
+;			Seach descriptor points to empty string
+;	SS$_ACCVIO	Can't read DB
+;			Can't read search string
+;	
+;--
+	MOVL	4(AP),R6 		; Query Block
+	MOVL	8(AP),R7		; Relater rec
+	TSTL	SUI_QRY_Q_DBASE(R6)
+	BEQL	10$ 
+	TSTL	SUI_QRY_L_SDESCL(R6)
+	BNEQ	20$
+10$:
+        MOVL	#SS$_INVARG,R0
+	RET
+20$:
+	MOVQ	SUI_QRY_Q_SDESC(R6),R0
+        PROBER  #0,R0,(R1)              ; Check for read access
+        BNEQ    40$                     ; Br if yes
+30$:
+        MOVL	#SS$_ACCVIO,R0
+	RET
+
+40$:
+; Other checks
+	PUSHAL	EMUQUERY_MENU_CNT               ; Count of items
+	PUSHL	R7				; Relater
+	CALLS	#2,G^EMQ_SET_EMQMENU  		; Set menu items
+	BLBS	R0,50$				; 
+	RET
+50$:
+; Build screen
+	MOVAL	CUR_MOPTS,R1			; Menu control  options
+	CLRL	EMQ_MOPTS_C_DIRECT(R1)		; Always start forward
+	BSBW	CREATE_EMUQUERY_ENVIRONMENT	
+100$:
+;
+	PUSHAL	EMU_QUERY_MAINPB_COL		;Column
+	PUSHAL	EMU_QUERY_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_MAIN_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	EMU_QUERY_TITL_PBCOLS		;Column
+	PUSHAL	EMU_QUERY_TITL_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_TITL_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	EMU_QUERY_STAT_PBCOLS		;Column
+	PUSHAL	EMU_QUERY_STAT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_STAT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	EMU_QUERY_MENU_PBCOLS		;Column
+	PUSHAL	EMU_QUERY_MENU_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_MENU_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+EMUQUERY_DISP_MENU:
+	CLRL	PARMHLPFLG
+; Display PSRREC
+	PUSHL	R7				; Relater
+	PUSHL	4(AP)				; Query structure
+	CALLS	#2,G^EMQ_DISP_PSRREC            ; Display PSR rec in top
+
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	EMU_QUERY_MENU_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	EMUQUERY_MENU,SUI_MEN_L_MTYPE(R6)  	 ; Type,count
+	MOVQ	EMUQUERY_MENU+8,SUI_MEN_L_ITEMSIZ(R6)    ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R6)     ; privs
+	MOVAL	EMUQUERY_ITEMS,SUI_MEN_L_MENU(R6)        ; Display items
+; Make menu
+	CLRW	CHOICE
+	MOVL	4(AP),R1 				; Query Block
+	CMPL	#SUI_QRY_C_BWD,SUI_QRY_L_DIRECT(R1)	; Back search?
+	BNEQ	10$                                     ; Br if not
+	MOVL	#2,CHOICE                               ; Default choice
+10$:
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBS	R0,20$
+	BRW	EMUQUERY_EXIT  		; Any error exits
+20$:
+	CASEW	CHOICE,#1,#1		; Select processing routine
+300$:                             
+	.WORD	EMUQUERY_NEXT-300$          	; Next item in query block
+	.WORD	EMUQUERY_PREV-300$          		; Prev item
+; calc the PID by using the choice as index to PID array
+EMUQUERY_DISP_PARAMS:
+	CLRQ	PREV_RECHDR			; Clear matching criteria
+	MOVC5	#0,#0,#0,#DB_C_KSZ,RECBUF       ; Clear key
+	MOVAL   EMUQUERY_ITEM_INDEX,R1          ; PID array
+	MOVZWL	CHOICE,R2                       ; Index
+	DECL	R2				; Starts at 0
+	MOVAL	RECBUF,R3                       ; Key header
+	MOVL	(R1)[R2],DB_REC_L_PROTO(R3)     ; Set protocol
+	PUSHL	8(AP)				; Relater rec
+	ADDL3	#DB_REC_L_TABLE,R3,-(SP)
+	ADDL3	#DB_REC_L_PROTO,R3,-(SP)
+	CALLS	#3,G^SUI_GETTABLE
+        BLBS	R0,350$
+	BRW	EMUQUERY_DISP_MENU
+350$:	
+; Set BOXID by using protocol as index to BOXIDTBL and retrieving
+	ADDL3	#RLT_DB_TL_BOXIDS,R7,R1		; Table start
+	MOVL	DB_REC_L_PROTO(R3),R2		; Index
+	MOVL	(R1)[R2],DB_REC_L_BOXID(R3)    ; Set BOX
+; We interrupt this query to bring you the latest counter flash...
+; Using the DB_REC header just build, determine if this box on this
+; proto offers counts. If so, disp count/param selection menu. If counts
+; are not selected, contunue, If counts are selected, run count disp routine 
+; and exit back to count/param menu.
+	PUSHAL	DBTBL
+	PUSHAL	RECBUF
+	CALLS	#2,G^CHECK4COUNTS
+	BLBC	R0,400$  		; Br if counts not avaialble
+	MOVL	R1,R2			; Save PSRDB rec
+360$:                
+	CALLS	#0,G^DISP_CNTPARAM_MENU
+	BLBC	R0,400$
+	PUSHAL	MAINPB_BOARD
+	PUSHL	R2
+	CALLS	#2,G^DISP_COUNTS
+
+;
+	PUSHAL	EMU_QUERY_MAINPB_COL		;Column
+	PUSHAL	EMU_QUERY_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_MAIN_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	EMU_QUERY_TITL_PBCOLS		;Column
+	PUSHAL	EMU_QUERY_TITL_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_TITL_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	EMU_QUERY_STAT_PBCOLS		;Column
+	PUSHAL	EMU_QUERY_STAT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_STAT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+;
+	PUSHAL	EMU_QUERY_MENU_PBCOLS		;Column
+	PUSHAL	EMU_QUERY_MENU_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_MENU_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+
+        BRW	360$
+
+	
+400$:
+; Display title line 3
+	PUSHL	R3
+	CALLS	#1,G^DISPLAY_TITLE3
+
+	MOVQ	(R3),PREV_RECHDR		; Set matching criteria
+	MOVQ	8(R3),PREV_RECHDR+8
+	MOVQ	16(R3),PREV_RECHDR+16
+	CLRL	RECCNT                          ; Start new
+	PUSHAL	EMU_QUERY_MAIN_DISP  
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	BRW	EMUQUERY_DISPLAY                ; Go
+EMUQUERY_PREV:
+	MOVL	4(AP),R1 				; Query Block
+	MOVL	#SUI_QRY_C_BWD,SUI_QRY_L_DIRECT(R1)	; Back search
+	PUSHAL	EMU_QUERY_MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+EMUQUERY_DISPLAY:	
+	SUBL3	#4,EMU_QUERY_MAIN_ROWS,R4		; Line counter
+
+
+10$:
+	MOVL	#DB_REC_C_MRS,RECBUF_DESC
+	MOVAL	CUR_MOPTS,R1
+	PUSHAL	RECCNT			; Record count
+	PUSHL	EMQ_MOPTS_C_RPTL(R1)	; Report level
+	PUSHL	EMQ_MOPTS_C_DIRECT(R1)	; Search direction
+	PUSHAL	RECBUF_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_BOX_TAB	; Key of ref
+	CALLS	#5,G^EMUDB_READ
+	BLBS	R0,100$
+; Error action:
+;	Record lock	try again up to 10 times
+;			Indicate on screen
+;	NOt found	Next DB
+;	EOF		Next DB
+;	Any other	Display, log, next
+	CMPL	R0,#RMS$_EOF
+	BEQLU   50$
+	CMPL	R0,#RMS$_RNF
+	BNEQU   100$
+50$:
+	PUSHAL	BYTCNT
+	PUSHAL	EMU_QUERY_MAIN_DISP
+	PUSHAL	EMQEODMSG 
+	CALLS	#3,G^SUI_READ_PROMPT
+	BLBS	R0,60$
+	BRW	EMUQUERY_DISP_MENU
+60$:
+	BRW	EMUQUERY_DISP_PARAMS		
+100$:
+; Determine what changes are in this rec header and take approp action:
+; Protocol	End this query
+; Boxid		End this query
+; table		New title
+; Instance	Insert blank line
+; don't check param
+;	INCL	RECCNT			; Count recs
+	CMPL	#1,RECCNT		;1st rec?
+	BNEQU	110$			; Br if not
+	PUSHAL	RECBUF 			; Record header
+	CALLS	#1,EMQ_DISP_TITLES
+110$:
+	MOVAL	PREV_RECHDR,R3
+	MOVAL	RECBUF,R2
+	CMPL	DB_REC_L_BOXID(R2),DB_REC_L_BOXID(R3)  
+	BNEQU	50$			; End of data this prot,box
+;120$:
+	CMPL	DB_REC_L_PROTO(R3),DB_REC_L_PROTO(R2)		; Protocol
+	BNEQU	50$                                             ; End if <>
+	CMPL	DB_REC_L_TABLE(R3),DB_REC_L_TABLE(R2)		; Table
+	BNEQU	50$						; End if <>
+	CMPL	DB_REC_L_INST(R3),DB_REC_L_INST(R2)		; Instance
+	BNEQU	160$						; Br if <>
+	BRW	200$			; All still equal
+
+160$:
+; Insert blank line
+	PUSHAL	BLANKLINE
+        PUSHAL	EMU_QUERY_MAIN_DISP
+	CALLS	#2,G^SUI_PRINT
+	BRW	190$
+	
+190$:
+; reset
+	MOVQ	(R2),PREV_RECHDR		; Set matching criteria
+	MOVQ	8(R2),PREV_RECHDR+8
+	MOVQ	16(R2),PREV_RECHDR+16
+	SOBGTR	R4,200$
+	PUSHAL	BYTCNT
+	PUSHAL	EMU_QUERY_STAT_DISP
+	PUSHAL	EMQMORPMT 
+	CALLS	#3,G^SUI_READ_PROMPT
+        BLBC	R0,210$
+     	BRW	EMUQUERY_DISPLAY
+200$:
+	MOVL	#1024,RETBUF_DESC
+	CLRL	-(SP)			; no opts
+	MOVL	#132,-(SP)		; Line len
+	PUSHAL	LINCNT
+	PUSHAL	RETBUF_DESC
+	PUSHAL	RECBUF_DESC
+	CALLS	#5,G^PARAMXLT
+	CMPL	#SS$_NORMAL,R0
+	BNEQU	220$
+	PUSHAL	RETBUF_DESC
+        PUSHAL	EMU_QUERY_MAIN_DISP
+	CALLS	#2,G^SUI_PRINT
+205$:
+	SOBGTR	R4,230$
+	PUSHAL	BYTCNT
+	PUSHAL	EMU_QUERY_STAT_DISP
+	PUSHAL	EMQMORPMT 
+	CALLS	#3,G^SUI_READ_PROMPT
+        BLBC	R0,210$
+     	BRW	EMUQUERY_DISPLAY
+210$:
+	BRW	EMUQUERY_DISP_MENU		
+220$:
+	MOVL	#132,FAODESC
+	MOVQ	RECBUF_DESC,R10
+	PUSHL	R0		; Error
+	PUSHL	DB_REC_L_PARAM(R11)
+	PUSHL	DB_REC_L_TABLE(R11)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	XLTERRSTR
+	CALLS	#6,G^SYS$FAO
+	PUSHAL	FAODESC
+        PUSHAL	EMU_QUERY_MAIN_DISP
+	CALLS	#2,G^SUI_PRINT
+	BRW	205$
+230$:
+	BRW	10$	
+
+
+EMUQUERY_NEXT:
+; 
+	MOVL	4(AP),R1 				; Query Block
+	MOVL	#SUI_QRY_C_FDW,SUI_QRY_L_DIRECT(R1)	  ; Forward search
+	PUSHAL	EMU_QUERY_MAIN_DISP                       ; Clear screen
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	MOVL	#SS$_NORMAL,R0
+	RET
+			                                                  
+EMUQUERY_EXIT:
+	MOVL	R0,R6				; Save status
+	PUSHAL	EMU_QUERY_MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	EMU_QUERY_MENU_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	EMU_QUERY_TITL_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	EMU_QUERY_STAT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	SAVE_DISP	
+	PUSHAL  MAINPB_BOARD
+	CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+	CLRL	EMU_QUERY_MAIN_DISP                        ; exit system
+	MOVL	R6,R0				; Restore
+	RET					; EXIT
+
+
+CREATE_EMUQUERY_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; Create Pasteboards
+;
+	TSTL	EMU_QUERY_MAIN_DISP
+	BEQL	5$
+	RSB
+5$:
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BLBS	R0,10$
+	RET
+10$:
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,30$
+	RET
+30$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	EMU_QUERY_MAIN_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	EMU_QUERY_MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,40$
+	RET
+40$:
+	SUBL	#9,EMU_QUERY_MAIN_ROWS			; Set our page len
+	ADDL3	#6,EMU_QUERY_MAIN_ROWS,EMU_QUERY_STAT_PBROWS	; Set status line locat
+
+;
+	PUSHAL	BORDER
+	PUSHAL	EMU_QUERY_MENU_DISP
+	PUSHAL	EMU_QUERY_MENU_COLS
+        PUSHAL	EMU_QUERY_MENU_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,45$
+	RET
+45$:
+	PUSHAL	EMU_QUERY_MAIN_DISP
+	PUSHAL	EMU_QUERY_MAIN_COLS
+        PUSHAL	EMU_QUERY_MAIN_ROWS
+	CALLS	#3,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,50$
+	RET
+50$:
+;
+	PUSHAL	EMU_QUERY_TITL_DISP  
+	PUSHAL	EMU_QUERY_TITL_COLS
+        PUSHAL	EMU_QUERY_TITL_ROWS
+	CALLS	#3,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,55$
+	RET
+55$:
+	PUSHAL	BORDER
+	PUSHAL	EMU_QUERY_STAT_DISP
+	PUSHAL	EMU_QUERY_STAT_COLS
+        PUSHAL	EMU_QUERY_STAT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,60$
+	RET
+60$:
+	PUSHAL	BOLD
+	PUSHAL	CURROW			; 3 char from left
+        CLRL	-(SP)			; Def to top border
+	PUSHAL	EMU_QUERY_STAT_LABEL
+	PUSHAL	EMU_QUERY_STAT_DISP
+	CALLS	#5,G^SMG$LABEL_BORDER
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,70$
+	RET         
+70$:
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	EMU_QUERY_MAINPB_COL		;Column
+	PUSHAL	EMU_QUERY_MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,80$
+	RET
+80$:
+
+	PUSHAL	EMU_QUERY_TITL_PBCOLS		;Column
+	PUSHAL	EMU_QUERY_TITL_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_TITL_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,85$
+	RET
+
+85$:
+	PUSHAL	EMU_QUERY_STAT_PBCOLS		;Column
+	PUSHAL	EMU_QUERY_STAT_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_STAT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,90$
+	RET
+
+90$:
+	PUSHAL	EMU_QUERY_MENU_PBCOLS		;Column
+	PUSHAL	EMU_QUERY_MENU_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_MENU_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,100$
+	RET
+100$:
+
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+;
+; Set up AST for hidden menus
+	PUSHAL	PREV_RECHDR			; Param (current record)
+	PUSHAL	EMQ_OOB_RECEIVE			; AST
+	PUSHAL	OOB_MASK
+	PUSHAL	MAINPB_BOARD
+	CALLS	#4,G^SMG$SET_OUT_OF_BAND_ASTS
+	RSB
+
+
+
+	.CALL_ENTRY MAX_ARGS=2, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=CHECK4COUNTS   
+;++
+;2 CHECK4COUNTS 
+;  Routine to get the PSR rec sepecified by the input and determine
+;  if this box on this protocol has counter data avaialble (SYS_COM_V_CNTDB
+; bit in COM_HDR_L_SYSCTL is set)                          
+;2 Input
+;	.address of EMUDB rec  - Only the PROTOCOL and BOXID must be present
+;	.address of DBTBL
+;2 Outputs
+;	None
+;3 Returns
+;  SS$_NORMAL 		Counts are available
+;  SS$_ITEMNOTFIUND	Counts not avaialble
+; 	Any from LOCATE_BOXID, MAPLVB_DB
+;--
+	MOVL	4(AP),R6		; EMUDB rec
+	MOVL	8(AP),R7                ; DBTBL
+	MULL3	DB_REC_L_PROTO(R6),#SYS_MAP_C_MAPSIZ,R1
+
+	ADDL	R1,R7
+	TSTL	(R7)
+	BNEQ	100$
+	PUSHL	R7
+	CALLS	#1,G^MAPLVB_DB
+	BLBS	R0,100$
+	RET
+100$:
+	CLRL	MIBCONTEXT
+	PUSHAL	MIBCONTEXT 	; Context
+	PUSHL	R7              ; Section
+	ADDL3	#DB_REC_L_BOXID,R6,-(SP)		; Boxid
+	CALLS	#3,G^LOCATE_BOXID
+	BLBS	R0,110$
+	RET
+110$:
+	MOVL	#SS$_NORMAL,R0			; Assume
+	BBS	#SYS_COM_V_CNTDB, COM_HDR_L_SYSCTL(R1), 120$
+	MOVL	#SS$_ITEMNOTFOUND,R0
+120$:
+	RET
+ 
+	.CALL_ENTRY MAX_ARGS=1, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=DISP_CNTPARAM_MENU   
+;++
+;2 DISP_CNTPARAM_MENU 
+;  Erases disp3, places a 2 item menu in the disp and upon user input,
+;  erases the disp and returns the choice in R0.  
+;2 Input
+;	None
+;2 Outputs
+;	None
+;3 Returns
+;	0 	User exited without making choice
+;  	1	Users selected COUNTS
+;	2	User selected PARAMS
+;--
+	PUSHAL	EMU_QUERY_MAIN_DISP  
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	EMU_QUERY_MAIN_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	CNTPARAM_MENU,SUI_MEN_L_MTYPE(R6)  	 ; Type,count
+	MOVQ	CNTPARAM_MENU+8,SUI_MEN_L_ITEMSIZ(R6)    ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R6)     ; privs
+	MOVAL	CNTPARAM_ITEMS,SUI_MEN_L_MENU(R6)        ; Display items
+
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBS	R0,10$
+	CLRL	R0
+	RET
+10$:
+	MOVZWL	CHOICE,R0
+	RET
+	
+	
+
+
+	.CALL_ENTRY MAX_ARGS=1, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=DISPLAY_TITLE3   
+;++
+;2 DISPLAY_TITLE3 
+;  Routine to get the PSR rec sepecified by the input and display
+;  parts of the header on line 3 of the title display
+;2 Input
+;  .address of EMUDB rec 
+;	Only the PROTOCOL and BOXID must be present
+;2 Outputs
+;	1 line is written on line 3 of the title display
+;3 Returns
+;  SS$_NORMAL 		OK
+; 	Any from LOCATE_BOXID, MAPLVB_DB, $SMG, $FAO
+;--
+	MOVL	4(AP),R6		; EMUDB rec
+	MOVAL	DBTBL,R7
+	MULL3	DB_REC_L_PROTO(R6),#SYS_MAP_C_MAPSIZ,R1
+	ADDL	R1,R7
+	TSTL	(R7)
+	BNEQ	100$
+	PUSHL	R7
+	CALLS	#1,G^MAPLVB_DB
+	BLBS	R0,100$
+	RET
+100$:
+	CLRL	MIBCONTEXT
+	PUSHAL	MIBCONTEXT 	; Context
+	PUSHL	R7              ; Section
+	ADDL3	#DB_REC_L_BOXID,R6,-(SP)		; Boxid
+	CALLS	#3,G^LOCATE_BOXID
+	BLBS	R0,110$
+	RET
+110$:
+	MOVL	#132,FAODESC
+	ADDL3	#COM_CFG_Q_LASUPD,R1,-(SP)	
+	ADDL3	#COM_HDR_Q_LSTHRD,R1,-(SP)	
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	EMQTIMSTR
+	CALLS	#5,G^SYS$FAO
+	BLBS	R0,130$
+	RET
+130$:
+	PUSHAL	CURCOL
+	PUSHAL	CURROW
+	PUSHAL	EMU_QUERY_TITL_DISP 
+	CALLS	#3,G^SMG$SET_CURSOR_ABS
+	BLBS	R0,140$
+	RET
+140$:
+	PUSHAL	FAODESC
+	PUSHAL	EMU_QUERY_TITL_DISP 
+	CALLS	#2,G^SUI_PRINT
+	RET
+
+	.CALL_ENTRY MAX_ARGS=5, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=SUI_SET_PARAM_HELP  
+;++
+;2 SUI_SET_PARAM_HELP
+;  Routine to set the correct paramater help file in query display.
+;  Help files are protocol specific and except for IP the names are
+;  hard coded. To facilitate auotmatic adding of MIBs to the system
+;  IP is handled seperately (in this routine). 
+;2 Input
+;  .address of PID
+; ---- following params only if IP. If IP, they must be present.
+;	.Address of .word menu item selected
+;	.address of desc menu strings
+;2 Outputs
+;  PARMHLPLIB is set with 1 of:
+;	The hardcoded help file name associated with this PID
+;	The MIB name extracted from the input list (IP)
+;	The default PARMHLPLIB
+;
+;3 Returns
+;  SS$_NORMAL 		OK
+;--
+	MOVL	@4(AP),R6		; PID
+	CMPL	#SYS_PID_C_PSRIP,R6	; IP?
+	BNEQ	100$
+	BRW	200$			; 
+100$:
+	MOVAL	PARMHLP_LIST,R7
+	MOVL	(R7)[R6],PARMHLPLIB
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+200$:
+	TSTL	PARMHLPFLG
+	BNEQ	215$
+	CMPL	#1,(AP)			; necessary params present?
+	BEQL	210$			; Br if not (will happen!)
+
+	MOVW	@8(AP),R6		; Choice
+	DECL	R6			; Make index
+	MOVQ	@12(AP),R7		; r7 = len, r8 = addr
+	MOVZWL	R7,R9			; Extract item size
+	MULL	R6,R9			; Offset
+	ADDL	R9,R8			; Addr
+	LOCC	#^A/ /,#64,(R8)
+        TSTL	R0			; Br if len can't be found
+	BNEQ	220$
+210$:	
+	MOVAL	PARAMDEFLIB,PARMHLPLIB
+215$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+220$:
+	SUBL	R8,R1			; Len of file name
+	ADDL3	R1,#9,PARAMIP_DESC      ; Add len of dir name
+	MOVAL	PARMIPLIB,PARAMIP_DESC+4 ; ADDR
+	MOVC3	R1,(R8),PARMIPFIL	; file String
+	MOVAL	PARAMIP_DESC,PARMHLPLIB
+	MOVL	#1,PARMHLPFLG
+	MOVL	#SS$_NORMAL,R0
+	RET
+ 
+	.CALL_ENTRY MAX_ARGS=2, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=EMQ_DISP_PSRREC  
+;++
+;2 EMQ_DISP_PSRREC
+; Display parts of RELATER rec on lines 1-2  
+; of top display
+;2 Input
+;  .address of query structure
+;  .address of relater record
+;2 Outputs
+;  Line1: Name (prefered) or protocol address (if no name)
+;  Line2: Class and device type (from relater)
+;
+;3 Returns
+;  SS$_NORMAL 		OK
+;  SS$_ITEMNOTFOUND		 Did not find matching PSR rec (should never
+;				 happen)
+;--
+	MOVL	4(AP),R6 		; Query Block
+	MOVL	8(AP),R4		; Relater rec
+
+	MOVL	SUI_QRY_Q_DBASE(R6),R9		; Top of table
+	MOVL	COM_DBHDR_L_RECSIZE(R9),R7	; Rec size
+	ADDL3	R7,R9,R8                	; 1st entry
+	MOVL	COM_DBHDR_L_ENTRIES(R9),R11	; Entries
+	BNEQ	100$				; br if Some
+	MOVL	#SS$_ITEMNOTFOUND,R0		; 
+	RET
+100$:
+	PUSHAL	EMU_QUERY_TITL_DISP  
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+
+110$:
+	MOVL	#132,GENBUFDESC
+	PUSHL	#2			; Prefer specific name
+	PUSHAL	GENBUFDESC                 ; NAME HERE
+	PUSHL	R4			; Relater
+	CALLS	#3,G^NAME_LOOKUP
+	BLBS 	R0,120$
+; Name not found - xlate address
+	MOVL	#132,GENBUFDESC
+	PUSHAL	GENBUFDESC              ; Addr here
+	PUSHL	R6			; Query structure
+	CALLS	#2,G^FORMAT_ADDR
+	BLBS	R0,120$
+	RET
+120$:
+	PUSHAL	BOLD
+	PUSHAL	ONEROW
+	PUSHAL	GENBUFDESC
+	PUSHAL	EMU_QUERY_TITL_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+;
+;
+140$:
+	MOVL	#132,FAODESC
+	PUSHL	RLT_DB_L_CLASS(R4)
+	PUSHL	RLT_DB_L_LAYERS(R4)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RLTSTR
+	CALLS	#5,G^SYS$FAO
+	BLBS	R0,150$
+	RET
+150$:
+	PUSHAL	FAODESC
+	PUSHAL	EMU_QUERY_TITL_DISP
+	CALLS	#2,G^SUI_PRINT
+	RET
+
+			.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMQ_DISP_RELATER  
+;++
+;2 EMQ_DISP_RELATER  
+; Display contents of currently selected relater record at line 1 of
+; top display.
+;3 Input
+;  .address of relater record
+;3 Output
+;  Formatted screen display
+; if logging is on, write to file
+;3 Returns
+; SS$_NORMAL
+;--
+
+
+	MOVL	4(AP),R6
+	MOVL	#132,FAODESC
+	PUSHL	RLT_DB_L_CLASS(R6)
+	PUSHL	RLT_DB_L_LAYERS(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RLTSTR
+	CALLS	#5,G^SYS$FAO
+	BLBS	R0,10$
+	RET
+10$:
+	PUSHAL	FAODESC
+	PUSHAL	EMU_QUERY_TITL_DISP
+	CALLS	#2,G^SUI_PRINT
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMQ_OOB_RECEIVE  
+;++
+;2 EMQ_OOB_RECEIVE  
+; This routine is called when a control character is pressed. Depending
+; on the character pressed, the appropriate action is taken.
+;3 Options
+; Thus far the following characters are enabled:
+; ^\ Displays the control menu and upon selection, sets the 
+; various options.
+;-- 
+	MOVL	4(AP),R6		; Structure
+;	CMPB	SMG$B_CHAR(R6),#^A/\/	; 
+;	BEQLU	100$
+;	RET
+100$:
+	PUSHAL	BORDER
+	PUSHAL	EMU_QUERY_CTLMENU_DISP 
+	PUSHAL	EMU_QUERY_CTLMENU_COLS
+        PUSHAL	EMU_QUERY_CTLMENU_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,110$
+	RET
+
+; Associate the pasteboard and Virtual Display
+;
+110$:
+	PUSHAL	EMU_QUERY_CTLMENU_PBCOLS		;Column
+	PUSHAL	EMU_QUERY_CTLMENU_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_CTLMENU_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,120$
+	RET
+120$:
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,130$
+	RET         
+130$:
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+
+200$:
+; make currently selected options visible as menu choices.
+	MOVAL	CUR_MOPTS,R6       	; Current options
+	MOVAL	EMU_QUERY_ITEMS2,R7     ; Make menu here
+	MOVAL	EMQ_LOG,R8
+	MOVL	EMQ_MOPTS_C_LOGF(R6),R1
+	MOVQ	(R8)[R1],(R7)+		; Select Logfile
+	MOVAL	EMQ_RPTLVL_ITEMS,R8
+	MOVL	EMQ_MOPTS_C_RPTL(R6),R1
+	MOVQ	(R8)[R1],(R7)+		; Select Report leveL
+	MOVAL	EMQ_UPDATE,R8
+	MOVQ	(R8),(R7)+		; Add update item
+
+
+
+
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	EMU_QUERY_CTLMENU_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	EMU_QUERY_MENU2,SUI_MEN_L_MTYPE(R6)  	 ; Type,count
+	MOVQ	EMU_QUERY_MENU2+8,SUI_MEN_L_ITEMSIZ(R6)    ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R6)     ; privs
+	MOVAL	EMU_QUERY_ITEMS2,SUI_MEN_L_MENU(R6)        ; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBC	R0,400$  		; Any error exits
+	CASEW	CHOICE,#1,#2		; Select processing routine
+300$:                             
+	.WORD	1000$-300$
+	.WORD	2000$-300$
+	.WORD	3000$-300$
+   	
+
+
+400$:
+	PUSHAL	EMU_QUERY_CTLMENU_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	RET
+1000$:  				
+	MOVAL	CUR_MOPTS,R6       	; Current options
+	BLBS	EMQ_MOPTS_C_LOGF(R6),1010$	 ; Br if on
+; Open new file
+; Get file name
+	PUSHAL	BYTCNT
+	PUSHAL	EMU_QUERY_STAT_DISP
+	PUSHAL	FILEPRMPT
+	CALLS	#3,SUI_READ_PROMPT 
+	BLBC	R0,2010$
+; Open the file
+	MOVAL	KB_BUF,LOGFAB+FAB$L_FNA	; Location of name
+	MOVB	BYTCNT,LOGFAB+FAB$B_FNS	; Size of name
+	$CREATE	FAB=LOGFAB
+	BLBS	R0,1001$
+	RET
+1001$:
+	$CONNECT RAB=LOGRAB
+	MOVL	#1,EMQ_MOPTS_C_LOGF(R6) 	 ; Turn on
+	BRW	200$
+1010$:
+	CLRL	EMQ_MOPTS_C_LOGF(R6)             ; Turn off
+	$CLOSE	FAB=LOGFAB
+        BRW	200$
+2000$:     				; Change report level
+	PUSHAL	BORDER
+	PUSHAL	EMU_QUERY_RPTMENU_DISP 
+	PUSHAL	EMU_QUERY_RPTMENU_COLS
+        PUSHAL	EMU_QUERY_RPTMENU_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,2010$
+	RET
+
+; Associate the pasteboard and Virtual Display
+;
+2010$:
+	PUSHAL	EMU_QUERY_RPTMENU_PBCOLS		;Column
+	PUSHAL	EMU_QUERY_RPTMENU_PBROWS		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	EMU_QUERY_RPTMENU_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,2020$
+	RET
+2020$:
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,2030$
+	RET         
+2030$:
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	EMU_QUERY_RPTMENU_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	EMQ_RPTLVL_MENU,SUI_MEN_L_MTYPE(R6)  	 ; Type,count
+	MOVQ	EMQ_RPTLVL_MENU+8,SUI_MEN_L_ITEMSIZ(R6)    ; Size,check flag
+	MOVAL	ANY_PRIVS,SUI_MEN_L_PRIVLST(R6)     ; privs
+	MOVAL	EMQ_RPTLVL_ITEMS,SUI_MEN_L_MENU(R6)        ; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBS	R0,2200$  		; Br no error
+2100$:
+	PUSHAL	EMU_QUERY_RPTMENU_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	BRW	200$
+2200$:
+	MOVAL	CUR_MOPTS,R6       	; Current options
+	DECW	CHOICE
+	MOVZWL	CHOICE,EMQ_MOPTS_C_RPTL(R6)	 ; Set level
+	BRB	2100$	
+3000$:
+	MOVL	4(AP),R6		; Structure
+	MOVL	4(R6),R6		; AST param
+	TSTL	DB_REC_L_PROTO(R6)
+	BEQL	3010$
+	TSTL	DB_REC_L_BOXID(R6)
+	BNEQ	3020$
+3010$:
+	PUSHAL	BYTCNT
+	PUSHAL	EMU_QUERY_CTLMENU_DISP
+	PUSHAL	SELPROTPRMPT
+	CALLS	#3,SUI_READ_PROMPT 
+	BRW	200$
+3020$:
+; Find the db we want to update and pass this and the curr rect to 
+; SET_UPDATE.
+	MOVAL	DBTBL,R7
+	MULL3	DB_REC_L_PROTO(R6),#SYS_MAP_C_MAPSIZ,R1
+	ADDL	R1,R7			; This db
+	TSTL	(R7) 			; Mapped?
+	BNEQ	3040$                   ; Br if so
+	PUSHL	R7
+	CALLS	#1,G^MAPLVB_DB
+	BLBC	R0,3050$
+3040$:
+	PUSHL	R7
+	PUSHL	R6
+	CALLS	#2,G^SET_UPDATE
+3050$:
+	MOVL	#132,FAODESC
+	PUSHL	R0
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	UPDRESPRMPT
+	CALLS	#4,G^SYS$FAO
+	PUSHAL	BYTCNT
+	PUSHAL	EMU_QUERY_CTLMENU_DISP
+	PUSHAL	FAODESC 
+	CALLS	#3,G^SUI_READ_PROMPT
+	BRW	200$
+
+
+	 .CALL_ENTRY	MAX_ARGS=1, -                                 
+                        HOME_ARGS=TRUE, -                             
+                        INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -    
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, - 
+                        LABEL=EMQ_DISP_TITLES 
+;++
+;2 EMQ_DISP_TITLES 
+; Routine called whenver either table or protocol changes in 
+; continuing search. Clear main screen and display table name
+; in bold. 
+;3 Input
+; .address of EMUDB record buffer
+; MAPPER.DAT is the input file  containing the ID to name xlate for 
+; for table names.
+;3 Output
+; New titles on the screen. If xlate can't be preformed, the 
+; id is translated and number displayed as Protocol.Table
+;3 Returns
+; 	SS$_NORMAL	OK
+;	SS$_BADPARAM	Unrecognised protocol 
+;	any from RMS, FAO, SMG print line
+;--
+	MOVL	4(AP),R6                ; DBrec
+        TSTW	MAPPERFAB+FAB$W_IFI
+	BNEQ    50$
+	$OPEN	FAB = MAPPERFAB		;Open input file
+	BLBS	R0,10$
+	RET
+10$:
+ 	$CONNECT RAB = MAPPERRAB	;Connect input stream
+	BLBS	R0,20$
+	RET
+20$:
+ 	$CONNECT RAB = MAPPERRAB2	;Connect input stream
+	BLBS	R0,30$
+	RET
+30$:
+50$:
+	CLRL	MAPPERRAB2+RAB$L_ROP			; No Options
+	BISL    #RAB$M_NXT,MAPPERRAB2+RAB$L_ROP         ; get next
+        MOVB	#8,MAPPERRAB2+RAB$B_KSZ
+	MOVB 	#RAB$C_KEY,MAPPERRAB2+RAB$B_RAC         ; Keyed lookup
+	CLRB	MAPPERRAB2+RAB$B_KRF                 	
+	CLRQ	TBLRECBUF
+	MOVL	8(R6),TBLRECBUF+4			; Set key
+60$:
+	$GET	RAB=MAPPERRAB2
+	BLBS	R0,110$
+; Entry not found - translate and print numbers
+
+	MOVL	#132,FAODESC
+	PUSHL	8(R6)			; Table
+	PUSHL	(R6)			; Protocol
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	EMQTITMSG
+	CALLS	#5,G^SYS$FAO
+	BRW	200$
+110$:
+; Chech if this is the table name. If hi byte of tbl param .ne. 0 then
+; this is table name. Otherwise get next matching entry.
+		
+	MOVAL	TBLRECBUF,R7
+	TSTB	3(R7)
+	BEQL	60$
+	CMPL	8(R6),TBLRECBUF+4			;  key
+	BNEQU	60$
+; Found rec
+	MOVL	#132,FAODESC
+	ADDL3	R7,#DB_MAP_A64_KEYW,-(SP)
+	PUSHL	DB_MAP_L_KEYWLEN(R7)			; Table LEN
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	EMQTBLNAM
+	CALLS	#5,G^SYS$FAO
+200$:
+	PUSHAL	BOLD
+	PUSHAL	ONEROW
+	PUSHAL	FAODESC
+        PUSHAL	EMU_QUERY_MAIN_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+	RET
+
+
+	 .CALL_ENTRY	MAX_ARGS=2, -                                 
+                        HOME_ARGS=TRUE, -                             
+                        INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -    
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, - 
+                        LABEL=SUI_PRINT 
+;++
+;2 SUI_PRINT
+; Routine to print the specified line on the specified display
+; If logging is enabled, the line is also written to the 
+; output file.
+;3 Inputs
+; .address of virtual display ID
+; .address of desc pointing to line to print
+; NOTE: This routine reads CUR_MOPTS to determine if logging is 
+; enabled. This param is not passed.
+;3 Output
+; The line is printed on the display
+; If logging is enabled, the line is written to the outp file
+;3 Returns
+; Any return from $SMG or RMS
+;--
+	
+                PUSHL   8(AP)
+                PUSHL   4(AP)
+                CALLS   #2,G^SMG$PUT_LINE
+		BLBS	R0, 100$
+		RET
+100$:
+		MOVAL	CUR_MOPTS,R1
+		TSTL	EMQ_MOPTS_C_LOGF(R1)
+		BEQL	200$
+; Print current rec to log file
+		MOVQ	@8(AP),R1
+       		MOVW	R1,LOGRAB+RAB$W_RSZ
+       		MOVL	R2,LOGRAB+RAB$L_RBF
+       		$PUT	RAB=LOGRAB
+       		BLBS	R0,200$
+
+200$:
+		MOVL	#SS$_NORMAL,R0
+		RET
+  
+	 .CALL_ENTRY	MAX_ARGS=3, -                                 
+                        HOME_ARGS=TRUE, -                             
+                        INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -    
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, - 
+                        LABEL=EMQ_SET_EMQMENU  
+;++
+;2 EMQ_SET_EMQMENU
+; Routine to scan the BOXIDTBL in the passed relater record and 
+; create a menu containing only those protocols present on this BOX.
+; A list of .long PIDS is also kept such that a menu choice used as 
+; an an index to this list will return the corresponding EMUPID of the
+; selected protocol.
+;3 Inputs
+; 	.address of relater frame
+;	.address of .long where number of items selected is returned
+;3 Outputs
+;	1. a list of selected items is placed starting at 
+;	   EMUQUERY_PROT_MENU.
+;	   Each item is an 8 byte .ascii menu choice.
+;       2. A list of .longs is written with the EMUPID of
+;	   the selected items in the same order as the 
+;	   menu items. That is to say, the choice number
+;	   returned, used as an index to this array will return
+;	   the PID of the selected item.
+;	3. Count of items selected for display.
+;3 Returns
+;  SS$_NORMAL		
+;--
+	MOVL	4(AP),R6		; Relater rec	
+	MOVL	#2,@8(AP)		; Fixed items
+	MOVAL	EMUQUERY_PROT_MENU,R7   ; Build list here
+	MOVAL	EMUQUERY_PROT_INDEX,R8	; PID list here
+	MOVAL	EMUQUERY_ITEM_LIST,R9	; Selection list
+	CLRL	R10			; Outp index
+100$:
+	ADDL3	#RLT_DB_TL_BOXIDS,R6,R2		; Table start
+	CLRL	R3				; Inpt Index
+200$:
+	TSTL	(R2)[R3]
+	BNEQ	300$
+210$:
+        AOBLSS	#RLT_DB_C_MAXBOXID,R3,200$    	; Loop for all possible
+	ADDL	R10,@8(AP)			; Return count
+	MOVL	#SS$_NORMAL,R0             	; Done
+	RET
+300$:
+        MOVQ    (R9)[R3],(R7)+		; Move selection
+	MOVL	R3,(R8)+		; PID
+	INCL	R10			; Item count
+	BRB	210$
+;
+	 .CALL_ENTRY	MAX_ARGS=2, -                                 
+                        HOME_ARGS=TRUE, -                             
+                        INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -    
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, - 
+                        LABEL=SUI_LOCATE_DB                           
+;++                                                                       
+;2 SUI_LOCATE_DB                                                          
+; Locates a (Possibly) previously mapped DB in the DB table structure
+; The structure is searched for a match with the input paramater.
+; If found, the address of the quad DB addresses is checked .
+; If not mapped, the routine attempts to map it
+;3 Input
+;	.LONG  EMU PID of the database to find this in
+;	.address of descriptor pointin to MAP_STRUCTURE
+;	symbol is SYS_PID_C_xxxxx in EMUSYSDEF
+;3 Output
+; If found, R1 contains the pointer to the quad 1st and last address
+; that was returned when the DB was mapped.
+;3 Returns
+;	SS$_NORMAL		DB was found, Pointer is in R1
+;	SS$_ITEMNOTFOUND	Structure not found in table. R1 = 0
+;    Any from MAPLVB_DB
+;				(addresses = 0), R1 = 0
+;--	
+        MOVQ	@8(AP),R8
+	ADDL3	R8,R9,R10			; Last addr to map
+	MOVL	4(AP),R6
+60$:
+	CMPL	R6,SYS_MAP_L_PID(R9)
+	BEQLU	80$
+70$:
+	ADDL	#SYS_MAP_C_MAPSIZ,R9
+	CMPL	R9,R10				; More?
+	BLSSU	60$                             ; Br if more
+	CLRL	R1
+	MOVL	#SS$_ITEMNOTFOUND,R0            ; 
+	RET
+80$:
+	TSTL	SYS_MAP_Q_ADDR(R9)		; mapped?
+	BEQL	90$				; Skip if so
+	MOVL	R9,R1
+	MOVL	#SS$_NORMAL,R0
+	RET
+90$:
+	PUSHL	R9
+	CALLS	#1,G^MAPLVB_DB
+	MOVL	R9,R1
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_PRINT_STATUS
+;++
+;2 SUI_PRINT_STATUS
+; Displays the line specified by the input on the status line
+;3 Input
+;	address of desc pointing to ascii string to display
+;3 Output
+;	The string is displayed on the status line
+;3 Return
+;	Any return from SMG$PUT_LINE  
+;--
+;;;*** NEEDS ANOTHER PARAM (DISPLAY) ***
+
+;		PUSHL	4(AP)
+;		PUSHAL	STAT_DISP
+;		CALLS	#2,G^SMG$PUT_LINE
+		RET
+  
+	.CALL_ENTRY	MAX_ARGS=5, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_READ_PROMPT 
+
+
+;2 SUI_READ_PROMPT
+; Displays the prompt specified by the input on the specified 
+; display, waits for user input and returns the input in KB_BUF.
+;	
+;3 Input
+;	P1. address of desc pointing to ascii string to display
+;	P2. address of display
+;	P3. address of bytcnt, where READ_STRING writes the count 
+;	    of user input bytes.
+;	P4. address of case flag. Optional. May be 1 of:
+;		0		Not uppercased
+;		TRM$M_TM_CVTLOW Uppercased
+;	P5. Address of desc pointing to where READ_STRING 
+;	    places the user input. If not present input is 
+;	    placed in KB_BUF
+;3 Output
+;	The prompt is displayed on the specified display
+;	Any user input is returned in KB_BUF
+;
+;3 Return
+;	Any return from SMG$READ_STRING
+;--
+		MOVL	#TRM$M_TM_CVTLOW,RPCASE	; Set def		
+		MOVAL	KB_DES,R6		; Set def outp
+		CMPL	#4,(AP)                  ; Present?
+		BGTR	20$			; No options
+		MOVL	16(AP),RPCASE		; Set case
+;
+		CMPL	#5,(AP)                  ; Present?
+		BNEQ	20$			; Br if not
+		MOVL	20(AP),R6               ; Set oupt
+20$:
+		PUSHAL	OCCSTATE
+		PUSHAL	MAINPB_BOARD
+		PUSHL	8(AP)
+		CALLS	#3,G^SMG$CHECK_FOR_OCCLUSION
+		BLBC	OCCSTATE,30$		; Br if not occluded
+
+		MOVL	8(AP),R1
+		ADDL3	#12,R1,-(SP)		;Column
+		ADDL3	#16,R1,-(SP)		;Row
+		PUSHAL	MAINPB_BOARD
+		PUSHL	R1
+		CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+		
+30$:
+
+		PUSHL	8(AP)                   ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	12(AP)                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	RPCASE                  ; Case 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	4(AP)                 	; Output DSC
+		PUSHL	R6                      ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		RET                             ; Any error handled by caller
+		  
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=USER_SET_MIB 
+;++
+;2 USER_SET_MIB
+; Routine to allow user to set MIB params for SNMP access.
+; User May:
+;	Set the MIB(s) this BOXID will use to acquire data
+;	from the node.
+;	Set the password used to access the box. A passworrd file
+;	is maintained and it is referenced by number. On most nets
+;	there will be a few passwords used on many boxes. For that
+;	reason the few passwords are stored (encrypted) and then a 
+;       pointer to the password is associated with the box.
+;       Maintain the password file. This is a relative rec file
+;	User may add/change/view passwords
+;  NOTE: None of these routines is accessable unless the user has 
+;	 SYSPRIV set.
+; Input
+;	.address of relater rec pointing to rec in PSRIP these routines
+;	will operate on.
+;	Files:
+;	RAZDAZ.DAT. The SNMP password file
+; Output
+;	The boxid pointer to by the input relater record may have
+;	any/all or none of the following fileds modified:
+;	COM_CFG_B16_SUPPORT - MIBs supported
+;	COM_CFG_L_PASS  - Password pointer
+;	Files:
+;	RAZDAZ.DAT. The SNMP password file
+;       All changes are logged to the logfile.
+; Return
+;      	SS$_NORMAL	OK
+;	SS$_BADPARAM	Ip BOXID in input relater rec was 0
+;	Any from: 	MAPLVB_DB
+;--                     LOCATE_BOXID
+; Locate PSRIP rec
+	MOVL	4(AP),R6		; Relater rec
+	ADDL	#RLT_DB_TL_BOXIDS,R6	; Boxids
+	MULL3	#SYS_PID_C_PSRIP,#4,R1
+	ADDL	R1,R6
+	TSTL	(R6)			; IP boxid
+	BNEQ	10$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+10$:
+; Map to PSRIP
+	MOVAL	DBTBL,R7
+	MULL3	#SYS_PID_C_PSRIP,#SYS_MAP_C_MAPSIZ,R1
+	ADDL	R1,R7
+	TSTL	(R7)
+	BNEQ	100$
+	PUSHL	R7
+	CALLS	#1,G^MAPLVB_DB
+	BLBS	R0,100$
+	RET
+100$:
+	CLRL	MIBCONTEXT
+	PUSHAL	MIBCONTEXT 	; Context
+	PUSHL	R7              ; Section
+	PUSHL	R6		; Boxid
+	CALLS	#3,G^LOCATE_BOXID
+	BLBS	R0,110$
+	RET
+110$:
+	MOVL	R1,R6		; PSRRec
+
+; Make menu structure
+120$:
+	MOVAL	MENU_STRUCT,R9
+	MOVAL	EMU_QUERY_MAIN_DISP,SUI_MEN_L_DISPLAY(R9)
+	MOVQ	SETMIB_MENU,SUI_MEN_L_MTYPE(R9)  		; Type,count
+	MOVQ	SETMIB_MENU+8,SUI_MEN_L_ITEMSIZ(R9)       ; Size,check flag
+	MOVAL	SETMIB_PRIVS,SUI_MEN_L_PRIVLST(R9)        ; privs
+	MOVAL	SETMIB_ITEMS,SUI_MEN_L_MENU(R9)        	; Display items
+; Make menu
+	CLRW	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBS	R0,190$
+	RET 
+190$:
+	CASEW	CHOICE,#1,#2		; Select processing routine
+300$:                             
+	.WORD	1000$-300$
+	.WORD	2000$-300$
+	.WORD	3000$-300$
+	RET
+1000$:
+	PUSHL	R6
+	CALLS	#1,G^SETMIB_SET_MIB
+     	BRW	120$
+2000$:
+	PUSHL	R6
+	CALLS	#1,G^SETMIB_SET_PASS
+     	BRW	120$
+3000$:
+	PUSHL	R6
+	CALLS	#1,G^SETMIB_CREATE_PASS
+     	BRW	120$
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SETMIB_SET_MIB
+;++
+;2 SETMIB_SET_MIB
+;  Routine to allow user to set the MIB(s) that EMU_CONFIGMON should
+;  use to collect SNMP data on this IP address. 
+;  A menu of all registered mibs is presented. Selection of any item:
+;	If enabled, the corresponding MIB is disabled 
+;	If disabled, the corresponding MIB is enabled 
+; After each selection, the list of enabled MIBs is displayed
+; If changes are made, the change is propogated to all other IP recs
+; with the same BOXID.
+;3 Input
+;  .address of PSRIP record
+;  Files/structures:
+;	MAPPER.DAT - read only
+;3 Output
+;  PSRIP rec COM_CFG_B16_SUPPORT field may be modified
+;  If it is the change is propogated to all other PSRIP recs with
+;  matching BOXID.
+;3 Return
+;	SS$_NORMAL	OK
+;--
+	CLRL	CURPID		
+	MOVL	4(AP),R6
+100$:
+; Display support field in top display
+	MOVL	#132,FAODESC
+	ADDL3	#COM_CFG_B16_SUPPORT,R6,R1
+	PUSHL	COM_CFG_L_PASS(R6)
+	PUSHL	(R1)
+	PUSHL	1(R1)
+	PUSHL	2(R1)
+	PUSHL	3(R1)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	SETMIBSTR
+	CALLS	#8,G^SYS$FAO
+        BLBS	R0,110$
+	RET
+110$:
+	PUSHAL	FAODESC
+	PUSHAL	EMU_QUERY_TITL_DISP
+	CALLS	#2,G^SUI_PRINT
+	BLBS	R0,120$
+	RET
+120$:
+; Disp menu of all registered mibs
+200$:
+	TSTW	MAPPERFAB+FAB$W_IFI
+	BNEQ	210$
+	$OPEN	FAB=MAPPERFAB
+	BLBS	R0,201$
+	RET
+201$:
+	$CONNECT RAB=MAPPERRAB
+	BLBS	R0,202$
+	RET
+202$:
+	$CONNECT RAB=MAPPERRAB2
+	BLBS	R0,210$
+	RET
+210$:
+	MOVAL	PARAMLST,R7			; Build menu items here
+	MOVAL	TBLRECBUF,R10
+	MOVL	MIBTBLSEL,(R10) 		; All recs matching this
+	CLRL	MAPPERRAB2+RAB$L_ROP			; No Options
+	BISL    #RAB$M_RRL,MAPPERRAB2+RAB$L_ROP         ; read locked
+	BISL    #RAB$M_NLK,MAPPERRAB2+RAB$L_ROP         ; read locked
+
+	MOVB	#1,MAPPERRAB2+RAB$B_KRF		; Key of ref
+	MOVB	#4,MAPPERRAB2+RAB$B_KSZ		; Key size
+	MOVB 	#RAB$C_KEY,MAPPERRAB2+RAB$B_RAC  ; Keyed read
+	CLRL	R11
+220$:
+	$GET	RAB=MAPPERRAB2
+    	BLBS	R0,230$
+	BRW	300$
+230$:
+; Place index in choice tbl, string in menu.
+; Check if too many items
+	CMPL	MIBTBLSEL,(R10) 		; All recs matching this
+	BEQLU	240$
+	BRW	300$
+240$:
+	INCL	R11
+	CMPL	R11,#MAXDYN_ITEMS
+	BLEQ	250$
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+250$:
+	MOVC5	DB_MAP_L_KEYWLEN(R10),DB_MAP_A64_KEYW(R10),#^A/ /,-
+		#DYNITEM_SIZE,(R7)
+	ADDL	#DYNITEM_SIZE,R7
+	CMPL	#1,R11
+	BNEQ	220$
+; Change to seq access on 2nd and subsequent reads
+	MOVB 	#RAB$C_SEQ,MAPPERRAB2+RAB$B_RAC
+	BRW	220$
+300$:
+; Calc menu size
+	TSTL	R11
+	BNEQ	301$
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+301$:
+	MOVL	R11,MITEMS			; Save item count
+302$:
+	MOVW	#DYNITEM_SIZE,MENUDESC			; Item size
+	MOVAL	PARAMLST,MADDR
+	MULL3	#DYNITEM_SIZE,MITEMS,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	MAINPB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+305$:
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	CMPL	MITEMS,EMU_QUERY_MAIN_ROWS		; If items < disp space...
+	BLSSU	306$				;  ... branch
+	CLRL	-(SP)				; Else make block menu
+	BRW	307$
+306$:		
+	PUSHAL	VERTICAL                        ; Make vertical menu
+307$:
+	PUSHAL	MENUDESC
+	PUSHAL	EMU_QUERY_MAIN_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BLBS	R0,310$
+	RET
+310$:
+	PUSHAL	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	EMU_QUERY_MAIN_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#4,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,330$			; Assume any error = eof
+	MOVL	#SS$_NORMAL,R0	
+	RET
+330$:
+	MOVZWL	CHOICE,R1
+	BBS	R1,COM_CFG_B16_SUPPORT(R6),340$    	; Br if set
+	BBCS	R1,COM_CFG_B16_SUPPORT(R6),350$ 	; Set and br
+340$:
+	BBCC	R1,COM_CFG_B16_SUPPORT(R6),350$ 	; Clr and br
+350$:
+	BRW	100$
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SETMIB_SET_PASS 
+	RET
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SETMIB_CREATE_PASS 
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SUI_GETTABLE 
+;++
+;2 SUI_GETTABLE 
+; Routine to display all tables for specified PID in a menu and after 
+; selection, return the chosen table code. In the case of a single level
+; table, the code is looked up in a table hard coded in this routine.
+; In the case of multiple level tables, The PID is tranformed into the key
+; required to find the next set of tables for the PID and the 2nd level is
+; displayed. Each choice there after causes the next level to be displayed 
+; and only  when the lowest level is reached, the choice is returned. 
+;3 Inputs:
+;	.address of .long PID whose table(s) are/is displayed.
+;	.address of .long where .long table is written
+;	.address of relater rec currently pointing to
+;3 Outputs:
+; 	.long value of the table (symbols in _EMUDBDEF)
+;	.long CURPID. This variable set to the current pid who's table
+;	was last displayed. Useful for:
+;		Faster table display (do not need to regenerate)
+;		Allows skip of multiple level tables (IP)
+;  For IP only:
+;  It is in this routine that access to MIB params is reached.
+;  P3 is the pointer to the rec and that is it's only use here.
+;  If selected, USER_SET_MIB is called and that routine may 
+;  produce further outputs. 
+;3 Returns:
+;	SS$_NORMAL		did it
+;	SMG$_EOF		User abort
+;	SS$_ITEMNOTFOUND        Not a single level table and no entries
+;				found in MAPPER
+;	Any from RMS
+;--
+	TSTW	MAPPERFAB+FAB$W_IFI
+	BNEQ	10$
+	$OPEN	FAB=MAPPERFAB
+	BLBS	R0,1$
+	RET
+1$:
+	$CONNECT RAB=MAPPERRAB
+	BLBS	R0,2$
+	RET
+2$:
+	$CONNECT RAB=MAPPERRAB2
+	BLBS	R0,10$
+	RET
+	
+
+10$:            
+ ; Sea lvl1 tbl for this PID. If present return entry. Else lookup multiple
+; level in MAPPER.
+	CLRL	PARMCHOICE		; Set def choice
+	MOVL	4(AP),R6
+	MOVAL	PARMLVL1TBL,R7
+	MOVL	#PARAMLVL1_ITEMS,R1
+20$:
+	CMPL	(R6),(R7)
+	BEQLU	30$
+	ADDL	#8,R7
+	SOBGTR	R1,20$
+	BRW	50$
+30$:
+	MOVL	@4(AP),CURPID		; Set current
+	MOVL	4(R7),@8(AP)            ; Return table
+	MOVL	#SS$_NORMAL,R0
+	BRW	2000$
+50$:
+; If this is the same as the last PID displayed - skip loading and simply
+; display menu already created.
+
+	CMPL	CURPID,@4(AP)		; Same pid as prev?
+	BNEQU	60$                     ; Nope
+	BRW	202$                    ; yep
+; Set help file
+60$:
+	MOVL	@4(AP),CURPID		; Set current
+        PUSHL	4(AP)			; Pid
+	CALLS	#1,G^SUI_SET_PARAM_HELP
+
+; transform pid to 2nd level key
+	MOVAL	TBLRECBUF,R6                    ; Rec (& key) buff
+	BISL3	LVL2MSK,@4(AP),DB_MAP_L_TBL(R6) ; Make key
+150$:
+	MOVL	DB_MAP_L_TBL(R6),R10 		; All recs matching this
+	CLRL	MAPPERRAB2+RAB$L_ROP			; No Options
+	BISL    #RAB$M_RRL,MAPPERRAB2+RAB$L_ROP         ; read locked
+	BISL    #RAB$M_NLK,MAPPERRAB2+RAB$L_ROP         ; read locked
+
+	MOVB	#1,MAPPERRAB2+RAB$B_KRF		; Key of ref
+	MOVB	#4,MAPPERRAB2+RAB$B_KSZ		; Key size
+	MOVB 	#RAB$C_KEY,MAPPERRAB2+RAB$B_RAC  ; Keyed read
+	MOVAL	PARAMLST,R7   			; Menu items
+	MOVAL	PARAMTBL,R8                    	; Index
+	CLRL	R11
+160$:
+	$GET	RAB=MAPPERRAB2
+    	BLBS	R0,170$
+	BRW	200$
+170$:
+; Place index in choice tbl, string in menu.
+; Check if too many items
+	CMPL	R10,DB_MAP_L_TBL(R6)		; This table?
+	BEQLU	175$
+	BRW	200$
+175$:
+	INCL	R11
+	CMPL	R11,#MAXDYN_ITEMS
+	BLEQ	180$
+	MOVL	#SS$_BUFFEROVF,R0
+	BRW	2000$
+180$:
+	MOVC5	DB_MAP_L_KEYWLEN(R6),DB_MAP_A64_KEYW(R6),#^A/ /,-
+		#DYNITEM_SIZE,(R7)
+	ADDL	#DYNITEM_SIZE,R7
+	MOVQ	(R6),(R8)+
+	CMPL	#1,R11
+	BNEQ	160$
+; Change to seq access on 2nd and subsequent reads
+	MOVB 	#RAB$C_SEQ,MAPPERRAB2+RAB$B_RAC
+	BRW	160$
+200$:
+; If this is the top level menu for IP it is displaying the MIBs
+; In this case ONLY, add an item allowing MIB/SNMP access params
+; to be changed.
+	CMPL	@4(AP),#SYS_PID_C_PSRIP       ; IP?
+	BNEQU	20010$                        ; Br not
+        TSTB    PARAMTBL+7                    ; Top level?
+	BEQL	20010$                        ; Br not
+
+
+	MOVC5	#SETMIBITM_LEN,SETMIBITM,#^A/ /,-
+		#DYNITEM_SIZE,(R7)
+	ADDL	#DYNITEM_SIZE,R7
+	INCL	R11			; One more item
+	MOVQ	#-1,(R8)+              	; Signal special handling
+20010$:
+
+; Calc menu size
+	TSTL	R11
+	BNEQ	201$
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	BRW	2000$
+201$:
+	MOVL	R11,MITEMS			; Save item count
+202$:
+	MOVW	#DYNITEM_SIZE,MENUDESC			; Item size
+	MOVAL	PARAMLST,MADDR
+	MULL3	#DYNITEM_SIZE,MITEMS,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	MAINPB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+205$:
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	CMPL	MITEMS,EMU_QUERY_MAIN_ROWS		; If items < disp space...
+	BLSSU	206$				;  ... branch
+	CLRL	-(SP)				; Else make block menu
+	BRW	207$
+206$:		
+	PUSHAL	VERTICAL                        ; Make vertical menu
+207$:
+	PUSHAL	MENUDESC
+	PUSHAL	EMU_QUERY_MAIN_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BLBS	R0,210$
+	BRW	2000$
+210$:
+	PUSHL	PARMHLPLIB
+	CLRL	-(SP)			; Flags
+	PUSHAL	PARMCHOICE
+	PUSHAL	PARMCHOICE
+	PUSHAL	EMU_QUERY_MAIN_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#6,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,230$			; Assume any error = eof
+	BRW	2000$
+230$:
+; Move selected index to outp
+; Set help file (if not set)
+
+
+	PUSHAL	MENUDESC		; strings 
+	PUSHAL	PARMCHOICE		; Menu choice
+	PUSHL	4(AP)			; PID
+	CALLS	#3,G^SUI_SET_PARAM_HELP
+240$:
+	MOVZWL	PARMCHOICE,R1
+	DECL	R1
+	MOVAL	PARAMTBL,R8                    ; Index
+	MULL3	#8,R1,R2
+	ADDL	R2,R8
+	TSTL	(R8)
+	BGTR	245$
+	PUSHL 	12(AP)
+	CALLS	#1,G^USER_SET_MIB
+	BRW	50$
+245$:
+
+; If the top byte of the .quad @ this choice - 0 then this is the table
+; Otherwise, the param part of the key becomes the table part of the 
+; key and the next level of the table is displayed.
+        TSTB    7(R8)
+	BEQL	250$
+	MOVL	4(R8),DB_MAP_L_TBL(R6)
+	BRW	150$
+250$:
+	MOVL	4(R8),@8(AP)
+2000$:
+	MOVL	R0,R6				; Save status
+	PUSHAL	EMU_QUERY_MAIN_DISP
+	CALLS   #1,G^SMG$ERASE_DISPLAY
+	MOVL	R6,R0
+	RET
+	.END

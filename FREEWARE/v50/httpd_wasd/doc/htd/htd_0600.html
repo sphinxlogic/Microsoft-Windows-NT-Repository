@@ -1,0 +1,1151 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.HTD]HTD_CONFIG.SDML">
+<META NAME="date" CONTENT="Thu, 25 Jan 2001 04:55:41">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Server Configuration</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Technical Overview</H1>
+
+<A NAME="74">
+<H2>6 - Server Configuration</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+6.1 - <A HREF="htd_0600.html#75" TARGET="_self">&quot;Securing&quot; The Site</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.1.1 - <A HREF="htd_0600.html#76" TARGET="_self">Directory Listings</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.1.2 - <A HREF="htd_0600.html#77" TARGET="_self">Server Reports</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.1.3 - <A HREF="htd_0600.html#78" TARGET="_self">Scripting</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.1.4 - <A HREF="htd_0600.html#79" TARGET="_self">Server Side Includes</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.1.5 - <A HREF="htd_0600.html#80" TARGET="_self">Authorization</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.1.6 - <A HREF="htd_0600.html#81" TARGET="_self">Miscellaneous Issues</A>
+<BR>6.2 - <A HREF="htd_0600.html#83" TARGET="_self">Content-Type Configuration</A>
+<BR>6.3 - <A HREF="htd_0600.html#85" TARGET="_self">Virtual Services</A>
+<BR>6.4 - <A HREF="htd_0600.html#90" TARGET="_self">Error Reporting</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.4.1 - <A HREF="htd_0600.html#91" TARGET="_self">Basic and Detailed</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.4.2 - <A HREF="htd_0600.html#93" TARGET="_self">Site Specific</A>
+<BR>6.5 - <A HREF="htd_0600.html#97" TARGET="_self">Access Logging</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.5.1 - <A HREF="htd_0600.html#98" TARGET="_self">Log Format</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.5.2 - <A HREF="htd_0600.html#102" TARGET="_self">Log Period</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.5.3 - <A HREF="htd_0600.html#103" TARGET="_self">Log Per-Service</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.5.4 - <A HREF="htd_0600.html#104" TARGET="_self">Log Naming</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;6.5.5 - <A HREF="htd_0600.html#105" TARGET="_self">Access Tracking</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="htd_0700.html" TARGET="_self">next</A>] [<A HREF="htd_0500.html" TARGET="_self">previous</A>] [<A HREF="htd_0001.html"TARGET="_top" >contents</A>] [<A HREF="htd_0600.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> Server configuration basically concerns itself the very fundamental
+behaviour of the server process.&nbsp;  Requirements such as buffer and cache sizes,
+timeout values, scripting limits, content-types, icons, number and type of
+services offerted, etc., are determined from configuration information.&nbsp;
+
+<P> By default, the system-table logical name HTTPD$CONFIG locates a common
+configuration file, unless an individual configuration file is specified using
+a job-table logical name.&nbsp; Simple editing of this file changes the
+configuration.&nbsp; Comment lines may be included by prefixing them with the hash
+&quot;#&quot; character.&nbsp; Configuration file directives are not case-sensitive.&nbsp; Any
+changes to the configuration file can only be enabled by restarting the HTTPd
+process using the following command on the server system.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ HTTPD /DO=RESTART
+</PRE></FONT>
+
+<P> A server's currently loaded configuration can be interrogated.&nbsp;  See
+<A HREF="htd_1500.html#236" TARGET="_self">15 - Server Administration</A> for further information.&nbsp;
+
+<A NAME="75">
+<H3><BR><U>6.1 - &quot;Securing&quot; The Site</U></H3>
+</A>
+
+<P> This section does not pretend to be a complete guide to keeping the
+&quot;bad guys&quot; out.&nbsp;  It does provide a short guide to making a site
+more-or-less liberal in the way the server supplies information about the site
+and itself.&nbsp;  The reader is also strongly recommended to a number of hard and
+Web based resources on this topic.&nbsp;
+
+<P> The WASD package had it's genesis in making the VMS operating system and
+associated resources, in a development environment, available via Web
+technology.&nbsp;  For this reason the default configuration is fairly liberal,
+providing information of use in a technical environment, but that may be
+superfluous or less-than-desirable in other, possibly commercial environments.&nbsp; 
+For instance, directory listings can contain VMS file system META information,
+error reports can be generated with similar references along with reporting
+source code module and line information.&nbsp;  This section refers to configuration
+directives discussed in more detail later in this chapter and in the next.&nbsp;
+
+<A NAME="76">
+<H3><BR><U>6.1.1 - Directory Listings</U></H3>
+</A>
+
+<P> Published guidelines for securing a Web site generally advise against
+automatic directory listing generation.&nbsp;  Where a home page is not available
+this may leak information on other directory contents, provide parent and child
+directory access, etc.&nbsp;  Compounding this is the WASD facility to
+<I>force</I> a listing by providing a directory URL with file wildcards
+(not to decry it's usefulness in some environments).&nbsp;
+<UL>
+
+<LI> <B>[DirAccess] - </B>
+Make &quot;disabled&quot; to completely remove the ability to generate directory
+listings under any circumstances.&nbsp;  Setting to &quot;selective&quot; means a
+directory listing is <B>only</B> available if the directory contains
+a file named .WWW_BROWSABLE.&nbsp;  When made &quot;enabled&quot; a directory listing
+may be produced anytime it contains no home (welcome) page.&nbsp;
+<P>
+<LI> <B>[DirWildcard] - </B>
+Make &quot;disabled&quot; so that requests cannot <B>force</B> a
+directory listing by supplying a URL containing a wildcard file part (when
+enabled this is provided regardless of whether a home page exists or not).&nbsp; 
+<P>
+<LI> <B>[DirMetaInfo] - </B>
+Make &quot;disabled&quot; to prevent directory listing pages contain as HTML
+&lt;META&gt; tags information about the directory, most significantly the
+VMS file specification for the URL path!&nbsp;
+</UL>
+
+
+<A NAME="77">
+<H3><BR><U>6.1.2 - Server Reports</U></H3>
+</A>
+
+<P> Reports are pages generated by the server, usually to indicate an error or
+other non-success condition, but sometimes to indicate success (e.g. after a 
+successful file upload).&nbsp;  Reports provide either basic or detailed information
+about the situation.&nbsp;  Sometimes the detailed information includes VMS file
+system details, system status codes etc.&nbsp;  To limit this information to a
+minimum indication adjust the following directives.&nbsp;
+<UL>
+
+<LI> <B>[ReportBasicOnly] - </B>
+Make &quot;enabled&quot; to limit the quantity of information to the minimum
+required to advise of the situation.&nbsp;  Such reports give only the HTTP status
+code and brief explanation of the code's meaning.&nbsp;  Note that this can also be
+done on a per-path basis using mapping rules.&nbsp;
+<P>
+<LI> <B>[ReportMetaInfo] - </B>
+Make &quot;disabled&quot; to exclude information on the server software, source
+code module and line number initiating the report.&nbsp;  META information may also
+contain VMS file or system specific information.&nbsp;
+<P>
+<LI> <B>[ServerSignature] - </B>
+Make &quot;disabled&quot; to prevent the inclusion of server software, host and
+port information as a footer to a report.&nbsp;
+</UL>
+
+
+<A NAME="78">
+<H3><BR><U>6.1.3 - Scripting</U></H3>
+</A>
+
+<P> Scripting has been a notorious source of server compromise, particularly
+within Unix environments where script process shell command-line issues require
+special attention.&nbsp;  The WASD CGI scripting interface does not pass any
+arguments on the command line, and is careful not to allow substitution when
+constructing it's CGI environment.&nbsp;  Never-the-less, script behaviours cannot be
+guranteed and care should be exercised in their deployment.&nbsp;
+<UL>
+
+<LI> <B>[Scripting] - </B>
+Setting this to &quot;disabled&quot; prevents all scripting entirely.&nbsp;  This
+includes subprocess CGI and CGIplus, DECnet-based OSU and CGI, and SSI
+subprocess DCL (&lt;--#dcl --&gt;, &lt;--#exec --&gt;, etc.).
+</UL>
+
+
+<A NAME="79">
+<H3><BR><U>6.1.4 - Server Side Includes</U></H3>
+</A>
+
+<P> SSI documents are pages containing special markup directives interpreted by
+the server and replaced with dynamic content.&nbsp;  This can include detail about
+the server, the file or files making up the document, and can even include DCL
+commands and procedure activation for supplying content into the page.&nbsp;  All
+this by anyone who can author on the site.&nbsp;
+<UL>
+
+<LI> <B>[SSI] - </B>
+Setting this to &quot;disabled&quot; prevents all Server Side Include processing
+completely.&nbsp;
+<P>
+<LI> <B>[SSIexec] - </B>
+Setting this to &quot;disabled&quot; disallows pages from invoking subprocess DCL
+to supply content for the page.&nbsp;  WASD provides a number of levels of this and
+the reader is refered elsewhere in this and other documents for further
+infromation of what can and cannot be done, and by whom, in these subprocesses.&nbsp;
+</UL>
+
+
+<A NAME="80">
+<H3><BR><U>6.1.5 - Authorization</U></H3>
+</A>
+
+<P> Authorization issues imply controlling access to various resources and
+actions and therefore require careful planning and implementation if compromise
+is to be avoided.&nbsp;  WASD has a quite capable and versatile authorization and
+authentication environment, with a significant number of considerations.&nbsp;  The
+reader refered to the chapter on this topic, 
+<A HREF="htd_1200.html#157" TARGET="_self">12 - Authentication and Authorization</A>.&nbsp;
+
+<P> WASD authorization cannot be enabled without the administrator configuring
+at least three resources, and so therefore cannot easily be
+&quot;accidentally&quot; activated.&nbsp;  One of these is the addition of a startup
+qualifier controlling where authentication information may be sourced.&nbsp;  Another
+the server configuration file.&nbsp;  The third, mapping paths against authorization
+configuration.&nbsp;
+
+<P> For sites that may be particularly sensitive about inadvertant access to
+some resources it is possible to use the authorization configuration file as a
+type of <I>cross-check</I> on the mapping configuration file.&nbsp;  The server
+/AUTHORIZATION=ALL startup qualifier forces all access to be authorized (even
+if some are marked &quot;none&quot;).&nbsp;  This means that if something
+&quot;escapes&quot; via the mapping file it will very likely be &quot;caught&quot; by
+an absence in the authorization file.&nbsp;
+
+<A NAME="81">
+<H3><BR><U>6.1.6 - Miscellaneous Issues</U></H3>
+</A>
+
+<P> Although it is of limited usefulness because server identity may be deduced
+from behaviour and other indicators the exact server and version may be
+obscured by using the otherwise undocumented /SOFTWARE= qualifier to change the
+server identification string to (basically) whatever the administrator desires.&nbsp; 
+This identification is included as part of all HTTP response headers.&nbsp;
+
+<P> Historically and by default server configuration and authorization sources
+are contained within the server package tree.&nbsp;  There is no reason why they
+cannot be located anywhere the site prefers.&nbsp;  Generally all that is required is
+a change to logical name definition and server startup.&nbsp;
+
+<A NAME="82">
+<H3><BR>Package Tree</H3>
+</A>
+
+<P> On many sites there may be little need to access the full, or any of the
+WASD package tree.&nbsp;  A combination of mapping and/or authorization rules can
+relatively simply block or control access to it.&nbsp;  These examples can be easily
+tailored to suit a site's specific requirements.&nbsp;
+
+<P> This example shows blocking all access to the /ht_root/ tree, except for
+documentation, source code, examples and exercise (performance results) areas.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  # HTTPD$MAP
+  pass /ht_root/doc/*
+  pass /ht_root/src/*
+  pass /ht_root/example/*
+  pass /ht_root/exercise/*
+  fail /ht_root/*
+</PRE></FONT>
+
+<P> The next example forbids all access to the package tree unless authorized 
+(the authorization detail would vary according to the site).&nbsp;  It also allows
+modify access for the Admin Menu and to the /ht_root/local/ area.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  # HTTPD$MAP
+  pass /ht_root/*
+ 
+  # HTTPD$AUTH
+  [WASD_WEB_ADMIN=id]
+  /httpd/-/admin/* r+w
+  /ht_root/local/* r+w
+  /ht_root/* r
+</PRE></FONT>
+
+<A NAME="83">
+<H3><BR><U>6.2 - Content-Type Configuration</U></H3>
+</A>
+
+<P> HTTP uses a quasi-standard implementation of the MIME (Multi-purpose
+Internet Mail Extensions) specification for identifying the type of data
+returned in a response.&nbsp; A MIME content-type consists of a plain text string
+describing the data as a <I>type</I> and slash-separated
+<I>subtype</I>, as illustrated in the following examples:
+
+<FONT COLOR="#333333"><PRE>  text/html
+  text/plain
+  image/gif
+  image/jpeg
+  application/octet-stream
+</PRE></FONT>
+ The content-type is returned to the client as part of the HTTP response,
+the client then using this information to correctly process and present the
+data contained in that response.&nbsp;
+
+<P> In common with most HTTP servers WASD uses a file's type (extension,
+suffix, e.g. &quot;.HTML&quot;, &quot;.TXT&quot;, &quot;.GIF&quot;) to identify the
+data type within the file.&nbsp; The [AddType] directive (see below) is used in
+configuration to bind a file type to a MIME content-type.&nbsp;  To make the server
+recognise and return specific content-types the [AddType] directives matches
+file types to content-types.&nbsp;
+<BLOCKQUOTE><CENTER><B>NOTE</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+When adding a totally new content-type to the configuration be sure also to
+bind an icon to that type using the [AddIcon] directive (see below).&nbsp;  When this
+is not done a directory listing shows
+&quot;<FONT COLOR="#ff0000"><B>[?]</B></FONT>&quot;
+ 
+in place of an icon.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<P> With the VMS file system there is no effective file characteristic or
+algorithm for identifying a file's content without an exhaustive examination
+of the data contained there-in ... a very expensive process (and
+probably still inconclusive in many cases), hence the reliance on the file
+type.&nbsp;
+
+<P> If a file type is not recognised (i.e. no [AddType] corresponding to the
+file type) then by default WASD identifies its data as
+<I>application/octet-stream</I> (i.e. essentially binary data).&nbsp; Most
+browsers respond to this content-type with a download dialog, allowing the
+data to be saved as a file.&nbsp; Most commonly these unknown types manifest
+themselves when authors use &quot;interesting&quot; file names to indicate their
+purpose.&nbsp; Here are some examples the author has encountered:
+
+<FONT COLOR="#333333"><PRE>  README.VMS
+  README.1ST
+  READ-ME.FIRST
+  BUILD.INSTRUCTIONS
+  MANUAL.PT1 (.PT2, ...)
+</PRE></FONT>
+
+<P> If the site administrator would prefer another default content-type,
+perhaps &quot;text/plain&quot; so that any unidentified files default to plain
+text, then this may be configured by specifying that content-type as the
+<I>description</I> of the catch-all file type entry.&nbsp; Examples (use one
+of):
+
+<FONT COLOR="#333333"><PRE>  [AddType]
+  *  internal/x-unknown  -
+  *  internal/x-unknown  -  application/octet-stream
+  *  internal/x-unknown  -  text/plain
+  *  internal/x-unknown  -  something/else-entirely
+</PRE></FONT>
+ It is the author's opinion that unidentified file types should remain as
+binary downloads, not &quot;text&quot; documents, which they are probably more
+often not, but it's there if it's wanted.&nbsp;
+
+<A NAME="84">
+<H3><BR>Explicitly Specifying Content-Type</H3>
+</A>
+
+<P> When accessing files it is possible to explicitly specify the identifying
+content-type to be returned to the browser in the HTTP response header.&nbsp;  Of
+course this does not change the actual content of the file, just the header
+content-type!&nbsp;  This is primarily provided to allow access to plain-text
+documents that have obscure, non-&quot;standard&quot; or non-configured file
+extensions.&nbsp;
+
+<P> It could also be used for other purposes, &quot;forcing&quot; the browser to
+accept a particular file as a particular content-type.&nbsp;  This can be useful if
+the extension is not configured (as mentioned above) or in the case where the
+file contains data of a known content-type but with an extension conflicting
+with an already configured extension specifying data of a different
+content-type.&nbsp;
+
+<P> Enter the file path into the browser's URL specification field ("Location:",
+"Address:").  Then, for plain-text, append the following query string:
+
+<FONT COLOR="#333333"><PRE>  ?httpd=content&amp;type=text/plain
+</PRE></FONT>
+
+<P> For another content-type substitute it appropriately.&nbsp; 
+For example, to retrieve a text file in binary (why I can't imagine :^) use
+
+<FONT COLOR="#333333"><PRE>  ?httpd=content&amp;type=application/octet-stream
+</PRE></FONT>
+
+<P> This is an example:
+
+<PRE>
+  <A TARGET="_top" HREF="file.unknown">file.unknown</A>
+
+  <A TARGET="_top" HREF="file.unknown?httpd=content&type=text/plain">file.unknown?httpd=content&type=text/plain</A>
+</PRE>
+
+
+<P> It is posssible to "force" the content-type for all files in a particular
+directory.&nbsp;  Enter the path to the directory and then add
+
+<FONT COLOR="#333333"><PRE>  ?httpd=index&amp;type=text/plain
+</PRE></FONT>
+
+<P> (or what-ever type is desired).&nbsp;  Links to files in the listing will contain
+the appropriate &quot;?httpd=content&amp;type=...&quot; appended as a query string.&nbsp;
+
+<P> This is an example:
+
+<PRE>
+  <A TARGET="_top" HREF="*.*">*.*</A>
+
+  <A TARGET="_top" HREF="*.*?httpd=index&type=text/plain">*.*?httpd=index&type=text/plain</A>
+</PRE>
+
+
+<A NAME="85">
+<H3><BR><U>6.3 - Virtual Services</U></H3>
+</A>
+
+<P> The WASD server is capable of concurrently supporting the same host name on
+different port numbers and a number of different host names (DNS aliased or
+multi-homed) using the same port number.&nbsp; This capability is generally known as
+a <I>virtual server</I>.&nbsp; Virtual services offer versatile and powerful
+multi-site capabilities using the one system and server process.&nbsp;  Service 
+determination is based on the contents of the request's &quot;Host:&quot; header
+field.&nbsp;  If none is present it defaults to base service for the interface's IP
+address and port.&nbsp;
+
+<P> The same mechanism also effectively allows a single instance of the
+configuration files to support multiple server processes (using the /SERVICE
+qualifier), either on the one system or across multiple systems, as in a
+cluster (i.e. supports &quot;virtual&quot; and &quot;real&quot; servers.) See
+<A HREF="htd_0500.html#60" TARGET="_self">STARTUP_SERVER.COM</A> for further information on startup
+support for these configurations.&nbsp;
+
+<P> WASD provides server process run-time parameters via the HTTPD$CONFIG
+configuration file.&nbsp; These provide settings for logging, scripting, timeouts,
+file content-type mappings, etc.&nbsp; The HTTPD$MSG file provides configurable
+system messages.&nbsp;
+
+<A NAME="86">
+<H3><BR>[Service]</H3>
+</A>
+
+<P> Using the [Service] HTTPD$CONFIG configuration parameter or the /SERVICE
+qualifier the server creates an HTTP service for each specified.&nbsp; If the host
+name is omitted it defaults to the local host name.&nbsp; If the port is omitted it
+defaults to 80. The first port specified in the service list becomes the
+&quot;administration&quot; port of the server, using the local host name,
+appearing in administration reports, menus, etc.&nbsp;  This port is also that
+specified when sending control commands via the /DO= qualifier (see
+<A HREF="htd_0500.html#64" TARGET="_self">5.3.2 - Server Command Line Control</A>).&nbsp;
+
+<P> This rather contrived example shows a server configured to provide four
+services over two host names.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  [Service]
+  alpha.wasd.dsto.defence.gov.au
+  alpha.wasd.dsto.defence.gov.au:8080
+  beta.wasd.dsto.defence.gov.au
+  beta.wasd.dsto.defence.gov.au:8000
+</PRE></FONT>
+
+<P> Note that both the HTTPD$SERVICE configuration file (see
+<A HREF="htd_0800.html#109" TARGET="_self">8 - Service Configuration</A> and the /SERVICE= command-line
+qualifier (see <A HREF="htd_0500.html#62" TARGET="_self">5.3 - HTTPd Command Line</A>) override this directive.&nbsp;
+
+<A NAME="87">
+<H3><BR>HTTPD$SERVICE</H3>
+</A>
+
+<P> If the logical name HTTPD$SERVICE is defined (and it is optional) the
+HTTPD$CONFIG [Service] directive is not used.&nbsp;  As mentioned, this configuration
+file is optional.&nbsp;  For simple  sites, those containing one or two services, the
+use of a separate service configuration file is probably not warranted.&nbsp;  Once
+the number begins to grow this file offers an easier-to-manage interface for
+those services.&nbsp;
+
+<P> See <A HREF="htd_0800.html#109" TARGET="_self">8 - Service Configuration</A> for further detail.&nbsp;
+
+<A NAME="88">
+<H3><BR>[[virtual-server]]</H3>
+</A>
+
+<P> The essential profile of a site is established by it's mapped
+resources and any authorization controls, the HTTPD$MAP and HTTPD$AUTH
+configuration files respectively, and these two files support directives that
+allow configuration rules to be applied to all virtual services (i.e. a
+default), to a host name (all ports), or to a single specified service (host
+name and specific port).&nbsp;
+
+<P> To restrict rules to a specified server (virtual or real) add a line
+containing the server host name, and optionally a port number, between
+double-square brackets.&nbsp; All following rules will be applied only to that
+service.&nbsp; If a port number is not present it applies to all ports for that
+service name, otherwise only to the service using that port.&nbsp;  To resume
+applying rules to all services use a single asterisk instead of a host name.&nbsp; In
+this way default (all service) and server-specific rules may be interleaved to
+build a composite environment, server-specific yet with defaults.&nbsp; Note that
+service-specific and service-common rules may be mixed in any order allowing
+common rules to be shared.&nbsp; This descriptive example shows a file with one rule
+per line.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  # just an example
+  this rule applies to all services
+  so does this
+  and this one
+  [[alpha.wasd.dsto.defence.gov.au]]
+  this one however applies only to ALPHA, but to all ports
+  as indeed does this
+  [[beta.wasd.dsto.defence.gov.au:8000]]
+  now we switch to the BETA service, but only port 8000
+  another one only applying to BETA
+  and a third
+  [[*]]
+  now we have a couple default rules
+  that again apply to all servers
+</PRE></FONT>
+
+<P> Both the mapping and authorization modules report if rules are provided
+for services that are not configured for the particular server process (i.e.
+not in the server's [Service] or /SERVICE parameter list).&nbsp; This provides
+feedback to the site administrator about any configuration problems that
+exist, but may also appear if a set of rules are shared between multiple
+processes on a system or cluster where processes deliver differing services.&nbsp;
+In this latter case the reports can be considered informational, but should be
+checked initially and then occasionally for misconfiguration.&nbsp;
+
+<A NAME="89">
+<H3><BR>Unknown Virtual Server</H3>
+</A>
+
+<P> If a service is not configured for the particular host address and port of
+a request one of two actions will be taken.&nbsp;
+<OL>
+
+<LI> If the configuration directive [ServiceNotFoundURL] is set the request
+will be redirected to the specified URL.&nbsp;  This should contain a specific host
+name, as well as message page.&nbsp;  For the default page use:
+
+<FONT COLOR="#333333"><PRE>  [ServiceNotFoundURL]  //server.host.name/httpd/-/servicenotfound.html
+</PRE></FONT>
+<LI> If the above directive is not set the request is mapped using the default
+rules (e.g. [[*]]).  It is possible to specify a rule set containing a default
+rule for each virtual server.&nbsp;  The unmatched request is then handled by a
+fallback rule, as illustrated in the following.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  pass /*/-/admin/*
+  pass /*/-/* /ht_root/runtime/*/*
+  exec /cgi-bin/* /cgi-bin/*
+  [[virtual1.host.name]]
+  /* /web/virtual1/*
+  / /web/virtual1/
+  [[virtual2.host.name]]
+  /* /web/virtual2/*
+  / /web/virtual2/
+  [[virtual3.host.name]]
+  /* /web/virtual3/*
+  / /web/virtual3/
+  [[*]]
+  /* /web/servicenotfound.html
+</PRE></FONT>
+</OL>
+
+
+<P> This applies to dotted-decimal addresses as well as alpha-numeric.&nbsp; 
+Therefore if there is a requirement to connect via a numeric IP address such a
+service must have been configured.&nbsp;
+
+<P> Note also that the converse is possible.&nbsp;  That is, it's possible to
+configure a service that the server cannot ever possibly respond to because it
+does not have an interface using the IP address represented by the service
+host.&nbsp;
+
+<A NAME="90">
+<H3><BR><U>6.4 - Error Reporting</U></H3>
+</A>
+
+<P> By default the server provides it's own internal error reporting facility.&nbsp;
+These reports may be configured as <I>basic</I> or <I>detailed</I> on
+a per-path basis, as well as determining the basic &quot;look-and-feel&quot;.&nbsp;  For
+more demanding requirements the [ErrorReportPath] configuration directive
+allows a redirection path to be specified for error reporting, permitting the
+site administrator to tailor both the nature and format of the information
+provided.&nbsp;  A Server Side Include document, CGI script or even standard HTML
+file(s) may be specified.&nbsp;  Generally an SSI document would be recommended for
+it's simplicity yet versatility.&nbsp;
+
+<A NAME="91">
+<H3><BR><U>6.4.1 - Basic and Detailed</U></H3>
+</A>
+
+<P> Internally generated error reports are the most efficient.&nbsp;  These can be
+delivered with two levels of error information.&nbsp;  The default is more detailed.&nbsp;
+
+<BLOCKQUOTE>
+<FONT SIZE=+1>
+<B>ERROR 404</B> &nbsp;-&nbsp; The requested resource could not be found.
+</FONT>
+<BR>Document not found &nbsp;...&nbsp; /ht_root/index.html
+<!-- sts: %X00018292 "HT_ROOT:[000000]INDEX.HTML" -->
+<BR><I>(document, bookmark, or reference requires revision)</I> 
+<BR>Additional information:&nbsp;
+<A TARGET="_top" HREF="/httpd/-/status1xx.html">1<I>xx</I></A>,&nbsp;
+<A TARGET="_top" HREF="/httpd/-/status2xx.html">2<I>xx</I></A>,&nbsp;
+<A TARGET="_top" HREF="/httpd/-/status3xx.html">3<I>xx</I></A>,&nbsp;
+<A TARGET="_top" HREF="/httpd/-/status4xx.html">4<I>xx</I></A>,&nbsp;
+<A TARGET="_top" HREF="/httpd/-/status5xx.html">5<I>xx</I></A>,&nbsp;
+<A TARGET="_top" HREF="/httpd/-/statushelp.html">Help</A>
+<BR><HR WIDTH=85% ALIGN=left SIZE=2 NOSHADE>
+<ADDRESS>WASD/7.0.0 Server at <A TARGET="_top" HREF="mailto:mark.daniel@wasd.vsm.com.au">wasd.dsto.defence.gov.au</A> Port 80</ADDRESS>
+</BLOCKQUOTE>
+
+
+<P> There is also the more basic.&nbsp;
+
+<BLOCKQUOTE>
+<FONT SIZE=+1>
+<B>ERROR 404</B> &nbsp;-&nbsp; The requested resource could not be found.
+</FONT>
+<BR>Additional information:&nbsp;
+<A TARGET="_top" HREF="/httpd/-/status1xx.html">1<I>xx</I></A>,&nbsp;
+<A TARGET="_top" HREF="/httpd/-/status2xx.html">2<I>xx</I></A>,&nbsp;
+<A TARGET="_top" HREF="/httpd/-/status3xx.html">3<I>xx</I></A>,&nbsp;
+<A TARGET="_top" HREF="/httpd/-/status4xx.html">4<I>xx</I></A>,&nbsp;
+<A TARGET="_top" HREF="/httpd/-/status5xx.html">5<I>xx</I></A>,&nbsp;
+<A TARGET="_top" HREF="/httpd/-/statushelp.html">Help</A>
+<BR><HR WIDTH=85% ALIGN=left SIZE=2 NOSHADE>
+<ADDRESS>WASD/7.0.0 Server at <A TARGET="_top" HREF="mailto:mark.daniel@wasd.vsm.com.au">wasd.dsto.defence.gov.au</A> Port 80</ADDRESS>
+</BLOCKQUOTE>
+
+
+<P> These can be set per-server using the [ReportBasicOnly] configuration
+directive, or on a per-path basis in the HTTPD$MAP configuration file.&nbsp; The
+basic report is intended for environments where traditionally a minimum of
+information might be provided to the user community, both to reduce site
+configuration information leakage but also where a general user population may
+only need or want the information that a document was either found or not found.&nbsp;
+The detailed report often provides far more specific information as to the
+nature of the event and so may be more appropriate to a more technical group of
+users.&nbsp;  Either way it is relatively simple to provide one as the default and
+the other for specific audiences.&nbsp;  Note that the detailed report also includes
+in page &lt;META&gt; information the code module and line references for
+reported errors.&nbsp;
+
+<P> To default to a basic report for all but selected resource paths introduce
+the following to the top of the HTTPD$MAP configuration file.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  # default is basic reports
+  set /* report=basic
+  set /internal-documents/* report=detailed
+  set /other/path/* report=detailed
+</PRE></FONT>
+
+<P> To provide the converse, default to a detailed report for all but selected
+paths use the following.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  # default is detailed reports
+  set /web/* report=basic
+</PRE></FONT>
+
+<A NAME="92">
+<H3><BR>Other Customization</H3>
+</A>
+
+<P> The additional reference information included in the report may be disabled
+using the appropriate HTTPD$MSG [status] message item.&nbsp;  Emptying this message
+results in an error report similar to the following.&nbsp;
+
+<BLOCKQUOTE>
+<FONT SIZE=+1>
+<B>ERROR 404</B> &nbsp;-&nbsp; The requested resource could not be found.
+</FONT>
+<BR><HR WIDTH=85% ALIGN=left SIZE=2 NOSHADE>
+<ADDRESS>WASD/7.0.0 Server at <A TARGET="_top" HREF="mailto:mark.daniel@wasd.vsm.com.au">wasd.dsto.defence.gov.au</A> Port 80</ADDRESS>
+</BLOCKQUOTE>
+
+
+<P> The server signature may be disabled using the HTTPD$CONFIG
+[ServerSignature] configuration directive.&nbsp;  This results in a minimal error
+report.&nbsp;
+
+<BLOCKQUOTE>
+<FONT SIZE=+1>
+<B>ERROR 404</B> &nbsp;-&nbsp; The requested resource could not be found.
+</FONT>
+</BLOCKQUOTE>
+
+
+<P> A simple approach to providing a site-specific &quot;look-and-feel&quot; to
+server reports is to customize the [ServerReportBodyTag] HTTPD$CONFIG
+configuration directive.&nbsp;  Using this directive report page background colour,
+background image, text and link colours, etc., may be specified for all
+reports.&nbsp;  It is also possible to more significantly change the report format
+and contents (within some constraints), without resorting to the site-specific
+mechansims refered to below, by changing the contents of the appropriate
+HTTPD$MSG [status] item.&nbsp;  This should be undertaken with care.&nbsp; 
+
+<A NAME="93">
+<H3><BR><U>6.4.2 - Site Specific</U></H3>
+</A>
+
+<P> Site-specific error reporting works by internal redirection.&nbsp; When an error
+is reported the original request is concluded and the request reconstructed
+using the error report path before internally being reprocessed.&nbsp;  Error
+information becomes available via a specially-built query string, and from
+that as CGI variables in the error report context.&nbsp;  One implication is the
+original request path and query string are no longer available.&nbsp;  All error
+information must be obtained from the error information in the new query
+string.&nbsp;
+
+<A NAME="94">
+<H3><BR>Using an SSI Document</H3>
+</A>
+
+<P> Three example SSI error report documents are provided.&nbsp;
+
+<OL>
+
+<LI>
+<A TARGET="_top" HREF="/ht_root/example/reporterror1.shtml?httpd=content&type=text/plain">
+HT_ROOT:[EXAMPLE]REPORTERROR1.SHTML</A>
+<BR>Provides a report identical with those internally generated in versions
+prior to v7.0.
+
+<P>
+<LI>
+<A TARGET="_top" HREF="/ht_root/example/reporterror2.shtml?httpd=content&type=text/plain">
+HT_ROOT:[EXAMPLE]REPORTERROR2.SHTML</A>
+<BR>This is a minor variation, showing how the format may be easily customized.
+
+<P>
+<LI>
+<A TARGET="_top" HREF="/ht_root/example/reporterror3.shtml?httpd=content&type=text/plain">
+HT_ROOT:[EXAMPLE]REPORTERROR3.SHTML</A>
+<BR>This version has a radically different format and content, with much less
+specific error information (which some administrator's may consider
+advantageous).
+  When generated these reports
+<A TARGET="_top" HREF="/ht_root/example/reporterror3.html">look something like this</A>.
+
+<P>
+<LI>
+<A TARGET="_top" HREF="/ht_root/example/reporterror4.shtml?httpd=content&type=text/plain">
+HT_ROOT:[EXAMPLE]REPORTERROR4.SHTML</A>
+<BR> This example uses the report format provided with WASD v7.0 and later,
+and <A TARGET="_top" HREF="/ht_root/example/reporterror4.html">look something like this</A>.
+
+<P>
+<LI>
+<A TARGET="_top" HREF="/ht_root/example/reporterror5.shtml?httpd=content&type=text/plain">
+HT_ROOT:[EXAMPLE]REPORTERROR5.SHTML</A>
+<BR>This is another variation, showing how the format may be easily customized.
+When generated this report <A TARGET="_top" HREF="/ht_root/example/reporterror5.html">looks
+something like this</A>.
+
+</OL>
+
+
+<P> It is suggested with any use of this facility the reporting
+document(s) be located somewhere local, probably HT_ROOT:[LOCAL], and then
+enabled by placing the appropriate path into the [ErrorReportPath]
+configuration directive, as shown for the examples here
+
+<FONT COLOR="#333333"><PRE>  [ErrorReportPath] /ht_root/local/reporterror.shtml
+</PRE></FONT>
+
+<P> Note that virtual services can subsequently have this path mapped to other
+documents (or even scripts) so that some or all services may have custom error
+reports.&nbsp; For instance the following arrangement provides each host (service)
+with an customized error report.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  # HTTPD$CONFIG
+  [ErrorReportPath] /errorreport.shtml
+ 
+  # HTTPD$MAP
+  [[alpha.wasd.dsto.gov.au]]
+  pass /errorreport.shtml /ht_root/local/alphareport.shtml
+  [[beta.wasd.dsto.gov.au]]
+  pass /errorreport.shtml /ht_root/local/betareport.shtml
+  [[gamma.wasd.dsto.gov.au]]
+  pass /errorreport.shtml /ht_root/local/gammareport.shtml
+</PRE></FONT>
+
+<P> The following SSI variables are available specifically for generating
+error reports.&nbsp; The &lt;!--#printenv --&gt; statement near the top of the
+file may be uncommented to view all SSI and CGI variables available.&nbsp;
+<UL>
+
+<LI> <B>ERROR_LINE - </B>
+The HTTPd source code line from where the error was generated.&nbsp;
+<P>
+<LI> <B>ERROR_MODULE - </B>
+The HTTPd source code module corresponding to the line described above.&nbsp;
+<P>
+<LI> <B>ERROR_REPORT - </B>
+A single HTML string providing a detailed error message.&nbsp;
+<P>
+<LI> <B>ERROR_REPORT2 - </B>
+A single HTML comment providing more detailed VMS error information (if
+available).&nbsp;
+<P>
+<LI> <B>ERROR_REPORT3 - </B>
+A server-generated HTML string providing a brief explanation of the error (if
+available).&nbsp;
+<P>
+<LI> <B>ERROR_STATUS_CLASS - </B>
+Essentially the single hundreds digit from the status code (e.g. 4).
+<P>
+<LI> <B>ERROR_STATUS_CODE - </B>
+The HTTP response status code representing the error (e.g. 404).
+<P>
+<LI> <B>ERROR_STATUS_EXPLANATION - </B>
+The HTTP response status code descriptive meaning (e.g. &quot;The requested
+resource could not be found.&nbsp;&quot;).
+<P>
+<LI> <B>ERROR_STATUS_TEXT - </B>
+The HTTP response status code abbreviated meaning (e.g. &quot;Not Found&quot;).&nbsp;
+<P>
+<LI> <B>ERROR_STATUS_TYPE - </B>
+&quot;basic&quot; or &quot;detailed&quot;.&nbsp;
+<P>
+<LI> <B>FORM_ERROR_... - </B>
+A series of CGI variables providing the sources for the above SSI variables, as
+well as other general environment information.&nbsp;
+</UL>
+
+
+<P> Once the SSI report document has been satifactorily developed and is to be
+put into production it is recommended it be <B>SCRUNCHED</B>, making
+it's processing significantly more efficient.&nbsp;  See <A HREF="htd_2000.html#283" TARGET="_self">20.4 - Scrunch Utility</A>.&nbsp;
+
+<A NAME="95">
+<H3><BR>Using a Script</H3>
+</A>
+
+<P> It is also possible to report using a script.&nbsp;  This is discouraged dues to
+it's relative complexity, and should only be undertaken for verify specific
+reasons of limitation within the SSI implementation.&nbsp;  The source code
+
+<A TARGET="_top" HREF="/ht_root/src/misc/reporterror.c">HT_ROOT:[SRC.MISC]REPORTERROR.C</A>
+
+provides such an implementation example.&nbsp;
+
+<A NAME="96">
+<H3><BR>Using HTML Documents</H3>
+</A>
+
+<P> SSI documents are the obvious choice for reporting errors but they do take
+time and CPU for processing, and this may be a significant consideration on
+busy sites.&nbsp;  If prefered, static HTML documents may be used to report errors.&nbsp; 
+Generally one per possible response error status code is required.&nbsp;  When
+providing a error report path including a &quot;!UL&quot; introduces the response
+status code into the file path, providing a report path that includes a three
+digit number representing the error.&nbsp;  A file for each possible number must then
+be provided.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  [ErrorReportPath] /ht_root/local/reporterror!UL.html
+</PRE></FONT>
+
+<P> This mapping will generate paths such as the following, and require at
+least these to respond to general errors.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  /ht_root/local/reporterror400.html
+  /ht_root/local/reporterror401.html
+  /ht_root/local/reporterror403.html
+  /ht_root/local/reporterror404.html
+  /ht_root/local/reporterror409.html
+  /ht_root/local/reporterror500.html
+  /ht_root/local/reporterror501.html
+  /ht_root/local/reporterror502.html
+  /ht_root/local/reporterror503.html
+</PRE></FONT>
+
+<A NAME="97">
+<H3><BR><U>6.5 - Access Logging</U></H3>
+</A>
+
+<P> WASD provides a versatile access log, allowing data to be collected in
+Web-standard <I>common</I> and <I>combined</I> formats, as well as
+allowing customization of the log record format.&nbsp;  It is also possible to
+specify a log period.&nbsp;  If this is done log files are automatically changed
+according to the period specified.&nbsp;  Exclude requests from specified hosts
+using the [LogExcludeHosts] configuration parameter.&nbsp;
+
+<A NAME="98">
+<H3><BR><U>6.5.1 - Log Format</U></H3>
+</A>
+
+<P> The configuration parameter [LogFormat] and the server qualifier /FORMAT
+specifies one of three pre-defined formats, or a user-definable format.&nbsp;
+Most log analysis tools can process the three pre-defined formats.&nbsp;  There is a
+small performance impost when using the user-defined format, as the log entry
+must be specially formatted for each request.&nbsp;
+<OL>
+                
+<LI> <B>COMMON -</B>
+This is the most common, base logging format for Web servers.&nbsp;  COMMON is the
+default log format.&nbsp;
+<P>
+<LI> <B>COMMON_SERVER -</B>
+This is an optional format used, for one, by the NCSA server.&nbsp;  It is basically
+the common format, with the server host name appended to the line (used for
+multi-homed servers, see <A HREF="htd_0600.html#85" TARGET="_self">6.3 - Virtual Services</A>).&nbsp;
+<P>
+<LI> <B>COMBINED -</B>
+This is an optional format used, for one again, by the NCSA server.&nbsp;  It too is
+basically the common format, with the HTTP referer and user agent appended.&nbsp;
+</OL>
+
+
+<A NAME="99">
+<H3><BR>User-Defined</H3>
+</A>
+
+<P> The user-defined format allows customised log formats to be specified using
+a selection of commonly required data.&nbsp; The specification must begin with a
+character that is used as a substitute when a particular field is empty (use
+"\0" for no substitute, as in the "windows log format" example below).&nbsp;
+
+<P> Two different "escape" characters introduce the following parameters:
+
+<P>
+<BR> A &quot;!&quot; followed by
+<UL>
+
+<LI><B>AR -</B> authentication realm (if any)
+<LI><B>AU -</B> authenticated user name (if any)
+<LI><B>BB -</B> bytes in body (excludes response header)
+<LI><B>BY -</B> bytes in response (includes header)
+<LI><B>CA -</B> client address
+<LI><B>CN -</B> client host name (or address if DNS lookup disabled)
+<LI><B>EM -</B> request elapsed time in milliseconds
+<LI><B>ES -</B> request elapsed time in fractional seconds
+<LI><B>ID -</B> session track ID
+<LI><B>ME -</B> request method
+<LI><B>PA -</B> request path (not to be confused with &quot;RQ&quot;)
+<LI><B>QS -</B> request query string (if any)
+<LI><B>RF -</B> referer (if any)
+<LI><B>RQ -</B> complete request string (see below)
+<LI><B>RS -</B> response status code
+<LI><B>SN -</B> server host name
+<LI><B>SC -</B> script name (if any)
+<LI><B>SM -</B> request scheme (http: or https:)
+<LI><B>SP -</B> server port
+<LI><B>TC -</B> request time (common log format)
+<LI><B>TG -</B> request time (GMT)
+<LI><B>TV -</B> request time (VMS format)
+<LI><B>UA -</B> user agent
+</UL>
+
+
+<P>
+<BR> A &quot;\&quot; followed by
+<UL>
+
+<LI><B>0 -</B> a null character (used to define the empty field character)
+<LI><B>!&nbsp; -</B> insert an &quot;!&quot;
+<LI><B>\ -</B> insert a &quot;\&quot;
+<LI><B>n -</B> insert a newline
+<LI><B>q -</B> insert a quote (so that in DCL the quotes won't need escaping!)
+<LI><B>t -</B> insert a TAB
+</UL>
+
+
+<P>
+<BR> Any other character is directly inserted into the log entry.&nbsp;
+
+<A NAME="100">
+<H3><BR>Note on &quot;PA&quot; and &quot;RQ&quot;</H3>
+</A>
+
+<P> The &quot;PA&quot; and &quot;RQ&quot; have distinct roles.&nbsp;  In general the
+&quot;RQ&quot; (request) directive will always be used as this is the full
+request string;  script component (if any), path string and query string
+component (if any).&nbsp;  The &quot;PA&quot; directive is merely the path string after
+any script and query string components have been removed.&nbsp;
+
+<A NAME="101">
+<H3><BR>Examples</H3>
+</A>
+<OL>
+
+<LI> The equivalent of the common log format is:
+
+<FONT COLOR="#333333"><PRE>  -!CN - !AU [!TC] \q!RQ\q !RS !BY
+</PRE></FONT>
+<P>
+<LI> The combined log format could be specified as:
+
+<FONT COLOR="#333333"><PRE>  -!CN - !AU [!TC] \q!RQ\q !RS !BY \q!RF\q \q!UA\q
+</PRE></FONT>
+<P>
+<LI> The <I>O'Reilly WebSite</I> &quot;windows log format&quot; would be
+created by:
+
+<FONT COLOR="#333333"><PRE>  \0!TC\t!CA\t!SN\t!AR\t!AU\t!ME\t!PA\t!RQ\t!EM\t!UA\t!RS\t!BB\t
+</PRE></FONT>
+<P>
+<LI> The common log format with appended request duration in seconds could be
+provided using:
+
+<FONT COLOR="#333333"><PRE>  -!CN - !AU [!TC] \q!RQ\q !RS !BY !ES
+</PRE></FONT>
+</OL>
+
+
+<A NAME="102">
+<H3><BR><U>6.5.2 - Log Period</U></H3>
+</A>
+
+<P> The access log file may have a period specified against it, producing an
+automatic generation of log file based on that period.&nbsp; This allows logs to be
+systematically named, ordered and kept to a managable size.&nbsp; The period
+specified can be one of
+<UL>
+
+<LI> DAILY
+<P>
+<LI> weekly as ...
+
+<BR> MONDAY
+
+<BR> TUESDAY
+
+<BR> WEDNESDAY
+
+<BR> THURSDAY
+
+<BR> FRIDAY
+
+<BR> SATURDAY
+
+<BR> SUNDAY
+<P>
+<LI> MONTHLY
+</UL>
+
+
+<P> The log file changes on the first request after midnight of the new
+period.&nbsp; When using a weekly period the new log file comes into effect on the
+first request following midnight on the specified day.&nbsp;
+
+<P> When using a periodic log file, the file name specified by HTTPD$LOG or
+the configuration parameter [LogFileName] is partially ignored, only
+partially because the directory component of it is used to located the
+generated file name.&nbsp; The periodic log file name generated comprises
+<UL>
+
+<LI> server host name
+<LI> server port
+<LI> year (YYYY)
+<LI> month (MM)
+<LI> day (DD)
+</UL>
+
+ as in the following example
+
+<FONT COLOR="#333333"><PRE>  HT_LOGS:WASD_80_19971013_ACCESS.LOG
+</PRE></FONT>
+
+<P> For the daily period the date represents the request date.&nbsp; For the weekly
+period it is the date of the previous (or current) day specified.&nbsp; That is, if
+the request occurs on the Wednesday for a weekly period specified by Monday
+the log date show the last Monday's. For the monthly period it uses the first.&nbsp;
+
+<A NAME="103">
+<H3><BR><U>6.5.3 - Log Per-Service</U></H3>
+</A>
+
+<P> By default a single access log file is created for each HTTP server
+process.&nbsp; Using the [LogPerService] configuration directive a log file for each
+service provided by the HTTPd is generated (see <A HREF="htd_0600.html#85" TARGET="_self">6.3 - Virtual Services</A>).&nbsp;
+The [LogNaming] format can be any of "NAME" (default) which names the log file
+using the first period-delimited component of the IP host name, "HOST" which
+uses as much of the IP host name as can be accomodated within the maximum 39
+character filename limitation (of ODS-2), or "ADDRESS" which uses the full IP
+host address in the name.&nbsp;  Both HOST and ADDRESS have hyphens substituted for
+periods in the string.&nbsp;  If these are specified then by default the service port
+follows the host name component.&nbsp;  This may be suppressed using the
+[LogPerServiceHostOnly] directive, allowing a minimum extra 3 characters in the
+name, and combining entries for all ports associated with the host name
+(for example, a standard HTTP service on port 80 and an SSL service on port 443
+would have entries in the  one file).&nbsp;
+
+<A NAME="104">
+<H3><BR><U>6.5.4 - Log Naming</U></H3>
+</A>
+
+<P> When per-period or per-service logging is enabled the access log file has a
+name generated.&nbsp;  Part of this name is the host's name or IP address.&nbsp; By default
+the host name is used, however if the host IP address is specified the
+dot-numeric address is used, hyphens being substituted for the periods.&nbsp;
+Accepted values for the [LogNaming] configuration directive are:
+<UL>
+                
+<LI> ADDRESS
+<LI> HOST
+<LI> NAME (default)
+</UL>
+
+
+<P> Examples of generated per-service (non-per-period) log names:
+
+<FONT COLOR="#333333"><PRE>  HT_LOGS:131-185-250-202_80_ACCESS.LOG
+  HT_LOGS:WASD-DSTO-DEFENCE-GOV-AU_80_ACCESS.LOG
+  HT_LOGS:WASD_80_ACCESS.LOG
+</PRE></FONT>
+
+<P> Examples of generated per-period (with/without per-service) log names:
+
+<FONT COLOR="#333333"><PRE>  HT_LOGS:131-185-250-202_80_19971013_ACCESS.LOG
+  HT_LOGS:WASD-DSTO-DEFENCE-GO_80_19971013_ACCESS.LOG
+  HT_LOGS:WASD_80_19971013_ACCESS.LOG
+</PRE></FONT>
+
+<A NAME="105">
+<H3><BR><U>6.5.5 - Access Tracking</U></H3>
+</A>
+
+<P> The term <I>access tracking</I> describes the ability to follow a
+single user's accesses through a particular site or group of related sites.&nbsp; 
+This is accomplished by setting a unique cookie in a user's browser.&nbsp;  This
+cookie is then sent with all requests to that site.&nbsp;  The site detects the
+cookie's unique identifier, or token, and includes it the access log, allowing
+the user's route through the site or sites to be reviewed.&nbsp;  Note that a browser 
+must have cookies enabled for this mechanism to operate.&nbsp;  
+
+<P> WASD access tracking is controlled using the [Track...] directives.&nbsp;  The
+tracking cookie uses an opaque, nineteen character string as the token (e.g.
+&quot;ORoKJAOef8sAAAkuACc&quot;).&nbsp;  This token is spatially and temporally
+completely unique, generated the first time a user's browser accesses the site.&nbsp; 
+This token is by default added to the server access log in the common format
+&quot;remote-ID&quot; location.&nbsp;  It can also be placed into custom logs.&nbsp;  From
+this identifier in the logs a session's progress may be easily tracked.&nbsp; 
+<B>Note that the token contains nothing related to the user's actual
+identity!&nbsp;</B>  It is merely a unique identifier that tags a single browser's
+access trail through a site.&nbsp; 
+
+<P> The [Track] directive enables access tracking on a per-server basis.&nbsp;  By
+default all non-proxy services will then have tracking enabled.&nbsp;  Individual
+services may be then be disabled (or enabled in the case of proxy services)
+using the per-service &quot;;notrack&quot; and &quot;;track&quot; parameters.&nbsp;
+
+<P> By default a session track token expires when the user closes the browser.&nbsp; 
+To encourage the browser to keep this token between uses enable multi-session
+tracking using the [TrackMultiSession] directive.&nbsp;  Note that browsers may
+dispose of any cookie at any time resources become scarce, and that users can
+also remove them.&nbsp;
+
+<P> Session tracking can be extended from the default of the local server
+(virtual if applicable) to a group of servers within a local domain.&nbsp;  This
+means the same, initial identifier appears in the logs of all WASD servers in a
+related group of hosts.&nbsp;  Of course tracking must be enabled on all servers.&nbsp; 
+The host grouping is specified using the [TrackDomain] directive (this follows
+the general rules governing cookie domain behaviour - see RFC2109).  Most host
+grouping require <B>a minimum of three dots</B> in the specification.&nbsp; 
+For example (note the leading dot)
+
+<FONT COLOR="#333333"><PRE>  .site.org.domain
+</PRE></FONT>
+
+<P> which would match the following servers, &quot;curly.site.org.domain&quot;,
+&quot;larry.site.org.domain&quot;, &quot;moe.site.org.domain&quot;, etc.&nbsp;  Sites in
+top-level domains (e.g. &quot;edu&quot;, &quot;com&quot;, &quot;org&quot;) need only
+specify a minimum of two periods.&nbsp;
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="htd_0700.html" TARGET="_self">next</A>] [<A HREF="htd_0500.html" TARGET="_self">previous</A>] [<A HREF="htd_0001.html"TARGET="_top" >contents</A>] [<A HREF="htd_0600.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

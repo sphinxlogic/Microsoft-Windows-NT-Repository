@@ -1,0 +1,125 @@
+	.TITLE	MAKE_PING
+	.IDENT	/V1-002/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 MAKE_PING
+; Programme to scan IP section and for each IP address:
+; add line "PING x.x.x.x" to output file
+; Useful to force relearn of all IP addresses
+;-- 
+; Modifications:
+; 001	Jun-1995	PB	Creation
+;	
+; Returns in R0:
+;
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_lib:EMU5.MLB"
+        $IODEF                          ;Define I/O functions and modifiers
+        $NMADEF                         ;Define Network Management parameters
+	$SECDEF				; Global Section 
+	$SSDEF
+	EMUSNMPDEF
+	EMUSYSDEF
+	EMUPSRDEF
+	EMUCNTDEF
+	EMUDBDEF
+
+
+	.PSECT	MAKE_PING_D,WRT,NOEXE,PIC,SHR,QUAD
+
+IPMAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIP
+		.LONG	PSR_IP_L_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPDB
+		.ADDRESS EMU_PSRIP
+	.align long
+DEVFAB:	$FAB	FAC = <PUT>,-        ; Access
+		SHR = <DEL,UPD,GET,PUT>,-
+		RAT = <CR>,-
+		MRN = 0,-		; No Max rec No.
+		MRS = DEVREC_SIZE,-	; FIXED
+		FNM = <PING.COM>,-   	 ; Filename 
+		DNM = <EMU5_SRC:PING.COM>   	 ; Filename 
+
+DEVRAB: $RAB	FAB = DEVFAB,-            ; Record 
+		RBF = DEVREC,-
+		RSZ = DEVREC_SIZE,-
+		UBF = DEVREC,-
+		USZ = DEVREC_SIZE
+DEVREC:
+	.BLKB	48
+DEVREC_SIZE = .-DEVREC
+
+FAODESC:
+	.LONG	.-DEVREC
+	.ADDRESS  DEVREC
+HEADER:		.ASCII	/$ ping :== $sys$system:tcpip$ping.exe/
+h_len = .-header
+COMMAND:        .ASCID	/$ PING -c 1 !UB.!UB.!UB.!UB/
+EMU_IPDB:	
+		.ASCID	\EMU_IPDB\            ; Lock name
+EMU_PSRIP:	
+		.ASCID	\EMU_PSRIP\  		; Section name
+
+	.PSECT	MAKE_PING_C,NOWRT,EXE,PIC,SHR,QUAD
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=MAKE_PING
+
+; Create outp
+	$CREATE	FAB = DEVFAB		;Open input file
+	$CONNECT RAB = DEVRAB		;Connect input stream
+	BLBS	R0,1$
+	RET
+
+1$:	MOVC3	#H_LEN,HEADER,DEVREC
+	MOVW	#H_LEN,DEVRAB+RAB$W_RSZ 
+	MOVW	#H_LEN,DEVRAB+RAB$W_USZ
+        $PUT	RAB=DEVRAB
+	BLBS	R0,2$
+	RET
+2$:
+	PUSHAL	IPMAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,3$
+	RET
+3$:
+	MOVL	IPMAPS,R11		; Top of table
+	ADDL3	#PSR_IP_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	RET				; br if None
+10$:
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),100$	; Br if deleted
+        MOVL	#48,FAODESC
+	ADDL3  #PSR_IP_L_ADDR ,R6,R7	
+	MOVZBL	3(R7),-(SP)
+	MOVZBL	2(R7),-(SP)
+	MOVZBL	1(R7),-(SP)
+	MOVZBL	(R7),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	COMMAND
+	CALLS	#7,G^SYS$FAO
+	MOVW	FAODESC,DEVRAB+RAB$W_RSZ 
+	MOVW	FAODESC,DEVRAB+RAB$W_USZ 
+        $PUT	RAB=DEVRAB
+
+100$:
+	ADDL	#PSR_IP_C_RECSIZ,R6		; Next entry
+	SOBGTR	R11,10$
+	ret
+
+	.END	MAKE_PING

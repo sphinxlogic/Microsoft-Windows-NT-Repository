@@ -1,0 +1,116 @@
+	.TITLE	EMU_REPORTING 
+	.IDENT	/V2-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;
+; 001	May-1998	PB	Creation
+;++
+;1 EMU_REPORTING 
+; Program to provide DCL interface to EMU report creation routines.
+; User defines this program as foreign command and passes the 
+; params on the command line.
+; e.g.:
+;	$ REPORT :== $EMU5_EXE:EMU_REPORTING
+;	$ REPORT RPTPRM RPTFIL
+; Notes:
+;  RPTPRM is the name of a report paramater file that was previously
+;	  created using EMU interface
+;  RPTFIL is the file that this program creates for output. A name must
+;	  be given. Optionaly any other part of a standard VMS file 
+;	  specification may be given. No wildcards.
+;	  The defaults are:
+;	  Node	  	the local node
+;	  Device/dir    EMU5_RPT:
+;	  Filename      No default - must be present
+;	  Filetype	.RPT
+;
+;2 Inputs:
+; 	None 
+;2 Outputs
+;	 The specified file is created and written with the paramaters
+;	 specified by RPTPRM.
+;2 Returns:
+;	SS$_NORMAL		; OK - Report written
+;	SS$_ITEMNOTFOUND	COmmand line mis-formatted
+;	Any from:
+;	LIB$GET_FOREIGN
+;	EMU_RPT_CREATE_REPORT
+;	EMU_RPT_GETRABSPACE
+;	EMU_RPT_GETRSPACE
+;	EMU_RPT_GETPSPACE 
+;	EMU_RPT_CHECK_INSTANCE
+;	EMU_RPT_LOAD
+;	EMU_RPT_READ 
+;--
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+
+	.PSECT	EMU_REPORTING_D,WRT,NOEXE,PIC,SHR,QUAD
+RPTPRM_DESC:	.QUAD	0
+RPTFIL_DESC:	.QUAD	0
+RPTSEC_A:	.QUAD	0
+RPT_ITEMS:	.LONG
+CLI_BUFF:	.BLKB	80
+CLI_DESC:	.LONG 	.-CLI_BUFF
+		.ADDRESS  CLI_BUFF
+CLI_LEN:	.LONG
+
+
+
+       .PSECT EMU_REPORTING_C,EXE,NOWRT,LONG
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_REPORTING
+
+; Get command line
+	CLRL	-(SP)		; No flag
+	PUSHAL	CLI_LEN         ; Resulting len
+	CLRL	-(SP)           ; No prompt
+	PUSHAL	CLI_DESC        ; Write here
+	CALLS	#4,G^LIB$GET_FOREIGN
+	BLBS	R0,10$
+	RET
+10$:
+; Get names into descriptors
+	TSTL	CLI_LEN
+	BNEQ	100$
+20$:
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+100$:
+	MOVAL	CLI_BUFF,R6
+	LOCC	#^A/ /,CLI_LEN,(R6)
+	TSTL	R0 			; Found space?
+	BEQL	20$                     ; Br not
+	SUBL3	R6,R1,RPTPRM_DESC       ; Len of param file name
+	BLEQ	20$                     ; Br if <= 0
+	MOVL	R6,RPTPRM_DESC+4
+	MOVL	RPTPRM_DESC,R2		; Len so far
+	INCL	R2
+	SUBL3	R2,CLI_LEN,RPTFIL_DESC	; Len of file name
+	BLEQ	20$
+	ADDL3	#1,R1,RPTFIL_DESC+4
+; Load param file
+
+	PUSHAL	RPTSEC_A
+	PUSHAL	RPTPRM_DESC
+	PUSHAL	RPT_ITEMS
+	CALLS	#3,G^EMU_RPT_LOAD
+	BLBS	R0,110$
+	RET
+110$:
+	PUSHL	#1
+	PUSHAL	RPTFIL_DESC
+	PUSHAL	RPT_ITEMS
+	PUSHAL	RPTSEC_A
+	CALLS	#4,G^EMU_RPT_CREATE_REPORT
+	RET
+	.END	EMU_REPORTING

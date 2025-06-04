@@ -1,0 +1,301 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.HTD]HTD_AUTH.SDML">
+<META NAME="date" CONTENT="Thu, 25 Jan 2001 04:55:42">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Authorization Quick Guide</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Technical Overview</H1>
+
+<A NAME="150">
+<H2>11 - Authorization Quick Guide</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+11.1 - <A HREF="htd_1100.html#151" TARGET="_self">SYSUAF/Identifier Authentication</A>
+<BR>11.2 - <A HREF="htd_1100.html#153" TARGET="_self">SYSUAF Authentication</A>
+<BR>11.3 - <A HREF="htd_1100.html#154" TARGET="_self">Other Authentication</A>
+<BR>11.4 - <A HREF="htd_1100.html#155" TARGET="_self">Read and Write Groupings</A>
+<BR>11.5 - <A HREF="htd_1100.html#156" TARGET="_self">Considerations</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="htd_1200.html" TARGET="_self">next</A>] [<A HREF="htd_1000.html" TARGET="_self">previous</A>] [<A HREF="htd_0001.html"TARGET="_top" >contents</A>] [<A HREF="htd_1100.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> WASD offers a comprehensive and versatile authentication and authorization
+environment.&nbsp;  A little too comprehensive, often leaving the new administrator
+wondering where to begin.&nbsp;  The role of this chapter is to provide a starting
+place, especially for sources of authentication, along with some basic
+configurations.&nbsp; <A HREF="htd_1200.html#157" TARGET="_self">12 - Authentication and Authorization</A> contains a detailed
+explanation of all aspects.&nbsp;  All examples here assume a standard installation 
+and environment.&nbsp;
+
+<P> Just to clarify.&nbsp; <B>Authentication</B> is the verification of a
+user's identity, usually through username/password credentials.&nbsp;
+<B>Authorization</B> is allowing a certain action to be applied to a
+particular path based on that identity.&nbsp;
+
+<A NAME="151">
+<H3><BR><U>11.1 - SYSUAF/Identifier Authentication</U></H3>
+</A>
+
+<P> This setup allows any active account to authenticate using the local VMS
+username and password.&nbsp;  By default not every account may authenticate this
+way, only those holding specified VMS rights identifiers.&nbsp;  See
+<A HREF="htd_1200.html#176" TARGET="_self">12.9.1 - Rights Identifiers</A>.&nbsp;  The examples provided in this section
+allows access to the WASD server administration menus, and so may be followed
+specifically for that purpose, as well as serve as a general guide.&nbsp;
+<UL>
+
+<LI> Define the following logical before calling the server startup
+procedure.&nbsp;  To make such a definition permanent add it to the system or Web
+environment startup procedures.&nbsp;  This logical contains a startup qualifier that
+configures the server to allow authentication from the SYSUAF, using VMS rights
+identifiers.&nbsp;  See <A HREF="htd_1200.html#159" TARGET="_self">12.1 - Authentication Policy</A>.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ DEFINE /SYSTEM HTTPD$STARTUP_SERVER "/SYSUAF=ID"
+  $ @<I>device</I>:[HT_ROOT.LOCAL]STARTUP.COM
+</PRE></FONT>
+
+<P><LI> Decide on an identifier name.&nbsp;  This can be an existing identifier, or
+one created for the purpose.&nbsp;  For this example the identifier will be
+&quot;WASD_WEBADMIN&quot;.&nbsp;  Any identifier can be created using actions similar to
+the following example.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ SET DEFAULT SYS$SYSTEM
+  $ MCR AUTHORIZE
+  UAF&gt; ADD /IDENTIFIER WASD_WEBADMIN
+</PRE></FONT>
+<P>
+<LI> Modify the authorization configuration file, accessed by the server
+using the system logical HTTPD$AUTH, to contain the following.&nbsp;  This allows
+full access to the Administration Menu and [.LOCAL] directory (and no world
+access).&nbsp;  Additional paths may be added as required, and of course multiple
+identifiers may be created and used for multiple realms and paths.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  ["Web Admin"=WASD_WEBADMIN=id]
+  /httpd/-/admin/* r+w
+  /ht_root/local/* r+w
+</PRE></FONT>
+<P>
+<LI> The identifier must then be granted to those accounts allowed to
+authenticate in this way.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ SET DEFAULT SYS$SYSTEM
+  $ MCR AUTHORIZE
+  UAF&gt; GRANT /IDENTIFIER WASD_WEBADMIN SYSTEM
+</PRE></FONT>
+<P>
+<LI> Using this approach useful discrimination may be exercised.&nbsp;  For
+instance, one identifier for Web administrators, another (or others) for
+different authentication requirements.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  ["Web Admin"=WASD_WEBADMIN=id]
+  /ht_root/local/* r+w
+  /httpd/-/admin/* r+w
+  ["Area Access"=<I>area-identifier-name</I>=id]
+  /web/area/* r+w ; r
+</PRE></FONT>
+
+<P> Of course the one account may hold multiple identifiers and so may have
+access to various areas.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  UAF&gt; GRANT /IDENTIFIER WASD_WEBADMIN SYSTEM
+  UAF&gt; GRANT /IDENTIFIER <I>area-identifier-name</I> SYSTEM
+</PRE></FONT>
+
+<P> Using VMS rights identifiers allows significant granularity in providing
+access.&nbsp;
+</UL>
+
+
+<A NAME="152">
+<H3><BR>After Changes</H3>
+</A>
+
+<P> If the HTTPD$AUTH configuration file is changed, or rights identifiers are
+granted or revoked from accounts, the server should be directed to reload the
+file and purge any cached authorization information.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ HTTPD/DO=AUTH=LOAD
+  $ HTTPD/DO=AUTH=PURGE
+</PRE></FONT>
+
+<A NAME="153">
+<H3><BR><U>11.2 - SYSUAF Authentication</U></H3>
+</A>
+
+<P> <B>The use of rights identifiers (described above) is strongly
+recommended.&nbsp;</B>  However if this is impractical for some reason, an
+alternative setup allows <U>any active, non-privileged account</U> to
+authenticate using the server system VMS username and password.&nbsp;
+<UL>
+
+<P>
+<LI> Define the following logical before calling the server startup
+procedure.&nbsp;  This logical configures the server to allow authentication from the
+SYSUAF.&nbsp;  See <A HREF="htd_1200.html#159" TARGET="_self">12.1 - Authentication Policy</A>.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ DEFINE /SYSTEM HTTPD$STARTUP_SERVER "/SYSUAF"
+  $ @<I>device</I>:[HT_ROOT.LOCAL]STARTUP.COM
+</PRE></FONT>
+<P>
+<LI> Modify the authorization configuration file, accessed by the server
+using the system logical HTTPD$AUTH, to contain the following.&nbsp;  This allows
+full access to the Administration Menu and [.LOCAL] directory (and no world
+access at all).&nbsp;  Additional paths may be configured as required.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  ["Whatever you want to call it!"=VMS]
+  /web/area/* r+w
+</PRE></FONT>
+
+<P> Update access (read+write) may be provided to the authorized and read-only
+access to the world using syntax similar to the following example.&nbsp;  This
+applies to all authentication sources.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  /web/area/* r+w ; r
+</PRE></FONT>
+<P>
+<LI> With no discrimination on which accounts can and cannot authenticate
+using this setup additional controls on what can be accessed must be supplied.&nbsp; 
+This is done using either restriction lists (see
+<A HREF="htd_1200.html#165" TARGET="_self">Access Restriction List</A>)
+
+<FONT COLOR="#333333"><PRE>  ["Realm Name"=VMS]
+  /web/area1/* r+w,~username1,~username2
+  /web/area2/* r+w,#host1,#host2,~username3
+</PRE></FONT>
+
+<P> or using access groups (see <A HREF="htd_1100.html#155" TARGET="_self">11.4 - Read and Write Groupings</A>)
+
+<FONT COLOR="#333333"><PRE>  ["Realm Name"=VMS;<I>list_name1</I>=list]
+  /web/area1/* r+w ; 
+  ["Realm Name"=VMS;<I>list_name2</I>=list]
+  /web/area2/* r+w ; r
+</PRE></FONT>
+</UL>
+
+<BLOCKQUOTE><CENTER><B>NOTE</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+To also allow privileged accounts to authenticate via the SYSUAF with this
+configuration change the logical definition as follows.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ DEFINE /SYSTEM HTTPD$STARTUP_SERVER "/SYSUAF=RELAXED"
+</PRE></FONT>
+
+<P> <B>This is not a recommended configuration</B>.&nbsp;
+
+<BR>
+Using VMS identifiers is a far better solution.&nbsp;  See previous section.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<A NAME="154">
+<H3><BR><U>11.3 - Other Authentication</U></H3>
+</A>
+
+<P> Other sources of authentication are available, either by themselves or used
+in the same configuration file (different realms and paths) as those already
+discussed.&nbsp;  See <A HREF="htd_1200.html#166" TARGET="_self">12.4 - Authorization Sources</A>.&nbsp;  Non-SYSUAF sources do not
+require any startup qualifier to be enabled.&nbsp;
+<UL>
+
+<P>
+<LI> <B>Simple lists</B> contain usernames and unencrypted
+passwords.&nbsp;  These are plain-text files, created and modified using any desired
+editor.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  ["Whatever you want to call it!"=<I>list-name</I>=list]
+  /web/area/* r+w ; r
+</PRE></FONT>
+
+<P> This is a <U>very</U> simple arrangement, with little inherent
+security.&nbsp;  Lists are more useful when grouping names together for specifying
+which group may do what to where.&nbsp;
+<P>
+<LI> <B>HTA databases</B> are WASD-specific, binary repositories
+of usernames, encrypted passwords, capabilities, user and other detail.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  ["Whatever you want to call it!"=<I>HTA-database-name</I>=HTA]
+  /web/area/* r+w ; r
+</PRE></FONT>
+
+<P> These databases may be administered using the Administration Menu, are
+quite secure and versatile.&nbsp;
+<P>
+<LI> <B>External agents</B> are authentication and authorization
+scripts executed on demand, under the control-of but external to the server.&nbsp; 
+It is possible for a site to write it's own, custom authorization agent.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  ["Whatever you want to call it!"=<I>agent-name</I>=agent]
+  /web/area/* r+w ; r
+</PRE></FONT>
+</UL>
+
+
+<A NAME="155">
+<H3><BR><U>11.4 - Read and Write Groupings</U></H3>
+</A>
+
+<P> WASD allows separate sources for groups of usernames to control read and
+write access in a particular realm.&nbsp;  See <A HREF="htd_1200.html#169" TARGET="_self">12.5 - Realm, Full-Access, Read-Only</A>.&nbsp;  These
+groups may be provided via simple lists, VMS identifiers, HTA databases and
+authorization agents.&nbsp;  The following example shows an identifier authenticated
+realm with full and read-only access controlled by two simple lists.&nbsp;  For the
+first path the world has no access, for the second read-only access (with the
+read-only grouping becoming basically redundant information).&nbsp;
+
+<FONT COLOR="#333333"><PRE>  ["Realm Name"=<I>identifier_name</I>=id;<I>full_access_name</I>=list;<I>read-only_name</I>=list]
+  /web/area/* r+w ; 
+  /web/another-area/* r+w ; r
+</PRE></FONT>
+
+<A NAME="156">
+<H3><BR><U>11.5 - Considerations</U></H3>
+</A>
+
+<P> Multiple authentication sources (realms) may be configured in the one
+HTTPD$AUTH file.&nbsp;
+
+<P> Multiple paths may be mapped against a single authentication source.&nbsp;
+
+<P> Any path may be mapped only once (for any single virtual service).&nbsp;
+
+<P> Paths may have additional access restrictions placed on them, including
+client host name, username, etc.&nbsp; See <A HREF="htd_1200.html#165" TARGET="_self">Access Restriction List</A>.&nbsp;
+
+<P> The configuration file is loaded and stored by the server at startup.&nbsp;  If
+changed it must be reloaded to take effect.&nbsp;  This can be done manually using
+
+<FONT COLOR="#333333"><PRE>  $ HTTPD/DO=AUTH=LOAD
+</PRE></FONT>
+
+<P> Authentication information is cached.&nbsp;  Access subsequently removed or
+modified will not take effect until the entry expires, or is manually purged
+using
+
+<FONT COLOR="#333333"><PRE>  $ HTTPD/DO=AUTH=PURGE
+</PRE></FONT>
+
+<P> Failed attempts to authenticate against a particular source are limited.&nbsp; 
+When this is exceeded access is always denied.&nbsp;  If this has happened the cache
+must be manually purged before a user can successfully authenticate
+
+<FONT COLOR="#333333"><PRE>  $ HTTPD/DO=AUTH=PURGE
+</PRE></FONT>
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="htd_1200.html" TARGET="_self">next</A>] [<A HREF="htd_1000.html" TARGET="_self">previous</A>] [<A HREF="htd_0001.html"TARGET="_top" >contents</A>] [<A HREF="htd_1100.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

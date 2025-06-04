@@ -1,0 +1,226 @@
+<html>
+<head>
+<title>PATCH/ABSOLUTE on Alpha</title>
+<meta http-equiv="PRAGMA" content="no-cache">
+</head>
+<body bgcolor="#c8e3ff" text="#650000" vlink="#7000a0" link="#0000ff">
+<center><img align=bottom src="bar.gif"></center><p>
+<center><h1>PATCH/ABSOLUTE on Alpha</h1></center>
+<center><img align=bottom src="bar.gif"></center><p>
+
+Have you ever been puzzled or frustrated by the absence of PATCH/ABSOLUTE
+on the alpha? -- I sure have been.
+
+<p>
+Since we don't actually have a 'patch' for alpha, the next best thing would
+be to VEST vax patch to the alpha. Unfortunately, patch is linked with
+VMS, and VEST promptly coughs up the following furball:
+<pre>    AXP$ VEST PATCH.EXE
+    %VEST-F-LNKSYS, Image is linked against OpenVMS VAX and references symbols
+    in it -- not translatable
+    %VEST-F-TRANSFATAL, Translation was impossible
+    %VEST-I-BZZZT, Wrong Answer! Thank you for playing.
+    -VEST-I-GIFTS, We have some nice porting gifts for you.
+    AXP$</pre>
+(Well almost anyway. I made those last two up.... :)
+
+<p>
+During a recent discussion with "the openvms wizard", it was discovered that he
+had actually *PATCHED* PATCH to bypass this problem with VEST!!! Well, with
+that revelation in hand, I set out to duplicate this effort and get PATCH/ABS
+up on alpha. The rest of this article is a discussion of how you too can
+run a VESTed PATCHed PATCH on the alpha.
+
+<p>
+Parts list:
+<ul>
+<li>	VAX/VMS &amp; AXP/VMS (I used v 6.2)</li>
+<li>	VEST (DECMIGRATE)</li>
+<li>	UNMESSAGE (ftp://ftp.wku.edu/vms/fileserv/unmessage.zip)</li>
+<li>	VERB (ftp://ftp.wku.edu/vms/fileserv/verb.zip)</li>
+<li>	1 Copy of VAX SYS$SYSTEM:PATCH.EXE</li>
+<li>	1 Copy of VAX SYS$HELP:PATCHHELP.HLB</li>
+<li>	1 Copy of VAX SYS$MESSAGE:PRGDEVMSG.EXE</li>
+</ul>
+
+<p>
+Starting with the error message given above, the next step is to use ANALYZE
+/IMAGE/INTERACT to look at exactly *what* the system linkage looks like.
+This looks like the following:
+<pre>    VAX$ analyze/image/inter patch
+    IMAGE HEADER
+    
+            Fixed Header Information
+    
+                    image format major id: 02, minor id: 05
+                    header block count: 1
+                    image type: executable (IHD$K_EXE)
+                    I/O channel count: default
+                    I/O page count: default
+                    linker flags:
+                            (0)  IHD$V_LNKDEBUG   0
+                            (1)  IHD$V_LNKNOTFR   0
+                            (2)  IHD$V_NOP0BUFS   0
+                            (3)  IHD$V_PICIMG     1
+                            (4)  IHD$V_P0IMAGE    0
+                            (5)  IHD$V_DBGDMT     1
+                            (6)  IHD$V_INISHR     0
+                            (7)  IHD$V_IHSLONG    1
+                    system version (major/minor): 1.0
+                    system version array information: (Image Value / Current System Value)
+                                            SYS$K_IMAGE_ACTIVATOR : (1.80 / 1.80)
+    Press RETURN to continue, or enter a period (.) for next file:
+    :</pre>
+
+<p>
+The first problem is the system version array. There may be others, but for
+starters, let's just shut the system version array down cold &amp; go from there.
+We can get away with this because the reference to the image activator version
+is most likely due to patch's handling of VAX images when NOT operating in
+ABSOLUTE mode. We're only going to use ABSOLUTE mode on the Alpha anyway.
+The version check was put there during image link as a safety precaution to
+stop execution of patch if the host version of VMS differs from what PATCH
+expected.
+<p>
+The first block of an image is described by an IHDDEF structure for which the
+layout can be found in SYS$SHARE:LIB.REQ. The symbol IHD$W_VERSION_ARRAY_OFF,
+value 10 contains an offset to the version array. If we just stuff a zero in
+there, then the version array should go away... So, on the VAX, we do this:
+<pre>    VAX$ patch/abs patch.exe
+
+      PATCH  Version 6.2    5-MAY-1994
+    
+    %PATCH-I-NOGBL, some or all global symbols not accessible
+    %PATCH-I-NOLCL, image does not contain local symbols
+    PATCH>exam/word 0a
+    0000000A:  00B0
+    PATCH>dep/w .=0
+    old:    0000000A:  00B0
+    new:    0000000A:  0000
+    PATCH>upd
+    %PATCH-I-WRTFIL, updating image file DEVL:[VAXPATCH.ARTICLE]PATCH.EXE;2
+    PATCH>Exit</pre>
+
+<p>
+If we repeat the analyze/image, it tells us that the system version array is
+empty. So.... we try the VEST again...
+<pre>    AXP$ vest patch/nofeedback
+    %VEST-I-LNKSYSOK, Image is linked against OpenVMS VAX but references no symbols in it -- translation possible
+    %VEST-W-UNSUPABSREF, Reference to unsupported absolute address IMG$DECODE_IHD (S0_space+00002780)
+        At:    00014093 (00014093)
+        Input: CALLS  S^#07,@#80002780
+    %VEST-W-UNSUPABSREF, Reference to unsupported absolute address IMG$GET_NEXT_ISD (S0_space+00002788)
+        At:    0001430F (0001430F)
+        Input: CALLS  S^#07,@#80002788
+    %VEST-W-TRANSWARN, Translation completed with warnings -- review them before using the output image</pre>
+
+<p>
+The UNSUPABSREF messages refer to IMG$...IHD routines that caused the reference
+to SYS$K_IMAGE_ACTIVATOR that we blew away. We'll assume that these routines
+are used for patching images rather than PATCH/ABSOLUTE. So we'll try it out:
+<pre>    AXP$ r patch_tv
+    %CLI-F-SYNTAX, error parsing 'ABSOLUTE'
+    -CLI-E-ENTNF, specified entity not found in command tables</pre>
+
+<p>
+Oops.... need a CLD... Use VERB on the VAX to extract the PATCH.CLD from the
+VAX dcltables, edit it, change the 'image PATCH' statement to
+'image wherever:[dir]PATCH_TV'
+<pre>    VAX$ verb patch /out=patch.cld
+    VAX$ edit patch.cld</pre>
+
+<p>
+Nowww try it....
+<pre>    AXP$ copy sys$login:login.com sys$disk:[]fodder.dat
+    AXP$ set command patch
+    AXP$ patch/absolute fodder.dat
+
+      PATCH  Version 6.2    5-MAY-1994
+
+    %PATCH-I-NOMSG, Message number 006D81D3
+    %PATCH-I-NOMSG, Message number 006D81CB
+    PATCH>Exit</pre>
+
+<p>
+Whoops... Something is still wrong here. Looks like the message definitions
+for patch are not present on the alpha.  On the VAX, these messages are defined
+in SYS$MESSAGE:PRGDEVMSG.EXE. This file exists on the alpha also, but does not
+contain the PATCH messages. The implication is that we need to extract the
+patch messages from the VAX, and place them _somewhere_ on the alpha. Putting
+them into PRGDEVMSG.EXE seems like the wrong answer because I don't really
+want to modify the alpha PRGDEVMSG.EXE. A better approach is to create a new
+SYS$MESSAGE:PATCHMSG.EXE. Use UNMESSAGE on the VAX to extract the PATCH message
+definitions from PRGDEVMSG. Unmessage all of PRGDEVMSG, output to PATCHMSG.MSG,
+and edit out all non-patch message stuff. (And while we're at it, let's snag a
+copy of the VAX PATCHHELP.HLB file too).
+<pre>    VAX$ UNMESS SYS$MESSAGE:PRGDEVMSG /OUT=PATCHMSG.MSG
+    VAX$ EDIT PATCHMSG.MSG
+       (Keep the stuff from .FACILITY PATCH.... to the next .FACILITY line)</pre>
+Now build the Alpha patchmsg.exe:
+<pre>    AXP$ MESSAGE PATCHMSG
+    AXP$ LINK PATCHMSG/SHAR</pre>
+
+<p>
+The next step is to patch patch to use the new patchmsg file. We'll do this
+on the VAX version of PATCH, and re-vest the image. Of course, we'll need to
+know _where_ to patch patch too.
+<pre>    VAX$ COPY SYS$HELP:PATCHHELP.HLB []
+    VAX$ DUMP PATCH.EXE/OUT=PATCH.DMP
+    VAX$ EDIT PATCH.DMP
+      --Find PRGDEVMSG, note virtual block number and offset
+        Mine is in VBN 123 (Hex 7b) at offset hex 20.</pre>
+Note that the data is an ASCIC (ASCII Counted) string. We'll now replace
+the sequence {9}PRGDEVMSG with {8}PATCHMSG{0}
+<pre>    VAX$ patch/abs patch.exe
+
+      PATCH  Version 6.2    5-MAY-1994
+
+    %PATCH-I-NOGBL, some or all global symbols not accessible
+    %PATCH-I-NOLCL, image does not contain local symbols
+    PATCH>dep/byt 7a*200+20=8
+    old:    0000F420:  09
+    new:    0000F420:  08
+    PATCH>dep/asci 7a*200+21
+    NEW>'PATC'
+    NEW>'HMSG'
+    NEW>exit
+    old:    0000F421:  'PRGD'
+    old:    0000F425:  'EVMS'
+    new:    0000F421:  'PATC'
+    new:    0000F425:  'HMSG'
+    PATCH>dep/byt 7a*200+29=0
+    old:    0000F429:  47
+    new:    0000F429:  00
+    PATCH>upd
+    %PATCH-I-WRTFIL, updating image file DEVL:[VAXPATCH.ARTICLE]PATCH.EXE;3
+    PATCH>exit</pre>
+If you noticed, I used '7a' when inside PATCH, but the VBN we patched was
+'7b'. This is because VBNs (virtual block numbers) start with 1, but PATCH
+starts counting bytes at 0.
+<p>
+Now on the alpha, re-vest the image. We get the same messages as before, and
+we'll still ignore them. Now let's copy the help file and the message file
+into the right places, then try it again:
+<pre>    AXP$ COPY PATCHHELP.HLB SYS$COMMON:[SYSHLP]
+    AXP$ COPY PATCHMSG.EXE SYS$COMMON:[SYSMSG]
+    AXP$ patch/absolute fodder.dat
+
+      PATCH  Version 6.2    5-MAY-1994
+
+    %PATCH-I-NOGBL, some or all global symbols not accessible
+    %PATCH-I-NOLCL, image does not contain local symbols
+    PATCH>
+      :</pre>
+
+<p>
+After some playing around, we can tell that it seems to work... Probably
+a good time to call it soup, (though there are a few more interesting
+things that could be tried to neaten it up a bit).
+
+<h3><i>Happy patching!</i><h3>
+
+<center><img align=bottom src="bar.gif"></center><p>
+<i>99.07.09</i>
+<h6>© Copyright 1999, TECSys Development, Inc.</h6>
+</body>
+</html>

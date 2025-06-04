@@ -1,0 +1,356 @@
+1 RELATER   
+ This programme has a number of primary responsibilities:
+
+ 1. At startup it waits for WAIT_INTERVAL (5 sec) for PSR start messages
+ Those PSRs that send start messages are validated and enabled to receive
+ traffic. 
+ At PSR rundown, the PSR disables itself in the PSRTBL and this 
+ process re-enables it once the PSR has started and the validation is 
+ complete. This may happen at any time during system operation.
+ Validation simply scans the PSRDB and ensures that any record in
+ that DB has a corresponding entry in the relater db. The reverse of 
+ this is also checked. Any PSR rec not having a relater entry is erased.
+ Any relater pointer not having a PSR entry is erased.
+ This ensures at PSR startup any relationships that are recorded, exist.
+
+ 2. EMU_CONTROL section is accessed and the recorded NEXT BOXID is
+ checked against all assigned boxids in the PSRdbs. NEXT BOXID must
+ be higher than any assigned and this routine guarantees this to be 
+ the case. (See REL_INIT)
+
+ At end of startup a flag is set that allows the startup mechanism to
+ continue starting the remainder of the system. (See EMU_CONTROL)
+ This allows a startup in 2 distinct phases.
+
+ 2. During normal operations PSRs will send relationships found to this 
+ process. This process (after sanity checks) sets the bits in the PSTTBL
+ fields of each PSR and ensures the BOXIDs match.
+
+2 Locking
+ This process is interlocked with other process also needing access to 
+ multiple records to process a single request. The lock is to coordinate
+ this access and ensure no interference from others. Once the lock is
+ gained, this process processes all waiting relater frames found in a 
+ single pass and then releases the lock.
+
+2 Relater frame
+ BOXID		Sending process's current boxid
+ Sender		Sending PSR. 	.long process id 
+		(SYS_C_PID_xxxx) of sending PSR. 
+ Message type	Add, delete or start. The targets are either added to all PSRs or
+		Deleted from all PSRs. In the case of start, only the sender
+		field is used.
+ Targets	Number of targets to follow.
+ Follows is a list of PSR/Addr targets. It is an unaligned structure:
+ .long	process id (SYS_C_PID_xxxx) of target PSR
+ .long len of following addr
+ protocol address of the record in this PSR. This is in the format
+ expected in the receiving PSR. That is:
+ DECnet addresses are 2 bytes
+ IP addresses are 4 bytes
+ NOVELL adresses are 10 bytes 
+ OSI addreses are variable lens 
+ and so on.
+ Maximum relater frame len is 512 bytes. If it is assumed the average len of
+ an address is 8 bytes (actualy a bit high) then this leaves room for up to 
+ 31 relationships in 1 frame. In the unlikely event this is not enough,
+ the sender can continue in another frame - Each relationship is an
+ independent item. 
+2 Relater database
+ BOXID 		Unused
+ PTYBITS	Collection of all (EMU Supported) Protocols on this box
+ Class		Relative importance of this device. This is used by the 
+		alert mechanism to set priority of alerts for this device.
+		It is user settable.
+ Layers		OSI layers this device supports. It is an indicator as to 
+		what kind of device this is. (bridge, host, router, etc.)
+ BOXID Table	Table of BOXIDs that exist on this device. Within each
+		DB a single boxid associates the addresses together such
+		that a device with 3 IP addresses will have 3 entries in 
+		IP database with the same BOXID. This BOXID is placed
+		in the relater table at the IP offset. The Offset is 
+		dictated by SYS_PID_C_xxxx in sysdef (that is the IP offset
+		is SYS_PID_C_PSRIP (7). The current table size accomidates 24
+		entries.
+
+2 Counters
+ Performance counters are kept in standard format and displayed via the 
+ standard interface. Counters kept:
+ Frames recieved	
+ Frames with error	any formatting error found
+ Frames processed	Frames without error
+ Frames returned	Placed back on freeq
+ Sanity: Processed + error should equal received
+	  Received should equal returned.
+
+
+2 Tracing
+ A bit pattern set by the user in control section dictates trace records
+ this process will write (when enabled).
+ Tracing is enabled by running the trace program, setting the trace recs
+ required and starting it. Logging the results to file is optional.
+ Trace recs are written to a mailbox which is read by the trace program,
+ formatted and displayed.
+ A trace rec is written by a seperate routine and formed as follows:
+ type, len, value. It is unaligned.
+ Exiting the trace program clears all trace bits.
+2 Description
+ For each entry in the frame:
+ Locate the addr specified in the PSRdb specified. If not found, create.
+ Check if the resulting BOXID is in relater db.
+ If not: ADD_BOXID (below)
+ If so : Merge_boxids (below
+ ADD_BOXID:
+ If a boxid exists at the intended target it means that the exiting 
+ boxid and the  new one are on the same device. Change the old boxid 
+ in the PSR db so they match. Locate the old boxid and clear the location.
+ If there are no other locations delete the record else call MERGE_BOXIDS.
+ 
+ MERGE_BOXIDS
+ 
+ Move existing relater PTYBITS to tempbits.
+ Add the sender's and all target's PTYBITS to tempbits.
+ Ensure that each addr specified in the frame exists in the specified
+ database. Create any that do not exist.
+ 
+ PTYBITS:
+ At end, scan boxtbl and for each location .ne. 0 set corresponding
+ bit. Copy result to each boxid in each tbl. This has 2 functions:
+	Informs PSR relation is made (stop sending relater frames)
+	Sanity check. This field should match in relater and all
+	PSRdbs with boxids in this table.
+2 REL_VALIDATE_FRAME
+ Routine to ensure frame is valid before processing.
+ Tests done:
+
+2 REL_START_PSR
+ Routine to:
+	Verify PSR db contents and:
+		If number of recs = 0 then delete all relationships
+		with this PSR from all others
+	Enable PSR to recieve frames
+3 Input
+  Relater frame with msg type = start
+3 Output
+  If the PSR specified by the input has no recs in it's database
+	then all other PSR recs are scanned and the PTYBIT corresponding
+	to this PSR is cleared.
+ A message indicating PSR startup is logged
+3 Return
+ SS$_NORMAL
+ Any from REL_MAPDB,
+3 Description
+ A .long (tracker) initialised to 0 tracks the PSRs as they come up. 
+ Any PSR comming up with 0 recs has the corresponding bit in this 
+ long set. IF a PSR comes up with recs .ne. 0 then the corresponding 
+ bit is cleared. As other PSRs come up (any order) this long is checked 
+ and if not 0 (at least 1 bit set) then this .long is used and a mask 
+ in a Bit clear operation on each rec in each PSR. This clears all 
+ databases of relationships that no longer exist.
+
+ An array of 32 .longs (1 per possible PSR) is initialised at
+ startup to contain a 'history' of activity taken on each PSR. 
+ Each long is a bit pattern wherein a bit set is interpreted as:
+ 'The PSR corresponding to this bit has started with 0 recs and this PSR
+ has been processed.'
+ As each PSR database is processed the 'traker' .long is coppied to the 
+ position corresponding to this PSR in the table.
+ NOte that the 'tracker' is actualy position 0 in the table. There
+ no PSR 0 nor can there ever be.
+ This arrangement allows for various possibilities:
+ If a PSR comes up with 0 recs all other existing PSRs which have 
+ relationships with this one are removed. 
+ If a PSR with relationships comes up later than the 0 rec one, this 
+ is still detected and resolved.
+ If a PSR goes down and comes back up, the operation will not be repeated - 
+ thus deleteing 'good' relationships.
+2 REL_CLEAR_PTY
+ Routine called when PSR starts up with no records
+ All other PSRdbs are scanned and the PTYBIT associated with 
+ the starting PSR is cleared in all records. 
+ This allows any PSRdb to be missing at start and still maintain
+ all other relationships.
+3 Input
+  .address TRACKERTBL	
+3 Output
+ All PSRDB recs are scanned and the input .long is used as a mask
+ wherein a bit set in the mask is cleared in each PTYBITs field
+3 Return
+ SS$_NORMAL
+2 REL_SETPTYBITS
+ Routine to scan the BOXIDTBL and set coresponding bit for each 
+ boxid present. The resulting pattern is propogated to all PSRDB
+ record's PTYBITS field. Used to confirm back to the PSR that the
+ indicated relationships are stored and it need no longer send
+ this info to the relater.
+3 Input
+ .address of relater record
+3 Output
+  The bit field is generated from scratch each time in a temp location
+ and compared to the previous generation. If .ne. the temp replaces
+ the previous and result is propogated to all PSR recs pointed to 
+ by the table.
+3 Return
+
+2 REL_MERGE_BOXIDS
+ Routine to merge the boxids in 2 records into 1. Called when
+ relationship is found between 2 existing relater records. 
+3 Input
+ .address of target relater record. This is the record that will
+          contain the merged boxids
+ .address of source relater record. These boxids will be changed and 
+          /or moved into the target and this record will be deleted.
+3 Output
+	1 merged record
+	1 record deleted
+3 Return
+ 	SS$_NORMAL	OK
+3 Description
+  Boxids from the source are either moved to the target or the underlying
+  boxids are made to match the target. As an example consider the 
+ following 2 partial records:
+	IP	DECnet	LAT	MOP
+ TGT	0	1	3	56
+ SRC	1	5	0	0
+ The result:
+ TGT	1	5	3	56
+ SRC	(deleted)
+ And all records in DECnet db with boxid = 1 are changed to boxid=5.
+2 REL_GETDB
+ Returns pointer to the mapped db entry specified by the input pid
+3 Input
+ .long of PID of db to check/map
+ The table used for lookup is hard coded in this routine (DBTBL)
+3 Output
+  The address of the entry is returned in R1 if mapped successfuly.
+3 Return
+  SS$_NORMAL		OK
+  SS$_ITEMNOTFOUND     Unknown db specified
+  SS$_INSFMAP		Could not map specified db
+2 REL_MAPDB
+ Maps all known DBs in the table. If the section is already
+ mapped the entry is skipped.
+3 Inputs
+	None. The input table is hard coded here.
+3 Outputs
+	Any section newly mapped has it's 1st and last addr written
+	to the map structure.
+3 Returns
+ 	None
+2 CHANGE_BOXID
+ Subroutine to change boxids in the specified db. This routine overwrites  
+ all occurences of old boxid with new boxid 
+3 Inputs
+  1  .long of NEW boxid
+  2  .long of OLD boxid
+  3  .long sys_pid of db to change
+3 Outputs
+  All occurences of OLD boxid in the specified protocol are changed to NEW.
+  This routine also changes BOXIDs in EMUDB
+3 Returns
+  SS$_NORMAL	- OK
+2 CHANGE_BOXID_DB
+ Subroutine to change boxids in EMUDB. 
+ This routine locates and changes all occurences of the OLD BOXID to the 
+ NEW BOXID. 
+
+3 Inputs
+  1  .address of .long NEW boxid
+  2  .address of .long OLD BOXID 
+  3  .long SYSPID of protocol to change
+3 Outputs
+  All OLD boxids found in EMUDB are changed to NEW
+  If a duplicate record results, the original record is deleted.
+3 Returns
+  SS$_NORMAL	- OK
+	Any from EMUDB access routines
+2 MAP_RELATERDB   
+ Routine to create and initialise the RELATER db. This is a standard routine
+ that any DB creator executes on it's own DB:
+	Acquire exclusive lock on this database. 
+		Fatal error if not granted.
+	Open file - if file not opened used hardcoded defaults.
+	Create section. Fatal error ir we did not CREATE.
+	Initalise with either file contents or defaults
+	Write section size (in pages) to LVB
+	Convert lock to CW
+	That's it!
+2 REL_UNMAP 
+ Unmap specific database and release lock. This routine is called
+ by the MAP Blast routine.
+3 Input
+ The .long param suppied as the AST param to the MAP request. This is 
+ the address of the MAP_STRUCTURE that has has the blocking AST delivered
+ by VMS.
+PUSHL	4(AP)
+CALLS	#1,G^UNMAPLVB_DB
+BLBS	R0,10$
+RET
+0$:
+; re-request lock
+PUSHL	4(AP)				; Blast param
+PUSHAL	REL_UNMAP			; Our unmap routine
+PUSHL	4(AP)				; Map this db
+       CALLS	#3,G^MAPLVB_DB  
+BLBS	R0,20$
+0$:
+RET
+
+
+
+
+
+CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=CREATE_RELREC   
+++
+2 CREATE_RELREC 
+ Initalise new record in RELATER database
+3 Input
+  .address of location to create record
+  Address of new BOXID. 
+  address of sys_pid_xxxx showing PSRdb this belongs to.
+ The PID agrument is an offset into a table of boxids that exist on the 
+ same device. Within each PSRdb the boxid is repeated for as many times
+ as there are addresses on this device on this protocol. Thus if IP has
+ 3 address on this device, there are 3 entries in the IP database all with
+ the same boxid. This boxid then is inserted into the IP 'column' on the 
+ relater db.
+ 
+3 Output
+  R1 = Restored to input address (created record)
+  Entire record is cleared then the following 
+  fields are written:
+   Field		Writen with
+  FLAGS		THIS_PROCESS
+  FSTHRD		current time
+  LSTHRD		current time
+  ACNT			1
+  HOWSET		THIS_PROCESS
+  BOXID		Set in table position dictated by p3
+ If a new record is created the physical record count in the header rec
+ is incremented. If a deleted rec is overwritten there is no increment.
+3 Returns
+	#SS$_NORMAL	OK - deleted record used
+	#SS$_CREATED	OK - new record created
+	#SS$_INSFMEM	Specified address will create outside RELATER space
+ Any return from Lock/Unlock
+2 COUNT_RLT_EVENT
+ Routine to increment the counter set by input.
+3 Input:
+	.long value of counter name. This is an offset from COUNTERS_A
+3 Outputs:
+  	The counter is incremented
+3 Returns:
+	None 
+2 RELATER_INIT
+ This routine is called at Relater startup to verify startup is correct.
+ At completion it sets the SYS_STU_V_PH2FLG flag thus ending phase 1
+ of the system startup and allowing phase 2 to start
+2 Description
+ The continue flag is set and the routine exits.
+2 RELATEREXIT_HDLR  
+ Routine called upon exit to:
+	Write out the current PSR Table.
+	Analyse and write Relater database

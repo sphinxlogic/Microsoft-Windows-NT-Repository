@@ -1,0 +1,779 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.SCRIPTING]SCRIPTING_INTRO.SDML">
+<META NAME="date" CONTENT="Fri, 26 Jan 2001 12:57:23">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Introduction</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Scripting Environment</H1>
+
+<A NAME="14">
+<H2>1 - Introduction</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+1.1 - <A HREF="scripting_0100.html#15" TARGET="_self">Scripting Processes</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;1.1.1 - <A HREF="scripting_0100.html#17" TARGET="_self">Detached Process Scripting</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1.1.1.1 - <A HREF="scripting_0100.html#19" TARGET="_self">Non-Server Account Scripting</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1.1.1.2 - <A HREF="scripting_0100.html#23" TARGET="_self">Restricting Non-Server Scripting</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;1.1.1.3 - <A HREF="scripting_0100.html#24" TARGET="_self">Process Priorities</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;1.1.2 - <A HREF="scripting_0100.html#25" TARGET="_self">Subprocess Scripting</A>
+<BR>1.2 - <A HREF="scripting_0100.html#28" TARGET="_self">Script Mapping</A>
+<BR>1.3 - <A HREF="scripting_0100.html#31" TARGET="_self">Script Run-Time</A>
+<BR>1.4 - <A HREF="scripting_0100.html#33" TARGET="_self">Scripting Logicals</A>
+<BR>1.5 - <A HREF="scripting_0100.html#34" TARGET="_self">Scripting Scratch Space</A>
+<BR>1.6 - <A HREF="scripting_0100.html#37" TARGET="_self">DCL Processing of Requests</A>
+<BR>1.7 - <A HREF="scripting_0100.html#38" TARGET="_self">Scripting Function Library</A>
+<BR>1.8 - <A HREF="scripting_0100.html#39" TARGET="_self">HTTP Persistant-State Cookies</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="scripting_0200.html" TARGET="_self">next</A>] [previous] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0100.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> This document is <B>not a general tutorial on
+authoring scripts</B>, CGI or any other.&nbsp; A large number of references in the
+popular computing press covers all aspects of this technology, usually quite
+comprehensively.&nbsp;  The information here is about the specifics of scripting in
+the WASD environment, which for CGI and ISAPI is generally very much like any
+other implementation.&nbsp;  (Although there are always annoying idiosyncracies, see
+<A HREF="scripting_0100.html#38" TARGET="_self">1.7 - Scripting Function Library</A> for a partial solution to smoothing out some of
+these wrinkles.)
+
+<P> <I>Scripts</I> are mechanisms for creating simple HTTP services,
+sending data to (and sometimes receiving data from) a client, extending the
+capabilities of the basic HTTPd.&nbsp; Anything that can write to SYS$OUTPUT can be
+used to generate script output.&nbsp; A DCL procedure or an executable can be the
+basis for a script.&nbsp; Simply TYPE-ing a file can be provide script output.&nbsp;
+Scripts execute in processes separate from the actual HTTP server but under
+it's control and interacting with it.&nbsp;
+
+<P> WASD manages a script's process environment either as a dependent
+subprocess or independent detached process created by the HTTP server, or as a
+network process created using DECnet.&nbsp;  By default it supports subprocess CGI
+scripts without further configuration.&nbsp;
+
+<P> WASD scripting can deployed in a number of environments.&nbsp;  Other chapters
+cover the specifics of these.&nbsp;
+<UL>
+
+<LI><A HREF="scripting_0200.html#40" TARGET="_self">2 - CGI</A>
+ 
+<LI><A HREF="scripting_0300.html#58" TARGET="_self">3 - CGIplus</A>
+ 
+<LI><A HREF="scripting_0400.html#65" TARGET="_self">4 - Run-Time Environments</A>
+ 
+<LI><A HREF="scripting_0500.html#73" TARGET="_self">5 - CGI Callouts</A>
+ 
+<LI><A HREF="scripting_0600.html#76" TARGET="_self">6 - ISAPI</A>
+ 
+<LI><A HREF="scripting_0700.html#81" TARGET="_self">7 - DECnet &amp; OSU</A>
+ 
+<LI><A HREF="scripting_0800.html#100" TARGET="_self">8 - Perl</A>
+ 
+<LI><A HREF="scripting_0900.html#111" TARGET="_self">9 - Java</A>
+ 
+<LI><A HREF="scripting_1000.html#113" TARGET="_self">10 - Raw TCP/IP Socket</A>
+ 
+</UL>
+
+
+<A NAME="15">
+<H3><BR><U>1.1 - Scripting Processes</U></H3>
+</A>
+
+<P> Process creation under the VMS operating system is notoriously slow and
+expensive.&nbsp; This is an inescapable overhead when scripting via child processes.&nbsp;
+An obvious strategy is to avoid, at least as much as possible, the creation of
+these processes.&nbsp;  The only way to do this is to share processes between
+multiple scripts/requests, addressing the attendant complications of isolating
+potential interactions between requests.&nbsp; These could occur through changes made
+by any script to the process' enviroment.&nbsp; For VMS this involves symbol and
+logical name creation, and files opened at the DCL level.&nbsp; In reality few
+scripts need to make logical name changes and symbols are easily removed
+between uses.&nbsp; DCL-opened files are a little more problematic, but again, in
+reality most scripts doing file manipulation will be images.&nbsp;
+
+<P> A reasonable assumption is that for almost all environments scripts can
+quite safely share processes with <U>great</U> benefit to response
+latency and system impact (see &quot;Technical Overview, Performance&quot;) for a
+table with some comparative performances).&nbsp; If the local environment requires
+absolute script isolation for some reason then this process-persistance may
+easily be disabled with a consequent trade-off on performance.&nbsp;
+
+<A NAME="16">
+<H3><BR>Zombies</H3>
+</A>
+
+<P> The term <I>zombie</I> is used to describe processes when
+persisting between uses (the reason should be obvious, they are neither
+&quot;alive&quot; (processing a request) nor are they &quot;dead&quot; (deleted) :^)
+Zombie processes have a finite time to exist (<I>non-</I>life-time?)
+before they are automatically purged from the system (see see &quot;Technical
+Overview, Configuration&quot;).&nbsp; This keeps process clutter on the system to a
+minimum.&nbsp;
+
+<A NAME="17">
+<H3><BR><U>1.1.1 - Detached Process Scripting</U></H3>
+</A>
+
+<P> With WASD it is possible to execute scripts in processes created completely
+independently of the server process itself.&nbsp;  This offers a significant number
+of advantages over subprocesses
+<UL>
+
+<LI> pooled quotas are no longer a consideration
+<LI> cannot directly affect the server process
+<LI> can be created with more appropriate process priorities
+<LI> can be executed under accounts different to that of the server
+
+<BR> (available via the $PERSONA services of VMS V6.2 and later)
+<LI> allows secure but yet full-featured user scripting
+<LI> processes created through the full account login process
+</UL>
+
+ without too many disadvantages
+<UL>
+
+<LI> process management is a little more complex
+
+<BR> (particularly with server process deletion)
+<LI> processes created through the full account login process
+
+<BR> (yes, it's both an advantage and disadvantage ;^)
+</UL>
+
+
+<P> Creation of a detached process is slightly more expensive in terms of
+system resources and initial invocation response latency (particularly if
+extensive login procedures are required), but this quickly becomes negligable
+as most script processes are used multiple times for successive scripts and/or
+requests.&nbsp;
+
+<A NAME="18">
+<H3><BR>Enabling Detached Processes</H3>
+</A>
+
+<P> By default the server uses subprocesses for scripting (also the historical
+method by which WASD executes scripts).&nbsp;  The HTTPD$CONFIG directive
+[DclDetachProcess] when enabled has the server create (almost) completely
+independent detached processes to execute scripts.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  [DclDetachProcess]  enabled
+</PRE></FONT>
+
+<P> When using detached processes, during shutdown the server must
+explicitly ensure that each scripting process is removed from the system (with
+subprocesses the VMS <I>executive</I> provides this automatically).&nbsp; 
+This is performed by the server exit handler.&nbsp;  With VMS it is possible to
+bypass the exit handler (using a $DELPRC or it's equivalent $STOP/ID= for
+instance), making it possible for &quot;orphaned&quot; scripting processes to
+remain - and potentially accumulate on the system!&nbsp;
+
+<P> To address this possibility, during startup the server scans the system for
+candidate processes.&nbsp;  These are identified by a <I>terminal</I> mailbox 
+(SYS$COMMAND device), and then further that the mailbox has an ACL with two
+entries; the first identifying itself as a WASD HTTPd mailbox and the second
+allowing access to the account the script is being executed under.&nbsp;  Such a
+device ACL looks like the following  example.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  Device MBA335:, device type local memory mailbox, is online, record-oriented
+    device, shareable, mailbox device.
+ 
+    Error count                    0    Operations completed                  0
+    Owner process                 ""    Owner UIC             [WEB,HTTP$SERVER]
+    Owner process ID        00000000    Dev Prot              S:RWPL,O:RWPL,G,W
+    Reference count                1    Default buffer size                2048
+    Device access control list:
+      (IDENTIFIER=WASD_HTTPD_80,ACCESS=NONE)
+      (IDENTIFIER=[WEB,HTTP$SERVER],ACCESS=READ+WRITE+PHYSICAL+LOGICAL)
+</PRE></FONT>
+
+<P> This rights identifier is generated from the server process name and is
+therefore system-unique (so multiple autonomous servers will not
+accidentally cleanup the script processes of others), and <B>is created
+during server startup</B> if it does not already exist.&nbsp;  For example, if the
+process name was &quot;HTTPd:80&quot; (the default for a standard service) the
+rights identifier name would be &quot;WASD_HTTPD_80&quot; (as shown in the example
+above).&nbsp;
+
+<A NAME="19">
+<H3><BR><U>1.1.1.1 - Non-Server Account Scripting</U></H3>
+</A>
+
+<P> Generally when a script executes it is within a process owned by the
+server account.&nbsp;  There are often advantages to running a script under
+another account.&nbsp;  The most obvious of these is the security isolation it
+offers with respect to the rest of the Web and server environment.&nbsp;  It also
+means that the server account does not need to be resourced especially for any
+particularly demanding application.&nbsp;
+
+<P> <B>Non-server account scripting requires detached processes be
+enabled, and the $PERSONA system services available with VMS V6.2 and later.&nbsp; 
+Non-server account scripting is not available under earlier versions of
+VMS.&nbsp;</B>
+
+<A NAME="20">
+<H3><BR>Enabling Non-Server Scripting</H3>
+</A>
+
+<P> The $PERSONA functionality must be explicitly enabled at server startup
+using the /PERSONA qualifier (see &quot;Technical Overview, Server Account
+and Environment&quot;).&nbsp;  The ability for the server to be able to execute  scripts
+under any user account is a very powerful (and potentially dangerous)
+capability, and so is designed that the site administrator must explicitly
+and deliberately enable the functionality.&nbsp;  Configuration files need to be
+rigorously protected against unauthorized modification.&nbsp;
+
+<P> A specific script or directory of scripts can be designated for execution
+under a specified account using the HTTPD$MAP configuration file SET
+<I>script=as=</I> mapping rule.&nbsp;  The following example illustrates the
+essentials.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  # one script to be executed under the account
+  SET  /cgi-bin/a_big_script*  script=as=BIG_ACCOUNT
+  # all scripts in this area to be executed under this account
+  SET  /database-bin/*  script=as=DBACCNT
+</PRE></FONT> 
+
+<A NAME="21">
+<H3><BR>User Account Scripting</H3>
+</A>
+
+<P> In some situations it may be desirable to allow the average Web user to
+experiment with or implement scripts.&nbsp;  If the &quot;script=as=&quot; mapping rule
+specifies a circumflex character then for a user request the mapped SYSUAF
+username is substituted.&nbsp;
+
+<P> The following example shows the essentials of setting up a user environment
+where access to a subdirectory in the user's home directory, [.WWW] with
+script's located in a subdirectory of that, [.WWW.CGI-BIN].
+
+<FONT COLOR="#333333"><PRE>  SET   /~*/www/cgi-bin/*  script=as=~
+  UXEC  /~*/cgi-bin/*  /*/www/cgi-bin/*
+  USER  /~*/*  /*/www/*
+  REDIRECT  /~*  /~*/
+  PASS  /~*/*  /dka0/users/*/*
+</PRE></FONT> 
+ To enable user CGIplus scripting include something like
+
+<FONT COLOR="#333333"><PRE>  UXEC+  /~*/cgiplus-bin/*  /*/www/cgi-bin/*
+</PRE></FONT> 
+
+<A NAME="22">
+<H3><BR>Authenticated User Scripting</H3>
+</A>
+
+<P> If the &quot;script=as=&quot; mapping rule specifies a dollar then a request
+that has been SYSUAF authenticated has the SYSUAF username substituted.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  SET   /cgi-bin/cgi_process  script=as=$
+</PRE></FONT> 
+
+<A NAME="23">
+<H3><BR><U>1.1.1.2 - Restricting Non-Server Scripting</U></H3>
+</A>
+
+<P> By default, activating the /PERSONA server startup qualifier allows all the
+modes described above to be deployed using appropriate mapping rules.&nbsp;  Of
+course there may be circumstances where such broad capabilities are
+inappropriate or otherwise undesirable.&nbsp;  It is possible to control which user
+accounts are able to be used in this fashion with a rights identifier.&nbsp;  Only
+those accounts granted the identifier can have scripts activated under them.&nbsp; 
+This means <U>all</U> accounts ... including the server account!&nbsp;
+
+<P> This is enabled by specifying the name of a rights identifier as a
+parameter to the /PERSONA qualifier.&nbsp;  This may be any identifier but the 
+one shown in the following example is probably as good as any.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ HTTPD /PERSONA=WASD_SCRIPTING
+</PRE></FONT> 
+
+<P> This identifier could be created using the following commands
+
+<FONT COLOR="#333333"><PRE>  $ SET DEFAULT SYS$SYSTEM
+  $ MCR AUTHORIZE
+  UAF&gt; ADD /IDENTIFIER WASD_SCRIPTING
+</PRE></FONT>
+ and granted to accounts using
+
+<FONT COLOR="#333333"><PRE>  UAF&gt; GRANT /IDENTIFIER WASD_SCRIPTING HTTP$SERVER
+</PRE></FONT>
+
+<A NAME="24">
+<H3><BR><U>1.1.1.3 - Process Priorities</U></H3>
+</A>
+
+<P> When detached processes are created they can be assigned differing
+priorities depending on the origin and purpose.&nbsp;  The objective is to give the
+server process a slight advantage when competing with scripts for system
+resources.&nbsp;  This allows the server to respond to new requests more quickly
+(reducing latency) even if a script may then take some time to complete the
+request.&nbsp;
+
+<P> The allocation of base process priorities is determined from the
+HTTPD$CONFIG [DclDetachProcessPriority] configuration directive, which takes
+one or two (comma-separated) integers that determine how many priorities lower
+than the server scripting processes are created.&nbsp;  The first integer determines
+server processes.&nbsp;  A second, if supplied, determines user scripts.&nbsp;  User
+scripts may never be a higher priority that server scripts.&nbsp;  The following
+provides example directives.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  [DclDetachProcessPriority]  1
+  [DclDetachProcessPriority]  0,1
+  [DclDetachProcessPriority]  1,2
+</PRE></FONT>
+
+<P> Scripts executed under the server account, or those created using a mapped
+username (i.e. &quot;script=as=<I>username</I>&quot;), have a process
+priority set by the first/only integer.&nbsp;
+
+<P> Scripts activated from user mappings (i.e. &quot;script=as=~&quot; or
+&quot;script=as=$&quot;) have a process priority set by any second integer, or
+fall back to the priority of the first/only integer.&nbsp; 
+
+<A NAME="25">
+<H3><BR><U>1.1.2 - Subprocess Scripting</U></H3>
+</A>
+
+<P> WASD's default (and historical) scripting environment is with subprocesses
+created by the server.&nbsp; 
+
+<P> With persistent subprocess scripting the pooled-resource BYTLM can become a
+particular issue.&nbsp;   After the first subprocess-based script is executed the
+WATCH report provides some information on the BYTLM required to support both
+the desired number of incoming network connections and script subprocess IPC
+mailboxes.&nbsp;  When using these numbers to resource the BYTLM quota of the server
+account keep in mind that as well as server-subprocess IPC consumption of BYTLM
+there may be additional requirements whatever processing is performed by the
+script.&nbsp;
+
+<P> For a standard configuration 15,000 bytes should be allowed for each
+possible script subprocess, 1,000 bytes for each potential client network
+connection, an additional 20,000 bytes overhead, plus any additional
+requirements for script processing, etc.&nbsp;  Hence for a maximum of 30 scripts
+and 100 network clients, a BYTLM of approximately 260,000 minimum should be
+allowed.&nbsp;
+
+<A NAME="26">
+<H3><BR>Subprocess Environment</H3>
+</A>
+
+<P> When the subprocess is spawned by the server none of the parent's
+environment is propagated.&nbsp;  Hence the subprocess has no symbols, logical names,
+etc., created by the site's SYLOGIN.COM, the server account's LOGIN.COM, etc.&nbsp; 
+This is done quite deliberately to provide a pristine and standard
+default environment for the script's execution.&nbsp;  For this reason all scripts
+must provide all of their required environment to operate.&nbsp;  In particular, if a
+verb is made available via a SY/LOGIN.COM this will not be available to the
+script.&nbsp;  Verbs available via the DCLTABLES.EXE or DCL$PATH of course will be
+available.&nbsp;
+
+<P> There are two basic methods for supplying a script with a required
+environment.&nbsp;
+<UL>
+
+<LI> Create a DCL <I>wrapper</I> procedure that explicitly sets up the
+required environment, assigns required foreign verbs, etc.&nbsp;  If a request does
+not specify a script type (i.e. a .EXE, .COM, .PL, etc.) the server always
+searches for a .COM first.&nbsp;  Hence a script DCL wrapper procedure with the same
+name as the script itself will always be found and executed first.&nbsp;  It can set
+up the required environment and then activate the actual script itself (see
+<A HREF="scripting_0100.html#30" TARGET="_self">&quot;Wrapping&quot; Local or Third-Party Scripts</A>).&nbsp;
+<P>
+<LI> Use the HTTPD$LOGIN procedure to establish a standard environment for all
+scripts (see <A HREF="scripting_0100.html#33" TARGET="_self">1.4 - Scripting Logicals</A>).&nbsp;
+</UL>
+
+
+<A NAME="27">
+<H3><BR>Caution!&nbsp;</H3>
+</A>
+
+<P> When scripts are executed within unprivileged subprocesses created
+by the HTTP server, the processes are owned by the HTTP server account
+(HTTP$SERVER).&nbsp;  Script actions could potentially affect server behaviour.&nbsp; For
+example it is possible for a script to issue an &quot;HTTPD/DO=EXIT=NOW&quot;
+command, or for subprocesses to create or modify logical name values in the JOB
+table (e.g.  change the value of LNM$FILE_DEV altering the logical search
+path).&nbsp; Obviously these types of actions are undesirable.&nbsp;  In addition scripts
+can access any WORLD-readable and modify any WORLD-writable resource in the
+system/cluster, opening a window for information leakage or
+mischievous/malicious actions (some might argue that anyone with important
+WORLD-accessable resources on their system deserves all that happens to them -
+but we know they're out there :^)  Script authors should be aware of any
+potential side-effects of their scripts and Web administrators vigilant against
+possible malicious behaviours of scripts they do not author.&nbsp;
+
+<A NAME="28">
+<H3><BR><U>1.2 - Script Mapping</U></H3>
+</A>
+
+<P> Scripts are enabled using the <I>exec</I>/<I>uxec</I> or
+<I>script</I> rules in the mapping file (also see &quot;Technical
+Overview, Mapping Rules&quot;).&nbsp; The script portion of the <I>result</I> must be
+a URL equivalent of the physical VMS procedure or executable specification.&nbsp;
+
+<P> All files in a directory may be mapped as scripts using the
+<I>exec</I> rule.&nbsp;  For instance, in the HTTPD$MAP configuration file can
+be found a rule
+
+<FONT COLOR="#333333"><PRE>  exec /cgi-bin/* /cgi-bin/*
+</PRE></FONT>
+ which results in request paths beginning &quot;/cgi-bin/&quot; having the
+following path component mapped as a script.&nbsp;  Hence a path
+&quot;/cgi-bin/cgi_symbols.com&quot; will result in the server attempting to
+execute a file named CGI-BIN:[000000]CGI_SYMBOLS.COM.&nbsp;
+
+<P> Multiple such paths may be designated as <I>exec</I>utable, with their
+contents expected to be scripts, either directly executable by VMS (e.g. .EXEs
+and .COMs) or processable by a designated interpreter, etc., (e.g. .PLs,
+.CLASSes).&nbsp; See <A HREF="scripting_0100.html#31" TARGET="_self">1.3 - Script Run-Time</A> below.&nbsp;
+
+<P> In addition individual files may be specified as scripts.&nbsp;  This is done
+using the <I>script</I> rule.&nbsp;  In the following example the request path
+&quot;/help&quot; activates the &quot;Conan The Librarian&quot; script.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  script /help* /cgi-bin/conan*
+</PRE></FONT>
+
+<P> Of course, multiple such rules may be used to map such abbreviated or
+self-explanatory script paths to the actual script providing the application.&nbsp;
+
+<A NAME="29">
+<H3><BR>Mapping Local or Third-Party Scripts</H3>
+</A>
+
+<P> <B>It is not necessary to move/copy scripts into the server
+directory structure to make them accessable.&nbsp;</B>  In fact there are probably
+good reasons for not doing so!&nbsp;  For instance, it keeps a package together so
+that at the next upgrade there is no possibility of the
+&quot;server-instance&quot; of that application being overlooked.&nbsp;
+
+<P> To make scripts provided by third party packages available for server
+activation two requirements must be met.&nbsp;
+<UL>
+
+<LI> The server account must have read/execute access to any and all images and
+other resources required to use the application.&nbsp;
+<LI> Mapping rules must exist to make the script and any required resources
+accessable.&nbsp;
+</UL>
+
+
+<P> Most packages having such an interface for Web server access would
+provide details on mapping into the package directory.&nbsp;  For illustration the
+following mapping rules provide access to a package's scripts (assuming it
+provides more than one) and also into a documentation area.&nbsp;
+
+<P> The hypothetical &quot;Application X&quot; directory locations are
+
+<FONT COLOR="#333333"><PRE>  APPLICATIONX_ROOT:[DOC]
+  APPLICATIONX_ROOT:[CGI-BIN]
+</PRE></FONT>
+
+<P> The required mapping rules would be
+
+<FONT COLOR="#333333"><PRE>  pass /applicationX/* /applicationX_root/docs/*
+  exec /appX-bin/* /applicationX_root/cgi-bin/*
+</PRE></FONT>
+
+<P> Access to X's scripts would be using a path such as
+
+<FONT COLOR="#333333"><PRE>  http://the.host.name/appx-bin/main_script?plus=some&amp;query=string
+</PRE></FONT>
+
+<A NAME="30">
+<H3><BR>&quot;Wrapping&quot; Local or Third-Party Scripts</H3>
+</A>
+
+<P> Sometimes it may be necessary to provide a particular non-WASD, local, or
+third-party script with particular environment in which to execute.&nbsp;  This can
+be provided by <I>wrapping</I> the script executable or interpreted script
+in a DCL procedure (of course, if the local or third-party script is already
+activated by a DCL procedure, then that may need to be directly modified).&nbsp; 
+Simply create a DCL procedure, in the same directory as the script executable,
+containing the required environmental commands.&nbsp;
+
+<P> For example, the following DCL procedure defines a scratch directory and
+provides the location of the configuration file.&nbsp;  It is assumed the script
+executable is APPLICATIONX_ROOT:[CGI-BIN]APPX.EXE and the script wrapper
+APPLICATIONX_ROOT:[CGI-BIN]APPX.COM.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $! wrapper for APPX CGI executable
+  $ SET DEFAULT APPLICATIONX_ROOT:[000000]
+  $ DEFINE /USER SYS$SCRATCH APPLICATIONX_ROOT:[SCRATCH]
+  $ APPX == "$APPLICATIONX_ROOT:[CGI-BIN]APPX"
+  $ APPX /CONFIG=APPLICATIONX_ROOT:[CONFIG]APPX.CONF
+</PRE></FONT>
+
+<A NAME="31">
+<H3><BR><U>1.3 - Script Run-Time</U></H3>
+</A>
+
+<P> A script is merely an executed or interpreted file.&nbsp; Although by default VMS
+executables and DCL procedures can be used as scripts, other environments may
+also be configured.&nbsp; For example, scripts written for the Perl language may be
+transparently given to the Perl interpreter in a script subprocess.&nbsp; This type
+of script activation is based on a unique file type (extension following the
+file name), for the Perl example this is most commonly &quot;.PL&quot;, or
+sometimes &quot;.CGI&quot;.&nbsp; Both of these may be configured to automatically
+invoke the site's Perl interpreter, or any other for that matter.&nbsp; 
+
+<P> This configuration is performed using the HTTPD$CONFIG [DclScriptRunTime]
+directive, where a file type is associated with a run-time interpreter.&nbsp; This
+parameter takes two components, the file extension and the run-time verb.&nbsp; The
+verb may be  specified as a simple, globally-accessable verb (e.g. one embedded
+in the CLI tables), or in the format to construct a <I>foreign-verb</I>,
+providing reasonable versatility.&nbsp; Run-time parameters may also be appended to
+the verb if desired.&nbsp; The server ensures the verb is foreign-assigned if
+necessary, then used on a command line with the script file name as the final
+parameter to it.&nbsp;
+
+<P> The following is an example showing a Perl interpreter being
+specified.&nbsp;  The first line assumes the &quot;Perl&quot; verb is globally
+accessable on the system (e.g. perhaps provided by the DCL$PATH logical) while
+the second (for the sake of illustration) shows the same Perl interpreter being
+configured for a different file type using the foreign verb syntax.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  [DclScriptRunTime]
+  .PL PERL
+  .CGI $PERL_EXE:PERL
+</PRE></FONT>
+
+<P> A file contain a Perl script then may be activated merely by specifying a
+path such as the following
+
+<FONT COLOR="#333333"><PRE>  /cgi-bin/example.pl
+</PRE></FONT>
+
+<P> To add any required parameters just append them to the verb specified.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  [DclScriptRunTime]
+  .XYZ XYZ_INTERPRETER -vms -verbose -etc
+  .XYZ $XYZ_EXE:XYZ_INTERPRETER /vms /verbose /etc
+</PRE></FONT>
+
+<P> If a more complex run-time interpreter is required it may be necessary to
+<I>wrap</I> the script's execution in a DCL procedure.&nbsp;
+
+<A NAME="32">
+<H3><BR>Script File Extensions</H3>
+</A>
+
+<P> The WASD server does not require a file type (extension) to be explicitly
+provided when activating a script.&nbsp; This can help hide the implementation
+detail of any script.&nbsp; If the script path does not contain a file type the
+server searches the script location for a file with one of the known file
+types, first &quot;.COM&quot; for a DCL procedure, then &quot;.EXE&quot; for an
+executable, then any file types specified using script run-time configuration
+directive, in the order specified.&nbsp;
+
+<P> For instance, the script activated in the Perl example above could have
+been specified as below and (provided there was no &quot;EXAMPLE.COM&quot; or
+&quot;EXAMPLE.EXE&quot; in the search) the same script would have been executed.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  /cgi-bin/example
+</PRE></FONT>
+
+<A NAME="33">
+<H3><BR><U>1.4 - Scripting Logicals</U></H3>
+</A>
+
+<P> Two logicals provide some control of and input to the DCL subprocess
+scripting environment (which includes standard CGI, CGIplus and ISAPI,
+DECnet-based CGI, but excludes DECnet-based OSU).&nbsp;
+<UL>
+
+<LI><B>HTTPD$LOGIN - </B> Specifies the location of a command
+procedure that can be executed <U>immediately</U> before the script
+procedure/image/script-file is activated.&nbsp;  This is intended for the provision
+of a common per-site environment, etc., but could be used for any purpose.&nbsp;
+Activate using a system-wide logical as in the following example.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ DEFINE /SYSTEM HTTPD$LOGIN HT_ROOT:[LOCAL]HTTPD$LOGIN.COM
+</PRE></FONT>
+
+<P> Note that each layer of execution added to the scripting environment
+increases both system overhead and response latency.&nbsp;
+<P>
+<LI><B>HTTPD$VERIFY - </B> Activates DCL verify for the DCL
+subprocess scripting environment.&nbsp;  This shows the DCL commands used to support
+script activation.&nbsp;  Intended for problem investigation.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ DEFINE /SYSTEM HTTPD$VERIFY 1
+</PRE></FONT>
+</UL>
+
+
+<P> Note that most WASD scripts also contain logical names that can be set for
+debugging purposes.&nbsp;  These are generally in the format
+<I>script_name</I>$DBUG and if exist activate debugging statements
+throughout the script.&nbsp;
+
+<A NAME="34">
+<H3><BR><U>1.5 - Scripting Scratch Space</U></H3>
+</A>
+
+<P> Scripts often require temporary file space during execution.&nbsp;  Of course
+this can be located anywhere the scripting account (most often HTTP$SERVER) has
+appropriate access.&nbsp;  The WASD package does provide a default area for such
+purposes with permissions set during startup to allow the server account full
+access.&nbsp;  The default area is located in
+
+<FONT COLOR="#333333"><PRE>  HT_ROOT:[SCRATCH]
+</PRE></FONT>
+ as is accessed by the server and scripts using the logical name
+
+<FONT COLOR="#333333"><PRE>  HT_SCRATCH:
+</PRE></FONT>
+
+<P> The server provides for the routine clean-up of old files in HT_SCRATCH:
+left behind by aborted or misbehaving scripts (although as a matter of design
+all scripts should attempt to clean up after themselves).&nbsp;  The HTTPD$CONFIG
+directives
+
+<FONT COLOR="#333333"><PRE>  [DclCleanupScratchMinutesMax]
+  [DclCleanupScratchMinutesOld]
+</PRE></FONT>
+ control how frequently the clean-up scan occurs, and how old files need to
+be before being deleted.&nbsp;  Whenever script processes are active the scratch area
+is scanned at the maximum period specified, or whenever the last script process
+is purged from the system by the server.&nbsp;
+
+<P> Of course there is always the potential for interaction between scripts
+using a common area for such purposes.&nbsp;  At the most elemetary, care must be
+taken to ensure unique file name are generated.&nbsp;  At worst there is the
+potential for malicious interaction and information leakage.&nbsp;  Use such common
+areas with discretion.&nbsp;
+
+<A NAME="35">
+<H3><BR>Unique File Names - DCL</H3>
+</A>
+
+<P> The &quot;UNIQUE_ID&quot; CGI variable provides a <U>unique</U> 19
+character alpha-numeric string (see <A HREF="scripting_0200.html#46" TARGET="_self">UNIQUE_ID Note</A>) suitable
+for many uses including the type extension of temporary files.&nbsp;  The following
+DCL illustrates the essentials of generating a script-unqiue file name.&nbsp;  For
+mutliple file names add further text to the type, as shown below.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ SCRATCH_DIR = "HT_SCRATCH:"
+  $ PROC_NAME = F$PARSE(F$ENVIRONMENT("PROCEDURE"),,,"NAME")
+  $ INFILE_NAME = SCRATCH_DIR + PROC_NAME + "." + WWW_UNIQUE_ID + "_IN"
+  $ OUTFILE_NAME = SCRATCH_DIR + PROC_NAME + "." + WWW_UNIQUE_ID + "_OUT"
+</PRE></FONT>
+
+<A NAME="36">
+<H3><BR>Unique File Names - C Language</H3>
+</A>
+
+<P> A similar approach can be used for script coded using the C language, with
+the useful capacity to mark the file for delete-on-close (of course this is
+only really useful if it's, say, only to be written, rewound and then re-read
+without closing first - but I'm sure you get the idea).&nbsp;
+
+<FONT COLOR="#333333"><PRE>  #define HT_SCRATCH "HT_SCRATCH:"
+  #define SCRIPT_NAME "EXAMPLE"
+ 
+  char  *unqiueId;
+  char  tmpFileName [256];
+  FILE  *tmpFile;
+ 
+  if ((uniqueId = getenv("WWW_UNIQUE_ID")) == NULL)
+  {
+     printf ("Error: WWW_UNIQUE_ID absent!\n");
+     exit (1);
+  }
+  sprintf (tmpFileName, HT_SCRATCH SCRIPT_NAME ".%s", uniqueId);
+ 
+  if ((tmpFile = fopen (tmpFileName, "w+", "fop=dlt")) == NULL)
+     exit (vaxc$errno); 
+</PRE></FONT>
+
+<A NAME="37">
+<H3><BR><U>1.6 - DCL Processing of Requests</U></H3>
+</A>
+
+<P> To assist with the processing of request content and response generation
+from within DCL procedures the CGIUTL utility is available in
+
+<BLOCKQUOTE>
+  <A TARGET="_top" HREF="/ht_root/src/misc/*cgiutl*.*">HT_ROOT:[SRC.MISC]</A>
+</BLOCKQUOTE>
+
+
+<P> Functionality includes
+<UL>
+
+<LI> decode a POSTed request body into DCL symbols
+<LI> write a POSTed request body to a file
+<LI> <I>massage</I> DCL symbol quotation characters
+<LI> generate HTTP response headers
+<LI> <I>binary</I> transfer of file contents
+</UL>
+
+
+<P> Most usefully it can read the request body, decoding form-URL-encoded
+contents into DCL symbols and/or a scratch file, allowing a DCL procedure to
+easily and effectively process this form of request.&nbsp;
+
+<A NAME="38">
+<H3><BR><U>1.7 - Scripting Function Library</U></H3>
+</A>
+
+<P> A source code collection of C language functions useful for processing the
+more vexing aspects of CGI and general script programming is available in
+CGILIB.&nbsp;  This and an example implementation is available in
+
+<BLOCKQUOTE>
+  <A TARGET="_top" HREF="/ht_root/src/misc/*cgilib*.*">HT_ROOT:[SRC.MISC]</A>
+</BLOCKQUOTE>
+
+
+<P> Functionality includes
+<UL>
+
+<LI> detection and appropriate initialization of the scripting environment,
+including WASD, CGIplus, VMS Apache, OSU, Purveyor, and possibly other CGI
+(e.g. Cern, Netscape FastTrack)
+<LI> transparent access to CGI variables
+<LI> transparent access to the body of a POSTed request, both URL-encoded and
+MIME multipart/form-data (from &lt;INPUT TYPE=file&gt; upload tags)
+<LI> placing the contents of a form-URL-encoded or multipart/form-data body
+into CGI-like environment variables
+<LI> URL-decoding, URL-encoding and HTML-escaping a string
+<LI> CGIplus-specific functionality (including callouts)
+</UL>
+
+
+<P> The WASD scripts use this library extensively and may serve as example
+applications.&nbsp;
+
+<A NAME="39">
+<H3><BR><U>1.8 - HTTP Persistant-State Cookies</U></H3>
+</A>
+
+<P> The WASD server is <I>cookie-aware</I>.&nbsp; That is, if the client
+supplies a &quot;Cookie:&quot; request header line it is passed to a CGI script
+as &quot;WWW_HTTP_COOKIE&quot; CGI variable symbol.&nbsp; If a cookie is not part of
+the request this symbol does not exist.&nbsp; A script may use the
+&quot;Set-Cookie:&quot; response header line to set cookies.&nbsp;
+
+<P>Here is <A TARGET="_top" HREF="/cgi-bin/cookie_demo">a small demonstration</A> of cookie
+processing using a DCL script.
+
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="scripting_0200.html" TARGET="_self">next</A>] [previous] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0100.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

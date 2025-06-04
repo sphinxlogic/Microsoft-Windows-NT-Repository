@@ -1,0 +1,137 @@
+$ save_verif = 'f$verify(0)
+$! Set the def dir to proper place for use in batch. Works for interactive too.
+$flnm = f$enviroment("PROCEDURE")     ! get current procedure name
+$set default 'f$parse(flnm,,,"DEVICE")''f$parse(flnm,,,"DIRECTORY")'
+$!
+$! This command procedure installs BISON for VMS.
+$!
+$! P1 = nothing if you want the startup file to be inserted in the GNU
+$! startup database.
+$! P1 = NODATABASE if you want the startup file to just be copied to the
+$! startup directory.
+$
+$ database_p = P1 .nes. "NODATABASE"
+$
+$ srcdir_dev:=@srcdir_dev@
+$ srcdir_dir:=@srcdir_dir@
+$ srcdir:=@srcdir@
+$ vmssrcdir:='srcdir_dev'['srcdir_dir'.vms]
+$ version:=@version@
+$
+$ prefix_dev:=@prefix_dev@
+$ prefix_dir:=@prefix_dir@
+$ prefix:=@prefix@
+$ exec_prefix_dev:=@exec_prefix_dev@
+$ exec_prefix_dir:=@exec_prefix_dir@
+$ exec_prefix:=@exec_prefix@
+$ datadir:='prefix_dev'['prefix_dir'.lib]
+$ mandir:='prefix_dev'['prefix_dir'.help]
+$ bindir:='exec_prefix_dev'['exec_prefix_dir'.bin]
+$ startupdir:=@startupdir@
+$
+$ PFILE:=bison.simple
+$ PFILE1:=bison.hairy
+$ PFILES:=XPFILE='PFILE',XPFILE1='PFILE1'
+$
+$ INSTALL_PROGRAM:=@INSTALL_PROGRAM@
+$ INSTALL_DATA:=@INSTALL_DATA@
+$ INSTALL:=@INSTALL@
+$
+$ set noon
+$ create/dir 'bindir'
+$ create/dir 'mandir'
+$ create/dir 'datadir'
+$ create/dir [.vms]
+$!
+$! Hack bison.s1 for the installer to use.
+$!
+$ save_mesg = f$environment("MESSAGE")
+$ set message/nofacility/noidentification/noseverity/notext
+$ edit/tpu/nosect/nodisp /command='vmssrcdir'routines.tpu -
+	/out=[.vms]routines.tpu$section
+$ set message'save_mesg'
+$ 
+$ open/write foo junk.tpu
+$ write foo "input_file:=GET_INFO(COMMAND_LINE, ""file_name"");"
+$ write foo "main_buffer := CREATE_BUFFER (""main"", input_file);"
+$ write foo "position (beginning_of (main_buffer));"
+$ write foo "TPU_substitute(LINE_BEGIN + ""#line"","
+$ write foo "               ""bison"", """","
+$ write foo "               """,datadir,"bison"");"
+$ write foo "write_file(main_buffer, get_info (command_line, ""output_file""));"
+$ write foo "quit;"
+$ close foo
+$ save_mesg = f$environment("MESSAGE")
+$ set message/nofacility/noidentification/noseverity/notext
+$ edit/tpu/section=sys$disk:[.vms]routines.tpu$section/nodisplay -
+		/command=junk.tpu/out=bison.s1_tmp -
+		'srcdir'bison.simple
+$ delete junk.tpu;*
+$ set message'save_mesg'
+$ @'vmssrcdir'move-if-change bison.s1_tmp bison.s1
+$!
+$! Creates a configuration file
+$!
+$ write sys$output "Producing `[.vms]config.dat'."
+$ open/write foo [.vms]config.dat_tmp
+$ write foo "@"+"version"+"@"
+$ write foo version
+$ write foo "@"+"bindir"+"@"
+$ write foo bindir
+$ write foo "@"+"mandir"+"@"
+$ write foo mandir
+$ write foo "@"+"datadir"+"@"
+$ write foo datadir
+$ write foo "@"+"all_logicals"+"@"
+$ __result = ""
+$ __mode = ""
+$ delete/symbol/local __result
+$ delete/symbol/local __mode
+$ lnm = f$parse(bindir,,,"DEVICE") - ":"
+$ @'vmssrcdir'decomplnm 'lnm' __result DIRS,ATTRIBUTES __mode
+$ flag := no
+$ if __result .nes. "" then flag := yes
+$ if flag then write foo " D\",lnm,"\",__mode,"\ -"
+$ if flag then @'vmssrcdir'loop_sym v __result "," "if next_v .nes. "","" then write foo ""    "",v,"",-"";if next_v .eqs. "","" then write foo ""    "",v" ";" next_v
+$ lnm = f$parse(mandir,,,"DEVICE") - ":"
+$ @'vmssrcdir'decomplnm 'lnm' __result DIRS,ATTRIBUTES __mode
+$ flag := no
+$ if __result .nes. "" then flag := yes
+$ if flag then write foo " D\",lnm,"\",__mode,"\ -"
+$ if flag then @'vmssrcdir'loop_sym v __result "," "if next_v .nes. "","" then write foo ""    "",v,"",-"";if next_v .eqs. "","" then write foo ""    "",v" ";" next_v
+$ lnm = f$parse(datadir,,,"DEVICE") - ":"
+$ @'vmssrcdir'decomplnm 'lnm' __result DIRS,ATTRIBUTES __mode
+$ flag := no
+$ if __result .nes. "" then flag := yes
+$ if flag then write foo " D\",lnm,"\",__mode,"\ -"
+$ if flag then @'vmssrcdir'loop_sym v __result "," "if next_v .nes. "","" then write foo ""    "",v,"",-"";if next_v .eqs. "","" then write foo ""    "",v" ";" next_v
+$ close foo
+$ @'vmssrcdir'move-if-change [.vms]config.dat_tmp [.vms]config.dat
+$ open/read/write foo [.vms]config.dat
+$ close foo
+$
+$!
+$! Create a CLD file.
+$!
+$ @'vmssrcdir'gnu_generate_data 'srcdir'bison.cld_in [.vms]config.dat bison.cld
+$
+$ INSTALL_PROGRAM bison.exe 'bindir'bison.exe
+$ INSTALL_DATA bison.cld 'bindir'bison.cld
+$ INSTALL_DATA bison.s1 'datadir''PFILE'
+$ INSTALL_DATA 'srcdir''PFILE1' 'datadir''PFILE1'
+$ set file/protection=(w:r) 'datadir''PFILE','datadir''PFILE1'
+$ if f$search(mandir+"gnu.hlb") .eqs. "" then -
+	library/create/help 'mandir'gnu.hlb
+$ set file/prot=(w:r) 'mandir'gnu.hlb
+$ library/help/replace 'mandir'gnu.hlb bison.hlp
+$ copy/prot=(w:r) 'srcdir'bison.info* 'infodir'
+$
+$!
+$! Install the startup file
+$ @'vmssrcdir'gnu_generate_script [.vms]bison_startup.dat -
+	[.vms]bison_startup.com
+$ d := NODATABASE
+$ if database_p then d := DATABASE
+$ @'vmssrcdir'gnu_install_startup Bison 'version' [.vms]bison_startup.com
+	'startupdir' 'd'
+$ exit

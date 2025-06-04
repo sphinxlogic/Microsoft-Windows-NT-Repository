@@ -1,0 +1,185 @@
+1000 get_db_st     = 1
+     get_fld_st    = 2
+     get_line_1_6  = 3
+     get_line_2_7  = 4
+     get_line_3_8  = 5
+     get_line_4_9  = 6
+     get_line_5_10 = 7
+     get_line_11   = 8
+     clear
+     do
+       line input 'POISE definition listing file'; def_file$
+       if _reply = '' then stop
+       when exception in
+         open #1: name def_file$     
+       use
+         message error: extext$ + '  for  ' + def_file$
+       end when
+     loop while _error
+
+1010 ! get a record
+1015 eof = false
+     state = get_db_st
+
+1020 do
+1030   when exception in
+         line input#1: rec$
+       use
+         eof = true
+       end when
+       if  eof  then exit do
+       if  rec$[1:1] = chr$(12)  then
+         rec$[1:1]=''
+       end if
+       if rec$ = '' then repeat do
+       if pos(rec$, 'Page') > 0 then state = get_db_st
+
+1035   select case state
+       case get_db_st
+         if rec$[1:1] <> " " then repeat do
+         gosub new_database
+         state = get_fld_st
+       case get_fld_st
+         if rec$[1:5] <> 'Field' then repeat do
+         fld_nbr = fld_nbr + 1
+         field_name$ = element$(rec$, 2, ":")
+         field_name$ = element$(field_name$, 1, " ")
+         field_name$ = change$(field_name$, ".", "")
+         field_name$ = change$(field_name$, "-", "_")
+         field_name$ = ucase$(field_name$)
+         if  field_name$ = ""  then  &
+           field_name$ = "F" + lpad$(str$(fld_nbr), 3, '0')
+         state = get_line_1_6
+       case get_line_1_6
+         z0 = pos(rec$, ':')
+         z1 = pos(rec$, '(')
+         z0$ = rec$[z0+1:z1-1]
+         fpos% = val(element$(z0$, 1))
+         flen% = (val(element$(z0$, 2)) - fpos%) + 1
+         state = get_line_2_7
+       case get_line_2_7
+         z0 = pos(rec$, ':')
+         z1 = pos(rec$, '7) Transf ?')
+         z0$ = rec$[z0+1:z1-1]
+         explain$ = trim$(z0$)
+         state = get_line_3_8
+       case get_line_3_8
+         z0 = pos(rec$, ':')
+         z1 = pos(rec$, '8)')
+         z0$ = trim$(rec$[z0+1:z1-1])
+         z1$ = trim$(rec$[z1+11:999])
+         heading$ = change$(trim$(z0$), '"', '')
+         state = get_line_4_9
+       case get_line_4_9
+         z0 = pos(rec$, ':')
+         z1 = pos(rec$, '9)')
+         z0$ = trim$(rec$[z0+1:z1-1])
+         prompt$ = trim$(z0$)
+         if prompt$[1:1] = '<' then
+           prompt$ = explain$
+         else
+           prompt$ = change$(prompt$, '"', '')
+         end if
+         z1$ = rec$[z1 : 999]
+         z1$ = element$(z1$, 2, ":")
+         if z1$[1:1] = "<" then mask$ = "" else mask$ = z1$
+         mask$ = change$(mask$, '"', '')
+         z0 = pos(mask$, '0')
+         if z0 > 0 then  mask$[z0:999] = change$(mask$[z0:999], '0@', '%')
+         mask$ = change$(mask$, '@', '#')
+         z1=1
+         do
+           z0 = pos(mask$, "-", z1)
+           if z0 = 0 then exit do
+           mask$[z0:z0] = "~-"
+           z1 = z0 + 2
+         loop
+         if  right$(mask$, 2) = "CR"  then  &
+           mask$ = "-" + mask$[1:len(mask$)-2]
+         state = get_line_5_10
+       case get_line_5_10
+         z = pos(rec$, "10)")
+         z$ = rec$[z:999]
+         numflg$ = element$(z$, 2, "?")[1:1]
+         if  numflg$ = 'Y' then
+           state = get_line_11
+         else
+           gosub process_field
+           state = get_fld_st
+         end if
+       case get_line_11
+         scale% = val(element$(rec$, 2, "Decimal:"))
+         gosub process_field
+         state = get_fld_st
+       end select
+1050 loop
+
+1180 stop
+
+
+1190  ! N e w   d a t a b a s e
+      !
+  new_database:
+
+1200  database$ = ucase$(trim$(rec$))
+      z0 = pos(database$, '.DSC')
+      if z0 = 0 then z0 = len(database$)+1	
+      database$ = database$[1:z0-1]
+      if database$ = last_database$ then return
+      last_database$ = database$
+
+1205  close structure st
+      pass 'create/fdl=tti_run:define ' + database$ + '.def'
+      open structure st: name 'tti_run:define', datafile database$+'.def', &
+                         access outin, lock
+      fld_nbr = 0
+
+1208  message 'Working on ' + database$
+
+1210  return
+
+
+
+12100  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+       ! p r o c e s s   a   f i e l d
+       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  process_field:
+
+12160  gosub store_field
+       message database$ + ':  ' + field_name$ + '  ' + explain$
+
+12199  return
+
+
+13100  ! S t o r e   n e w   f i e l d
+  store_field:
+
+13120  add structure st
+13150    let st(old_name)  = "*"
+         let st(long_name)  = field_name$
+         let st(desc)  = explain$
+         let st(heading) = heading$
+         let st(prompt)  = prompt$
+         let st(first) = fpos%
+         let st(len)   = flen%
+         let st(read)  = 'N'
+         let st(write) = 'N'
+         let st(dtype) = 'CH'
+         let st(num)   = numflg$
+         let st(scale) = scale%
+         let st(rj)    = numflg$
+         let st(prmask)= mask$
+         let st(zf)    = 'N'
+         let st(zs)    = 'N'
+         if  numflg$   = 'Y' then
+           let st(uc)  = 'N'
+         else
+           let st(uc)  = 'Y'
+         end if
+         let st(date)  = 'N'
+         let st(df)    = 'YMD'
+13170  end add
+
+13199  return
+
+

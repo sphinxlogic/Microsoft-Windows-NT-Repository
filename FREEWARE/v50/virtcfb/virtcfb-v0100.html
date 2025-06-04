@@ -1,0 +1,130 @@
+<HTML>
+<HEAD>
+<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=windows-1252">
+<META NAME="Generator" CONTENT="Microsoft Word 97">
+<TITLE>1</TITLE>
+<META NAME="Template" CONTENT="C:\WINWORD\TEMPLATE\ENG-TEMP.DOT">
+</HEAD>
+<BODY>
+
+<B><FONT FACE="Comic Sans MS" SIZE=5><P ALIGN="CENTER"><A NAME="_Toc389455889"><A NAME="_Toc389462945"><A NAME="_Toc390480550">The OpenVMS Alpha Virtual Server V1.0 </P>
+</FONT><FONT FACE="Comic Sans MS" SIZE=4><P ALIGN="CENTER">Fred Kleinsorge, Compaq Computer Corporation</P>
+<OL>
+
+</FONT><FONT FACE="Comic Sans MS" SIZE=5><LI>Introduction</A></A></A></LI>
+</B></FONT><FONT FACE="Comic Sans MS"><P>Welcome to the <B>Virtual Server!</B>  This guide is designed to both instruct the user on how to install and use the server, and <B>XVCFB </B>application.</P>
+<P>The <B>Virtual Server</B> consists of an X11 Server DDX that creates a Global Section as a Color Frame Buffer, and a remote application (<B>XVCFB</B>) which maps the global section. It then creates an X11 window allowing the user to interact with the virtual server.</P>
+<P>The original code dates from 1991, and was used to debug the X11R4 MIT sample server on the Alpha Development Unit (ADU) prior to real hardware becoming available.  The server code was enhanced in 1995 to implement "virtual" screen capability for the Alphabook, and the embedded Cirrus Logic on the AS1000A.  The enhancement was to implement a set of wrapper functions for the CFB server, which allows bounding extents to be generated, call-outs to display changes, and hooks to allow virtual panning.</P>
+<P>Another feature of the original port of the MIT sample server to Alpha was to implement a virtual input queue.  Like the virtual CFB, the server creates a global section, which is initialized to look like the shared memory between the input device drivers, and the server.  By mapping this section, input can be delivered to the server as if a real mouse and keyboard were sending data from the device drivers.</P>
+<P>The current incarnation brings the <B>XVCFB</B> code up to date, and uses the enhanced features.  The server was enhanced to make interaction with an external process more efficient, and more important – added some security features.  Finally, an automatic startup procedure was implemented that allows unprivileged users to start <B>Virtual Server</B> sessions.</P>
+<LI><A NAME="_Toc389455890"><A NAME="_Toc389462946"><A NAME="_Toc390480551"></FONT><B><FONT FACE="Comic Sans MS" SIZE=5>Installing and Using the </A></A></A>Virtual Server and XVCFB</LI>
+</B></FONT><FONT FACE="Comic Sans MS"><P>The Virtual Server is installed using the PRODUCT INSTALL command:</P>
+<P>&nbsp;</P>
+<P>$ PRODUCT INSTALL <B>VIRTCFB</P>
+<P>&nbsp;</P>
+</B><P>Cleverly, none of the filenames conflict with the standard DECwindows/Motif files, and so does not invalidate your normal DECwindows/Motif support.  Images or command files that needed modifications, have had alternate names provided</P>
+<OL>
+
+</FONT><B><FONT FACE="Comic Sans MS" SIZE=4><LI>Starting a Virtual Server</LI>
+</B></FONT><FONT FACE="Comic Sans MS"><P>When the installation has completed, you will be ready to use the <B>Virtual Server</B>.  Normally this is done using the automatic startup feature when you invoke <B>XVCFB</B>.  To use the automatic startup feature, you must start the <B>Virtual Server Connection Controller </B>(<B>VCFBCONNECT</B>).</P>
+<P>&nbsp;</P>
+<P>$ @SYS$MANAGER:<B>DECW$START_VCFBCONNECT</P>
+</B><P>&nbsp;</P>
+<P>This starts <B>VCFBCONNECT </B>as a detached process.  The default is a limit of 16 servers, with a maximum per-UIC limit of 4 connections (that is, for any UIC, only 4 server sessions can be initiated and active at one time using the automatic startup feature).  You can invoke this application directly, and can provide alternate limits ($ vcfbconnect -? will give help) up to a maximum of 512 servers.  Servers started manually count towards the MAX servers in VCFBCONNECT, but do not count against the per-UIC limit.  Stopping and starting VCFBCONNECT also resets the per-UIC knowledge about currently running servers.  Connections for UIC [1,4] have no per-UIC limit.</P>
+<P>New server sessions can be started <I>manually </I>by invoking the command procedure sys$manager:decw$start_vcfb.com.  <B><I>This is generally not needed, if automatic startup is allowed.</P>
+</B></I><P>&nbsp;</P>
+</FONT><FONT FACE="Comic Sans MS" SIZE=3><P>$ @SYS$MANAGER:DECW$START_VCFB <B><I>&lt;server&gt; &lt;depth&gt; &lt;width&gt; &lt;height&gt;</P>
+</B></I></FONT><FONT FACE="Comic Sans MS"><P>&nbsp;</P>
+<P>where <B><I>&lt;server&gt;</B></I> is the server number, and <B><I>&lt;depth&gt; </B></I>is the pixel depth (default 8) for the screen.  The <B><I>&lt;width&gt; </B></I>and<B><I> &lt;height&gt;</B></I> parameters define the size of the screen, the default is 1024 by 768.</P>
+<P>The <B>Virtual Server </B>can be run using any server number from 0 to 999.  Each instance must have its own server number, and more than one <B>Virtual Server</B> can be active at the same time.  In fact, the <I>standard<B> </B></I>Server 0 running on real hardware can be active on the same system.  Typically, the server number will be non-zero, especially on a workstation.  For example:</P>
+<P>&nbsp;</P>
+<P>$ @SYS$MANAGER:DECW$START_VCFB <B>2 24 1900 1200</P>
+</B><P>&nbsp;</P>
+<P>starts the process <B>decw$server_2 </B>and creates a virtual CFB with a pixel depth of 24 planes, with a size of 1900 x 1200.  The defaults are 8 planes, and 1280x1024. </P>
+<P>&nbsp;</P>
+</FONT><B><FONT FACE="Comic Sans MS" SIZE=4><LI>Starting XVCFB</LI>
+</FONT><FONT FACE="Comic Sans MS"><P>&nbsp;</P>
+<P>XVCFB</B> is the means to access the <B>Virtual Server</B>, it does this by initiating a connection to the server, mapping both input and output Global Sections, and creating a real X11 window to display the frame buffer and pass input to the server.  It is invoked as a foreign command by:</P>
+<P>&nbsp;</P>
+<P>$ define dcl$path sys$system</P>
+<P>$ xvcfb -display <B><I>&lt;display&gt;</P>
+</B></I><P>&nbsp;</P>
+<P>where <B><I>&lt;display&gt;</B></I> is the location to create the X11 window.  For example:</P>
+<P>&nbsp;</P>
+<P>$ xvcfb –display MYNODE::0.0</P>
+<P>Connection established to Server 2</P>
+<P> </P>
+<P>Requests an automatic creation of a new server connection.   In the example, a new <B>Virtual Server </B>is created with server number 2, and X11 display output and input from MYNODE::0.0.  Any valid X11 display string can be specified, including <B>WSAx:</P>
+</B><P>If the <B>XVCFB </B>session is interrupted, <I>except </I>by selecting <B><I>CLOSE</B></I> from the left/top window control, (process killed, etc), the connection to the server can be resumed by:</P>
+<P>&nbsp;</P>
+<P>$ xvcfb –server <B><I>&lt;n&gt;</B></I> -display <B><I>&lt;display&gt;</P>
+</B></I><P>&nbsp;</P>
+<P>If the server has not detected the broken connection, you will be instructed to add <B><I>–grab</B></I> to the command line.</P>
+<OL>
+
+<B><LI>Additional XVCFB Features</LI>
+</B><P>The <B><I>–grab</B></I> feature noted above, can also be used to <I>&quot;steal&quot;</I> the display from another process (provided you are the same user, or are logged in as a system manager).  The other instance of <B>XVCFB</B> currently executing will exit, and a new connection will be established.</P>
+<P>The <B><I>–exit_reset</B></I> features tells the server to force a connection re-establishment when a server reset occurs (for instance, the logout of a CDE session), that is the Server will <B><I>EXIT</I>.</B>  Normally, server resets have no effect on the server session.</P>
+<B><P> </P>
+</B><P>&nbsp;</P>
+<B><LI>XVCFB Security</LI>
+</B><P>The <B>Virtual Server </B>is a component of the X11 Server, and runs in the context of the system.  However, there is nothing that requires the <B>XVCFB</B> display program to be privileged to operate – except to ensure that only authorized or privileged users can access the global once created.</P>
+<P>When the <B>Virtual Server </B>starts, if automatic startup is selected it creates a mailbox, and stalls until it receives a message containing the user identification of a connecting <B>XVCFB</B> application.  It then creates the global sections with read/write access granted only to SYSTEM and USER, and changes the OWNER of the section to the user requesting the connection.</P>
+<P>Only SYSTEM or matching owner processes can map the section files.  Should the process<B> </B>that established the connection exit, it can be re-established by simply restarting the <B>XVCFB </B>application, which will re-map the sections.  But other users without privilege cannot access the section.  Logging in or out of a CDE session (within the <B>Virtual Server </B>session) does not change the owner of the global sessions.</P>
+<P>A SYSTEM user can use the SET SECURITY command in DCL to alter the owner and access rights to the sections, should the need arise.</P>
+<B><LI>Exiting XVCFB and the Virtual Server</LI>
+</B><P>To cause <B>XVCFB <I>and </B></I>the <B>Virtual Server </B>to <B><I>both </B></I>(the X11 server process) exit, select <B><I>CLOSE</B></I> from the window control menu on the left top corner of the window.</P>
+<B><LI>XVCFB Restrictions</LI></OL>
+</OL>
+</OL>
+
+<OL>
+
+<OL>
+
+</B><LI>The pixel depth must be the same in the <B>Virtual Server </B>and the output display.  If a 24-bit frame buffer is created, then it can only be displayed on a 24-bit system.  The same is true of 8-bit frame buffers.</LI>
+<LI>Only 8 and 24-bit depths are supported.</LI>
+<LI>The 8-bit depth will create a <B>private</B> <B>colormap</B> on the display, this may turn other window colors <B><I>technicolor</B></I>.</LI>
+<LI>Only 1 XCFB instance can operate on a specific <B>Virtual Server </B>at a time, the code as written will refuse to <A NAME="_Toc389455893"><A NAME="_Toc389462949"><A NAME="_Toc390480554">allow more than one user.</LI></OL>
+</OL>
+
+<OL>
+
+</FONT><B><FONT FACE="Comic Sans MS" SIZE=5><LI>Trouble Shooting</LI>
+</B></FONT><FONT FACE="Comic Sans MS"><P>The most common problems (with limited testing) appear to be lack of resources for the server to start.  This is usually too few global sections (GBLSECTIONS in SYSGEN), too small of a page file, too low page file quota on the system account (AUTHORIZE).</P>
+<P>Stranded server processes can also cause some interesting side effects, for instance – a single user, in the same session (same Process) starts multiple server instances.  The process can end up being the target of SYS$WAKE calls from all of the servers.  The user must also remember what the server number was for the servers to reconnect.</P>
+<P>Other problems can be simply low bandwidth displaying over the wire for a remote display using XVCFB… there is not much you can do other than get a faster connection.</P>
+</FONT><B><FONT FACE="Comic Sans MS" SIZE=5><LI>To Do List</LI></OL>
+
+<OL>
+
+<OL>
+
+</B></FONT><FONT FACE="Comic Sans MS"><LI>XVCFB is not a Motifized application, it is a XLIB application.  It would be nice to change this, and add a status pane to the window with interesting tidbits.  I’ll leave that for other folks when the source kit is sent out.</LI>
+<LI>Pixel depth conversion.  It may be slow, but it shouldn’t be too bad – I did this on a version of XANIM without too bad of results (scaled 8-bits to 24-bits).</LI></OL>
+</OL>
+
+<OL>
+
+</FONT><B><FONT FACE="Comic Sans MS" SIZE=5><LI>Files</LI>
+</B></FONT><FONT FACE="Comic Sans MS" SIZE=2><P>[SYSMGR]DECW$DEVICE_VCFB.COM</P>
+<P>[SYSMGR]DECW$SPECIAL_VCFB.COM</P>
+<P>[SYSMGR]DECW$STARTSERVER_VCFB.COM</P>
+<P>[SYSMGR]DECW$START_VCFB.COM</P>
+<P>[SYSMGR]DECW$START_VCFBCONNECT.COM</P>
+<P>[SYSMGR]DECW$VCFB.COM</P>
+<P>&nbsp;</P>
+<P>[SYSLIB]DECW$SERVER_DDX_VCFB.EXE</P>
+<P>[SYSLIB]DECW$SERVER_DIX_VCFB.EXE</P>
+<P>&nbsp;</P>
+<P>[SYSEXE]VCFBCONNECT.EXE</P>
+<P>[SYSEXE]XVCFB.EXE</P>
+<P>&nbsp;</P>
+<P>[SYSHLP]VIRTCFB-V0100.RELEASE_NOTES</P>
+<P>[SYSHLP]VIRTCFB-V0100.HTML</P>
+</FONT><FONT FACE="Comic Sans MS"><P>&nbsp;</P>
+</FONT><B><FONT FACE="Comic Sans MS" SIZE=5><LI>Revision History</A></A></A></LI></OL>
+
+</FONT><FONT FACE="Comic Sans MS" SIZE=2><P>Version        Modified by              Date       Comments</P>
+</B><P>V1.0           Frederick G. Kleinsorge     09/23/99   Initial Version</P></FONT></BODY>
+</HTML>

@@ -1,0 +1,360 @@
+1 JUMP
+JUMP is a  program  which  allows  selected  users (Systems Programmers,
+Operators and specifically authorised users) to change elements of their
+process to those of another user, or to become *exactly* the target user
+in  a pseudo-terminal.  Limitations are placed on Operators: they cannot
+target users who have more than a certain set of privileges unless  they
+are specifically authorised to do so.
+
+All users are validated against an access file to determine any specific
+access to be granted or denied  in  addition to any default access (e.g.
+for  Operators).   The access file also may contain options relating  to
+security monitoring of sessions.
+
+For non-exact jumps, items which are changed to those of the target user
+are:
+
+  Username (Systems Programmers only, using the SETUSER or ALL qualifier)
+
+  UIC, Default Directory, Default Disk, LNM$GROUP.
+
+Privileges and process rights are NOT changed.
+
+By default, all users can JUMP to themselves.
+
+
+The general syntax of the JUMP command is
+
+  $ JUMP [username] [qualifiers]
+
+2 Parameter
+JUMP takes a single optional parameter which is a username.  This is the
+username which will be  used  (after  validation)  as the target user to
+which  to  change.   Systems Programmers may set their username  to  one
+which is not in the UAF using the OVERRIDE_UAF qualifier.
+
+If no username is specified,  the  username  is defaulted to the current
+username  of  the  process.   If a non-exact jump  without  username  is
+specified, JUMP returns all values of items  to  those  of  the  current
+username.
+
+Only Systems Programmers and users specifically authorised in the access
+file can jump in any manner to a user with privileges in excess of those
+defined by the logical name JUMP_MINOR_PRIVS.
+
+2 Qualifiers
+/ALL
+
+  /ALL
+  /NOALL	(Default)
+
+Use of /ALL is restricted to Systems Programmers. It causes all "normal"
+actions of a non-exact jump _and_ the action of the SETUSER qualifier.
+
+/AUDIT
+
+  /AUDIT	(Default)
+  /NOAUDIT
+
+By default, use of JUMP is audited  to a site-specific audit trail file.
+Systems  Programmers may use /NOAUDIT to prevent auditing of  successful
+jumps.
+
+/EXACT
+
+  /EXACT
+  /NOEXACT	(Default)
+
+Use this qualifier  to  create  a  pseudo-terminal  which  is  logged in
+exactly  as the user.  The RECORD, SECURE_MODE and NOTIFY qualifiers can
+also be specified to generate, save and distribute a log of the  session
+running on the pseudo-terminal.
+
+See also the help on the JUMP_SECURE_MODE logical name.
+
+/LOG
+
+  /LOG	(Default)
+  /NOLOG
+
+By default, successful jumps are  logged  to  SYS$OUTPUT.  Use /NOLOG to
+change "quietly"!
+
+/NOTIFY
+
+  /NOTIFY
+  /NONOTIFY	(Default)
+  /NOTIFY=([NO]BEFORE,[NO]AFTER,[NO]INCLUDE,[NO]MAIL,[NO]OPCOM)
+
+This qualifier is used  with  /EXACT  to  notify  specific users that an
+exact jump is being performed.  Notification may be by OPCOM messages or
+via  mail  messages  sent  to the users specified by  the  logical  name
+JUMP_NOTIFY_MAILLIST.
+
+  /NOTIFY=BEFORE     Issue notification before the JUMP is initiated.
+  /NOTIFY=AFTER      Issue notification after the JUMP has completed.
+  /NOTIFY=INCLUDE    When used with the RECORD and AFTER qualifiers,
+                       include a copy of the session log with the
+                       completion notification.
+  /NOTIFY=MAIL       Issue notification via mail messages.
+  /NOTIFY=OPCOM      Issue notification via OPCOM.
+
+If the NOTIFY qualifier is  specified  without any keywords, the default
+keywords are (BEFORE,AFTER,INCLUDE,MAIL,OPCOM).  Individual keywords may
+be specifically negated as required.
+
+See also the help on the JUMP_SECURE_MODE logical name.
+
+/OVERRIDE_UAF
+
+  /OVERRIDE_UAF
+  /NOOVERRIDE_UAF	(Default)
+
+Systems Programmers may use this qualifier to set their username to one
+which is not in the UAF when performing non-exact jumps.
+
+/RECORD
+
+  /RECORD
+  /NORECORD	(Default)
+
+This qualifier can be  specified  with  /EXACT  to generate a transcript
+(session  log)  of the actions performed whilst JUMPed to the  specified
+user.  The log file specification will be of the form
+
+    JUMP_<user1>-<user2>.<date>_<time>
+
+where <user1> is the username of the user executing JUMP/EXACT,
+      <user2> is the username being JUMPed to,
+      <date>  is the date when the jump is performed,
+  and <time>  is the time when the jump is performed.
+
+For example,  JUMP_FRED-HARRY.19991129_093113.
+
+When jumping  in  Secure  Mode  (either  /SECURE_MODE  is specified, the
+JUMP_SECURE_MODE logical name is defined as "TRUE", or the Secure option
+has  been specified in the access file), the log file will be created in
+the directory  specified  by  the  logical  name  JUMP_SECURE_DIR.   The
+default value of this logical name is "SYS_MANAGER:".
+
+When not jumping in Secure  Mode,  the  log  file will be created in the
+directory  specified  by  the logical name JUMP_USER_DIR.   The  default
+value of this logical name is "SYS$LOGIN:" (the login directory  of  the
+user  executing  the  JUMP command).  A common alternative value for the
+JUMP_USER_DIR  logical  name  is   "SYS$DISK:[]"  (the  current  default
+directory of the user executing the JUMP command).
+
+See also the help on the JUMP_SECURE_MODE logical name.
+
+/SECURE_MODE
+
+  /SECURE_MODE
+  /NOSECURE_MODE	(Default)
+
+This qualifier can be  used  with  the  EXACT  qualifier.  It causes the
+equivalent action to specifying the following qualifiers:
+
+  /SECURE_MODE /RECORD /NOTIFY=(BEFORE,AFTER,INCLUDE,MAIL,OPCOM)
+
+The log file will be created in a 'secure' directory.  This directory is
+specified by the logical name JUMP_SECURE_DIR.
+
+See also the help on  the  JUMP_SECURE_MODE  logical name and the RECORD
+qualifier.
+
+/SETUSER
+
+  /SETUSER
+  /NOSETUSER	(Default)
+
+Systems Programmers may use this qualifier to change ONLY their username.
+
+2 User_Categories
+There are three categories of JUMP users:
+
+ Systems Programmers:  Users with SETPRV privilege or
+                       in an implicit system UIC group.
+
+ Operators: Users with OPER privilege.
+
+ All users who are not either Systems Programmers or Operators.
+
+2 Logical_Names
+There are a number of logical names  which the System Manager may define
+for  JUMP.   All  must be defined in the SYSTEM logical  name  table  in
+EXECUTIVE mode.
+
+3 JUMP_ACCESS_LIST
+The logical name JUMP_ACCESS_LIST is  the  file  specification of a file
+containing  access lists to determine who is specifically authorised  to
+JUMP, or prohibited from JUMPing, and to whom access is to be granted or
+denied.  The default value is "SYS_MANAGER:JUMP_ACCESS.DAT".   The  file
+may  also  contain  options  for  any  particular  access list.  See the
+example access file for full details of  the file format.  JUMP does NOT
+support ODS-5 filenames.
+
+3 JUMP_AUDIT_TRAIL
+The logical name JUMP_AUDIT_TRAIL is the file specification of the audit
+trail file for JUMP.  The default value is "SYS_MANAGER:JUMP_AUDIT.DAT".
+JUMP does NOT support ODS-5 filenames.
+
+3 JUMP_DOUBLE_CHECK
+The logical name JUMP_DOUBLE_CHECK is a string, the only legal value for
+which is "TRUE" -  all  other  values  are  treated  as  not "TRUE".  If
+JUMP_DOUBLE_CHECK  is  "TRUE", JUMP will ensure that when a user who  is
+not a Systems Programmer or Operator attempts to use JUMP, the user must
+have the JUMP_ACCESS process rights identifier.  The  default  value  is
+"TRUE".
+
+3 JUMP_MATCH_BOTH
+The logical name JUMP_MATCH_BOTH is  a  string, the only legal value for
+which  is  "TRUE"  -  all other values are treated as  not  "TRUE".   If
+JUMP_MATCH_BOTH is "TRUE", JUMP requires that both the calling user  and
+the  target  user  of  an EXACT jump be explicitly included in an access
+list (wildcards allowed).  Prior  to  JUMP  v3.4,  an  access list which
+matched  against  only  the  calling user and not the  target  user  was
+sufficient to terminate the parsing of  access  lists  to  determine  if
+access  should be allowed.  Define JUMP_MATCH_BOTH to be "TRUE" to force
+JUMP to parse all access lists until a match with both caller and target
+is found or the  end  of  the  lists  is  reached.  This facilitates the
+specification of differnet options for different targets being jumped to
+by the same caller.  The default value is "FALSE".
+
+3 JUMP_MINOR_PRIVS
+The logical name JUMP_MINOR_PRIVS is a string which is a space-separated
+list of privileges which is the  maximum  set of privileges which may be
+held by a username targeted by an Operator.  If any other privileges are
+held by the username, Operators cannot jump to the user without explicit
+access  being  granted  through the access file.  The default  value  is
+"NETMBX TMPMBX".
+
+3 JUMP_NOTIFY_MAILLIST
+The logical name JUMP_NOTIFY_MAILLIST  is  a  string  which  is a comma-
+separated  list  of  usernames  to  which  notification  by  MAIL  of  a
+JUMP/EXACT session is sent.  The list may contain references to  mailing
+list  files  in the form @<filespec> where <filespec> is a valid OpenVMS
+ODS-2 file specification.  Here are some example values for this logical
+name:
+
+  FRED
+  DELORES,FRED
+  @SECURE_DIR:TEAM_LEADERS.TXT
+  DONNA,@MANAGEMENT_DIR:MANAGERS.LIST,ROBOCOP
+
+Mailing list files must consist of one address per line.  Comments, both
+full line and trailing, may  be  included,  starting with an exclamation
+mark ("!").  JUMP does NOT support ODS-5 filenames.
+
+In Secure Mode, an attempt to mail  to any address which has a syntactic
+error will cause JUMP to exit immediately.
+
+The default value of JUMP_NOTIFY_MAILLIST is "SYSTEM".
+
+3 JUMP_SECURE_DIR
+The logical name JUMP_SECURE_DIR  is  the directory specification of the
+directory  where  log  files  from secure jumps will  be  created.   The
+default value is "SYS_MANAGER:".  JUMP does NOT support ODS-5 filenames.
+
+3 JUMP_SECURE_MODE
+The logical name JUMP_SECURE_MODE is a  string, the only legal value for
+which  is  "TRUE"  -  all other values are treated as  not  "TRUE".   If
+JUMP_SECURE_MODE is "TRUE", the  following  qualifiers  are  mandatorily
+added to the JUMP /EXACT command:
+
+  /SECURE_MODE /RECORD /NOTIFY=(BEFORE,AFTER,INCLUDE,MAIL,OPCOM)
+
+It is intended for use  in  environments where exact jumps are recorded.
+The 'X' option in  the access file can be used to override Secure  Mode.
+The default value is "FALSE".
+
+3 JUMP_SELF
+The logical name JUMP_SELF is a  string,  the only legal value for which
+is "TRUE" - all other values are treated as not "TRUE".  If JUMP_SELF is
+"TRUE",  JUMP will allow a user to jump to the current username even  if
+the user is prevented from jumping (implicitly  or  explicitly)  to  all
+usernames.  The default value is "TRUE".
+
+3  JUMP_USER_DIR
+The logical name  JUMP_USER_DIR  is  the  directory specification of the
+directory  where  log files from non-secure jumps will be created.   The
+default value  is  "SYS$LOGIN:".   An  alternative  value  may  be,  for
+example,  "SYS$DISK:[]"  to  force  these log files to be created in the
+user's current directory.  JUMP does NOT support ODS-5 filenames.
+
+2 Rights_ID
+To use the double check  feature  of  JUMP  to  increase the security of
+checks  on authorised users, the Rightslist identifier JUMP_ACCESS  must
+be created  and granted to ordinary users who are to  be given access to
+JUMP.  The value of the identifier is not relevant.
+
+If the JUMP_ACCESS Rightslist identifier  is not used, JUMP_DOUBLE_CHECK
+must be defined to be "FALSE".
+
+2 Access_List
+The  JUMP  access  file  contains  access  lists  to  determine  who  is
+specifically authorised to JUMP, or prohibited from JUMPing, and to whom
+access  is  to be granted or denied.  Lists may contain any  mixture  of
+(wildcarded) usernames, (wildcarded) UICs, and Rights Identifiers.
+
+Systems Programmers are validated against the  access file, but they are
+allowed  access to all accounts regardless of whether access is  granted
+or denied.  If access is specifically denied to a Systems Programmer,  a
+warning is generated to this effect when the jump is made.
+
+The JUMP access file may  also  contain options to mandatorily enable or
+disable  the functionality of the NOTIFY, RECORD_SESSION and SECURE_MODE
+qualifiers for specific JUMP access lists.
+
+An example  access  file  is  included  in  the  JUMP  distribution - it
+includes full details of the format of the file.
+
+2 Options
+Options which may mandatorily enable or disable the functionality of the
+NOTIFY, RECORD_SESSION  and  SECURE_MODE  qualifiers  for  specific JUMP
+access  lists  may  be specified in the access file.   See  the  example
+access file in the JUMP distribution for full details.
+
+2 Installation
+It is recommended that you thoroughly read this HELP file (JUMP.HLP) and
+the example access file (JUMP_ACCESS.DAT) before installing JUMP.
+
+To install JUMP:
+
+  1. Re-link JUMP (NO Traceback) as directed in the build procedure.
+  2. Define EXECUTIVE mode SYSTEM table logical names as required (see help).
+  3. If required, create the JUMP_ACCESS rights ID.
+  4. If required, grant the JUMP_ACCESS rights ID to authorised users.
+  5. If the JUMP_ACCESS rights ID is *not* created, define the
+        JUMP_DOUBLE_CHECK logical name to be "FALSE".
+  6. If required, create and edit the access file (see example file).
+  7. INSTALL JUMP with the following privileges:
+	CMEXEC, CMKRNL, DETACH (or IMPERSONATE), SYSNAM, SYSPRV
+  8. Set access rights on all files as appropriate.
+  9. Define a foreign command: $ JUMP :== $device:[directory]JUMP
+ 10. Boing!
+
+2 Author
+The author of JUMP is
+
+    Jonathan Ridler,
+    Information Technology Services,
+    The University of Melbourne,
+    Parkville, Victoria, AUSTRALIA, 3052.
+
+    Email: jonathan@unimelb.edu.au
+
+Note: Some ideas in JUMP have been drawn from Eric Wentz's program BECOME.
+      The code for pseudo-terminal creation is derived from Anthony
+      McCracken's GLOGIN program.  Thanks to Bob Beckerhof for testing and
+      helpful suggestions.  Special thanks to Jeremy Begg for code to
+      create secure log files and other minor fixes.
+
+JUMP is written almost entirely in  DEC  Pascal.   There is a very small
+Macro  routine, used to parse identifiers.  The current version has been
+built and tested on OpenVMS VAX v7.1 (DEC Pascal v5.6) and OpenVMS Alpha
+v7.1-2 (DEC Pascal v5.7).
+
+Suggestions, comments, criticisms, bug reports, bug fixes ... all welcome.
+
+2 Version
+The current version of JUMP is v3.4 (10-Nov-1999).

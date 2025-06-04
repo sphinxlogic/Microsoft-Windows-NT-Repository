@@ -1,0 +1,1264 @@
+	.TITLE	MIBWALKER2 
+	.IDENT	/V1-006/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	Mar-1995	PB	Creation
+; 002	May 1995	PB	Added in menu item and code to implement
+;			        community string. User may now input 
+;				community string to use (SNMP Access control).
+; 003	MAR 1996	PB 	Extensive changes - This is now a development
+;				tool.
+; 004	Sep 1996	PB	Added menu item and code to allow log file.
+; 005	Feb 1997	PB	Fixed lens to allow for longer object names
+;				Underlying files allow 64 byte names. This
+;				prgram may truncate to 48.
+; 006	Aug 1997	PB	Fixed error when 1st entry in table not
+;				answered and user wants to continue. CUROBJ
+;				is not set in this case and passes 0 as
+;				addr to GETSNMP5 causing accvio. Must start
+;				at table top so br is not to restart at 
+;				top if CUROBJ = 0
+;++
+;1 MIBWALKER2 
+; Programme to provide User interface to SNMP variables
+; User can 'walk' thru a MIB on any cooperating system starting 
+; at an Object ID at specified points. Any MIB is divided into logical sections
+; with each section containing related params and counts. 
+; The user is presented with a menu allowing IP address input, MIB to use,
+; Community string to use and may toggle a log file on and off.
+;
+;2 MIB_format
+; This is the output from MIB_COMPILE2:
+;
+; Field		Offs	len		desc
+; Objid         0         64      .ascic ASN.1 encoded object id             
+; Name          64        64      .ascic Name of the object                  
+; Type          128        4       symbol showing object type   
+; access        132        4       symbol showing access
+; Entry type	136        4	  direct, or table part 
+; tblparms	140	   8	  bit pattern of valid tbl entries
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$SSDEF
+	$SMGDEF
+	$TRMDEF
+	EMUSNMPDEF
+	EMUCMIPDEF
+
+; temp symbols
+;
+	.PSECT	MIBWALKER2_D,WRT,NOEXE,PIC,SHR,QUAD
+
+MIBSEC_A:	.QUAD
+RESULT:		.QUAD	0
+TBLPARMS:	.QUAD	0
+ASN1TAG:	.BLKL	8
+MIBSECCNT:	.LONG	0
+	.ALIGN	LONG
+;
+MIBFAB:	$FAB  	DNA = MIBFILTYP,-		;Def filtype
+		DNS = MIBFILTYPLEN,- 
+		FAC = <GET>,-		; Access
+		SHR = <GET,PUT,UPD>,-	; Sharing
+		FOP = CTG,-		;Make contiguous
+		MRS = MIBREC_SIZE		;Max record size
+MIBRAB:	$RAB	FAB = MIBFAB,-		; pointer to FAB
+		RBF = MIBREC,-		; o/p buffer 
+		RSZ = MIBREC_SIZE,-	; Write this many bytes
+		UBF = MIBREC,-		; i/p buffer 
+		USZ = MIBREC_SIZE		; Write this many bytes
+MIBREC:		.BLKB	MC_SYMT_C_LEN 
+MIBREC_SIZE	=.-MIBREC
+MIBFILTYP:	.ASCII	/EMU5_MIB:*.MC2/
+MIBFILTYPLEN = .- MIBFILTYP
+	.ALIGN	LONG
+;
+MIBOUT:	$FAB  	FNM = MIBWALKER.LOG,-	; Filename
+		FAC = <PUT>,-		; Access
+		FOP = CTG,-		;Make contiguous
+		MRS = 132		;Max record size
+LOGRAB:	$RAB	FAB = MIBOUT		; pointer to FAB
+;
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 45
+VD_COLS: 	.LONG 132
+VD_DISP2:	.LONG		; Display 2
+VD_ROW2:	.LONG 	3
+VD_COL2:	.LONG	132      ;
+;
+; Optional Display Characteristics
+;
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_BOARD2:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	5
+PB_COL2:	.LONG	1      ; Position for DISP2
+PB_ROW2:	.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           	; Virtual Keyboard ID
+KB_BUF:		.BLKB	80		; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+; 
+; Help lib
+HELPLOC:	.ASCII	/EMU5_HLP:/
+HLPDIRLEN = .-HELPLOC
+HLPFILE:
+		.BLKB	32
+HELPLIB:	.LONG	.-HLPFILE
+		.ADDRESS  HELPLOC
+HLPEXT:		.ASCII	/.HLB/
+; Main Menu
+M_LIST:	
+		.ASCII	/Set IP address      /
+		.ASCII	/Set MIB             /
+		.ASCII	/Set Community String/
+		.ASCII	/Walk the MIB        /
+		.ASCII	/Toggle Log File     /
+M_LIST_SIZE	=.-M_LIST
+; Mesages:
+IPADDRPRMPT:	.ASCID	/ Please Enter IP Address <CR> to Exit   : /
+NOSNMPMSG:	.ASCID	/ No Response. Return to continue/
+ENDTBLMSG:	.ASCID	/ End of Table. Return to continue /
+ITFPRMPT:	.ASCID	/ Next (or^Z)>/
+EXITMSG:	.ASCID	/ Press Return to Continue/
+NULLMSG:	.ASCID	/ NULL type returned/
+UNRTYPMSG:	.ASCID	/ Unrecognised param type returned: !UL/
+DYNCTRL:	.ASCID	/!UB./
+ERRSTR:		.ASCID	/!UB.!UB.!UB.!UB> Error = !XL/
+CSTRPRMPT:	.ASCID	/ Community String (<CR> Resets to default): /
+TOOBIGMSG:	.ASCID	/ Integer too big /
+LOGONMSG:	.ASCID	/ Log file is ON/
+LOGOFFMSG:	.ASCID	/ Log file is OFF/
+OPENERRMSG:	.ASCID	/ Could not create log file/
+; Hint strings
+HINTSTR1:	.ASCID	/ Use cursor keys to select action and press return/
+HINTSTR2:	.ASCID	/ Select Item and press HELP key for help/
+HINTSTR3:	.ASCID	/ Ctrl Z Exits this memu/
+HINTSTR4:	.ASCID	/ Use cursor keys to select HUB and press return/
+HINTSTR5:	.ASCID	/ Ctrl Z Exits back to memu/
+HINTSTR14:	.ASCID	/ Enter the Internet addres of the station to ID./
+HINTSTR15:	.ASCID	/ No input will exit back to menu/
+
+	.ALIGN	LONG
+CSTRING:	.BLKB	256
+CSTRING_DESC:	.LONG	.-CSTRING
+		.ADDRESS  CSTRING
+COMSTRING:	.BLKB	256
+FAOBUF:		.BLKB	132
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+
+	.ALIGN	LONG
+; Menu
+M_DCS:		.WORD	20                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+M_ADDR:		.LONG		            ; Pointer to menu top
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+M_LEN:		.LONG   		    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+; Misc SMG
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 	2
+W3:    		.LONG 	3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+CURSOR_ON:	.LONG	<SMG$M_CURSOR_ON!SMG$M_SCROLL_JUMP>
+UPCASE:		.LONG	TRM$M_TM_CVTLOW 	;Convert lower to upper case
+UPNOECHO:	.LONG	<TRM$M_TM_CVTLOW!TRM$M_TM_NOECHO> ;Upper case, Noecho
+CHOICE:		.WORD
+BYTCNT:		.WORD
+CURCOL:		.LONG   1
+CURROW:		.LONG   1
+SAVE_DISP:	.LONG	0		; Saved char
+SCR_WID:	.LONG	132
+SCR_HEIGHT:	.LONG	48
+DEFCHOICE:	.WORD	0
+
+; Misc
+	.align	long
+LOGFLAG:	.LONG	0
+FMENCNT:	.LONG	0
+FMENU:		.BLKB	32*1600		; Dynamic menus
+FMENUDESC:	.LONG	.-FMENU
+		.ADDRESS  FMENU
+OUTINT:		.LONG	0
+IPADDR:		.LONG	0
+CUROBJ:		.LONG	0
+RETBUF:		.BLKB	4096
+RETBUF_DESC:	
+RETLEN:		.LONG	.-RETBUF
+		.ADDRESS  RETBUF
+FAOTBL:		.BLKB	256
+FAOMAC:		.ASCII	/!XB-/
+FAOXL:		.ASCII	/!XB /
+FAOAC:		.ASCII	/!AC /
+FAOUL:		.ASCII	/!UL /
+FAOAD:		.ASCII  /!AD /
+FAOUB:		.ASCII  /!UB /
+FAOOBJ:		.ASCII  /!UB./
+FAOOBJL:	.ASCII  /!UL./
+FAOBRI:		.ASCII	/!UW:/
+FAONAM:		.ASCII	/!1(48AC)/
+MIBFMTSTR:  	.ASCID	/!32<!AC!>/
+MIBFILE:	.ASCII	/EMU5_MIB:*.MC2/
+MIBFILDESC:	.LONG	.-MIBFILE
+		.ADDRESS  MIBFILE
+;
+       .PSECT MIBWALKER2_C,EXE,NOWRT,LONG
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<>,-
+			 PRESERVE=<>,-
+			 LABEL=MIBWALKER2
+; 
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	calls	#0, g^asn_tempmbx_system
+	bsbw	error_chk		; 
+	BSBW	CREATE_ENVIRONMENT
+
+START:
+;
+; Print help strings
+	PUSHAL	VD_DISP2
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	MOVAL	HINTSTR1,R1
+	BSBW	PRINT2
+	MOVAL	HINTSTR2,R1
+	BSBW	PRINT2
+	MOVAL	HINTSTR3,R1
+	BSBW	PRINT2
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+	MOVW	#20,M_DCS			; Size of elements
+	MOVAL	M_LIST,M_ADDR			; Address of text
+	MOVL	#M_LIST_SIZE,M_LEN		; Size of text
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	HELPLIB			; Help library
+	CLRQ	-(SP) 				; Flags, def choice
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#6,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,20$
+	CMPL	R0,#SMG$_EOF
+	BEQLU	10$
+	BSBW	ERROR_CHK
+10$:
+	PUSHAL	SAVE_DISP	
+	PUSHAL  PB_BOARD
+	CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+	PUSHAL	VD_DISP         	; Delete Environment
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+       	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	#SS$_NORMAL,R0			; Signal Success
+	$EXIT_S
+20$:
+	CASEW	CHOICE,#1,#4		; Select routine
+100$:
+	.WORD	101$-100$
+	.WORD	102$-100$
+	.WORD	103$-100$
+	.WORD	104$-100$
+	.WORD	105$-100$
+
+101$:
+	CALLS	#0,G^MW_SET_IP_ADDR
+	BRW	START
+102$:		   	     
+	CALLS	#0,G^MW_SET_MIB
+	BRW	START	     
+103$:		   	     
+	CALLS	#0,G^MW_SET_COMM_STR     
+	BRW	START	    
+104$:		   	     
+	CALLS	#0,G^MW_MIB_ACCESS     
+	BRW	START	    
+105$:
+	BLBS	LOGFLAG,10550$		; Br if file is on
+	$CREATE	 FAB=MIBOUT
+	BLBS	R0,10510$
+	MOVAL	OPENERRMSG,R1
+	BSBW	PRINT2
+	BRW	START
+10510$:
+	$CONNECT RAB=LOGRAB
+	BLBS	R0,10520$
+	MOVAL	OPENERRMSG,R1
+	BSBW	PRINT2
+	BRW	START
+10520$:
+	MOVL	#1,LOGFLAG		; Flag logging is on
+	MOVAL	LOGONMSG,R1
+	BSBW	PRINT2
+	MOVAL	exitmsg,R1       		; Issue prompt
+	BSBW	READ_PROMPT
+	BRW	START
+
+10550$:
+	$CLOSE	FAB=MIBOUT
+	CLRL	LOGFLAG			; Flag logging is off
+	MOVAL	LOGOFFMSG,R1
+	BSBW	PRINT2
+	MOVAL	exitmsg,R1       		; Issue prompt
+	BSBW	READ_PROMPT
+	BRW	START
+
+	
+; Subroutines
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	RET
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=MW_SET_IP_ADDR  
+;++
+;2 MW_SET_IP_ADDR  
+; Subroutine to get the IP address from the user and set it as the target
+; of SNMP queries. At a later stage this routine will 'hook' dirctly
+; into the PSRIP database and present a menu of available node/addresses.
+;--
+1$:
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	pushal	cursor_on                    ; Turn cursor on
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+	MOVAL	IPADDRPRMPT,R1               ; Prompt for IP Addr
+	BSBW	READ_PROMPT
+	BLBS	R0,10$                      ; Br if no err
+	RET					; Assume EOF
+10$:
+	TSTW	BYTCNT
+	BNEQ	20$			     ; Br if some inpt
+	RET
+20$:
+	MOVZWL	BYTCNT,KB_DES				; Reset KB
+	PUSHAL	IPADDR					; Outp
+	PUSHAL KB_DES
+	CALLS	#2,G^EMU_ASCIPADRTONET			; Cvt inpt
+	MOVL	#80,KB_DES				; Reset KB
+	BLBS	R0,30$
+	BRW	1$				; Try again
+30$:
+	RET            
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=MW_SET_MIB  
+;++
+;2 MW_SET_MIB  
+; Display list of available files: (all files with type .MC2)
+; These are the files that MIB_COMPILE2 produced. Files are displayed
+; in a menu and selection causes that MIB to be used to generate SNMP
+; queries.
+;--
+        CLRW	DEFCHOICE
+	PUSHL	#20   		; Return 15 char/file
+	PUSHAL	OUTINT		; Number of files
+	PUSHAL	FMENUDESC	; Array pointer
+	PUSHAL	MIBFILDESC	; type desc
+	CALLS	#4,G^FILELIST
+	BSBW	ERROR_CHK
+; Create menu
+	MOVAL	FMENU,M_ADDR		; Menu location
+	MOVW	#20,M_DCS		; SIze of items
+	MULL3	#20,OUTINT,M_LEN              ; Total size
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	BLOCK
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,20$
+	CMPL	R0,#SMG$_EOF
+	BEQLU	10$
+	BSBW	ERROR_CHK
+10$:
+	RET			; Exit to main
+20$:
+	MOVZWL	CHOICE,R11
+	DECL	R11
+	MULL	#20,R11		; Offset
+	MOVAL	FMENU,R9	;
+	ADDL	R11,R9		; Location of string
+	LOCC	#^A/ /,#16,(R9)
+	TSTL	R0
+	BNEQ	30$
+	RET				; ERROR
+30$:
+	MOVL	R9,MIBFAB+FAB$L_FNA	; Location of name
+	SUBL	R9,R1		
+	MOVL	R1,R6			; Save len
+	MOVB	R1,MIBFAB+FAB$B_FNS	; Size of name
+	$OPEN	FAB=MIBFAB  
+	BSBW	ERROR_CHK
+	$CONNECT RAB=MIBRAB
+	BSBW	ERROR_CHK
+; Set help file
+	MOVC3	R6,(R9),HLPFILE		; FIlename
+	MOVAL	HLPFILE,R9
+	ADDL3	R9,R6,R8                ; Move pointer
+	MOVL	HLPEXT,(R8)             ; move extension
+	ADDL	#4,R8                   ; len of extesion
+	SUBL3	R9,R8,HELPLIB	        ; len of filspec
+	ADDL	#HLPDIRLEN,HELPLIB	; Include directory
+; Get mem - if we already have some  - skip
+	TSTL	MIBSEC_A
+	BNEQ	40$
+	MULL3	#MC_MIBT_C_RECSIZE,#MC_MIBT_C_MAXMIBREC,R11   ; Bytes
+	DIVL	#512,R11                    ; pages
+	INCL	R11                         ; round up
+        clrq	-(sp)			    ; p0 space, access mode
+        pushal	MIBSEC_A			    ; returned address
+        pushl	R11          		    ; no. of pages
+        calls	#4, g^sys$expreg	    ; Expand process space
+        bsbw	error_chk		    ; check ok
+ 
+; Loop to READ recs
+40$:
+	MOVL	MIBSEC_A,R11			
+	CLRL	R10			; Reccnt
+50$:
+	MOVL	R11,MIBRAB+RAB$L_UBF	; Write rec here
+	MOVL	R11,MIBRAB+RAB$L_RBF	; Write rec here
+	$GET RAB=MIBRAB
+	BLBS	R0,70$
+	CMPL	R0,#RMS$_EOF
+	BNEQU	60$
+	MOVL	R10,MIBSECCNT	 	
+	$CLOSE	FAB=MIBFAB  
+	MOVL	#SS$_NORMAL,R0
+60$:
+	RET
+70$:
+	INCL	R10
+	ADDL	#MC_MIBT_C_RECSIZE,R11
+	ADDL3	#MC_MIBT_C_RECSIZE,R11,R9
+	CMPL	R9,MIBSEC_A+4
+	BLEQ	50$
+	MOVL	#SS$_INSFMEM,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=MW_SET_COMM_STR  
+;++
+;2 MW_SET_COMM_STR  
+; Set the community string. If set this is passed to SNMP.
+; If not the default 'public' is used by GETSNMP.
+;--
+	MOVAL	CSTRPRMPT,R1       		; Issue prompt
+	BSBW	READ_PROMPT
+	TSTW 	BYTCNT
+	BNEQ	10$
+	CLRL	COMSTRING
+	RET
+10$:
+	MOVB	BYTCNT,COMSTRING
+	MOVC3	BYTCNT,KB_BUF,COMSTRING+1
+        RET
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=MW_MIB_ACCESS  
+;++
+;2 MW_MIB_ACCESS  
+; Displays all possible entry points to the MIB in a memu. AN entry point
+; is either a directly accessable MIB variable or a table entry point.
+; Selection of any item gets either the item or the entire table and 
+; displays the results. After display, the user may:
+;	<CR>	Display the next iten in the MIB
+;	<^Z>	Return to the menu.
+; If during the 'MIB walk', an error is returned, the walk terminates and
+; the MIB menu is displayed. This is a feature that will be made a bit more
+; graceful in future.
+;3 Help_files
+; MIB_COMPILE1 extracts all text in the DESCRIPTION field in the MIB and
+; produces a VMS help file with the same name as the MIB file input with
+; an extension of .hlp. This file is placed in EMU5_HLP. 
+; In the menu any item can be selected and by hitting the Help key the 
+; corresponding entry will be displayed if:
+;	The .hlp file was succesfully placed in a .HLB with the same name
+;	and
+;  	In the original MIB a corresponding DECSCRIPTION actualy provided
+;	a description.  
+;--
+
+	PUSHAL	VD_DISP2
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	MOVAL	HINTSTR14,R1
+	BSBW	PRINT2
+	MOVAL	HINTSTR15,R1
+	BSBW	PRINT2
+; Build menu of objects
+	MOVL	MIBSEC_A,R11
+	MOVL	MIBSECCNT,R10
+	MOVAL	FMENU,FAODESC+4			; Write 1st name here
+	CLRL	R9
+10$:
+	BLBC	MC_MIBT_L_ENTTYP(R11),20$       ; Only direct, table names
+	MOVL	#32,FAODESC
+	ADDL3	#MC_MIBT_AC_NAME,R11,-(SP)	; .ascic name
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	MIBFMTSTR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	ADDL	#32,FAODESC+4                  ; next outp
+	INCL	R9                             ; Count selected items
+20$:
+	ADDL	#MC_MIBT_C_RECSIZE,R11                 ; next inpt
+	SOBGTR	R10,10$  
+	MOVL	R9,FMENCNT  		       ; Save item count
+30$:
+; Display menu of objects
+; Note this does not include table entries				
+	MOVW	#32,M_DCS			; Size of elements
+	MOVAL	FMENU,M_ADDR			; Address of text
+	MULL3	#32,FMENCNT,M_LEN 			; Size of text
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	BLOCK
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	HELPLIB				; Help library
+	CLRL	-(SP) 				; Flags, 
+	PUSHAL	DEFCHOICE			;def choice
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#6,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,50$
+	CMPL	R0,#SMG$_EOF
+	BEQLU	40$
+	BSBW	ERROR_CHK
+40$:
+	RET
+;		
+50$:
+	MOVW	CHOICE,DEFCHOICE
+; Clear menu off screen
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+; Find the entry for selected section
+	MOVL	MIBSEC_A,R11			
+	MOVL	MIBSECCNT,R10		; Reccnt
+	CLRL	R6			; Displayed item count
+	MOVZWL	CHOICE,R1               ; Selection
+	DECL	R1			; Choices start at 1
+60$:
+	CMPL	R6,R1			; This item?
+	BEQLU   100$			; Yes
+	ADDL	#MC_MIBT_C_RECSIZE,R11          ; No - next item
+        BLBC	MC_MIBT_L_ENTTYP(R11),70$  ; Don't count non-displayed items
+	INCL	R6
+70$:
+	SOBGTR	R10,60$                 ; Loop for all
+	MOVL	#SS$_ITEMNOTFOUND,R0    ; did not find
+	RET                             ; error
+
+100$:
+; Determine whether direct or table and call appropriate routine
+        CMPL	#MC_MIBT_C_TYPDIR,MC_MIBT_L_ENTTYP(R11)
+	BNEQU	200$			; Br if not direct
+; Get the param for this obj id and return
+	MOVL	#512,RETBUF_DESC
+	PUSHAL	COMSTRING			; Community string
+	PUSHAL	CUROBJ			; Returned pointer
+	PUSHAL	RETBUF_DESC
+	PUSHL	#SNMP_PDU_GET		; Operation
+	PUSHL	R11			; ObjID 
+	PUSHAL	IPADDR			; IP address
+	CALLS	#6,G^GETSNMP5
+	BLBS	R0,130$                 ; Br if no err
+	PUSHL	R0
+	PUSHAL	IPADDR
+	CALLS	#2,G^MW_DISPLAY_ERROR
+110$:
+	MOVAL	ITFPRMPT,R1             ; Continue ?
+	BSBW	READ_PROMPT1
+	BLBS	R0,120$                 ; ASSUME error = ^z
+	BRW	30$			; Back to menu
+120$:
+	ADDL	#MC_MIBT_C_RECSIZE,R11		; Next item
+	TSTL	(R11)			; Item exists?
+	BNEQ	100$			; OK - get it
+	BRW	30$			; No - back to menu
+130$:
+	PUSHAL	RETBUF_DESC             ; Returned data
+	PUSHL	R11                     ; Obect name,id
+	CALLS	#2,G^DISPLAY_DATA
+        BRB	110$
+; 
+	
+200$:
+; Table. Next object is the table entry point and following n entries
+; are the table params. n is determined by scanning the entries until
+; the last 'valid' digit in the objid .NE. the last 'valid' digit in
+; the table entry point id. An example:
+; 
+;"atTable"               "1.3.6.1.2.1.3.1"
+;"atEntry"               "1.3.6.1.2.1.3.1.1"
+;"atIfIndex"             "1.3.6.1.2.1.3.1.1.1"
+;"atPhysAddress"         "1.3.6.1.2.1.3.1.1.2"
+;"atNetAddress"          "1.3.6.1.2.1.3.1.1.3"
+;"ip"            	 "1.3.6.1.2.1.4"
+;  This is the address translation table and contains the name (atTable), 
+; the entry point (atIfIndex) and 3 entries. Ip is the 1st entry beyond
+; the table. The 'valid' digit is the last digit of the entry point's objid (1)
+; Encoding note:
+; the binary object id for atEntry is '43 6 1 2 1 3 1 1 0'
+; That is 1.3 is converted to 43 and a zero is appended. (don't ask me - I 
+; didn't invent this!) thus the 'valid' reference.
+; To simplify the network call the table entry point is accessed as a
+; 'get_next' and a bit pattern representing the desired elements is passed.
+; In the above example the pattern is '7' (bits 1,2,3 set)
+; The routine then returns 'rows' rather than SNMP native 'columns'.
+;
+	ADDL3	#MC_MIBT_C_RECSIZE,R11,R10	 ; Next item
+	MOVZBL	MC_MIBT_AC_OBJID(R10),R4 ; 
+	DECL	R4			 ; R4 = index to 'valid' digit
+	MOVZBL	(R10)[R4],R5		 ; Value
+	MOVAL	TBLPARMS,R6		 ; Build pattern here
+	CLRQ	(R6)                     ; Init
+	ADDL3	#MC_MIBT_C_RECSIZE,R10,R9	 ; 1st element
+210$:
+	CMPB	(R9)[R4],R5		; In table?
+	BNEQ	230$			; No - done
+	MOVZBL	(R9),R1			; Len of this objid
+	DECL	R1			; Index to param no.
+	MOVZBL	(R9)[R1],R2             ; Param no.
+	DECL	R2                      ; Param 1 = bit 0
+	BBSS	R2,(R6),220$		; Sets bit
+220$:
+	ADDL	#MC_MIBT_C_RECSIZE,R9		; Next item
+	BRB	210$			; Loop
+230$:
+	MOVL	#4096,RETBUF_DESC
+	PUSHAL	COMSTRING		; Community string
+	PUSHAL	RETLEN
+	PUSHL	R10			; Obj      
+	PUSHL	R6	             	; Params
+	PUSHAL	CUROBJ
+	PUSHL	R10			; Obj      	
+	PUSHAL	RETBUF_DESC             ; outp
+	PUSHAL	IPADDR                  ; Addr
+	CALLS	#8,G^GETSNMPROW
+	BLBS	R0,235$                 ; Br OK
+	BRW	238$			; Display error
+235$:
+	CMPL	#SS$_NORMAL,R0
+	BEQLU	237$
+	MOVAL	ENDTBLMSG,R1
+	BSBW	READ_PROMPT
+	BLBS	R0,2351$                ; On ^z then exit to menu
+	BRW	30$
+2351$:
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+; Scan down section until next 'displayable' item is reached
+236$:
+	ADDL	#MC_MIBT_C_RECSIZE,R11			; next item
+	BLBC	MC_MIBT_L_ENTTYP(R11),236$      ; Only direct, table names
+	CMPL	R11,MIBSEC_A+4			; Still in table
+	BLSSU	2361$				; OK
+	MOVL	MIBSEC_A,R11			; No - reset to start
+2361$:
+	BRW     100$
+237$:
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	MOVL    RETLEN,RETBUF_DESC	; 
+	PUSHAL	RETBUF_DESC
+	PUSHL	R11                     ; Obect name,id
+	CALLS	#2,G^DISPLAY_DATA
+	BLBS	R0,240$
+238$:
+	PUSHL	R0
+	PUSHAL	IPADDR
+	CALLS	#2,G^MW_DISPLAY_ERROR
+	
+240$:
+	MOVAL	ITFPRMPT,R1             ; Continue ?
+	BSBW	READ_PROMPT
+	BLBS	R0,245$                 ; ASSUME error = ^z
+	BRW	30$			; Back to menu
+245$:
+; Mod 006. If 1st table entry not answered, CUROBJ = 0 an can't continue
+; from here. If user wants to retry. must restart at table top.
+	TSTL	CUROBJ                  ; Set?
+	BNEQ	250$                    ; Br if so (OK)
+	BRW	230$                    ; Restart at top
+250$:
+	MOVL	#4096,RETBUF_DESC
+	PUSHAL	COMSTRING		; Community string
+	PUSHAL	RETLEN
+	PUSHL	R10			; Obj      
+	PUSHL	R6	                ; Params
+	PUSHAL	CUROBJ
+	PUSHL	CUROBJ		        ; Obj      	
+	PUSHAL	RETBUF_DESC             ; outp
+	PUSHAL	IPADDR                  ; Addr
+	CALLS	#8,G^GETSNMPROW
+	BLBC	R0,260$
+	BRW	235$
+260$:
+	BRW	238$
+
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=MW_DISPLAY_ERROR   
+;++
+;2 MW_DISPLAY_ERROR   
+; This routine displays any error a called routine returns
+; Inputs addr of IP Addr, value of Error
+; FMT and display both params then wait for any user input.
+;--
+	MOVL	#132,FAODESC
+	MOVL	4(AP),R1
+	PUSHL	8(AP)
+	MOVZBL	3(R1),-(SP)
+	MOVZBL	2(R1),-(SP)
+	MOVZBL	1(R1),-(SP)
+	MOVZBL	(R1),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	ERRSTR
+	CALLS	#8,G^SYS$FAO
+	BSBW	ERROR_CHK
+	BSBW	PRINT
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=DISPLAY_DATA  
+;++
+;2 DISPLAY_DATA  
+; This routine parses the ans.1 encoded data into printable strings
+; Input is the addr of descriptor pointing to the asn.1 data block.
+; one line /block is printed
+; Inputs: Addr of MIB entry this objid
+;	  addr of desc pointing to returned data
+;
+; If this is a table, store the addr of the 1st entry in the section for 
+; this table in R8. This will allow the print routine to determine which
+; paramater name is being displayed. At some future time, it may 
+; be allowed to select which params are returned using the bit pattern
+; constructed above. This then can  allow the print routine to find
+; the correct name by skipping those params not set in the pattern.
+;--
+	MOVL	4(AP),R8
+        CMPL	MC_MIBT_L_ENTTYP(R8),#MC_MIBT_C_TYPDIR
+	BEQL	1$				; If direct (single) then br
+	ADDL	#MC_MIBT_C_RECSIZE,R8			; Table top
+	ADDL	#MC_MIBT_C_RECSIZE,R8			; 1st entry
+1$:
+; Now the data:
+	MOVQ	@8(AP),R6	;R6=len, r7=addr
+; Process the tag @r6. Return info about tag, len, value
+10$:
+	MOVAL	CSTRING,R11			; Build control string here	
+	MOVAL	FAOTBL,R10			; Build param list here
+	ADDL3	#MC_MIBT_AC_NAME,R8,(R10)+   	; Addr of .ascic obj name
+	MOVQ	FAONAM,(R11)+    ; 
+	MOVL    #8,CSTRING_DESC	; Name str
+	PUSHAL	ASN1TAG		; Return info here
+	PUSHL	R7              ; Current tag
+	CALLS  #2,G^PROCESS_ASN1_TAG 
+	BLBS	R0,20$
+; Some error status
+	RET
+20$:
+; SNMP does not provide sufficient info for formatting by itself. The 
+; TYPE param used here is derived (and possibly edited) from the MIB.
+;
+	MOVL	MC_MIBT_L_TYPE(R8),ASN1TAG+ASN_PAT_C_TVAL
+	CASEL	ASN1TAG+ASN_PAT_C_TVAL,#2,#4		; Select routine
+100$:
+	.WORD	102$-100$ 	; Integer
+	.WORD	103$-100$       ; Bit str
+	.WORD	104$-100$       ; Octet str
+	.WORD	105$-100$       ; NULL
+	.WORD	106$-100$       ; ObjId
+	CASEL	ASN1TAG+ASN_PAT_C_TVAL,#64,#3		; Select routine
+200$:
+	.WORD	201$-200$ 	; IpAddr
+	.WORD	202$-200$       ; counter (integer)
+	.WORD	202$-200$       ; Guage (integer)
+	.WORD	203$-200$       ; TimeTics (Integer)
+	CASEL	ASN1TAG+ASN_PAT_C_TVAL,#193,#4		; Select routine
+300$:
+	.WORD	301$-300$ 	; MacAddr
+	.WORD	302$-300$       ; Printable string
+	.WORD	302$-300$       ; Table Top
+	.WORD	304$-300$       ; Table entry
+	.WORD	305$-300$       ; Bridge ID
+; Unrecognised param type
+	MOVL	#132,FAODESC
+	PUSHL	ASN1TAG+ASN_PAT_C_TVAL 		; Param type
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	UNRTYPMSG
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	BSBW	PRINT
+	MOVAL	ITFPRMPT,R1
+	BSBW	READ_PROMPT
+	BRW	510$
+			
+102$:
+	PUSHAL 	OUTINT
+	PUSHL	R7
+	PUSHAL	ASN1TAG
+	CALLS	#3,G^CVT_ANS1TOINT
+	BLBS	R0,1021$
+	RET
+1021$:
+	MOVL	FAOUL,(R11)+	; Control string 	
+	ADDL	#4,CSTRING_DESC	; Len of string
+	MOVL	OUTINT,(R10)+	; param list 
+        BRW	500$		; Next param
+
+103$:		       ; Bit str
+	PUSHAL 	OUTINT
+	PUSHL	R7
+	PUSHAL	ASN1TAG  
+	CALLS	#3,G^CVT_ANS1TOINT
+	BLBS	R0,1031$
+	RET
+1031$:
+	MOVL	FAOUL,(R11)+	; Control string 	
+	ADDL	#4,CSTRING_DESC	; Len of string
+	MOVL	OUTINT,(R10)+	; param list 
+        BRW	500$		; Next param
+104$:		       ; Octet str
+	MOVAL	ASN1TAG,R1  
+	TSTL	ASN_PAT_C_LVAL(R1)			   ; Value present?
+	BNEQ	10405$					   ; Br if present
+	BRW	500$					   ; Else ignore
+10405$:
+	ADDL3	ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2   ; offs to val
+	ADDL	R7,R2					   ; Addr of value
+	MOVL	ASN_PAT_C_LVAL(R1),R1	           	   ; Len
+	DECL	R1			; less 1
+	CLRL	R3			; Loop control
+10410$:
+	MOVZBL	(R2)[R3],(R10)+         ; Put data on stack
+	MOVL	FAOMAC,(R11)+           ; Control string
+	ADDL	#4,CSTRING_DESC         ; Adjust size of control string
+	AOBLSS	R1,R3,10410$            ; Do 1st bunch
+; Last byte has no trailing '-'
+	MOVZBL	(R2)[R3],(R10)+         ; Put data on stack
+	MOVL	FAOXL,(R11)+            ; Control string
+	ADDL	#4,CSTRING_DESC         ; Adjust size of control string
+	BRW	500$
+
+
+
+
+
+
+105$:		       					   ; NULL
+        BRW	500$					   ; Next param
+106$:		       					   ; ObjId
+	MOVAL	ASN1TAG,R1  
+	ADDL3	ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2   ; offs to val
+	ADDL	R7,R2					   ; Addr of value
+	MOVL	ASN_PAT_C_LVAL(R1),R1	           	   ; Len
+	ADDL3	R2,R1,R3				   ; Loop ctrl
+10610$:
+	BBS	#7,(R2),10630$		; If hi bit set this is not simple
+	MOVL	FAOOBJ,(R11)+
+	ADDL	#4,CSTRING_DESC
+	MOVZBL	(R2),(R10)+
+10620$:
+	AOBLEQ	R3,R2,10610$            ; Loop for all bytes
+	BRW	500$                    ; Print
+10630$:
+	CLRQ	RESULT
+	MOVB	(R2),RESULT		; Get value in low .long
+	ASHL	#25,RESULT,RESULT	; Shift out hi bit
+	ASHQ	#7,RESULT,RESULT	; Shift low 7 bits into hi .long
+10640$:
+	INCL	R2			; Next byte
+	DECL	R3			; One less count
+	CLRL	RESULT
+	MOVB	(R2),RESULT		; Get value in low .long
+	ASHL	#25,RESULT,RESULT	; Shift out hi bit
+	ASHQ	#7,RESULT,RESULT	; Shift low 7 bits into hi .long
+	BBS	#7,(R2),10640$		; If hi bit set then br
+	MOVL	RESULT,(R10)+           ; Final result
+	MOVL	FAOOBJL,(R11)+          ; Control strin
+	ADDL	#4,CSTRING_DESC
+	BRW	10610$		
+
+201$:		       		; IpAddr
+	MOVAL	ASN1TAG,R1  
+	ADDL3	ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2   ; offs to val
+	ADDL	R7,R2					   ; Addr of value
+	CLRL	R3			; Loop control
+20110$:
+	MOVZBL	(R2)[R3],(R10)+         ; Mov byte
+	MOVL	FAOUB,(R11)+            ; Move control
+	ADDL	#4,CSTRING_DESC         ; Len of control str
+	AOBLSS	#4,R3,20110$		; Loop
+	BRW	500$
+	
+202$:		       ; counter (integer)
+203$:		       ; Guage (integer)
+204$:		       ; TimeTics (Integer)
+	BRW	102$
+301$:  			; Mac Address
+	MOVAL	ASN1TAG,R1  
+	TSTL	ASN_PAT_C_LVAL(R1)			   ; Value present?
+	BNEQ	30105$					   ; Br if present
+	BRW	500$					   ; Else ignore
+30105$:
+	ADDL3	ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2   ; offs to val
+	ADDL	R7,R2					   ; Addr of value
+	CLRL	R3			; Loop control
+31010$:
+	MOVZBL	(R2)[R3],(R10)+         ; Put data on stack
+	MOVL	FAOMAC,(R11)+           ; Control string
+	ADDL	#4,CSTRING_DESC         ; Adjust size of control string
+	AOBLSS	#5,R3,31010$            ; Do 1st 5
+	MOVZBL	(R2)[R3],(R10)+         ; Put data on stack
+	MOVL	FAOXL,(R11)+            ; Control string
+	ADDL	#4,CSTRING_DESC         ; Adjust size of control string
+	BRW	500$
+302$:  				; Printable string
+	MOVL	FAOAD,(R11)+	; Control string 	
+	ADDL	#4,CSTRING_DESC	; Len of string
+	MOVAL	ASN1TAG,R1  
+	MOVL	ASN_PAT_C_LVAL(R1),(R10)+	           ; Len
+	ADDL3	ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2   ; offs to string
+	ADDL3	R2,R7,(R10)+				   ; Str addr
+        BRW	500$					   ; Next param
+303$:                                   ; table top
+304$:                                   ; table entry
+	brw	500$                    ; ignore
+305$:  			; Bridge ID
+	MOVAL	ASN1TAG,R1  
+	TSTL	ASN_PAT_C_LVAL(R1)			   ; Value present?
+	BNEQ	30505$					   ; Br if present
+	BRW	500$					   ; Else ignore
+30505$:
+	ADDL3	ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2   ; offs to val
+	ADDL	R7,R2					   ; Addr of value
+; Top 2 bytes are bridge priority 
+; Reverse bytes
+	CLRL	R3  			; temp outp
+	MOVB	(R2),R3			; Hi byte
+	ROTL	#8,R3,R3		; Shift up
+	MOVB	1(R2),R3		; Lo byte
+	MOVL	R3,(R10)+            	; Bri id top word
+	MOVL	FAOBRI,(R11)+           ; control
+	ADDL	#4,CSTRING_DESC         ; Adjust size of control string
+	ADDL	#2,R2			; Move pointer	
+	CLRL	R3			; Loop control (rest is mac addr)
+30510$:
+	
+	MOVZBL	(R2)[R3],(R10)+         ; Put data on stack
+	MOVL	FAOMAC,(R11)+           ; Control string
+	ADDL	#4,CSTRING_DESC         ; Adjust size of control string
+	AOBLSS	#5,R3,30510$            ; Do 1st 5
+	MOVZBL	(R2)[R3],(R10)+         ; Put data on stack
+	MOVL	FAOXL,(R11)+            ; Control string
+	ADDL	#4,CSTRING_DESC         ; Adjust size of control string
+	BRW	500$
+
+500$:
+; Print 1 line /item
+	MOVL	#132,FAODESC
+	PUSHAL	FAOTBL
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	CSTRING_DESC
+	CALLS	#4,G^SYS$FAOL
+	BSBW	ERROR_CHK
+	BSBW	PRINT
+	BLBC	LOGFLAG,505$		     ; Br if not logging
+	MOVL	FAODESC+4,LOGRAB+RAB$L_RBF	; Set location of rec
+	MOVL	FAODESC+4,LOGRAB+RAB$L_UBF	; Set location of rec
+	MOVW	FAODESC,LOGRAB+RAB$W_RSZ	; Set rec len
+	MOVW	FAODESC,LOGRAB+RAB$W_USZ	; Set rec len
+	$PUT	RAB= LOGRAB
+505$:
+; Calc next tag position, print if no more else process.
+	SUBL	ASN1TAG+ASN_PAT_C_NEXT,R6    ; Next tag
+	BLEQ	510$                         ; Br if no more
+	ADDL	ASN1TAG+ASN_PAT_C_NEXT,R7    ; Next tag
+	ADDL	#MC_MIBT_C_RECSIZE,R8		     ; Next name
+	BRW	10$
+510$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+	.CALL_ENTRY	MAX_ARGS=3, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=CVT_ANS1TOINT
+;++
+;2 CVT_ANS1TOINT
+;   
+; CONVERT ASN.1 Integer to VMS .quad integer. Note that on a VAX this 
+; may cause incorrect data to be displayed if the caller does not check
+; the high .long. (VAX cannt format .quad integers)
+;
+;3 inputs
+;	Addr of PROCESS_ASN1_TAG outp block
+;	addr of asn1 encoded integer
+;	addr of outp .quad
+;3 returns:
+; 	r0 = normal or overflow
+;       .quad converted int 
+;3 Status Returns
+; SS$_NORMAL	- OK
+; SS$_INTOVF	- Len > 8 bytes or = 0
+;--
+	MOVL	4(AP),R6
+	TSTL	ASN_PAT_C_LVAL(R6)		; len of param
+	BNEQ	10$				; Br if not 0
+	MOVL	#SS$_INTOVF,R0
+	RET
+
+10$:
+	CMPL	#8,ASN_PAT_C_LVAL(R6) 		; len of param
+	BGEQ	20$				; Br if len <= 4
+	MOVL	#SS$_INTOVF,R0
+	RET
+20$:
+	MOVL	ASN_PAT_C_LVAL(R6),R1 		; Make index
+	ADDL3	ASN_PAT_C_TLEN(R6),ASN_PAT_C_LLEN(R6),R2  
+	ADDL3	8(AP),R2,R7			; point to value
+	DECL	R1				; Make Inpt index
+	MOVAL	RESULT,R5                       ; Temp outp (quad)
+	CLRQ	(R5)                            ; Clear value
+
+40$:
+; Reverse byte order
+	MOVB	(R7)+,(R5)[R1]			; Move value
+	SOBGEQ	R1,40$
+	TSTL	RESULT+4			; > 4 bytes significance?
+	BNEQ	50$
+	MOVL	RESULT,@12(AP)                   ; outp here
+        MOVL	#SS$_NORMAL,R0
+	RET
+50$:
+	MOVL	#SS$_INTOVF,R0
+	RET
+	
+
+READ_PROMPT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+; Address of .ascid is in R1
+		PUSHAL	VD_DISP                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Do not Make input UPCASE 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	R1                      ; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		BLBS	R0,10$
+		CMPL	#SMG$_EOF,R0            ; Trap and return ^Z
+		BEQLU	10$
+		BSBW	ERROR_CHK
+10$:
+		RSB
+READ_PROMPT1:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+; Address of .ascid is in R1
+		PUSHAL	VD_DISP2                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Do not Make input UPCASE 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	R1                      ; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		BLBS	R0,10$
+		CMPL	#SMG$_EOF,R0            ; Trap and return ^Z
+		BEQLU	10$
+		BSBW	ERROR_CHK
+10$:
+		RSB
+;
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	PR_ERROR_CHK
+		RSB
+PRINT2:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		PUSHL	R1			; Addr of .ascid in R1
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	PR_ERROR_CHK
+		RSB
+PR_ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBS	R0,10$
+	MOVAL	exitmsg,R1       		; Issue prompt
+	BSBW	READ_PROMPT
+10$:
+	RSB              	;
+
+
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Pasteboards
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+	PUSHAL	PB_BOARD2
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+; Save the current screen set up. Attempt to set it to 48x80. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	PB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BSBW	ERROR_CHK
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	VD_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	VD_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	PB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BSBW	ERROR_CHK
+	SUBL	#4,VD_ROWS			; Set our page len
+;
+	CLRL	-(SP)
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	CLRL	-(SP)
+	PUSHAL	VD_DISP2
+	PUSHAL	VD_COL2
+        PUSHAL	VD_ROW2
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL2		;Column
+	PUSHAL	PB_ROW2		;Row
+	PUSHAL	PB_BOARD2
+	PUSHAL	VD_DISP2
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	RSB
+
+	.END	MIBWALKER2

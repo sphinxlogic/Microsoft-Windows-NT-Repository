@@ -1,0 +1,27 @@
+#!/bin/sh
+#File adaptStarterFile
+grep __dcc.\*gcc starter.dcc > /dev/null
+if [ $? = 0 ]; then
+  echo 'main(){}'|gcc -v -E - 2> specs.tmp>/dev/null
+  cppCmd=`grep cpp specs.tmp`
+  cppDefines=`echo " $cppCmd"|sed -e 's/ [^-][^ ][^ ]*//g'`
+  cppDefines=`echo " $cppDefines"|sed -e 's/ -[^D][^ ]*//g'`
+  cppDefines=`echo " $cppDefines"|sed -e 's/-$//'`
+  cppDefines=`echo " $cppDefines"|sed -e 's/ =/=/g'`
+  cppDefines=`echo " $cppDefines"|sed -e 's/= /=/g'`
+  set -- $cppDefines
+  while [ $# -gt 0 ];do
+    symb=`echo $1|sed -e 's/^-D\([^=]*\).*/\1/'`
+    val=`echo $1|sed -e 's/^[^=]*=*\(.*\)/\1/'`
+    if [ "$val" = "" ]; then val=1;fi
+    echo "#define $symb $val">>starter.tmp
+    shift
+  done
+  sort -u starter.tmp >>starter.dcc
+  rm starter.tmp
+  rm specs.tmp
+else
+  echo '>>> Specified C compiler does not tell predefined macros;'
+  echo '>>> "starter.dcc" file may have to be adapted by hand.'
+fi
+#End file adaptStarterFile 

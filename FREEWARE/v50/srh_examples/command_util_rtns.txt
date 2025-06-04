@@ -1,0 +1,353 @@
+
+  There are a set of (undocumented) util$* routines around:
+
+    UTIL$SCREEN_HANDLER, UTIL$SCREEN_NOT_IMPL, UTIL$SCREEN_INIT,
+    UTIL$SCREEN_FINISH, UTIL$SCREEN_HEADER, UTIL$SCREEN_OUTPUT,
+    UTIL$SCREEN_OUTPUT_PARTIAL, UTIL$SCREEN_PROMPT, UTIL$SCREEN_SEARCH,
+    UTIL$SCREEN_HELP.
+
+  These are used for handling the /PAGE qualifier underneath various DCL
+  commands such as TYPE.  For details on these routines, look in the
+  [CLIUTL] facility, in the UTIL*.* modules, on the OpenVMS V6.1 (or
+  later) source listings.
+
+  Like most everything else on OpenVMS, these routines can be called
+  from C programs.
+
+  These routines are in UTIL$SHARE shareable image.
+
+	--
+
+GLOBAL ROUTINE UTIL$SCREEN_HANDLER (
+SIGARGS: REF BLOCK [, BYTE],        ! Signal arguments list
+MCHARGS: REF BLOCK [, BYTE],        ! Mechanism arguments list
+ENBARGS: REF VECTOR [, LONG]        ! Enable arguments list
+) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!       This routine is a signal handler routine that can be used by the
+!       calling utility to catch and display signaled messages.
+!       If /PAGE mode, it will output the message to the screen using the
+!       page routines.  If not /PAGE mode it will just resignal the message.
+!
+! FORMAL PARAMETERS:
+!
+!       SIGARGS         - The signal arguments list
+!       MCHARGS         - The mechanism arguments list
+!       ENBARGS         - The enable arguments list.  The first entry is ptr to
+!                               1 if /PAGE mode, 0 otherwise.
+!
+
+	--
+
+GLOBAL ROUTINE UTIL$SCREEN_INIT (
+FILE_DESC : REF BLOCK[,BYTE],
+OPTIONS : REF VECTOR[1],
+SCREENS : REF VECTOR[1],
+WIDTH : REF VECTOR[1],
+BACKGROUND : REF VECTOR[1],
+FIND_DESC : REF BLOCK[,BYTE]
+) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!       Initialize using the SMG$ routines to create a pasteboard and a
+!       virtual keyboard for the terminal, a virtual display to hold the
+!       text, and a virtual display to hold the prompt.
+!
+! CALLING SEQUENCE:
+!
+!       STATUS = UTIL$SCREEN_INIT (
+!                                  [FILE_DESC]
+!                                  [,OPTIONS]
+!                                  [,SCREENS]
+!                                  [,WIDTH]
+!                                  [,BACKGROUND]
+!                                  [,FIND_DESC]
+!                                 )
+!
+! FORMAL PARAMETERS:
+!
+!       FILE_DESC       [OPTIONAL] Filespec of the output device or file.
+!                                  Passed by descriptor.  Default is SYS$OUTPUT.
+!
+!       OPTIONS         [OPTIONAL] Options to be used by the UTIL$SCREEN_xxxx
+!                                  routines.  Passed by reference.  Default
+!                                  value is UTIL$M_DEFAULT.  Legal values are:
+!
+!                  Value                Function
+!                  -----                --------
+!                  UTIL$M_DEFAULT       Use default options
+!                  UTIL$M_RET_IMMED     Return when any key except PREV/NEXT
+!                                       SCREEN, INSERT/REMOVE, FIND/SELECT,
+!                                       LEFT/RIGHT and UP/DOWN arrow is entered.
+!                  UTIL$M_WRAP          Wrap lines instead of using LEFT/RIGHT
+!                                       arrow or INSERT/REMOVE to see overflow
+!                                       text. WIDTH parameter is ignored.
+!                  UTIL$M_LINE_SCROLL   Scroll a line at a time instead of
+!                                       repainting all lines at once.
+!                  UTIL$M_DISP_CONTROLS Create virtual display with
+!                                       SMG$M_DISPLAY_CONTROLS.
+!                  UTIL$M_WORKSTATION   Create new workstation window for I/O
+!                  UTIL$M_IGNORE_REND   Ignore output renditions
+!                  UTIL$M_ERASE         Erase pasteboard before each screen
+!                  UTIL$M_MATCH_EXACT   Search string must match exactly
+!                  UTIL$M_DISABLE_FIND  Disable FIND key function
+!                  UTIL$M_DISABLE_HELP  Disable HELP key function
+!                  UTIL$M_NOPAGE_MODE   Don't prompt when display is full
+!
+!
+!       SCREENS         [OPTIONAL] Number of screens to save including currently
+!                                  visible one.  Passed by reference. Default
+!                                  value is K_SAVE.  Minimum value is 2 and
+!                                  maximum value is 32767/lines per screen.
+!
+!                                  NOTE:  This parameter directly affects the
+!                                         amount of virtual memory used by SMG$
+!                                         and its performance.
+!                                         IT SHOULD BE USED WITH CAUTION.
+!
+!       WIDTH           [OPTIONAL] Number of columns to save including currently
+!                                  visible ones.  Passed by reference.  Default
+!                                  is K_WIDTH.  Ignored if UTIL$M_WRAP is set.
+!                                  Maximum value is 65535 (SMG$ maximum).
+!
+!                                  NOTE:  This parameter directly affects the
+!                                         amount of virtual memory used by SMG$
+!                                         and its performance.
+!                                         IT SHOULD BE USED WITH CAUTION.
+!
+!       BACKGROUND      [OPTIONAL] Color of background to use.  Passed by
+!                                  reference.  Default is to not change the
+!                                  current background color.
+!                                  Valid values are SMG$C_COLOR_xxx.
+!
+!                                  NOTE:  The original background color is not
+!                                         reset when calling UTIL$SCREEN_FINISH.
+!
+!       FIND_DESC       [OPTIONAL] Search string to look for.
+!                                  Passed by descriptor.
+
+
+GLOBAL ROUTINE UTIL$SCREEN_FINISH (
+OPTIONS : REF VECTOR[1]
+) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!       Terminate the SMG$ routines by deleting the pasteboard and
+!       virtual keyboard for the terminal, and the virtual displays.
+!       Since SMG$ has it's own exit handlers this routine should
+!       NOT be called from an exit handler.
+!
+! CALLING SEQUENCE:
+!
+!       STATUS = UTIL$SCREEN_FINISH (
+!                                   [OPTIONS]
+!                                   )
+!
+! FORMAL PARAMETERS:
+!
+!       OPTIONS         [OPTIONAL] Options to be used by the UTIL$SCREEN_FINISH
+!                                  routine.  Passed by reference.  Default
+!                                  value is 0.  Legal values are:
+!
+!                  Value                Function
+!                  -----                --------
+!                  UTIL$M_PROMPT        Call UTIL$SCREEN_PROMPT before
+!                                       deleting display.
+!                  UTIL$M_KEEP          Don't delete workstation display.
+!
+!
+
+
+GLOBAL ROUTINE UTIL$SCREEN_HEADER (
+TEXT_DESC : REF BLOCK[,BYTE]
+) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!       Setup the screen header by creating and pasting a
+!       virtual display at the top of the pasteboard.  This header
+!       contains the specified lines of text in REVERSE rendition.  If the
+!       pasteboard is not a video terminal, just output the header
+!       lines instead.
+!
+! CALLING SEQUENCE:
+!
+!       STATUS = UTIL$SCREEN_HEADER (
+!                                    [TEXT_DESC]
+!                                    [,...]
+!                                   )
+!
+! FORMAL PARAMETERS:
+!
+!       TEXT_DESC       [OPTIONAL] Text to be output to the screen as the
+!                                  header.  Passed by descriptor.  If not
+!                                  specified any existing header is deleted.
+!                                  Each parameter specifies one header line.
+
+GLOBAL ROUTINE UTIL$SCREEN_OUTPUT_PARTIAL (
+TEXT_DESC   : REF BLOCK[,BYTE],
+RENDITION   : REF VECTOR[1]
+) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!       Output the specified partial line of text to the screen.
+!       The cursor remains on the same line of the display, no prompting
+!       is necessary.  The cursor is placed at the end of the text written.
+!
+! CALLING SEQUENCE:
+!
+!       STATUS = UTIL$SCREEN_OUTPUT_PARTIAL(
+!                                   TEXT_DESC
+!                                   [,RENDITION]
+!                                   )
+!
+! FORMAL PARAMETERS:
+!
+!       TEXT_DESC                  Text to be output to the screen.
+!                                  Passed by descriptor.
+!
+!       RENDITION       [OPTIONAL] SMG$ rendition to use for this text.
+!                                  Passed by reference.
+
+
+GLOBAL ROUTINE UTIL$SCREEN_OUTPUT (
+TEXT_DESC   : REF BLOCK[,BYTE],
+CODE        : REF VECTOR[1],
+PROMPT_DESC : REF BLOCK[,BYTE],
+INPUT_DESC  : REF BLOCK[,BYTE],
+INPUT_LEN   : REF VECTOR[1,LONG],
+HELP_DESC   : REF BLOCK[,BYTE],
+RENDITION   : REF VECTOR[1]
+) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!       Output the specified line of text to the screen. If the bottom of the
+!       screen is reached, prompt the user for what action to take.
+!       See description in routine UTIL$SCREEN_PROMPT for details.
+!
+! CALLING SEQUENCE:
+!
+!       STATUS = UTIL$SCREEN_OUTPUT(
+!                                   TEXT_DESC
+!                                   [,CODE]
+!                                   [,PROMPT_DESC]
+!                                   [,INPUT_DESC]
+!                                   [,INPUT_LEN]
+!                                   [,HELP_DESC]
+!                                   [,RENDITION]
+!                                   )
+!
+! FORMAL PARAMETERS:
+!
+!       TEXT_DESC                  Text to be output to the screen.
+!                                  Passed by descriptor.
+!
+!       CODE            [OPTIONAL] SMG$K_TRM_xxx code for key entered is returned
+!                       [OUTPUT]   Passed by reference.
+!
+!       PROMPT_DESC     [OPTIONAL] Text to be output to the screen in reverse
+!                                  video as the prompt.  Passed by descriptor.
+!
+!       INPUT_DESC      [OPTIONAL] Text read in from the user.
+!                       [OUTPUT]   Passed by descriptor.
+!
+!       INPUT_LEN       [OPTIONAL] Actual length of string read in from user.
+!                       [OUTPUT]   Passed by reference.
+!
+!       HELP_DESC       [OPTIONAL] Help topic to be output to the screen when
+!                                  the HELP key is entered.  Passed by descriptor.
+!
+!       RENDITION       [OPTIONAL] SMG$ rendition to use for this line of text.
+!                                  Passed by reference.
+!
+
+
+GLOBAL ROUTINE UTIL$SCREEN_PROMPT (
+INPUT_DESC  : REF BLOCK[,BYTE],
+PROMPT_DESC : REF BLOCK[,BYTE],
+INPUT_LEN   : REF VECTOR[1,LONG],
+CODE        : REF VECTOR[1],
+HELP_DESC   : REF BLOCK[,BYTE]
+) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!       Prompt the user for what action to take.  Possible actions are:
+!
+!       key             action
+!       ---             ------
+!       RETURN          Return to caller to continue outputting lines.
+!       ENTER           Same as RETURN.
+!       SPACE           Same as RETURN unless INPUT_DESC is specified.
+!       CTRL/Z          Same as RETURN but return SMG$K_TRM_CTRLZ as CODE value.
+!       F10             Same as CTRL/Z.
+!       CTRL/W          Repaint the screen
+!       LEFT-ARROW      Display last column scrolled off right of screen.
+!       RIGHT-ARROW     Display last column scrolled off left of screen.
+!       UP-ARROW        Display last line scrolled off top of screen.
+!       DOWN-ARROW      Display last line scrolled off bottom of screen.
+!       PREV-SCREEN     Display last page scrolled off top of screen.
+!       NEXT-SCREEN     Display last page scrolled off bottom of screen.
+!       REMOVE          Display last group of columns scrolled off right of screen.
+!       INSERT-HERE     Display last group of columns scrolled off left of screen.
+!       CTRL/B          Same as UP-ARROW.
+!       DO              Toggle display to first/last page.
+!       SELECT          Toggle 80/132 column mode.
+!       HELP            Output help on the specified topic.
+!       FIND            Change search string
+!       any others      Return if UTIL$M_RET_IMMED is set, ignore otherwise.
+!
+!       If not reading a string, the following synonyms are used:
+!
+!       key             synonym
+!       ---             -------
+!       CTRL/D          LEFT_ARROW
+!       CTRL/F          RIGHT_ARROW
+!       CTRL/N          DOWN_ARROW
+!       CTRL/R          CTRL/W
+!       Keypad 0        DOWN_ARROW
+!       Keypad 2        NEXT_SCREEN
+!       Keypad 4        INSERT_HERE
+!       Keypad 6        REMOVE
+!       Keypad 7        SELECT
+!       Keypad 8        PREV_SCREEN
+!       F1              HELP
+!       PF2             HELP
+!       PF3             FIND
+!       PF4             DO
+!
+!
+! CALLING SEQUENCE:
+!
+!       STATUS = UTIL$SCREEN_PROMPT (
+!                                   [INPUT_DESC]
+!                                   [,PROMPT_DESC]
+!                                   [,INPUT_LEN]
+!                                   [,CODE]
+!                                   [,HELP_DESC]
+!                                   )
+!
+! FORMAL PARAMETERS:
+!
+!       INPUT_DESC      [OPTIONAL] Text read in from the user.
+!                       [OUTPUT]   Passed by descriptor.
+!
+!       PROMPT_DESC     [OPTIONAL] Text to be output to the screen in reverse
+!                                  video as the prompt.  Passed by descriptor.
+!
+!       INPUT_LEN       [OPTIONAL] Actual length of string read in from user.
+!                       [OUTPUT]   Passed by reference.
+!
+!       CODE            [OPTIONAL] SMG$K_TRM_xxx code for key entered is returned
+!                       [OUTPUT]   Passed by reference.
+!
+!       HELP_DESC       [OPTIONAL] Help topic to be output to the screen when
+!                                  the HELP key is entered.  Passed by descriptor.
+ 

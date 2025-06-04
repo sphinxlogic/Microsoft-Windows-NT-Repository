@@ -1,0 +1,61 @@
+05-SEP-2000, David Mathog, mathog@caltech.edu
+
+Downloaded from mm-ftp.cs.berkeley.edu/mpeg/play
+
+1.  Built on linux, put build commands into make_vms.com, copied
+    to VMS system, edit into DCL script.
+
+2.  Missing #include <string.h> in various modules, needed for 
+    memset.  Put it in "dither.h".  Probably not the ideal location,
+    but one picked up by all program modules that had this problem.
+
+3.  $ mycc  gdith.c
+
+      wpixel[i*2] |= wpixel[i*2] << 32;
+.....................^
+%CC-W-SHIFTCOUNT, In this statement, the shift count "32" is negative or is 
+greater than or equal to the promoted size of the operand "wpixel[i*2]".
+at line number 707 in file PRGDISK:[SHARED.PROGRAMS.MPEG_PLAY]GDITH.C;1
+
+That's within an ifdef for SIXTYFOUR_BIT.  Why is it set?
+Ah, in video.h there's 
+
+#ifdef __alpha__
+#define SIXTYFOUR_BIT
+#endif
+
+which apparently assumes that "long" is 64 bits.  Not on VMS it isn't! 
+(SHAME on COMPAQ for having "long" have different meanings on different
+Alpha platforms.)  Put an addition #if !defined(__VMS) around this
+in video.h.
+
+4.  $ mycc  readfile.c
+
+      if (startCode == EOF) {
+..........^
+%CC-I-QUESTCOMPARE1, In this statement, the unsigned expression "startCode" 
+is being compared with an equality operator to a constan
+t whose value is negative.  This might not be what you intended.
+at line number 584 in file PRGDISK:[SHARED.PROGRAMS.MPEG_PLAY]READFILE.C;1
+
+Same type of error at 622.
+
+This is a bug.  Put in (int) casts for the two lines that trigger this, but
+it may not fix it (depends on what the code that sets the value is doing.) 
+I think that this only shows up if the input file is bad though. 
+
+5.  mycc  main.c
+
+  signal(SIGINT, int_handler);
+.................^
+%CC-W-PTRMISMATCH, In this statement, the referenced type of the pointer 
+value "int_handler" is "function () returning void", which
+is not compatible with "function (int) returning void".
+at line number 688 in file PRGDISK:[SHARED.PROGRAMS.MPEG_PLAY]MAIN.C;1
+
+Fixed by defining SIG_ONE_PARAM
+
+6.  Copy over mpeg_play.opt from old one and modify slightly to take
+out old VAX C bits.
+
+Done.

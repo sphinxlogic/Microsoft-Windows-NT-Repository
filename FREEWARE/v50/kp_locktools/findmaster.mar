@@ -1,0 +1,333 @@
+        .title  findmaster
+;;
+;; This program uses the $ENQ system service to take out a null lock on the
+;; resource name specified in the DCL symbol FINDMASTER_RESOURCE.  It then uses
+;; the $GETLKI system service to retrieve information on the lock (in
+;; particular, the lock master node for the resource).
+;;								K.Parris 3/98
+;; Defines the global symbol FINDMASTER_NODE to contain the name of the
+;; lock master node (or "" if there is none).                   KP 4/28/98
+;;
+;; Author: Keith Parris  parris@encompasserve.org or keithparris@yahoo.com
+;; http://www.geocities.com/keithparris/ or http://encompasserve.org/~parris/
+	$lckdef		;Include definition macros...
+	$lkidef		;...used for $ENQ and $GETLKI
+	$syidef		;Include definitions used for $GETSYI
+	$psldef		;USER/SUPER/EXEC/KERNEL mode definitions
+	$libdef		;Include definition macros for LIB$ routines
+;------------------------------------------------------------------------------
+	.PSECT	RO_DATA	QUAD,RD,noWRT,noEXE
+;;
+;; Read-only data area
+;;
+
+;	.align	quad
+symbol_name_res:	.ascid	"FINDMASTER_RESOURCE"	;Resource name
+;	.align	quad
+symbol_name_acmode:	.ascid	"FINDMASTER_ACMODE"	;Mode (USER/SUP/EXEC/KERNEL)
+;	.align	quad
+symbol_name_node:	.ascid	"FINDMASTER_NODE"	;Name of symbol returned
+;;
+;; Output strings used to format the lock information.
+;;
+;	.align	quad
+;line1:	.ascid	"Lock master CSID: !XL"
+;	.align	quad
+line2:	.ascid	"Lock master node: !AS"
+line2n:	.ascid	"No locks, thus no master node at this time."
+;	.align	quad
+;line3:	.ascid	"Lock count: !UL"
+;;
+;; Item List for the $GETLKI call.
+;;
+	.align	long
+lki_itmlst:
+	.word		4			;buffer length (1 longword)
+	.word		LKI$_MSTCSID		;CSID of master node
+	.address	lock_mstcsid		;buffer address
+	.long		0			;returned length address [null,
+;						;since it will always be 4...]
+	.word		4               	;buffer length (1 longword)
+	.word		LKI$_LCKCOUNT		;# of locks on resource
+	.address	lock_count		;buffer address
+	.long		0			;returned length address [null,
+;						;since it will always be 4...]
+	.long		0	;end of item list.
+;;
+;; Item List for the $GETSYI call.
+;;
+	.align	long
+syi1_itmlst:
+	.word		4			;buffer length (1 longword)
+	.word		SYI$_NODE_CSID		;Return CSID of node
+	.address	node_csid		;buffer address
+	.long		0			;returned length address [null,
+;						;since it will always be 4...]
+;
+	.long		0	;end of item list.
+syi2_itmlst:
+	.word		mstnode_length		;buffer length
+	.word		SYI$_NODENAME		;Return nodename of node
+	.address	mstnode			;buffer address
+	.address	mstnode_len		;returned length address
+;
+	.long		0	;end of item list.
+
+;------------------------------------------------------------------------------
+	.PSECT	RW_DATA	QUAD,RD,WRT,noEXE
+;;
+;; Read-write data area
+;;
+
+	.align	quad
+resnam_length = 31
+resnam_desc:				; resource name descriptor
+resnam_len:	.long		resnam_length	;length of string
+		.address	lock_resnam	;address of buffer
+lock_resnam:	.blkb		resnam_length	;resource name
+
+	.align	quad
+acmode_length = 10
+acmode_desc:				; access mode descriptor
+acmode_len:	.long		acmode_length	;length of string
+		.address	acmode	;address of buffer
+acmode:	.blkb		acmode_length	;access mode name
+
+	.align	long
+lock_acmode:	.blkl		;Access mode of lock (PSL$C_xxxx value)
+
+	.align	quad
+lksb:	.blkl	2		;lksb for $ENQW
+lock_id = lksb+4		; LKSB+4 = lock id
+
+	.align	quad
+iosb:	.blkl	2		;IOSB for $GETLKI
+
+;;
+;; Buffers referenced in the $GETLKI item list.
+;;
+	.align	long
+lock_mstcsid:	.blkl		;CSID of lock master
+lock_count:	.blkl		;Number of locks on the resource
+
+;;
+;; Buffers referenced in the $GETSYI item lists.
+;;
+	.align	long
+node_csid:	.blkl		;CSID of the node we're running on
+
+	.align	quad
+mstnode_length = 15    ; Nodename's maximum length (15 in theory, 6 in practice)
+mstnode_desc:				; Nodename descriptor
+mstnode_len:	.long		0		;length of string
+mstnode_addr:	.address	mstnode		;address of buffer
+; We reset the above length to zero, resulting in a null nodename string being
+; returned, if there is no lock master node presently (i.e. if this node is
+; identified as the lock master but our single lock is the only lock in
+; existence, which we can tell from a lock count value of 1 from $GETLKI).
+mstnode:	.blkb		15		;nodename buffer itself
+
+;;
+;; Descriptor for $FAO call.
+;;
+maxfao = 80			;maximum fao buffer length
+	.align	quad
+faodesc:			;fao descriptor
+faolen:	.blkl			;fao output buffer length
+	.address	faobuf	;address of buffer
+faobuf:	.blkb	maxfao		;80 character buffer
+;------------------------------------------------------------------------------
+	.PSECT	CODE	QUAD,RD,noWRT,EXE
+;;
+;;
+;;  Begin code
+;;
+;;
+
+;;
+;; status check macro
+;;
+.macro check_status, loc=R0, ?no_error1$
+        blbs loc, no_error1$          ;branch if no error
+	.if different loc, R0
+        movzwl loc, R0                ;move error into R0
+	.endc
+        $exit_s R0                    ;exit with error
+no_error1$:                           ;return to program flow
+.endm check_status
+
+;;
+;; Format and Output message macro.
+;;
+.macro output_msg, msg_line, param1, ?end_of_msgs$
+	movzbl  #maxfao,faolen
+	$fao_s	ctrstr=msg_line,-	;format the message
+		outlen=faolen,-
+		outbuf=faodesc,-
+		p1=param1
+	check_status			;check status
+	pushal faodesc
+	calls	#1, g^lib$put_output	;output the message
+	check_status			;check status
+end_of_msgs$:                         ;Message is output
+.endm output_msg                      ;return to program flow
+
+;;;;===========================================================================
+;;;;
+;;;;
+;;;; Main program
+;;;;
+;;;;
+;;;;===========================================================================
+        .entry  start,^m<>
+
+;;
+;; Grab the resource name from the DCL symbol FINDMASTER_RESOURCE
+;;
+;;;;	pushl	#0		; table-type-indicator, by reference [null]
+	pushaw	resnam_len	; resultant-length, by reference
+	pushaq	resnam_desc	; resultant-string, by descriptor
+	pushaq	symbol_name_res	; symbol name, by descriptor
+	calls	#3,g^LIB$GET_SYMBOL
+	check_status
+;;
+;; Grab the lock access mode name from the DCL symbol FINDMASTER_ACMODE
+;;
+;;;;	pushl	#0		; table-type-indicator, by reference [null]
+	pushaw	acmode_len	; resultant-length, by reference
+	pushaq	acmode_desc	; resultant-string, by descriptor
+	pushaq	symbol_name_acmode	; symbol name, by descriptor
+	calls	#3,g^LIB$GET_SYMBOL
+	check_status
+;;
+;; Decode the access mode lock name
+;;
+	movzbl	acmode,R0	; Grab the first letter of the access mode
+	movl	#PSL$C_USER,lock_acmode		; Default is user mode
+;	cmpb	R0,#^a'U'		; User mode?
+;	beql	10$		; Yes, user mode -->
+	cmpb	R0,#^a'E'		; Exec mode?
+	bneq	10$		; No, not exec mode --> default to user
+	movl	#PSL$C_EXEC,lock_acmode	; Exec mode lock needed
+	$cmexec_s -		; Have to do $ENQ/$GETLKI in EXEC mode
+		routin=lock_work,-
+		arglst=#0
+	check_status
+	brb	50$
+
+; We won't even try to support kernel or supervisor modes at this point
+;	movl	#PSL$C_KERNEL,lock_acmode
+;	cmpb	R0,#^a'E'		; Exec mode?
+;	movl	#PSL$C_SUPER,lock_acmode
+;	cmpb	R0,#^a'S'		; Exec mode?
+10$:
+	calls	#0,lock_work
+	check_status
+	brb	50$
+
+50$:	; continue
+;; If the lock count is 1, and the master node is this node, that means
+;; our NL lock is the only lock in existence in the entire cluster at this
+;; time, and so there was no lock master, in essence, at this time.
+	cmpl	lock_count,#1	;Is there only a single lock (maybe just ours)?
+	bneq	51$		;No --> more out there
+;;
+;; Find out the CSID of the node we're running on
+;;
+	$getsyiw_s	-
+			itmlst=syi1_itmlst,-	;item list
+			iosb=iosb		;IOSB
+	check_status				;check status of R0
+	check_status iosb			;check status of iosb
+
+	cmpl	lock_mstcsid,node_csid	;Is this node the lock master?
+	bneq	51$			;No --> report the info
+
+;; Lock count was 1, and we're the lock master, so this resource was
+;; apparently not in use in general in the cluster at this time.  Don't
+;; try to report the lock mastership.
+	clrw	mstnode_len		;Zero the nodename length to nullify it
+	pushal	line2n
+	calls	#1, g^lib$put_output	;output the "no locks" message
+	check_status			;check status
+	brw	59$			;Return results and exit -->
+
+51$:
+;;
+;; Find out the name of the node mastering the lock tree
+;;
+	$getsyiw_s	csidadr=lock_mstcsid,-	;CSID
+			itmlst=syi2_itmlst,-	;item list
+			iosb=iosb		;IOSB
+	check_status				;check status of R0
+	check_status iosb			;check status of iosb
+;;
+;; Format and output the information on the lock.
+;;
+;	output_msg	line1, lock_mstcsid	;CSID message
+;; Report the lock master nodename
+	output_msg	line2, #mstnode_desc	;Nodename message
+;; Report the count of locks on this resource
+;	output_msg	line3, lock_count	;Lock count message
+
+;; Return results in a DCL global symbol also
+59$:
+
+;;
+;; Set the DCL global symbol FINDMASTER_NODE to be the nodename of the
+;; resource master node (or a null string if there was none)
+;;
+	pushal	#LIB$K_CLI_GLOBAL_SYM	; table-type-indicator, by reference
+	pushaq	mstnode_desc		; value string, by descriptor
+	pushaq	symbol_name_node	; symbol name, by descriptor
+	calls	#3,g^LIB$SET_SYMBOL
+;;	check_status
+;; Checked on exit anyway...
+
+99$:
+;;;
+;;; Done.  Exit.
+;;;
+	$exit_s	r0				;exit and check status
+;
+	ret	; So Alpha macro compiler knows this routine has ended
+
+;;
+;; Take out a NL mode lock on the resource.  This routine is either simply
+;; called in user mode or (for an exec-mode lock) called by $CMEXEC in
+;; executive mode.
+;;
+        .entry  lock_work,^m<>
+
+	$enqw_s	-
+		resnam=resnam_desc,-	;resource name
+		lkmode=#lck$k_nlmode,-	;lock mode: Null
+		flags=#LCK$M_SYSTEM,-	;system-wide lock (not per-UIC-group)
+		acmode=lock_acmode,-	;user-mode lock
+		lksb=lksb		;lock status block
+;	check_status			;check status of R0
+	blbc	r0,lock_work_exit
+;	check_status	lksb		;check status of lksb
+	movzwl	lksb,r0
+	blbc	r0,lock_work_exit
+;;
+;; Get information on the lock.  Use the lock id returned by the $ENQ call.
+;;
+	$getlkiw_s -
+		lkidadr=lock_id,-	;id for lock we want info on
+		itmlst=lki_itmlst,-	;item list
+		iosb=iosb		;status block
+;	check_status			;check status of R0
+	blbc	r0,lock_work_exit
+;	check_status	iosb		;check status of iosb
+	movzwl	iosb,r0
+	blbc	r0,lock_work_exit
+;;
+;; Dequeue the lock.
+;;
+	$deq_s	lkid=lock_id		;dequeue the queued lock
+;	check_status			;check status of R0
+lock_work_exit:
+	ret
+
+        .end start

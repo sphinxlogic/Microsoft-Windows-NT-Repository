@@ -1,0 +1,136 @@
+From:	RHEA::DECWRL::"kjd@monet.berkeley.edu" "Kevin Dunlap" 31-JAN-1986 00:39
+To:	minow%rex.dec@decwrl
+Subj:	DECTALK library
+
+Received: from DECWRL by DEC-RHEA with SMTP; Thu, 30 Jan 86 21:38-PST
+Received: from monet.berkeley.edu by decwrl.DEC.COM (4.22.01/4.7.34)
+	id AA28607; Thu, 30 Jan 86 21:36:09 pst
+Received: by monet.berkeley.edu (5.44/1.8)
+	id AA06392; Thu, 30 Jan 86 21:34:09 PST
+Date: 30 Jan 86 21:34:06 PST (Thu)
+Message-Id: <8601310534.AA06392@monet.berkeley.edu>
+
+
+Hi,
+
+I thought you would like to know that I happen to bring
+your DECtalk library out here to UCB and compiled it under 4.3bsd.
+Or at least on the system that is closest to what the tape will
+be when it gets distributed by march.
+
+Everything compiled with out a hitch execpt for where time.h was
+included in dtioge.c.  This is where the if def BSD_42 is.
+
+We have moved time.h to sys, or maybe I should say back to sys.
+The version type of Unix is in /usr/include/sys/param.h
+if you include <sys/param.h>  this will define the unix version
+so the person compileing doesn't have to define the version type.
+
+
+Also, you might be intrested in the attached makefile.
+This is a little less combersum then the one you had.
+
+If nobody responds to your posting to the Ultrix notes file, let me
+know.  The problem with 8 bit characters is not a problem with decvax,
+but one with Unix.  The 8th bit in Unix is used for special things
+in Unix and supporting the 8 bit character set is not an easy task.
+I belive that there is funding in europe to do the software enginerring
+to support international character set. But the group has not gotten
+started yet.
+
+
+-Kevin
+
+--------------
+
+#
+# Build the DECtalk library.  Note: Edit the CFLAGS line to
+#	CFLAGS = -O
+# if you aren't on Unix 4.2 BSD (code checks for this in dtioge.c)
+#
+#	make -f dtlib.mak		makes the library
+#	make -f dtlib.mak demo		makes the demo program, too
+#
+DESTDIR=
+CFLAGS = -O -DBSD_42
+INCPATH=
+LFLAGS=	
+LIBS=
+
+# The program itself
+#
+PROG=	dtlib.a 
+
+# Sources
+#
+SRCS=	dtansw.c dtclos.c dtcmd.c dtdcha.c dtdcs.c \
+	dtdial.c dtdrai.c dtdump.c \
+	dteol.c dtgesc.c dtget.c dthang.c \
+	dtinit.c dtinke.c dtioge.c dtiopu.c \
+	dtiske.c dtisti.c dtisva.c dtkeyp.c \
+	dtmsg.c dtoffh.c dtonho.c dtopen.c \
+	dtpeek.c dtpesc.c dtphon.c dtptes.c dtput.c \
+	dtread.c dtrese.c dtsave.c dtspli.c dtst.c dtsync.c \
+	dttalk.c dttest.c dttime.c dttone.c dttrap.c \
+	dtvisi.c
+
+
+# Objects
+#
+OBJS=	dtansw.o dtclos.o dtcmd.o dtdcha.o dtdcs.o \
+	dtdial.o dtdrai.o dtdump.o \
+	dteol.o dtgesc.o dtget.o dthang.o \
+	dtinit.o dtinke.o dtioge.o dtiopu.o \
+	dtiske.o dtisti.o dtisva.o dtkeyp.o \
+	dtmsg.o dtoffh.o dtonho.o dtopen.o \
+	dtpeek.o dtpesc.o dtphon.o dtptes.o dtput.o \
+	dtread.o dtrese.o dtsave.o dtspli.o dtst.o dtsync.o \
+	dttalk.o dttest.o dttime.o dttone.o dttrap.o \
+	dtvisi.o
+
+# Header files
+#
+HDRS= dectlk.h
+
+${PROG}: ${OBJS} ${HDRS}
+	ar rv dtlib.a ${OBJS}
+	ranlib dtlib.a
+
+${OBJS}:
+	cc ${CFLAGS} ${INCPATH} -c $*.c
+
+demo:		demo.o dtlib.a
+	cc demo.o dtlib.a
+	mv a.out demo
+
+install: ${PROG}
+	install ${PROG} ${DESTDIR}/usr/local/${PROG}
+
+clean:
+	rm -f a.out core errs makefile.bak Makefile.bak ${OBJS} ${PROG}
+
+lint:
+	lint ${SRCS}
+
+depend:
+	cc -M ${INCPATH} ${SRCS} | \
+	awk ' { if ($$1 != prev) { print rec; rec = $$0; prev = $$1; } \
+		else { if (length(rec $$2) > 78) { print rec; rec = $$0; } \
+		       else rec = rec " " $$2 } } \
+	      END { print rec } ' > makedep
+	echo '/^# DO NOT DELETE THIS LINE/+2,$$d' >eddep
+	echo '$$r makedep' >>eddep
+	echo 'w' >>eddep
+	cp Makefile Makefile.bak
+	ed - Makefile < eddep
+	rm eddep makedep
+	echo '# DEPENDENCIES MUST END AT END OF FILE' >> Makefile
+	echo '# IF YOU PUT STUFF HERE IT WILL GO AWAY' >> Makefile
+	echo '# see make depend above' >> Makefile
+
+# DO NOT DELETE THIS LINE -- make depend uses it
+
+# DEPENDENCIES MUST END AT END OF FILE
+# IF YOU PUT STUFF HERE IT WILL GO AWAY
+# see make depend above
+

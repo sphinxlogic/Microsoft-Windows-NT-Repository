@@ -1,0 +1,1896 @@
+1 LD
+
+	The logical disk utility is a system management tool available
+	to any user for controlling logical disk usage.
+
+	A Logical Disk is a file available on a Physical Disk, which
+	acts as a real Physical Disk (The file is contiguous.)
+	The Logical Disks are available in any directory of the
+	Physical Disk.
+
+	A large disk can be divided into smaller sections, each a Logi-
+	cal Disk, supporting the same I/O functions as the Physical Disk.
+	By giving the Logical Disk File a good  protection level and
+	mounting it private or with device protection, you are able to
+	add a number of protection levels to your file system.
+
+	The logical disk is controlled by the LD utility, which can
+	be directly invoked from DCL.
+
+	Format:
+
+	LD [/qualifiers] [Filespec] [Device]
+
+2 Author
+
+	The author of this piece of software is Jur van der Burg,
+	Compaq, Utrecht, Holland.
+
+	In case of problems/questions/suggestions please contact
+	the author at jur.vanderburg@compaq.com.
+
+2 Command_summary
+
+	LD CREATE [/LOG] [/SIZE=xxx] [/BACKUP] [/CONTIGUOUS] Filespec
+	LD CONNECT [/LOG] [/SYMBOL] [/REPLACE] [/SHARE]
+		[/TRACKS=xxx] [/SECTORS=xxx] [/CYLINDERS=xxx]
+		[/MAXBLOCKS=xxx] [/ALLOCLASS=xxx] Filespec [LDan:]
+	LD DISCONNECT [/ALL] [/LOG] [/ABORT] LDan:
+	LD TRACE [/ACCURATE] [/FDT] [/SIZE=xxx] [/RESET] LDan:
+	LD TRACE/STOP [/ALL] [LDan:]
+	LD NOTRACE LDan:
+	LD WATCH LDan: lbn [,lbn...] [/FUNCTION=READ,WRITE,ALL,CODE=xxx]
+		[/ACTION=SUSPEND,CRASH,OPCOM,ERROR[=xxx]]
+	        [/FILE=filespec]
+	LD NOWATCH LDan: [lbn [,lbn...]] [/INDEX=n]
+	LD WATCH/RESUME LDan: [lbn [,lbn...]] [/INDEX=n]
+	LD PROTECT LDan:
+	LD NOPROTECT LDan:
+	LD SHOW [/ALL] [LDan:]
+	LD SHOW/WATCH LDan: [lbn [,lbn...]]
+	LD SHOW/TRACE [/STATUS] [/RESET] [/OUTPUT=Filespec] [/INPUT=filespec]
+		[/BINARY] [/ENTRIES=[(XXX,YYY)]] [/HEADER] [/CONTINUOUS]
+		[/VERSION_LIMIT=xxx] [/BLOCKS=xxx] [/WARNINGS]
+		[/NUMBER] [/PID] [/LBN] [/BYTECOUNT]
+		[/IOSB[=COMBINATION,TEXT,HEX,LONGHEX]]
+		[/TIMESTAMP[=ABSOLUTE,ELAPSED,COMBINATION,DELTA]]
+		[/FUNCTION[=TEXT,HEX]] [/ACCURATE] [/FDT] LDan:
+
+2 Driver_functions
+
+	The LDDRIVER understands all functioncodes normally available
+	for disks. Some special functions are used to control the
+	logical disk driver.
+
+	All functions assume that a channel has been assigned to
+	the device on which to operate. One exception is the 'Connect'
+	function which needs a channel to LDA0:. This will then create
+	a new device (because LDA0: is a cloned device).
+
+	A file with LDdriver specific definitions is included in the
+	kit (LD_DEFINES.H).
+
+	The only function to control the driver is IO$_LD_CONTROL
+	which is defined in LD_DEFINES.H.
+	A sub-function must be given as P6 of the QIO request.
+
+3 Connect
+
+	This function connects a file to a logical disk:
+
+	Function:	IO$_LD_CONTROL
+
+	P1 = address of SBK block (Attributes Statistics Block) returned
+	     by XQP IO$_ACCESS!IO$M_ACCESS function used to open the file
+	     to connect.
+	P2 = logical disk size. If 0, the allocated size will be used
+	P3 = Number of tracks (optional)
+	P4 = Number of sectors (optional)
+	P5 = Number of cylinders (optional)
+	P6 = Subfunction: LDIO_CONNECT
+
+
+	This function connects a complete physical disk to a logical disk:
+
+	Function:	IO$_LD_CONTROL
+
+	P1 = descriptor of buffer which contains device name of
+	     physical device
+	P6 = Subfunction: LDIO_CONNECT | LDIO_M_REPLACE
+
+	IOSB word 0 = status
+
+	Errors returned:
+
+	SS$_DEVACTIVE	Device already connected
+	SS$_FORMAT	FCB specified in SBK is invalid or file not opened
+	SS$_ACCVIO	One of the parameters cannot be read/written
+	SS$_IVDEVNAM	Attempt to connect to devicetype other than a disk
+	SS$_FILNOTCNTG	Logical disk file not contiguous
+	SS$_DATAOVERUN	Filename of file to connect too long
+	SS$_FILALRACC	File already in use (may be on other cluster nodes)
+	SS$_ILLKLKNUM	Disk size specified in P2 past end of file
+	SS$_IVADDR	Disk bigger than 2097151 blocks
+	SS$_NORMAL	Successful completion
+	SS$_BADPARAM	Invalid geometry information specified
+	SS$_UNSUPPORTED	Shared access was specified while no cluster code
+			is loaded
+	SS$_ACCONFLICT	Shared access was specified while the device is
+			not cluster-wide visible
+	SS$_WRONGACP	Container file is not on ODS-2 disk
+
+	The following errors are returned for LDIO_M_REPLACE only:
+
+	SS$_DEVFOREIGN	Device foreign mounted
+	SS$_DEVMOUNT	Device mounted
+	SS$_DEVALLOC	Device already allocated
+
+	Other possible errors are errors returned by the lockmanager
+	and errors returned by IOC$SEARCH.
+
+3 Disconnect
+
+	This function disconnects a file or device from a logical disk:
+
+	Function:	IO$_LD_CONTROL
+
+	P6 = Subfunction: LDIO_DISCONNECT
+
+	IOSB word 0 = status
+
+	The subfunctionmodifier LDIO_M_ABORT allows the file to be disconnected
+	regardless of it's state.
+
+	Errors returned:
+
+	SS$_DEVFOREIGN	Device mounted foreign
+	SS$_DEVMOUNT	Device mounted
+	SS$_BADFILEHDR	Bad logical disk file
+	SS$_DEVASSIGN	Device still active (reference count > 0)
+	SS$_DEVINACT	Device not connected
+	SS$_FORMAT	FCB specified in SBK is invalid
+	SS$_ACCVIO      SBK block cannot be read
+	SS$_NORMAL	Successful completion
+
+	Other possible errors are errors returned by the lockmanager.
+
+3 Display_status
+
+	This function retrieves the current status of a LDAn device:
+
+	Function:	IO$_LD_CONTROL
+
+	P1 = address of buffer which receives the device- or filename
+	     currently connected
+	P2 = size of buffer which receives the device- or filename
+	P3 = address of 3 word buffer which receives the file-id of the
+	     connected file
+	P6 = Subfunction: LDIO_GET_CONNECTION
+
+	IOSB word 0 = status
+	     word 1 = number of characters transferred
+	     longword 1 = status flag bit 0 : 0 = disconnected
+	                                      1 = connected
+	                              bit 1 : 0 = normal connection
+	                                      1 = replaced drive
+	                              bit 2 : 0 = normal connection
+	                                      1 = replaced to DECRAM disk
+	                              bit 3 : 0 = normal access
+	                                      1 = write protected
+	                              bit 4 : 0 = local access
+	                                      1 = shared access
+	                              bit 8 : 0 = normal timing
+	                                      1 = accurate timing
+	                              bit 9 : 0 = normal trace
+	                                      1 = FDT trace active
+
+	The buffer specified in the P1 parameter is only valid when
+	the unit is connected (IOSB longword 1 bit 0 set).
+	If a buffersize of 0 is specified only the status is returned.
+
+	Errors returned:
+
+	SS$_ACCVIO	Buffer can not be written
+	SS$_DEVINACT	Device not connected
+	SS$_NORMAL	Successful completion
+
+3 Disable_protect
+
+	This function unprotects a drive:
+
+	Function:	IO$_LD_CONTROL
+
+	P6 = Subfunction: LDIO_DISABLE_PROTECT
+
+	IOSB word 0 = status
+
+	Errors returned:
+
+	SS$_NORMAL	Successful completion
+
+3 Disable_trace
+
+	This function disables tracing:
+
+	Function:	IO$_LD_CONTROL
+
+	P6 = Subfunction: LDIO_DISABLE_TRACE
+
+	IOSB word 0 = status
+
+	Errors returned:
+
+	SS$_NODATA	Trace is not active
+	SS$_NORMAL	Successful completion
+
+3 Disable_watch
+
+	This function disables watchpoints:
+
+	Function:	IO$_LD_CONTROL
+
+	P1 = address of watchpt structures
+	P2 = number of watchpt structures, if 0 all entries will
+	     be removed
+	P6 = Subfunction: LDIO_DISABLE_WATCH
+
+	The watchpt structure (if specified) must contain a matching
+	lbn, action, function, flags and returncode. These can all
+	be retrieved with the LDIO_GET_WATCH function.
+
+	IOSB word 0 = status
+	     longword 1 = current number of watchpoints
+
+	Errors returned:
+
+	SS$_DATALOST	No active watchpoints
+	SS$_DATACHECK	Specified entry not found
+	SS$_NORMAL	Successful completion
+
+3 Enable_protect
+
+	This function write-protects a drive:
+
+	Function:	IO$_LD_CONTROL
+
+	P6 = Subfunction: LDIO_ENABLE_PROTECT
+
+	IOSB word 0 = status
+
+	Errors returned:
+
+	SS$_NORMAL	Successful completion
+
+3 Enable_trace
+
+	This function enables tracing:
+
+	Function:	IO$_LD_CONTROL
+
+	P1 = number of trace buffer packets to allocate
+	P6 = Subfunction: LDIO_ENABLE_TRACE
+
+	IOSB word 0 = status
+
+	To reset the tracebuffer the additional subfunctionmodifier
+	LDIO_M_RESET can be specified. No new tracebuffer will be
+	allocated when that is done.
+
+	Requests for FDT tracing need to add the subfunctionmodifier
+	LDIO_M_FDTTRACE.
+
+	Requests for accurate timing tracing need to add the
+	subfunctionmodifier LDIO_M_ACCURATE.
+
+	Errors returned:
+
+	SS$_ACCVIO	Parameter cannot be read
+	SS$_BADPARAM	Zero buffer size specified
+	SS$_EXBYTLM	Exceeded BYTLM quota for the process
+	SS$_INSFMEM	Not enough memory to allocate trace buffer
+	SS$_TOOMUCHDATA	Trace is already active
+	SS$_NORMAL	Successful completion
+
+3 Enable_watch
+
+	This function enables watchpoints:
+
+	Function:	IO$_LD_CONTROL
+
+	P1 = address of watchpt structures
+	P2 = number of watchpt structures
+	P6 = Subfunction: LDIO_ENABLE_WATCH
+
+	The watchpt structure must contain a valid lbn, action,
+	function, flags and returncode.
+
+	IOSB word 0 = status
+	     longword 1 = current number of watchpoints
+
+	Errors returned:
+
+	SS$_ACCVIO	Buffer can not be read
+	SS$_NOPRIV	Action needs ownership of device or CMKRNL
+	SS$_NOCMKRNL	CMKRNL privilege needed for CRASH action
+	SS$_EXBYTLM	Out of BYTLIM quota for watch buffers
+	SS$_DEVREQERR	FILE watchpoint must be on the LD device
+	SS$_ILLBLKNUM	Watchpoint past end of file or end of disk or
+			VBN zero specified for file
+	SS$_BADPARAM	Zero buffer length specified or action out of range
+	SS$_FORMAT	FCB specified in SBK is invalid or file not opened
+			with cathedral windows
+	SS$_INSFMEM	Not enough memory to allocate watchpoint buffer
+	SS$_NORMAL	Successful completion
+
+3 Get_suspend_list
+
+	This function retrieves the list of suspended watchpoints:
+
+	Function:	IO$_LD_CONTROL
+
+	P1 = address of suspend_list structures
+	P2 = size in bytes of suspend_list buffer
+	P6 = Subfunction: LDIO_GET_SUSPEND_LIST
+
+	This function reads the number of suspended watchpoints:
+
+	Function:	IO$_LD_CONTROL
+
+	P6 = Subfunction: LDIO_GET_SUSPEND_LIST | LDIO_M_INQUIRE
+
+	IOSB word 0 = status
+	     word 1 = number of bytes written
+	     longword 1 = current number of suspended watchpoints
+
+	Errors returned:
+
+	SS$_INSFMEM	Not enough memory to allocate temporary buffer
+	SS$_ACCVIO	Buffer can not be written
+	SS$_DATALOST	No active watchpoints
+	SS$_IVBUFLEN	Output buffer too small
+	SS$_NORMAL	Successful completion
+
+3 Get_watch
+
+	This function retrieves watchpoints:
+
+	Function:	IO$_LD_CONTROL
+
+	P1 = address of watchpt structures
+	P2 = size in bytes of watchpt buffer
+	P6 = Subfunction: LDIO_GET_WATCH
+
+	This function reads the number of watchpoints:
+
+	Function:	IO$_LD_CONTROL
+
+	P6 = Subfunction: LDIO_GET_WATCH | LDIO_M_INQUIRE
+
+	IOSB word 0 = status
+	     word 1 = number of bytes written
+	     longword 1 = current number of watchpoints
+
+	Errors returned:
+
+	SS$_INSFMEM	Not enough memory to allocate temporary buffer
+	SS$_ACCVIO	Buffer can not be written
+	SS$_DATALOST	No active watchpoints
+	SS$_IVBUFLEN	Output buffer too small
+	SS$_NORMAL	Successful completion
+
+3 Read_tracebuffer
+
+	This function reads the tracebuffer size:
+
+	Function:	IO$_LD_CONTROL
+
+	P6 = Subfunction: LDIO_GET_TRACE | LDIO_M_INQUIRE
+
+	IOSB word 0 = status
+	     word 1 = 0
+	     longword 1 = tracebuffer size (number of packets)
+
+	If the iosb status is SS$_WASSET FDT tracing is active.
+
+	This function reads the tracebuffer data:
+
+	Function:	IO$_LD_CONTROL
+
+	P1 = address of buffer which receives trace info
+	P2 = size of trace buffer in bytes
+	P6 = Subfunction: LDIO_GET_TRACE
+
+	IOSB word 0 = status
+	     word 1 = 0
+	     longword 1 = number of packets transferred
+			  or the number of lost packets in
+			  case of SS$_DATAOVERRUN.
+
+	If the return status was SS$_DATAOVERRUN the buffer
+	contains the number of packets as returned by the
+	LDIO_GET_TRACE | LDIO_M_INQUIRE function.
+
+	To read the tracebuffer data and to reset the buffer after
+	the data has been read the subfunctionmodifier LDIO_M_RESET can
+	be specified.
+
+	If LDIO_M_NOWAIT is omitted the I/O request will wait until new
+	trace data is available.
+
+	Errors returned:
+
+	SS$_ACCVIO	Buffer can not be written
+	SS$_NODATA	Trace is not active
+	SS$_IVBUFLEN	Buffer too small to contain all trace data
+	SS$_DATAOVERRUN	The tracebuffer has been overrun
+	SS$_NORMAL	Successful completion
+
+3 Reset_tracebuffer
+
+	This function resets the tracebuffer:
+
+	Function:	IO$_LD_CONTROL
+
+	P6 = Subfunction: LDIO_RESET_TRACE
+
+	IOSB word 0 = status
+
+	Errors returned:
+
+	SS$_NODATA	Trace is not active
+	SS$_NORMAL	Successful completion
+
+3 Resume_watch
+
+	This function resumes a suspended watchpoint:
+
+	Function:	IO$_LD_CONTROL
+
+	P1 = address of suspend_list structures
+	P2 = size in bytes of suspend_list buffer
+	P6 = Subfunction: LDIO_RESUME_WATCH
+
+	IOSB word 0 = status
+	     word 1 = number of bytes written
+
+	Errors returned:
+
+	SS$_INSFMEM	Not enough memory to allocate temporary buffer
+	SS$_ACCVIO	Buffer can not be written
+	SS$_DATALOST	No active watchpoints
+	SS$_DATACHECK	Nothing resumed
+	SS$_NORMAL	Successful completion
+
+3 Set_allocation_class
+
+	This function enables presetting of the allocation class of the
+	LD device. This may only be done when no devices are connected.
+
+	Function:	IO$_LD_CONTROL
+
+	P1 = allocation class
+	P6 = Subfunction: LDIO_SET_ALLOCLASS
+
+	IOSB word 0 = status
+
+	Errors returned:
+
+	SS$_BADPARAM	Allocation class > 255 specified
+	SS$_UNSAFE	There are still connected LD devices
+	SS$_NORMAL	Successful completion
+
+3 Set_unitnumber
+
+	This function enables presetting of the next assigned
+	unitnumber.
+
+	Function:	IO$_LD_CONTROL
+
+	P1 = unitnumber to preset
+	P6 = Subfunction: LDIO_SET_SEED
+
+	IOSB word 0 = status
+
+	Errors returned:
+
+	SS$_BADPARAM	Unitnumber less than 0 or greater than 9999
+	SS$_NORMAL	Successful completion
+
+3 Other_features
+
+	After modification of the driver it is possible to RELOAD it
+	without rebooting the system, provided that the size of the UCB
+	did not change. If the reloaded driver detects a different UCB
+	size, the unit will be placed off-line and the system has to
+	be rebooted. The reload is only possible on a VAX.
+
+	If there is still a file or device connected to any LDAn device
+	the driver cannot be reloaded. In that case all LDAn devices
+	have to be disconnected first.
+
+	If a tracebuffer is allocated before reloading, it will be
+	deallocated. All trace data will be lost.
+
+2 Error_messages
+
+	A number of error messages can be returned by the LD utility.
+
+3 ACCURATE
+
+    %LD-I-ACCURATE, Accurate timing is active
+
+	An LD SHOW/TRACE/STATUS command was given while accurate trace timing
+	is active.
+
+	This status is only returned on Alpha.
+
+3 ALREADYCONN
+
+    %LD-F-ALRDYCONN, Device already connected
+
+	An LD CONNECT command is given while the logical disk device
+	was already connected.
+
+	This errormessage can only occur if the driver has been
+	assembled without cloned device support.
+
+3 BADALLOCLASS
+
+    %LD-F-BADALLOCLASS, Bad allocation class specified
+
+	An LD CONNECT/ALLOCLASS command was given with an allocation class
+	bigger than the limit of 255.
+
+3 BADDEVSYNTAX
+
+    %LD-F-BADDEVSYNTAX, Bad device syntax (LDAZ:)
+
+	A unit to use as a logical disk was specified with a bad
+	syntax.
+
+3 BADENTPARAM
+
+    %LD-F-BADENTPARAM, Bad /ENTRIES parameter(s)
+
+	An LD SHOW/TRACE/ENTRIES command was given where either the
+	second parameter was less than the first, or one of the parameters
+	was less than 0.
+
+3 CANTREADOLDFMT
+
+    %LD-F-CANTREADOLDFMT, Can't read old format datafile (Version 2)
+
+	An attempt was made to read a datafile which was created
+	with an old version of LD. Use the old version of LD to read
+	the file.
+
+3 CLOSERR
+
+    %LD-F-CLOSERR, Unable to close file $1$DUA0:[DATA]LD_TRACE.LOG;1
+
+	An LD SHOW/TRACE/{IN,OUT}PUT command was given, and the close of
+	the in- or output file had a problem.
+
+3 CONFQUAL
+
+    %LD-F-CONFQUAL, Conflicting qualifiers
+
+	Conflicting qualifiers were given for the specified command.
+	Check the documentation.
+
+3 CONNECTED
+
+    %LD-I-CONNECTED, Device _THEBUG$LDA1: is connected to
+    $1$DUA1:[DIR]DISKFILE.DSK;1
+
+	An LD CONNECT/LOG command is given, or an LD SHOW command.
+
+    %LD-I-CONNECTED, Device _THEBUG$LDA1: is connected to $1$DUA1: (Replaced)
+
+	An LD CONNECT/LOG/REPLACE command is given, or an LD SHOW command.
+	The complete device was replaced.
+
+3 CONTTRACEACT
+
+    %LD-F-CONTTRACEACT, Continuous tracing is already active for
+    device _THEBUG$LDA1:
+
+	An LD SHOW/TRACE/CONTINUOUS command was given while such command
+	for the same device was already in progress.
+
+3 CONTTRACENOTACT
+
+    %LD-F-CONTTRACENOTACT, Continuous tracing is not active for
+    device _THEBUG$LDA1:
+
+	An LD TRACE/STOP command was given for a specified device
+	while there was no continuous trace active for that device.
+
+3 CREATED
+
+    %LD-I-CREATED, File $1$DUA1:[DIR]DISKFILE.DSK;1 created
+
+	An LD CREATE/LOG command is given.
+
+3 CREATERR
+
+    %LD-F-CREATERR, Unable to create file $1$DUA0:[TMP]DATA.DSK;1
+
+	An LD CREATE command was given, but the command was unable
+	to complete. The accompanying message shows more info.
+
+3 DETECTEDERR
+
+    %LD-F-DETECTEDERR, Detected fatal error
+
+	A general fatal error was detected. Look at the accompanying
+	errormessage.
+
+3 DEVASSIGN
+
+    %LD-F-DEVASSIGN, Device has channels assigned
+
+	An LD DISCONNECT command was given on a device with active
+	channels. Most probably an LD SHOW/TRACE/CONTINUOUS command
+	is still active.
+
+3 DEVCONNECTED
+
+    %LD-F-DEVCONNECTED, Cannot set allocation class with active LD devices
+
+	An LD CONNECT/ALLOCLASS command was given while there were already
+	LD devices connected. All devices have to be disconnected before
+	an allocation class can be set.
+
+3 DEVICEINUSE
+
+    %LD-F-DEVICEINUSE, Device incompatible connected to other LD disk in cluster
+
+	An LD CONNECT command is given where the device to be replaced was
+	already in use by another logical disk or by VMS, either on this system
+	or on another system in a cluster.
+
+3 DUPUNIT
+
+    %LD-F-DUPUNIT, Duplicate unitnumber
+
+	An LD CONNECT file LDAxx command was given while the device
+	LDAxx already exists.
+
+3 FDTACTIVE
+
+    %LD-I-FDTACTIVE, FDT Tracing is active
+
+	An LD SHOW/TRACE/STATUS command was given while FDT tracing
+	is active.
+
+	This status is only returned on Alpha.
+
+3 FILEINUSE
+
+    %LD-F-FILEINUSE, File incompatible connected to other LD disk in cluster
+
+	An LD CONNECT command is given where the logical disk file was
+	already in use by another logical disk, either on this system
+	or on another system in a cluster. The connect specified on the other
+	system was done in a way which is not compatible with the current
+	connect parameters. This can happen if another node specified for
+	example /MAXBLOCKS, or /TRACKS which were not or incompatible
+	specified on the local node. The complete geometry must be the same
+	on all nodes.
+
+3 FILEONOTHER
+
+    %LD-F-FILEONOTHER, File not allowed to be on other device
+
+	An LD WATCH/FILE=filespec command was given where the specified
+	file did not reside on the specified LD device.
+
+3 FILREADERR
+
+    %LD-F-FILREADERR, Unable to read input file $1$DUA0:[TMP]FILE.DAT;1
+
+	An LD SHOW/TRACE/INPUT command was given where the requested
+	inputfile could not be read.
+
+3 FILWRTERR
+
+    %LD-F-FILWRTERR, Unable to write output file $1$DUA0:[TMP]FILE.DAT;1
+
+	An LD SHOW/TRACE/OUTPUT command was given where the requested
+	outputfile could not be written.
+
+3 INFILERR
+
+    %LD-F-INFILERR, Unable to open input file $1$DUA0:[TMP]FILE.DAT;1
+
+	An LD SHOW/TRACE/INPUT command was given where the requested
+	inputfile could not be opened.
+
+3 INVGEOMETRY
+
+    %LD-F-INVGEOMETRY, Invalid geometry specified
+
+	An LD CONNECT command is given where the geometry specified
+	with /TRACKS, /SECTORS or /CYLINDERS is invalid. TRACKS and
+	SECTORS are limited to 255, CYLINDERS is limited to 65535.
+
+	This error can also be returned if TRACKS * SECTORS * CYLINDERS
+	exceeds the maximum logical blocknumber of the container file,
+	or if a filesize was specified to the driver which exceeds the
+	total specified geometry.
+             
+3 NESTING
+
+    %LD-F-NESTING, Nesting of logical disks not allowed
+
+	An LD CONNECT command is given where the logical disk file was
+	on another logical disk.
+
+3 NOCLUSTER
+
+    %LD-F-NOCLUSTER, No cluster code loaded
+
+	An LD CONNECT/SHARE command is given when the system is not
+	running VMSCluster software.
+
+3 NOGROUPPRIV
+
+    %LD-F-NOGROUPPRIV, No privilege to stop trace of device _THEBUG$LDA1:
+
+	An attempt was made to stop the continuous trace of device THEBUG$LDA1
+	while the trace was started by a process in the same UIC group. This
+	operation need GROUP privilege.
+
+3 NOREADWRITE
+
+    %LD-F-NOREADWRITE, No read or write function specified for file mode
+
+	An LD WATCH/FILE=filespec command was given where the function was
+	not one of the following: READPBLK, WRITEPBLK, WRITECHECK or DSE.
+	Such watchpoint may only be specified in combination with a data-
+	transfer function.
+
+3 NOSUPPORT
+
+    %LD-F-NOSUPPORT, Device _THEBUG$LDA0: is not supported
+
+	An attempt was made to use LDA0: as a logical disk. This is
+	not supported.
+
+3 NOTCONNECTED
+
+    %LD-W-NOTCONNECTED, Device _THEBUG$LDA1: is not connected
+
+	An LD SHOW command is given, and the disk was not connected
+	to a file.
+
+	An LD DISCONNECT command is given while the logical disk device
+	was not connected.
+
+	This errormessage can only occur if the driver has been
+	assembled without cloned device support.
+
+3 NOTODS2
+
+    %LD-F-NOTODS2, Container file must be on an ODS-2 volume
+
+	An attempt was made to connect an LD device to a container file
+	on a non-ODS-2 volume, for example a Spiralog volume. That
+	is not supported.
+
+3 NOTRCDATA
+
+    %LD-F-NOTRCDATA, No trace data available
+
+	An LD SHOW/TRACE command was given while the tracebuffer did
+	not contain any data.
+
+3 NOUNITSFOUND
+
+    %LD-F-NOUNITSFOUND, No usable logical disk units found
+
+	An LD SHOW/ALL or TRACE/STOP/ALL command was given while
+	no connected units were found.
+
+3 NOTVISIBLE
+
+    %LD-F-NOTVISIBLE, Device is not visible on other nodes
+
+	An LD CONNECT/SHARE command is given when the device to
+	be replaced or the device on which the container file
+	resides is not visible by other cluster nodes.
+
+3 NOWATCHDATA
+
+    %LD-F-NOWATCHDATA, No watchpoint data available
+
+	An LD SHOW/WATCH command was given while no watchpoints were
+	set.
+
+3 NOWDISCONN
+
+    %LD-I-NOWDISCONN, Device $8$LDA1: is now disconnected from file
+      $8$DIA2:[LD]DEVICE1.DSK;1
+
+	An LD DISCONNECT/LOG command is given.
+
+3 NOWORLDPRIV
+
+    %LD-F-NOWORLDPRIV, No privilege to stop trace of device _THEBUG$LDA1:
+
+	An attempt was made to stop the continuous trace of device THEBUG$LDA1
+	while the trace was started by a process in another UIC group. This
+	operation need WORLD privilege.
+
+3 OUTFILERR
+
+    %LD-F-OUTFILERR, Unable to open output file $1$DUA0:[TMP]FILE.DAT;1
+
+	An LD SHOW/TRACE/OUTPUT command was given where the requested
+	outputfile could not be opened.
+
+3 PASTDATA
+
+    %LD-F-PASTDATA, Requested entry(s) past end of data
+
+	An LD SHOW/TRACE/ENTRIES command was given where the requested
+	entries were beyond the available data.
+
+3 REMOTEALLOC
+
+    %LD-W-REMOTEALLOC, Device _$1$LDA1: is allocated on a remote node
+
+	An LD SHOW or an LD DISCONNECT command was given while the
+	specified LD device was mounted private on a remote node.
+
+	This can only happen on an LD device which was connected with
+	/SHARE.
+
+3 STATUS
+
+    %LD-I-STATUS, Device _THEBUG$LDA1: has a tracebuffer of 512
+    entries (139 valid records)
+
+	An LD SHOW/TRACE/STATUS command is given. The specified device
+	has 512 tracebuffer entries allocated, of which 139 are currently
+	in use.
+
+3 TRACESTOPPED
+
+    %LD-I-TRACESTOPPED, Trace stopped by other process
+
+	An LD TRACE/STOP command was given for a device to force a
+	SHOW/TRACE/CONTINUOUS command which was in progress by another
+	process to exit.
+
+3 TRCDISABL
+
+    %LD-F-TRCDISABL, Tracing is disabled
+
+	An LD SHOW/TRACE command was given while tracing was not
+	enabled for the specified device.
+
+3 TRCENABL
+
+    %LD-F-TRCENABL, Tracing is already enabled
+
+	An LD TRACE command was given while tracing was already
+	enabled.
+
+3 UNIT
+
+    %LD-I-UNIT, Allocated device is _THEBUG$LDA4:
+
+	An LD CONNECT command was given without /LOG and without a
+	device specification. This informational message shows which
+	device was assigned to the specified file.
+
+3 VBNERROR
+
+    %LD-F-VBNERROR, Illegal virtual block number specified
+
+	An LD WATCH/FILE=filespec command was given where the VBN to
+	watch was either zero or beyond the end of file.
+
+3 WPTNOTFOUND
+
+    %LD-F-WPTNOTFOUND, Watchpoint not found
+
+	An LD SHOW/WATCH command was given where the specified watchpoint
+	does not exist.
+
+3 Other
+
+	The VAX/VMS System Messages and Recovery Procedures Reference Man-
+	ual lists other possible messages and  provides explanations and
+	suggested user actions.
+
+	Note that when errormessages are returned, and you cannot trace
+	them back to the Logical Disk, perform the same checks again for
+	the Physical Disk on which the Logical File resides.
+
+2 Features
+
+	Logical disks may be just a single disk, part of a volumeset,
+	part of a stripeset, part of a host-based shadowset, part of
+	a host-based raid set or any combination.
+
+	The file to be used for the logical disk may be placed on any
+	physical disk, in any directory. A backup can be made to protect
+	the disk.
+
+	A physical device may be 'replaced' by a logical disk to enable
+	logging of all I/O of the physical disk (See CONNECT/REPLACE).
+
+2 New_features_V5.0
+
+	Enable/disable write-protection of a device  with the next command:
+
+		LD [NO]PROTECT LDan:
+
+	Watchpoint support. A watchpoint is a marker which can be set on one
+	or more logical blocks of a disk. The watchpoint consists of a function-
+	code, an action, an error return code and one logical block number.
+	When an I/O request is done to the driver it will check if the request
+	matches one of the watchpoints. If true then the action specified for
+	that watchpoint will be executed. An action can be for example an OPCOM
+	message, but also to return an error code, or to suspend the I/O thread,
+	or to crash the system.
+
+	The following commandfile will for example put the device into mount-
+	verification:
+
+	$ SET VERIFY
+	$ SET NOON
+	$!
+	$! Example of how to put a device into mountverification
+	$!
+	$ LD CREATE/NOBACKUP TEMPDISK.DSK
+	$ LD CONNECT/LOG TEMPDISK.DSK LDA1:
+	$ INIT/NOHIGH/SYSTEM LDA1: TEST
+	$ LD TRACE LDA1
+	$ MOUNT LDA1: TEST
+	$ LD WATCH LDA1: 1/ACTION=OPCOM/FUNCTION=CODE=%X080C
+	$ LD WATCH LDA1: 1/ACTION=ERROR=%X84/FUNCTION=CODE=%X0808
+	$ LD WATCH LDA1: 10/ACTION=ERROR=%X84/FUNCTION=READ
+	$ LD SHOW/WATCH LDA1:
+	$ REPLY/ENABLE/TEMP
+	$ SPAWN/NOWAIT/INPUT=NL: DUMP LDA1:/BLOCK=(START=10,COUNT=1)
+	$ INQUIRE DUMMY "Press return to continue"
+	$ LD NOWATCH LDA1:
+	$ LD SHOW/TRACE LDA1:
+	$ REPLY/DISABLE
+	$ DISMOUNT LDA1:
+	$ LD DISCONNECT LDA1:
+	$ DELETE/NOLOG/NOCONF TEMPDISK.DSK;
+
+2 New_features_V5.1
+
+	Shared access of the container file or a replaced device are
+	now possible by connecting with the /SHARE switch. For this to
+	work the 'LD' devicename must be the same on all nodes of the cluster
+	which connect to the same container file or device.
+
+	Device geometry can now be specified by connecting a device with
+	the /SECTORS, /TRACKS and /CYLINDERS qualifiers. Also the maximum
+	usesable size may be given with the /MAXBLOCKS qualifier, which
+	superceedes the /ALLOCATED qualifier.
+
+	An allocation class may be specified for the LD device with the
+	/ALLOCLASS qualifier for CONNECT. If this is not done then the
+	default is the value from the systemparameter ALLOCLASS.
+
+	A switch was added to CONNECT, /SYMBOL. This allows a DCL
+	symbol to be set representing the created unit number if it
+	was not specified.
+
+2 New_features_V6.0
+
+	The driver is finally supported by ALPHA/VMS.
+
+	The restriction that container files had to be contiguous is
+	removed. Also, nesting of LD devices (container file on a logical
+	disk) is now allowed.
+
+	A watchpoint may now specify /FUNCTION=ALL to trap all function
+	codes.
+
+2 New_features_V6.2
+
+	If one needs more than 9999 logical disk devices then another
+	'controller' may be used by specifying a new device at
+	connection time:
+
+        $ RUN SYS$SYSTEM:SYSMAN
+        IO CONNECT LDA0/NOADAPTER/DRIVER=SYS$LDDRIVER
+        IO CONNECT LDB0/NOADAPTER/DRIVER=SYS$LDDRIVER
+        IO CONNECT LDC0/NOADAPTER/DRIVER=SYS$LDDRIVER
+
+2 New_features_V6.3
+
+	FDT routine access can now be traced. This will show access to
+	the driver which is otherwise hidden, since some driver functions
+	can complete in the FDT routines. It can be enabled with
+	$ LD TRACE/FDT (Alpha only).
+
+	Accurate timing of I/O requests can now be done by enabling it
+	this way: $ LD TRACE/ACCURATE (Alpha only). This allows I/O
+	duration to be measured with a resolution of one microsecond, as
+	opposed to the normal 10 mSec accuracy. The drawback is that if
+	this is used all I/O has to go through the primary processor.
+
+	Container files may now reside on remotely mounted NFS volumes.
+	Note however that members of a shadowset may not be used if they
+	reside on such a device. This is because the NFSdriver does not
+	support the IO$_WRITECHECK function. This restriction will be
+	lifted in a future release.
+
+	The restriction of the maximum size of the logical disk not
+	exceeding 2097120 blocks without specifying the geometry has
+	been lifted. Any size up to the size of the disk holding the
+	containerfile is allowed.
+
+2 Parameters
+
+	  Filespec
+
+	Specifies the logical disk file to create or to connect.
+	Any legal VMS filespec without wildcards or nodename is
+	acceptable.
+
+	  Device
+
+	Logical disk devicename, LDan where n is 1 to 9999.
+
+2 Privileges_and_Quotas
+
+	To control creation and deletion of logical devices one needs
+	PHY_IO privilege for the LD utility. To use continuous tracing
+	SYSLCK privilege is needed. The startup commandfile,
+	SYS$STARTUP:LD$STARTUP.COM will install the LD utility with
+	these privileges so that ordinary users can play around by
+	creating and removing disks.
+
+	Note that the users will be charged against BYTLM for each
+	unit they create. Also, the creation of a tracebuffer will
+	be charged against BYTLM, as well as creating of a watchpoint.
+
+2 Restrictions
+
+	A file used for a logical disk may not be used for any other
+	logical disk, unless /SHARE is specified. If that is not done,
+	the driver will return SS$_FILALRACC. The same is true when one
+	tries to replace a device, the error returned in that case will
+	be SS$_DEVALLOC.
+
+	A containerfile for a logical disk must reside on an ODS-2 or
+	an ODS-5 volume. Spiralog volumes are not supported.
+
+	If a continuous trace is in progress it is impossible to
+	mount a logical disk because the reference count is not zero.
+	Stop the trace, mount the disk and restart the trace. No trace-
+	data will be lost because the driver will buffer this.
+
+	Container files may now reside on remotely mounted NFS volumes.
+	Note however that members of a shadowset may not be used if they
+	reside on such a device. This is because the NFSdriver does not
+	support the IO$_WRITECHECK function. This restriction will be
+	lifted in a future release.
+
+2 Setup
+
+	The logical disk has to be setup by connecting the
+	driver with SYSGEN. The unitnumber can be selected
+	by the user connecting the logical disk.
+
+	To connect the driver on VAX:
+
+        $ RUN SYS$SYSTEM:SYSGEN
+        CONNECT LDA0/NOADAPTER
+
+	To connect the driver on Alpha:
+
+        $ RUN SYS$SYSTEM:SYSMAN
+        IO CONNECT LDA0/NOADAPTER/DRIVER=SYS$LDDRIVER
+
+	This assumes that the driver is in SYS$LOADABLE_IMAGES:
+
+3 Example
+
+	An example of setting up some Logical Disks.
+
+        $ RUN SYS$SYSTEM:SYSGEN
+        CONNECT LDA0/NOADAPTER/DRIVER=LDDRIVER
+        $ LD CREATE/SIZE=8192 $1$DUA1:[TEMP]USER.DSK;1
+        $ LD CONNECT $1$DUA1:[TEMP]USER.DSK;1 LDA1:
+        $ INITIALIZE LDA1: USERDSK1
+        $ MOUNT/OVER=ID LDA1:
+
+2 IO_Trace_example
+
+	An example of traced I/O:
+
+	$ LD SHOW/TRACE/ENTRIES=(12,23)/IOSB=COMBINATION LDA1:
+
+         I/O trace for device _THEBUG$LDA1:
+    24-FEB-1994 16:36:56.31 on node THEBUG::
+
+Start Time  Elaps   Pid        Lbn    Bytes  Iosb   Count  Function
+-------------------------------------------------------------------
+20:52:30.01 00.02 202000C4          5   512 NORMAL    512 READPBLK
+20:52:30.03 00.03 202000C4          5   512 NORMAL    512 WRITEPBLK|DATACHECK
+20:52:30.07 00.00 202000C4          0     0 NORMAL      0 UNLOAD
+23:16:18.05 00.00 202000C5          0    32 NORMAL      0 SETMODE|LINE_OFF
+23:16:30.13 00.00 202000C5          0    11 NORMAL      0 SETMODE|LINE_ON|NEWLINE
+23:17:05.70 00.05 202000C5          0     0 NORMAL      0 PACKACK|INHERLOG
+23:17:05.76 03.22 202000C5          1   512 NORMAL    512 READPBLK
+23:17:09.00 00.67 202000C5     608509   512 NORMAL    512 READPBLK
+23:17:09.67 00.03 202000C5     608510   512 NORMAL    512 READPBLK
+23:17:09.70 00.27 202000C5     608334   512 NORMAL    512 READPBLK
+23:17:09.97 00.00 202000C5     608334   512 WRITLCK     0 WRITEPBLK
+23:17:10.04 00.29 202000C5     608508   512 NORMAL    512 READPBLK
+
+2 CONNECT
+
+  LD CONNECT file_or_device [LDAn:]
+
+	This command will connect the Logical Disk File to the Logical
+	Disk device.
+
+	This function must be performed before the logical disk can be
+	mounted or otherwise used. It requires the Physical Disk to be
+	mounted and requires read access to the Logical Disk File.
+
+	If the LD-device is not specified, it will be assigned by the
+	driver, and an informational message will be given about which
+	device is selected.
+
+	If the device is specified, and if that device does not exist
+	it will be used as specified.
+
+3 /ALLOCLASS
+
+ /ALLOCLASS=allocation_class
+
+	If this qualifier is specified, the specified allocation class will
+	be set for all LD devices. This qualifier can only be set when there
+	are currently no LD devices connected.
+
+	Setting an allocation class can be usefull if LD device needs to be
+	shared in a cluster where different nodes have different allocation
+	classes.
+
+3 /CYLINDERS
+
+ /CYLINDERS=number_of_cylinders
+
+	When this qualifier is specified the device will be created with the
+	specified number of cylinders. If not specified, and no /TRACKS
+	and /SECTORS switches are specified, then the device geometry will
+	be calculated by the driver. If it is specified then any other geometry
+	switch will default to 1 when not specified.
+
+	The maximum number of cylinders is 65535.
+
+	If SECTORS * TRACKS * CYLINDERS exceeds the capacity of the
+	containerfile an error message will be issued. If it is lower than the
+	capacity then the maximum blocksize of the device will be set according
+	to the track/sector/cylinder values.
+
+	WARNING:
+
+		If a container file has been used and is reconnected with other
+		geometry information which results in another disksize then
+		diskcorruption may result.
+
+	This qualifier may not be used together with /REPLACE as the geometry
+	will be inherited from the replaced device.
+
+3 /LOG
+
+ /LOG
+ /NOLOG (default)
+
+	Shows the connection between the logical disk and the file or device
+	after the connection has been completed.
+
+3 /MAXBLOCKS
+
+ /MAXBLOCKS=number_of_block
+
+	When this qualifier is specified the specified number of blocks
+	will be the maximum used for the device. It may not be bigger than
+	the allocated size of the container file.
+
+3 /REPLACE
+
+	When this qualifier is specified one has to specify a devicename
+	instead of a filespec. This has the effect of replacing the
+	physical drive with the logical drive, and it enables all I/O
+	requests to the physical device to be logged. The physical device
+	will be marked allocated and unavailable.
+
+3 /SECTORS
+
+ /SECTORS=number_of_sectors
+
+	When this qualifier is specified the device will be created with the
+	specified number of sectors. If not specified, and no /CYLINDERS
+	and /TRACKS switches are specified, then the device geometry will
+	be calculated by the driver. If it is specified then any other geometry
+	switch will default to 1 when not specified.
+
+	The maximum number of sectors is 255.
+
+	If SECTORS * TRACKS * CYLINDERS exceeds the capacity of the
+	containerfile an error message will be issued. If it is lower than the
+	capacity then the maximum blocksize of the device will be set according
+	to the track/sector/cylinder values.
+
+	WARNING:
+
+		If a container file has been used and is reconnected with other
+		geometry information which results in another disksize then
+		diskcorruption may result.
+
+	This qualifier may not be used together with /REPLACE as the geometry
+	will be inherited from the replaced device.
+
+3 /SHARE
+
+	If this qualifier is specified, then sharing the container file with
+	other nodes in a cluster is allowed, provided that the same devicename
+	(ALLDEVNAM) is used on every node accessing the file, and that the
+	specified geometry is the same on every node.
+
+	If the containerfile needs to be accessed on other nodes as well
+	then the CONNECT/SHARE command must be issued on all nodes wanting
+	to share the container file.
+
+	If used together with /REPLACE then sharing of another device is
+	allowed.
+
+3 /SYMBOL
+
+	When this qualifier is specified a local DCL symbol representing
+	the unit number will be created: LD_UNIT. This can be useful when
+	a connect is done without specifying a unit number. With this
+	qualifier included a command procedure is able to use this in
+	subsequent commands.
+
+3 /TRACKS
+
+ /TRACKS=number_of_tracks
+
+	When this qualifier is specified the device will be created with the
+	specified number of tracks. If not specified, and no /CYLINDERS
+	and /SECTORS switches are specified, then the device geometry will
+	be calculated by the driver. If it is specified then any other geometry
+	switch will default to 1 when not specified.
+
+	The maximum number of tracks is 255.
+
+	If SECTORS * TRACKS * CYLINDERS exceeds the capacity of the
+	containerfile an error message will be issued. If it is lower than the
+	capacity then the maximum blocksize of the device will be set according
+	to the track/sector/cylinder values.
+
+	WARNING:
+
+		If a container file has been used and is reconnected with other
+		geometry information which results in another disksize then
+		diskcorruption may result.
+
+	This qualifier may not be used together with /REPLACE as the geometry
+	will be inherited from the replaced device.
+
+2 CREATE
+
+  LD CREATE filespec
+
+	This command will create a contiguous file which can be used as a
+	Logical Disk. The default extension is ".DSK". The file will be
+	set /NOMOVE.
+
+3 /BACKUP
+
+ /BACKUP (default)
+ /NOBACKUP
+
+	This qualifier can be used to mark the file /NOBACKUP. In
+	that case when a backup of the file is done only the file-
+	header will be copied. On a restore the file will be re-
+	created, and all data will be lost.
+
+3 /CONTIGUOUS
+
+ /CONTIGUOUS
+ /NOCONTIGUOUS (default)
+
+	This qualifier can be used to create the container file contiguous.
+
+3 /LOG
+
+ /LOG
+ /NOLOG (default)
+
+	Shows the complete filespec of the created file after file
+	creation.
+
+3 /SIZE
+
+ /SIZE[=disksize]
+
+	Specifies the size of the logical disk file. The default size
+	is 512 blocks.
+
+2 DISCONNECT
+
+  LD DISCONNECT [LDAn:]
+
+	This command will disconnect the Logical Disk device from the
+	Logical Disk file, or from the physical disk.
+
+3 /ABORT 
+
+	This qualifier can be used if the normal disconnect command does
+	not disconnect the file (for example, when the file has been
+	deleted). The ABORT qualifier disconnects the Logical Disk as it
+	is (No checks.)
+
+	When the physical disk is dismounted, and the logical disk
+	is still active,the physical disk will enter a marked for dismount
+	state until the logical disk is no longer connected.
+	The steps to follow if this happens are described below;
+
+		$ DISMOUNT LDA1:
+		$ LD DISCONNECT/ABORT LDA1:
+		$ DISMOUNT DDan:
+
+	Be careful using the ABORT qualifier because it disconnects the
+	Logical Disk independent of the state it is in.
+
+3 /ALL
+
+	This qualifier disconnects all LDAn devices.
+	No devicename has to be given in this case.
+
+3 /LOG
+
+ /LOG
+ /NOLOG (default)
+
+	Shows the status after the device has been disconnected.
+
+2 NOPROTECT
+
+  LD NOPROTECT LDan:
+
+	This command will remove write-protection of the specified device.
+
+2 NOWATCH
+
+  LD NOWATCH LDan: [lbn [,lbn...]]
+
+	This command will remove the specified watchpoint.
+
+3 /INDEX
+
+  /INDEX=n
+
+	This qualifier will remove only the specified watchpoint. This
+	is an alternate way for specifying a watchpoint which is needed
+	for watchpoints without an lbn (IO$_PACKACK watchpoints for example).
+
+2 SHOW
+
+  LD SHOW [LDAn:]
+
+	This command will display information about the status and
+	the connected Logical Disk file or device.
+
+	It can also be used to display the tracebuffer.
+
+3 /ACCURATE
+
+	This qualifier allows accurate timing to be displayed from the
+	tracebuffer, provided that it was enabled with the setup of the trace.
+
+	This function is only supported on Alpha.
+
+3 /ALL
+
+	This qualifier will show the status of all LDAn devices on
+	the system. It can not be specified in combination with /TRACE.
+
+	No devicename must be given in this case.
+
+3 /BINARY
+
+	This qualifier forces the tracebuffer data to be written to
+	the outputfile in binary form. The is required when the outputfile
+	has to be processed later on with /INPUT.
+
+3 /BLOCKS
+
+  /BLOCKS=blocks
+
+	This qualifier specifies the maximum size of a diskfile with
+	tracedata. After this size is reached the current file is closed,
+	and a new one with a higher version is opened. If this qualifier
+	is not specified then there's no limit. If the /VERSION_LIMIT
+	qualifier is specified too, then the excess datafiles will be
+	purged.
+
+3 /BYTECOUNT
+
+  /BYTECOUNT (Default)
+  /NOBYTECOUNT
+
+	This qualifier enables to number of requested bytes to be
+	displayed.
+
+3 /CONTINUOUS
+
+  /CONTINUOUS
+
+	When this qualifier is specified, the trace buffer of the
+	specified device will be dumped (if there's still data
+	waiting). After that the program will wait for new data to
+	show up, and display that if it's available.
+
+	To exit this mode one can type either a Control-Z or a
+	Control-C. Another way is to issue a LD TRACE/STOP command
+	from another process.
+
+3 /ENTRIES
+
+  /ENTRIES[=(XXX,YYY)]]
+
+	This qualifier allows selection of the tracebuffer contents.
+
+	If one parameter is specified, it will be the number of entries
+	from the start of the tracebuffer when positive, or from the end
+	of the tracebuffer when negative.
+
+	For example, /ENTRIES=10 will show the first 10 entries, while
+	/ENTRIES=-10 will show the last 10 entries.
+
+	When two parameters are specified, a range of entries will be shown.
+	For example, /ENTRIES=(30,50) will show all entries from entry
+	30 through entry 50 inclusive.
+
+	The default of -10 will show the last 10 entries.
+
+3 /FDT
+
+	This qualifier allows FDT routine access to be displayed from the
+	tracebuffer, provided that it was enabled with the setup of the trace.
+
+	This function is only supported on Alpha.
+
+3 /FUNCTION
+
+  /FUNCTION[=Keyword]
+  /NOFUNCTION
+
+	This qualifier enables the Function code of the request to be
+	displayed.
+
+	An optional keyword may be given:
+
+	FUNCTION=TEXT		Displays the translated I/O request function
+				along with eventual functioncode modifiers.
+				Function bits which could not be translated
+				will be shown in hexadecimal format.
+
+	FUNCTION=HEX		Displays the I/O request function code
+				in hexadecimal format.
+
+	The default is /FUNCTION=TEXT.
+
+3 /HEADER
+
+  /HEADER (Default)
+  /NOHEADER
+
+	This qualifier enables a header to be displayed before showing
+	tracedata. The header contains a timestamp of when the trace
+	was made, a devicename of the LD-device involved and the nodename
+	of the system.
+
+3 /NUMBER
+
+  /NUMBER
+  /NONUMBER (Default)
+
+	This qualifier enables entrynumbers to be displayed.
+
+3 /INDEX
+
+  /INDEX=n
+
+	This qualifier enables watchpoint display by index. The parameter
+	is the watchpoint number as seen by the driver.
+
+3 /INPUT
+
+  /INPUT[=filespec]
+
+	This qualifier forces input tracedata to be read from the specified
+	file. The default filename is LD_TRACE.DAT.
+
+3 /IOSB
+
+  /IOSB[=Keyword]
+  /NOIOSB
+
+	This qualifier enables the I/O status block of the request
+	to be displayed.
+
+	An optional keyword may be given:
+
+	IOSB=TEXT		Displays the translated errortext from
+				the iosb.
+
+	IOSB=HEX		Displays the first longword of the iosb
+				in hexadecimal format.
+
+	IOSB=LONGHEX		Displays both longwords of the iosb in
+				hexadecimal format.
+
+	IOSB=COMBINATION	Displays the translated error text from
+				the iosb, as well as the returned count in
+				the upper first word of the iosb.
+
+	The default is /IOSB=TEXT.
+
+3 /LBN
+
+  /LBN (Default)
+  /NOLBN
+
+	This qualifier enables to Logical blocknumber of the request
+	to be displayed.
+
+3 /OUTPUT
+
+  /OUTPUT[=filespec]
+
+	This qualifier forces output of the tracedata data to be written
+	to the specified file. The default output will be readable ASCII,
+	unless /BINARY was also specified. In that case a binary file will
+	be written which can be processed at a later time with /INPUT.
+
+	The default filename is LD_TRACE.LOG for normal ASCII output, and
+	LD_TRACE.DAT for binary output.
+
+3 /PID
+
+  /PID (Default)
+  /NOPID
+
+	This qualifier enables to Process Identification of the requesting
+	process to be displayed.
+
+3 /RESET
+
+	When this qualifier is specified in combination with /TRACE,
+	the tracebuffer will be dumped and the buffer will be reset
+	afterwards. This is an atomic operation, such that no bufferdata
+	will be lost.
+
+3 /STATUS
+
+	This qualifier will show the currently allocated size of the
+	tracebuffer, as well as the number of entries in use. It must
+	be used in combination with /TRACE.
+
+3 /TIMESTAMP
+
+  /TIMESTAMP[=Keyword]
+  /NOTIMESTAMP
+
+	This qualifier enables the Start-time as well as the End-time
+	or the Elapsed time of an I/O request to be displayed.
+
+	An optional keyword may be given:
+
+	TIMESTAMP=ABSOLUTE	Displays the Start-time of the request
+				as well as the End-time in absolute format.
+
+	TIMESTAMP=ELAPSED	Displays the Elapsed time of the request.
+
+	TIMESTAMP=COMBINATION	Displays the Start-time of the request
+				in absolute format as well as the Elapsed
+				time of the request.
+
+	TIMESTAMP=DELTA		Displays the elapsed time between the current
+				request and the previous request. If the
+				start-time of the previous request was after
+				the start-time of the current request (out of
+				order I/O completion) the line will be preceded
+				with a dash.
+
+	The default is /TIMESTAMP=COMBINATION.
+
+3 /TRACE
+
+	When this qualifier is specified, the trace buffer of the
+	specified device will be dumped.
+
+3 /VERSION_LIMIT
+
+  /VERSION_LIMIT=limit
+
+	This qualifier can be used when a continuous trace is made
+	to control the number of concurrent datafiles on disk.
+	Anytime the datafilesize exceeds the size specified with	
+	/BLOCKS a new file will be created after the old file is
+	closed. If there are more files available than the number
+	specified with this qualifier, they will be purged up till
+	the specified limit.
+
+3 /WARNINGS
+
+  /WARNINGS (Default)
+  /NOWARNINGS
+
+	When this qualifier is specified a warning will be given
+	anytime when there are tracerecords lost. The number of lost
+	records will be displayed. /NOWARNINGS will suppress these
+	messages.
+
+3 /WATCH
+
+	When this qualifier is specified, the currently set watchpoints
+	of the specified device will be dumped.
+
+2 TRACE
+
+  LD TRACE LDan:
+
+	This command initializes the trace buffer for the specified
+	device. This buffer will log the following data for every
+	I/O request:
+
+	  o	Process ID
+	  o	Logical block number
+	  o	I/O request size
+	  o	I/O Function code
+	  o	I/O status block
+	  o	Timestamp from the start of the I/O request
+	  o	Timestamp from the end of the I/O request
+
+	The default size is 512 entries, the maximum is as big
+	as pool will allow.
+
+	The allocated size from pool will be:
+
+		PoolSize (in Bytes) = (N * 44) + 12
+
+	where N equals the number of entries.
+
+3 /ACCURATE
+
+	This qualifier allows a more accurate timing of I/O requests
+	by means of hardware counters on the Alpha CPU.  The resolution
+	will be one microseond as opposed to the 10 mSec standard resolution.
+
+	The drawback is that in an SMP system all I/O through the LD device
+	is done through the primary processor, since the CPU counters are
+	processor specific.
+
+	This function is only supported on Alpha.
+
+3 /ALL
+
+	This qualifier can be used in combination with /STOP to
+	stop all processes which are currently tracing data for
+	all LD devices.
+
+3 /FDT
+
+	Allows FDT routine access to be traced. This is a form of
+	preprocessing which every I/O request goes through. This qualifier
+	causes usage of additional entries in the tracebuffer for almost
+	every I/O request, hence it is made optional.
+
+	This qualifier will only work on Alpha.
+
+3 /RESET
+
+	When this qualifier is specified the tracebuffer will be reset.
+	All data currently in the buffer will be lost.
+
+3 /SIZE
+
+ /SIZE[=number_of_entries]
+
+	Specifies the size of the tracebuffer. The default size
+	is 512 entries.
+
+3 /STOP
+
+	This qualifier can be used to stop another process which has
+	issued a SHOW/TRACE/CONTINUOUS command. The devicename must
+	be specified (unless /ALL was given). If the trace was started
+	by a process in the same UIC group, GROUP privilege is needed.
+	If the process belongs to another UIC group, WORLD privilege
+	is needed.
+
+2 NOTRACE
+
+  LD NOTRACE LDan:
+
+	This command deallocates the tracebuffer. All data currently
+	available in the buffer will be lost.
+
+2 PROTECT
+
+  LD PROTECT LDan:
+
+	This command will write-protect the specified device.
+
+2 WATCH
+
+  LD WATCH LDan: lbn [,lbn...]
+
+	This command will set a watchpoint on a virtual or logical
+	blocknumber on the specified device. The lbn is ignored on
+	I/O functions which don't need an lbn (IO$_PACKACK for
+	example).
+
+	This makes it possible to let the driver take some actions
+	dependant of which lbn was accessed with a specified function-
+	code.
+
+3 /FUNCTION
+
+  /FUNCTION[=Keyword]
+
+	This qualifier specifies for which I/O function the watchpoint is set.
+
+	An optional keyword may be given:
+
+	FUNCTION=ALL		The watchpoint is set for all I/O functions
+
+	FUNCTION=READ		The watchpoint is set for IO$_READPBLK
+
+	FUNCTION=WRITE		The watchpoint is set for IO$_WRITEPBLK
+
+	FUNCTION=CODE=number	The watchpoint is set for the specified
+				I/O function code
+
+	The default is /FUNCTION=READ
+
+3 /ACTION
+
+  /ACTION[=Keyword]
+
+	This qualifier specifies the action to be performed when a valid
+	watchpoint is encountered. To be able to set a watchpoint one must
+	have either CMKRNL privilege, or be the owner of the device.
+
+	A watchpoint may have one action only: CRASH, ERROR or SUSPEND. An
+	exception is OPCOM, which may be specified in addition to any other
+	action for a specific watchpoint.
+
+	An optional keyword may be given:
+
+	ACTION=CRASH		This action will crash the system when a
+				matching lbn and function are found. Usage
+				of this keyword needs CMKRNL privilege.
+				The bugcheck type will be RSVD_LP.
+
+	ACTION=ERROR[=code]	This action will return a user-specified
+				errorcode when a matching lbn and function
+				are found. When the code is not specified
+				SS$_BUGCHECK will be returned.
+
+	ACTION=SUSPEND		This action will suspend the thread when a
+				matching lbn and function are found. This
+				enables one to look at the system with SDA
+				for further investigation. LD SHOW/WATCH will
+				show all processes waiting for a specific
+				watchpoint, while LD WATCH/RESUME will resume
+				the thread.
+
+	ACTION=OPCOM		This action will display an OPCOM message when
+				a matching lbn and function are found. The
+				message includes the process-id and the
+				imagename doing the request, the devicename,
+				the functioncode and the lbn. If the watchpoint
+				was a virtual one (/FILE specified) then it
+				will show the vbn as well as the file-id of
+				the corresponding file.
+
+	The default is /ACTION=ERROR=676 (SS$_BUGCHECK)
+
+3 /FILE
+
+  /FILE=filespec
+
+	This qualifier will enable a virtual watchpoint on the specified
+	file. The parameter(s) will then be virtual blocknumbers of the
+	file.
+
+3 /RESUME
+
+  /RESUME
+
+	This qualifier resumes a suspended watchpoint. The parameter is the
+	watchpoint to resume. An alternate way to resume a watchpoint is
+	by /INDEX. If no parameter is specified then all suspended watchpoints
+	will be resumed.
+
+3 /INDEX
+
+  /INDEX=n
+
+	This qualifier enables watchpoint resume by index. The parameter
+	is the watchpoint number to resume.
+
+2 WPoint_example
+
+	An example of watchpoint usage:
+
+	$ LD CREATE TMP
+	$ LD CONNECT/LOG TMP LDA1
+	%LD-I-CONNECTED, Device THEBUG$LDA1: is connected to $8$DIA0:[USERS.VDBURG.LD]TMP.DSK;1
+	$ INIT LDA1: TEST
+	$ MOUNT/SYSTEM LDA1: TEST
+	%MOUNT-I-MOUNTED, TEST         mounted on _THEBUG$LDA1: (THEBUG)
+	$ COPY/ALLOC=10 NL: LDA1:[000000]JUNK.DAT
+	$ SET FILE/END LDA1:[000000]JUNK.DAT
+	$ LD WATCH LDA1 5/FILE=LDA1:[000000]JUNK.DAT/ACTION=ERROR=%X2C
+	$ LD WATCH LDA1 5/FILE=LDA1:[000000]JUNK.DAT/ACTION=OPCOM
+	$ LD WATCH LDA1 1/ACTION=SUSPEND
+	$ LD SHOW/WATCH LDA1:
+	Index LBN     Action     Function         Error return code
+	--------------------------------------------------------------------
+	             THEBUG$LDA1:[000000]JUNK.DAT;1:
+	 1        5  Opcom     READPBLK
+	             THEBUG$LDA1:[000000]JUNK.DAT;1:
+	 2        5  Error     READPBLK             002C (ABORT)
+	 3        1  Suspend   READPBLK
+	$ DUMP LDA1:[000000]JUNK.DAT/BLOCK=(START=5,COUNT=1)
+	%%%%%%%%%%%  OPCOM  28-FEB-1994 14:38:17.90  %%%%%%%%%%%
+	Message from user VDBURG on THEBUG
+	***** LDdriver detected VBN watchpoint access *****
+	PID:      2020006A
+	Image:    DUMP
+	Device:   THEBUG$LDA1:
+	Function: 000C
+	VBN:   	  5
+	File id:  (11,1,0)
+
+	%DUMP-E-READERR, error reading LDA1:[000000]JUNK.DAT;1
+	-SYSTEM-F-ABORT, abort
+	$ SPAWN/NOWAIT/INPUT=NL: DUMP/BLOCK=(START=1,COUNT=1) LDA1:
+	%DCL-S-SPAWNED, process VDBURG_1 spawned
+	$ WAIT 0:0:1
+	$ LD SHOW/WATCH LDA1:
+	Index LBN     Action     Function         Error return code
+	--------------------------------------------------------------------
+	             THEBUG$LDA1:[000000]JUNK.DAT;1:
+	 1        5  Opcom     READPBLK
+	             THEBUG$LDA1:[000000]JUNK.DAT;1:
+	 2        5  Error     READPBLK             002C (ABORT)
+	 3        1  Suspend   READPBLK
+	             Suspended process: 202000E7
+	$ LD WATCH/RESUME LDA1:
+
+
+	Dump of device LDA1: on 28-FEB-1994 14:38:20.47
+
+	Logical block number 1 (00000001), 512 (0200) bytes
+
+	 00010201 00000018 00000004 00000001 ................ 000000
+	 00000080 00000007 00050004 00030002 ................ 000010
+	 00400040 00000000 00000000 000A0001 ............@.@. 000020
+	.
+	.
+	.
+

@@ -1,0 +1,193 @@
+NEWS-Posting: Newsgroup <cmu-tek-tcp>, Item <#2731>, Subject <Re: Need NETLIB docs (programmer's)>
+Newsgroups: CMU-TEK-TCP
+Path: ifn!mailer!net
+Approved:   NEWSMGR
+Received: from DRYCAS.CLUB.CC.CMU.EDU by ifn.ing.tu-bs.de (MX V3.3 VAX) with
+          SMTP; Sun, 14 Nov 1993 22:48:54 +0100
+Return-Path: uucp@mccall.uucp
+Received: from DRYCAS.CLUB.CC.CMU.EDU by DRYCAS.CLUB.CC.CMU.EDU (PMDF #11060)
+          id <01H5B8NM6MLC0004UI@DRYCAS.CLUB.CC.CMU.EDU>; Sun, 14 Nov 1993
+          16:20 EDT
+Received: from DRYCAS.CLUB.CC.CMU.EDU by DRYCAS.CLUB.CC.CMU.EDU (PMDF #11060)
+          id <01H5B8N7SH1S003BLW@DRYCAS.CLUB.CC.CMU.EDU>; Sun, 14 Nov 1993
+          16:20 EDT
+Received: from depot.cis.ksu.edu by DRYCAS.CLUB.CC.CMU.EDU (PMDF #11060) id
+          <01H5B8N1UOA8003BIA@DRYCAS.CLUB.CC.CMU.EDU>; Sun, 14 Nov 1993 16:20
+          EDT
+Received: from mccall.UUCP by depot.cis.ksu.edu UUCP (8.6.4) id PAA28336; Sun,
+          14 Nov 1993 15:20:09 -0600
+Received: by mccall.com (DECUS UUCP /1.3-1/2.5/); Sun, 14 Nov 93 15:06:57 CDT
+Date: Sun, 14 Nov 1993 19:12:39 GMT
+From: przemek@rrdbartok.nist.gov (Przemek Klosowski)
+Subject: Re: Need NETLIB docs (programmer's)
+Sender: news@dove.nist.gov
+To: cmu-openvms-ip@DRYCAS.CLUB.CC.CMU.EDU
+Errors-to: CMU-OpenVMS-IP-Request@DRYCAS.CLUB.CC.CMU.EDU
+Resent-Reply-To: CMU-OpenVMS-IP@DRYCAS.CLUB.CC.CMU.EDU
+Reply-To: przemek@rrdbartok.nist.gov (Przemek Klosowski)
+Message-ID: <PRZEMEK.93Nov14141240@rrdbartok.nist.gov>
+Organization: U. of Maryland/NIST
+
+Here is some information directly from the horse's mouth. Actually,
+the routine synopses are misleading: if ctx is declared by 'void * ctx'
+the routines should be called with &ctx, as in the code examples show.
+
+The synopses should have perhaps something like 'void **ctxp' for the
+first argument, rather than 'void *ctx'
+
+	przemek
+
+
+From:	IN%"MADISON@TGV.COM"  "Matt Madison"  3-MAY-1993 12:09:57.29
+Subj:	RE: Netlib documentation
+>I just picked up your handy netlib routines, but before I install
+>them I was wondering if there's a guide to the
+>routine calls somewhere?  It didn't jump out at me after a quick
+>glance at the files.
+>
+>If one isn't handy that's okay - I'll just go through the sources
+>and figure it out.
+
+There isn't, but here's a brief description:
+
+All of the routines return VMS condition values.  Most TCP/IP-package-specific
+condition values are converted into their UCX equivalents.
+
+- net_assign(void *ctx)
+    Assigns a network channel for subsequent operations.  "ctx" will be
+    set to a context value to be passed to other routines on successful return.
+
+- net_bind(void *ctx, int protocol [,int port] [,int threads] [,int notpass])
+    Binds a local socket for the specified protocol (NET_K_TCP or NET_K_UDP).
+    If the port number is specified, the connection is assumed to be "passive"
+    (i.e., for a server), with the maximum number of incoming connections
+    to be handled by the server specified by the "threads" argument.  This
+    can be overriden by passing in a 1 for "notpass".
+
+    If the port number is not given, the connection is assumed to be "active"
+    and the port number will be assigned at random.
+
+    NET_K_TCP = 1, NET_K_UDP = 2.
+
+- net_get_address(void *ctx, struct dsc$descriptor *host, int alsize,
+                        unsigned int alist[], int *alcount)
+    Returns a list of IP addresses for the given host name (passed in by
+    descriptor).  The array "alist" should have enough room for "alsize"
+    addresses; "alcount" will be set to the number of addresses returned.
+
+- net_addr_to_name(void *ctx, unsigned int addr, struct dsc$descriptor *name)
+    Returns the host name for a given IP address.  "name" must point to
+    a dynamic string descriptor.
+
+- net_deassign(void *ctx)
+    Deassigns a network channel.
+
+- net_get_info(void *ctx, unsigned int *remadr [, int *remport]
+    	    	    [, unsigned int *lcladr], [, int *lclprt])
+    Gets address & port information about a connection.
+
+- net_get_hostname(struct dsc$descriptor *name [, int *length])
+    Gets the local host name.  "name" can point to any string descriptor;
+    the length of the name is returned if "length" is specified.
+
+- tcp_connect(void *ctx, struct dsc$descriptor *node, int port)
+    Establishes a TCP connection to the specified node and port number.
+
+- tcp_connect_addr(void *ctx, unsigned int *addr, int port)
+    Establishes a TCP connection to the specified IP address (passed by
+    reference) and port number.
+
+- tcp_accept(void *lsnr, void *ctx [, unsigned short iosb[4],
+    	    	    	unsigned int (*astadr)(), unsigned int astprm])
+    Accepts an incoming connection.  It will not complete until a connection
+    comes in for it to accept.  Intend for use by servers only.  The
+    call will be completed asynchronously if iosb, astadr, and astprm
+    are specified.
+
+- tcp_disconnect(void *ctx)
+    Closes a TCP connection.
+
+- tcp_send(void *ctx, struct dsc$descriptor *str [, int flags]
+    	    [, unsigned short iosb[4], unsigned int (*astadr)(), int astprm])
+    Sends a line of text to the remote sequence.  It will be terminated
+    automatically with a CR/LF sequence, unless bit 1 of "flags" is set
+    (which would be flags == 2).  The call will complete asynchronously if
+    iosb, astadr, and astprm are specified.
+
+- tcp_receive(void *ctx, struct dsc$descriptor *str,
+    	    [, unsigned short iosb[4], unsigned int (*astadr)(), int astprm]
+    	    [, unsigned int timeout[2]])
+    Receives data over a TCP connection. "str" must be a dynamic string
+    descriptor. Call will complete asynchronously if iosb, astadr, and astprm
+    are specified.  You can specify a timeout for the receive with "timeout"
+    (in VMS quadword time format).
+
+- tcp_get_line(void *ctx, struct dsc$descriptor *str,
+    	    [, unsigned short iosb[4], unsigned int (*astadr)(), int astprm]
+    	    [, unsigned int timeout[2]])
+    Receives a line of text over a TCP connection (a line of text being a
+    string terminated with a CR/LF sequence). "str" must be a dynamic string
+    descriptor (the CR/LF will be stripped from the received line on
+    completion). Call will complete asynchronously if iosb, astadr, and astprm
+    are specified.  You can specify a timeout for the receive with "timeout"
+    (in VMS quadword time format).
+
+- udp_send(void *ctx, unsigned int addr, unsigned short port, void *bufptr,
+    	    	    	    unsigned short buflen)
+    Sends a UDP datagram to the specified address & port.
+
+- udp_receive(void *ctx, void *bufptr, unsigned short bufsize,
+   	    unsigned short *buflen [, unsigned int *srcaddr]
+		[, unsigned int *srcprt] [, unsigned int timeout[2]]
+(V1.7+)		[, unsigned short iosb[4]]
+		[, unsigned int (*astadr)(), int astprm])
+    Receives a UDP datagram.  Source address and port of the datagram	
+    can also be returned.  You can specify a timeout value (in VMS quadword
+    time format) with the "timeout" argument.
+
+
+The basic structure for a client-type TCP-based program is:
+
+    net_assign(&ctx)
+    net_bind(&ctx, NET_K_TCP)
+    net_get_address(&ctx, hostname, ...)
+    for (i = 0; i < addrcount; i++) {
+    	tcp_connect_addr(&ctx, ...) ; if successful, break;
+    }
+    if (i >= addrcount) ** failed **
+
+    after sends, and receives:
+
+    tcp_disconnect(&ctx)
+    net_deassign(&ctx)
+
+
+The basic structure for a TCP-based server (to handle just 1 connection):
+
+    net_assign(&listener)
+    net_bind(&listener, NET_K_TCP, port_number, 1)
+    while (1) {
+    	net_assign(&ctx)
+    	tcp_accept(&listener, &ctx)   ; waits for incoming connection
+    	..etc..
+    	tcp_disconnect(&ctx)
+    	net_deassign(&ctx)
+    }
+
+Things get a little hairier if you want to handle multiple connections.
+Because of limitations in UCX prior to V2.0, a server had to handle all
+connections within a single, multi-threaded server process.
+    
+-Matt
+
+--
+Matthew Madison | madison@tgv.com    | +1 408 427 4366
+TGV, Inc.       | 603 Mission Street | Santa Cruz, CA 95060 USA
+--
+			przemek klosowski (przemek@rrdstrad.nist.gov)
+			Reactor Division (bldg. 235), E111
+			National Institute of Standards and Technology
+			Gaithersburg, MD 20899,      USA
+
+			(301) 975 6249 tel
+			(301) 921 9847 fax

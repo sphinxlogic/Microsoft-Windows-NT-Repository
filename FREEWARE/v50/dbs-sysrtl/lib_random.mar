@@ -1,0 +1,95 @@
+	.title	lib_random
+	.ident	"X1-001"
+
+;+
+; Version:	X1-001
+;
+; Facility:	Library routines.
+;
+; Abstract:	Generate a random number within a given range.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	20-Aug-1992, DBS, Version X1-001
+; 001 -	Original version.
+;-
+
+;++
+; Functional Description:
+;	This routine will generate a random number within the range specified
+;	by the low and high value arguments (inclusive).
+;
+; Calling Sequence:
+;	call lib_random (seed, low_value, high_value, result)
+;
+; Formal Argument(s):
+;	seed.rl.r
+;	low_value.rl.r
+;	high_value.rl.r
+;	result.wl.r
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_normal if all is ok
+;	ss$_badparam if the number of arguments is incorrect or the low_value
+;		is greater than the high_value
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	.external	mth$random
+
+	$ssdef
+	$gblini	GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+	arg_count = 4			; number of arguments
+	seed = 4			; offset to the seed
+	low = 8				;    ...	low value
+	high = 12			;    ...	high value
+	result = 16			;    ...	result
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+lib_random, ^m<r2,r3>
+
+	movl	#ss$_badparam, r0	; assume this for now
+	cmpw	#arg_count, (ap)	; check parameter count
+	bneq	90$			; no good, bail out
+	cmpl	@low(ap), @high(ap)	; check the values
+	bgeq	90$			; bad, bail out
+	subl3	@low(ap), @high(ap), r2	; get the range
+	incl	r2			; and fix up the range
+	cvtlf	r2, r3			; convert to f_floating
+	pushl	seed(ap)		; that's the address of the seed
+	calls	#1, g^mth$random	; get a random number
+	mulf2	r0, r3			; this should give us a number from
+	cvtfl	r3, r2			;  0 to range-1
+	addl3	@low(ap), r2, @result(ap) ; and pass back the result
+	movl	#ss$_normal, r0
+
+90$:	ret
+
+	.end

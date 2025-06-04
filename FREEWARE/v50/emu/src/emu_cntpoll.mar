@@ -1,0 +1,554 @@
+	.TITLE	EMU_CNTPOLL
+	.IDENT /V05-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 05-001 PB	29-apr-1997	(re)recreation
+;++ 
+;1 EMU_CNTPOLL
+;   Poller to get counters and process them thru EMU_CNTPRC.
+;   This routine handles selected counts available from:
+;	MOP
+;	SNMP
+;	CMIP
+;	NICE
+;	IPX
+;2 COMMON_PROCESSING
+;  Scan apropriate DB for devices supporting counters. If supported and 
+;  not explicitly removed, call coresponding counter analyser routine
+;  to acquire data. If an answer is received, register the counters by
+;  passing each counter to CNTPRC. If this is 
+;  the 1st time data for this count is received, CNTPRC will assign 
+;  a CNTID for further references. Record this CNTID in the CNTPOLL
+;  record.
+; Once all DBs have been scanned and all available counters have been
+; registered, scan the CNTPOLL DB and for each entry, call appropriate
+; analyser routine to acquire counts. Pass each count to CNTPOLL.
+; 
+;  CNTPRC will return a status that indicates 1 of 3 possiblities:
+;	Not enough data: Less than 8 samples stored is not considered
+;			 useful for analysis.
+;	No problem:      Counter did not exceed any threasholds
+;	Problem:	 Counter exceeded at least 1 theashold. The 
+;			 threashold(s) exceeded are indicated in the status
+;			 as is an integer indicating the amount exceeded.
+;			 This integer is to be used as an alert priority.
+;2 Overview
+;  The counter processing subsystem identifies, acquires, processes and 
+;  stores counter information from remote nodes to determine performance
+;  of the individual nodes and the net at large. There are a number of
+;  phases to this:
+;  Idenify:
+;	Any node responding on a supported protocol has a default set
+;       of counters this system will acquire and process. The default
+;	set is propogated to the CNTRPOLL database once the node is 
+;	discovered and found to respond to management querries. 
+;	While hardcoded at present, it is planned to allow the defaults
+;	to managed via the user interface.
+;	Again, while not present in this version, the full set of counters
+;	available will be presented via the user interface and allow the 
+;	operator to select.
+;	The only user interaction at present is to prevent the default set
+;	from being collected. The user may select (by node and protocol)
+;	which set to ignore.
+;  Processing:
+;	The set of counters is polled for and if received, is pre-processed
+;	into EMU standard format - presented as TBL.PARM,Value. Where the 
+;	TBL.PARM is the standard quad used in PARAMXLT to display the counter
+;	name and the value is ALWAYS unsigned quad.             
+;	This set is passed to CTNTRPRC where it is processed into tables,
+;	averaged and compared with previous samples. If the current value
+;	falls out of the range set for this counter, an alert is generated.
+;	See CNTRPRC for detail.
+;  Storage:
+;	The previous 48 samples are stored as are the calculated ranges.
+;	See CNTRPRC for detail.
+;2 Database
+; There are 2 databases in the counter processing subsystem:
+;	CNTRPOLL.DAT 	(This routine)
+;	CNTRPROC.DAT	(see CNTRPRC.MAR for detail)
+;   CNTRPOLL.DAT:
+;	This database controlls which counters to poll for and provides the 
+;	index to CNTRPRC.DAT
+;  Protocol:  	A .long corresponding to the EMU defined SYSPID of the 
+;		protocol this counter is for
+;  Address:	The node address this set of counters is for. It is
+;		made up of a  .long size of following address and up to 20 
+;		address digits in net format.
+;  Entity:	3 .longs identifying the component within the node 
+;		this set of counter is for. It is made up of TBL.PRM.INSTANCE
+;		where the TBL.PRM is the standard quad used in PARAMXLT 
+;		to display the counter and the instance is a protocol 
+;		specific identifer used to uniquely identify multiple 
+;		instances of the component within the node.
+;  IDTBL:	48 entries as follows:
+;	TABLE.PARAM  .QUAD EMU defined param id (PARAMXLT) 
+;	CNTID	     A unique ID for this counter rec. It is the index to 
+;		     CNTRPRC.DAT.
+;	Spare		.long to align to 2x .quad
+;--
+
+
+	.LIBRARY	/SYS$LIBRARY:LIB.MLB/
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+	$SSDEF		; System Services
+        $NMADEF         ; Network Management
+	EMUSNMPDEF
+	EMUSYSDEF
+	EMURLTDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUCNTDEF
+	EMUCMIPDEF
+	EMUDBDEF
+	EMUDN4DEF
+	EMUIPCDEF
+	EMUMOPDEF
+	EMUMSGDEF
+	EMUCTPDEF
+	.PSECT	EMU_CNTPOLL_D,WRT,NOEXE,PIC,SHR,QUAD
+
+RETSIZ = 1024
+RETURN:		.BLKB	RETSIZ
+RETURN_D:       .LONG	.-RETURN
+		.ADDRESS  RETURN
+CTPCFM:		.BLKQ	2			; CTP Call frame
+INTLTIM:	.QUAD   0
+TEMPQUAD:	.QUAD			; Temp results
+COUNTERS_A:	.QUAD
+CONTROL_A:	.QUAD
+WAIT_INTERVAL:	.FLOAT	1800.0
+
+MOPMAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP  
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+FLAG:		.LONG
+;
+	.ALIGN	LONG
+CNTRFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; 
+		ORG = IDX,-			; Keyed file (Finally)
+		DNM = <EMU5_DAT:EMU_CNTPOLL.DAT>,-; Default Filename 
+		FOP = CIF,-		; Create if doesn't exist
+		XAB = CNTRXAB
+CNTRRAB:	
+	$RAB	FAB = CNTRFAB,-		; pointer to FAB
+		RBF = CNTREC_BUF,-		; o/p buffer 
+		RSZ = CNTREC_SIZE,-	; Write this many bytes
+		UBF = CNTREC_BUF,-		; i/p buffer 
+		USZ = CNTREC_SIZE,-		; Write this many bytes
+		RAC = KEY,-		; Keyed file
+		KBF = KEY_BUF,-		; Key location
+		KSZ = 40
+CNTRXAB:
+		$XABKEY	REF = 0,-  	; Protocol 
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len
+		FLG = <DUP>,-		; dups
+		NXT = CNTRXAB1
+CNTRXAB1:
+		$XABKEY	REF = 1,-  	; Address
+		DTP = STG,-             ; Key = 4 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 24,-              ; Key len
+		FLG = <CHG,DUP>,-	; Change, dups
+		NXT = CNTRXAB2
+CNTRXAB2:
+		$XABKEY	REF = 2,-  	; Entity 
+		DTP = STG,-             ; Key = 12 bytes binary (ascending)
+		POS = 28,-               ; Key position
+		SIZ = 12,-              ; Key len
+		FLG = <CHG,DUP>,-		; Change, dups
+		NXT = CNTRXAB3
+CNTRXAB3:
+
+		$XABKEY	REF = 3,-  	; Primary key 
+		DTP = STG,-             ; Key = 40 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 40,-              ; Key len
+		FLG = <CHG>,-		; Change, nodups
+		NXT = CNTRXAB4
+CNTRXAB4:
+		$XABKEY	REF = 4,-  	; PROTO, ADDRESS 
+		DTP = STG,-             ; Key = 24 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 28,-              ; Key len
+		FLG = <CHG,DUP>		; Change, dups
+
+
+CNTREC_BUF:
+
+KEY_BUF:
+PROT:		.LONG
+ADDR:		.BLKL	6		; .long siz, + up to 20 addr digits
+ENTITY:		.BLKL	3               ; TBL.PRM.INSTANCE
+LASRESP:	.QUAD			; Time last response
+POLLS:		.LONG			; Number of polls
+RESP:		.LONG			; Number of responses
+FUNC:		.LONG			; Get counter function
+TBLCNT:		.LONG			; Count of entries
+IDTBL:		.BLKL	4*48		; Up to 48 tbl.prm.cntid entries
+CNTREC_SIZE = .-CNTREC_BUF
+
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+
+
+
+INTIM_D:	.LONG	16
+		.ADDRESS  INTIM
+INTIM:		.ASCII	/0000 00:30:00.00/      ; Wait interval
+
+
+
+RTNNAM:		.ASCID	/PRFMON/
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_PSRMOP:	
+		.ASCID	\EMU_PSRMOP\  		; Section name
+
+
+
+	.PSECT	CODE NOWRT,EXE,QUAD
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_CNTPOLL
+
+; Ensure death if control process dies
+	CALLS	#0, G^GET_CONTROL_LOCK	; 
+  	BSBW	ERROR_CHK		; 
+
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BSBW	ERROR_CHK		; 
+; Map to counters and init
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+        BSBW	ERROR_CHK
+	MOVL	COUNTERS_A,R9
+        MOVC5	#0,#0,#0,#CNT_PFM_C_SIZE,CNT_PFM_L_STATE(R9)
+	PUSHAL	CONTROL_A
+	CALLS	#1,G^MAP_CONTROL
+	BSBW	ERROR_CHK
+
+	$CREATE	FAB=CNTRFAB
+	BSBW	ERROR_CHK
+	$CONNECT RAB=CNTRRAB
+	BSBW	ERROR_CHK
+
+START:
+; Here at begining of each cycle
+	MOVL	COUNTERS_A,R9
+	MOVL	#CNT_STA_C_RUN,CNT_PFM_L_STATE(R9)	; State = run
+; Scan MOP for unregistered records
+	CALLS	#0,G^PFM_MOPSCAN
+; Get counts for all recs
+	$REWIND	 RAB=CNTRRAB
+	MOVB	#RAB$C_SEQ,CNTRRAB+RAB$B_RAC
+10$:
+	$GET	RAB=CNTRRAB 
+	BLBS	R0,20$
+	CMPL	R0,#RMS$_EOF
+	BEQLU	1000$
+; Write error
+	BRW	10$
+20$:
+	CASEL   FUNC,#1,#0
+30$:       
+	.WORD	31$-30$
+; Write error
+	BRW	10$
+31$:
+	PUSHAL	CNTREC_BUF
+	CALLS	#1,G^PFM_GETMOPCNT	; Errors trapped in next rtn
+	PUSHL	R0
+	PUSHAL	CNTREC_BUF  	
+	CALLS	#2,PFM_PROCESS_COUNTS       	; All errors handled in rtn
+	$UPDATE	RAB=CNTRRAB 
+	BLBC	R0,200$
+	BRW	10$
+;100$:
+;        MOVL	#MSG_PRFMON_CTPCPR,MSGCDE      ; No ipc map
+;	MOVL	#1,PARCNT                    ; 1 params
+;	MOVAL	MSGPARAMS,R1                 ; Plist
+;	MOVL	R0,(R1)                      ; MAP error
+;	PUSHAL	ERRORMSG                     ; Log it
+;	CALLS	#1,G^EMU_LOGGER
+;        BRW	10$
+200$:
+        MOVL	#MSG_PRFMON_CTPUPD,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        BRW	10$
+
+
+1000$:
+; Release MOP channel
+	CALLS	#0,MOP_UNLOCK
+; Set state
+	MOVL	COUNTERS_A,R9
+	MOVL	#CNT_STA_C_WAT,CNT_PFM_L_STATE(R9)	; State = wait
+
+	$BINTIM_S-	
+		TIMBUF=INTIM_D,-
+		TIMADR=INTLTIM
+	ADDL3	#CNT_PFM_Q_STTIME,R9,-(SP)
+	PUSHAL  INTLTIM
+	PUSHAL	EXE$GQ_SYSTIME
+	CALLS	#3,G^LIB$ADD_TIMES
+
+	PUSHAL	WAIT_INTERVAL
+	CALLS	#1,G^LIB$WAIT
+	BRW	START
+
+ERROR_CHK:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBC	R0,10$
+	RSB
+10$:
+	RET
+		
+	.CALL_ENTRY	MAX_ARGS=4, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PFM_PROCESS_COUNTS
+;++
+;2 PFM_PROCESS_COUNTS
+;  Initalises CTPCFM and calls CNTRPRC for each counter specified in
+; the input call frame. Assumptions:
+;	The counter data is in RETURN, specified by RETURN_D
+;	The return buffer is formatted according to:
+;	tbl.prm.value where tbl.prm are the EMU standard ids of this
+;	counter and value is a .quad unsigned integer.
+;3 Processing
+;  CNTRREC:
+;  Polls is incremented
+;  If status ($ARG2) is bad, then write alert and exit.
+;  If status is good:
+;  RESP is incremented and LASRESP is updated with current time.
+; Clear all prot fields in return array. If this counter is present,
+; it will be overwritten with CNTID.
+; For each counter in the return, the IDTBL is scanned and if
+; present:
+; overwrite the prot field with CNTID
+; 
+; Init
+; Alert any returns from CTRPRC
+;	
+; 
+;3 Inputs
+;	.address of CNTRPOLL rec
+;	.long	status of get count call (R0)
+;3 Outputs
+;	CNTPOLL rec is updated with results of poll
+;	associated CTRPRC recs are written
+;	Alerts may be grnerated
+;	
+;3 Returns
+;	SS$_NORMAL -  All errors are handled by this routine
+;	IF P2 (STATUS) not success then it is returned
+;--
+	MOVQ	RETURN_D,R6
+	MOVL	4(AP),R8
+	INCL	CPL_DB_L_POLLS(R8)
+	BLBS	8(AP),100$
+; Send alert. This address should have responded.
+; Check if rec should be deleted
+;	
+	MOVL	8(AP),R0
+	RET
+100$:
+	INCL	CPL_DB_L_RESP(R8)
+	MOVQ	EXE$GQ_SYSTIME,CPL_DB_Q_LASRESP(R8)
+; Process counts
+200$:
+	MOVL	4(AP),R8
+	MOVL	CPL_DB_L_TBLCNT(R8),R11
+	ADDL3	4(AP),#CPL_DB_C_IDTBL,R8	; Start of idtbl
+; Find this counter
+210$:
+	CMPL	CTP_RET_L_TABLE(R7),CPL_DB_L_TABLE(R8)
+	BNEQU	220$
+	CMPL	CTP_RET_L_PARAM(R7),CPL_DB_L_PARAM(R8)
+	BEQLU	230$
+220$:
+	ADDL	#CPL_DB_C_ENTSIZ,R8		; Next tbl
+	SOBGTR	R11,210$	
+
+	ADDL	#CTP_RET_C_SIZE,R7				; Next sample
+	SUBL	#CTP_RET_C_SIZE,R6				; len left
+	BGTR 	200$				; Br if more
+	MOVL	#SS$_NORMAL,R0
+	RET
+230$:
+	TSTL	CPL_DB_L_CNTID(R8)		; New counter?
+	BEQL	400$                            ; Br if so
+
+	MOVAL	CTPCFM,R9
+270$:
+	MOVL	CPL_DB_L_CNTID(R8),CTP_CFM_L_CNTID(R9)
+	MOVQ	CTP_RET_Q_VALUE(R7),CTP_CFM_Q_SAMPLE(R9)
+	MOVL	#CTP_FNC_C_PROCESS,CTP_CFM_L_FUNC(R9)
+	PUSHL	R9
+	CALLS	#1,G^EMU_CNTPRC	
+	BLBS	R0,300$
+; Handle any error, 
+300$:
+	ADDL	#CTP_RET_C_SIZE,R7				; Next sample
+	SUBL	#CTP_RET_C_SIZE,R6				; len left
+	BGTR 	200$				; Br if more
+	MOVL	#SS$_NORMAL,R0
+	RET
+400$:
+        PUSHAL	CONTROL_A				; Address ctl section
+	CALLS	#1,G^ALLOCATE_BOXID			; Next id
+	BLBS	R0,410$
+	RET
+410$:
+	MOVL	R1,CPL_DB_L_CNTID(R8)			; Write REC
+	
+	MOVAL	CTPCFM,R9			; Call frame
+	MOVQ	CTP_RET_Q_VALUE(R7),CTP_CFM_Q_SAMPLE(R9)
+	MOVL	CPL_DB_L_CNTID(R8),CTP_CFM_L_CNTID(R9)
+	MOVL	#CTP_FNC_C_PROCESS,CTP_CFM_L_FUNC(R9)
+	PUSHL	R9
+	CALLS	#1,G^EMU_CNTPRC	
+	BLBS	R0,420$
+; 		
+        MOVL	#MSG_PRFMON_CTPPRC,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+420$:
+	BRW	300$
+	.CALL_ENTRY	MAX_ARGS=4, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PFM_GETMOPCNT
+;++
+;2 PFM_GETMOPCNT
+; Gets the MOP counters for the input CNTRPOLL rec and processes them
+; through CNTRPRC.
+;3 Inputs
+;	.address of CNTRPOLL rec
+;3 Outputs
+;	CNTPOLL rec is updated with results of poll
+;	associated CTRPRC recs are written
+;3 Returns
+;	SS$_NORMAL -  All errors are handled by this routine
+;--
+	MOVL	COUNTERS_A,R9
+	INCL	CNT_PFM_L_POLLS(R9)
+
+	MOVAL	ADDR,R6
+	MOVL	#RETSIZ,RETURN_D
+	PUSHAL	RETURN_D
+	ADDL3	#4,R6,-(SP)
+	CALLS	#2,G^EMU_MOPCNTANAL
+	BLBS	R0,10$
+	INCL	CNT_PFM_L_NORESP(R9)
+	RET
+10$:
+	INCL	CNT_PFM_L_SUCC(R9)
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PFM_MOPSCAN
+;++
+;2 PFM_MOPSCAN
+; Scans MOPBD for new addresses offering counts. Any found are added to 
+; the database.
+;--
+	TSTL	MOPMAPS
+	BNEQ	10$
+	PUSHAL	MOPMAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,10$
+
+        MOVL	#MSG_LANMON_NODB,MSGCDE      ; No ipc map
+	MOVL	#2,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	#SYS_PID_C_PSRMOP,(R1)+	     ; Mop db
+	MOVL	R0,(R1)                      ; MAP error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        RET
+10$:
+	MOVL	MOPMAPS,R11				; Top of table
+	ADDL3	#PSR_MOP_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	20$					
+	BRW	1000$				; br if None
+20$:
+; If counts offered and not disabled and not in DB then add.
+
+	BBS	#SYS_COM_V_DISCNT,COM_HDR_L_SYSCTL(R6),100$  ; Br if disabled
+	BBS	#SYS_COM_V_CNTDB,COM_HDR_L_SYSCTL(R6),100$  ; Br if in DB
+        BBC	#PSR_MOPFN_V_COUNT,PSR_MOP_W_FUNC(R6),100$  ; Br if no counts
+; Add to DB
+; Init rec
+	MOVAL	CNTREC_BUF,R10
+	MOVC5	#0,#0,#0,#CNTREC_SIZE,CNTREC_BUF
+	MOVL	#SYS_PID_C_PSRMOP,CPL_DB_L_PROT(R10)	; Protocol
+	MOVL	#6,CPL_DB_B24_ADDR(R10)			; Len
+	ADDL3	#CPL_DB_B24_ADDR,#4,R1
+	ADDL	R10,R1
+	MOVL	PSR_MOP_EA_ADDR(R6),(R1)              ; top long
+	MOVL	PSR_MOP_EA_ADDRLO(R6),2(R1)            ; lo long
+	MOVL	#1,CPL_DB_L_FUNC(R10)                                 ;
+	MOVL	#17,CPL_DB_L_TBLCNT(R10)				; Entry count
+; Skip entity - the addr uniquely ids each device
+; Init IDTBL
+	ADDL3	#CPL_DB_C_IDTBL,R10,R9
+	MOVL	#17,R10
+	MOVL	#DB_PRM_MOPCNT_BYTR,R7			; ist count
+30$:
+	MOVL	#DB_FAC_C_MOP ,CPL_DB_L_TABLE(R9)	; Table
+	MOVL	R7,CPL_DB_L_PARAM(R9)			; Param
+	ADDL	#CPL_DB_C_ENTSIZ,R9			; Next
+	INCL	R7					
+	SOBGTR	R10,30$
+	$PUT	RAB=CNTRRAB
+	BSBW	ERROR_CHK
+	BISL	#SYS_COM_M_CNTDB,COM_HDR_L_SYSCTL(R6)  ; Set in DB
+; Next mop entry
+100$:
+	ADDL	#PSR_MOP_C_RECSIZ,R6			; Next entry 
+	SOBGTR	R11,20$
+; Unmap
+	PUSHAL	MOPMAPS				; Map structure
+        CALLS	#1,G^UNMAPLVB_DB  
+1000$:
+        MOVL	#SS$_NORMAL,R0
+	RET
+
+ 	.END	EMU_CNTPOLL

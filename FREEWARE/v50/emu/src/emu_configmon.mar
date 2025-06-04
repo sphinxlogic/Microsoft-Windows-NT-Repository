@@ -1,0 +1,2359 @@
+        .title  EMU_CONFIGMON    
+        .ident  /V01-003/                   
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications
+; 01-002	PB	Jun-1997	Removed LAN protocols and
+;					created EMU_LANMON to update
+;					LAN protocols faster.
+; 01-003	PB	Aug-1999	Changed SNMP processing to 
+;					check any node we have got adj from
+;					in the past to check again on every
+;					cycle.
+;++
+;1 EMU_CONFIGMON
+; This routine polls the network using all implemented WAN protocols
+; to:
+;	Build the database
+;	Update the database
+;	Determine any param changes and alert
+; The data is gathered through polling using the appropriate routines.
+;
+;--
+
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	$NMADEF
+	$LATDEF
+	EMUSNMPDEF
+	EMUSYSDEF
+	EMURLTDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUCNTDEF
+	EMUCMIPDEF
+	EMUDBDEF
+	EMUDN4DEF
+	EMUIPCDEF
+	EMUMOPDEF
+	EMUMSGDEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+THIS_PROCESS = SYS_PID_C_CONFIGMON
+
+
+RETURN:		.BLKB	8192
+RETURN_D:	
+RETLEN:		.LONG	.-RETURN
+		.ADDRESS  RETURN
+OLDP_BUFF:	.BLKB	DB_REC_C_MRS		; Return old val here on change
+OLDP_DESC:	.LONG	.-OLDP_BUFF
+		.ADDRESS  OLDP_BUFF
+NSAP_BUF:	.BLKB	48
+NSAP_DESC:	.LONG	.-NSAP_BUF
+		.ADDRESS  NSAP_BUF
+NAMEDESC:	.QUAD   0
+TEMPDESC:	.QUAD	0
+RESTIME:	.QUAD	0
+INTIME:         .QUAD	0
+INTLTIM:	.QUAD   0
+DADDR:		.QUAD	0
+INTIM_D:	.LONG	16
+		.ADDRESS  INTIM
+INTIM:		.ASCII	/0000 00:30:00.00/      ; Wait interval
+; Buffer to return changed params
+CPBUF:		.BLKB	DB_REC_C_MRS
+CPBUF_DESC:	.LONG	.-CPBUF
+		.ADDRESS  CPBUF
+
+ALERT_BUFF:	.BLKB	512
+
+       
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+INADDR:		.QUAD	0
+MIBSEC_A:	.QUAD	0
+TBLPARMS:	.QUAD	0
+CURMIB:		.LONG	0
+SETMIB:		.LONG	0
+MIBFILIDX:	.BYTE	7,0,0,2,2,0,0,3		; Key of MIB file records
+;			        ^ This digit is the mib number
+;
+DN4MAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN4
+		.LONG	PSR_DN4_W_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN4DB
+		.ADDRESS EMU_PSRDN4
+;
+;
+DN5MAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN5
+		.LONG	PSR_DN5_B20_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN5DB
+		.ADDRESS EMU_PSRDN5
+
+;
+IPMAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIP
+		.LONG	PSR_IP_L_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPDB
+		.ADDRESS EMU_PSRIP
+
+
+CONTROL_A:	.QUAD	0
+PSRTBL_A:	.QUAD   0
+COUNTERS_A:	.QUAD	0
+
+CRCDESC:	.QUAD	0
+CRCINIT:	.LONG	0
+CRCPOLY:	.LONG  ^O120001
+CRCTBL:		.BLKL	16	
+WAIT_INTERVAL1:	.FLOAT	10.0
+WAIT_INTERVAL:	.FLOAT	1800.0
+; Lock Names
+EMU_IPDB:	
+		.ASCID	\EMU_IPDB\            ; Lock name
+EMU_DN5DB:	
+		.ASCID	\EMU_DN5DB\            ; Lock name
+EMU_DN4DB:	
+		.ASCID	\EMU_DN4DB\            ; Lock name
+; Section names
+EMU_PSRIP:	
+		.ASCID	\EMU_PSRIP\  		; Section name
+EMU_PSRDN5:	
+		.ASCID	\EMU_PSRDN5\  		; Section name
+EMU_PSRDN4:	
+		.ASCID	\EMU_PSRDN4\  		; Section name
+
+EFLAGS1:		.ASCID	/EFLAGS1/	; Event Flag Cluster (64-95)
+EFLAGS2:		.ASCID	/EFLAGS2/	; Event Flag Cluster (96-127)
+
+	.ALIGN	LONG
+;
+HIORD:	    	.BYTE	^XAA,^X00,^X04,^X00
+RLTCXT:		.LONG
+COUNT:		.LONG
+CONTEXT:	.LONG
+WRITE_OPTS:	.LONG	<DB_OPT_M_RETURN!DB_OPT_M_SETUPD>	
+; temp - move to section
+PSRTBLCNT:	.LONG	0		; Count of psr table entries
+; Error Log
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/CFGMON/
+
+
+
+;Protocol names
+MOP_PROT:	.ASCIC	/MOP/
+OSI_PROT:	.ASCIC	/OSI/
+DN4_PROT:	.ASCIC	/DN4/
+LAT_PROT:	.ASCIC	/LAT/
+IP_PROT:	.ASCIC	/IP /
+ETH_PROT:	.ASCIC	/ETH/
+
+	.ALIGN	LONG
+EXIT_STATUS:	.LONG	0
+EXIT_BLOCK:	.LONG	0
+		.ADDRESS EMU_CONFIGMON_EXIT
+		.LONG	1
+		.ADDRESS EXIT_STATUS
+KEY_BUF:
+PROTO:		.LONG
+BOXID:		.LONG
+TBL:		.LONG
+INSTANCE:	.LONG
+PARAM:		.LONG
+KEYSPR:		.LONG
+DN4FUNCTBL:
+	.LONG	0
+DN5FUNCTBL:
+	.LONG	DB_FAC_C_DN5_NODE		
+	.LONG	DB_FAC_C_DN5_ALIAS		
+	.LONG	DB_FAC_C_DN5_ALIASPORT		
+	.LONG	DB_FAC_C_DN5_CSMACD		
+	.LONG	DB_FAC_C_DN5_CSMACDSTN		
+	.LONG	DB_FAC_C_DN5_DDCMP		
+	.LONG	DB_FAC_C_DN5_DDCMP_LNK		
+	.LONG	DB_FAC_C_DN5_DDCMP_LNKSTN	
+	.LONG	DB_FAC_C_DN5_DEVICE		
+	.LONG	DB_FAC_C_DN5_DEVICE_UNIT	
+	.LONG	DB_FAC_C_DN5_DNS		
+	.LONG	DB_FAC_C_DN5_DNS_SERV		
+	.LONG	DB_FAC_C_DN5_DNS_SERV_CH	
+	.LONG	DB_FAC_C_DN5_DNS_CLRK		
+	.LONG	DB_FAC_C_DN5_DNS_CLRK_KNS	
+	.LONG	DB_FAC_C_DN5_DNS_CLRK_RCH	
+	.LONG	DB_FAC_C_DN5_DNS_CLRK_MNS	
+	.LONG	DB_FAC_C_DN5_DTS		
+	.LONG	DB_FAC_C_DN5_DTS_GBLSRV		
+	.LONG	DB_FAC_C_DN5_DTS_LOCSRV		
+	.LONG	DB_FAC_C_DN5_EVD		
+	.LONG	DB_FAC_C_DN5_EVD_OS		
+	.LONG	DB_FAC_C_DN5_EVD_REL		
+	.LONG	DB_FAC_C_DN5_EVD_RECLOG		
+	.LONG	DB_FAC_C_DN5_EVD_SNK		
+	.LONG	DB_FAC_C_DN5_EVD_SNKIS		
+	.LONG	DB_FAC_C_DN5_FRAME		
+	.LONG	DB_FAC_C_DN5_FRAME_LINK		
+	.LONG	DB_FAC_C_DN5_HDLC		
+	.LONG	DB_FAC_C_DN5_HDCL_LNK		
+	.LONG	DB_FAC_C_DN5_HDLC_LNKLS		
+	.LONG	DB_FAC_C_DN5_LAPB		
+	.LONG	DB_FAC_C_DN5_LAPB_LINK		
+	.LONG	DB_FAC_C_DN5_LLC2		
+	.LONG	DB_FAC_C_DN5_LLC2_SAP		
+	.LONG	DB_FAC_C_DN5_LLC2_SAPLNK	
+	.LONG	DB_FAC_C_DN5_LOOPBACK		
+	.LONG	DB_FAC_C_DN5_MODEM		
+	.LONG	DB_FAC_C_DN5_MODEM_LINE		
+	.LONG	DB_FAC_C_DN5_MOP		
+	.LONG	DB_FAC_C_DN5_MOP_CIRC		
+	.LONG	DB_FAC_C_DN5_MOP_CIRCOP		
+	.LONG	DB_FAC_C_DN5_MOP_CIRCSTN	
+	.LONG	DB_FAC_C_DN5_MOP_CLIENT		
+	.LONG	DB_FAC_C_DN5_NSP		
+	.LONG	DB_FAC_C_DN5_NSP_LNSAP		
+	.LONG	DB_FAC_C_DN5_NSP_RNSAP		
+	.LONG	DB_FAC_C_DN5_OSIT		
+	.LONG	DB_FAC_C_DN5_OSIT_APP		
+	.LONG	DB_FAC_C_DN5_OSIT_LNSAP		
+	.LONG	DB_FAC_C_DN5_OSIT_RNSAP		
+	.LONG	DB_FAC_C_DN5_TEMPL		
+	.LONG	DB_FAC_C_DN5_RTN		
+	.LONG	DB_FAC_C_DN5_RTN_CIRC		
+	.LONG	DB_FAC_C_DN5_RTN_CRICADJ	
+	.LONG	DB_FAC_C_DN5_RTN_CIRCIPAT	
+	.LONG	DB_FAC_C_DN5_RTN_CIRCIPAJ	
+	.LONG	DB_FAC_C_DN5_RTN_CIRCIPRA	
+	.LONG	DB_FAC_C_DN5_RTN_CIRCRA		
+	.LONG	DB_FAC_C_DN5_RTN_DESTAREA	
+	.LONG	DB_FAC_C_DN5_RTN_DESNNODE	
+	.LONG	DB_FAC_C_DN5_RTN_EGPGRP		
+	.LONG	DB_FAC_C_DN5_RTN_EGPNEI		
+	.LONG	DB_FAC_C_DN5_RTN_IPDA		
+	.LONG	DB_FAC_C_DN5_RTN_PERNEI		
+	.LONG	DB_FAC_C_DN5_SC			
+	.LONG	DB_FAC_C_DN5_SC_APP   		
+	.LONG	DB_FAC_C_DN5_SC_TOWMAINT	
+	.LONG	DB_FAC_C_DN5_SC_TRASVC		
+	.LONG	DB_FAC_C_DN5_X25A		
+	.LONG	DB_FAC_C_DN5_X25A_APP		
+	.LONG	DB_FAC_C_DN5_X25A_DTECLASS	
+	.LONG	DB_FAC_C_DN5_X25A_FILT		
+	.LONG	DB_FAC_C_DN5_X25A_SECDTE	
+	.LONG	DB_FAC_C_DN5_X25A_REMDTE	
+	.LONG	DB_FAC_C_DN5_X25A_RA		
+	.LONG	DB_FAC_C_DN5_X25A_SECFILT	
+	.LONG	DB_FAC_C_DN5_X25A_TEMPL		
+	.LONG	DB_FAC_C_DN5_X25C		
+	.LONG	DB_FAC_C_DN5_X25P		
+	.LONG	DB_FAC_C_DN5_X25P_DTE		
+	.LONG	DB_FAC_C_DN5_X25P_DTEPVC	
+	.LONG	DB_FAC_C_DN5_X25P_GRP		
+	.LONG	DB_FAC_C_DN5_FDDI		
+	.LONG	DB_FAC_C_DN5_FDDI_STN		
+	.LONG	DB_FAC_C_DN5_FDDI_PORT		
+	.LONG	0
+;
+; Files
+	.ALIGN	LONG
+;
+MIBFAB:	$FAB  	DNA = MIBDFILE,-		;Def filtype
+		DNS = MIBDFILELEN,- 
+		FAC = <GET>,-		; Access
+		SHR = <UPI>,-
+		FOP = UFO,-		; User file open
+		MRS = MC_MIBT_C_RECSIZE 	;Max record size
+MIBDFILE:	.ASCII	/EMU5_MIB:RFC1213-MIB-II.MC2/
+MIBDFILELEN = .- MIBDFILE
+
+	.ALIGN	LONG
+MAPPERFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		FOP = CIF,-			; Create if doesn't exist
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <EMU5_DAT:MAPPER.DAT>,-	; Default Filename 
+		FNM = <MAPPER>,-			; Filename 
+		XAB = MAPPERXAB0                  ; Keys
+
+MAPPERRAB:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = MAPPERREC_BUF,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = MAPPERREC_BUF,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		KBF = MAPPER_KEY,-			; Key location
+		KSZ = 8
+
+MAPPERXAB0:	$XABKEY	REF = 0,-  		; TBL,PARAM
+		DTP = BN8,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+		NXT = MAPPERXAB1
+
+MAPPERXAB1:	$XABKEY	REF = 1,-  	; TBL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+;
+MAPPERREC_BUF:	
+MAPPER_KEY:
+MAPPER_TBL:		.LONG	0	; Table 
+MAPPER_PARAM:		.LONG	0	; Paramater
+			.BLKB	120	; Rest
+MAPPERREC_SIZE = .-MAPPERREC_BUF        ; = 128
+
+
+
+;
+; Misc
+	.ALIGN	LONG
+CUROBJ:		.LONG	0
+COMSTRING:	.LONG	0		; Use only 'public' 
+CYCLCNT:	.LONG	0
+PCNT:		.LONG	0
+RECCNT:		.LONG	0
+UPDFLG:		.LONG	0
+; Following is used to propogate IP address to EMUDB when no ans from SNMP
+IPADDRBLK:	.BYTE	^X40,^X04
+IPADDR_ADDR:	.LONG
+IPADDRBLK_DESC: .LONG	.-IPADDRBLK
+		.ADDRESS  IPADDRBLK
+MIB_ENTRY:
+                .LONG   ^X01062B0A  
+         	.LONG   ^X14040102 
+                .LONG   ^X00000101 
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+
+		.LONG	^X00000000
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+
+		.LONG	^X4170690B
+ 		.LONG	^X746E4564
+ 		.LONG	^X72646441
+ 		.LONG	^X20202020
+ 		.LONG	^X20202020
+ 		.LONG	^X20202020
+ 		.LONG	^X20202020
+ 		.LONG	^X20202020
+
+		.LONG	^X20202020
+ 		.LONG	^X20202020
+ 		.LONG	^X20202020
+ 		.LONG	^X20202020
+ 		.LONG	^X20202020
+ 		.LONG	^X20202020
+ 		.LONG	^X20202020
+ 		.LONG	^X20202020
+
+		.LONG	^X00000040
+		.LONG	^X00000001
+ 		.LONG	^X00000004
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+ 		.LONG	^X00000000
+
+
+
+
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=EMU_CONFIGMON
+
+
+; Ensure death if control process dies
+	calls	#0, g^get_control_lock	; 
+	BLBS	R0,10$
+	PUSHL	R0
+	CALLS	#1,G^FATAL_CFM_ERROR_CHK
+        RET
+10$:
+; 
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	calls	#0, g^asn_tempmbx_system
+	BLBS	R0,40$
+	PUSHL	R0
+	CALLS	#1,G^FATAL_CFM_ERROR_CHK
+        RET
+40$:
+;	
+; Create and Map to sections 
+;
+
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	PUSHL	R0
+	CALLS	#1,G^FATAL_CFM_ERROR_CHK
+	pushal	control_a		; Control section return addresses
+	calls	#1, g^map_control	; Create and map control section
+	PUSHL	R0
+	CALLS	#1,G^FATAL_CFM_ERROR_CHK
+
+; Declare exit handler
+	$DCLEXH_S DESBLK=EXIT_BLOCK	; 
+	PUSHL	R0
+	CALLS	#1,G^FATAL_CFM_ERROR_CHK		; 
+
+; Flags
+	$ASCEFC_S	EFN = #64,-
+			NAME = EFLAGS1
+	PUSHL	R0
+	CALLS	#1,G^FATAL_CFM_ERROR_CHK		; 
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	PUSHL	R0
+	CALLS	#1,G^FATAL_CFM_ERROR_CHK		; 
+
+; Create CRC table for later input to CRC generation
+	PUSHAL	CRCTBL
+	PUSHAL	CRCPOLY		;  16 bit 
+	CALLS	#2,G^LIB$CRC_TABLE
+; No condition value returned
+; Wait for 1 cycle to begin:
+	BRW	END_CYCLE
+START:
+; Here at begining of each cycle
+   	ADDL3	#96,#SYS_PID_C_CONFIGMON,-(SP)	; CLear run flag
+	CALLS	#1,G^SYS$CLREF
+
+	MOVL	COUNTERS_A,R9
+	MOVL	#CNT_STA_C_RUN,CNT_CFG_L_STATE(R9)	; State = run
+SNMP:
+;++
+;2 SNMP
+; Polls using SNMP over UDP(IP) any address found in IPDB
+;--
+	MOVAL	ALERT_BUFF,R1
+	MOVL	#SYS_PID_C_PSRIP,ALT_MSG_L_DBPID(R1)
+	MOVL	#SYS_PID_C_CONFIGMON,ALT_MSG_L_PID(R1)	; Sender is  LANMON
+
+	TSTL	IPMAPS
+	BNEQ	1$
+	PUSHAL	IPMAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,1$
+	BRW	1000$
+1$:
+	MOVL	IPMAPS,R11		; Top of table
+	ADDL3	#PSR_IP_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	#SYS_PID_C_PSRIP,CNT_CFG_L_CURDB(R9) 	; Set DB
+	MOVL	COM_DBHDR_L_ENTRIES(R11),CNT_CFG_L_ENTRIES(R9) 
+	CLRL	CNT_CFG_L_ENTRY(R9) 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	BRW	100$				; br if None
+10$:
+	INCL	CNT_CFG_L_ENTRY(R9) 
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),100$	; Br if deleted
+20$:
+; Check if time to poll
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_CHECK_TIME
+	BLBS	R0,50$
+30$:
+; Update this box
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_UPDATE_SNMP
+	MOVL	R0,R2				; Save status
+	PUSHAL	IPMAPS				; All with this boxid
+	PUSHL	R6
+	PUSHL	R0
+	CALLS	#3,G^CONFIGMON_UPDATE_HEADER
+	BLBC	R2,100$				; If bad upd status then skip
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_IPADJ
+	BRW	100$
+50$:
+	TSTL	COM_CFG_L_ADJCNT(R6)   		; If we have found nodes here..
+	BEQL	100$
+	PUSHL	R6                              ; Then see if we can get more
+	CALLS	#1,G^CONFIGMON_IPADJ
+
+100$:
+	ADDL	#PSR_IP_C_RECSIZ,R6		; Next entry
+	SOBGTR	R11,10$
+1000$:
+DN4:
+;++
+;2 DN4
+; Polls using NICE any address found in DN4DB.
+;--
+; STRANGE PROBLEM::
+; Something in SNMP update is overwriting following locations
+; Until I can determine...
+ 	MOVAL	EMU_DN4DB,DN4MAPS+24
+	MOVAL	EMU_PSRDN4,DN4MAPS+28
+ 
+	MOVAL	ALERT_BUFF,R1
+	MOVL	#SYS_PID_C_PSRDN4,ALT_MSG_L_DBPID(R1)
+	MOVL	#SYS_PID_C_CONFIGMON,ALT_MSG_L_PID(R1)	; Sender is  LANMON
+
+	TSTL	DN4MAPS
+	BNEQ	1$
+	PUSHAL	DN4MAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+
+	BLBS	R0,1$
+	BRW	1000$
+1$:
+	MOVL	DN4MAPS,R11		; Top of table
+	MOVL	#SYS_PID_C_PSRDN4,CNT_CFG_L_CURDB(R9) 	; Set DB
+	MOVL	COM_DBHDR_L_ENTRIES(R11),CNT_CFG_L_ENTRIES(R9) 
+	CLRL	CNT_CFG_L_ENTRY(R9) 
+	ADDL3	#PSR_DN4_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	BRW	100$				; br if None
+10$:
+	INCL	CNT_CFG_L_ENTRY(R9) 
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),100$	; Br if deleted
+20$:
+; Check if time to poll
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_CHECK_TIME
+
+	BLBS	R0,100$
+30$:
+; Update this box
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_UPDATE_DECNET
+	MOVL	R0,R2
+	PUSHL	R6
+	PUSHL	R0
+	CALLS	#2,G^CONFIGMON_UPDATE_HEADER
+	BLBC	R2,100$				; If bad upd status then skip
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_DN4ADJ
+	
+100$:
+	ADDL	#PSR_DN4_C_RECSIZ,R6		; Next entry
+	SOBGTR	R11,10$
+1000$:
+OSI:
+;++
+;2 OSI
+; Polls using DNA CMIP any address found in DN5DB which:
+;	Is Phase IV compatible
+;	Has either NSP or 0 as  transport selector
+;--
+	MOVL	COUNTERS_A,R9
+	MOVAL	ALERT_BUFF,R1
+	MOVL	#SYS_PID_C_PSRDN5,ALT_MSG_L_DBPID(R1)
+	MOVL	#SYS_PID_C_CONFIGMON,ALT_MSG_L_PID(R1)	; Sender is  LANMON
+
+	TSTL	DN5MAPS
+	BNEQ	1$
+;*** Something is overwritting this: until I can find it...
+	MOVL	#SYS_PID_C_PSRDN5,DN5MAPS+8
+	MOVL	#PSR_DN5_B20_ADDR,DN5MAPS+12
+	MOVAL	EMU_DN5DB,DN5MAPS+24
+	MOVAL	EMU_PSRDN5,DN5MAPS+28
+;***
+
+	PUSHAL	DN5MAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,1$
+	BRW	1000$
+1$:
+	MOVL	DN5MAPS,R11		; Top of table
+	ADDL3	#PSR_DN5_C_RECSIZE,R11,R6		; 1st entry 
+	MOVL	#SYS_PID_C_PSRDN5,CNT_CFG_L_CURDB(R9) 	; Set DB
+	MOVL	COM_DBHDR_L_ENTRIES(R11),CNT_CFG_L_ENTRIES(R9) 
+	CLRL	CNT_CFG_L_ENTRY(R9) 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	BRW	100$				; br if None
+10$:
+	INCL	CNT_CFG_L_ENTRY(R9) 
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),100$	; Br if deleted
+; Deternmine if this address is a candidate.
+; if the last 7 digits of the address match :
+; AA-00-04-00-xx-xx-21 (xx = dont care)
+; then select this addr
+       	SUBL3	#7,COM_HDR_L_LEN(R6),R1	; Offset to last 7
+	ADDL3	#PSR_DN5_B20_ADDR,R6,R2         ; Addr
+	ADDL	R1,R2				; 
+	CMPL	(R2),HIORD
+	BNEQU	100$
+	CMPB	6(R2),#OSI_SEL_NSP
+	BEQL	20$
+	TSTB	6(R2)
+	BNEQ	100$
+20$:
+; Check if time to poll
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_CHECK_TIME
+
+
+	BLBS	R0,100$
+30$:
+; Update this box
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_UPDATE_OSI
+	MOVL	R0,R2
+	PUSHAL	DN5MAPS				; All with this boxid
+	PUSHL	R6
+	PUSHL	R0
+	CALLS	#3,G^CONFIGMON_UPDATE_HEADER
+; Always get adjacencies
+	PUSHL	R6
+	CALLS	#1,G^CONFIGMON_DN5ADJ
+100$:
+	ADDL	#PSR_DN5_C_RECSIZE,R6		; Next entry
+	SOBGTR	R11,1010$
+1000$:
+        BRW	END_CYCLE
+1010$:
+	BRW	10$
+; 
+END_CYCLE:
+; Determine how long to wait to start cycle again.
+; For now, simply wait 30 min and restart. In future this will be 
+; a calc based on number of updates this cycle, how long cycle 
+; took and so on.
+   	ADDL3	#96,#SYS_PID_C_CONFIGMON,-(SP)	; CLear run flag
+	CALLS	#1,G^SYS$SETEF
+	MOVL	COUNTERS_A,R9
+	MOVL	#CNT_STA_C_WAT,CNT_CFG_L_STATE(R9)	; State = WAIT
+; Set time to restart
+	$BINTIM_S-	
+		TIMBUF=INTIM_D,-
+		TIMADR=INTLTIM
+	ADDL3	#CNT_CFG_Q_STTIME,R9,-(SP)
+	PUSHAL  INTLTIM
+	PUSHAL	EXE$GQ_SYSTIME
+	CALLS	#3,G^LIB$ADD_TIMES
+
+
+	PUSHAL	WAIT_INTERVAL
+	CALLS	#1,G^LIB$WAIT
+	BRW	START
+
+
+; Subroutines
+        .CALL_ENTRY     MAX_ARGS=1, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_DN4ADJ
+;++
+;2 CONFIGMON_DN4ADJ 
+; Get all currently active DECnet nodes from  this box (IP) and ensure
+; they exist in the DN4 database.
+;3 Inputs
+; Record address
+;3 Outputs
+;  Any address found and not in PSRDN4db is added.
+; Record is updated with count of addresses added. This field may be 
+; useful in future when algorithm will determine the usefulness of 
+; getting this info from this node.
+; Any errors detected are written to error log
+;3 Returns
+; SS$_NORMAL		Update succesful
+;  Any from DN4ACTNOD, LOCATE_PSRREC
+;-- 
+	MOVL	4(AP),R6
+; Get nodes from  this box
+	MOVL	#8192,RETURN_D
+	PUSHAL	COUNT
+	PUSHAL	RETURN_D                	; Output block
+	MOVZWL	PSR_DN4_W_ADDR(R6),-(SP)        ; Node number
+	CALLS	#3,G^DN4ACTNOD
+	BLBS	R0,50$
+	RET
+50$:
+	TSTL	COUNT
+	BNEQ	60$
+	RET
+60$:
+	MOVAL	RETURN,R4
+65$:
+        CLRL	BOXID
+	PUSHL	#1			; Create if not found
+	PUSHL	#SYS_PID_C_PSRDN4     	; This process is creator
+	PUSHAL	BOXID       		; BOXID - always = 0
+	PUSHAL	DN4MAPS			; Section
+	PUSHL	R4			; Addr of DN4 addr	
+	PUSHL	#PSR_DN4_W_ADDR        ; Offset to addr
+	PUSHL	#2	        	; Push len
+	CALLS	#7,G^LOCATE_PSRREC
+	BLBS	R0,70$
+	RET
+70$:
+	CMPL	R0,#SS$_CREATED
+	BNEQ	80$
+        INCL	COM_CFG_L_ADJCNT(R6)	; Count node found here
+
+; Ensure relater knows...
+	CLRL	RLTCXT 			; Start with new frame
+	ADDL3	#PSR_DN4_W_ADDR,R1,-(SP)	; Our addr   
+	PUSHL	#2			; Len of our addr
+  	PUSHL	#SYS_PID_C_PSRDN4	; Add DN4 address 
+	PUSHL	#SYS_PID_C_PSRDN4		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R1,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBC	R0,80$
+
+  	PUSHL	RLTCXT                  ; Context (Addr of buffer)
+	CALLS	#1,G^SEND_RELATER_FRAME
+
+	
+; Log created node
+        MOVL	#MSG_NODSCN_ADDDN4,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVZWL	(R4),DADDR
+ 	EDIV	#1024,DADDR,R2,R3
+	MOVL	R2,(R1)+                     ; Area
+	MOVL	R3,(R1)                      ; Node
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+80$:
+	ADDL	#2,R4
+	SOBGTR	COUNT,90$
+	MOVL	#SS$_NORMAL,R0
+	RET
+90$:
+	BRW	65$
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_DN5ADJ
+;++
+;2 CONFIGMON_DN5ADJ 
+; Get all current adjacencies on this box (OSI) and ensure
+; they exist in the DN5 database.
+;3 Inputs
+; Record address
+;3 Outputs
+;  Any address found and not in PSRDN5db is added.
+; Record is updated with count of addresses added. This field may be 
+; useful in future when algorithm will determine the usefulness of 
+; getting this info from this node.
+; Any errors detected are written to error log
+;3 Returns
+; SS$_NORMAL		Update succesful
+;  Any from GETDN5ADJ, LOCATE_PSRREC
+;-- 
+	MOVL	4(AP),R6
+; Update this box
+       	SUBL3	#7,COM_HDR_L_LEN(R6),R1		; Offset to last 7
+	ADDL3	#PSR_DN5_B20_ADDR,R6,R2         ; Addr
+	ADDL	R1,R2				; 
+
+
+	PUSHAL	COUNT
+	PUSHAL	RETURN_D
+	MOVZWL	4(R2),-(SP)				; Node
+	CALLS	#3,G^GETDN5ADJ
+; Ignore any error - if any adjacencies returned then process.
+	TSTL	COUNT
+	BNEQ	50$
+	RET
+50$:
+	MOVAL	RETURN,R4
+60$:
+	ADDL3	#DN5ADJ_B24_NET,R4,R3	; Addr of NET (Counted string)
+	MOVZBL	(R3)+,R2                ; Len of string 
+	CLRL	BOXID
+
+	PUSHL	#1			; Create if not found
+	PUSHL	#SYS_PID_C_PSRDN5     	; This process is creator
+	PUSHAL	BOXID       		; BOXID - always = 0
+	PUSHAL	DN5MAPS			; Section
+	PUSHL	R3			; Addr of DN5 addr	
+	PUSHL	#PSR_DN5_B20_ADDR       ; Offset to addr
+	PUSHL	R2	        	; Push len
+	CALLS	#7,G^LOCATE_PSRREC
+	BLBS	R0,70$
+	RET
+70$:
+	MOVL	R1,R8			; Save addr
+	CMPL	R0,#SS$_CREATED
+	BEQL	75$
+	BRW	80$
+75$:
+        INCL	COM_CFG_L_ADJCNT(R6)	; Count node found here
+; Ensure relater knows...
+	CLRL	RLTCXT 			; Start with new frame
+	PUSHL	R3			; Our addr   
+	PUSHL	R2			; Len of our addr
+  	PUSHL	#SYS_PID_C_PSRDN5	; Add DN5 address 
+	PUSHL	#SYS_PID_C_PSRDN5		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R1,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,76$
+	BRW	80$
+76$:
+; Check if decnet IV
+	ADDL3	#PSR_DN5_B20_ADDR,R8,R1	; NSAP
+        CMPL    HIORD,3(R1)             ; if bytes 3-6 = aa-00-04-00 = decnet
+        BNEQU   77$                     ; Br if not decnet
+        BBS     #SYS_PID_C_PSRDN4,COM_HDR_L_PTYBITS(R8),77$  
+	ADDL	#7,R1			; get decnet addr
+	PUSHL	R1			; Addr of decnet
+	PUSHL	#2			; Len of decnet addr
+  	PUSHL	#SYS_PID_C_PSRDN4	; Add decnet address
+	PUSHL	#SYS_PID_C_PSRDN5		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+; This an ethernet frame
+77$:
+        BBS     #SYS_PID_C_PSRETH,COM_HDR_L_PTYBITS(R8),79$  
+	ADDL3	#PSR_DN5_B20_ADDR,R8,R1	; NSAP
+	ADDL3	#3,R1,-(SP)		; Ethernet
+	PUSHL	#6			; Len of Ethernet addr
+  	PUSHL	#SYS_PID_C_PSRETH	; Add Ethernet address
+	PUSHL	#SYS_PID_C_PSRDN5		; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+
+79$:
+  	PUSHL	RLTCXT                  ; Context (Addr of buffer)
+	CALLS	#1,G^SEND_RELATER_FRAME
+	CLRL	RLTCXT			; Saftey - do no reuse
+
+; Log created node
+; Translate NSAP here - can't do it in error logger
+	MOVL	#48,NSAP_DESC
+	PUSHAL	NSAP_DESC
+	PUSHL	R3
+	PUSHL	R2
+	CALLS	#3,G^XLATE_NSAP
+						; Log regardless of xlate res
+
+        MOVL	#MSG_NODSCN_ADDDN5,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVAL	NSAP_DESC,(R1)                ; xlated nsap
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+80$:
+	ADDL	#DN5ADJ_C_BLKSIZ,R4
+	SOBGTR	COUNT,90$
+	MOVL	#SS$_NORMAL,R0
+	RET
+90$:
+	BRW	60$
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_IPADJ
+;++
+;2 CONFIGMON_IPADJ 
+; Get all current addresses connected to this box (IP) and ensure
+; they exist in the IP database.
+;3 Inputs
+; Record address
+;3 Outputs
+;  Any address found and not in PSRIPdb is added.
+; Record is updated with count of addresses added. This field may be 
+; useful in future when algorithm will determine the usefulness of 
+; getting this info from this node.
+; Any errors detected are written to error log
+;
+; The count of addresses received from the node is recorded in the PSR header
+; and used to indicate that this node is a source of other addresses. It 
+; causes this node to be polled for addresses only on each cycle.
+;3 Returns
+; SS$_NORMAL		Update succesful
+;  Any from SNMP_GET_ADJNODES, LOCATE_PSRREC
+;-- 
+	MOVL	4(AP),R6
+; Get nodes from  this box
+	MOVL	#8192,RETURN_D
+	PUSHAL	COUNT
+	PUSHAL	RETURN_D                	; Output block
+	ADDL3	#PSR_IP_L_ADDR,R6,-(SP)        ; Node number
+	CALLS	#3,G^SNMP_GET_ADJNODES
+	BLBS	R0,50$
+; log error
+;        MOVL	#MSG_NODSCN_IPERR,MSGCDE    ; General VMS error
+;	MOVL	#5,PARCNT                    ; 2 params
+;	MOVAL	MSGPARAMS,R1                 ; Plist
+;	ADDL3	#PSR_IP_L_ADDR,R6,R4        ; Node number
+;	MOVZBL	(R4),(R1)+
+;	MOVZBL	1(R4),(R1)+
+;	MOVZBL	2(R4),(R1)+
+;	MOVZBL	3(R4),(R1)+
+;	MOVL	R0,(R1)
+;	PUSHAL	ERRORMSG                     ; Log it
+;	CALLS	#1,G^EMU_LOGGER
+;	RET
+50$:
+	TSTL	COUNT
+	BNEQ	60$
+	RET
+60$:
+        MOVL	COUNT,COM_CFG_L_ADJCNT(R6)   	; Indicate good source here
+; log error
+;        MOVL	#MSG_NODSCN_IPCNT,MSGCDE    ; General VMS error
+;	MOVL	#5,PARCNT                    ; 2 params
+;	MOVAL	MSGPARAMS,R1                 ; Plist
+;	ADDL3	#PSR_IP_L_ADDR,R6,R4        ; Node number
+;	MOVZBL	(R4),(R1)+
+;	MOVZBL	1(R4),(R1)+
+;	MOVZBL	2(R4),(R1)+
+;	MOVZBL	3(R4),(R1)+
+;	MOVL	COUNT,(R1)
+;	PUSHAL	ERRORMSG                     ; Log it
+;	CALLS	#1,G^EMU_LOGGER
+
+	MOVAL	RETURN,R4
+65$:
+	MOVL	#4,TEMPDESC
+	MOVL	R4,TEMPDESC+4
+	PUSHL	#SYS_PID_C_PSRIP
+	PUSHAL	TEMPDESC
+	CALLS	#2,G^VERIFY_ADDRESS
+	BLBS	R0,68$
+	BRW	80$
+68$:
+
+
+        CLRL	BOXID
+	PUSHL	#1			; Create if not found
+	PUSHL	#SYS_PID_C_PSRIP   	; This process is creator
+	PUSHAL	BOXID       		; BOXID - always = 0
+	PUSHAL	IPMAPS			; Section
+	PUSHL	R4			; Addr of IP addr	
+	PUSHL	#PSR_IP_L_ADDR        ; Offset to addr
+	PUSHL	#4	        	; Push len
+	CALLS	#7,G^LOCATE_PSRREC
+	BLBS	R0,70$
+	RET
+70$:
+	CMPL	R0,#SS$_CREATED
+	BNEQ	80$
+; Ensure relater knows...
+	CLRL	RLTCXT 			; Start with new frame
+	ADDL3	#PSR_IP_L_ADDR,R1,-(SP)	; Our addr   
+	PUSHL	#4			; Len of our addr
+  	PUSHL	#SYS_PID_C_PSRIP	; Add IP address 
+	PUSHL	#SYS_PID_C_PSRIP  	; Identify sender
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R1,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBC	R0,80$
+
+  	PUSHL	RLTCXT                  ; Context (Addr of buffer)
+	CALLS	#1,G^SEND_RELATER_FRAME
+
+	
+; Log created node
+        MOVL	#MSG_NODSCN_ADDIP,MSGCDE    ; General VMS error
+	MOVL	#4,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVZBL	(R4),(R1)+
+	MOVZBL	1(R4),(R1)+
+	MOVZBL	2(R4),(R1)+
+	MOVZBL	3(R4),(R1)+
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+80$:
+	ADDL	#4,R4
+	SOBGTR	COUNT,90$
+	MOVL	#SS$_NORMAL,R0
+	RET
+90$:
+	BRW	65$
+
+
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+	                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_UPDATE_OSI 
+;++
+;2 CONFIGMON_UPDATE_OSI 
+; Update all OSI records for this boxid
+;3 Inputs
+; Record address
+;3 Outputs
+; EMUDB records
+; Alerts on any node unreachable or change(s) found
+; Record is updated with facilities, poll times, last response fields.
+; Any errors detected are written to error log
+;3 Returns
+; SS$_NORMAL		Update succesful
+; Any error from GETOSI (which see) 
+;-- 
+; AA-00-04-00-xx-xx-21 (xx = dont care)
+; then select this addr
+; Extract Phase IV address
+	MOVL	4(AP),R6
+	MOVL	COM_CFG_L_RESP(R6),UPDFLG	; Store Response count
+       	SUBL3	#7,COM_HDR_L_LEN(R6),R1		; Offset to last 7
+	ADDL3	#PSR_DN5_B20_ADDR,R6,R2         ; Addr
+	ADDL	R1,R2				; 
+	CLRL	CONTEXT
+; Loop here for all functions
+	MOVAL	DN5FUNCTBL,R11		; 1ST Function
+
+50$:	
+	INCL	COM_CFG_L_POLLS(R6)		; Count poll
+	MOVL	#8192,RETURN_D
+	PUSHAL	CONTEXT
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	(R11)		        ; Function
+	MOVZWL	4(R2),-(SP)             ; Node number
+	CALLS	#4,G^GETOSI
+	CMPL	R0,#SS$_NOTINSTALL      ; EMU does not provide this func (yet)
+	BEQLU	90$                     ; If so - then br
+	BLBS	R0,100$                 ; If data returned then br
+	CMPL	#SS$_UNREACHABLE,R0     ; If err is NOT unreachable ...
+	BNEQU	80$
+	RET
+80$:
+; This function is not enabled on this node. If it was enabled, raise alert.
+	SUBL3	#65536,(R11),R1
+	BBCC	R1,COM_CFG_B16_SUPPORT(R6),90$
+;; RAISE ALERT
+90$:
+	CLRL	CONTEXT
+	ADDL	#4,R11
+	TSTL	(R11)
+	BNEQ	50$
+	CMPL	COM_CFG_L_RESP(R6),UPDFLG	; Check Response count
+        BEQLU	95$                             ; Br if no new data
+
+;	PUSHL	4(AP)				; Rec addr
+;	CALLS	#1,G^CONFIGMON_CHECK_FOR_DELETE
+95$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+; Paramater 0 is always a unique name identifying this instance if
+; multiple instances are present for this entity.
+; For now, we make the ASSUMPTION that this is always returned 1st.
+100$:
+; This function is enabled on this node. If it was not enabled and this 
+; is not init load,  raise alert.
+	INCL	COM_CFG_L_RESP(R6)		; Count Response
+	CMPL	R0,#SS$_NOMOREITEMS    	; End of data?
+	BNEQU	105$                    ; Br if not
+        BRW	90$			; Done this table
+105$:
+	SUBL3	#65536,(R11),R1
+	BBSS	R1,COM_CFG_B16_SUPPORT(R6),110$
+	TSTL	COM_CFG_Q_LASUPD(R6)
+	BEQL    110$			; Br if no time
+;; RAISE ALERT - NEWLY ENABLED
+110$:
+	MOVQ	RETURN_D,R8
+; crc this instance
+; Use the entire primative (tag,len,val)
+	ADDL3	#ECP_GPR_C_PLST,R9,R1		; Address 
+; Make desc
+	ADDL3	#8,ECP_GPR_L_PLEN(R1),CRCDESC	; Len of data		
+	MOVL	R1,CRCDESC+4	 		; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	MOVL	#SYS_PID_C_PSRDN5,PROTO		; Protocol
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+	MOVL	(R11),TBL        			; Table
+	MOVL	COM_HDR_L_BOXID(R6),BOXID       ; 
+
+; CHeck/Store param
+120$:
+	TSTL	ECP_GPR_L_TLEN(R9) 
+	BNEQ    130$
+	BRW	200$				; Ignore if len = 0
+130$:
+; Do not store counter data here
+	CMPW	#CML_TAG_APP_COUNTER64,ECP_GPR_1ST_W_TVAL(R9)
+	BEQLU	140$
+; Add other checks here
+	BRW	150$
+140$:
+	BRW	200$				; Ignore
+150$:
+
+
+; Calc len of data
+; Make desc to write this param
+       	SUBL3	#ECP_GPR_L_PCNT,ECP_GPR_L_TLEN(R9),CRCDESC	; Len
+	ADDL3	#ECP_GPR_C_PLST,R9,CRCDESC+4			; Addr	
+        MOVL	ECP_GPR_L_PARAM(R9),PARAM                       ; Set param
+
+        MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	CMPL	R0,#SS$_NORMAL 			
+	BEQL	210$
+	BLBS	R0,200$
+160$:	
+        MOVL	#MSG_CFGMON_WRITDB,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	210$
+200$:
+	CMPL	#SS$_BUFFEROVF,R0
+	BEQLU	160$
+
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	R6
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+
+
+210$:
+; Next paramater
+	MOVL	ECP_GPR_L_TLEN(R9),R1        	; Len of data
+	ADDL	#4,R1                           ; Distance to next param
+	ADDL	R1,R9                           ; MOve pointer
+	SUBL	R1,R8                           ; Deduct processed
+	BGTR	220$                            ; Br if some left
+	BRW	50$                             ; Next
+220$:
+	BRW	120$
+        .CALL_ENTRY     MAX_ARGS=1, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_UPDATE_DECNET 
+;++
+;2 CONFIGMON_UPDATE_DECNET 
+; Update all DN4 records for this boxid
+;3 Inputs
+; Record address
+;3 Outputs
+; EMUDB records
+; Alerts on any node unreachable or change(s) found
+; Record  is updated with facilities, poll times, last response fields.
+; Any errors detected are written to error log
+;3 Returns
+; SS$_NORMAL		Update succesful
+; Any error from GETNICE (which see) 
+;-- 
+	MOVL	4(AP),R6
+	MOVL	COM_CFG_L_RESP(R6),UPDFLG	; Check Response count
+
+
+; Write node address
+
+	MOVL	#SYS_PID_C_PSRDN4,PROTO		; Protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID       ; 
+	MOVL	#DB_FAC_C_DN4_EXEC,TBL        	; Table
+	CLRL	INSTANCE    			; No Instance
+        MOVL	#DN4_C_NODADDR,PARAM		        ; Set param
+	MOVL 	COM_HDR_L_LEN(R6),CRCDESC	; Len
+	ADDL3	#PSR_DN4_W_ADDR,R6,CRCDESC+4	; Addr
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	CMPL	R0,#SS$_NORMAL
+	BEQL	60$
+	BLBS	R0,50$	
+40$:
+        MOVL	#MSG_CFGMON_WRITDB,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	60$
+
+50$:
+	CMPL	#SS$_BUFFEROVF,R0
+	BEQLU	40$
+
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	R6
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+
+60$:
+; Get exec params
+	BBC	#SYS_PID_C_PSRDN5,COM_HDR_L_PTYBITS(R6),70$   ; Br if Not osi
+	BBS	#SYS_COM_V_UPDATE,COM_HDR_L_SYSCTL(R6),70$    ; Br if update set
+	MOVL	#SS$_NORMAL,R0
+	RET
+70$:
+	
+	INCL	COM_CFG_L_POLLS(R6)		; Count Poll
+	MOVL	#8192,RETURN_D
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#DN4_W_EXCHAR 		        ; Function
+	MOVZWL	PSR_DN4_W_ADDR(R6),-(SP) ; Node
+	CALLS	#3,G^GETNICE
+	CMPL	R0,#SS$_NORMAL
+	BEQLU	80$                         
+	RET	
+
+80$:
+	INCL	COM_CFG_L_RESP(R6)		; Count Response
+	MOVQ	RETURN_D,R8
+	ADDL3	R8,R9,R10		; End addr
+
+100$:
+	MOVL	#SYS_PID_C_PSRDN4,PROTO		; Protocol
+	CLRL	INSTANCE    			; No Instance
+	MOVL	#DB_FAC_C_DN4_EXEC,TBL        	; Table
+	MOVL	COM_HDR_L_BOXID(R6),BOXID       ; 
+
+; Write NODEid 
+	EXTZV   #0,#6,6(R9),CRCDESC		; Get len
+	BEQL	110$			; Br if len = 0
+	ADDL3	#7,R9,CRCDESC+4		; .ascii name
+        MOVL	#DN4_C_NODEID,PARAM		        ; Set param
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	CMPL	R0,#SS$_NORMAL
+	BEQL	115$
+        BLBS	R0,110$
+105$:
+        MOVL	#MSG_CFGMON_WRITDB,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+
+
+110$:
+	CMPL	#SS$_BUFFEROVF,R0
+	BEQLU	105$
+
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	R6
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+
+
+115$:
+        ADDL	#20,R9 				; Start of params
+
+; CHeck/Store param
+120$:
+	TSTL	4(R9)                           ; Len of data
+	BNEQ    130$                            ; Br if some
+	BRW	200$				; Ignore if len = 0
+130$:
+; Calc len of data
+; Make desc to write this param
+       	MOVL	4(R9),CRCDESC			; Len
+	ADDL3	#8,R9,CRCDESC+4			; Addr	
+        MOVL	(R9),PARAM		        ; Set param
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	CMPL	R0,#SS$_NORMAL
+	BEQL	250$
+        BLBS	R0,200$
+150$:
+        MOVL	#MSG_CFGMON_WRITDB,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+
+
+200$:
+	CMPL	#SS$_BUFFEROVF,R0
+	BEQLU	150$
+
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	R6
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+
+250$:
+; Next paramater
+	MOVL	4(R9),R1	        	; Len of data
+	ADDL	#8,R1                           ; Distance to next param
+	ADDL	R1,R9                           ; MOve pointer
+	CMPL	R9,R10
+	BGEQ	300$				; Br none left
+	BRW	120$                            ; some left
+300$:
+; Get lines. Each line type has to go in it's own table
+	INCL	COM_CFG_L_POLLS(R6)		; Count Polls
+	MOVL	#8192,RETURN_D
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#DN4_W_LICHAR 		        ; Function
+	MOVZWL	PSR_DN4_W_ADDR(R6),-(SP) ; Node
+	CALLS	#3,G^GETNICE
+	CMPL	#SS$_NORMAL,R0
+	BEQL	310$                         
+	BRW	500$				; Next ent
+310$:
+	INCL	COM_CFG_L_RESP(R6)		; Count Response
+; set record header
+	MOVL	#SYS_PID_C_PSRDN4,PROTO		; Protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID       ; BOX
+	MOVL	#DB_FAC_C_DN4_LINE,TBL	
+
+330$:
+	PUSHL	R6
+        PUSHL	#DN4_C_LINENAME
+	PUSHAL	RETURN_D
+	CALLS	#3,G^CONFIGMON_WRITE_DN4
+400$:
+; Get circuits. 
+	INCL	COM_CFG_L_POLLS(R6)		; Count Polls
+	MOVL	#8192,RETURN_D
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#DN4_W_CICHAR 		        ; Function
+	MOVZWL	PSR_DN4_W_ADDR(R6),-(SP) ; Node
+	CALLS	#3,G^GETNICE
+	CMPL	#SS$_NORMAL,R0
+	BEQL	410$                         
+	BRW	500$				; Next ent
+410$:
+	INCL	COM_CFG_L_RESP(R6)		; Count Response
+; set record header
+	MOVL	#SYS_PID_C_PSRDN4,PROTO		; Protocol
+	MOVL	COM_HDR_L_BOXID(R6),BOXID       ; BOX
+	MOVL	#DB_FAC_C_DN4_CIRC,TBL	
+
+430$:
+	PUSHL	R6
+        PUSHL	#DN4_C_CIRCNAM
+	PUSHAL	RETURN_D
+	CALLS	#3,G^CONFIGMON_WRITE_DN4
+500$:
+; Get object params
+	INCL	COM_CFG_L_POLLS(R6)		; Count Polls
+	MOVL	#8192,RETURN_D
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#DN4_W_KNOBJ 		; Function
+	MOVZWL	PSR_DN4_W_ADDR(R6),-(SP) ; Node
+	CALLS	#3,G^GETNICE
+	CMPL	#SS$_NORMAL,R0
+	BEQL	510$                         
+	BRW	600$	
+
+510$:
+	INCL	COM_CFG_L_RESP(R6)		; Count Response
+	MOVQ	RETURN_D,R8
+	ADDL3	R8,R9,R10		; End addr
+; Set header
+	MOVL	#SYS_PID_C_PSRDN4,PROTO		; Protocol
+	MOVL	#DB_FAC_C_DN4_OBJ,TBL        	; Table
+	MOVL	COM_HDR_L_BOXID(R6),BOXID       ; 
+
+530$:
+	PUSHL	R6
+        PUSHL	#DN4_C_OBJNAM
+	PUSHAL	RETURN_D
+	CALLS	#3,G^CONFIGMON_WRITE_DN4
+
+600$:
+; Get DTE params
+	INCL	COM_CFG_L_POLLS(R6)		; Count Polls
+
+	MOVL	#8192,RETURN_D
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#DN4_W_X25DTE 		; Function
+	MOVZWL	PSR_DN4_W_ADDR(R6),-(SP) ; Node
+	CALLS	#3,G^GETNICE
+	CMPL	#SS$_NORMAL,R0
+	BEQL	610$                         
+	BRW	700$	
+
+610$:
+	INCL	COM_CFG_L_RESP(R6)		; Count Response
+; Set header
+	MOVL	#SYS_PID_C_PSRDN4,PROTO		; Protocol
+	MOVL	#DB_FAC_C_DN4_X25DTE,TBL        	; Table
+	MOVL	COM_HDR_L_BOXID(R6),BOXID       ; 
+
+630$:
+	PUSHL	R6
+        PUSHL	#DN4_C_DTENAM
+	PUSHAL	RETURN_D
+	CALLS	#3,G^CONFIGMON_WRITE_DN4
+
+700$:
+; Get DESTINATION params
+	INCL	COM_CFG_L_POLLS(R6)		; Count Polls
+	MOVL	#8192,RETURN_D
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#DN4_W_X25DEST 		; Function
+	MOVZWL	PSR_DN4_W_ADDR(R6),-(SP) ; Node
+	CALLS	#3,G^GETNICE
+	CMPL	#SS$_NORMAL,R0
+	BEQL	710$                         
+	BRW	800$	
+
+710$:
+	INCL	COM_CFG_L_RESP(R6)		; Count Resp
+; Set header
+	MOVL	#SYS_PID_C_PSRDN4,PROTO		; Protocol
+	MOVL	#DB_FAC_C_DN4_X25DEST,TBL        ; Table
+	MOVL	COM_HDR_L_BOXID(R6),BOXID       ; 
+
+730$:
+	PUSHL	R6
+	PUSHL   #DN4_C_DESTNAM		; Set param type to use for names  
+	PUSHAL	RETURN_D
+	CALLS	#3,G^CONFIGMON_WRITE_DN4
+800$:
+; Get X25 Network params
+	INCL	COM_CFG_L_POLLS(R6)		; Count Polls
+	MOVL	#8192,RETURN_D
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#DN4_W_X25NET 		; Function
+	MOVZWL	PSR_DN4_W_ADDR(R6),-(SP) ; Node
+	CALLS	#3,G^GETNICE
+	CMPL	#SS$_NORMAL,R0
+	BEQL	810$                         
+	BRW	900$	
+
+810$:
+	INCL	COM_CFG_L_RESP(R6)		; Count Resp
+	MOVL	#SYS_PID_C_PSRDN4,PROTO		; Protocol
+	MOVL	#DB_FAC_C_DN4_X25NET,TBL        ; Table
+	MOVL	COM_HDR_L_BOXID(R6),BOXID       ; 
+830$:
+	PUSHL	R6
+        PUSHL	#DN4_C_NETNAM		; Set param type to use for names  
+	PUSHAL	RETURN_D
+	CALLS	#3,G^CONFIGMON_WRITE_DN4
+
+900$:
+	CMPL	COM_CFG_L_RESP(R6),UPDFLG	; Check Response count
+        BEQLU	910$
+
+	PUSHL	4(AP)				; Rec addr
+	CALLS	#1,G^CONFIGMON_CHECK_FOR_DELETE
+910$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_WRITE_DN4
+;++
+;2 CONFIGMON_WRITE_DN4
+; Format and write dn4 records to emudb
+;3 Inputs
+; .address of desc point to GETNICE formatted paramater block
+; .long value of entity name type. This is an emu symbol showing the 
+; paramater type of the name this routine sets for each instance found.
+; Possibilities:
+;	DN4_C_LINENAME	3901
+;	DN4_C_CIRCNAM	3902
+;	DN4_C_OBJNAM	3903
+;	DN4_C_DTENAM	3904
+;	DN4_C_DESTNAM	3905
+;	DN4_C_NETNAM	3906
+;
+;  .address of PSRdb record
+;
+; Note that the record header (Keys) are set before calling 
+; this routine.
+;3 Outputs
+; EMUDB records
+; For multiple instance blocks, each instance is:
+;	CRC'd to make unique key
+;	name is written using paramter type given in P2
+; Alerts on any change(s) found
+; Any errors detected are written to error log
+;--
+
+	MOVQ	@4(AP),R8
+	ADDL3	R8,R9,R10		; End addr
+520$:
+; Set instance
+	MOVL	#20,CRCDESC
+	MOVL	R9,CRCDESC+4	 		; Addr
+	PUSHAL	CRCDESC
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE    			; Instance
+; Set  name
+	MOVZBL  4(R9),CRCDESC		; Get len
+	BEQL	530$			; Be if len = 0
+	INCL	CRCDESC			; Include count
+	ADDL3	#4,R9,CRCDESC+4		; .ascii name
+        MOVL	8(AP),PARAM		; Set param
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	CMPL	R0,#SS$_NORMAL
+	BEQL	532$
+	BLBS	R0,530$
+
+525$:
+        MOVL	#MSG_CFGMON_WRITDB,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+
+530$:
+	CMPL	#SS$_BUFFEROVF,R0
+	BEQLU	525$
+        MOVL	12(AP),R6			; PSRdb rec
+
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	R6
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+
+532$:
+; Set header
+	ADDL	#20,R9				; Start of params
+	CMPL	R9,R10				; EOD?
+	BLSS	535$
+	BRW	600$                            ; Br if EOD
+; Check/Store all params this instance
+535$:
+	TSTL	(R9)				; Any params?
+	BGEQ	540$                            ; Br if yes
+	BRW	520$				; Br if next instance
+540$:
+	TSTL	4(R9)                           ; Len of data
+	BNEQ    550$                            ; Br if some
+	BRW	560$				; Ignore if len = 0
+550$:
+; Calc len of data
+; Make desc to write this param
+       	MOVL	4(R9),CRCDESC			; Len
+	ADDL3	#8,R9,CRCDESC+4			; Addr	
+        MOVL	(R9),PARAM		        ; Set param
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	CMPL	R0,#SS$_NORMAL
+	BEQL	565$
+	BLBS	R0,560$
+;
+555$:
+        MOVL	#MSG_CFGMON_WRITDB,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+
+560$:
+	CMPL	#SS$_BUFFEROVF,R0
+	BEQLU	555$
+
+        MOVL	12(AP),R6			; PSRdb rec
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	R6
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+
+565$:
+; Next paramater
+	MOVL	4(R9),R1	        	; Len of data
+	ADDL	#8,R1                           ; Distance to next param
+	ADDL	R1,R9                           ; MOve pointer
+	CMPL	#-1,(R9) 			; Next instance?
+	BNEQ	570$ 				; Br if no
+	BRW	520$                            ; Next instance
+570$:
+	CMPL	R9,R10                          ; Any data left?
+	BGEQ	600$				; Br if none
+	BRW	550$                            ; Some left
+600$:
+ 	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_UPDATE_SNMP 
+;++
+;2 CONFIGMON_UPDATE_SNMP 
+; Update all SNMP records for this boxid
+;3 Inputs
+; Record address
+;3 Outputs
+; EMUDB records
+; Alerts on any node unreachable or change(s) found
+; Record  is updated with facilities, poll times, last response fields.
+; Any errors detected are written to error log
+;3 Other_Inputs
+; MIB files. The record contains indication as to which MIB(s) to use.
+; These MIB files are opened and used to direct which params are retrieved
+; for this BOXID. 
+;
+;3 Returns
+; SS$_NORMAL		Update succesful
+; Any error from GETSNMP, EMUDB routines (which see) 
+;-- 
+	MOVL	4(AP),R6
+	MOVL	COM_CFG_L_RESP(R6),UPDFLG	; Check Response count
+	CLRL	CYCLCNT  		; Count of good responses
+        CLRL	SETMIB			; Mib pointer
+; Ensure there is at least 1 MIB supported...
+	ADDL3 	#COM_CFG_B16_SUPPORT,R6,R1
+	TSTL	(R1)
+	BNEQ	40$
+	TSTL	4(R1)
+	BNEQ	40$
+	TSTL	8(R1)
+	BNEQ	40$
+	TSTL	12(R1)
+	BNEQ	40$
+        MOVL	#2,(R1)			; None - set def MIBII
+ 
+
+40$:
+; Set the MIB to use for this addr
+;
+	BBS	SETMIB,COM_CFG_B16_SUPPORT(R6),60$ 
+50$:
+	AOBLSS	#127,SETMIB,40$
+	CMPL	COM_CFG_L_RESP(R6),UPDFLG	; Check Response count
+        BEQLU	55$
+        MOVL	R0,R6
+	PUSHL	4(AP)				; Rec addr
+	CALLS	#1,G^CONFIGMON_CHECK_FOR_DELETE
+
+	MOVL	R6,R0
+55$:
+	RET
+60$:
+; Set MIB
+	PUSHL	SETMIB
+	CALLS	#1,G^CONFIGMON_SET_MIB
+	BLBC	R0,50$				; On error - get next MIB
+70$:
+
+	MOVL	MIBSEC_A,R11
+100$:
+
+        CMPL	#MC_MIBT_C_TYPDIR,MC_MIBT_L_ENTTYP(R11)
+	BEQLU	105$
+	BRW	200$			; Br if not direct
+105$:
+; Don't get counter , time data or explicity excluded params
+	CMPL	#SNMP_ASN1_TIMET,MC_MIBT_L_TYPE(R11)
+	BEQLU	107$
+	CMPL	#SNMP_ASN1_COUNT,MC_MIBT_L_TYPE(R11)
+	BEQLU	107$
+	CMPL	#SNMP_ASN1_CTR64,MC_MIBT_L_TYPE(R11)
+	BEQLU	107$
+	CMPL	#SNMP_ASN1_UI32,MC_MIBT_L_TYPE(R11)
+	BEQLU	107$
+	PUSHL	R11
+	CALLS	#1,G^CONFIGMON_CHECK_SNMP
+	BLBS	R0,108$
+107$:
+	BRW	110$
+; 
+108$:
+; Get the param for this obj id and return
+	INCL	COM_CFG_L_POLLS(R6) 
+	MOVL	#512,RETURN_D
+	PUSHAL	COMSTRING		; Community string
+	PUSHAL	CUROBJ			; Returned pointer
+	PUSHAL	RETURN_D
+	PUSHL	#SNMP_PDU_GET		; Operation
+	PUSHL	R11			; ObjID 
+	ADDL3	4(AP),#PSR_IP_L_ADDR,-(SP) ; IP address
+	CALLS	#6,G^GETSNMP5
+	BLBS	R0,130$                 ; Br if no err
+	TSTL	CYCLCNT  		; Any request successful?
+	BNEQ	110$ 			; Br if some
+	CMPL	#SS$_UNREACHABLE,R0     ; If 1st err is NOT unreachable ...
+	BNEQU	110$                    ; ... then continue
+	MOVL	R0,COM_CFG_L_LASSTA(R6) ;     ... else Record status
+; Check response count. If zero AND propogate flag not set then
+; propogate this IP addr to EMUDB.
+	TSTL	COM_CFG_L_RESP(R6)      ; Any good response ?
+	BNEQ	109$			; Br if so
+	BBS	#SYS_COM_V_PROPGA,COM_HDR_L_SYSCTL(R6),109$	; Br if done
+	PUSHL	4(AP)                                           ; 
+	CALLS	#1,G^CONFIGMON_PROPOGATE_IP                     ; Propogate
+	BLBC	R0,109$                                         ; Br on Err
+	BISL	#SYS_COM_M_PROPGA,COM_HDR_L_SYSCTL(R6)          ; Indicate done
+	
+109$: 
+	BRW	50$	                ; Next mib
+110$:
+; Move to next obj and test:
+;	If there is a next obj (.ne. 0)
+;	If we are still in section
+; If either condition, we have reached end of MIB - Good end
+115$:
+	ADDL	#MC_MIBT_C_RECSIZE,R11
+	TSTL	(R11)
+	BEQL    120$
+	ADDL3	#MC_MIBT_C_RECSIZE,R11,R1
+	CMPL	R1,MIBSEC_A+4
+	BGEQU	120$
+	BRW	100$
+120$:
+	MOVL	#SS$_NORMAL,R0
+	BRW	50$			; Next mib
+130$:
+	INCL	CYCLCNT			; Indicate (at least) 1 good response
+	INCL	COM_CFG_L_RESP(R6)      ; Count good response
+150$:
+; Format return and add to EMUDB
+	MOVQ	EXE$GQ_SYSTIME,COM_CFG_Q_LASUPD(R6)
+
+	MOVQ	RETURN_D,R2		; R2 = len , R3 = addr
+; Calc instance
+	PUSHAL	RETURN_D                 ; CRC Entire rec
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE
+; Write it
+	PUSHAL	RETURN
+	PUSHL	R11
+	PUSHL	4(AP)
+	CALLS	#3,G^CONFIGMON_WRITE_SNMP  
+        BRW	115$			; Next obj
+	
+200$:
+;++
+;3 Table_example 
+; Next object is the table entry point and following n entries
+; are the table params. n is determined by scanning the entries until
+; the last 'valid' digit in the objid .NE. the last 'valid' digit in
+; the table entry point id. An example:
+; 
+;"atTable"               "1.3.6.1.2.1.3.1"
+;"atEntry"               "1.3.6.1.2.1.3.1.1"
+;"atIfIndex"             "1.3.6.1.2.1.3.1.1.1"
+;"atPhysAddress"         "1.3.6.1.2.1.3.1.1.2"
+;"atNetAddress"          "1.3.6.1.2.1.3.1.1.3"
+;"ip"            	 "1.3.6.1.2.1.4"
+;  This is the address translation table and contains the name (atTable), 
+; the entry point (atIfIndex) and 3 entries. Ip is the 1st entry beyond
+; the table. The 'valid' digit is the last digit of the entry point's objid (1)
+; Encoding note:
+; the binary object id for atEntry is '43 6 1 2 1 3 1 1 0'
+; That is 1.3 is converted to 43 and a zero is appended. (don't ask me - I 
+; didn't invent this!) thus the 'valid' reference.
+; To simplify the network call the table entry point is accessed as a
+; 'get_next' and a bit pattern representing the desired elements is passed.
+; In the above example the pattern is '7' (bits 1,2,3 set)
+; The routine then returns 'rows' rather than SNMP native 'columns'.
+;--
+	ADDL3	#MC_MIBT_C_RECSIZE,R11,R10	 ; Next item
+	MOVZBL	MC_MIBT_AC_OBJID(R10),R4 ; 
+	DECL	R4			 ; R4 = index to 'valid' digit
+	MOVZBL	(R10)[R4],R5		 ; Value
+	CLRQ	TBLPARMS                     ; Init
+	ADDL3	#MC_MIBT_C_RECSIZE,R10,R9	 ; 1st element
+	MOVL	R9,R8			 ; Save this location
+210$:
+;Set corresdponding bit for each param present in this table
+	ADDL3	#MC_MIBT_C_RECSIZE,R9,R1
+	CMPL	R1,MIBSEC_A+4		; Still in MIB?
+	BGEQU	230$			; Br if past end
+	CMPB	(R9)[R4],R5		; In table?
+	BNEQ	230$			; No - done
+; Don't get counter data, or explicitly excluded params
+	CMPL	#SNMP_ASN1_TIMET,MC_MIBT_L_TYPE(R9)
+	BEQLU	220$
+	CMPL	#SNMP_ASN1_COUNT,MC_MIBT_L_TYPE(R9)
+	BEQLU	220$
+	CMPL	#SNMP_ASN1_CTR64,MC_MIBT_L_TYPE(R9)
+	BEQLU	220$
+	CMPL	#SNMP_ASN1_UI32,MC_MIBT_L_TYPE(R9)
+	BEQLU	220$
+	BBS	#DB_MAP_FLG_V_EXCLDB,DB_MAP_L_POLFLG(R9),220$ 
+	PUSHL	R9
+	CALLS	#1,G^CONFIGMON_CHECK_SNMP
+	BLBC	R0,220$	
+
+	MOVZBL	(R9),R1			; Len of this objid
+	DECL	R1			; Index to param no.
+	MOVZBL	(R9)[R1],R2             ; Param no.
+	DECL	R2                      ; Param 1 = bit 0
+	BBSS	R2,TBLPARMS,220$		; Sets bit
+220$:
+	ADDL	#MC_MIBT_C_RECSIZE,R9	; Next item
+	BRB	210$			; Loop
+230$:
+; If some bits set in params then process
+	TSTL	TBLPARMS
+	BNEQ	235$
+	TSTL	TBLPARMS
+	BNEQ	235$
+	BRW	245$				; Next item
+
+235$:
+	MOVL	#4096,RETURN_D
+	PUSHAL	COMSTRING		; Community string
+	PUSHAL	RETLEN
+	PUSHL	R10			; Obj      
+	PUSHAL	TBLPARMS	             	; Params
+	PUSHAL	CUROBJ
+	PUSHL	R10			; Obj      	
+	PUSHAL	RETURN_D             ; outp
+	ADDL3	4(AP),#PSR_IP_L_ADDR,-(SP) ; IP address
+	CALLS	#8,G^GETSNMPROW
+	BLBS	R0,240$
+	BRW	245$
+240$:
+	CMPL	#SS$_NORMAL,R0           ; if success and not NORMAL ...
+	BEQLU	250$                     ; ... then more items
+; Reset pointer to next item after this table and return to main
+; Scan down section until next 'displayable' item is reached
+; That is - bypass this table.
+245$:
+	ADDL	#MC_MIBT_C_RECSIZE,R11		; next item
+	ADDL3	#MC_MIBT_C_RECSIZE,R11,R1
+	CMPL	R1,MIBSEC_A+4
+	BLSSU	247$                            ; Br if OK
+	MOVL	#SS$_NORMAL,R0
+	BRW	50$			; Next mib
+247$:
+	BLBC	MC_MIBT_L_ENTTYP(R11),245$      ; Only direct, table names
+	BRW     100$
+250$:
+; Format each element returned and add to EMUDB
+	MOVQ	RETURN_D,R2		; R2 = len , R3 = addr
+	MOVL	R8,R7			; 1st target
+; Calc instance
+	PUSHAL	RETURN_D                 ; CRC entire table 
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE
+	MOVQ	EXE$GQ_SYSTIME,COM_CFG_Q_LASUPD(R6)
+
+
+; Format return and add to EMUDB
+
+260$:
+	TSTB	1(R3)
+	BEQL	275$			; Skip write if param len = 0
+270$:
+	PUSHL	R3
+	PUSHL	R7
+	PUSHL	4(AP)
+	CALLS	#3,G^CONFIGMON_WRITE_SNMP  
+
+275$:
+	ADDL	#MC_MIBT_C_RECSIZE,R7	 ; Next element
+	MOVZBL	1(R3),R1
+	ADDL	#2,R1
+	ADDL	R1,R3			; Move pointer
+	SUBL	R1,R2			; Deduct processed
+	
+	BGTR	260$
+; Next row
+	MOVL	#4096,RETURN_D
+	PUSHAL	COMSTRING		; Community string
+	PUSHAL	RETLEN
+	PUSHL	R10			; Obj      
+	PUSHAL	TBLPARMS	                ; Params
+	PUSHAL	CUROBJ
+	PUSHL	CUROBJ		        ; Obj      	
+	PUSHAL	RETURN_D             ; outp
+	ADDL3	4(AP),#PSR_IP_L_ADDR,-(SP) ; IP address
+	CALLS	#8,G^GETSNMPROW
+	BLBS	R0,280$
+	BRW	245$
+280$:
+	BRW	240$
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_PROPOGATE_IP 
+;++
+;2 CONFIGMON_PROPOGATE_IP 
+; If no answer from SNMP, this address is propogated to EMUDB to ensure
+; the entry exists. This routine mimics the action when the address is
+; returned via SNMP.
+;3 Inputs
+; PSRIP Record address
+; Hardcoded block duplicating the SNMP return (IPADDRBLK) 
+;3 Outputs
+; 1 EMUDB record
+;3 Returns
+; SS$_NORMAL		 succesful
+; Any error from EMUDB routines (which see) 
+;-- 
+
+	MOVL	4(AP),R6
+	MOVL	PSR_IP_L_ADDR(R6),IPADDR_ADDR
+; Set TBL
+	PUSHAL	MIB_ENTRY
+	CALLS	#1,G^CONFIGMON_CHECK_SNMP
+	BLBS	R0,100$
+	RET
+100$:
+; Calc instance
+	PUSHAL	IPADDRBLK_DESC                 ; CRC Entire rec
+	PUSHAL	CRCINIT
+	PUSHAL	CRCTBL
+	CALLS	#3,G^LIB$CRC
+	MOVL	R0,INSTANCE
+; Write it
+	PUSHAL	IPADDRBLK
+	PUSHAL	MIB_ENTRY
+	PUSHL	4(AP)
+	CALLS	#3,G^CONFIGMON_WRITE_SNMP  
+        RET
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_CHECK_SNMP    
+;++
+;2 CONFIGMON_CHECK_SNMP    
+; Routine to get the MAPPER entry for the input MIB entry and return either 
+; TRUE or FALSE if this param should be polled for. Each paramater in MAPPER
+; has a bit field that directs this poller whether or not to poll for the 
+; paramater and include in in the database. If the MAPPER entry is not
+; found, the routine returns TRUE.
+; NOTE:
+; This routine sets the TBL param in the EMUDB rec 
+;
+;3 Input
+; .address of MIB entry
+;
+;3 Output
+;  R1 = address of MAPPER record if found, else 0
+;  TBL is calculated and set in the Key buffer
+; 
+;3 Returns
+;	SS$_NORMAL	(TRUE) poller should get this param
+;	0		(FALSE) poller should ignore this param
+;	0 (FALSE) is returned on any error (No MAPPER rec)
+;	SS$_BADPARAM	Invalid MIB entry
+;	 Any error from RMS
+;--
+
+        TSTW	MAPPERFAB+FAB$W_IFI	; File open?
+	BNEQ	100$
+	$OPEN	FAB = MAPPERFAB		;Open input file
+	BLBS	R0,10$
+	RET
+10$:
+ 	$CONNECT RAB = MAPPERRAB	;Connect input stream
+	BLBS	R0,20$
+	RET
+20$:
+100$:
+; Calculate table
+        PUSHAL	CRCDESC			; Outp
+	PUSHL	4(AP)
+	CALLS	#2,G^SNMP_MAKTBL_ID
+	BLBS	R0,110$
+        RET
+
+110$:
+	MOVL	CRCDESC,TBL
+	MOVL	CRCDESC+4,PARAM
+
+; At this point we have both param and table.
+; Get MAPPER rec coresponding to this MIB entry
+
+        MOVW	#MAPPERREC_SIZE,MAPPERRAB+RAB$W_RSZ
+        MOVW	#MAPPERREC_SIZE,MAPPERRAB+RAB$W_USZ
+
+	MOVL	TBL,MAPPER_KEY   
+	MOVL	PARAM,MAPPER_KEY+4   
+	$GET	RAB=MAPPERRAB
+	CLRL	R1				; Default return
+	BLBC	R0,130$                     	; If no map then write
+	MOVAL	MAPPERREC_BUF,R1
+	BBS	#DB_MAP_FLG_V_EXCLDB,DB_MAP_L_POLFLG(R1),140$
+130$:
+        MOVL	#SS$_NORMAL,R0
+	RET
+140$:
+	CLRL	R0
+	RET
+
+
+
+
+
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_WRITE_SNMP    
+;++
+;2 CONFIGMON_WRITE_SNMP    
+; Routine to set the index paramaters and write the input values to
+; EMUDB returned by SNMP.
+;
+;3 Input
+; .address of IP entry this data refers to (PSRrec)
+; .address of MIB entry this data is for
+; .address of SNMP data returned
+;
+;3 Output
+; The Instance is passed as a param and written as passed
+; The boxid is extracted from the IP entry
+; The record header is created, and data is written to EMUDB
+;       
+;3 Returns
+;	SS$_NORMAL	OK
+;	SS$_BADPARAM	MIB entry had len = 0
+;			BOXID = 0
+;			Param = 0
+;			Len of data = 0
+;--
+
+; Set BOXID
+55$:
+	MOVL	4(AP),R8
+	TSTL	COM_HDR_L_BOXID(R8)
+	BNEQ	60$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+60$:
+	MOVL	COM_HDR_L_BOXID(R8),BOXID
+	MOVL	12(AP),R8
+	TSTB	1(R8)			; Ensure len .ne. 0
+	BNEQ	70$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+70$:
+; overwrite returned tag with defined tag from MIB
+	MOVL	8(AP),R9
+	MOVB	MC_MIBT_L_TYPE(R9),(R8)		; Tag
+; Set paramater
+	MOVZBL	(R9),R1			; Len of obj_id
+	DECL	R1			; Less trailing .0 and param num
+	BGTR	80$			; Br if .gt. 0
+	MOVL	#SS$_BADPARAM,R0
+	RET
+80$:
+	MOVZBL	(R9)[R1],PARAM		; Paramater number
+
+; Write protocol
+	MOVL	#SYS_PID_C_PSRIP,PROTO
+; Write this param
+; Make data desc
+	MOVZBL	1(R8),CRCDESC		; Len of data
+	ADDL	#2,CRCDESC              ; Include tag,len
+	MOVL	R8,CRCDESC+4            ; addr
+
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHAL	OLDP_DESC
+	PUSHAL	WRITE_OPTS			; Set upd, return old par
+	PUSHAL	CRCDESC
+	PUSHAL	KEY_BUF
+	CALLS	#4,G^EMUDB_WRITE
+	CMPL	R0,#SS$_NORMAL
+	BEQL	110$
+	BLBS	R0,100$
+
+90$:
+        MOVL	#MSG_CFGMON_WRITDB,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+100$:
+	CMPL	#SS$_BUFFEROVF,R0			; OK?
+	BEQLU	90$
+
+110$:
+	PUSHAL	OLDP_DESC
+	PUSHL	R1				; Rec just written
+	PUSHL	4(AP)
+	PUSHAL	ALERT_BUFF
+	PUSHL	R0
+	CALLS	#5,G^CONFIGMON_SEND_ALERT
+120$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_SET_MIB    
+;++
+;2 CONFIGMON_SET_MIB    
+; Routine to read in specified MIB file to memeory and return the 
+; location to the caller. NOTE: The section is set NOWRITE. The caller
+; cannot alter the contents.       
+;
+;3 Input
+;	.long mib to use. This is the number of the mib set at
+;	mib registration time.
+;3 Output
+; The variable MIBSEC_A is written with the 1st and last address mapped. The
+; section contains the file contents of the selected MIB after completion.
+;3 Return
+; 	SS$_NORMAL	OK Mib set in mibsection
+; Any from: RMS, $CRMPSC, $EXPREG
+;--
+	CMPL	4(AP),CURMIB		; Requested mib already set?
+	BNEQU	10$
+	MOVL	#SS$_NORMAL,R0
+	RET
+10$:
+	TSTL	MIBSEC_A		; Have mem?
+	BEQL	20$			; Br if not
+        CLRQ    -(SP)                   ;
+        PUSHAL  MIBSEC_A        	; Mib section return addresses
+        CALLS   #3, G^SYS$DELTVA        ; REMOVE SECTION
+20$:
+	CLRL	CURMIB			; No mib set
+        TSTW	MAPPERFAB+FAB$W_IFI	; File open?
+	BNEQ	40$
+	$OPEN	FAB = MAPPERFAB		;Open input file
+	BLBS	R0,30$
+	RET
+30$:
+ 	$CONNECT RAB = MAPPERRAB	;Connect input stream
+	BLBS	R0,40$
+	RET
+40$:
+; Get record with file name to open.
+; Make key: insert the mib number into the key and get the rec
+	MOVB	4(AP),MIBFILIDX+4	; Set mib number
+	MOVQ	MIBFILIDX,MAPPER_KEY	; Make key
+	$GET	RAB=MAPPERRAB           ; Get it
+	BLBS	R0,50$
+	RET
+50$:
+; Close any previously opened file
+	$DASSGN_S CHAN=MIBFAB+FAB$L_STV  		; Deass channel
+	MOVAL	MAPPERREC_BUF,R1
+	ADDL3	#DB_MAP_A64_KEYW,R1,MIBFAB+FAB$L_FNA  	; File name
+	MOVB	DB_MAP_L_KEYWLEN(R1),MIBFAB+FAB$B_FNS	; Name size
+
+100$:
+    
+	$OPEN	FAB = MIBFAB		;Open input file
+	BLBS	R0,110$			;OK ?
+
+        MOVL	#MSG_CFGMON_SETMIB,MSGCDE    ; error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVZBL  MIBFAB+FAB$B_FNS,(R1)+	     ; Name size
+	MOVL    MIBFAB+FAB$L_FNA,(R1)+	     ; Name STRING
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+
+
+	RET				; Die
+110$:
+; Get mem
+	CLRL	-(SP)		; P0 Space
+	CLRL	-(SP)		; Access mode
+	PUSHAL	inaddr	; Returned address
+	PUSHL	MIBFAB+FAB$L_ALQ            ; No. of pages
+	CALLS	#4,G^SYS$EXPREG
+	BLBS	R0,120$          ; Br no error
+	RET			; Die
+; Load FILE
+120$:
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	MIBFAB+FAB$L_ALQ			; no. of pages
+        PUSHL	MIBFAB+FAB$L_STV	; CHannel
+	CLRL	-(SP)			; rel page no.
+	CLRL	-(SP)			; version id
+	CLRL	-(SP)			; Section name
+	CLRL	-(SP)			; flags
+	CLRL	-(SP)			; access mode
+	PUSHAL	MIBSEC_A   			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+ 	BLBS	R0,130$
+	RET
+130$:	
+	MOVL	4(AP),CURMIB		; Ser current
+	MOVL	#SS$_NORMAL,R0
+	RET
+		
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=FATAL_CFM_ERROR_CHK
+
+	MOVL	4(AP),R0
+        BLBC    R0,10$
+        RET
+10$:
+        MOVL	#MSG_CFGMON_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	$EXIT_S
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CFM_ERROR_CHK
+	MOVL	4(AP),R0
+        BLBC    R0,10$
+        RET
+10$:
+        MOVL	#MSG_CFGMON_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_COUNT_EVENT
+; Routine to increment the counter set by input.
+; Input:
+;	.long value of counter name. This is an offset from COUNTERS_A
+; Outputs:
+;  	The counter is incremented
+; Returns:
+;	None 
+;
+	MOVL	COUNTERS_A,R1
+	ADDL	4(AP),R1
+	INCL	(R1)
+	RET
+	
+
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=EMU_CONFIGMON_EXIT
+; Here at exit
+        ret
+        .END	EMU_CONFIGMON

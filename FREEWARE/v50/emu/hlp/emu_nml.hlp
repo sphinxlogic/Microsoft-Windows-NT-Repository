@@ -1,0 +1,169 @@
+1 EMU_NML   
+ Collection of routines used to process DECnet IV NICE protocols. 
+ See individual routines for descriptions
+2 EMU_NML_PARSE
+
+ Routine to parse a single NICE encoded paramater and return param no,val for
+ the param specified.
+3 Inputs
+	p1	.address pointing to NICE formatted input block
+	p2	.address of desc pointing to outp
+3 Outputs
+	.long	param number
+	.long 	len
+	value for len of len 
+ 	R1 = Len of param including protocol. That is, the distance
+	     to the next paramater in the input block.
+3 Returns
+ SS$_NORMAL 
+ Any return from EMU_NML_NEXP
+2 EMU_NML_SETENT 
+ Routine to extract and write the NICE entity returned at the start of 
+ any NICE return block.
+3 Input:
+	p1 start of NICE block
+	p2 place to write entity (20 bytes always written)
+	p3 long entity type. This is supposed to be part of the return
+	   but it can be in error. Format is:
+		0 node
+		1 line
+		2 logging
+		3 circuit
+		4 Module
+		5 area
+   -------EMU Defined ---------
+		6 Object
+		7 X25 Known DTE
+		8 X25 Known Destination
+		9 X25 Known Network
+
+3 Outputs: 
+ Unaligned block:
+ .long -1 showing start of entity
+ NICE formatted entity id  (16 bytes)
+ R1 = len of id (distance to 1st param in input block)
+3 Return
+ SS$_NORMAL	OK
+ SS$_BUFFEROVF	Entity name is > 16 bytes in length
+ SS$_BADPARAM	Unrecognised entity type
+2 EMU_NML_NEXP 
+ Returns the len of the input param in R1
+3 Input	
+	.address of input block
+	.long	if present return distance to next paramater
+		if not return only len of data 
+3 Output	
+ 	R1 = len (in bytes) of the paramater
+ SS$_NORMAL	OK
+ SS$_DATACHECK	A multiple field was found inside a multiple field. Illegal.
+2 EMU_NML_XLT_HADDR   
+ Translate the NML encoded hadrware address to string.
+3 Input
+ Address of string to xlate
+ Addr of desc pointing to output.
+ It is in form count (06) followed by the net format 6 byte address
+3 Output
+ In standard form xx-xx-xx-xx-xx-xx
+3 returns
+ SS$_NORMAL	OK
+ SS$_BADPARAM	1st byt was not '6'
+ Any return from $FAO
+MOVL	4(AP),R2		; Tag start
+CMPB	#6,(R2)			; Right len ?
+BEQL	1$			; Br if so
+MOVL	#SS$_BADPARAM,R0
+RET
+$:
+MOVZBL	6(R2),-(SP)
+MOVZBL	5(R2),-(SP)
+MOVZBL	4(R2),-(SP)
+MOVZBL	3(R2),-(SP)
+MOVZBL	2(R2),-(SP)
+MOVZBL	1(R2),-(SP)
+PUSHL	8(AP)
+PUSHL	8(AP)
+PUSHAL	HADDRSTR
+CALLS	#9,G^SYS$FAO
+RET
+
+.CALL_ENTRY	MAX_ARGS=3, -
+		HOME_ARGS=TRUE, - 
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=EMU_NML_XLT_CHANNEL   
+++
+2 EMU_NML_XLT_CHANNEL   
+ Translate the NML encoded Channel range to string
+3 Input
+ Address of string to xlate
+ Addr of desc pointing to output.
+ It is in form:
+	.byte	(2)	len of 1st number in range
+	.word		1st channel
+	.byte	(2)	Len of 2nd channel
+	.word		2nd channel
+ If len of 2nd channel is not 02 then assume 1 channel 
+
+3 Output
+	1st-2nd  eg. 10-1    (2 channels)
+	1st	 eg. 10	     (1 channel)
+3 returns
+ SS$_NORMAL	OK
+ SS$_BADPARAM	1st len was not 02
+2 EMU_NML_XLT_HOSTID   
+ Translate the NML encoded Host ID to string
+3 Input
+ Address of string to xlate
+ Addr of desc pointing to output.
+ It is in form:
+	X'02 C4C9 4006 4845444745538'
+   02 		= encoding (len= 2)
+   c4c9        = decnet address
+   0406	= encoding (ascii image len = 6)
+   remainder	= name - if not present only address is included.
+
+3 Output
+ In standard form :	aa.nnnn (name)
+			aa.nnnn  - when name not present
+
+3 returns
+ SS$_NORMAL	OK
+ SS$_BADPARAM	1st byt was not '02'
+		len of name was not 0-6
+2 EMU_NML_XLT_OBJECT   
+ Translate the NML encoded Object ID to string
+3 Input
+ Address of string to xlate
+ Addr of desc pointing to output.
+ It is in form:
+	X'01 C4 4006 4845444745538'
+   01 		= encoding (len= 1)
+   01          = obj number
+   0406	= encoding (ascii image len = 0-31)
+   remainder	= name - if not present only Number is included.
+
+3 Output
+ In standard form :	nn  - when name not present
+
+3 returns
+ SS$_NORMAL	OK
+ SS$_BADPARAM	1st byt was not '01'
+2 DN4ACTNOD
+ Get Active node list from DECnet IV node
+
+ This is the equivilent of $MC NCP TELL 'node' SHOW ACTIVE NODES
+
+
+3 Input
+	Node number	Word by val DECnet address in net fmt
+	Output		address of desc pointing to output
+	Nodes		address of long to write number of nodes found
+3 Output 
+  1 x word for each node returned. This is the DECnet address in network
+ format for each node the target sees as active.
+ A count of nodes found is returned in P3
+3 Returns
+	SS$_NORMAL 	- Data recieved and written
+	SS$_ACCVIO	- Cant read inpt or cant write outp
+	SS$_BUFFEROVF	- Buffer too small to receive response
+	Any returns GETDN4DATA

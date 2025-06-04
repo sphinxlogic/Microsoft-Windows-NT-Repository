@@ -1,0 +1,94 @@
+	.TITLE	GET_CONTROL_LOCK  	
+	.IDENT	/V01-001/	; KOB	7th August 1993
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 GET_CONTROL_LOCK  
+; Called by all EMU processes. This is the shutdown mechanism. EMU_CONTROL
+; gets this lock in EX mode and all other processes attempt the same. If the 
+; Control process ends (for any reason!) the lock is released to the next
+; nest requestor. If any process (Other than control) receives this lock
+; it exits. There are no inputs, outputs or returns from this routine.
+;-- 
+
+	.ENABLE	SUPPRESSION
+	.LIBRARY	/SYS$LIBRARY:LIB.MLB/
+;	.library	/lib$:macrolib.mlb/
+
+	$LCKDEF
+
+
+	.PSECT	RW_DATA, NOEXE, RD, WRT, LONG, PIC, NOSHR	;Read/Write data
+LOCK_IOSB:	.BLKB	24
+	.PSECT	RD_DATA, NOEXE, RD, NOWRT, LONG, PIC, SHR	;Read Only data
+CONTROL_LOCK:	.ASCID	/EMU_CONTROL_LOCK/
+NOT_STARTED:	.ASCID	/EMU PROCESSES ARE NOT CURRENTLY RUNNING/
+	.PSECT	PROG_CODE, RD, NOWRT, EXE, PIC, SHR, LONG
+
+	.SBTTL	GET_CONTROL_LOCK (AST)
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GET_CONTROL_LOCK
+
+	MOVAL	G^GET_CONTROL_LOCK_AST, R11
+; Attempt to gain control lock. If we get this then we should die since the
+; control process is no longer running.
+100$:	CLRQ	-(SP)		; nullarg,acmode
+	CLRL	-(SP)		; blkast
+	PUSHAL	LOCK_IOSB+4	; astprm
+	PUSHL	R11		; astadr
+	CLRL	-(SP)		; parent
+	PUSHAL	CONTROL_LOCK	; resnam
+	PUSHL	#<LCK$M_SYSTEM!LCK$M_VALBLK> ; flags
+	PUSHAL	LOCK_IOSB	; lock iosb
+	PUSHL	#LCK$K_EXMODE	; lock mode
+	CLRL	-(SP)		; efn
+	CALLS	#11, G^SYS$ENQ	; 
+	RET	; return status to caller to check
+
+	.SBTTL	GET_CONTROL_LOCK_AST ()
+;	.entry	get_control_lock_ast, ^m<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,iv>
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, LABEL=GET_CONTROL_LOCK_AST
+
+	MOVL	#SS$_CTRLERR, R0
+
+	$EXIT_S	R0
+	RET
+
+	.SBTTL	CHECK_CONTROL_LOCK ()
+;	declare check_control_lock <>
+;	.entry	check_control_lock, ^m<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,iv>
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, LABEL=CHECK_CONTROL_LOCK
+
+	CLRQ	-(SP)		; nullarg,acmode
+	CLRQ	-(SP)		; blkast, astprm
+	CLRQ	-(SP)		; astadr, parent
+	PUSHAL	CONTROL_LOCK	; resnam
+	PUSHL	#<LCK$M_NOQUEUE!LCK$M_SYSTEM> ; flags
+	PUSHAL	LOCK_IOSB	; lock iosb
+	PUSHL	#LCK$K_EXMODE	; lock mode
+	CLRL	-(SP)		; efn
+	CALLS	#11, G^SYS$ENQW	; 
+	MOVQ	R0, R2
+	CMPL	R0, #SS$_NOTQUEUED	;
+	CLRQ	-(SP)			; fags, acmode
+	CLRL	-(SP)			; valblk
+	PUSHL	LOCK_IOSB+4		; lock id
+	CALLS	#4, G^SYS$DEQ		; dequeue lock
+
+	CMPL	R2, #SS$_NOTQUEUED	;
+	BEQL	20$
+	PUSHAL	NOT_STARTED		; 
+	CALLS	#1, G^LIB$PUT_OUTPUT	; 
+	MOVL	#SS$_CTRLERR, R0
+	RET
+20$:	MOVL	#1, R0			; 
+	RET
+
+	.END

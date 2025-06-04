@@ -1,0 +1,95 @@
+
+#####  C++ COMPILER
+#CXX         = g++
+
+#####  C COMPILER
+#CC          = gcc
+
+#######################################################################
+
+VER = 1.1.1
+REL = 1
+
+all:: xflame
+
+.SUFFIXES: .C $(SUFFIXES)
+
+SRCS = xflame.c
+
+# Add -lposix4 to this line if you get nanosleep problems
+LOCAL_LIBRARIES = $(XLIB)
+
+OBJS = $(SRCS:.c=.o) 
+
+xflame: $(OBJS) $(DEPLIBS)
+	$(RM) $@
+	$(CC) -o $@ $(OBJS) $(LDOPTIONS) $(LOCAL_LIBRARIES) $(LDLIBS) $(EXTRA_LOAD_FLAGS)
+
+DependTarget()
+CleanTarget()
+
+# To get around a messiness in Imake on Solaris
+LD_RUN_PATH +=
+install::
+	export LD_RUN_PATH
+
+InstallProgram(xflame,$(BINDIR))
+
+.c.o:
+	$(CC) $(CFLAGS) -c $< -o $@
+
+
+clean::
+	$(RM) -r xflame $(BIN_TAR_DIR) $(SRC_TAR_DIR) xflame.spec
+
+realclean: clean
+	$(RM) Makefile $(BIN_TAR_DIR).tar.gz $(SRC_TAR_DIR).tar.gz
+
+clobber: realclean
+
+SRC_TAR_DIR = xflame-$(VER)#
+BIN_TAR_DIR = xflame-$(VER)-Linux-i386#
+
+DIST_SRC = Imakefile xflame.c INSTALL
+DIST_COMMON = README ChangeLog
+DIST_BIN = xflame
+
+$(BIN_TAR_DIR).tar.gz: $(DIST_BIN) $(DIST_COMMON)
+	$(RM) -r $(BIN_TAR_DIR) $@
+	MakeDir($(BIN_TAR_DIR))
+	$(INSTALL) $(INSTALLFLAGS) $(INSTPGMFLAGS) $(DIST_BIN) $(BIN_TAR_DIR)
+	$(INSTALL) $(INSTALLFLAGS) $(INSTDATFLAGS) $(DIST_COMMON) $(BIN_TAR_DIR)
+	$(SHELL) -c 'tar czv $(BIN_TAR_DIR)/* -f $@'
+	$(RM) -r $(BIN_TAR_DIR)
+
+$(SRC_TAR_DIR).tar.gz: $(DIST_COMMON) $(DIST_SRC)
+	$(RM) -r $(SRC_TAR_DIR) $@
+	MakeDir($(SRC_TAR_DIR))
+	$(INSTALL) $(INSTALLFLAGS) $(INSTDATFLAGS) $(DIST_COMMON) $(DIST_SRC) $(SRC_TAR_DIR)
+	$(SHELL) -c 'tar czv $(SRC_TAR_DIR)/* -f $@'
+	$(RM) -r $(SRC_TAR_DIR)
+
+tar: $(BIN_TAR_DIR).tar.gz $(SRC_TAR_DIR).tar.gz
+
+install-tar: tar
+	$(INSTALL) $(INSTALLFLAGS) $(INSTDATFLAGS) $(BIN_TAR_DIR).tar.gz $(SRC_TAR_DIR).tar.gz /home/ftp/pub
+	$(INSTALL) $(INSTALLFLAGS) $(INSTDATFLAGS) $(SRC_TAR_DIR).tar.gz /usr/src/redhat/SOURCES
+
+xflame.spec: xflame.spec.in ChangeLog
+	sed -e s/!VER!/$(VER)/ -e s/!REL!/$(REL)/ $< > $@
+
+rpm: install-tar xflame.spec
+	rpm -ba xflame.spec
+	
+install-rpm: rpm
+	$(INSTALL) $(INSTALLFLAGS) $(INSTDATFLAGS) \
+	/usr/src/redhat/RPMS/i386/xflame* /usr/src/redhat/SRPMS/xflame* /home/ftp/pub
+
+master: install-rpm
+	$(INSTALL) $(INSTALLFLAGS) $(INSTDATFLAGS) \
+	ChangeLog /home/ftp/pub
+	$(INSTALL) $(INSTALLFLAGS) $(INSTDATFLAGS) \
+	README /home/ftp/pub/README.xflame
+
+
+.PHONY: master install-tar install clean clobber realclean rpm install-rpm

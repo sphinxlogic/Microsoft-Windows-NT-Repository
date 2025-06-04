@@ -1,0 +1,468 @@
+	.TITLE	EMU_IPX   
+	.IDENT	/V5-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	OCT-1997	PB	Creation
+;	
+;++
+;1 EMU_IPX   
+; Collection of routines used to process Netware IPX/SPX protocols. 
+; See individual routines for descriptions
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+	.LIBRARY        /EMU5_LIB:MACROLIB.MLB/
+
+	$IODEF		; I/O functions
+	$NMADEF
+	$SSDEF
+	EMUMOPDEF	
+        EMUSYSDEF
+        EMUPSRDEF
+	EMUDBDEF
+	EMUCTPDEF
+	EMUCNTDEF
+	EMUIPCDEF
+
+;
+	.PSECT	DATA,WRT,NOEXE,QUAD
+
+; Local Definitions
+;
+;Arg lists for $QIO
+WRITE_IT:
+       		.LONG	12			; No. of args
+       		.LONG	0			; Event
+ETHCHN:		.LONG	0			; Channel
+       		.LONG	IO$_WRITEVBLK		; Function
+       		.ADDRESS	IOSB			; Pointer to IOSB
+       		.LONG   0                        ; AST Address
+       		.LONG	0			; AST Param
+       		.ADDRESS	XMTBUF			; P1
+XMTLEN:       	.LONG	XMTBUFLEN		; P2
+       		.LONG	0			; P3
+       		.LONG	0		; P4
+		.ADDRESS	B_ADDR			; Target Address Pointer
+       		.LONG	0			; P6
+READ_IT:
+		.LONG	12			; No. of args
+		.LONG	0			; Event
+WETHCHN:	.LONG	0			; Channel
+       		.LONG	IO$_READVBLK		; Function
+       		.ADDRESS	IOSB			; Pointer to IOSB
+       		.LONG	0			; AST Param
+       		.LONG   0                        ; AST Address
+       		.ADDRESS	RCVBUF			; P1
+       		.LONG	RCVBUFLEN			; P2
+       		.LONG	0			; P3
+       		.LONG	0			; P4
+       		.ADDRESS	RCVP5			; RCVP5 Pointer
+       		.LONG	0			; P6
+
+B_ADDR:	 	.BYTE	^XFF,^XFF,^XFF,^XFF,^XFF,^XFF	
+;
+; Setmode param buff.
+;
+SETPARM:	.WORD	NMA$C_PCLI_FMT
+		.LONG	NMA$C_LINFM_ETH		; ETHERNET packet format
+	        .WORD   NMA$C_PCLI_BFN          ; Number of buffers to save
+                .LONG   50
+		.WORD	NMA$C_PCLI_PTY
+		.LONG	^X3781			;Protocol type
+		.WORD	NMA$C_PCLI_PAD
+		.LONG	NMA$C_STATE_OFF
+
+SETPARMLEN =	.-SETPARM
+SETPARMDSC:	.LONG		SETPARMLEN
+		.ADDRESS	SETPARM
+;
+; P2 transmit buffer
+;
+XMTBUF:
+; IPX Header:
+	.WORD	-1		; CHecksum
+	.BYTE	0,31		; Packet len
+	.BYTE	0		; Tran Control 
+	.BYTE	0		; Packet type (unknown)
+TARGETN:.BLKB	4		; Novell Net
+TARGETA:.BLKB	6 		; Ethernet addr
+	.BYTE	4,^X56		; Socket (Diagnostics ^X456)
+	.LONG	0		; Our net (unknown)
+SOURCE:	.BLKB	6		; Our Addr (Filled in at run time)
+	.BYTE	^X40,1		; Our Socket (meaningless)
+EXCNT:	.BYTE	0		; No exclusion addresses
+XMTBUFLEN = .-XMTBUF
+EXC_ADDR:	.BLKB	480
+EXC_ADDR_LEN = .-EXC_ADDR
+RIPREQ:
+; IPX Header:
+	.BYTE	53,04		; Socket (^X543 net fmt)
+	.BYTE	01,00		; Packet type (1= req, 2= resp)
+RIPTGT: .BLKB	4		; Novell Net
+	.WORD	-1		; Hops
+	.WORD	-1		; Time
+RIPREQLEN = .-RIPREQ
+
+
+
+;
+; P2 Receive buffer
+;
+RCVBUF:		.BLKB	512
+RCVBUFLEN = .-RCVBUF
+;
+; P5 receive buffer
+;
+RCVP5:
+RVCDA:		.BLKB	6
+RVCSA:		.BLKB	6
+RVCDSAP:	.BLKB	1
+RVCSSAP:	.BLKB	1
+RVCCTL :	.BLKB	2
+RVCFILL:	.LONG	0
+;
+;
+; Misc
+;
+	.ALIGN	QUAD
+
+IOSB:		.QUAD	0			; 
+INTLTIM:	.QUAD
+INTIM_D:	.LONG	16
+		.ADDRESS  INTIM
+INTIM:		.ASCII	/0000 00:00:03.50/      ; Max Wait for response
+NETLEN:		.LONG
+; Code
+;
+		.PSECT	CODE,NOWRT,EXE,LONG
+
+	.CALL_ENTRY	MAX_ARGS=4, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETIPX
+; Modifications:
+; 1-001	Jan-1994	PB	Creation
+; 1-002	Jan-1995	PB	Allow for multiple responses until either:
+;				Timeout or outp buffer full.
+; 1-003 Nov-1997	PB	Changed functionality. See note 1-3.
+; Note 1-3.
+; P1 is now passed by desc and may be either 4 or 10 bytes long
+; If 10 bytes, the specified address is contacted for update
+; If 4 bytes, it is assumed to be a NET and the broadcast addr is 
+; attached and the entire segement is updated.
+; P4 is a desc pointing to list of exclusion addresses. If P1 is 4 
+; bytes this param is tested. If present it is a list of mac addresses
+; that we do not want to respond to the broadcast. It may be up to 
+; 80 addresses in len (480 bytes).
+;  
+;++
+;2 GETIPX
+; This routine requests config data from  specified IPX Network address 
+; with an IPX Config request packet.
+; The node portion of the address is not present, the request is broadcast, 
+; thus addressing ALL Netware nodes on that segment. A list of exclusion 
+; may be supplied to supress addresses we do not want to hear from.
+;
+;
+;3 Input
+;	P1	.address of descriptor pointing to netware address
+;		if the len is 4 then it is a netware segment and the 
+;		node address is broadcast. If the len is 10 the node
+;		address is included and the probe is directed to that 
+;		node alone.
+;	P2	.Addr of desc pointing to outp buffer
+;	P3 	.address of .long where number of responses received is written 
+;	P4	(optional) .address of descriptor pointing to list of
+;		exclusion addresses. On a brodcast, these addresses 
+;		are sepecificaly instructed to not respond.
+;		May be up to 80 addresses in len. 
+;3 Output
+;	For each node responding the following frame is added to the output
+;	buffer:
+;	IPX packet header	30 bytes
+;	Major version		1
+;	Minor version		1
+;	SPX diag socket		2
+;	Component count		1
+;  followed by the number of components specified:
+;  Component id			1
+; If component id = 1-4 then id only is present
+; if component id = 5-7 then id is followed by:
+;	local net count		1
+;	and for each net:
+;	net type		1
+;	net addr		4
+;	node addr		6
+; 
+;3 Returns
+;	SS$_NORMAL	Requested loop was succesful
+;	SS$_UNREACHABLE	Failed to receive response from target
+;	SS$_ACCVIO	Can' read input params or can't write outp field
+;	SS$_BUFFEROVF	Output buffer too small for all responses
+;			 - partial return - 
+;	SS$_TOOMUCHDATA	Too many exclusion addresses. (max = 80)
+;	Any from ASSETHCHN, PHYSADR, GETIPX_ROUTER, $QIO
+;--
+
+;
+; Get and Validate Params
+;
+	MOVQ	@4(AP),R2     	; Ipx net
+	PROBER	#0,R2,(R3)			; Read net?
+	BEQL	30$			; NO
+; Set destination params
+	MOVL	(R3),TARGETN
+	CMPL	#4,R2
+	BEQLU	10$ 			; Broadcast
+	MOVL	4(R3),TARGETA
+	MOVW	8(R3),TARGETA+4
+	BRB	15$
+10$:
+	MOVL	#-1,TARGETA              ; IPX Addr
+	MOVW	#-1,TARGETA+4
+15$:
+;	PUSHAL	B_ADDR
+;	PUSHL	4(AP)			; Net
+;	CALLS	#2,G^GETIPX_ROUTER
+;	BLBS	R0,20$
+;	RET
+
+	MOVL	#-1,B_ADDR
+	MOVW	#-1,B_ADDR+4
+20$:	
+        MOVQ	@8(AP),R8		; Get Outp desc
+	PROBEW	#0,R8,(R9)		; Check for write access
+	BEQL	30$			; NO
+;
+	PROBEW	#0,#4,12(AP)  		; Write count?
+	BEQL	30$			; NO
+;
+
+	BNEQ	PARAMS_OK		; Yes
+30$:
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+
+PARAMS_OK:
+ 	TSTL	ETHCHN		; Init?
+	BNEQ	START		; Done - Br
+
+	PUSHAL	ETHCHN                 
+	CALLS	#1,ASSETHCHN           ; Assign chan to Ethernet
+	BSBW	ERROR_CHK
+	MOVL	ETHCHN,WETHCHN		; Use same channel for RD/WRT
+	PUSHAL	SOURCE
+	CALLS	#1,G^PHYSADR    	; Place our addr in source
+	BSBW	ERROR_CHK
+;
+; Start up channel and set characteristics
+
+        $QIOW_S FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>,-
+                CHAN=ETHCHN,-
+                IOSB=IOSB,-
+                P2=#SETPARMDSC
+	BSBW	ERROR_CHK
+	MOVZWL	IOSB,R0				; Check IOSB return
+	BSBW	ERROR_CHK
+START:
+	CLRL	@12(AP)			; Clear count of rec'ed responses
+	CLRB	EXCNT                   ; Clear exclusion count
+
+; Check if exclusions are present. If so add to 
+; transmitted frame.
+	CMPL	#4,(AP)			; Param present?
+	BNEQ	ROUTINE_LOOP            ; Br if not
+        MOVQ	@16(AP),R2		; Get Outp desc
+	PROBEW	#0,R2,(R3)		; Check for write access
+ 	BNEQ	10$
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+10$:
+	DIVL3	#6,R2,R1 		; Get count of addr
+	MOVB	R1,EXCNT
+	CMPL	R1,#EXC_ADDR_LEN			; Max size?
+	BLEQ	20$
+	MOVL	#SS$_TOOMUCHDATA,R0
+	RET
+20$:
+	MOVC3	R2,(R3),EXC_ADDR
+        ADDL	R2,XMTLEN		; Adjust len of xmit buffer
+
+; Transmit TEST
+;
+ROUTINE_LOOP:
+	$QIOW_G	WRITE_IT	         ; Send CONFIG Request
+	BSBW	ERROR_CHK                ;
+	MOVZWL	IOSB,R0			 ; Check IOSB return
+	BSBW	ERROR_CHK
+; Queue Read
+20$:
+	BSBW	SET_TIME                ; Set time limit for test
+	$QIOW_G	READ_IT		      	; Receive response
+	BSBW	ERROR_CHK
+	BLBS	IOSB,30$                
+	MOVL	#SS$_UNREACHABLE,R0     ; ASSUME no responses
+	TSTL	@12(AP)			; Any?
+	BEQL	25$			; If none - branch
+	MOVL	#SS$_NORMAL,R0     	; Good end
+25$:
+	RET                     	; Exit to caller
+30$:
+	CLRL	-(SP)
+	CLRL	-(SP)
+	CALLS	#2,G^SYS$CANTIM
+
+; Message OK
+	MOVZWL	RCVBUF+2,NETLEN	; Get len (Net order)
+	ROTL	#8,NETLEN,NETLEN	; Reverse order
+	MOVB	NETLEN+2,NETLEN         ;   "
+	MOVZWL	NETLEN,R6       ; Store len (VAX order)
+	SUBL	R6,R8		; Deduct used
+	BLSS	100$		; Br if not enough left
+	MOVC3	R6,RCVBUF,(R9)	; Move in data
+	ADDL	R6,R9		; Move pointer
+	INCL	@12(AP)		; Count good resp
+	BRW	20$		; More
+100$:
+	MOVL	#SS$_BUFFEROVF,R0
+	RET		
+
+; Here on Read Timout
+;
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETIPXLOST_MSG
+	PUSHL	ETHCHN
+	CALLS	#1,G^SYS$CANCEL		; Cancel I/O - No error check
+	RET                             ; Exit to main
+
+; Subroutines
+;
+;
+; Routine Error
+
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBC	R0,10$
+	RSB
+10$:
+	MOVL	R0,R7		; Save Error
+	$DASSGN_S CHAN=ETHCHN   ; No error Check
+	CLRL	ETHCHN
+	MOVL	R7,R0	        ; Restore error
+	RET
+	
+SET_TIME:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+; Set the timeout for read
+;
+;
+; Set the timer
+; Convert the input time - must be DELTA
+;
+	$BINTIM_S-	
+		TIMBUF=INTIM_D,-
+		TIMADR=INTLTIM
+;
+	$SETIMR_S-
+		DAYTIM=INTLTIM,-
+		ASTADR=GETIPXLOST_MSG             ; AST address
+        RSB
+
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETIPX_ROUTER
+;++
+;2 GETIPX_ROUTER
+; This routine requests the router to a specified IPX network using 
+; a RIP request packet. If a response is received, the mac layer address
+; of the router is returned.
+;
+;3 Input
+;	P1	.address of 4 byte IPX network address. This is the IPX 
+;		segment we want a route to.
+;	P2	.Addr of 6 byte area to write the mac layer address of the 
+;		responding router to.
+;3 Output
+;		The mac layer address is written to the output if a 
+;		response is received.
+;3 Returns
+;	SS$_NORMAL	Request was succesful - address writtten
+;	SS$_UNREACHABLE	Failed to receive response from target
+;	SS$_ACCVIO	Can' read input params or can't write outp field
+;	Any from ASSETHCHN, PHYSADR, $QIO
+;--
+
+;
+; Get and Validate Params
+;
+	PROBEW	#0,#4,@4(AP)		; Check for read access
+	BEQL	30$			; NO
+; Set destination params
+	MOVL	@4(AP),RIPTGT    	; Ipx net
+
+	PROBEW	#0,#6,@8(AP)		; Check for write access
+	BNEQ	50$		; Yes
+30$:
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+
+50$:
+ 	TSTL	ETHCHN		; Init?
+	BNEQ	RIP_START		; Done - Br
+
+	PUSHAL	ETHCHN                 
+	CALLS	#1,ASSETHCHN           ; Assign chan to Ethernet
+	BSBW	ERROR_CHK
+	MOVL	ETHCHN,WETHCHN		; Use same channel for RD/WRT
+	PUSHAL	SOURCE
+	CALLS	#1,G^PHYSADR    	; Place our addr in source
+	BSBW	ERROR_CHK
+;
+; Start up channel and set characteristics
+
+        $QIOW_S FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>,-
+                CHAN=ETHCHN,-
+                IOSB=IOSB,-
+                P2=#SETPARMDSC
+	BSBW	ERROR_CHK
+	MOVZWL	IOSB,R0				; Check IOSB return
+	BSBW	ERROR_CHK
+RIP_START:
+; Transmit TEST
+;
+	$QIOW_G	WRITE_IT	         ; Send CONFIG Request
+	BSBW	ERROR_CHK                ;
+	MOVZWL	IOSB,R0			 ; Check IOSB return
+	BSBW	ERROR_CHK
+; Queue Read
+20$:
+	BSBW	SET_TIME                ; Set time limit for test
+	$QIOW_G	READ_IT		      	; Receive response
+	BSBW	ERROR_CHK
+	BLBS	IOSB,30$                
+	MOVL	#SS$_UNREACHABLE,R0     ; ASSUME no responses
+	RET                     	; Exit to caller
+30$:
+	MOVL	8(AP),R2
+	MOVL	RVCSA,(R2)
+	MOVW	RVCSA+4,4(R2)
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+
+
+		.END								

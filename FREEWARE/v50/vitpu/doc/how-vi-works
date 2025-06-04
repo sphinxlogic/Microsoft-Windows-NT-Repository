@@ -1,0 +1,163 @@
+The operaton of the program is pretty straight forward.  It goes something
+like this.
+
+command_mode:
+
+1) TPU$INIT_PROCEDURE arranges for vi$command_mode to be called whenever ANY
+   key is pressed, passing it the key_name of the pressed key.
+2) vi$command_mode then looks in the cmd_keys key_map for a definition of that
+   key.  This is done to funnel each key stroke through one routine that can
+   aid in remembering key strokes for '.' to replay.  There is some logic there
+   that determines when a valid sequence that could be replayed has been typed.
+3) The PROGRAM definition for the key is checked for 0 which indicates an
+   undefined key, and such keystrokes are ignored.  Otherwise, the PROGRAM
+   defined for the key is envoked.
+
+4) There is also some code here to handle the U command.  Basically, we need
+   to know when the cursor moves to a new line, so that is handled here.
+
+5) That takes care of command mode.
+
+movements:
+
+1) vi$command_mode invokes a program (obtained using LOOKUP_KEY (PROGRAM...))
+   that is a function call to a procedure which in turn envokes a generic
+   routine that returns a marker indicating the destination of the movement.  If
+   the marker is zero, then the position was not found (e.g. a search command
+   failed to find an occurance).  vi$position is in charge of deciding whether
+   or not a particular location can be moved to, since it keeps track of the '',
+   and `` markers.  Thus a typical movement procedure looks something like: 
+
+      PROCEDURE vi$find_next (direction)
+          vi$position (vi$search_next (vi$old_subs, direction), 1);
+      ENDPROCEDURE;
+
+   (The names of the variables above may or may not be correct) vi$position
+   must be told to remember where we were prior to doing the movement to the
+   marker passed to it, and that is what the second parameter does.
+
+delete, change, yank, shift, filter:
+
+1) These command each read one or more keys to determine what region is being
+   operated on.  An existing select region always has precedence over any other
+   type of movement, so if one is active, then NO keystrokes are read. The
+   move_keys map describes all of the possible movements that these routines
+   will recognize.  They recognize leading numeric counts on movements such as
+   d3w which is synonomous with 3dw.  They do a lot of testing for directions so
+   that they will know how to adjust markers which are returned from the
+   movement routines.  The movement routines are the same generic ones that are
+   called from the command mode movement procedures. 
+
+2) The global values, vi$start_pos, vi$endpos, and vi$new_endpos are used to
+   mark the region to be worked on.  vi$start_pos is set prior to calling any
+   movement procedure, and vi$new_endpos is set to zero.  Any routine that
+   wishes to doctor up the value of vi$start_pos, may, and some do. 
+   vi$new_endpos allows for a generic movement procedure to be written that
+   returns different values based on who is using it.  cw verses dw is a
+   prime example.  dw removes trailing white space, while cw does not allow
+   you to change it.  Therefore, the move by word routines set vi$new_endpos
+   to a different value.  Granted, this could have really been done with
+   conditional returns of different values I believe, but for some reason,
+   I chose this method.  vi$endpos is assigned the value returned by the
+   EXECUTE ( COMPILE ("vi$endpos:="+LOOKUP_KEY(keyn,COMMENT))); statement
+   which builds an assignment and compiles and executes it on the fly.
+   Following this, vi$endpos will be altered if vi$new_endpos is non-zero.
+
+3) The region to manipulate is mapped out after some hanky panky with end
+   points and such, and the action is performed.
+
+Undo:
+
+1) Deletes are made undoable by saving the deleted text into a buffer with
+   a single line at the top of the buffer describing how the text was
+   deleted (i.e. dw vs. dd).  Then, vi$undo_start is set to the location
+   where the text should be restored.  vi$undo_end is set to zero in the
+   case of delete, as it is used to mark the end of a region of text that
+   must be deleted (vi$undo_start is the start) when undo is performed.
+
+2) Puts, are made undoable by setting vi$undo_start to the start of the
+   inserted regions, and vi$undo_end to the end.  The routine vi$kill_undo
+   assures that no text will be inserted for the next undo.
+
+3) Inserts follow the same strategy as puts.
+
+4) Change commands make use of both facets of undoing.  There is a region
+   to delete, that which was typed, and a region to restore, that which
+   existed previously.
+
+   vi$perform_undo, vi$kill_undo, vi$undo_start and vi$undo_end are the
+   main variables and such that undo operations deal with.
+
+Inserting:
+
+1) All operations that insert text into a buffer by letting the user type
+   text use the routine (after a little hopscotch) vi$line_edit to do
+   the actual work.  This routine does a lot of things.  It recognizes
+   when abbreviations have been used, and discovers which text has and
+   hasn't been typed over by an 'R' command.  Basiclly, this routine
+   and its interface is not pretty.  It accepts four parameters.  A starting
+   marker where inserting actually begin (this may not be where the cursor
+   is at function entry), a corresponding column offset, a return
+   parameter which is the ending position, and a flag which determine if
+   the 'R' command is active.  This flag is either 0, or the string image
+   of the line that is being 'R'd over.  This string is replaced over the
+   top of characters that are 'R'd over, but then backspaced over and then
+   the user hits ESCAPE.
+
+ex mode:
+
+1) Ex mode is a series of operations, the first is reading a string.  Next,
+   the beginning is parsed to try and locate a range specification.  This
+   range is indicated in several ways inside vi$do_command.  There are
+   markers, line numbers, and two ranges, one being the range by line, and
+   the other being the range only.  The second range comes into affect
+   when things are delimited with search ranges.
+
+2) Once the range of the command has been determined, then the rest of
+   the command line is placed into the variable, cmd.  The index variable,
+   idx, is used to mark the current location in cmd where we have parsed to.
+   All lower case alphabetic characters are extracted from the beginning of
+   cmd to get the command to perform.
+
+3) The command is then analyzed by doing simple string compares.  There is
+   a certain order to the IF's that perform this activity, as we must
+   distiguish between commands with common leading substrings.
+
+4) A special routine handles each command, and that routine has a unique
+   set of arguments based on its needs.
+
+maps:
+
+1) Maps are handled by placing all of the KEY_NAME values of the key stokes
+   into a buffer, one per line.  Whenever a mapped key is detected, then its
+   buffers contents are pushed into the typing stream by the function
+   vi$insert_macro_keys.  TPU's key values are really strange, and I am not
+   so sure that I like the way this is done, it is just that I originally
+   wanted to be able to have maps with any keystroke in them, and that
+   pretty much eliminated the use of strings (well okay, maybe).
+
+2) The routine vi$do_macro MUST be called to initiate the processing of a
+   map, as TPU's main loop does not know about the pushed keys in the input
+   stream.  This routines performs all of the actions indicated by the mapped
+   key strokes, and then returns control to the caller.  Note that vi$do_macro
+   recognizes either strings or buffers of macro key strokes.  There are some
+   command mode key strokes that are mapped to macros.
+
+      D ==> d$
+      s ==> cl
+      C ==> c$   etc...
+
+learn sequences:
+
+1) Learn sequences are implemented by creating global variables on the
+   fly to contain the LEARN program.  Then, a DEFINE_KEY is done to
+   pass the program to a routine that knows what to do with it.
+
+2) This routine checks the status of :set undomap, and then performs
+   the necessary stuff to set up for undo if undomap is in effect.
+
+3) Then, the program passed is executed.  When the EXECUTE returns,
+   the LEARN sequence is complete.  Note that LEARN's are different
+   from MAP's in that a map can be recursive, and will stop when it
+   finds an error.  A learn sequence just keeps going if it is
+   recursive, and NEVER stops.

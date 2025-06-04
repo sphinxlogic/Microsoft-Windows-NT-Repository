@@ -1,0 +1,412 @@
+	.TITLE	SETSNMP
+	.IDENT	/05-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; This routine will set the specified param to the specified value via SNMP.
+;
+; Modifications:
+; 01 001	AUG-1996	PB	Creation
+;
+; Call Sequence:
+;	P1	.address of 4 byte IP address of target node       (RO)
+;	P2	.address of counted octect string of VarBindList   (RO)
+;	P3	.address of desc pointing to outp                  (WO)
+; 	P4 	Address of counted ascii comunity string           (RO)
+;
+;		len is written back @P4+4
+; Returns:
+;	SS$_NORMAL	Request successful, data written at target node
+;	SS$_UNREACHABLE	Failed to receive response from target
+;	SS$_BADPARAM	- Comm string has len <= 0 
+;			- Object is longer than allowed (SNMP_MAXOBJLEN)
+;	SS$_DATACHECK	SNMP returned error in staus field. Error is in outp.
+;	SS$_BUFFEROVF	Outp buff too small to receive returned data
+;	SS$_FORMAT	Returned frame in bad format
+;	SS$_ACCVIO	Can't read input params or can't write outp 
+; Data
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"    	
+	$IODEF			; I/O functions
+        $INETSYMDEF     	; UCX 
+	EMUSNMPDEF      	; EMU
+;
+		.PSECT	SETSNMP_DATA,WRT,NOEXE,QUAD
+
+IOSTATUS:	.QUAD	0			; I/O status block block
+INTLTIM:	.QUAD
+INTIM_D:	.LONG	16
+		.ADDRESS  INTIM
+INTIM:		.ASCII	/0000 00:00:01.00/    	; Max Wait for 1st response
+INTIM2:		.ASCII	/0000 00:00:02.00/    	; Max Wait for 2nd response
+CHANNEL:	.WORD 	0	       		; Channel assigned to INET
+DEV:		.ASCID	/BG:/			; Internet device name
+;
+;	INET Socket address structure for local host IP address
+;
+	.ALIGN	LONG
+LOCAL_ADR:
+	.WORD 	INET$C_AF_INET	; Inet domain
+	.WORD	0		; Port number (Assigned) 
+ 	.LONG	0		; IP Address (system assigns local)
+	.BLKB	8		; not used
+LEN=.-LOCAL_ADR	
+;
+;	Peer Socket address structure
+;
+REMOTE_ADR:	
+	.WORD 	INET$C_AF_INET	; Inet domain
+	.BYTE 	0,161		; Port number 161 SNMP
+TARGET:	.LONG	0		; Place P1 here
+	.BLKB	8		; not used
+;
+;	Socket parameters for Socket creation
+;
+PAR11:	.WORD	INET$C_UDP		; UDP/IP protocol
+	.BYTE	INET_PROTYP$C_DGRAM	; Socket type is datagram
+	.BYTE	0
+;
+;	Descriptor of Local Socket for the Bind operation
+;
+PAR12:	.LONG	LEN
+	.ADDRESS LOCAL_ADR
+;
+;	Descriptor of Remote Socket for the Connect operation
+;
+PAR13:	.LONG	LEN
+	.ADDRESS REMOTE_ADR
+
+MESSAGE:	
+		.BYTE	SNMP_ASN1_SEQ          ; Start message
+SNMPLEN:	.BYTE	0                      ; Message (len Mess - Null term) 
+		.BYTE	SNMP_ASN1_INT          ; Integer
+		.BYTE	1                      ; Len
+		.BYTE	SNMP_ASN1_VERS         ; Version
+		.BYTE	SNMP_ASN1_STR          ; Str
+CSTRING:	.BLKB	506			; Total message len = 512
+
+; Remainder of message is variable.
+; Next block starts at end of community string and extends to the target obj.
+SNMP_OPER:	.BYTE	SNMP_PDU_SET	       ; Req type
+SNMPRLEN:	.BYTE	0                      ; req len (. - message_len)
+		.BYTE	SNMP_ASN1_INT          ; Int
+		.BYTE	4                      ; Len
+SNMPREQID:	.LONG	1234                   ; Req ID
+		.BYTE	SNMP_ASN1_INT          ; Int
+		.BYTE	1                      ; Len
+		.BYTE	0                      ; Status
+		.BYTE	SNMP_ASN1_INT          ; Int
+		.BYTE	1                      ; Len
+		.BYTE	0                      ; Err index
+		.BYTE	SNMP_ASN1_SEQ          ; Seq
+SNMPLEN3:	.BYTE	0                     ; Len (. - message_len)
+		.BYTE	SNMP_ASN1_SEQ          ; Seq
+SNMPLEN4:	.BYTE	0                     ; Len (. - message_len)
+		.BYTE	SNMP_ASN1_OBJID        ; Obj follows
+SNMPOLEN:	.BYTE	0                      ; Len obj
+; Here to previous comment is static len
+BLK2LEN = .- SNMP_OPER 
+SNMP_TGTOBJ:	.BLKB	SNMP_MAXOBJLEN  	; Obj
+
+MESSAGE_LEN: 	.LONG	0		       ; Calculated
+SNMPTERM:	.WORD	SNMP_ASN1_NULL         ; Terminator
+
+;Misc
+	.ALIGN	LONG
+RETBUF:		.BLKB	512
+RETBUF_LEN = .-RETBUF
+CUROBJ:		.LONG	0
+CSTRING_A:	.LONG
+CURREQID:	.LONG
+DEFCSTRING:	.ASCIC	/public/               ; Count(6) + 6 char
+;
+	.PSECT	SETSNMP_CODE,EXE,NOWRT,QUAD
+	.ENTRY	 SETSNMP,^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>	
+; Get and Validate Params
+	PROBER	#0,#4,4(AP)  		; Read IP address?
+	BNEQ	10$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+10$:
+	MOVL	8(AP),R8		; Address of obj
+	TSTB	(R8)
+	BNEQ	20$			; Not = 0 - OK
+	MOVL	#SS$_BADPARAM,R0	; Signal error
+	RET
+20$:
+	CMPB	(R8),#SNMP_MAXOBJLEN	; Bigger than allowed?
+	BLEQU	30$			; Br if not
+	MOVL	#SS$_BADPARAM,R0	; Signal error
+	RET
+30$:
+; Returned param list
+	MOVQ	@12(AP),R6     		; R6 = len, R7 = addr retbuf
+	PROBEW	#0,R6,(R7)     		; Write?
+	BNEQ	40$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+40$:
+	CMPL	#4,(AP)			; Param present?
+	BNEQ	80$
+	MOVZBL	@16(AP),R1		; Get len
+	BEQL	80$			; If = 0 then branch
+	PROBER	#0,R1,24(AP)     	; Read string?
+	BNEQ	70$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+70$:
+	MOVL 	16(AP),CSTRING_A	; Use provided string
+	BRB	PARAMS_OK
+80$:
+	MOVAL	DEFCSTRING,CSTRING_A	; Use default
+	
+
+PARAMS_OK:
+ 	TSTW	CHANNEL			; Init?
+	BNEQ	CONSTRUCT_SNMP		; Done - Br
+;
+;	Assign the INET device
+;
+	$ASSIGN_S	DEVNAM=DEV, CHAN=CHANNEL
+	BLBS	R0,5$
+	RET
+5$:
+
+; Create a Socket and Bind the socket to a port and address
+;
+	$QIOW_S	CHAN=CHANNEL, -		; Channel
+		FUNC=#IO$_SETMODE,-	; I/O function
+		IOSB= IOSTATUS, -	; I/O status
+		P1=PAR11		; Socket creation parameters
+	BSBW	ERROR_CHK
+	BLBS	IOSTATUS,CONSTRUCT_SNMP
+	MOVZWL	IOSTATUS,R0
+	RET
+; 
+CONSTRUCT_SNMP:
+; Assemble SNMP Set frame
+; Insert community string
+	MOVAL	CSTRING,R3		; Destination
+	MOVL	CSTRING_A,R4		; Source
+	MOVZBL	(R4),R2			; Len
+	BNEQU	10$			; Br if len > 0 
+	MOVL	#SS$_BADPARAM,R0	; Signal error
+	RET
+10$:
+	INCL	R2			; Include count byte
+20$:
+	MOVB	(R4)+,(R3)+		; Move counted string in
+	SOBGTR	R2,20$			
+; Fill in fields
+	MOVL	@4(AP),TARGET		; Set target address
+	MOVL	EXE$GL_ABSTIM,SNMPREQID	; Create (Probably) unique ID
+	MOVL	SNMPREQID,CURREQID	; Save in (non-moving) mem
+; Insert Object IDs and values
+;
+	MOVAL	SNMPOLEN,R10		; Start of OBJ id
+	MOVZBL	(R8),R9			; Loop control
+	INCL	R8			; Skip count byte
+30$:
+	MOVB	(R8)+,(R10)+
+	SOBGTR	R9,30$
+;	MOVW	SNMPTERM,(R10)		; Move terminator
+; Calc lens
+	ADDB3	#1,@8(AP),SNMPLEN4	; Set len of req
+	ADDB3	#3,@8(AP),SNMPLEN3	; Set len of req
+	ADDB3	#17,@8(AP),SNMPRLEN	; Set len of req
+	ADDB3	#6,SNMPRLEN,SNMPLEN	; Set len of message
+        MOVZBL 	@CSTRING_A,R1           ; Get len of comm strng
+	INCL	R1                      ; Include count byte
+	ADDB	R1,SNMPLEN              ; Add len of comm str
+	CLRL	MESSAGE_LEN             ;
+	ADDB3	#2,SNMPLEN,MESSAGE_LEN	; Set len of QIO Message
+; assemble message
+	MOVAL	 MESSAGE,R10            ; Start of message
+	ADDB	#6,R10			; Constant to comm string
+	ADDL	R1,R10			; Point to end of comm str
+	MOVC3	#BLK2LEN,SNMP_OPER,(R10); Move constant size block
+	ADDL	#BLK2LEN,R10		; Move pointer
+        MOVZBL	@8(AP),R11            	; Get len of VarBindList
+	INCL	R11			; Include term
+	MOVC3	R11,SNMP_TGTOBJ,(R10)	; Move last part of message
+	CLRB	(R10)[R11]		; Make terminator
+SEND_MESSAGE:
+; Set up for send
+	CLRL	R11			; Attempt count
+	MOVAL	INTIM,INTIM_D+4		; Set 1 second timeout
+; Send req
+30$:
+	$QIOW_S	CHAN=CHANNEL, -		; Channel
+		FUNC=#IO$_WRITEVBLK,-	; I/O function
+		IOSB= IOSTATUS, -	; I/O Status block
+		P1=MESSAGE,-		; I/O buffer address
+		P2=MESSAGE_LEN,-	; I/O buffer length
+		P3= #PAR13              ; Remote IP address
+	BSBW	ERROR_CHK
+	BLBS	IOSTATUS,35$
+	MOVZWL	IOSTATUS,R0
+	RET
+; Set timer and que read for response
+35$:
+	BSBW	SET_TIME		; Don't wait forever
+	$QIOW_S	CHAN=CHANNEL, -		; Channel
+		FUNC=#IO$_READVBLK,-	; I/O function
+		IOSB= IOSTATUS, -	; I/O Status block
+		P1=RETBUF,-		; I/O buffer address
+		P2=#RETBUF_LEN 		; I/O buffer length
+	BSBW	ERROR_CHK		; Que error is fatal
+	BLBS	IOSTATUS,70$            ; Br on no err
+; SNMP uses UDP and is unreliable. If we recv timeout on 1st attempt with 
+; 1 second timeout, try once more with 2 sec timeout.
+	CMPW	IOSTATUS,#SS$_CANCEL	; Timeout?
+	BEQLU	50$			; Br if so
+	MOVZWL	IOSTATUS,R0
+	RET				; Exit with error
+50$:
+	TSTL	R11			; Number of atttempts
+	BEQL	60$			; Br if 0
+	MOVL	#SS$_UNREACHABLE,R0     ; Tried 2x
+	RET
+60$:
+	MOVAL	INTIM2,INTIM_D+4	; Set 2 second timeout
+        INCL	R11			; Flag 2nd attempt
+	BRW	30$			; Once more
+70$:
+; Here on good return
+	CLRL	-(SP)
+	CLRL	-(SP)
+	CALLS	#2,G^SYS$CANTIM		; Stop Read timer - No error Check
+; Check return
+	MOVAL	RETBUF,R11		; Parse outp
+	INCL	R11			; Skip seq1
+	BSBW	1000$			; Get len this len field in R1
+        ADDL	R1,R11			; Skip SMNPLEN field
+	ADDL	#3,R11			; Skip version (3 bytes)
+        CMPB	#SNMP_ASN1_STR,(R11)	; This should be str type
+	BEQLU	32$			; Error if not
+	BRW	90$
+32$:
+        INCL	R11			; Skip to len
+	MOVZBL	(R11),R1		; Get len
+	ADDL	R1,R11			; Skip field...
+	INCL	R11			;  and count
+        CMPB	#SNMP_PDU_RESP,(R11)	; This should be Response type
+        BEQLU	34$                     ; No
+	BRW	90$
+34$:
+	INCL	R11			; Skip req field
+	BSBW	1000$                   ; Len len
+	ADDL	R1,R11                  ; Skip to reqid
+        CMPB	#SNMP_ASN1_INT,(R11)	; This should be Integer type
+	BEQLU	36$
+	BRW	90$			;
+36$:
+	INCL	R11
+	MOVZBL	(R11),R1		; Get len REQID
+	INCL	R11
+	CMPL	(R11),CURREQID		; Confirm this is response expected
+	BEQLU	38$ 			; OK
+	BRW	35$                     ; Try to read again
+38$:
+	ADDL	R1,R11			; SKip Field ...
+	TSTB	2(R11)			; Test status
+	BEQL	3801$
+	BRW	80$			; Error
+3801$:
+	ADDL	#7,R11			; Skip status, following seq
+	BSBW	1000$
+	ADDL	R1,R11
+	INCL	R11			; Skip seq
+	BSBW	1000$
+	ADDL	R1,R11			; Point to objid
+        CMPB	#SNMP_ASN1_OBJID,(R11)	; This should be OBJ type
+	BEQLU	3802$
+	BRW	90$                     ; No
+3802$:
+	INCL	R11
+	MOVZBL	(R11),R1
+	ADDL	R1,R11		
+	INCL	R11			; Found the &*^% data!
+	MOVAL	RETBUF,R10
+	SUBL3	R10,R11,R9              ; Len of header
+	SUBW3	R9,IOSTATUS+2,R8	; Len of data
+	CMPW    R8,R6			; Enough room?
+	BGTRU	45$                     ; Br if no
+	MOVC3	R8,(R11),(R7)		; Move to caller
+	MOVZWL	R8,@16(AP)		; Write len returned
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+45$:
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+
+80$:
+; SNMP Returned an error. Return this to caller
+	MOVL	(R11),(R7)		; Get SNMP err 
+	MOVW	4(R11),4(R7)            ; Place in outp
+	MOVL	#SS$_DATACHECK,R0       ; Signal SNMP err
+	RET
+90$:
+; Unexpected frame format
+	MOVL	#SS$_FORMAT,R0
+	RET
+1000$:
+
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+
+; Ret len of len (no kidding!) 
+; Check byt @r11. If < 127 then len ret = 1
+; if > 127 then extract 7 bits @r11. Number of following bytes containing len
+; return this len+1
+	MOVL	#1,R1
+	CMPB	#127,(R11)	
+	BLEQU	1010$
+	RSB
+1010$:
+	EXTZV	#0,#7,(R11),R1
+	INCL	R1
+	RSB
+
+ERROR_CHK:
+
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+
+	BLBC	R0,10$                  ; Br if error
+	RSB                             ;
+10$:
+	RET
+SET_TIME:
+
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+
+; Get the timeout for read
+; Convert the input time - must be DELTA
+;
+	$BINTIM_S-	
+		TIMBUF=INTIM_D,-
+		TIMADR=INTLTIM
+;
+	$SETIMR_S-
+		DAYTIM=INTLTIM,-
+		ASTADR=LOST_SETSNMP_MSG             ; AST address
+        RSB
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=LOST_SETSNMP_MSG
+	PUSHL	CHANNEL
+	CALLS	#1,G^SYS$CANCEL		; Cancel I/O - No error check
+	RET                             ; Exit to main
+	.END 

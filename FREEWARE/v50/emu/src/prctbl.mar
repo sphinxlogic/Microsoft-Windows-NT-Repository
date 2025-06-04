@@ -1,0 +1,861 @@
+	.TITLE PRCTBL    
+	.IDENT /V02-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications
+; 001 	Aug 1996	PB	Creation		
+; 2.1   Nov 1997	PB	Modified for V5.
+;++
+;1 PRCTBL    
+; Programme to List,Add,Modify and Delete items in PRCTBL.DAT
+; The resulting file is loaded into a section at system start time and is
+; used by EMU_CONTROL to start and maintain all processes.
+; This is the utility used to introduce new processes to the system.
+;2 Displays  
+;	     1. List:
+;		Lists known entries and items on sys$output
+;	     2. Add:
+;		Records details in PRCTBL.DAT file
+;	     3. Modify:
+;		Allows modification of modifiable fields
+;            4. Delete:
+;		Erase corresponding record
+;2 Outputs
+; File_format:
+; Process Name     16	Process name used by VMS
+; PRCNAM_DESC:      4   Placeholder to build $CREPRC inputs 
+; PRCNAM_ADDR       4   Placeholder to build $CREPRC inputs 
+; IMAGE:           64   File name to execute
+; IMAGE_DESC:       4   Placeholder to build $CREPRC inputs 
+; IMAGE_ADR:        4   Placeholder to build $CREPRC inputs 
+; PID:              4   Process ID returned by $CREPRC
+; PRIORITY:         4   VMS Process base priority
+; STARTLVL:         4   Start order. Note that the RELATER defines the 
+;			end of phase 1 startup so any process lower than
+;			RELATER, completes startup before Phase 2.
+; PRIVILEGES:       8   VMS Priv mask
+; FLAGS:            4   Bit	When set
+;			0	Restart this process on failure
+;			1	Restart system is this process fails
+;			2	Do not start this process
+; START_TIME:       8   Time process started
+; CREPRC_STS:       4   I dunno
+;--
+
+; Abstract:
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+
+	$RMSDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	_PRCTBLDEF
+;
+
+	.PSECT PRCTBL_DATA,WRT,NOEXE,QUAD,pic
+TMPDESC:	.QUAD	0
+;	
+; File Structures
+PRCFAB:	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; 
+  		FOP = CIF,-             	; Create if Doesn't Exist
+		ORG = IDX,-			; Keyed file (Finally)
+		XAB = PRCXAB0,-			; KEYED DESC
+		DNM = <EMU5_DAT:PRCTBL.DAT>,-; Default Filename 
+		FNM = <PRCTBL>		; Filename 
+PRCRAB:	$RAB	FAB = PRCFAB,-			; Record 
+		RAC = SEQ,-			; Sequential access
+		RBF = PRCREC,-			; 
+		UBF = PRCREC,-			; 
+		USZ = PRCTBL_SIZE,-		; 
+		RSZ = PRCTBL_SIZE		; 
+PRCRAB2:
+	$RAB	FAB = PRCFAB,-			; Record 
+		RAC = key,-			; KEYED access
+		KBF = KEY_BUF,-
+		KSZ = KEY_BUFSIZE,-
+		RBF = PRCREC2,-			; 
+		UBF = PRCREC2,-			; 
+		USZ = PRCTBL_SIZE,-		; 
+		RSZ = PRCTBL_SIZE   		; 
+
+prcxab0: 	$xabkey ref=0,-
+			prolog=0,-
+			pos=prctbl_prcnam ,-
+			siz=16,-
+			dtp=stg,- 		; proc name
+			nxt=prcxab1
+prcxab1: 	$xabkey ref=1,-
+			prolog=0,-
+			pos=prctbl_startlvl,-
+			siz=4,-
+			dtp=BN4,- 		; Start level
+			nxt=prcxab2
+prcxab2: 	$xabkey ref=2,-
+			prolog=0,-
+			pos=prctbl_pid,-
+			siz=4,-
+			dtp=BN4 		; Start level
+
+; 
+
+KEY_BUF:	.BLKB	16
+KEY_BUFSIZE	=.-KEY_BUF
+PRCREC:		
+PRCREC2:		
+PRCNAM:           .BLKB	16
+PRCNAM_DESC:      .BLKB	4
+PRCNAM_ADR:       .BLKB	4
+IMAGE:            .BLKB	64
+IMAGE_DESC:       .BLKB	4
+IMAGE_ADR:        .BLKB	4
+PID:              .BLKB	4
+PRIORITY:         .BLKB	4
+STARTLVL:         .BLKB	4
+PRIVILEGES:       .BLKB	8
+FLAGS:            .BLKB	4
+START_TIME:       .BLKB	8
+CREPRC_STS:       .BLKB	4
+PRCTBL_SIZE   = .-PRCREC
+; 
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 	30      ; 
+VD_COLS: 	.LONG 	90      ;
+VD_DISP2:	.LONG		; Display 2
+VD_ROW2:	.LONG 	3
+VD_COL2:	.LONG  	132      ; Position for DISP2
+VD_DISP3:	.LONG		; Display 3
+VD_ROW3:	.LONG 	30
+VD_COL3:	.LONG	90      ; Position for DISP3
+;
+;
+; Menu Items
+;
+M_LIST:		.ASCII	/List          /
+		.ASCII	/Modify Proc   /
+		.ASCII	/Add Proc      /
+		.ASCII	/Delete Proc   /
+M_LIST_SIZE = .-M_LIST	
+
+F_LIST:		.ASCII	/Restart       /
+		.ASCII	/Close         /
+		.ASCII	/Disable       /
+		.ASCII	/Debug         /
+F_LIST_SIZE = .-F_LIST	
+
+; 
+;Menu Display Characteristics
+;
+M_DCS:		.WORD	14                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+MADDR:		.ADDRESS M_LIST             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+MSIZE:		.LONG   0		    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+;Dynamic Menu
+DM_LIST:        .BLKB	20*32		   ; Allow up to 32 items
+DMENU_SIZE	=.-DM_LIST
+	.ALIGN	LONG
+
+DM_DCS:		.WORD	16                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+		.ADDRESS DM_LIST             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+DM_SIZE:	.LONG   DMENU_SIZE	    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+
+
+; Optional Display Characteristics
+;
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 2
+W3:    		.LONG 3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+SAVE_DISP:	.LONG	0		; Saved char
+SCR_WID:	.LONG	132
+SCR_HEIGHT:	.LONG	48
+UPCASE:		.LONG	TRM$M_TM_CVTLOW 	;Convert lower to upper case
+DELITM:		.LONG	SMG$M_REMOVE_ITEM       ; Remove selected item from menu
+CHOICE:		.WORD
+ALIN_WORD:	.WORD			; Keep alignmnet
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	5
+PB_COL2:	.LONG	1      ; Position for DISP2
+PB_ROW2:	.LONG 	1
+PB_COL3:	.LONG	90      ; Position for DISP2
+PB_ROW3:	.LONG 	5
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+;
+; Prompt strings and parameters
+; FAO
+STRINGOUT:	.BLKB	256
+STRINGOUT2:	.BLKB	256
+FAOBUF:		.BLKB	132
+FAODESC:
+FAOLEN: 	.LONG		.-FAOBUF
+        	.ADDRESS        FAOBUF
+
+;
+EXITMSG:	.ASCID	/Press Return/
+NEWFILEMSG:	.ASCID	/Creating new File .../
+;
+PRCNAMMSG:	.ASCID	/ Enter Process name [up to 16 char]: /
+PRCIMAMSG:	.ASCID	/ Enter Image name [up to 16 char]  : /
+PRCSTLMSG:	.ASCID	/ Enter Start Level [0 - 255]       : /
+PRCPRIMSG:	.ASCID	/ Enter Process Priority [1-8]      : /
+PRCFLGMSG:	.ASCID	/ Change Process Flags? [Y]         : /
+PRCNAMSTR:	.ASCID	/!16<!AS!>/
+PRCRECSTR:	.ASCID	/!16<!AS!> !30<!AS!> !UL  !UL  !XL-!XL    !XL/
+PRCDELMSG:	.ASCID	/ Delete process !AS ? [N] ? /
+
+;
+;
+; Misc data areas
+	.ALIGN	LONG
+;
+OUTSTR:		.BLKB	12
+OUTSTR_D:	.LONG	.-OUTSTR
+		.ADDRESS  OUTSTR
+OUTINT:		.LONG
+BYTCNT:		.WORD
+
+;
+;	.End data definitions
+;
+	.PSECT PRCTBL_CODE,EXE,pic
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PRCTBL
+;
+; Open file 
+;
+	BSBW	CREATE_ENVIRONMENT
+;
+; Display Menu
+;
+
+START:
+	MOVAL	M_LIST,MADDR
+	MOVL	#M_LIST_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBC	R0,30$			; Assume any error = eof
+	CASEW	CHOICE,#1,#3
+10$:
+	.WORD	11$-10$
+	.WORD	12$-10$
+	.WORD	13$-10$
+	.WORD	14$-10$
+	RET
+11$:
+	BRW	1000$		; List
+12$:
+	BRW	2000$		; Mod
+13$:
+	BRW	3000$		; Add
+14$:
+	BRW	4000$		; Delete
+
+30$:    PUSHAL	VD_DISP                        ; Should never get here
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP3
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	RET				; EXIT
+
+1000$:  		; list
+	BICL	#RAB$M_EOF,PRCRAB+RAB$L_ROP	; do not Open eof
+	BISL	#RAB$M_RRL,PRCRAB+RAB$L_ROP	; Ignore lock
+	$CREATE	FAB = PRCFAB			; Open input file
+	CMPL	R0,#RMS$_CREATED		; New File?
+	BNEQU	1005$				; No
+;
+; This Section should only run once. The first time the system starts, the 
+; data file does not exist. Create it.
+;
+ 	$CONNECT RAB = PRCRAB		;Connect input stream
+	MOVAL	NEWFILEMSG,R1
+	BSBW	PRINT2
+	$CLOSE FAB=PRCFAB
+	BRW	START
+;
+1005$:
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = PRCRAB		;Connect input stream
+	BSBW	ERROR_CHK
+1010$:
+	$GET	RAB=PRCRAB
+	BLBS	R0,1020$
+	CMPL	R0,#RMS$_EOF		; Rec not found
+	BEQLU	1030$                   ; Get next
+	BSBW	ERROR_CHK		; NO = Error
+1020$:
+	MOVAL	PRCREC,R11
+; Set descriptors
+	ADDL3	#PRCTBL_PRCNAM,R11,PRCTBL_PRCNAM_ADR(R11)
+	ADDL3	#PRCTBL_IMAGE,R11,PRCTBL_IMAGE_ADR(R11)
+	ADDL3	#PRCTBL_PRIVILEGES,R11,R1        
+	MOVL	#90,FAOLEN		; Reset len
+	PUSHL	PRCTBL_FLAGS(R11)	
+	PUSHL	4(R1)			; PRIVS(2)
+	PUSHL	(R1)			; PRIVS(1)
+	PUSHL	PRCTBL_STARTLVL(R11)
+	PUSHL	PRCTBL_PRIORITY(R11)
+	ADDL3	#PRCTBL_IMAGE_DESC,R11,-(SP)
+	ADDL3	#PRCTBL_PRCNAM_DESC,R11,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PRCRECSTR
+	CALLS	#10,G^SYS$FAO
+	BSBW	ERROR_CHK
+	BSBW	PRINT
+	BRB	1010$
+1030$:
+	$CLOSE	FAB=PRCFAB             ; Yep
+	MOVAL	EXITMSG,R1
+	BSBW	READ_PROMPT             ; Exit Routine
+	BRW	START                  ; Again
+2000$:  			; MODIFY
+	$CREATE	FAB = PRCFAB			; Open input file
+	CMPL	R0,#RMS$_CREATED		; New File?
+	BNEQU	2010$				; No
+;
+; This Section should only run once. The first time the system starts, the 
+; data file does not exist. Create it with 0  records.
+;
+ 	$CONNECT RAB = PRCRAB		;Connect input stream
+	MOVAL	NEWFILEMSG,R1
+	BSBW	PRINT2
+	$CLOSE FAB=PRCFAB
+	BRB	2000$
+;
+2010$:
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = PRCRAB		;Connect input stream
+	BSBW	ERROR_CHK
+; Make menu of process names
+	MOVAL	DM_LIST,R6
+	MOVC5	#0,#0,#0,#DMENU_SIZE,(R6)	; Clear
+	CLRL	R7				; Calc size
+2020$:
+	$GET	RAB=PRCRAB
+	BLBS	R0,2030$
+	CMPL	R0,#RMS$_EOF		; Rec not found
+	BEQLU	2040$                   ; Get next
+	BSBW	ERROR_CHK		; NO = Error
+2030$:
+	MOVAL	PRCREC,R11
+; Set descriptors
+	ADDL3	#PRCTBL_PRCNAM,R11,PRCTBL_PRCNAM_ADR(R11)
+	MOVL	#16,TMPDESC 		; Make outp desc
+	MOVL	R6,TMPDESC+4
+	ADDL3	#PRCTBL_PRCNAM_DESC,R11,-(SP)
+	PUSHAL	TMPDESC
+	PUSHAL	TMPDESC
+	PUSHAL	PRCNAMSTR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	ADDL	#16,R6		; Next outp
+	ADDL	#16,R7          ; count of bytes in menu
+	BRW	2020$
+2040$:
+	$CLOSE	FAB=PRCFAB             ; Yep
+	MOVL	R7,DM_SIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	DM_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,2050$		; Assume any error = EOF	
+
+	BRW	START
+2050$:
+; Calc position of this choice and use it as key to find rec
+	MOVAL	DM_LIST,R6
+	MOVZWL	CHOICE,R7
+	DECL	R7
+	MULL	#16,R7		; Offset to str
+	ADDL	R7,R6		; Addr of string
+; Open file
+	$OPEN	FAB = PRCFAB			; Open input file
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = PRCRAB2		;Connect input stream
+	BSBW	ERROR_CHK
+	MOVL	R6,PRCRAB2+RAB$L_KBF	; This rec
+	$GET	RAB=PRCRAB2
+	BSBW	ERROR_CHK		; Fatal error
+; Display name in top display
+	MOVAL	PRCREC,R11
+; Set descriptors
+	ADDL3	#PRCTBL_PRCNAM,R11,PRCTBL_PRCNAM_ADR(R11)
+	MOVL	#16,TMPDESC 		; Make outp desc
+	MOVL	R6,TMPDESC+4
+	ADDL3	#PRCTBL_PRCNAM_DESC,R11,-(SP)
+	PUSHAL	TMPDESC
+	PUSHAL	TMPDESC
+	PUSHAL	PRCNAMSTR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	TMPDESC,R1
+	BSBW	PRINT2
+; Ask the questions...
+; Note: as the process name is the primary key this cannot be changed.
+	PUSHAL	VD_DISP3
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	MOVAL	PRCREC,R11	; This rec
+	CLRL	R10		; Change flag
+2100$:
+	MOVAL	PRCIMAMSG,R1
+	BSBW	READ_PROMPT
+	TSTW	BYTCNT		; Input?
+	BEQL	2200$		; Br if no
+	CMPW	#64,BYTCNT      ; Check size 
+	BLSSU	2100$		; try again if not
+	MOVZWL	BYTCNT,PRCTBL_IMAGE_DESC(R11)  
+	MOVC3	PRCTBL_IMAGE_DESC(R11),KB_BUF,PRCTBL_IMAGE(R11)
+	MOVL	#1,R10		; Signal change    
+2200$:
+	MOVAL	PRCSTLMSG,R1
+	BSBW	READ_PROMPT
+	TSTW	BYTCNT		; Input?
+	BEQL	2300$		; Br if no
+	CVTWL	BYTCNT,KB_DES		; Reset Len
+	ADDL3	#prctbl_startlvl,R11,-(SP)   ; output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TU_L	; Convert to Bin
+	MOVL	#80,KB_DES		; Rest Len
+	BLBC	R0,2200$		; On error try again
+	MOVL	#1,R10		; Signal change    
+
+2300$:
+	MOVAL	PRCPRIMSG,R1
+	BSBW	READ_PROMPT
+	TSTL	BYTCNT		; Input?
+	BEQL	2400$		; Br if no
+	MOVZWL	BYTCNT,KB_DES		; Make inpt desc
+	ADDL3	#prctbl_priority,R11,-(SP)   ; output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TU_L	; Convert to Bin
+	MOVL	#80,KB_DES		; Reset Len
+	BLBC	R0,2300$		; On error try again
+	MOVL	#1,R10			; Signal change    
+	CMPL	#8,prctbl_priority(R11) ; Check for valid
+	BLSSU	2300$			; Retry if not
+2400$:
+	MOVAL	PRCFLGMSG,R1
+	BSBW	READ_PROMPT
+	TSTW	BYTCNT		; Input?
+	BEQL	2500$		; Br if no
+2500$:
+	MOVAL	F_LIST,MADDR
+	MOVL	#F_LIST_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP3
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP3
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,2530$			; Assume any error = eof
+	BRW	2600$
+2530$:
+	PUSHAL	VD_DISP3
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	MOVL	#1,R10			; Signal change
+	MOVZWL	CHOICE,R5		; Get bit to flip
+	DECL	R5			; Choice starts 1, bits at 0
+; For bit selected, If set then clear, if clear then set
+2550$:                                ; Restart
+        BBSC  R5,PRCTBL_FLAGS(R11),2600$  	
+	BBCS  R5,PRCTBL_FLAGS(R11),2600$  
+2600$:
+	BLBC	R10,2650$		; Br if no changes
+	$UPDATE	RAB=PRCRAB2		; Write change
+	BSBW	ERROR_CHK
+2650$:
+	$CLOSE FAB=PRCFAB
+	BRW	START
+3000$:
+; Ask the questions...
+; Note: as the process name is the primary key this cannot be changed.
+	PUSHAL	VD_DISP3
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	MOVAL	PRCREC,R11	; This rec
+	MOVC5	#0,#0,#0,#PRCTBL_SIZE,PRCREC	; Init new rec
+3090$:
+; Get process name
+	MOVAL	PRCNAMMSG,R1
+	BSBW	READ_PROMPT
+	TSTW	BYTCNT		; Input?
+	BNEQU	3100$		; Br if Some
+	BRW	START		; Exit if none
+3100$:
+; Set process name
+	CMPW	#16,BYTCNT      ; Check size 
+	BLSSU	3090$		; try again if not
+	MOVZWL	BYTCNT,PRCTBL_PRCNAM_DESC(R11)  
+	MOVC5	PRCTBL_PRCNAM_DESC(R11),KB_BUF,#^A/ /,#16,PRCTBL_PRCNAM(R11)
+; Get image name
+	MOVAL	PRCIMAMSG,R1
+	BSBW	READ_PROMPT
+	TSTW	BYTCNT		; Input?
+	BNEQU	3200$		; Br if Some
+	BRW	START		; Exit if none
+3200$:
+; Get image name
+	CMPW	#64,BYTCNT      ; Check size 
+	BLSSU	3100$		; try again if not
+	MOVZWL	BYTCNT,PRCTBL_IMAGE_DESC(R11)  
+	MOVC3	PRCTBL_IMAGE_DESC(R11),KB_BUF,PRCTBL_IMAGE(R11)
+; Get start level
+	MOVAL	PRCSTLMSG,R1
+	BSBW	READ_PROMPT
+	TSTW	BYTCNT		; Input?
+	BNEQU	3300$		; Br if Some
+	BRW	START		; Exit if none
+3300$:
+; Set start level
+	MOVZWL	BYTCNT,KB_DES
+	ADDL3	#PRCTBL_STARTLVL,R11,-(SP)   ; output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TU_L	; Convert to Bin
+	MOVL	#80,KB_DES		; Rest Len
+	BLBC	R0,3200$		; On error try again
+; Get priority
+	MOVAL	PRCPRIMSG,R1
+	BSBW	READ_PROMPT
+	TSTL	BYTCNT		; Input?
+	BNEQU	3400$		; Br if Some
+	BRW	START		; Exit if none
+3400$:
+; Set priority
+	MOVZWL	BYTCNT,KB_DES		; Make inpt desc
+	ADDL3	#PRCTBL_PRIORITY,R11,-(SP)   ; output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TU_L	; Convert to Bin
+	MOVL	#80,KB_DES		; Reset Len
+	BLBC	R0,3300$		; On error try again
+	CMPL	#8,PRCTBL_PRIORITY(R11) ; Check for valid
+	BLSSU	3300$			; Retry if not
+; Flags and privs can be added/changed via MOD
+; set ALL privs
+	ADDL3	#PRCTBL_PRIVILEGES,R11,R1        
+	MOVL	#-1,4(R1)			; PRIVS(2)
+	MOVL	#-1,(R1)			; PRIVS(1)
+
+; Add this rec
+; Open file
+	$OPEN	FAB = PRCFAB			; Open input file
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = PRCRAB2		;Connect input stream
+	BSBW	ERROR_CHK
+	$PUT	RAB=PRCRAB2		; Write change
+	BSBW	ERROR_CHK
+3650$:
+	$CLOSE FAB=PRCFAB
+	BRW	START
+
+4000$:
+	$OPEN	FAB = PRCFAB			; Open input file
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = PRCRAB		;Connect input stream
+	BSBW	ERROR_CHK
+; Make menu of process names
+	MOVAL	DM_LIST,R6
+	MOVC5	#0,#0,#0,#DMENU_SIZE,(R6)	; Clear
+	CLRL	R7				; Calc size
+4020$:
+	$GET	RAB=PRCRAB
+	BLBS	R0,4030$
+	CMPL	R0,#RMS$_EOF		; Rec not found
+	BEQLU	4040$                   ; Get next
+	BSBW	ERROR_CHK		; NO = Error
+4030$:
+	MOVAL	PRCREC,R11
+; Set descriptors
+	ADDL3	#PRCTBL_PRCNAM,R11,PRCTBL_PRCNAM_ADR(R11)
+	MOVL	#16,TMPDESC 		; Make outp desc
+	MOVL	R6,TMPDESC+4
+	ADDL3	#PRCTBL_PRCNAM_DESC,R11,-(SP)
+	PUSHAL	TMPDESC
+	PUSHAL	TMPDESC
+	PUSHAL	PRCNAMSTR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	ADDL	#16,R6		; Next outp
+	ADDL	#16,R7          ; count of bytes in menu
+	BRW	4020$
+4040$:
+	$CLOSE	FAB=PRCFAB             ; Yep
+	MOVL	R7,DM_SIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	DM_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,4050$		; Assume any error = EOF	
+	BRW	START
+4050$:
+; Calc position of this choice and use it as key to find rec
+	MOVAL	DM_LIST,R6
+	MOVZWL	CHOICE,R7
+	DECL	R7
+	MULL	#16,R7		; Offset to str
+	ADDL	R7,R6		; Addr of string
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	MOVAL	PRCREC,R11	; This rec
+; Open file
+	$OPEN	FAB = PRCFAB			; Open input file
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = PRCRAB2		;Connect input stream
+	BSBW	ERROR_CHK
+	MOVL	R6,PRCRAB2+RAB$L_KBF	; This rec
+	$GET	RAB=PRCRAB2
+	BSBW	ERROR_CHK		; Fatal error
+; Display name in top display
+	MOVAL	PRCREC,R11
+; Set Name descriptor
+	MOVL	#132,FAODESC
+	ADDL3	#PRCTBL_PRCNAM,R11,PRCTBL_PRCNAM_ADR(R11)
+	ADDL3	#PRCTBL_PRCNAM_DESC,R11,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PRCDELMSG
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	READ_PROMPT
+	TSTW	BYTCNT
+	BNEQU	4100$
+	BRW	4200$		; Aborted
+4100$:
+	CMPB	KB_BUF,#^A/Y/           ; Answered 'Y'es?
+	BNEQU	4200$			; No
+	$DELETE	RAB=PRCRAB2		; yes - Erase
+	BSBW	ERROR_CHK
+4200$:
+	$CLOSE FAB=PRCFAB
+	BRW	START
+; Subroutines
+;
+READ_PROMPT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		PUSHAL	VD_DISP                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	UPCASE                  ; Make input UPCASE 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	R1                      ; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		BSBW	ERROR_CHK
+		RSB
+
+;
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+PRINT2:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			 OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHL	R1
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+;
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Virtual Display
+;
+CR_DISP:
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK            		; Error Check
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP2
+	PUSHAL	VD_COL2
+        PUSHAL	VD_ROW2
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP3
+	PUSHAL	VD_COL3
+        PUSHAL	VD_ROW3
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+; Save the current screen set up. Attempt to set it to 48x80. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	PB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BSBW	ERROR_CHK
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	VD_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	VD_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	PB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL2		;Column
+	PUSHAL	PB_ROW2		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP2
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL3		;Column
+	PUSHAL	PB_ROW3		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP3
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+50$:	RSB
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		BLBC	R0,10$
+		RSB
+10$:
+	MOVL	R0,R6			; Save Error
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	R6,R0			; Restore
+		RET
+		.END PRCTBL

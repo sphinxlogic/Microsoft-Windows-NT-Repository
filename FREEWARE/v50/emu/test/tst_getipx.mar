@@ -1,0 +1,259 @@
+	.TITLE	TST_GETIPX
+	.IDENT	/V1-001/
+; Programme to scan index and for each IPX address:
+; 	attempt to Get config via Novell frame
+; 
+; Modifications:
+; 001	Jan-1995	PB	Creation
+;	
+; Returns in R0:
+;
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+        $IODEF                          ;Define I/O functions and modifiers
+        $NMADEF                         ;Define Network Management parameters
+	$SECDEF				; Global Section 
+	$SSDEF
+	EMUPSRDEF
+	EMUIPXDEF
+	EMUSYSDEF
+
+	.PSECT	TST_GETIPX_D,WRT,NOEXE,PIC,SHR,QUAD
+
+;
+; Global Section areas
+;
+; returned addresses
+IPXDB_A:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIPX
+		.LONG	PSR_IPX_L_NET
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPXDB
+		.ADDRESS EMU_PSRIPX
+
+EMU_IPXDB:	
+		.ASCID	\EMU_IPXDB\            ; Lock name
+EMU_PSRIPX:	
+		.ASCID	\EMU_PSRIPX\  		; Section name
+
+
+
+
+RETBUF:		.BLKB	16384
+RETBUF_DESC:	.LONG	.-RETBUF
+		.ADDRESS  RETBUF
+TEMPTBL:	.BLKB	800		; Gen use
+TEMPTBL_SIZE = .-TEMPTBL
+ADDR_DESC:	.LONG	10
+		.LONG
+RETCNT:		.LONG	0
+FAOBUF:		.BLKB	80
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+SEPERATOR:	.ASCID	/********/
+ADDRSTR:	.ASCID	/Node: !XB-!XB-!XB-!XB-!XB-!XB, Net: !XL/
+COMPSTR:	.ASCID	/      Component = !UB/
+EXCOMPSTR:	.ASCID	/      Component = !UB Nets = !UB, /
+NETSSTR:	.ASCID	/	 Type = !UB Net = !XL, Node =  !XB-!XB-!XB-!XB-!XB-!XB/
+ERRSTR:		.ASCID	/ Net = !XL, Err = !UL/
+       .PSECT TST_GETIPX_C,EXE,NOWRT,LONG
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TST_GETIPX
+; 
+; Command interface MBX. Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	calls	#0, g^asn_tempmbx_system
+	bsbw	error_chk		; 
+
+; Create and Map to sections 
+	PUSHAL	IPXDB_A				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,10$                          ; Log error if DB not mapped
+	RET
+10$:
+	MOVL	IPXDB_A,R10				; Top of table
+	MOVL	COM_DBHDR_L_ENTRIES(R10),R11 		; Entries
+	ADDL3	#PSR_IPX_C_RECSIZ,R10,R6                ; 1st
+	DIVL3	#4,#TEMPTBL_SIZE,R7			; Max entries
+20$:
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),40$ ; Br if not deleted
+30$:
+	ADDL	#PSR_IPX_C_RECSIZ,R6		; Next entry
+	SOBGTR	R11,20$
+        RET
+40$:
+	MOVAL	TEMPTBL,R9              ; Top
+	CLRL	R5
+	TSTL	(R9)
+	BEQLU    100$
+50$:
+	CMPL	PSR_IPX_L_NET(R6),(R9)
+	BEQLU	30$
+	ADDL	#4,R9
+	TSTL	(R9)
+	BEQL	60$
+	AOBLEQ	R7,R5,50$
+; Did not find
+; Add if room
+60$:
+	DIVL3	#4,#TEMPTBL_SIZE,R7		; Max entries
+	CMPL    R5,R7
+	BGTR	110$
+100$:
+	MOVL	PSR_IPX_L_NET(R6),(R9)
+110$:
+	PUSHAL	RETCNT
+	PUSHAL	RETBUF_DESC
+	ADDL3	#PSR_IPX_L_NET,R6,ADDR_DESC+4
+	PUSHAL	ADDR_DESC
+	CALLS	#3,G^GETIPX
+	BLBS	R0,200$
+	MOVL	#80,FAODESC
+	PUSHL	R0			; Error
+	ADDL3	#PSR_IPX_L_NET,R6,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	ERRSTR
+	CALLS	#5,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	ERROR_CHK
+	BRW	30$
+
+200$:
+	MOVAL	RETBUF,R7
+210$:
+	MOVL	R7,R4
+	MOVZBL	3(R7),R9		; Len this seg
+	ADDL	#IPX_SRCNET,R4
+	MOVL	#80,FAODESC
+	PUSHL	(R4)+
+	MOVZBL	5(R4),-(SP)
+	MOVZBL	4(R4),-(SP)
+	MOVZBL	3(R4),-(SP)
+	MOVZBL	2(R4),-(SP)
+	MOVZBL	1(R4),-(SP)
+	MOVZBL	(R4),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	ADDRSTR
+	CALLS	#10,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	ERROR_CHK
+	MOVZBL  IPX_CFG_COUNT(R7),R3	; Component count
+	ADDL3	R7,#IPX_CFG_COMP0,R4	; 1st comp
+220$:
+	CMPB	(R4),#10
+	BLEQU	225$
+	MOVL	#80,FAODESC
+	MOVZBL	(R4),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	COMPSTR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	ERROR_CHK
+	BRW	30$
+225$:
+	CASEB	(R4),#0,#10
+230$:
+	.WORD	231$-230$
+	.WORD	231$-230$
+	.WORD	231$-230$
+	.WORD	231$-230$
+	.WORD	231$-230$
+	.WORD	232$-230$
+	.WORD	232$-230$
+	.WORD	232$-230$
+	.WORD	231$-230$
+	.WORD	231$-230$
+	.WORD	231$-230$
+	BRW	30$
+231$:	
+	MOVL	#80,FAODESC
+	MOVZBL	(R4),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	COMPSTR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	ERROR_CHK
+	INCL	R4			; NEXT COMP
+	SOBGTR	R3,250$
+	ADDL	R9,R7
+	SOBGTR	RETCNT,240$
+	BRW	30$
+240$:
+	brw	210$
+250$:
+	BRW	220$
+232$:
+	MOVL	#80,FAODESC
+	MOVZBL	1(R4),-(SP)
+	MOVZBL	(R4),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	EXCOMPSTR
+	CALLS	#5,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	ERROR_CHK
+; Local nets
+	MOVL	R4,R5
+	MOVZBL	1(R4),R2		; Net count
+        ADDL	#2,R5
+235$:
+	MOVL	#80,FAODESC
+	MOVZBL	10(R5),-(SP)        ; NODE
+	MOVZBL	9(R5),-(SP)        ; NODE
+	MOVZBL	8(R5),-(SP)        ; NODE
+	MOVZBL	7(R5),-(SP)        ; NODE
+	MOVZBL	6(R5),-(SP)        ; NODE
+	MOVZBL	5(R5),-(SP)        ; NODE
+	PUSHL	1(R5)			; NET
+	MOVZBL	(R5),-(SP)        ; typ
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	NETSSTR
+	CALLS	#11,G^SYS$FAO
+	BSBW	ERROR_CHK
+	PUSHAL	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	ERROR_CHK
+	ADDL	#11,R5
+	SOBGTR	R2,235$
+	MOVZBL	1(R4),R1		; Net count
+	MULL	#11,R1
+	ADDL	#2,R1
+	ADDL	R1,R4
+	SOBGTR	R3,270$
+	ADDL	R9,R7
+	SOBGTR	RETCNT,260$
+	BRW	30$
+	
+260$:
+	brw	210$
+270$:
+	BRW	220$
+
+; Subroutines
+;
+ERROR_CHK:
+	BLBC	R0,10$
+	RSB
+10$:
+	$EXIT_S	R0
+
+	.END	TST_GETIPX

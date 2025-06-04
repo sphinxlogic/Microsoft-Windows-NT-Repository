@@ -1,0 +1,786 @@
+	.TITLE	EMU_DISP_ALERT   
+	.IDENT	/V1-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	DEC-1997	PB	Creation
+;	
+;++
+;1 EMU_DISP_ALERT   
+; EMU Alert interface. This interface uses SMG.
+; Through this interface the user may 
+;	1. Receive formatted alerts in real time
+;	2. Review the alert database
+;	3. Set alert filters
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+	.LIBRARY        /EMU5_LIB:MACROLIB.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$SMGDEF
+	$TRMDEF
+	$PRVDEF
+	EMUUIDEF
+	EMUIPCDEF
+
+	.PSECT	EMU_DISP_ALERT_DATA,WRT,NOEXE,PIC,SHR,QUAD
+
+
+; Alert output MBX
+ALTOUT_SIZE = 1024
+ALTOUT_BUFF:	.BLKB	ALTOUT_SIZE
+ALTOUT_DESC:    .LONG	.-ALTOUT_BUFF
+		.ADDRESS  ALTOUT_BUFF
+ALERT_BUFF:	.BLKB	512
+ALTOUT_IOSB:	.QUAD   0
+COUNTERS_A:	.QUAD	0
+
+READMBX:	.LONG	12				; Arg counter
+       		.LONG	0				; Event number
+ALTOUTCHAN:	.LONG	0				; Channel
+      		.LONG	IO$_READVBLK			; Function
+       		.LONG   ALTOUT_IOSB			; IO Status block
+       		.LONG	0				; AST Routine
+		.LONG	0				; AST Param
+ALTOUTB:       	.LONG	ALTOUT_BUFF			; P1
+ALTOUTS:       	.LONG	ALTOUT_SIZE			; P2
+       		.LONG	0				; P3
+       		.LONG	0				; P4
+       		.LONG	0				; P5
+       		.LONG	0				; P6
+
+; Log file
+ALERTFAB:	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 512,-                     ; Largest rec
+		RFM = VAR,-			; Variable len
+		GBC = 10,-                      ; Use global buffers
+		DNM = <EMU5_DAT:ALERT.DAT>,-	; Default Filename 
+		FNM = <ALERT>,-			; Filename 
+		FOP = CIF,-			; Create if doesn't exist
+		XAB = ALERTXAB0                  ; Keys
+; Read RAB
+ALERTRAB:	$RAB	FAB = ALERTFAB,-		; pointer to FAB
+		RAC = KEY,-			; Keyed file
+		RBF = ALERT_BUFF,-
+		UBF = ALERT_BUFF,-
+		RSZ = 512,-
+		USZ = 512
+
+ALERTXAB0:	$XABKEY	REF = 0,-  	; Time
+		DTP = BN8,-             ; Key = 8 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-               ; Key len
+                FLG = <DUP>,-		; Duplicates allowed
+		NXT = ALERTXAB1
+;
+ALERTXAB1:	$XABKEY	REF = 1,-  	; DB.ALTID
+		DTP = BN8,-             ; Key = 4 byte binary (ascending)
+		POS = 8,-               ; Key position
+		SIZ = 8,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = ALERTXAB2
+;
+ALERTXAB2:	$XABKEY	REF = 2,-  	; Class
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 16,-              ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>	        ; Duplicates, changes allowed
+
+
+
+
+; SMG
+;Main display
+MAIN_DISP:	.LONG		; Virtual Display ID
+MAIN_ROWS: 	.LONG  0        ; Set by routine (page size-7)
+MAIN_COLS: 	.LONG  132
+MAINPB_BOARD:	.LONG 		; Pasteboard ID
+MAINPB_COL:	.LONG	1      
+MAINPB_ROW:	.LONG 	5
+OCSTATE:	.LONG	0
+; Hint display
+;
+HINTPB_BOARD:	.LONG 		; Pasteboard ID
+HINT_DISP:	.LONG		; Virtual Display2 ID
+HINT_ROWS: 	.LONG  3        ; Static
+HINT_COLS: 	.LONG  132
+HINT_PBCOLS:	.LONG	1      
+HINT_PBROWS:	.LONG 	1
+; Misc SMG ...
+BORDER:		.LONG	SMG$M_BORDER
+SAVE_DISP:	.LONG	0		; Saved char
+SCR_WID:	.LONG	132
+SCR_HEIGHT:	.LONG	48
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+TIMEOUT:	.LONG	15
+ONEROW:		.LONG	1
+RPCASE:		.LONG	0
+REVERSE:	.LONG	SMG$M_REVERSE
+W3:    		.LONG 3
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+BOLD:		.LONG	SMG$M_BOLD
+
+;
+; Virtual Keyboard Parameters
+;
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+MENU_STRUCT:
+		.LONG			; Virtual display ID
+KB_BOARD:	.LONG           	; Virtual Keyboard ID
+MTYPE:		.LONG	SMG$K_HORIZONTAL	; Menu type   
+MCNT:		.LONG	2		; Number of items
+MSIZE:		.LONG	12		; Size of item
+MFLAG:		.LONG	SUI_MEN_C_NOCHECK ; Check for privs
+MPRIV:		.LONG	0               ; addr of priv list
+MITEMS:		.LONG	0               ; addr of display items
+
+MAIN_MENU:
+	.LONG	SMG$K_HORIZONTAL	; Menu type   
+	.LONG	3		; Number of items
+	.LONG	12		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Check for privs
+MAIN_PRIVS:
+	.QUAD	0		; Any priv
+
+
+REVIEW_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	4		; Number of items
+	.LONG	12		; Size of item
+	.LONG	SUI_MEN_C_NOCHECK ; Check for privs
+REVIEW_PRIVS:
+	.QUAD	0		; Any priv
+REVIEW_ITEMS:
+	.ASCII	/Since       /
+	.ASCII	/NodeName    /
+	.ASCII	/Class       /
+	.ASCII	/Execute     /
+;
+MAIN_ITEMS:
+	.ASCII	/Monitor     /
+	.ASCII	/Review      /
+	.ASCII	/Filter      /
+
+EXECUTE_ITEMS:
+	.ASCII	/Next        /
+	.ASCII	/Previous    /
+	.ASCII	/Filter      /
+EXECUTE_SIZE = .-EXECUTE_ITEMS
+;Menu Display Characteristics
+;
+M_DCS:		.WORD	12                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+		.ADDRESS EXECUTE_ITEMS             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+		.LONG   EXECUTE_SIZE		    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+
+
+
+
+; Prompts and messasges
+GETTIME_P:	.ASCID	/ Enter of 1st message to display [Begin]: /
+GETTIME_H1:	.ASCID	/ Enter time in VMS absolute time format:/
+GETTIME_H2:	.ASCID  /       DD-MMM-YYYY HH:MM:SS.CC /
+GETTIME_H3:	.ASCID	/ Any part missing defaults to current value /
+EXITPRMPT:	.ASCID	/ End of Listing. Any Key to exit/
+ERRORPRMPT:	.ASCID	/ FORMATTING ERROR! Any key to continue or ^Z to exit/
+NXTPRMPT:	.ASCID	/ End of listing. Any key to Continue or ^Z to exit/
+
+	.ALIGN	LONG
+; Priv checks
+CHOICE:		.WORD
+BYTCNT:		.WORD		; Input Byte counter
+;
+; Misc
+ALTOUTMBX:	.ASCID	/ALTOUTMBX/	
+MONTITLE:	.ASCID	/ MONITOR /
+
+       .PSECT EMU_DISP_ALERT,EXE,NOWRT,LONG
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_DISP_ALERT 
+
+; Ensure death if control process dies
+	CALLS	#0, G^GET_CONTROL_LOCK	; 
+  	BSBW	ERROR_CHK		; 
+;
+	PUSHAL	COUNTERS_A		; Counters                             
+	CALLS	#1,G^MAP_COUNTERS                                              
+  	BSBW	ERROR_CHK		; 
+
+	BSBW	CREATE_ENVIRONMENT
+; Create i/p MBX
+	PUSHAL	ALTOUTMBX		; Logical Name
+	CLRL	-(SP)			; Access Mode
+	CLRL	-(SP)			; Protection Mask
+	PUSHL	#2064			; Buff Quota
+	PUSHL	#1024			; Max Message Size
+	PUSHAL	ALTOUTCHAN		; I/O Channel
+	PUSHL	#0			; Temp Mailbox
+	CALLS	#7, g^SYS$CREMBX	; Create Mailbox
+	BLBS	R0,40$
+	RET
+40$:
+START:
+
+	PUSHAL	MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	BSBW	ERROR_CHK            		; Error Check
+	PUSHAL	MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	HINT_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	MAIN_MENU,SUI_MEN_L_MTYPE(R6)  		; Type,count
+	MOVQ	MAIN_MENU+8,SUI_MEN_L_ITEMSIZ(R6)       ; Size,check flag
+	MOVAL	MAIN_PRIVS,SUI_MEN_L_PRIVLST(R6)        ; privs
+	MOVAL	MAIN_ITEMS,SUI_MEN_L_MENU(R6)        	; Display items
+; Make menu
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBC	R0,100$  		; Any error exits
+	CASEW	CHOICE,#1,#2		; Select processing routine
+10$:                             
+	.WORD	11$-10$          	; Monitor
+	.WORD	12$-10$          	; Review
+	.WORD	13$-10$          	; Filters
+	BRB	100$
+11$:
+	CALLS	#0,G^ALTDISP_MONITOR	
+	BRW	START
+12$:
+	CALLS	#0,G^ALTDISP_REVIEW	
+	BRW	START
+13$:
+	CALLS	#0,G^ALTDISP_FILTER	
+	BRW	START
+100$:
+	PUSHAL	MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	HINT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	RET					; EXIT
+
+
+
+;Subroutines
+
+ERROR_CHK:                                      ; 
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+ 
+	BLBC	R0,10$                          ; 
+	RSB
+10$:
+	$EXIT_S	R0
+
+CREATE_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+ 
+; Create Virtual Displays
+; 
+;
+; Create Pasteboard
+;
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+	PUSHAL	HINTPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BSBW	ERROR_CHK
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	MAIN_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BSBW	ERROR_CHK
+	SUBL	#7,MAIN_ROWS			; Set our page len
+;
+	PUSHAL	 BORDER
+	PUSHAL	MAIN_DISP
+	PUSHAL	MAIN_COLS
+        PUSHAL	MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+	PUSHAL	 BORDER
+	PUSHAL	HINT_DISP
+	PUSHAL	HINT_COLS
+        PUSHAL	HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	MAINPB_COL		;Column
+	PUSHAL	MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+
+	PUSHAL	HINT_PBCOLS		;Column
+	PUSHAL	HINT_PBROWS		;Row
+	PUSHAL	HINTPB_BOARD
+	PUSHAL	HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	MAINPB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+	RSB
+
+
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALTDISP_MONITOR
+;++
+;2 ALTDISP_MONITOR
+; Routine to display alerts as they are recieved from ALERT. That process
+; delivers the fully formated alerts through MBX. THis process simply
+; reads the MBX and prints the contents on the screen. Unsolicited input
+; is enabled and is implemented such that any input recieved from the 
+; keyboard exits this routine and re-displays the main menu.
+;3 Inputs
+; 	User. None. Any received from the user exits routine.
+;	System. Formatted alerts via MBX
+;3 Outputs
+;	User. Formatted alerts displayed on screen
+;	System. None
+;3 Returns
+;	SS$_NORMAL	always
+;--
+; 
+	PUSHAL	ALTDISP_EXIT_MON                 ; AST Routine
+	PUSHAL	MAINPB_BOARD                         ; PB ID
+	CALLS	#2,G^SMG$ENABLE_UNSOLICITED_INPUT
+	BSBW	ERROR_CHK
+
+	PUSHAL	MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	BSBW	ERROR_CHK            		; Error Check
+	PUSHAL	MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	PUSHAL	HINT_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+
+	PUSHAL	BOLD
+	PUSHAL	ONEROW
+	PUSHAL	MONTITLE
+	PUSHAL	HINT_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+
+
+	  
+100$:
+        $QIOW_S  CHAN = ALTOUTCHAN,-
+                IOSB =  ALTOUT_IOSB,-
+                FUNC = #IO$_READVBLK,-
+                P1   = ALTOUT_BUFF,-
+                P2   = #ALTOUT_SIZE
+	BLBS	R0,110$
+; Some sort of error handling - normally ignore and carry on.
+	BRW	100$
+110$:
+	BLBS	ALTOUT_IOSB,150$
+	CMPW	#SS$_ABORT,ALTOUT_IOSB		; Canceled?
+	BEQLU	1000$
+;
+	CMPW	#SS$_CANCEL,ALTOUT_IOSB		; Canceled?
+	BEQLU	1000$
+; Some sort of error handling - normally ignore and carry on.
+	BRW	100$
+150$:
+; Make outp desc
+	MOVZWL	ALTOUT_IOSB+2,ALTOUT_DESC
+	PUSHAL	ALTOUT_DESC
+	PUSHAL	MAIN_DISP
+	CALLS	#2,G^SMG$PUT_LINE
+	BLBS	R0,160$
+160$:
+	BRW	100$
+
+1000$:
+	PUSHAL	MAINPB_BOARD                         ; PB ID
+	CALLS	#1,G^SMG$DISABLE_UNSOLICITED_INPUT
+;
+	PUSHAL	MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALTDISP_EXIT_MON 
+;++
+;2 ALTDISP_EXIT_MON 
+; Routine called when user hits any key during monitor operation.
+; Cancels all output on READMBX causing that $QIO to complete with
+; either ABORT (I/O in progress) or CANCEL (No I/O outstanding). 
+; The display routine exits if either of these conditions are returned.
+; 
+	PUSHL	ALTOUTCHAN
+	CALLS	#1,G^SYS$CANCEL
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALTDISP_REVIEW
+
+;++
+;2 ALTDISP_REVIEW
+; Routine to allow user to browse through the recorded alerts.
+; ANy combination of Time, Alert class or nodeid may be used to 
+; select alerts to display. The alserts selected are displayed on the 
+; screen one at a time until exhaustion or exit.
+; --
+
+REV_START:
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	MAIN_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	REVIEW_MENU,SUI_MEN_L_MTYPE(R6)  		; Type,count
+	MOVQ	REVIEW_MENU+8,SUI_MEN_L_ITEMSIZ(R6)       ; Size,check flag
+	MOVAL	REVIEW_PRIVS,SUI_MEN_L_PRIVLST(R6)        ; privs
+	MOVAL	REVIEW_ITEMS,SUI_MEN_L_MENU(R6)        	; Display items
+; Make select menu 
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBC	R0,100$  		; Any error exits
+	CASEW	CHOICE,#1,#3		; Select processing routine
+10$:                             
+	.WORD	11$-10$          	; Time
+	.WORD	12$-10$          	; Name
+	.WORD	13$-10$          	; Class
+	.WORD	14$-10$			; Execute
+	BRB	100$
+11$:
+	CALLS	#0,ALTREV_GETTIME
+        BRW	REV_START
+12$:
+	CALLS	#0,ALTREV_GETNAME
+        BRW	REV_START
+13$:
+	CALLS	#0,ALTREV_GETCLASS
+        BRW	REV_START
+14$:
+	CALLS	#0,ALTREV_EXECUTE
+        BRW	REV_START
+100$:
+	PUSHAL	MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALTREV_GETTIME 
+
+;++
+;2 ALTREV_GETTIME 
+; Prompts for time and accepts VMS abstime as input. Writes resultant
+; .quad in ALERT_BUFF (ksy)
+;--
+
+100$:
+	PUSHAL	MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	PUSHAL	HINT_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+; Hints
+	PUSHAL	GETTIME_H1
+	PUSHAL	HINT_DISP
+	CALLS	#2,G^SMG$PUT_LINE
+
+	PUSHAL	GETTIME_H2
+	PUSHAL	HINT_DISP
+	CALLS	#2,G^SMG$PUT_LINE
+
+	PUSHAL	GETTIME_H3
+	PUSHAL	HINT_DISP
+	CALLS	#2,G^SMG$PUT_LINE
+
+	PUSHAL	BYTCNT
+	PUSHAL	MAIN_DISP
+	PUSHAL	GETTIME_P 
+	CALLS	#3,G^ALERT_READ_PROMPT
+        BLBS	R0,110$
+	RET
+110$:
+	CLRQ	ALERT_BUFF		; Set to def
+	TSTW	BYTCNT                  ; Any input?
+	BNEQ	120$                    ; Br if some
+	RET                             ; Accept def
+120$:
+	CVTWL	BYTCNT,KB_DES		; Change temporarily	
+	$BINTIM_S-	
+		TIMBUF=KB_DES,-
+		TIMADR=ALERT_BUFF
+	MOVL	#80,KB_DES		; Restore
+	BLBC	R0,120$			; Try again on error
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALTREV_GETNAME
+	RET 
+
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALTREV_GETCLASS
+	RET 
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALTREV_EXECUTE 
+;++
+;2 ALTREV_EXECUTE 
+;  Routine to extract the alerts accoring to the params set by user.
+;  In essense:
+;	get the 1st rec with a time >= input
+;	If any other field set then check for match
+;	if all match then display rec
+;		Display submenu
+;			On Next change to seq access
+;			On Prev change to Key/Rev access
+;			On filter Set_filt routine
+;	continue to eof
+;--
+	PUSHAL	MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	PUSHAL	HINT_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+
+	$OPEN	FAB=ALERTFAB
+	BLBS	R0,110$
+	RET
+110$:
+	$CONNECT RAB=ALERTRAB
+	BLBS	R0,120$
+	RET	
+120$:
+; Set RAB for get 1st rec
+	CLRL    ALERTRAB+RAB$L_ROP 	        	; Clear all opts
+	BISL    #RAB$M_RRL,ALERTRAB+RAB$L_ROP         	; Read if read locked
+	BISL    #RAB$M_EQNXT,ALERTRAB+RAB$L_ROP         ; Key >= input
+	MOVAL	ALERT_BUFF,ALERTRAB+RAB$L_KBF		; Set key buffer
+	MOVB	#RAB$C_KEY,ALERTRAB+RAB$B_RAC           ; Indexed read
+	CLRB	ALERTRAB+RAB$B_KRF			; Set key = TIME
+	MOVB    #8,ALERTRAB+RAB$B_KSZ    		; Set key size 
+150$:
+	$GET	RAB=ALERTRAB
+	BLBS	R0,200$
+160$:
+	PUSHAL	BYTCNT
+	PUSHAL	MAIN_DISP
+	PUSHAL	EXITPRMPT 
+	CALLS	#3,G^ALERT_READ_PROMPT
+	$CLOSE	FAB=ALERTFAB
+	PUSHAL	MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	PUSHAL	HINT_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	RET
+200$:
+	MOVL	#ALTOUT_SIZE,ALTOUT_DESC
+	PUSHAL	COUNTERS_A
+	PUSHAL	ALTOUT_DESC
+	PUSHAL	ALERT_BUFF
+	CALLS	#3,G^ALERT_FORMAT
+	BLBS	R0,220$
+;;; OOPS!!::
+	PUSHAL	BYTCNT
+	PUSHAL	MAIN_DISP
+	PUSHAL	ERRORPRMPT 
+	CALLS	#3,G^ALERT_READ_PROMPT
+	BLBS	R0,220$			
+	BRW	160$					; Assume error = ^z
+220$:
+	PUSHAL	MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	PUSHAL	ALTOUT_DESC
+	PUSHAL	MAIN_DISP
+	CALLS	#2,G^SMG$PUT_LINE
+; Set def ROP here
+	MOVAL	ALERT_BUFF,ALERTRAB+RAB$L_KBF		; Set key buffer
+	CLRL    ALERTRAB+RAB$L_ROP 	        	; Clear all opts
+	BISL    #RAB$M_NXT,ALERTRAB+RAB$L_ROP           ; Key > input
+
+
+; Display menu. We want a def choice here so can't use EMU standard
+; menu call
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	HORIZONTAL
+	PUSHAL	M_DCS
+	PUSHAL	HINT_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BLBC	R0,290$
+
+	PUSHAL	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	HINT_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#4,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,300$  		; Any error exits
+290$:
+	BRW	160$
+300$:
+	CASEW	CHOICE,#1,#2		; Select processing routine
+310$:                             
+	.WORD	311$-310$          	; Next
+	.WORD	312$-310$          	; Prev
+	.WORD	313$-310$          	; Filters
+	BRW	160$  		; Exit
+311$:
+	MOVB	#RAB$C_SEQ,ALERTRAB+RAB$B_RAC           ; Seq read
+        BRW	400$
+312$:
+	MOVB	#RAB$C_KEY,ALERTRAB+RAB$B_RAC           ; Indexed read
+	BISL    #RAB$M_REV,ALERTRAB+RAB$L_ROP           ; Reverse
+        BRW	400$
+313$:
+        BRW	400$   					; Not implemented
+; It would be handy here to be able to set the filters (even better
+; temporarily) .
+
+400$:
+	$GET	RAB=ALERTRAB
+	BLBS	R0,410$
+	PUSHAL	BYTCNT
+	PUSHAL	MAIN_DISP
+	PUSHAL	NXTPRMPT 
+	CALLS	#3,G^ALERT_READ_PROMPT
+	BLBS	R0,420$			; Assume error = ^z
+	BRW	160$			; Exit
+410$:
+	BRW	200$                    ; Display
+
+420$:
+	BRW	220$                    ; Menu
+
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALTDISP_FILTER 
+ 
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=5, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALERT_READ_PROMPT 
+
+
+;2 ALERT_READ_PROMPT
+; Displays the prompt specified by the input on the specified 
+; display, waits for user input and returns the input in KB_BUF.
+;	
+;3 Input
+;	P1. address of desc pointing to ascii string to display
+;	P2. address of display
+;	P3. address of bytcnt, where READ_STRING writes the count 
+;	    of user input bytes.
+;	P4. address of case flag. Optional. May be 1 of:
+;		0		Not uppercased
+;		TRM$M_TM_CVTLOW Uppercased
+;	P5. Address of desc pointing to where READ_STRING 
+;	    places the user input. If not present input is 
+;	    placed in KB_BUF
+;3 Output
+;	The prompt is displayed on the specified display
+;	Any user input is returned in KB_BUF
+;
+;3 Return
+;	Any return from SMG$READ_STRING
+;--
+		MOVL	#TRM$M_TM_CVTLOW,RPCASE	; Set def		
+		MOVAL	KB_DES,R6		; Set def outp
+		CMPL	#4,(AP)                  ; Present?
+		BGTR	20$			; No options
+		MOVL	16(AP),RPCASE		; Set case
+;
+		CMPL	#5,(AP)                  ; Present?
+		BNEQ	20$			; Br if not
+		MOVL	20(AP),R6               ; Set oupt
+20$:
+		PUSHL	8(AP)                   ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	12(AP)                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	RPCASE                  ; Case 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	4(AP)                 	; Output DSC
+		PUSHL	R6                      ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		RET                             ; Any error handled by caller
+
+	.END EMU_DISP_ALERT	
+

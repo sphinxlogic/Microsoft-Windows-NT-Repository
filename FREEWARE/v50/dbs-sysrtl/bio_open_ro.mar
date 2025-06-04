@@ -1,0 +1,115 @@
+	.title	bio_open_ro
+	.ident	"V1-004"
+
+;+
+; Version:	V1-004
+;
+; Facility:	Library routines - Block mode I/O.
+;
+; Abstract:	Open a file for block mode i/o - read only.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	09-Dec-1988, DBS, Version V1-001
+; 001 -	Original version.
+;	20-Dec-1988, DBS; Version V1-002
+; 002 -	Changed the open characteristics in the fab$b_fac field.
+;	27-Jan-1989, DBS; Version V1-003
+; 003 -	Changed open characteristics again... I'll get it right soon.
+;	29-Apr-1991, DBS; Version V1-004
+; 004 -	Rewritten in macro.
+;-
+
+;++
+; Functional Description:
+;	This routine opens a file for block mode i/o, therefore bypassing
+;	the normal RMS file i/o processing and allowing you much more scope
+;	and freedom (more rope?) to play around with files.  The file is
+;	opened read only.
+;
+; Calling Sequence:
+;	Specify the name of this routine in the useropen clause of a normal
+;	fortran open statement.  Make sure it is declared as external.
+;		..., useropen=bio_open, ...
+;
+; Formal Argument(s):
+;	bio_fab.rl.v
+;	bio_rab.rl.v
+;	bio_lun.rl.r
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	The value retuned by sys$open (and sys$connect) is passed back 
+;	to the user.
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	$fabdef
+	$rabdef
+	$xabdef
+	$xabitmdef
+
+	$gblini	GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+norecord_value:	.long	xab$k_enable
+xabitems:	.word	4, xab$_norecord
+		.address norecord_value
+		.long	0
+		.long	0		; to end the list ?
+
+xab_1:	$xabitm	itemlist=xabitems, -
+		mode=SETMODE
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+bio_open_ro, ^m<r2,r3,r4>
+
+	movl	4(ap), r2		; save fab address
+	movl	8(ap), r3		; save rab address
+	movl	fab$l_xab(r2), r4	; save existing xab address
+
+	moval	xab_1, fab$l_xab(r2)	; link our xab item to the fab
+	movl	r4, xab_1+xab$l_nxt	; and link in the existing xab
+;	bisl	#rab$v_rrl, rab$l_rop(r3) ; set read regardless bit
+	movb	#<fab$m_bio -
+			!fab$m_get> -
+		,fab$b_fac(r2)
+	movb	#<fab$m_shrdel -
+			!fab$m_shrget -
+			!fab$m_shrput -
+			!fab$m_shrupd -
+			!fab$m_upi> -
+		,fab$b_shr(r2)
+
+	$open	fab=(r2)
+	blbc	r0, 90$
+
+	$connect rab=(r3)
+
+90$:	ret
+
+	.end

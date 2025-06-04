@@ -1,0 +1,69 @@
+1 PSRMOP 
+ Program to receive MOP frames from Listen, process them and
+ build the internal PSRMOP DB. This routine handles both MOP
+ types:
+	6001	Downline Load
+	6002	Remote Console
+
+2 Database
+    Symbol	    offs(From Header)	   Desc
+ PSR_MOP_EA_ADDR       0    		Ethernet address
+ PSR_MOP_EA_ADDRLO     2    		Ethernet address  (Low long)
+ PSR_MOP_W_FUNC	6	  	Enabled function bit mask
+ PSR_MOP_EA_HWADDR     8	  	Hardware address
+ PSR_MOP_EA_HWADDRLO   10	  	Hardware address  (Lo long)
+ PSR_MOP_B_DEVID	14	  	Device ID
+ PSR_MOP_3B_VER	15   		Version
+ PSR_MOP_W_TIMER	18	  	Console res timer
+ PSR_MOP_W_CMDSIZ      20		Command size
+ PSR_MOP_W_RESSIZ      22	 	Response Size
+ PSR_MOP_EA_USER	24	  	Console user
+ PSR_MOP_EA_USERLO     26	  	Console user (Low
+ PSR_MOP_W_SPARE	30	  	Spare/align
+ PSR_MOP_AC_NAME	32	  	.ascic name (31 bytes max)
+ PSR_MOP_Q_LASBOOT     64	  	Time last boot request
+ PSR_MOP_L_SOFTTYP     72	  	Type or len of filename
+ PSR_MOP_A16_FILNAM    76	  	.ascii File name (16 byt max)
+ PSR_MOP_L_BOOTCNT     92	  	Count of boot requests
+2 PSRMOP_DL   
+ Routine to implement the downline load portion of the MOP protocol
+ Each time a device on this net attempts to boot via MOP this 
+ system will receive the request frame. From this frames we 
+ extract and store:
+3 Input          
+	.address of EBUFF destined for type 6001
+	.address of MOP db rec this address is for
+3 Output
+	Following fields are written in MOPdb rec:
+	 PSR_MOP_Q_LASBOOT     Time last boot request
+	 PSR_MOP_L_SOFTTYP     Type or len of filename
+ 	PSR_MOP_A16_FILNAM    .ascii File name (if present)
+ 	PSR_MOP_L_BOOTCNT     Count of boot requests
+3 Return
+ 	SS$_NORMAL
+ Any errors detected are handled in this routine.
+2 MOP_SEND_NAME   
+ Routine to extract the name, format it with keying info and add it
+ to (possibly) existing relater frame
+ Input
+	.address of MOPDB Rec
+ Output
+	Namer frame is added to relater frame.  A namer frame is formatted
+	as follows:
+	PID	.long protocol id of sending process
+	KEY2	.long key for multiple names - not used in SCS
+	Name	.ascii name
+       The len is the len of the name +8
+ Return
+	None - If an invalid char found in name then abort process.
+2 MAP_MOPDB   
+ Routine to create and initialise the MOP db. This is a standard routine
+ that any DB creator execxutes on it's own DB:
+	Acquire exclusive lock on this database. 
+		Fatal error if not granted.
+	Open file - if file not opened used hardcoded defaults.
+	Create section. Fatal error ir we did not CREATE.
+	Initalise with either file contents or defaults
+	Write section size (in pages) to LVB
+	Convert lock to CW
+	That's it!

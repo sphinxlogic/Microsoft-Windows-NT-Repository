@@ -1,0 +1,27 @@
+Patch for Opcode.xs, for Perl <= 5.005.57
+
+This patch does three things:
+1) make code in a Safe:: partition think it's running in main:: (need for
+   modules)
+2) connect the _ in the partition to the global _ so it works right
+3) set curstash to defstash like more recent Perls.
+
+
+
+--- ext/Opcode/Opcode.xs-orig	Wed Jul 26 09:54:45 2000
++++ ext/Opcode/Opcode.xs	Wed Jul 26 09:54:17 2000
+@@ -252,6 +252,14 @@
+     save_hptr(&PL_defstash);		/* save current default stack	*/
+     /* the assignment to global defstash changes our sense of 'main'	*/
+     PL_defstash = gv_stashpv(Package, GV_ADDWARN); /* should exist already	*/
++    if (strNE(HvNAME(PL_defstash),"main")) {
++        Safefree(HvNAME(PL_defstash));         
++        HvNAME(PL_defstash) = savepv("main"); /* make it think it's in main:: */
++        hv_store(PL_defstash,"_",1,(SV *)PL_defgv,0);  /* connect _ to global */
++        SvREFCNT_inc((SV *)PL_defgv);  /* want to keep _ around! */
++    }
++    save_hptr(&PL_curstash);
++    PL_curstash = PL_defstash;
+ 
+     /* defstash must itself contain a main:: so we'll add that now	*/
+     /* take care with the ref counts (was cause of long standing bug)	*/

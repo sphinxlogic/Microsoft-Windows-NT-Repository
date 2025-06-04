@@ -1,0 +1,650 @@
+%TITLE 'BOOTSYNC'
+MODULE BOOTSYNC (MAIN = main_routine,
+		IDENT = 'V2.5',
+		ADDRESSING_MODE(EXTERNAL=GENERAL)
+		) =
+BEGIN
+!			COPYRIGHT (c) 1988 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+
+!++
+! FACILITY:
+!   VAXcluster booting syncronization.  Don't let too many systems
+!   boot at the same time.
+!
+! ENVIRONMENT:
+!   VMS version 4 or 5
+!
+! AUTHOR:
+!   Eric S. Bloom
+!
+! CREATION DATE: 7-Mar-88
+!
+! MODIFIED BY:
+!  V2.1	12-Apr-88 ESB	Add BOOTSYNC$NAME logical.
+!  V2.2 06-MAR-89 PJB	Added host name of SYS$SYSDEVICE to the lock value
+!                       block.  This information is printed out for
+!                       nodes that are booting.
+!  V2.4 20-Mar-91 ESB	Merged variants: remove XPORT, change check
+!			satellite method.
+!  V2.5 18-Oct-94 ESB	Increased input_size to 2500 to allow enough space
+!			for lock info for 96 nodes.
+!			(96 nodes) * (23 bytes per lock) = 2208
+!			Go with 2500 for some breathing room.
+!--
+
+!FORWARD ROUTINE
+!
+LIBRARY 'SYS$LIBRARY:STARLET.L32';
+!
+BUILTIN
+    EMUL;
+!
+STRUCTURE
+   matrix[i, j; m, n, unit=4, ext=0] =
+     [m * n * unit]
+      (matrix + (i*n+j)*unit) <0, 8*unit, ext>;
+!
+MACRO
+   $str_def (name, size) =
+      name: VECTOR[size, BYTE],
+      %NAME(name,_dsc): BLOCK[8, BYTE] PRESET ([DSC$W_LENGTH] = size,
+						[DSC$A_POINTER] = name) %,
+    say (text) =
+	LIB$PUT_OUTPUT (%ASCID text); %;
+!
+LITERAL
+    maxboot = 32,
+    input_size = 2500,
+    true = 1,
+    false = 0;
+!
+EXTERNAL ROUTINE
+    handler,
+    LIB$PUT_OUTPUT,
+    LIB$MOVC3,
+    LIB$SIGNAL,
+    LIB$GET_EF,
+    OTS$CVT_TI_L;
+!
+OWN
+    efn,
+    count,
+    wait_time:		VECTOR [2],
+    ondeck_lock_status:	VECTOR [2],
+    lock_status:	matrix [maxboot+1, 6],
+    $str_def		(node, 15),
+    $str_def		(name, 10),
+    $str_def		(output, 80),
+    $str_def		(input, input_size);
+
+ROUTINE write_value_block(index) =
+    BEGIN				! write_value_block
+    LOCAL
+	status;
+    ENABLE handler;
+!
+!  Convert a lock to exclusive mode.
+!
+    status = $ENQW (	LKMODE = LCK$K_EXMODE,
+		FLAGS = LCK$M_CONVERT + LCK$M_SYSTEM + LCK$M_NODLCKWT +
+                        LCK$M_VALBLK,
+		LKSB = lock_status[.index, 0]);
+    RETURN .status
+    END;				! write_value_block
+
+
+ROUTINE readytoboot(index) =
+    BEGIN				! readytoboot
+    LOCAL
+	list:	$ITMLST_DECL (ITEMS = 1),
+	status,
+	string_length : UNSIGNED WORD,
+	argblk:	VECTOR [2] INITIAL (1, 0),
+	host_name: BLOCK[64,BYTE],
+	host_name_descr: BLOCK[8,BYTE];
+!
+!  Get host name of system serving the system disk.
+!
+    host_name_descr[DSC$B_CLASS] = DSC$K_CLASS_S;
+    host_name_descr[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    host_name_descr[DSC$W_LENGTH] = 64;
+    host_name_descr[DSC$A_POINTER] = host_name;
+    $ITMLST_INIT (ITMLST = list,
+                 (ITMCOD = DVI$_HOST_NAME, 
+		 BUFADR = .host_name_descr[DSC$A_POINTER],
+		 BUFSIZ = 64,
+		 RETLEN = host_name_descr[DSC$W_LENGTH]));
+    status = $GETDVIW (EFN = .efn,
+			DEVNAM = %ASCID 'SYS$SYSDEVICE:',
+			ITMLST = list);
+    IF NOT .status THEN
+      BEGIN
+      LIB$SIGNAL(.status);
+      END;
+!
+!  Move system disk server name into the lock value block.
+!
+    string_length = 16;
+    LIB$MOVC3(string_length,host_name,lock_status[.index,2]);
+    argblk[1] = .index;
+    status = $CMEXEC (ROUTIN = write_value_block, ARGLST = argblk);
+    IF NOT .status THEN
+      BEGIN
+      LIB$SIGNAL(.status);
+      END;
+    status = $DEQ (LKID = .ondeck_lock_status[1]);
+    IF NOT .status
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, Cannot dequeue on-deck lock');
+	$EXIT (CODE = .status);
+	END;
+    say ('%BOOTSYNC-S, Booting now');
+    $EXIT (CODE = SS$_NORMAL)
+    END;				! readytoboot
+
+
+ROUTINE conv_exec (index) =
+    BEGIN				! conv_exec
+    ENABLE handler;
+!
+!  Convert a lock to exclusive mode.
+!
+    $ENQ (	LKMODE = LCK$K_EXMODE,
+		FLAGS = LCK$M_CONVERT + LCK$M_SYSTEM + LCK$M_NODLCKWT +
+			LCK$M_NOQUEUE + LCK$M_SYNCSTS,
+		LKSB = lock_status[.index, 0])
+    END;				! conv_exec
+
+ROUTINE enq_exec (resource, index) =
+    BEGIN				! enq_exec
+    ENABLE handler;
+!
+!  Get a lock.
+!
+    $ENQW (	LKMODE = LCK$K_NLMODE,
+		FLAGS = LCK$M_SYSTEM + LCK$M_NODLCKWT + LCK$M_VALBLK +
+			LCK$M_NOQUEUE + LCK$M_SYNCSTS,
+		RESNAM = .resource,
+		LKSB = lock_status[.index, 0])
+    END;				! enq_exec
+
+ROUTINE get_exec (index, itemlist) =
+    BEGIN				! get_exec
+    ENABLE handler;
+!
+!  Get information about a lock.
+!
+    $GETLKIW (EFN = .efn,
+		LKIDADR = lock_status[.index, 1],
+		ITMLST = .itemlist)
+    END;				! get_exec
+
+ROUTINE tryboot =
+    BEGIN				! tryboot
+!
+!  See if one of the systems that was booting is done.
+!  Attempt to convert the individual locks to exclusive mode.
+!  If one succeeds, we can boot.
+!
+    LOCAL
+	status,
+	argblk:	VECTOR [2] INITIAL (1, 0);
+
+    INCR i FROM 1 TO .count DO
+	BEGIN
+	argblk[1] = .i;
+	status = $CMEXEC (ROUTIN = conv_exec, ARGLST = argblk);
+	SELECTONE .status OF
+	    SET
+	    [SS$_SYNCH] : readytoboot(.i);	! lets go!
+	    [SS$_NOTQUEUED] : 1;		! as expected, just keep trying
+	    [OTHERWISE] : BEGIN			! unexpected error
+			  say ('%BOOTSYNC-F, Cannot convert lock in exec mode');
+			  $EXIT (CODE  =  .status);
+			  END;
+	    TES;
+	END;
+!
+!  No boot slots available now.  Reset timer and wait.
+!
+    status = $SETIMR (	DAYTIM = wait_time,
+			ASTADR = tryboot);
+    IF NOT .status
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, Cannot set timer to attempt boot');
+	$EXIT (CODE = .status);
+	END;
+
+    RETURN true
+    END;				! tryboot
+
+ROUTINE ondeck =
+    BEGIN				! ondeck
+!
+!  See if we can boot now.  If not, TRYBOOT will set a timer and keep trying.
+!
+    LOCAL
+	status;
+
+    say ('%BOOTSYNC-S, This system will boot next');
+    tryboot();				! see if we can boot now
+
+    RETURN true
+    END;				! ondeck
+
+ROUTINE convert =
+    BEGIN				! convert
+!
+!  Convert the on-deck lock.  Things will take off when the lock converts.
+!
+    LOCAL
+	status;
+
+    status = $ENQ (LKMODE = LCK$K_EXMODE,
+		FLAGS = LCK$M_CONVERT + LCK$M_SYSTEM + LCK$M_NODLCKWT,
+		LKSB = ondeck_lock_status,
+		ASTADR = ondeck);
+    IF NOT .status
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, Failed to convert on-deck lock');
+	$EXIT (CODE = .status);
+	END;
+
+    RETURN true
+    END;				! convert
+
+ROUTINE decode_lock_info (lockinfo: REF BLOCK [, BYTE]) =
+!
+!  Interpret the information from $GETLKI.
+!
+    BEGIN				! decode_lock_info
+    LOCAL
+	list:	$ITMLST_DECL (ITEMS = 1),
+	status;
+!
+!  Use $GETSYI to find the node name of the system that requested the lock.
+!
+    $ITMLST_INIT (ITMLST = list,
+		(ITMCOD = SYI$_NODENAME, BUFADR = .node_dsc[DSC$A_POINTER],
+			BUFSIZ = 15, RETLEN = node_dsc[DSC$W_LENGTH]));
+    input_dsc[DSC$W_LENGTH] = 15;
+    status = $GETSYIW (	EFN = .efn,
+			CSIDADR = lockinfo[LKI$L_REMSYSID],
+			ITMLST = list);
+    IF NOT .status
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, $GETSYI failed');
+	$EXIT (CODE = .status);
+	END;
+!
+!  Use the return status to indicate the lock's mode.
+!
+    RETURN .lockinfo[LKI$B_GRMODE]
+    END;				! decode_lock_info
+
+ROUTINE info =				! info
+!
+!  This is the timer routine to keep the user from getting too fidgety.
+!
+    BEGIN
+    LOCAL
+	argblk:	VECTOR [3] INITIAL (2, 0, 0),
+	list:	$ITMLST_DECL (ITEMS = 2),
+	first:	INITIAL (false),
+	retstatus,
+	output_dsc: BLOCK[8,BYTE],
+	fao_dsc : BLOCK[8,BYTE],
+	total_length, single_length,
+	host_name: BLOCK[16,BYTE],
+	status;
+!
+!  Show which systems are booting now.  Loop through the individual locks.
+!
+    INCR i FROM 1 TO .count DO
+	BEGIN
+	$ITMLST_INIT (ITMLST = list,
+		(ITMCOD = LKI$_LOCKS, BUFADR = .input_dsc[DSC$A_POINTER],
+			BUFSIZ = input_size, RETLEN = retstatus),
+		(ITMCOD = LKI$_VALBLK, BUFADR = host_name, BUFSIZ = 16));
+	input_dsc[DSC$W_LENGTH] = input_size;
+	argblk[1] = .i;
+	argblk[2] = list;
+	status = $CMEXEC (ROUTIN = get_exec, ARGLST = argblk);
+	IF NOT .status
+	THEN
+	    BEGIN
+	    say ('%BOOTSYNC-F, Cannot get lock information');
+	    $EXIT (CODE = .status);
+	    END;
+	IF .retstatus<31,1,0>			! if bit 31 set
+	THEN
+	    BEGIN
+	    say ('%BOOTSYNC-F, $GETLKI buffer too small');
+	    $EXIT (CODE = SS$_NORMAL);
+	    END;
+
+	total_length = .retstatus<0,16,0>;
+	single_length = .retstatus<16,15,0>;
+
+	INCR j FROM 0 TO (.total_length - .single_length) BY .single_length DO
+	    BEGIN
+	    IF decode_lock_info(.input_dsc[DSC$A_POINTER] + .j) EQL LCK$K_EXMODE
+	    THEN
+		BEGIN
+		IF NOT .first
+		    THEN
+		    BEGIN
+		    say ('%BOOTSYNC-I, The following systems are booting now:');
+		    first = true;
+		    END;
+		output_dsc[DSC$B_CLASS] = DSC$K_CLASS_S;
+		output_dsc[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+		output_dsc[DSC$W_LENGTH] = 80;
+		output_dsc[DSC$A_POINTER] = output;
+		fao_dsc[DSC$B_CLASS] = DSC$K_CLASS_S;
+		fao_dsc[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+		fao_dsc[DSC$W_LENGTH] = 9;
+		fao_dsc[DSC$A_POINTER] = PLIT (%ASCII '!AS (!AD)');
+		status = $FAO(fao_dsc,0,output_dsc,node_dsc,16,host_name);
+!		LIB$PUT_OUTPUT (node_dsc);
+		LIB$PUT_OUTPUT (output_dsc);		
+		END;
+	    END;
+	END;
+
+    IF NOT .first
+    THEN
+	say ('%BOOTSYNC-I, No systems are booting now.');
+!
+!  Show which systems are waiting.
+!
+    first = false;
+    $ITMLST_INIT (ITMLST = list,
+		(ITMCOD = LKI$_LOCKS, BUFADR = .input_dsc[DSC$A_POINTER],
+			BUFSIZ = input_size, RETLEN = retstatus));
+    input_dsc[DSC$W_LENGTH] = input_size;
+    status = $GETLKIW (EFN = .efn,
+		LKIDADR = ondeck_lock_status[1],
+		ITMLST = list);
+    IF NOT .status
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, Cannot get lock information');
+	$EXIT (CODE = .status);
+	END;
+    IF .retstatus<31,1,0>			! if bit 31 set
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, $GETLKI buffer too small');
+	$EXIT (CODE = SS$_NORMAL);
+	END;
+
+    total_length = .retstatus<0,16,0>;
+    single_length = .retstatus<16,15,0>;
+
+    INCR j FROM 0 TO (.total_length - .single_length) BY .single_length DO
+	BEGIN
+	decode_lock_info(.input_dsc[DSC$A_POINTER] + .j);
+	IF NOT .first
+	THEN
+	    BEGIN
+	    say ('%BOOTSYNC-I, The following systems are waiting now:');
+	    first = true;
+	    END;
+	LIB$PUT_OUTPUT (node_dsc);
+	END;
+
+    IF NOT .first
+    THEN		! shouldn't normally get here
+	say ('%BOOTSYNC-I, No systems are waiting now.');
+
+    say ('');
+!
+!  Reset the timer.
+!
+    status = $SETIMR (	DAYTIM = wait_time,
+			ASTADR = info);
+    IF NOT .status
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, Cannot set timer for information');
+	$EXIT (CODE = .status);
+	END;
+
+    RETURN true
+    END;				! info
+
+ROUTINE check_run =
+    BEGIN				! check_run
+    LOCAL
+	status,
+	member:	INITIAL (0),
+	votes:	INITIAL (0),
+	list:	$ITMLST_DECL (ITEMS = 2);
+!
+!  See if we should run.  Exit if not.  Translate logicals.
+!
+!  Get the count.
+!
+    input_dsc[DSC$W_LENGTH] = 12;
+    input_dsc[DSC$A_POINTER] = input;
+    $ITMLST_INIT (ITMLST = list,
+		(ITMCOD = LNM$_STRING, BUFADR = .input_dsc[DSC$A_POINTER],
+			BUFSIZ = 12, RETLEN = input_dsc[DSC$W_LENGTH]));
+    status = $TRNLNM (	TABNAM = %ASCID 'LNM$FILE_DEV',
+			LOGNAM = %ASCID 'BOOTSYNC$COUNT',
+			ITMLST = list);
+    IF NOT .status
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, Cannot translate logical name BOOTSYNC$COUNT');
+	$EXIT (CODE = .status);
+	END;
+!
+!  Get count from logical name translation.
+!
+    status = OTS$CVT_TI_L (input_dsc, count, 4, 1);
+    IF NOT .status
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, Logical name BOOTSYNC$COUNT is not a valid integer');
+	$EXIT (CODE = .status);
+	END;
+    IF .count GTR maxboot
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-W, Maximum of 32 nodes may boot at the same time');
+	count = maxboot;
+	END;
+!
+!  Translate BOOTSYNC$NAME.  This can be used to synchronize on
+!  different resources.
+!
+    name_dsc[DSC$W_LENGTH] = 10;
+    name_dsc[DSC$A_POINTER] = name;
+    $ITMLST_INIT (ITMLST = list,
+		(ITMCOD = LNM$_STRING, BUFADR = .name_dsc[DSC$A_POINTER],
+			BUFSIZ = 10, RETLEN = name_dsc[DSC$W_LENGTH]));
+    status = $TRNLNM (	TABNAM = %ASCID 'LNM$FILE_DEV',
+			LOGNAM = %ASCID 'BOOTSYNC$NAME',
+			ITMLST = list);
+    IF NOT .status
+    THEN
+	BEGIN
+	name_dsc[DSC$W_LENGTH] = 0;
+	name_dsc[DSC$A_POINTER] = input;
+	END;
+!
+!  If BOOTSYNC$RUN is defined, then we will run.
+!
+    input_dsc[DSC$W_LENGTH] = 12;
+    input_dsc[DSC$A_POINTER] = input;
+    $ITMLST_INIT (ITMLST = list,
+		(ITMCOD = LNM$_STRING, BUFADR = .input_dsc[DSC$A_POINTER],
+			BUFSIZ = 12, RETLEN = input_dsc[DSC$W_LENGTH]));
+    status = $TRNLNM (	TABNAM = %ASCID 'LNM$FILE_DEV',
+			LOGNAM = %ASCID 'BOOTSYNC$RUN',
+			ITMLST = list);
+    IF .status
+    THEN
+	RETURN true;		! don't sweat the rest
+!
+!  Check the process name.  If its not STARTUP, then we don't want
+!  to run.  A common problem is that BOOTSYNC is run from SYCONFIG,
+!  which is called from AUTOGEN.
+!
+    $ITMLST_INIT (ITMLST = list,
+		(ITMCOD = JPI$_PRCNAM, BUFADR = .input_dsc[DSC$A_POINTER],
+			BUFSIZ = 16, RETLEN = input_dsc[DSC$W_LENGTH]));
+    status = $GETJPIW (EFN = .efn,
+			ITMLST = list);
+    IF NOT .status
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, $GETJPI failed');
+	$EXIT (CODE = .status);
+	END;
+    IF CH$NEQ (.input_dsc[DSC$W_LENGTH], .input_dsc[DSC$A_POINTER],
+		7, CH$PTR( UPLIT (%ASCII 'STARTUP')))
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-S, Process name is not STARTUP.');
+	$EXIT (CODE = SS$_NORMAL);
+	END;
+!
+!  Figure out if this is not a satellite node.  Assume that satellites
+!  have 0 votes.  And check to make sure that we're actually in a cluster.
+!
+    $ITMLST_INIT (ITMLST = list,
+		 (ITMCOD = SYI$_NODE_VOTES, BUFADR = votes, BUFSIZ = 2),
+		 (ITMCOD = SYI$_CLUSTER_MEMBER, BUFADR = member,
+				BUFSIZ = 1));
+    status = $GETSYIW (EFN = .efn,
+ 			ITMLST = list);
+    IF NOT .status
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, $GETSYI failed');
+	$EXIT (CODE = .status);
+	END;	
+
+    IF (.votes NEQ 0) OR (NOT .member)
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-S, This node is not a satellite.');
+	$EXIT (CODE = SS$_NORMAL);
+	END;
+
+    RETURN true
+    END;				! check_run
+
+ROUTINE main_routine =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Main routine for BOOTSYNC.
+!
+! FORMAL PARAMETERS:
+!
+!	None
+!
+!--
+    BEGIN			! main_routine
+    LOCAL
+	status,
+	index, sub_index,
+	argblk:	VECTOR [3] INITIAL (2, 0, 0);
+!
+!  Initialise.
+!
+    EMUL (%REF(60), %REF(-10000000), %REF(0), wait_time);  ! 60 seconds
+
+    status = LIB$GET_EF (efn);
+    IF NOT .status
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, Cannot get event flag');
+	$EXIT (CODE = .status);
+	END;
+
+    check_run();		! check logicals and such
+!
+!  Enqueue all the locks in null mode.  This is needed to get lock info
+!  about them.
+!
+    INCR i FROM 1 TO .count DO
+	BEGIN
+	input_dsc[DSC$W_LENGTH] = 80;
+	$FAO (	%ASCID 'BOOTSYNC$!AS_LOCK_!UL',
+		input_dsc,
+		input_dsc,
+		name_dsc,
+		.i);
+
+	argblk[1] = input_dsc;
+	argblk[2] = .i;
+	status = $CMEXEC (ROUTIN = enq_exec, ARGLST = argblk);
+	IF .status NEQ SS$_SYNCH
+	THEN
+	    BEGIN
+	    say ('%BOOTSYNC-F, Cannot enqueue null mode lock in exec mode');
+	    $EXIT (CODE  =  .status);
+	    END;
+	END;
+!
+!  Enqueue the on-deck lock.  First get a null mode lock.  Then convert
+!  to exclusive mode later.
+!
+    input_dsc[DSC$W_LENGTH] = 80;
+    $FAO (%ASCID 'BOOTSYNC$!AS_ONDECK',
+	input_dsc,
+	input_dsc,
+	name_dsc);
+
+    status = $ENQ (
+		LKMODE = LCK$K_NLMODE,
+		FLAGS = LCK$M_SYSTEM + LCK$M_NODLCKWT,
+		RESNAM = input_dsc,
+		LKSB = ondeck_lock_status,
+		ASTADR = convert);
+    IF NOT .status
+    THEN
+	BEGIN
+	say ('%BOOTSYNC-F, Failed to enqueue on-deck lock');
+	$EXIT (CODE = .status);
+	END;
+!
+!  Give some info.
+!
+    $DCLAST (ASTADR = info);
+!
+!  Wait for something to happen.
+!
+    $HIBER;
+
+    say ('%BOOTSYNC-F, How did I get here?');
+    RETURN true
+
+    END;			! main_routine
+
+END				! End of module
+ELUDOM

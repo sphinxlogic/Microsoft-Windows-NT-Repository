@@ -1,0 +1,251 @@
+$cf = $ENV{'UCX$MAJORDOMO_CF'};
+if ($majordomo_debug) {print "\$cf is $cf\n";}
+eval(`type $cf`) || &my_die("eval of majordomo.cf failed $@");
+
+$tmp = "/SYS\$SCRATCH/CREATE-LIST_$$";
+$status = 0;
+$tmp_filename;
+
+$defdir = `SHOW DEFAULT`;
+$defdir =~ s/\s//g;
+if ($majordomo_debug) {print "Default directory is $defdir\n";}
+
+# Go to the home directory specified by the .cf file
+chdir($homedir) || &my_die("Can't chdir(\"$homedir\"): $!");
+
+# All these should be in the standard PERL library
+unshift(@INC, $homedir);
+require "majordomo.pl";		# all sorts of general-purpose Majordomo subs
+require "majordomo-util.pl";	# all sorts of general-purpose Majordomo for
+				# config purposes
+require "shlock.pl";		# NNTP-style file locking
+require "config_parse.pl";	# functions to parse the config files
+
+if ($majordomo_debug) {&log_cf_stuff;}
+
+$my_system_name = &systemname;
+
+$list = ();
+print "
+This script will create a new majordomo mailing list for you.
+
+If the name of the Majordomo list you are creating matches an existing UCX SMTP
+distribution list this script will let you abort or continue. If you choose to
+continue this script will copy the existing UCX SMTP list file to the majordomo
+list directory (UCX\$MAJORDOMO_LIST). You will then be given the option of
+deleting or renaming the old list. This is to prevent a situation where the name
+of a Majordomo list is the same as an existing UCX SMTP list. That isn't
+allowed.
+
+This script will also set up a digest for the list at your option. 
+
+You need SYSPRV turned on to run this script.
+";
+
+print "Enter name of list: ";
+
+while ($list = <STDIN>)
+  {
+  chop($list);
+  if (($list eq "") || (!$list)) {&my_exit(0);}
+  $clean_list = &valid_list_name($list);
+  if (!$clean_list)
+    {
+    print "Clean is $clean_list\n";
+    print "List name $list is invalid.\nEnter name of list: ";
+    next;
+    }
+  elsif (is_digest_name($clean_list))
+    {
+    print "
+List $clean_list is a digest. To make a list with a digest create the
+list itself and answer \"Yes\" to the question asking if you want
+to create a digest for the list.
+";
+    print "Enter name of list: ";
+    next;
+    }
+  elsif (&list_exists($listdir,$clean_list))
+    {
+    print "List $clean_list already exists.\nEnter name of list: ";
+    next;
+    }
+  else
+    {
+    #
+    # Is this an already existing UCX SMTP mailing list? If so set
+    # $old_listname to that value.
+    $old_listname = &spot_ucx_smtp_list($clean_list);
+    if ($old_listname)
+      {
+      $oldlist_disposition = &oldlist_go_ahead($listdir,$clean_list,$old_listname);
+      if ($oldlist_disposition)
+        {last;}
+      else
+        {
+        print "Discontinuing create for list $clean_list.\nEnter name of list: ";
+        next;
+        }
+      }
+    else
+      {last;}
+    }
+  }
+
+# This handles Ctrl-Z
+if (!$list) {&my_exit(0);}
+
+$list_owner = &get_list_owner($clean_list);
+if (!$list_owner) {&my_exit(0);}
+
+$passwd = ();
+print "Enter password for list $clean_list: ";
+while ($passwd = <STDIN>)
+  {
+  chop($passwd);
+  if (($passwd eq "") || (!$passwd)) {&my_exit(0);}
+  if (!&passwd_legal_chars($passwd))
+    {print "Password $passwd is invalid.\nEnter password for list $clean_list: ";next;}
+  else
+    {last;}
+  }
+
+# This handles Ctrl-Z
+if (!$passwd) {&my_exit(0);}
+
+if (&ask_list_digest($clean_list))
+  {
+  $make_a_digest = 1;
+  $digest_name = make_digest_name($clean_list);
+  $digest_owner = make_digest_owner($clean_list);
+  $digest_passwd = ();
+  print "Enter password for list $digest_name: ";
+  while ($digest_passwd = <STDIN>)
+    {
+    chop($digest_passwd);
+    if (($digest_passwd eq "") || (!$digest_passwd)) {&my_exit(0);}
+    if (!&passwd_legal_chars($digest_passwd))
+      {print "Password $digest_passwd is invalid.\nEnter password for list $digest_name: ";next;}
+    else
+      {last;}
+    }
+
+  # This handles Ctrl-Z
+  if (!$digest_passwd) {&my_exit(0);}
+  }
+
+print "List name:	$clean_list\n";
+print "List owner:	$list_owner\n";
+print "Password:	$passwd\n";
+print "System name:	$my_system_name\n";
+
+if ($make_a_digest)
+  {
+  print "Digest name:	$digest_name\n";
+  print "Digest owner:	$digest_owner\n";
+  print "Digest Password:	$digest_passwd\n";
+  }
+
+$tmp_filename = $tmp  . "_" . $my_system_name . ".COM";
+
+&set_list_fwd($tmp_filename, $clean_list, $list_owner);
+&make_list_file($listdir, $clean_list, $digest_name, $old_listname, $oldlist_disposition) || &my_die("Error while creating list file: $!\n");
+&make_passwd_file($listdir, $clean_list, $passwd) || &my_die("Error while creating passwd file: $!\n");
+
+if ($make_a_digest)
+  {
+  &set_digest_fwd($tmp_filename, $digest_name, $digest_owner);
+  &make_list_file($listdir, $digest_name) || &my_die("Error while creating list file: $!\n");
+  &make_passwd_file($listdir, $digest_name, $digest_passwd) || &my_die("Error while creating passwd file: $!\n");
+  }
+
+&mail_list_info($clean_list, $passwd, $digest_name, $digest_passwd)
+  || warn("Error while mailing list owner info: $!\n");
+
+&print_final;
+
+
+sub print_final
+{
+local($tmp_string);
+print
+"********************************************************************************
+You should now create an information file for your list. The file should contain
+explanatory text about the list. The file must be named $clean_list.INFO and
+must live in the UCX\$MAJORDOMO_LISTS directory
+
+$list_owner is the owner of the $clean_list list. To see the forwards
+created by this script do
+
+   MAIL> SHOW FORWARD/USER=*$clean_list*
+
+To change the list owner either manually set the new forwarding or run the
+CHANGE-LIST Perl script.
+
+You should still check all your cluster nodes' SYS\$SPECIFIC:[UCX_SMTP]
+directories for the existence of $clean_list.dis and DELETE the file if found.
+If you were maintaining the list on more than one cluster node in
+SYS\$SPECIFIC:[UCX_SMTP] this script won't catch it on the other nodes. 
+";
+print "********************************************************************************\n\n";
+}
+
+
+sub oldlist_go_ahead
+{
+local($listdir) = shift;
+local($list) = shift;
+local($oldlist) = shift;
+local($done) = 0;
+local($tmpstr) = &make_old_filename($oldlist);
+
+print "
+
+An existing UCX SMTP list file for the list named $list was found. If you
+continue with the creation of this new Majordomo version of the list then the
+old UCX SMTP list file ($oldlist) will be copied to the new Majordomo list file
+($listdir/$list.) and then deleted or renamed based on your input.
+
+";
+print "Do you want to continue creating list $list? (Y/N): ";
+while (!$done)
+  {
+  $_ = <STDIN>;
+  s/^\s+//;			# strip leading space.
+  s/\s+$//;			# strip trailing space.
+  if (/^N/i) {return undef;}
+  if (/^Y/i) {$done = 1;next;}
+  print "Do you want to continue creating list $list? (Y/N): ";
+  }
+
+print "
+If you answer Yes to the next question the file $oldlist will
+be deleted. Otherwise it will be renamed to $tmpstr
+";
+
+print "Do you want to delete $oldlist? (Y[es] to delete/N[o] to rename): ";
+$done = 0;
+while (!$done)
+  {
+  $_ = <STDIN>;
+  s/^\s+//;			# strip leading space.
+  s/\s+$//;			# strip trailing space.
+  if (/^N/i) {return "RENAME";}
+  if (/^Y/i) {return "DELETE";}
+  print "Do you want to delete $oldlist? (Y[es] to delete/N[o] to rename): ";
+  }
+
+return undef; # should never get here.
+}
+
+
+sub list_name_valid
+{
+return(1);
+}
+
+
+sub list_owner_valid
+{
+return(1);
+}

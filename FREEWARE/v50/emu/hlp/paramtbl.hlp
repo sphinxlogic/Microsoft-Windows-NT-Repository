@@ -1,0 +1,277 @@
+1 PARAMTBL  
+ Interactive programme to List,Add,Modify and Delete items in 
+ MAPPER.DAT
+ The resulting file is used by PARAMXLT to format DB recs.
+ Additionaly this routine manages the table names in a hierarchical 
+ fashion. The translation routines to not use these records.
+2 Table_names
+ As per the output file format (which see) there are 3 fields used for
+ table names and the interpretation and use of these fields is different
+ than in paramater data.
+	Field			Desc
+	TBL	If top byte of this field is non 0 then it is a table
+		name. The PARAM field points to the next level down.
+	PARAM	If the top byte of this field in non 0 then there are
+		further table names in the hierarchy. If the top byte = 0 
+		then this is the table that contains the desired params.
+	KEYW (and KEWYLEN) are the table names.
+3 Description
+ Paramaters are organised into tables. Some (Ethernet for example) are a
+ single level table and so the top level table would look like:
+	TBL		PARAM			Keyword
+	01000000	00010001		Ethernet
+	
+ Top level tables are always identified by 01000000. The param field
+ contains a 0 in the top byte and so this is the table param that 
+ contains the actual paramater values and a series of records like:
+	00010001	1		Name
+	00010001	2		Address
+ and so on is expected.
+ In most other cases (eg) OSI there are 2 levels:
+	TBL		PARAM			Keyword
+	01000000	02000003 		OSI 
+	02000003 	0001000A                OSI Node
+	02000003	0001000B		OSI Alias
+	02000003	0001000C		OSI Alias Port
+	.
+	.
+	0101000A	1			Name
+	0101000A	2			Address
+ To facilitate automatic MIB insertion (for SNMP), the IP tables
+ are 3 levels:
+	TBL		PARAM			Keyword
+	01000000	02000007		SNMP
+	02000007	03000001 		MIB File name
+	02000007	03000002		MIB File name
+	.
+	And so on, one for each MIB added to EMU. There is no
+	practical limit.
+	03000001	0000xxxx  		Table in Mib
+	The sequence number for a file name is generated at MIB_REGISTER
+	time and is used in this context simply as an id. In other routines
+	in is used to locate the correct MIB to apply.
+	xxxxx:
+	16 bit crc of the Object identifier of the table. Because all 
+	possible SNMP params and tables have a unique object id, this 
+	is unlikely to duplicate but inevitably will.
+
+ 
+2 Inputs  
+	Top level menu select either params or tables and then
+	in either case:
+	     1. List:
+		Lists known entries and items on sys$output
+	     2. Add:
+		Records details in PARAMTBL.DAT file
+	     3. Modify:
+		Allows modification of modifiable fields
+            4. Delete:
+		Erase corresponding record
+
+2 Output
+ File format:
+	Field		Datatype       offset	Len
+	TBL		.LONG		0       4
+	PARAM		.LONG		4       4
+	SEC		.QUAD		8       8
+	KEYWLEN		.LONG		16      4
+	KEYW		.BLKB		20      64
+	FMTTYP		.LONG		84      4
+	FMTSTR		.BLKB		88      32
+	POLFLG		.LONG		120     4
+	RPTLVL		.LONG		124     4
+ TBL is the table this param is in. It is defined by EMU and is set either 
+ by definition (_EMUDBDEF) or by calculation (in case of SNMP).
+ All defined tables are in range 65536 - max .long
+ All SNMP tables are calculated from the ObjID and are in range 1 - 65535
+ 
+ Param is the paramater number in the table. It is either the network defined
+ number (as in CMIP, SNMP and NICE, MOP) or defined by EMU.
+
+ Table and param together form the primary key to this file. Table is 
+ defined as a secondary key. Note, in order to keep this confusing, when
+ table records are being accessed, the table field is a number indicating
+ the level in the hierarchy this table is at and the param field is the 
+ table.
+
+ SEC. Security patttern that must be met to detect this param. It is the 
+ VMS .quad security bits. Not used in table names 
+
+ KEYLEN. Len of following string.
+ KEYW  . String that preceedes any translation of this param.
+
+ FMTYP . One of:
+	Len of following string (hi bit not set)
+	Routine number	(hi bit set)
+ If the hi bit is set the param is translated using the routine specified
+ by this number(After hi bit is cleared).
+ If the Hi bit is clear, this is the len of the following FAO control string.
+ FMTSRT. A string suitable for input to FAO. Not used in table names.
+ 
+ POLFLG
+ Bit pattern directing various polling routine actions:
+	Bit		When set
+	0	Exclude from param polling. By default any param NOT 
+		a counter is included.
+	1	Include in counter processing. By default counters
+		are not included.
+	2	Alert on create. If this param is created in EMUDB
+		EMUDB_ACCESS returns SS$_CREATED if this bit is set.
+		Otherwise EMUDB_ACCESS returns SS$_NORMAL.
+	3	Alert on Modify. If this param is Modified in EMUDB
+		EMUDB_ACCESS returns SS$_WASSET if this bit is set.
+		Otherwise EMUDB_ACCESS returns SS$_NORMAL.
+	4	Alert on delete. If this param is deleted from EMUDB
+		EMUDB_ACCESS returns SS$_DELETED if this bit is set.
+		Otherwise EMUDB_ACCESS returns SS$_NORMAL.
+   By default alerts are generated on Modify and Delete only. This 
+   This behaviour can be changed on a param by param basis with this routine.
+ RPTLVL
+ A defined level (1-5) this param falls in. In reporting, the user
+ sets the level of detail required and this param directs whether or
+ not to include it in a report.
+2 PARAMTBL_T
+ Routine to manipilate table entries.
+3 Inputs
+4 LIST 
+ The routine displays all top level tables in a menu and displays
+ the full record in the other display. Upon selection, 
+ displays the next level table and it's translations and so on until the 
+ lowest level is reached.
+4 ADD
+ Routine asked for level (1-x),table number and keyword to add. 
+ If level.table is unique the records is added.
+4 Modify
+ Routine asked for level (1-x),table number to modify
+ If the record is found prompts to change table,kewyword
+ are displayed. Any input is written to record and if key remains
+ unique, it is added
+4 Delete
+ Routine asked for level (1-x),and table number.
+ If rec is found user is asked to confirm. On confirm, record is 
+ deleted. Note this routine does not check for records below. It can
+ break the chain in the hierarchy and leave lower level inaccssible.
+2 PARAMTBL_TOPLVL
+ Routine to create top level table. The user must input the 2nd level
+ param specifiying if it is a 'terminating' table or not.
+ret
+.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=READ_PROMPT  
+++
+2 READ_PROMPT  
+ Routine to write prompt on screen and get the input in KB_DES
+3 Inputs	.address of .ascid prompt
+		.addr of input conversion. Optionsl. If not present
+		input is not forced to uppercase
+3 Outputs:
+	In KB_DES any user input
+3 Returns:
+	Any return from SMG$READ_STRING
+2 PARAMTBL_GETTABLE 
+ Routine to display all possible tables in a menu and after selection, set
+ the chosen table in the DB_MAP_L_TBL field in the input param
+3 Inputs:
+	.address of .long where .long table is written
+3 Outputs:
+ 	.long value of the table (symbols in _EMUDBDEF)
+3 Returns:
+	SS$_NORMAL	did it
+	SS$_ACCVIO	Cant write it
+2 PARAMTBL_DISPTABLE 
+ Routine to display all possible tables in a menu on one display and 
+ the full record translation on the other.
+3 Inputs:
+	MAPPER.DAT is assumed to be open before entry
+3 Outputs:
+ 	None
+3 Returns:
+	SS$_NORMAL	did it
+	Any from RMS, FAO
+2 PARAMTBL_DISPLAY_REC 
+ Routine to format and display a paramater map in VD_DISP
+ 
+3 Inputs:
+	.address of rec to display
+3 Outputs:
+	None
+3 Returns:
+	The ususal
+2 PARAMTBL_DISPLAY_REC_FULL   
+ Routine to format and display a full paramater map in VD_DISP1
+ There are 2 forms: 1. uses FAO control string
+		     2. Uses a routine
+		Distiguished by FMTTYP being < 0
+3 Inputs:
+	.address of rec to display
+3 Outputs:
+	None
+3 Returns:
+	The ususal
+2 PARAMTBL_SETSECURE  
+ Routine to display all VMS privs in menu, convert selection to bitmask
+ and return bitmask.
+ Menu is redisplayed and bits set until ^z
+3 Inputs:
+	.addr of quad where to write bits
+3 Outputs
+     	The selected bits 
+3 Returns:
+	The usual
+2 PARAMTBL_SETFLAGS  
+ Routine to set flags of this paramater.
+ Currently defined flags are:
+ 	Bit		When set
+	0		Do not include in database
+	1		Flag as candidate for 'real time' monitor
+	2		Signal alert on create
+	3		Signal alert on modify
+	4		Signal alert on delete
+3 Inputs:
+	.addr of mapper rec
+	user input
+3 Outputs
+     	validated user input is written to flags field
+3 Returns:
+	The usual
+2 PARAMTBL_SETRPTLVL  
+ Routine to set report level of this paramater.
+3 Inputs:
+	.addr of mapper rec
+	user input
+3 Outputs
+     	validated user input is written to rptlvl field
+3 Returns:
+	The usual
+2 PARAMTBL_SETKEYW
+ Routine to get and set the displayable keyword for a paramater
+3 Inputs:
+	.addr of maprec
+3 Outputs:
+	Keyword and len are written to the designated areas
+3 Returns:
+	SS$_NORMAL	OK
+	SS$_ACCVIO	Couldn't write
+       SS$_NODATA	no input
+2 PARAMTBL_SETFMT 
+ Routine to get and set the format routine or len + string for a paramater
+3 Inputs:
+	.addr of maprec
+3 Outputs:
+	Routine (or len and str) are written to the designated area(s)
+3 Returns:
+	SS$_NORMAL	OK
+	SS$_ACCVIO	Couldn't write
+2 PARAMTBL_GETPARAM  
+ Get paramater number and write it as a .long at offset DB_MAP_L_PARAM	 
+3 Inputs:
+	.addr of .long where param number is written
+  		This should be an area of at least DB_MAP_C_KEYSIZ long
+      		The param is written as .word at offset DB_MAP_L_PARAM	 
+3 Outputs:
+	The input param converted to bin
+3 Returns:
+	SS$_NORMAL	OK
+	SS$_ACCVIO	cant write
+	SS$_NODATA 	No input

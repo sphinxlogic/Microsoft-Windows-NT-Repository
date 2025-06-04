@@ -1,0 +1,280 @@
+ 	.TITLE	TST_EMUDB_KEYS  
+	.IDENT /V01-001/
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY        /EMU5_LIB:EMU5.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$NMADEF
+	$LCKDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUCNTDEF
+	EMUPSRDEF
+	EMUPSRDEF
+	EMUDBDEF
+;
+
+	.psect	TST_EMUDB_KEYS,wrt,noexe,pic,shr,page
+;
+; 
+
+	.ALIGN	LONG
+EMUDBFAB:	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 768,-                     ; Largest rec
+		RFM = VAR,-			; Variable len
+		GBC = 10,-                      ; Use global buffers
+		DNM = <EMU5_DAT:EMUDB.DAT>,-	; Default Filename 
+		FNM = <EMUDB>,-			; Filename 
+		FOP = CIF,-			; Create if doesn't exist
+		XAB = EMUDBXAB0                  ; Keys
+
+EMUDBRAB:	$RAB	FAB = EMUDBFAB,-		; pointer to FAB
+		RBF = EMUDBREC_BUF,-		; i/o buffer 
+		RSZ = EMUDBREC_SIZE,-		; Write this many bytes
+		UBF = EMUDBREC_BUF,-		; i/o buffer 
+		USZ = EMUDBREC_SIZE,-		; 
+		KBF = KEY_BUF,-		; i/o buffer 
+		RAC = KEY,-			; Keyed file
+		ROP = NXT,-
+		KSZ = DB_C_KSZ  
+
+
+EMUDBXAB0:	$XABKEY	REF = 0,-  		; PROTOCOL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP>,-		; Duplicates, changes allowed
+		NXT = EMUDBXAB1
+;
+EMUDBXAB1:	$XABKEY	REF = 1,-  		; BOXID
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUDBXAB2
+;
+EMUDBXAB2:	$XABKEY	REF = 2,-  		; TABLE
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 8,-               ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUDBXAB3
+;
+EMUDBXAB3:	$XABKEY	REF = 3,-  		; Instance
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 12,-              ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUDBXAB4
+;
+EMUDBXAB4:	$XABKEY	REF = 4,-  		; Paramater
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 16,-              ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUDBXAB5
+;
+EMUDBXAB5:	$XABKEY	REF = 5,-  	; Protocol,boxid
+		DTP = BN8,-             ; Key = 4 byte binary (ascending)
+		POS = 0,-              ; Key position
+		SIZ = 8,-               ; Key len
+                FLG = <DUP,CHG>,-		; Duplicates, changes allowed
+		NXT = EMUDBXAB6
+;
+EMUDBXAB6:	$XABKEY	REF = 6,-  	; Unique param
+		DTP = STG,-             ; String
+		POS = 0,-               ; Key position
+		SIZ = 20,-                ; Key len - Duplicates not allowed
+		NXT = EMUDBXAB7
+;
+EMUDBXAB7:	$XABKEY	REF = 7,-  	; BOXID,TABLE
+		DTP = BN8,-             ; 8 BYTES
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		POS = 4,-               ; Key position
+		SIZ = 8,-                 ; Key len 
+		NXT = EMUDBXAB8
+;
+EMUDBXAB8:	$XABKEY	REF = 8,-  	 ; TABLE,PARAM
+		DTP = STG-               ; 8 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = <8,16>-            ; Key position
+		SIZ = <4,4>,-              ; Key len 
+		NXT = EMUDBXAB9
+;
+EMUDBXAB9:	$XABKEY	REF = 9,-  	 ; BOXID TABLE,PARAM
+		DTP = STG,-               ; 12 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = <4,8,16>-            ; Key position
+		SIZ = <4,4,4>,-              ; Key len 
+		NXT = EMUDBXAB10
+
+EMUDBXAB10:	$XABKEY	REF = 10,-  	 ; Flag field
+		DTP = BN4-               ; 4 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = 20,-            	 ; Key position
+		SIZ = 4               	 ; Key len 
+
+EMUDBREC_BUF:
+KEY_BUF:
+KEY_PROTO:	.LONG
+KEY_BOX:	.LONG
+KEY_TBL:	.LONG
+KEY_INST:	.LONG
+KEY_PARAM:	.LONG
+KEY_FLAG:	.LONG
+	.BLKB	768  		; 
+EMUDBREC_SIZE = .-EMUDBREC_BUF
+;PROMPT:		.ASCID	/BOX: /
+PROMPT1:	.ASCID	/BOXID: /
+PROMPT2:	.ASCID	/TABLE: /
+PROMPT3:	.ASCID	/PARAM: /
+PROMPT4:	.ASCID	/PROTO: /
+
+INBUF:		.BLKB	16
+INBUF_DESC:	.LONG	.-INBUF
+		.ADDRESS  INBUF
+INLEN:		.LONG	0
+FAOBUF:		.BLKB	80
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+FAOSTR:		.ASCID	/Prot: !UL, Box: !8<!UL!>, Tbl: !6<!UL!>, Inst: !6<!UL!>, Prm: !8<!UL!>, Flag: !XL/
+OUTINT:		.LONG
+ERRSTR:		.ASCID	/Error: !XL/
+	.PSECT	TST_EMUDB_KEYS_C,NOWRT,EXE,SHR,PIC,LONG
+	.sbttl	relater ()
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TST_EMUDB_KEYS
+
+0$:	
+;	PUSHAL	INLEN
+;	PUSHAL	PROMPT4
+;        PUSHAL	INBUF_DESC
+;	CALLS	#3,G^LIB$GET_INPUT
+;	BLBS	R0,1$
+;	RET
+1$:
+;	PUSHAL	KEY_BOX
+;	PUSHAL	INBUF
+;	PUSHL	INLEN
+;	CALLS	#3,G^LIB$CVT_DTB
+;
+	PUSHAL	INLEN
+	PUSHAL	PROMPT4
+        PUSHAL	INBUF_DESC
+	CALLS	#3,G^LIB$GET_INPUT
+	BLBS	R0,2$
+	RET
+2$:
+	PUSHAL	KEY_PROTO 
+	PUSHAL	INBUF
+	PUSHL	INLEN
+	CALLS	#3,G^LIB$CVT_DTB
+        BLBS	R0,5$
+
+;	PUSHAL	INLEN
+;	PUSHAL	PROMPT3
+;        PUSHAL	INBUF_DESC
+;	CALLS	#3,G^LIB$GET_INPUT
+;	BLBS	R0,3$
+;	RET
+3$:
+;	PUSHAL	KEY_PARAM  
+;	PUSHAL	INBUF
+;	PUSHL	INLEN
+;	CALLS	#3,G^LIB$CVT_DTB
+
+5$:
+
+
+; Ensure file is open
+	TSTW 	EMUDBFAB+FAB$W_IFI	; DB file open
+	BNEQ	100$			; Br if open
+	$OPEN	FAB=EMUDBFAB
+	BLBS	R0,10$
+	RET
+10$:
+	$CONNECT RAB=EMUDBRAB
+	BLBS	R0,20$
+	RET
+20$:
+
+
+100$:
+; Set Key of reference 
+;	CLRB	EMUDBRAB+RAB$B_KRF
+	MOVB	#DB_REC_KEY_BOXID,EMUDBRAB+RAB$B_KRF
+;	MOVB	#DB_REC_KEY_PROTO ,EMUDBRAB+RAB$B_KRF
+
+        MOVAL   KEY_BUF,EMUDBRAB+RAB$L_KBF 
+	MOVB    #4,EMUDBRAB+RAB$B_KSZ    	; Set key size = 4 bytes
+;	MOVB    #8,EMUDBRAB+RAB$B_KSZ    	; Set key size = 4 bytes
+	CLRL    EMUDBRAB+RAB$L_ROP         	; get next
+	MOVB	#RAB$C_KEY,EMUDBRAB+RAB$B_RAC
+;	BISL    #RAB$M_NXT,EMUDBRAB+RAB$L_ROP         	; get 1ST
+        BRB	115$
+110$:
+;	MOVB	#DB_REC_KEY_FULL,EMUDBRAB+RAB$B_KRF 
+;	MOVB    #DB_C_KSZ,EMUDBRAB+RAB$B_KSZ    	; Set key size FULL
+;        MOVAL   EMUDBREC_BUF,EMUDBRAB+RAB$L_KBF 
+;	CLRL    EMUDBRAB+RAB$L_ROP         	; get next
+;	BISL    #RAB$M_NXT,EMUDBRAB+RAB$L_ROP         	; get 1ST
+	MOVB	#RAB$C_SEQ,EMUDBRAB+RAB$B_RAC
+;$EQU	DB_REC_KEY_PROTO	0
+;$EQU	DB_REC_KEY_BOXID	1
+;$EQU	DB_REC_KEY_TABLE 	2
+;$EQU	DB_REC_KEY_INST		3
+;$EQU	DB_REC_KEY_PARAM	4
+;$EQU	DB_REC_KEY_PRO_BOX	5	; Protocol, boxid
+;$EQU	DB_REC_KEY_FULL		6	; 
+;$EQU	DB_REC_KEY_BOX_TAB	7	; Boxid, Table
+;$EQU	DB_REC_KEY_TAB_PAR	8	; Table, Param
+;$EQU	DB_REC_KEY_BX_TAB_PAR	9	; Boxid, Table, Param
+;$EQU	DB_REC_KEY_FLAGS	10	; Flag field
+
+115$:
+	$GET	RAB=EMUDBRAB
+	BLBC	R0,130$
+	$RELEASE RAB=EMUDBRAB
+	MOVL	#80,FAODESC
+	PUSHAL	EMUDBREC_BUF
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	FAOSTR
+	CALLS	#4,G^SYS$FAOL
+	BLBS	R0,120$
+	RET
+120$:
+	PUSHAL	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	CMPL	KEY_BUF+4,EMUDBREC_BUF+DB_REC_L_BOXID 
+;	CMPL	KEY_BUF,EMUDBREC_BUF+DB_REC_L_TABLE 
+	BNEQU	122$
+;	CMPL	KEY_BUF+4,EMUDBREC_BUF+DB_REC_L_TABLE 
+	BEQLU	125$
+122$:
+	BRW	0$
+125$:
+	BRW	110$
+130$:
+	MOVL	#80,FAODESC
+	PUSHL	R0
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	ERRSTR
+	CALLS	#4,G^SYS$FAO
+	BLBS	R0,140$
+	RET
+140$:
+	$RELEASE RAB=EMUDBRAB
+	PUSHAL	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BRW	0$
+
+	.END	TST_EMUDB_KEYS

@@ -1,0 +1,556 @@
+This example shows how to send SMTP mail to a remote recipient
+by sending data and expecting replies to and from port 25 on
+the local host.
+
+This program can be used to send SMTP simple mail to another
+recipient over the Internet network.
+
+OpenVMS Information:
+-------------------
+Before executing the smtp executable, declare a symbol like:
+$ smtpmail :== $disk:[directory]smtp.exe
+
+Tru64 Unix information:
+----------------------
+% cxx -c -exceptions sockutil.cxx
+% cxx -o smtpmail -exceptions sockutil.o smtp.cxx
+
+Both systems:
+------------
+Activate it with the command:
+$ smtpmail remote-recipient
+
+When prompted, enter the subject and text body of the message.
+
+To write a short mail to the author, type
+$ smtpmail philippe.vouters@compaq.com
+and then when prompted by the program, enter the text.
+
+$!
+$!                             COPYRIGHT (C) 1998 BY
+$!                       COMPAQ COMPUTER CORPORATION, HOUSTON
+$!                        TEXAS.  ALL RIGHTS RESERVED.
+$!
+$!     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+$!     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+$!     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+$!     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+$!     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+$!
+$!     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+$!     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+$!     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+$!
+$!     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+$!     ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+$!     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+$!     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+$!
+$ create sockutil.hxx
+#ifdef WIN32
+#include <winsock.h>
+#endif
+#if defined(__VMS) || defined (__osf__)
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#ifdef __VMS
+#include <in.h>
+#endif
+#include <arpa/inet.h>
+#ifdef __VMS
+#include <unixio.h>
+#else
+#include <sys/time.h>
+#include <unistd.h>
+#endif
+#define BOOL unsigned char
+#ifndef TRUE
+#define TRUE 1
+#endif
+#ifndef FALSE
+#define FALSE 0
+#endif
+#define SOCKET int
+#define closesocket close
+#define SOCKET_ERROR -1
+#define INVALID_SOCKET -1
+#define min(a,b) (a)<(b)?(a):(b)
+#endif
+
+class ConnectSocket{
+public:
+        int SendData(char *buffer, unsigned int len);
+        int GetData(char *buffer,unsigned int buffersize, char Terminator);
+        int GetData(char *buffer,unsigned int buffersize,
+                        unsigned int LengthOffset,
+                        unsigned int LengthSize,
+                        BOOL NetworkOrder = FALSE);
+        void SetSocketOptions(int level,int optname, char *optval,int optlen);
+        ConnectSocket(char *host,unsigned short port,int Size);
+        ~ConnectSocket();
+private:
+        SOCKET s;
+        int TcpBufferSize;
+        char *TcpBuffer;
+        char *TcpBufferPtr;
+};
+$ create sockutil.cxx
+#include "sockutil.hxx"
+
+static int setipaddr (struct sockaddr_in *to,char *name);
+static char *strnchr(char *str,char search, int len);
+static int getsockdata (SOCKET s,char *cp, int len);
+const unsigned char BYTESIZE = 8;
+
+ConnectSocket::ConnectSocket(char *host,unsigned short port, int size){
+#ifdef WIN32
+        WORD wVersionRequested;
+        WSADATA wsaData;
+#endif
+        struct sockaddr_in to;
+
+
+
+// Start up the Windows socket API DLL
+#ifdef WIN32
+        wVersionRequested = MAKEWORD(1,1);
+        if(WSAStartup(wVersionRequested,&wsaData)!=0){
+                delete this;
+                throw(WSAGetLastError());
+        }
+
+        if ((LOBYTE(wsaData.wVersion) != 1)     ||
+                (HIBYTE(wsaData.wVersion) != 1)) {
+                delete this;
+                throw(WSAGetLastError());
+        }
+#endif
+        if ((s = socket (PF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET){
+                delete this;
+                throw(-1);
+        }
+        TcpBufferSize = size;
+        TcpBuffer = new char[TcpBufferSize];
+        TcpBufferPtr = TcpBuffer;
+        memset(TcpBuffer,0,TcpBufferSize);
+
+        memset (&to, 0, sizeof (to));
+        to.sin_port = htons((unsigned short)port);
+        if(setipaddr(&to,host)){
+           delete this;
+           throw(-1);
+        }
+
+        if (connect (s,(struct sockaddr *)&to,sizeof(to))== SOCKET_ERROR){
+            delete this;
+            throw(-1);
+        }
+}
+
+ConnectSocket::~ConnectSocket(){
+        if (s != INVALID_SOCKET){
+                (void) shutdown(s,2);
+                (void) closesocket(s);
+                delete []TcpBuffer;
+        }
+#ifdef WIN32
+        WSACleanup();
+#endif
+}
+void ConnectSocket::SetSocketOptions(int level,int optname,char *optval,int optlen){
+        if (setsockopt(s,level,optname,optval,optlen) == SOCKET_ERROR){
+                delete this;
+                throw(-1);
+        }
+}
+int ConnectSocket::SendData(char *buffer, unsigned int len){
+        char *cp = buffer;
+        fd_set writefds;
+        int status,sendlen;
+
+        while (len != 0){
+                FD_ZERO(&writefds);
+                FD_SET(s,&writefds);
+                status = select(s+1,NULL,&writefds,NULL,NULL);
+                switch(status){
+                case SOCKET_ERROR:
+                        return SOCKET_ERROR;
+                        break;
+                case 1: /* send the message */
+                        if (FD_ISSET(s,&writefds))
+                                if ((sendlen = send (s,cp,len,0)) == SOCKET_ERROR){
+                                        return SOCKET_ERROR;
+                                }
+                                else {
+                                        len -= sendlen;
+                                        cp += sendlen;
+                                }
+                        break;
+                }/* end switch */
+        }/* end while */
+
+        return 0;
+}
+int ConnectSocket::GetData(char *buffer,unsigned int buffersize, char Terminator){
+        char *cp = NULL;
+        int packet_size=-1;
+        int r;
+        struct timeval timeout = {100,0};
+        fd_set readmask;
+
+        while(!cp){
+                // Try to get from buffer
+                cp = strnchr(TcpBuffer,Terminator,(int)(TcpBufferPtr-TcpBuffer));
+                if ((cp != NULL)||
+                    (TcpBufferPtr == TcpBuffer + TcpBufferSize) ||
+                    (!packet_size)){
+                        unsigned int Size;
+                        if (cp != NULL)
+                            Size = min(buffersize,
+                                        (unsigned int)(cp-TcpBuffer) + 1);
+                        else
+                            Size = min((unsigned int)(TcpBufferPtr-TcpBuffer),
+                                        buffersize);
+                        // Copy from TCP buffer to user buffer.
+                        memcpy(buffer,TcpBuffer,Size);
+                        // move up rest of data.
+                        memcpy(TcpBuffer,TcpBuffer+Size,TcpBufferSize-Size);
+                        TcpBufferPtr -= Size;
+                        return Size;
+                }
+                // Get data from socket buffer
+                FD_ZERO(&readmask);
+                FD_SET(s,&readmask);
+                /* Is the socket s readable ? If yes, the bit at position s in readmask   */
+                /* will be set to one enabling us to receive data from the remote node    */
+                if ((r=select (s+1,&readmask,NULL,NULL,&timeout)) == SOCKET_ERROR) {
+                        return r;
+                }
+                switch (r){
+                case 0 :
+                        // Timeout. No Answer
+                        return SOCKET_ERROR;
+                        break;
+                case 1 :
+                        if (FD_ISSET (s,&readmask)){
+                                int Remaining = (int)(TcpBuffer + TcpBufferSize - TcpBufferPtr);
+                                // Read the socket buffer
+                                if ((packet_size = recv (s,TcpBufferPtr,Remaining,0)) == SOCKET_ERROR){
+                                        return SOCKET_ERROR;
+                                }
+                                else {
+                                        if (packet_size == 0){
+                                                // Remote node closed the link.
+                                                // Return rest of TcpBuffer;
+                                           continue;
+                                        }
+                                        else
+                                                // Update pointer
+                                                TcpBufferPtr += packet_size;
+                                }
+                        }
+                        else
+                                // Should never happen
+                                return SOCKET_ERROR;
+      }// end switch
+        }// end while
+        return 0;
+}
+
+int ConnectSocket::GetData(char *buffer,unsigned int buffersize,
+                                unsigned int LengthOffset,
+                                 unsigned int LengthSize,BOOL NetworkOrder){
+        unsigned int Length = 0;
+        unsigned char *cp;
+        int Size = LengthSize;
+
+        if(getsockdata(s,TcpBuffer,LengthOffset+LengthSize))
+                return SOCKET_ERROR;
+        cp = (unsigned char *)TcpBuffer+LengthOffset+LengthSize;
+        while (Size--)
+                Length = (Length << BYTESIZE) + (int)*--cp;
+        if (NetworkOrder)
+                switch(LengthSize){
+                case sizeof(unsigned short):
+                        Length = ntohs((unsigned short)Length);
+                        break;
+                case sizeof(unsigned int):
+                        Length = ntohl(Length);
+                }
+        if(getsockdata(s,TcpBuffer+LengthOffset+LengthSize,Length))
+                return SOCKET_ERROR;
+        memcpy(buffer,TcpBuffer,min(buffersize,Length+LengthOffset+LengthSize));
+
+        return min(buffersize,Length+LengthOffset+LengthSize);
+}
+// The routine strnchr searches for the occurence of a given character in a string
+// limited to len characters. If there is a match, the matching character pointer is
+// returned, else it returns NULL
+static char *strnchr(char *str,char search, int len){
+        for (;len;len--,str++)
+                if (*str == search)
+                        return str;
+        return (NULL);
+}
+
+static int getsockdata (SOCKET s,char *cp, int len){
+        int packet_size;
+        int r;
+        struct timeval timeout = {100,0};
+        fd_set readmask;
+
+        while (len != 0){
+                FD_ZERO(&readmask);
+                FD_SET(s,&readmask);
+                /* Is the socket s readable ? If yes, the bit at position s in readmask   */
+                /* will be set to one enabling us to receive data from the remote node    */
+                if ((r=select (s+1,&readmask,NULL,NULL,&timeout)) == SOCKET_ERROR) {
+                        return r;
+                }
+
+                switch (r){
+                case 0 :
+                        return SOCKET_ERROR;
+                        break;
+                case 1 :
+                        if (FD_ISSET (s,&readmask)){
+                                if ((packet_size = recv (s,cp,len,0)) == SOCKET_ERROR){
+                                        return SOCKET_ERROR;
+                                }
+                                else {
+                                        if (packet_size == 0){
+                                                /* Remote node closed the link. */
+                                                return SOCKET_ERROR;
+                                        }
+                                        else {
+                                                cp += packet_size;
+                                                len -=packet_size;
+                                        }
+                                }
+                        }
+                        else
+                                return SOCKET_ERROR;
+      }/* end switch */
+        } /* end while */
+        return 0;
+}
+
+static int setipaddr (struct sockaddr_in *to,char *name){
+    struct hostent *hp;
+
+
+        to->sin_family = PF_INET;
+        to->sin_addr.s_addr = inet_addr(name);
+        if (to->sin_addr.s_addr == (unsigned int)(-1)) {
+                hp = gethostbyname(name);
+                if (hp) {
+                        to->sin_family = hp->h_addrtype;
+                        memcpy(&to->sin_addr,hp->h_addr,hp->h_length);
+                } else {
+                        return SOCKET_ERROR;
+                }
+        }
+        return 0;
+}
+$ cxx/exceptions sockutil
+$ create smtp.cxx
+#include <stdlib.h>
+#ifdef __VMS
+#include <starlet.h>
+#include <jpidef.h>
+#include <ssdef.h>
+#include <lib$routines.h>
+#include <string.hxx>
+#endif
+#ifdef __osf__
+#include <errno.h>
+#include <unistd.h>
+#endif
+#include <iostream.hxx>
+#include <fstream.hxx>
+#include "sockutil.hxx"
+
+#ifdef __alpha
+#pragma member_alignment save
+#pragma nomember_alignment
+#endif
+typedef struct{
+        unsigned short buflen;
+        unsigned short itemcode;
+        void *buffer;
+        unsigned short *retlen;
+} itmlst_t;
+#ifdef __alpha
+#pragma member_alignment restore
+#endif
+
+const char Terminator = '\012';
+
+/*
+ * This routine gets the user name of the user running this program.
+ */
+char *get_user(){
+#ifdef __VMS
+    static char user[17];
+    itmlst_t *itmlst;
+    int status;
+    unsigned short retlen;
+
+/*
+ * Build the itemlist.
+ */
+    itmlst = (itmlst_t *)calloc(2,sizeof(itmlst_t));
+    itmlst[0].buflen = sizeof(user);
+    itmlst[0].itemcode = JPI$_USERNAME;
+    itmlst[0].buffer = user;
+    itmlst[0].retlen = &retlen;
+    status = sys$getjpiw(0,NULL,NULL,itmlst,NULL,NULL,0);
+    if (!(status & 1)) lib$stop(status);
+    free(itmlst);
+    user[retlen]='\0';
+    return(user);
+#endif
+#ifdef __osf__
+    char *user;
+    if ((user = getlogin()) == NULL){
+        perror("getlogin");
+        exit(0);
+    }
+    return(user);
+#endif
+}
+
+void usage(){
+cout<<"$ mailto destination"<<endl;
+exit(0);
+}
+void SendAndCheck(ConnectSocket *SmtpSocket,char *buffer,
+                  int TCPBufferSize,int ExpectedReturnedCode=250){
+     if(SmtpSocket->SendData(buffer,strlen(buffer))<0){
+        cout << "Error sending data to SMTP Mail"<<endl;
+        exit(0);
+     }
+     int Size;
+     Size = SmtpSocket->GetData(buffer,TCPBufferSize-1,Terminator);
+     if (Size < 0){
+         cout<<"Error getting data from SMTP"<<endl;
+         exit(0);
+     }
+     int CompletionCode;
+     if ((CompletionCode = atoi(buffer)) != ExpectedReturnedCode){
+          cout<<"SMTP Error. Can't send mail"<<endl;
+          cout.write(buffer,Size);
+          exit(0);
+    }
+}
+void main(int argc,char **argv){
+
+     if (argc<2)
+        usage();
+
+     char *destination = argv[1];
+     char ThisHostName[60];
+
+     // Get the host name of the node we are running on.
+     if (gethostname(ThisHostName,sizeof(ThisHostName)) == -1){
+         cout << "Error getting host name"<<endl;
+         exit(-1);
+     }
+
+     ConnectSocket *SmtpSocket;
+     const int TCPBufferSize = 200;
+     try{
+        // Connect to the SMTP server on port 25.
+        SmtpSocket = new ConnectSocket(ThisHostName,25,TCPBufferSize);
+     } catch(int error){
+       // Can't connect. Print error message and exit.
+       cout<< "Fatal : unable to connect to " << ThisHostName <<endl;
+       exit(error);
+     }
+
+     // Get the connection reply data with terminator LF.
+     char buffer[TCPBufferSize];
+     int Size;
+     Size = SmtpSocket->GetData(buffer,TCPBufferSize-1,Terminator);
+     if (Size < 0){
+         cout<<"Error getting data from SMTP"<<endl;
+         exit(0);
+     }
+     int CompletionCode;
+     if ((CompletionCode = atoi(buffer)) != 220){
+          cout<<"SMTP Error. Can't send mail"<<endl;
+          cout.write(buffer,Size);
+          exit(0);
+     }
+
+     // Send the helo message.
+     sprintf(buffer,"helo %s\r\n",ThisHostName);
+     SendAndCheck(SmtpSocket,buffer,TCPBufferSize);
+
+     // Send the "mail from:" line
+     sprintf(buffer,"mail from:<%s@%s>\r\n", get_user(),ThisHostName);
+     SendAndCheck(SmtpSocket,buffer,TCPBufferSize);
+
+     // Send all the message recipients
+     sprintf(buffer,"rcpt to:<%s>\r\n",destination);
+     SendAndCheck(SmtpSocket,buffer,TCPBufferSize);
+
+     // Send a line containing "data"
+     strcpy(buffer,"data\015\012");
+     SendAndCheck(SmtpSocket,buffer,TCPBufferSize,354);
+
+     char const *CRLF = "\015\012";
+     // From this moment, we do not receive ACKs from the SMTP Mail Server.
+     cout << "Subject: ";
+     strcpy(buffer,"Subject: ");
+     // append to the end of buffer the text subject.
+     if (cin.getline(&buffer[strlen(buffer)],
+                        TCPBufferSize-2-strlen(buffer)) == NULL)
+        exit(0);
+     strcat(buffer,CRLF);
+
+     if (SmtpSocket->SendData(buffer,strlen(buffer))<0){
+         cout << "Error sending data to SMTP Mail"<<endl;
+         exit(0);
+     }
+     // Send a blank line after "Subject: "
+     if (SmtpSocket->SendData((char *)CRLF,strlen(CRLF))<0){
+         cout << "Error sending data to SMTP Mail"<<endl;
+         exit(0);
+     }
+
+     cout << "Enter your message terminated with ";
+#ifdef __VMS
+     cout << "CTRL-Z:"<<endl;
+#endif
+#ifdef __osf__
+     cout << "CTRL-D" << endl;
+#endif
+     while(cin.getline(buffer,TCPBufferSize-2) != NULL){
+          // Append CRLF at the end of the buffer
+          strcat(buffer,CRLF);
+          // Send the text with waiting for a reply.
+          if(SmtpSocket->SendData(buffer,strlen(buffer))<0){
+             cout << "Error sending data to SMTP Mail"<<endl;
+             exit(0);
+          }
+
+     }
+     // Send the final line containing a dot + CRLF
+     strcpy(buffer,".\015\012");
+     SendAndCheck(SmtpSocket,buffer,TCPBufferSize);
+
+     // Send quit
+     strcpy(buffer,"quit\015\012");
+     SendAndCheck(SmtpSocket,buffer,TCPBufferSize,221);
+     delete SmtpSocket;
+}
+$ cxx/exceptions smtp
+$ cxxlink smtp,sockutil
+$ exit

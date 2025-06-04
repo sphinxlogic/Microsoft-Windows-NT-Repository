@@ -1,0 +1,204 @@
+/*
+ *                            COPYRIGHT (C) 2000 BY
+ *                      COMPAQ COMPUTER CORPORATION, HOUSTON
+ *                       TEXAS.  ALL RIGHTS RESERVED.
+ *
+ *    THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+ *    ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+ *    OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+ *    THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+ *    PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+ *
+ *    THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+ *    SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+ *    SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+ *
+ *    NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+ *    ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+ *    PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+ *    CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+ *
+ */
+/*
+ *    This code shows a way to simulate the UNIX 'ls' command (no
+ *    options) using opendir, readdir and closedir. These functions are
+ *    available starting from OpenVMS V7.0.
+ *    
+ *    
+ *    PROGRAM NOTES:
+ *    
+ *    Before activating the program, perform the following:
+ *    
+ *    VMS information:
+ *    ---------------
+ *    
+ *         $ cc/define=(COLUMNS=x) ls
+ *         with 0<x<=4
+ *         $ link ls
+ *    
+ *    Foreign symbol definition:
+ *    
+ *         $ ls :== $disk:[directory]ls.exe
+ *    
+ *    Tru64 UNIX information:
+ *    ----------------------
+ *    
+ *         % cc -o ls -DCOLUMNS=x -lcurses ls.c
+ *         with 0<x<=4
+ *    
+ *    Both systems:
+ *    ------------
+ *    The syntax for activating the program:
+ *    
+ *         ($) (%) ls [directory]
+ *    
+ *    The directory is optional and defaults to the current directory
+ *    
+ *         (. in unix-style)
+ *    
+ *    On OpenVMS, if the directory name is entered in VMS format, the file
+ *    names display is in VMS format; if the directory name is entered in
+ *    Unix-format, the file names display is in Unix-style format.
+ *    
+ */
+#define _BSD44_CURSES
+#include <sys/types.h>
+#include <dirent.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <curses.h>
+
+#pragma message fatal errormessage
+#ifndef COLUMNS
+#define COLUMNS 4
+#elif (COLUMNS <= 0)
+#error COLUMNS must be greater than 0.
+#elif (COLUMNS > 4)
+#undef COLUMNS
+#define COLUMNS 4
+#endif
+
+#define MAX_PATH 256
+#define DEFAULT_SCREEN_WIDTH 80
+
+int main(int argc, char **argv){
+ DIR *ThisDir;
+ struct dirent *DirEntry;
+ char *filenames;
+ char *DirName = ".";
+ int i,NumberSpaces;
+ char *cp;
+ unsigned int columns, MaxCol;
+ char ColumnsDetermined;
+
+ /*
+  * if no argument given, default it to the current directory.
+  */
+ if (argc == 2)
+     DirName = argv[1];
+
+ /*
+  * Init curses. The fact that _BSD44_CURSES is defined will prevent
+  * a clear screen caused by initscr(). We need it so that COLS is
+  * defined to the proper screen width.
+  */
+ initscr();
+
+ /*
+  * Compute MaxCol. For a screen width of 80, we should divide into COLUMNS.
+  * COLS is a predefined variable within curses.
+  */
+ MaxCol = (COLUMNS * COLS) / DEFAULT_SCREEN_WIDTH;
+
+ /*
+  * Allocate space for filenames.
+  */
+ filenames = calloc(sizeof(char),COLS+1);
+
+ /*
+  * Open the directory stream.
+  */
+ ThisDir = opendir(DirName);
+ if (!ThisDir){
+     perror("opendir error");
+     exit(-1);
+ }
+ /*
+  * Loop on each entry until DirEntry is equal to NULL.
+  */
+ while((DirEntry = readdir(ThisDir)) != NULL){
+
+       /*
+        * Determine the column number for this file.
+        */
+       columns = 1;
+       ColumnsDetermined = 0;
+       while (!ColumnsDetermined){
+              if (strlen(DirEntry->d_name) <
+                        columns*COLS/MaxCol)
+                  ColumnsDetermined++;
+              else
+                  columns++;
+       }
+
+       /*
+        * Make some chanity check. This will abort if asumption is false.
+        */
+       assert(columns <= MaxCol);
+
+       /*
+        * determine the number of spaces.
+        */
+       NumberSpaces = 0;
+       for(i=0; i< columns;i++)
+           NumberSpaces += COLS/MaxCol;
+
+       /*
+        * If the number of spaces does not fit into the line,
+        * print out the line.
+        */
+       if (strlen(filenames) + NumberSpaces > COLS){
+           printf("%s\r\n",filenames);
+           filenames[0] = '\0';
+       }
+
+       /*
+        * Adjust the number of spaces.
+        */
+       NumberSpaces -= strlen(DirEntry->d_name);
+
+       /*
+        * Add entry to line.
+        */
+       strcat(filenames,DirEntry->d_name);
+
+       /*
+        * Padd the line with the computed number of spaces.
+        */
+       cp=filenames + strlen(filenames);
+       for (i=0;i<NumberSpaces ;i++)
+            *cp++ = ' ';
+       *cp = '\0';
+ }
+
+ /*
+  * Display the last line and close the directory stream.
+  */
+ printf ("%s\r\n",filenames);
+
+ /*
+  * Close Directory stream.
+  */
+ closedir(ThisDir);
+
+ /*
+  * Finally return to shell.
+  */
+ return 1;
+}

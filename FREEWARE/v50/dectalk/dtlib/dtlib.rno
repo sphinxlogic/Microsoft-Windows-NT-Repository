@@ -1,0 +1,2673 @@
+.comment Standard DECUS C Documentation layout
+.comment
+.comment Position the printer to start on the 4th line for 66 line
+.comment (11 inch) paper.  The 60 lines printed should be vertically
+.comment centered on the page, with 3 line vertical margins top and bottom.
+.comment
+.comment The title page is laid out so that the title will show through
+.comment a "window" cover such as is used on Digital documentation.
+.comment
+.comment Note: there is a bug in the page number algorithm of RSTS/E
+.comment runoff.  Thus, on RSTS/E, GETRNO.C must mangle the page
+.comment heading to fix page number alignment.
+.comment
+.comment The following statement will give a (non-fatal) error on RNO.TSK
+.comment It is needed because somebody was clever in designing "Standard
+.comment RUNOFF".
+.NO AUTOSUBTITLE .STYLE HEADERS 3,0,0
+.comment
+.nhd.uc.ps 58,80.lm 8.rm 72
+#
+.s 26
+.c ;DECtalk
+.s 2
+.c ;Applications Support Library
+.c ;Reference Manual
+.s 6
+This document describes a support library for DECtalk which should
+simplify application development for the DECtalk DTC01 speech output
+terminal.
+.s
+.c ;Document compiled Mon Feb 20 14:38:06 1984
+.nhy
+.s 5
+UNIX is a trademark of Bell Telephone Laboratories.  RSX, RSTS/E, RT11
+and VMS are trademarks of Digital Equipment Corporation.
+.s
+Touch-Tone is a tradmark of AT_&T.
+.br
+Unix is a trademark of Bell Telephone Laboratories.
+.s
+.hd
+.hd mixed
+.comment The following gives a bug on RNO.TSK
+.head mixed
+.comment
+.ch INTRODUCTION
+.ps 58,80.lm 8.rm 72
+.hd mixed
+.t [[########DECtalk Applications Support Library]]
+.st ########Reference Manual
+.s
+DTLIB is a runtime support library for programs written in C
+programs which mediates access to the DECtalk DTC01 speech output
+terminal.
+.s
+It may be compiled to run on Vax/VMS native mode (using Vax-11C),
+Vax/VMS compatibility mode, RSX11-M, RSX11M-PLUS, P/OS,
+and RSTS/E, using Decus C.
+.s
+It may also be compiled for Unix V7M and 4.2BSD systems.
+.s
+The I/O support modules have not been implemented on RT11.
+.s
+To use DTLIB, your application program must include the dectlk.h
+header file with all compilations.  The loadable image must be
+linked with the DTLIB library.
+.note File name conventions and RSTS/E restrictions
+Although referred to as "DTLIB" in this document, the supplied
+VMS command files build VDTLIB.OLB (Vax/VMS native) and XDTLIB.OLB
+(Vax/RSX-compatibility mode).
+.s
+Decus C supports both RSX-11M and RT11 environments on RSTS/E.
+Only the RT11 environment runs on RSTS/E.  While this would
+not be difficult to change, it will require edits to several
+modules in the library.  If you are using some other compiler
+on RSX-11M or RSTS/E, you may need to modify the support
+libraries, CX.OLB and RSTSLB.OBJ.
+.en
+To run the DECtalk library on RT11, you must modify the
+DTOPEN.C, DTCLOS.C, DTIOGE.C, and DTIOPU.C modules to use
+RT11 specific services, such as the multi-terminal driver.
+.s
+When attaching DECtalk to a computer, you should check that the
+terminal line supports the XOFF/XON protocol.  The easiest way
+to do this is to configure the terminal line as if it were a
+VT100 video display terminal.
+.s
+On the PRO-350, these routines assume that the DECtalk host port
+is connected to the PRO printer port (TT2:), using a BCC05 printer cable.
+The software may also be used with DECtalk connected to the
+hard-wired communications port (XK0:).
+.s
+You can test that DECtalk is properly connected by copying a
+text file to that port, using the operating system COPY (PIP)
+utility.
+.hl 1 A sample program
+The following program is perhaps the simplest DECtalk application.
+It speaks a brief message:
+.tp 21
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+main()
+{
+	DECTALK		*dt;
+.s
+	if ((dt = dt__open("TT2:")) == NULL)
+	    perror("TT2:");
+	else {
+	    dt__talk(dt, "Hello world, this is DECtalk.");
+	    dt__sync(dt);
+	    dt__close(dt);
+	}
+}
+.s.f
+The program opens the DECtalk terminal (attached to TT2:)
+and speaks a message. It then delays until the message is heard
+by the listener and closes the device.
+.hl 1 Answering the phone
+The above program is adequate only when the DECtalk user
+is "local" to the device itself.  This would be the case
+in a factory warning system or a computer-aided instruction
+application.
+.s
+In many other situations, the DECtalk user will interact
+with DECtalk and your application by dialing a telephone number.
+You must then command DECtalk to answer the phone, to accept
+data entered via the telephone keypad, and then to hangup the
+phone when the call is complete.  A suitable "top-level"
+program would then be as follows:
+.tp 42.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+main()
+{
+	register DECTALK	*dt;	/* Dectalk device     */
+	register int	retries;	/* Initializations    */
+	register int	ncalls;		/* Completed calls    */
+.s
+	retries = 0;
+	ncalls = 0;
+	if ((dt = dt__open("TT2:")) == NULL) {
+	    perror("TT2:);		/* Can't open device  */
+	    exit(IO__ERROR);		/* Exit program	      */
+	}
+	dt__trap();			/* Catch CTRL/C abort */
+	while (dt__init(dt)) {		/* One-time setup     */
+	    dt__dcs(dt, P2__MODE, MODE__SQUARE, -1);
+	    retries++;			/* Count attempts     */
+	    while (dt__answer(dt, 1)) {	/* Answer the phone   */
+		if (process(dt)) {	/* Do user process    */
+		    ncalls++;		/* User ran ok,	      */
+		    retries = 0;	/* Clear retry count  */
+		}
+		dt__hangup(dt);		/* Hangup the phone   */
+		if (dt__abort)		/* Check interrupt    */
+		    goto finis;		/* Error exit	      */
+	    }
+	    if (dt__abort)		/* CTRL/C interrupt?  */
+		goto finis;		/* Error exit	      */
+	    if (retries > 2) {		/* Confused?	      */
+		printf("Too many retries_\n");
+		break;
+	    }
+	}
+finis:	dt__abort = FALSE;		/* Restart output     */
+	dt__reset(dt);			/* Hangup DECtalk     */
+	dt__put(dt, 0);			/* Force out buffer   */
+	dt__close(dt);			/* Close up DECtalk   */
+}
+.s.f
+The above program fragment attempts to recover from transitory
+"line glitches" by allowing error returns from the user process()
+and from dt__answer().  If, however, dt__answer() fails twice
+in a row, the program aborts.  It also establishes "CTRL/C
+trapping" which will allow the developer to abort the program
+without losing log files.
+.s
+Note also that "square-bracket" phonemic mode is turned on
+when the terminal is initialized.
+.s
+The essential flow of the above program (without error recovery
+or interrupt processing) may be seen as follows:
+.tp 20.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+main()
+{
+	register DECTALK	*dt;	/* Dectalk device     */
+.s
+	if ((dt = dt__open("TT2:")) == NULL) {
+	    perror("TT2:);		/* Can't open device  */
+	    exit(IO__ERROR);		/* Program fails      */
+	}
+	if (dt__init(dt)) {		/* One-time setup     */
+	    while (dt__answer(dt, 1)) {	/* Answer the phone   */
+		process(dt);		/* Do user process    */
+		dt__hangup(dt);		/* Hangup the phone   */
+	    }
+	}
+	dt__close(dt);			/* Close up DECtalk   */
+}
+.s.f
+.hl 1 The User Process
+When the phone is answered, the main program described above
+will call an application-specific subroutine.  This will
+generally have the following control flow:
+.list 1
+.le ;Welcome the user to the application.
+.le ;Enable the telephone keypad.
+.le ;Ask for a command (enabling keypad timeouts to recover
+from a disconnection).
+.le ;Process the command and continue to process commands
+as needed.
+.le ;Eventually, finish the application and return to
+the main program (which will hangup the phone and prepare
+for the next caller).
+.els
+The following code fragment illustrates a very simple
+test program that echos the user's key presses:
+.tp 31.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+process(dt)
+register DECTALK	*dt;
+{
+	register char	c;		/* Keypad character   */
+	char		work[30];	/* For echo message   */
+.s
+	dt__talk(dt, "Welcome to DECtalk");
+	if (!dt__keypad(dt, TRUE))	/* Enable keypad      */
+	    return (FALSE);		/* Error occurred     */
+	for (;;) {			/* Do forever...      */
+	    c = dt__inkey(dt, 15);	/* Get a key	      */
+	    if (!dt__isvalid(c))		/* Check for timeout  */
+		return ((c == 'T') ? TRUE : FALSE);
+	    sprintf(work, "You pressed _%c_%c", c, VT);
+	    dt__talk(dt, work);
+	    if (c == '*') {		/* Make '*' special   */
+		dt__timeout(dt, 0);	/* No timeouts now    */
+		dt__talk(dt, "Long message...");
+	    }
+	}
+}
+.s.f
+Note that the "long message" turns off timeouts. If still "alive",
+DECtalk will respond to the timeout message within 15 seconds.  If the
+hardware has been disconnected, the operating system timeout will
+occur in a minute or so (depending on the operating system),
+which will eventually cause an error return from the program.
+.s
+Because the user may press buttons when you don't expect them, it
+is very important to call dt__inkey() to read from the Touch-tone
+keypad.  Dt__inkey() contains a "type-ahead" buffer and understands
+timeouts.  It either returns a single character corresponding to
+the keypad button or a character representing an unusual situation:
+.lm +4
+.p -2
+T#A timeout occurred (and timeouts were enabled at the time).
+.p -2
+H#The DECtalk hardware hung up the phone.  (This is required under
+certain circumstances in certain countries.)
+.p -2
+E#An operating system error (probably hardware timeout) occurred.
+.p -2
+X#An illegal escape sequence was received.  This may be a communication
+line problem.
+.s.lm -4
+See the documentation of dt__inkey() for further details.
+.hl 1 Some Other Tricks
+This section contains a few other coding hints.
+.hl 2 Transmitting Phonemic Text
+The examples assume that most applications will use "square bracket"
+mode to transmit phonemic text and voice commands.  If
+this is not suitable, the program will have to format
+a more complex escape sequence as follows:
+.tp 15.s.nf
+	dt__cmd(dt, P2__PHOTEXT, -1);
+	dt__talk(dt, ":np :ra 180 hh'ehlow.");
+	dt__st(dt);
+.s.f
+A similar sequence would be needed to load DECtalk's user dictionary.
+.hl 2 Managing Keypad Timeout
+When your program requests information from the telephone user,
+it is essential that you use some form of timeout so your program
+won't hang if the caller disconnects.  The dt__inkey() routine is
+the recommended way to read from the keypad:
+.s.nf
+	key = dt__inkey(dt, timeout);
+.s.f
+You can use different timeouts for different parts of your program.
+For example, the following code fragment reads a user password (which
+may contain one to six digits) from the keypad.  It has a long
+timeout for the first character and short timeouts for successive
+characters:
+.s.nf
+	dt__talk(dt, "Please enter your password");
+	dt__talk(dt, NULL);
+	timeout = 10;
+	for (i = 0; i < 6; i++) {
+	    key = dt__inkey(dt, timeout);
+	    if (!dt__isvalid(key))
+		break;			/* Assume timeout    */
+	    password[i] = key;		/* Save the key      */
+	    timeout = 2;		/* Short time now    */
+	}
+	password[i] = EOS;		/* Terminate entry   */
+.s.f
+On exit from the loop, The password string will contain the
+data entered.  If password[0] is EOS, nothing was entered before
+timeout.
+.hl 2 Stopping in Mid-stream
+If you are sending a long stream of text to the user, you may
+want to allow a keypad button press to stop the speech.
+The following subroutine takes an array of strings
+to be spoken.  The array is terminated by a NULL entry.
+It returns FALSE if nothing was pressed (and everything
+was transmitted to DECtalk), or TRUE if something was pressed.
+(Your program reads the key by calling dt__inkey().
+.s
+To restart cleanly after a TRUE return,
+your program should retransmit a voice definition
+"[:np]" before anything else.
+.s.nf
+    int
+    dt__speak(dt, strings)
+    register DECTALK	*dt;
+    register char	**strings;
+    {
+	dt__timeout(dt, 0);
+	while (*strings != NULL) {
+	    dt__talk(dt, *strings++);
+	    dt__msg(dt, P2__IX__QUERY, -1, -1, R2__IX__QUERY, -1);
+	    if (dt__iskey(dt)) {
+		dt__dcs(dt, P2__STOP, -1, -1);
+		return (TRUE);
+	    }
+	}
+	return (FALSE);
+    }
+.s.f
+The module does the following:
+.list 1
+.le ;Disables keypad timeouts.
+.le ;For each string in the string array...
+.le ;Transmit the string to DECtalk (dt__talk()).
+.le ;Transmit an Index Query operation (dt__msg()).  This will read data
+from DECtalk and, as a side-effect, store any keypress in the
+internal type-ahead buffer.
+.le ;Check whether there is anything in the type-ahead buffer (dt__inkey()).
+If so,
+.le ;Stop speaking (dt__dcs()) and return TRUE.
+.le ;If nothing is in the type-ahead buffer, continue with
+the next string or return FALSE when all strings were transmitted.
+.els
+.hl 2 Reading Names from the Keypad
+Touch-Tone keypads transmit a unique code when each button is
+pressed.  DECtalk transmits an Ascii character for each code.
+However, an application designer may want to tell the application's
+user "Press the Y key for Yes and the N key for No.", or may need
+to compare text from the keypad with commands or usernames which
+are encoded in ordinary Ascii text.  The following function
+tests whether a keypad text string (as read from DECtalk) matches
+a text word in alphabetic Ascii.  As you can see, it assumes
+that the '7' button is labelled "PQRS" and the '9' button is
+labelled "WXYZ".
+.s
+Note: the strchr() function returns NULL if the second argument
+(a character) was not one of the characters in the first argument
+string.  On some Unix systems, the function is named "index".
+It is comparable to the Basic-Plus INSTR() function.
+.tp 25.s.nf
+static char *btext[] = {
+			"2ABCabc",	"3DEFdef",
+	"4GHIghi",	"5JKLjkl",	"6MNOmno",
+	"7PQRSpqrs",	"8TUVtuv",	"9WXYZwxyz",
+};
+
+int
+buttontest(kptext, match)
+register char	*kptext;	/* Button format      */
+register char	*match;		/* ASCII format	      */
+{
+	extern char	*strchr();
+
+	for (;;) {
+	    if (*kptext == *match) {
+		if (*kptext == '_\0')
+		    return (TRUE);
+	    }
+	    else if (*kptext < '2' || *kptext > '9'
+		  || strchr(btext[*kptext - '2'],
+			*match) == NULL)
+		return (FALSE);
+	    text++;
+	    match++;
+	}
+}
+.s.f
+.hl 2 Speaking numbers or strings
+Financial applications ("bank balance by phone") may want
+to speak numbers twice, once as a "normal number" and once
+as a string of digits so the listener can copy them down.
+The following Basic-Plus subroutine takes a string of text
+and expands it to one-letter words.  Using it, a program
+would generate a message such as:
+.s.nf
+    Your balance is $1425.92, that is one four
+    two five point nine two.
+.s 2.tp 24.nfl
+3000	!*					      &
+	!*	F N e x p a n d $ ( t e x t $ )	      &
+	!*					      &
+	!* Expand a string into its component bytes.  &
+	!* Note that this would be useful in a "bank  &
+	!* by phone" application to speak a number,   &
+	!* digit by digit, so the caller could copy   &
+	!* it down.  If the input is "12.3", the      &
+	!* output will be " 1 2 point 3".  Note	the   &
+	!* leading blank.			      &
+	!*					      &
+	def* FNexpand$(text$)			      &
+	\ q$ = ""			! Output work &
+	\ for q% = 1% to len(text$)	! For each,   &
+	    \ q1$ = mid(text$, q%, 1%)	! Locate byte &
+	    \ q1$ = "point" if q1$ = '.'	      &
+	    \ q1$ = "minus" if q1$ = '-'	      &
+	    \ q1$ = "dollar sign" if q1$ = '$'	      &
+	    \ q$ = q$ + " " + q1$	! Store byte  &
+	\ next q%			! Do 'em all  &
+	\ FNexpand$ = q$		! That's it   &
+	\ fnend					      &
+.s.f.fl
+Note that certain bytes are "spelled out" to override the
+DECtalk built-in library.
+.s
+It is a simple matter to rewrite this in C and/or extend
+the list of "special case" bytes.
+.hl 1 Summary
+The above examples should be sufficient to help you past the
+initial confusion that every programmer feels when faced with
+an unfamiliar device.
+.s
+Although the library may appear to have a complex structure,
+the major control flow is relatively simple:
+.tp 32.s 2.nf
+.nfl
+                     Application Program
+                             |
+    +----+----+--------+-----+---+--------+-------+-------+
+    |    |    |        |         |        |       |       |
+dt_inkey | dt_init dt_answer dt_hangup dt_talk dt_open dt_close
+ |   |   |    |       |  |       |        |
+ |   +-+-+    |       |  +---+---+        |
+ |     |      |       |      |            |
+ | dt_timeout |       |   dt_phone        |
+ |     |      |       |      |            |
+ |     +------+-------+------+            |
+ |                    |                   |
+ |                  dt_msg     dt_dcs     |
+ |                  | | |        |        |
+ +------+-----------+ | +----+   |        |
+        |             |      |   |        |
+     dt_read       dt_save  dt_pesc       |
+        |                      |          |
+        |                      |          |
+     dt_gesc                   +----+-----+
+        |      	                    |
+     dt_get                      dt_put
+        |                           |
+     dt_ioget                    dt_ioput
+.s 2.f.fl
+Library modules communicate with DECtalk by one of three general
+paths:
+.list 1
+.le ;They speak text by calling dt__talk() or dt__put().
+.le ;They send escape sequences by calling dt__dcs() or
+dt__pesc().
+.le ;They send DECtalk control sequences that will generate
+replies by calling dt__msg().
+.le ;They receive keypad characters by calling dt__inkey().
+.els
+As should be expected, there are a few special cases to handle
+unusual circumstances.
+.s
+Also, the library does not address the need to load dictionaries,
+send phonemic text using escape sequences, or test DECtalk
+hardware status.
+.lm 8.rm 72.nhy
+
+.no autosubtitle .style headers 3,0,0
+.pg.uc.ps 58,80.lm 8.rm 72
+.hd
+.hd mixed
+.head mixed
+
+.st ########dectlk.h########DECtalk Library Header File
+.pg
+.hl 1 ^&DECtalk Library Header File\&
+.s 2
+.c ;************
+.c ;* dectlk.h *
+.c ;************
+.s 2
+.lm +8
+.s.i -8;NAME:	dectlk.h -- DECtalk Library Header File
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include "dectlk.h"
+.s.f
+.i -8;DESCRIPTION:
+.s
+This file is included in the compilation of all
+modules that use the DECtalk applications library.
+It defines common ASCII characters, DECtalk
+escape sequence parameters, library globals,
+and the DECTALK buffer structure.
+.s
+.i -8;CONFIGURATION:
+.s
+You can edit dectlk.h to enable debugging code
+by defining the DT__DEBUG flag as follows:
+.s
+.nf
+    _#define DT__DEBUG 1
+.s
+.fill
+This changes the primary input and output routines
+so that they become capable of logging all characters
+transmitted to and from the DECtalk device.
+.s
+.i -8;GLOBALS:
+.s
+The library provides two global flags which are used
+as follows:
+.lm +16
+.s.i-16;dt__abort########This is set non-zero by
+an intercepted CTRL/C trap (if you have called
+dt__trap()).  When set, no I/O will be performed, and
+library subroutines will exit as quickly as possible.
+.s.i-16;dt__debug########This may be set non-zero
+by an applications program to enable debug printouts.
+Note that the library must have been compiled with
+DT__DEBUG defined in order to compile in the necessary
+print calls.
+.s.lm -16
+.i -8;ERROR CODES:
+.s
+The library may return the following error codes.
+These are all less than zero, and consequently
+cannot be part of the ASCII character set:
+.s.lm +16.nj
+.i-16;DT__ERROR########An operating-system error.
+.i-16;DT__TIMEOUT######An input operation did not
+complete in the required (operating-system) time.
+.i-16;IO__ERROR########An error exit code for
+the exit() library routine.  The value is selected
+as appropriate for the particular operating system.
+.s.lm-16.j.tp 6
+.i -8;ROUTINES IMPLEMENTED AS MACROS:
+.s
+Certain frequently routines may be implemented as
+macros (if macro expansion is supported by the
+particular C compiler).  These are as follows:
+.s.lm +20.nj
+.i-20;dt__iskey(dt)########TRUE if data is currently
+stored in the keypad type-ahead buffer.
+.i-20;dt__isvalid(c)#######TRUE if the character is
+a valid keypad character.  Note: evaluation of
+the argument must not have side-effects.  I.e.,
+you must not write dt__isvalid(*p++).
+.i-20;dt__ptest(dt,r3)#####Phone test, TRUE if the
+current reply is R2__PHONE, R3.
+.i-20;dt__offhook(dt)######Phone test, TRUE if the
+current reply is R2__PHONE, R3__PH__OFFHOOK.
+.i-20;dt__onhook(dt)#######Phone test, TRUE if the
+current reply is R2__PHONE, R3__PH__ONHOOK.
+.i-20;dt__istimeout(dt)####Phone test, TRUE if the
+current reply is R2__PHONE, R3__PH__TIMEOUT.
+.i-20;dt__phone(dt,p3,p4)##Send a phone message.
+.i-20;dt__eol(dt)##########Send "end of line" and
+force output to DECtalk.
+.s.lm -20;.j.tp 6
+.i -8;GENERAL DEFINITIONS:
+.s
+The following variables are defined:
+.s.lm +16.nj
+.i-16;EOS#############End of string
+.i-16;FALSE###########For TRUE/FALSE testing
+.i-16;TRUE############For TRUE/FALSE testing
+.s.lm-16.j.tp 6
+.i -8;ASCII CHARACTERS:
+.s
+The following C0 control characters are defined:
+.s.nf
+.br;##NUL###STX###ETX###BEL####BS####VT###LS1
+.br;##LS0###XON##XOFF###CAN###SUB###ESC###DEL
+.s.f
+The following C1 control characters are defined:
+.s.nf
+.br;##SS2###SS3###DCS#OLDID###CSI####ST###OSC
+.br;###PM###APC##RDEL
+.s.f
+The following DECtalk-specific parameters are
+also defined.
+.s.lm +16.nj
+.i-16;CSI__DA__PRODUCT##The DECtalk product
+identification code.
+.i-16;DCS__F__DECTALK###The DECtalk specific device
+control sequence (DCS) final character.
+.i-16;P1__DECTALK######All DCT01 DCS sequences
+transmit this for their first (P1) parameter.
+.i-16;R1__DECTALK######All DCT01 DCS replies transmit
+this for the first R1 reply parameter.
+.s.lm-16.j
+The P2 and P3 parameters select the specific DECtalk command.
+.s.lm+16.nj
+.i-16;P2__PHOTEXT######Speak phonemic text.
+.i-16;P2__STOP#########Stop speaking.
+.i-16;P2__SYNC#########Synchronize.
+.i-16;P2__SPEAK########Enable/disable speech.
+.i-16;P2__INDEX########Index text.
+.i-16;P2__IX__REPLY#####Index with reply.
+.i-16;P2__IX__QUERY#####Return last spoken index.
+.i-16;P2__DICT#########Load user dictionary.
+.i-16;P2__PHONE########Telephone control.
+.i-16;P2__MODE#########Synthesis mode control.
+.i-16;P2__LOG##########Local terminal log control.
+.i-16;P2__TERMINAL#####Local terminal control.
+.s.lm-16.j
+The telephone control command takes an additional
+parameter to specify the specific telephone action.
+.s.lm+16.nj
+.i-16;P3__PH__STATUS####Return a status report.
+.i-16;P3__PH__ANSWER####Answer on P4 rings.
+.i-16;P3__PH__HANGUP####Hangup the phone.
+.i-16;P3__PH__KEYPAD####Enable keypad data entry.
+.i-16;P3__PH__NOKEYPAD##Disable keypad data entry.
+.i-16;P3__PH__TIMEOUT###Send a timeout report if
+no data entered in P4 seconds if P4 is greater than
+zero; disable timeouts if P4 is zero.
+.i-16;P3__PH__TONE######Dial out using tones.
+.i-16;P3__PH__PULSE#####Dial out using pulses.
+.s.lm-16.j
+Several P2 commands return messages to the host:
+.s.lm+16.nj
+.i-16;R2__IX__REPLY#####Reply to P2__IX__REPLY.
+R3 contains the last index processed.
+.i-16;R2__IX__QUERY#####Reply to P2__IX__QUERY.
+R3 contains the last index processed.
+.i-16;R2__DICT#########Reply to P2__DICT. R3
+contains the dictionary entry status code.
+.i-16;R2__PHONE########Reply to P2__PHONE.
+R3 contains the telephone status.
+.s.lm-16.j
+The following R3 parameters are returned after a
+P2__PHONE command.
+.s.lm+16.nj
+.i-16;R3__PH__ONHOOK####Telephone is hung up (inactive).
+.i-16;R3__PH__OFFHOOK###Telephone is answered (active).
+.i-16;R3__PH__TIMEOUT###No data was entered by the
+telephone user within the required number of seconds.
+.i-16;R3__PH__TOOLONG###A telephone number to dial is
+too long.
+.s.lm-16.j
+The following R3 parameters are returned after a P2__DICT
+command:
+.s.lm+16.nj
+.i-16;R3__DI__LOADED####Dictionary entry was loaded.
+.i-16;R3__DI__NOROOM####The user dictionary is full.
+.i-16;R3__DI__TOOLONG###The dictionary entry is too long.
+.s.lm-16.j
+The following codes are used to control host-requested
+self test (DECTST):
+.s.lm+16.nj
+.i-16;TEST__POWER######Rerun power up test.
+.i-16;TEST__HDATA######Host data link loopback test.
+.i-16;TEST__HCONTROL###Host line control test.
+.i-16;TEST__LDATA######Local line data test.
+.i-16;TEST__SPEAK######Speak a canned message.
+.s.lm-16.j
+The following status codes are returned by the extended
+DSR sequence:
+.s.lm+16.nj
+.i-16;DSR__OK##########No errors detected.
+.i-16;DSR__COMFAIL#####Communication failure.
+.i-16;DSR__INBUFOVER###Input buffer overflow.
+.i-16;DSR__DECNVRFAIL##Last restore from non-volatile
+memory failed.
+.i-16;DSR__PHONEME#####Incorrect phoneme entered.
+.i-16;DSR__PRIVATE#####DECtalk DCS parameter error.
+.i-16;DSR__DECTSTFAIL##Last DECTST self-test failed.
+.s.lm-16.j
+The following flags configure the P2__LOG command:
+.s.lm+16.nj
+.i-16;LOG__TEXT########Log spoken text.
+.i-16;LOG__PHONEME#####Log generated phonemes.
+.i-16;LOG__RAWHOST#####Log all characters received
+from host without change.
+.i-16;LOG__INHOST######Log all characters received
+from host in "visible" format.
+.i-16;LOG__OUTHOST#####Log all output to host in
+visible format.
+.i-16;LOG__ERROR#######Log error messages.
+.i-16;LOG__TRACE#######Log commands in mnemonic form.
+.s.lm-16.j
+The following flags are for the P2__TERMINAL command:
+.s.lm+16.nj
+.i-16;TERM__HOST#######Send text entered from the
+local terminal to the host.
+.i-16;TERM__SPEAK######Speak text entered from the
+local terminal.
+.i-16;TERM__EDITED#####Line-edit text entered from
+the local terminal.
+.i-16;TERM__HARD#######Use hard-copy edit conventions.
+.i-16;TERM__SETUSPEAK##Speak SETUP dialog.
+.s.lm-16.j
+The following flags are for the P2__MODE command:
+.s.lm+16.nj
+.i-16;MODE__SQUARE#####[ ] bracket phonemic text.
+.i-16;MODE__ASKY#######Use single-letter phonemic
+alphabet.
+.i-16;MODE__MINUS######Pronounce '-' as "minus".
+.s.lm-16.j
+The following flags are for the dt__splice() function.
+.s.lm+16.nj
+.i -16;SPLICE__SPEAK###DECtalk speaks text if set.
+.i -16;SPLICE__LOG#####Text sent to DECtalk is sent
+to the terminal (P2__LOG, LOG__RAWHOST).
+.i -16;SPLICE__TERM####The terminal may send text
+to DECtalk (P2__TERM, TERM__HOST).
+.s.lm -16.j
+.i -8;ESCAPE SEQUENCE DATA BUFFER:
+.s
+All information needed to generate and parse
+escape sequences is contained in the SEQUENCE
+data structure. It is configured by the following
+size constants:
+.s.lm+16.nj
+.i-16;SEQ__INTMAX######Maximum number of intermediate
+characters.
+.i-16;SEQ__PARMAX######Maximum number of parameters.
+.s.lm-16.j
+It contains the following components:
+.s.lm+16.nj
+.i-16;short#state#####Processing state or introducer
+character to send.
+.i-16;char#final######Final character in sequence.
+.i-16;char#private####Private introducer character
+or 'X' to indicate an error.
+.i-16;short#param[]###Private parameters (unsigned);
+param[0] contains the number of parameters.
+.i-16;char#inter[]####Intermediate characters;
+inter[0] contains the number of intermediates.
+.s.lm-16.j
+.i -8;DECTALK DATA BUFFER DEFINITION:
+.s
+All information needed by the DECtalk applications
+library is contained in the DECTALK data structure
+which is created by dt__open() and freed by dt__close().
+It is configured by the following parameters:
+.s.lm+16.nj
+.i-16;PEND__SIZE#######Maximum number of keypad
+characters that may be typed-ahead.  Additional
+characters are discarded.
+.i-16;IN__BUFLEN#######Size of the operating
+system input buffer.
+.i-16;OUT__BUFLEN######Size of the operating
+system output buffer.
+.s.lm-16.j
+The data buffer contains the following information:
+.s.lm+16.nj
+.i-16;DECTALK#*link###Chains together all active units.
+.i-16;short#unit######Operating system I/O channel.
+.i-16;short#timeout###Current timeout value
+.i-16;short#flag######Speech and dt_splice flags.
+.i-16;short#pend__fc###Bytes in pending buffer.
+.i-16;short#pend__fp###Index to free byte in pending
+buffer.
+.i-16;short#pend__ep###Index to next byte to return
+from pending buffer.
+.i-16;char#*in__ptr####Input buffer pointer.
+.i-16;char#*in__end####Input buffer end.
+.i-16;char#*out_ptr####Output buffer free pointer.
+.i-16;SEQUENCE#send###Last DCS sequence sent.
+.i-16;SEQUENCE#reply##Last DECtalk reply received.
+.i-16;SEQUENCE#seq####Look-ahead for string terminator
+processing.
+.i-16;char#*device####Remember dt_open() device name
+for debug printouts.
+.i-16;char#pend[]#####Type-ahead buffer.
+.i-16;char#in_buff[]###Input buffer.
+.i-16;char#out_buff[]##Output buffer.
+.i-16;struct#sgtty#stty__save#Terminal characteristics
+block (Unix).
+.i-16;FILE#*fildes####File descriptor (RSX).
+.i-16;struct#iosb#iosb#I/O status block (RSX).
+.i-16;QIOPARM#parm#####QIO parameter block (RSX).
+(RSX only).
+.i-16;int#pos__xk#######TRUE if POS XK: driver
+(RSX only).
+.s.lm-16.j
+The flag entry values are set and cleared internally.
+It should not be changed by application programs.
+.s.lm +16.nj
+.i-16;__FLAG__SPEAK#####Set if DECtalk is speaking.
+.i-16;__FLAG__LOG#######Set if LOG RAWHOST is set.
+.i-16;__FLAG__TERM######Set if TERM HOST is set.
+.s.lm-16.j
+.lm 8.rm 72.nhy
+
+.st ########dt__answer######Answer the Telephone
+.pg
+.hl 1 ^&Answer the Telephone\&
+.s 2
+.c ;*************
+.c ;* dt__answer *
+.c ;*************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__answer -- Answer the Telephone
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__answer(dt, nrings)
+DECTALK		*dt;	/* Device descriptor	*/
+int		nrings;	/* Number of rings	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+Hangup the phone (by calling dt__hangup()) and
+answer the phone after the specified number
+of rings.
+.s
+Return TRUE if successful, FALSE if in error.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__close#######Terminate DECtalk Operation
+.pg
+.hl 1 ^&Terminate DECtalk Operation\&
+.s 2
+.c ;************
+.c ;* dt__close *
+.c ;************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__close -- Terminate DECtalk Operation
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+dt__close(dt)
+DECTALK		*dt;	/* DECtalk device	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+Close the DECtalk channel and free all buffers.
+No error is returned.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__cmd#Send DCS w/o String Terminator
+.pg
+.hl 1 ^&Send DCS w/o String Terminator\&
+.s 2
+.c ;**********
+.c ;* dt__cmd *
+.c ;**********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__cmd -- Send DCS w/o String Terminator
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__cmd(dt, p2, p3)
+DECTALK		*dt;	/* Device descriptor	*/
+int		p2;	/* P2__... parameter	*/
+int		p3;	/* P3__... parameter	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine sends a DCS command to the DECtalk
+terminal.  The string terminator is not sent.
+This is needed to send phonemic text or telephone
+dial commands.
+.s
+The p2 or p3 parameter may be -1 if it is to be
+ommitted.
+.s
+A phonemic text sequence would be sent as follows:
+.s.nf
+.nf
+    dt__cmd(dt, p2, p3);
+    dt__talk(dt, "hh'ehlow.");
+    dt__st(dt);
+.fill
+.s.f
+.lm 8.rm 72.nhy
+
+.st ########dt__dchar#######Dump One Character Visibly
+.pg
+.hl 1 ^&Dump One Character Visibly\&
+.s 2
+.c ;************
+.c ;* dt__dchar *
+.c ;************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__dchar -- Dump One Character Visibly
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+.s
+dt__dchar(c, iov)
+int		c;	/* Character to dump	*/
+FILE		*iov;	/* File to write to	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+The character is formatted into a visible Ascii
+"Datascope" format and the resulting text written
+to the indicated file.
+.s
+Note that this routine is independent of DECtalk
+definitions.
+.s
+Output is via the C standard library.  If the dump
+is to a terminal, it is unbuffered.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__dcs#Send a DECtalk DCS Command
+.pg
+.hl 1 ^&Send a DECtalk DCS Command\&
+.s 2
+.c ;**********
+.c ;* dt__dcs *
+.c ;**********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__dcs -- Send a DECtalk DCS Command
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+dt__dcs(dt, p2, p3, p4)
+DECTALK		*dt;	/* Device descriptor	*/
+int		p2;	/* P2__xxx parameter	*/
+int		p3;	/* P3__PH__xxxx parameter	*/
+int		p4;	/* timeout or rings	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine sends a DECtalk DCS control sequence
+using the p2, p3, and p4 parameters.
+.s
+Note that the Pn parameters are -1 if they
+are not sent.
+.s
+No errors are possible.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__dial########Dial the Telephone
+.pg
+.hl 1 ^&Dial the Telephone\&
+.s 2
+.c ;***********
+.c ;* dt__dial *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__dial -- Dial the Telephone
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__dial(dt, p3, numb, wait, msg)
+DECTALK		*dt;	/* Device descriptor	*/
+int		p3;	/* P3__PH__xxxx parameter	*/
+char		*numb;	/* Number to dial	*/
+int		wait;	/* See below		*/
+char		*msg;	/* Announcement		*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine dials the DECtalk telephone.  The P3
+parameter must be either P3__PH__TONE (tone dial)
+or P3__PH__PULSE (pulse dial).
+.s
+For tone dialing, the number text may contain any
+valid touch-tone characters ("0123456789*_#ABCD")
+or the characters '!' (for a one second delay)
+or the '_^' for a 250 millisecond switch-hook flash.
+All other characters are ignored.
+.s
+If pulse dialing is selected, only the digits, '!' and
+'_^' are interpreted.
+.s
+Note that the telephone will not be hung up before
+dialing if it is offhook when the command is issued.
+.s
+.i -8;CALL PROGRESS DETECTION:
+.s
+DECtalk cannot tell if or when someone answers the
+phone.  The only way to do this is to speak a message,
+such as "This is DECtalk, please press any button
+on the keypad." and wait some limited time for the
+person to press the button.  The wait and msg
+parameters provide this capability.
+.s
+If wait is less than or equal to zero, DECtalk returns
+without attempting to verify that someone has answered
+the phone.  The return will be TRUE if the phone is
+offhook.
+.s
+If wait is greater than zero, it specifies the number
+of seconds to wait for a response, and msg is the
+message to speak.  (If msg is NULL, the sample text
+shown above will be used.)  The message is repeated
+continuously until either the alloted time has
+elapsed or a button is received.  dt__dial() then returns
+TRUE if the phone is offhook, as above.
+.s
+To cause DECtalk to silently wait for a message, use
+a zero-length string ("").  Note, however, that an
+audible message	is required by some public telephone
+systems.
+.s
+When DECtalk returns after call progress detection,
+keypad data entry and keypad timeout will be disabled.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__drain#######Drain Pending Input
+.pg
+.hl 1 ^&Drain Pending Input\&
+.s 2
+.c ;************
+.c ;* dt__drain *
+.c ;************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__drain -- Drain Pending Input
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+dt__drain(dt)
+DECTALK		*dt;	/* Device descriptor	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+Absorb any type-ahead characters.
+No errors are possible.
+.s
+.i -8;NOTE:
+.s
+On some unix systems the I/O control function is stored
+in the <sgtty.h> system library header, while, on others,
+it is stored on <ioctl.h>.  You may have to edit this
+file accordingly.
+.s
+The distributed sources are correct for Unix V7M as
+implemented on the DEC Professional 350.
+.s
+On unix systems, dt__drain() will also cancel pending
+output.  This may cause DECtalk to receive word
+fragments or partial escape sequences.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__dump########Dump Escape Sequence Buffer
+.pg
+.hl 1 ^&Dump Escape Sequence Buffer\&
+.s 2
+.c ;***********
+.c ;* dt__dump *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__dump -- Dump Escape Sequence Buffer
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectk.h"
+.s
+int
+dt__dump(what, seq)
+char		*what;	/* Explanation		*/
+SEQUENCE	*seq;	/* Buffer to dump	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+The requested escape sequence buffer is written
+(visibly) to the standard output file.
+.s
+If what is not NULL, it is written as an identifier.
+.s
+Output is via the C standard library.
+.s
+For example,
+.s
+.nf
+    _#include <stdio.h>
+    _#include "dectlk.h"
+.s
+    DECTALK *dt;
+    extern DECTALK *dt__open();
+    ...
+	/*
+	 * Open a DECtalk device,
+	 * request phone status and
+	 * dump returned status sequence.
+	 */
+	dt = dt__open("kb2:");
+	dt__phone(dt, P2__PH__STATUS, -1);
+	dt__dump("status", _&dt->reply);
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__eol#Write End of Line to DECtalk
+.pg
+.hl 1 ^&Write End of Line to DECtalk\&
+.s 2
+.c ;**********
+.c ;* dt__eol *
+.c ;**********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__eol -- Write End of Line to DECtalk
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+dt__eol(dt)
+DECTALK		*dt;	/* Device descriptor	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+An "end of line" is written to DECtalk and the
+operating system executive service is called to
+cause the local output buffer to be written to
+the terminal.
+.s
+No value is returned.
+.s
+This routine is needed on operating systems that
+enforce "line wrap-around" on terminal devices.
+It also improves the appearance of debugging logs.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__gesc########Read Escape Sequence or Character
+.pg
+.hl 1 ^&Read Escape Sequence or Character\&
+.s 2
+.c ;***********
+.c ;* dt__gesc *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__gesc -- Read Escape Sequence or Character
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__gesc(dt, sec)
+DECTALK		*dt;	/* Device descriptor	*/
+char		sec;	/* O.S. timeout value	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+Read an escape sequence or keypad character.
+.s
+dt__gesc() interprets a stream of 7- or 8-bit characters
+including escape sequences adhering to the coded representations
+of ISO 646, ISO 2022, and ISO 6429 with extensions to the DCS
+introducer as required by DEC Standard 138.
+.s
+The function dt__gesc() recognizes ESC, CSI, and DCS,
+and processes characters following each of these introducers
+until a complete sequence is encountered.  In the case of DCS,
+control returns to the caller after the final character of
+the DEC Standard 138 introduction sequence, but before the
+first data character of the device control string.
+.s
+When sandwiched between the application and a get character
+function (dt__get()), dt__gesc() transforms the input
+stream from a character stream to a stream of tokens consisting
+of characters, escape sequences, control sequences, and DCS
+introduction sequences.  When any of the recognized sequence
+types is encountered, the function value returned is that of
+ESC, CSI, or DCS, and the interpretted body of the sequence
+is returned in the seq structure. The caller may treat
+dt__gesc() similarly to getchar(), ignoring the returned
+structure in all cases except when the returned function value
+is ESC, CSI, or DCS.
+.s
+An additional function performed by dt__gesc() is that all
+C1 control functions received in their 7-bit form are returned
+to the caller in their 8-bit form, thus eliminating the need
+for the caller to process C1 control functions in their (7-bit)
+escape sequence form and enforcing the equivalence of the 7-bit
+and 8-bit forms of the C1 control functions.  The function
+also enforces the sequence cancellation effect of the SUB and
+CAN control characters.
+.s
+The dt__gesc() function calls the user-supplied dt__get()
+(read one character) function as many times as required to
+complete an escape sequence, control sequence, or Digital
+standard DCS introduction sequence. In the passed data
+structure, it returns the final character, intermediate
+characters, and parameter values.
+.s
+Since 7-bit operation is a compatible subset of 8-bit
+operation, there is -- normally -- no distinction in the
+dt__gesc() function between the two environments.
+The DECtalk library, however, enforces a 7-bit external
+environment.  Also, dt__get() may return two special values,
+DT__ERR and DT__TIMEOUT, to indicate operating-system errors
+and communication line timeouts respectively.
+.s
+Because C0 control characters may be embedded in sequences,
+and must be interpretted as if they occurred before the
+sequence in the stream, the dt__gesc() function
+retains internal state information in the sequence data
+structure from call to call.  The seq.state value is zero
+on return to indicate a complete escape sequence.  If non-zero,
+it contains the sequence introducer.
+.s
+If the "seq.state" element is zero, dt__gesc() assumes
+that the remainder of the data structure is invalid and that
+there is no data being retained from a prior call.  A non-zero
+value for the "seq.state" element indicates a particular
+internal state (ESC, CSI, or DCS) that the parser should assume
+on the next call.
+.s
+Intermediate characters and parameter values interpretted up
+to the occurrence of the embedded control character are also
+stored in the returned data structure and also should not be
+altered by the caller.
+.s
+Escape sequence syntax errors are indicated by setting the
+seq.private parameter to 'X' (which is not a possible
+private parameter).
+.s
+If the dt__gesc() function encounters more than the
+allowed maximum number of intermediate characters, the
+returned data structure indicates that one more intermediate
+character was received than allowed. Of course, characters
+after the maximum are not stored.
+.s
+If the dt__gesc() function encounters more than the
+allowed maximum number of parameters, the extra parameters
+are ignored and the returned data structure indicates that
+the allowed maximum number of parameters was received.
+.s
+After each call to dt__gesc() the dt->seq SEQUENCE
+contains the following information:
+.s
+.br;seq.state#######zero to indicate complete sequence.
+.br;seq.final#######the sequence final character
+.br;seq.private#####private parameter character:
+.br;################EOS, <, =, >, ?, or X for errors.
+.br;seq.param[0]####the number of parameter values
+.br;################(0:SEQ_PARMAX)
+.br;seq.param[n]####(unsigned) the n'th parameter value
+.br;seq.inter[0]####the number of intermediate characters
+.br;################(0:SEQ_INTMAX+1)
+.br;seq.inter[n]####(char) the n'th intermediate character.
+.s
+In general, the intermediate and final characters should be
+taken as a whole to determine the action.  It is easy to
+ignore sequences with too many intermediate characters since
+the returned number of intermediate characters will not match
+any action function.
+.s
+To simplify the code, this module doesn't test for overly
+large parameter values and assumes that all overflow errors
+are due to invalid escape sequences.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__get#Read one Character from DECtalk
+.pg
+.hl 1 ^&Read one Character from DECtalk\&
+.s 2
+.c ;**********
+.c ;* dt__get *
+.c ;**********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__get -- Read one Character from DECtalk
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__get(dt, sec)
+DECTALK		*dt;	/* Device descriptor	*/
+int		sec;	/* O.S. timeout param.	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+One character is read from the DECtalk terminal line.
+The sec parameter enables operating-system timeout;
+it is zero if no timeout is needed.
+.s
+dt__get() returns the character or an error code:
+.lm +20
+.s.i-20;DT__ERROR############An operating system error
+(or <CTRL/C> interrupt) was received.
+.s.i-20;DT__TIMEOUT##########The sec parameter was
+non-zero and no character was received in sec seconds.
+.s.lm -20
+If DT__DEBUG is _#defined when the library is compiled
+and the global dt__debug is set non-zero (by the
+application program), the character
+received is logged to the standard output device.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__hangup######Hangup the telephone
+.pg
+.hl 1 ^&Hangup the telephone\&
+.s 2
+.c ;*************
+.c ;* dt__hangup *
+.c ;*************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__hangup -- Hangup the telephone
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+dt__hangup(dt)
+DECTALK		*dt;	/* Device descriptor	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+Hangup the telephone connected to DECtalk.
+Return TRUE if successful, FALSE if an error
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__init########DECtalk Initialization Routine
+.pg
+.hl 1 ^&DECtalk Initialization Routine\&
+.s 2
+.c ;***********
+.c ;* dt__init *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__init -- DECtalk Initialization Routine
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__init(dt)
+DECTALK		*dt;	/* Device descriptor	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+Initialize the DECtalk terminal on the channel opened
+on dt.
+.s
+Return TRUE if the device initialized successfully.
+Return FALSE on failure.
+.s
+.i -8;NOTE:
+.s
+This routine turns off "local mode" so a logging terminal
+does not inadvertently send a response to the "who are you"
+escape sequence.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__inkey#######Read a Telephone Keypad Character
+.pg
+.hl 1 ^&Read a Telephone Keypad Character\&
+.s 2
+.c ;************
+.c ;* dt__inkey *
+.c ;************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__inkey -- Read a Telephone Keypad Character
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__inkey(dt, sec)
+DECTALK		*dt;	/* Device descriptor	*/
+int		sec;	/* Seconds to wait	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine reads a telephone keypad button.
+The application program has previously enabled
+the keypad (by calling dt__keypad(dt, TRUE)).
+dt__inkey() will call dt__timeout() to enable
+or disable timeouts.
+.s
+If sec is non-zero, it will indicate the number of
+seconds to wait for a keypad response.  If zero,
+it will turn off keypad timeouts.
+The operating-system timeout (needed to catch
+hardware or communication line problems) will be
+set to four times the timeout value, plus an
+operating-system specific additional timeout.
+.s
+dt__inkey() returns a character as follows:
+.lm +20
+.s.i-20;0123456789*_#ABCD####A valid keypad button.
+(Note that "ABCD" may be generated by certain
+keypad phones.)
+.s.i-20;E###################An operating-system error.
+.s.i-20;T###################Keypad timeout.
+.s.i-20;X###################Badly parsed escape sequence.
+.s.i-20;H###################Unexpected telephone hangup.
+.s.lm -20
+The 'H' code is received if the DECtalk device hangs
+up the phone (as may be required by specific telephone
+system requirements).
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__ioget#######Read one Character from DECtalk
+.pg
+.hl 1 ^&Read one Character from DECtalk\&
+.s 2
+.c ;************
+.c ;* dt__ioget *
+.c ;************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__ioget -- Read one Character from DECtalk
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__ioget(dt, sec)
+DECTALK		*dt;	/* Device descriptor	*/
+int		sec;	/* O.S. timeout param.	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+One character is read from the DECtalk terminal line.
+The sec parameter enables operating-system timeout;
+it is zero if no timeout is needed.
+.s
+dt__ioget() returns the character or an error code:
+.lm +20
+.s.i-20;DT__ERROR############An operating system error
+(or <CTRL/C> interrupt) was received.
+.s.i-20;DT__TIMEOUT##########The sec parameter was
+non-zero and no character was received in sec seconds.
+.s.lm -20
+If DT__DEBUG is _#defined when the library is compiled
+and the global dt__debug is set non-zero (by the
+application program), the character
+received is logged to the standard output device.
+.s
+dt__ioget() is the operating-system specific input
+routine.  It is the only routine to read data from
+the DECtalk terminal line.
+.s
+.i -8;NOTE:
+.s
+On vms, an internally-used routine, dt__vmsread(),
+is also defined.  Application programs should
+not call this routine.
+.s
+This module contains specific code for Unix
+4.2BSD.  The makefile for the library should
+_#define BSD__42.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__ioput#######Write one Character to DECtalk
+.pg
+.hl 1 ^&Write one Character to DECtalk\&
+.s 2
+.c ;************
+.c ;* dt__ioput *
+.c ;************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__ioput -- Write one Character to DECtalk
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__ioput(dt, byte)
+DECTALK		*dt;	/* Device descriptor	*/
+char		byte;	/* Character to write	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+If the argument character is zero, or the output
+buffer is full, the output buffer contents are
+written to the DECtalk device.
+.s
+If the argument character is non-zero, it is stored
+in the output buffer for subsequent transmission.
+.s
+By buffering characters internally, the load on the
+operating system is significantly reduced.  Note that
+the input routine (dt__get(), dt__ioget()) will flush
+the output buffer before attempting to read any data.
+The "speak" routine, dt__talk(), also flushes the
+output buffer.
+.s
+No data is returned.  Errors are fatal.
+.s
+dt__ioput() is the operating-system specific output
+routine.  It is the only routine to write data to
+the DECtalk terminal line.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__iskey#######Test for type-ahead
+.pg
+.hl 1 ^&Test for type-ahead\&
+.s 2
+.c ;************
+.c ;* dt__iskey *
+.c ;************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__iskey -- Test for type-ahead
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__iskey(dt)
+DECTALK		*dt;	/* Device descriptor	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine (which may be implemented as a macro)
+returns TRUE if any characters have already been
+typed by the telephone user or if an asynchronous
+status message (such as timeout) was received.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__istimeout###Test Phone Reply for Keypad Timeout
+.pg
+.hl 1 ^&Test Phone Reply for Keypad Timeout\&
+.s 2
+.c ;****************
+.c ;* dt__istimeout *
+.c ;****************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__istimeout -- Test Phone Reply for Keypad Timeout
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__istimeout(dt)
+DECTALK		*dt;	/* Device descriptor	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine (which may be implemented as a macro)
+tests the result of a dt__phone() message.
+It returns TRUE if the current reply is the DECtalk
+phone reply with the R3 parameter equal to R3__PH__TIMEOUT.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__isvalid#####Test for Valid Keypad Character
+.pg
+.hl 1 ^&Test for Valid Keypad Character\&
+.s 2
+.c ;**************
+.c ;* dt__isvalid *
+.c ;**************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__isvalid -- Test for Valid Keypad Character
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__isvalid(c)
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine (which may be implemented as a macro)
+returns TRUE if the argument character is one of
+.s
+.nf
+    0123456789_#*ABCD
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__keypad######Enable or Disable the Telephone Keypad
+.pg
+.hl 1 ^&Enable or Disable the Telephone Keypad\&
+.s 2
+.c ;*************
+.c ;* dt__keypad *
+.c ;*************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__keypad -- Enable or Disable the Telephone Keypad
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__keypad(dt, flag)
+DECTALK		*dt;	/* Device descriptor	*/
+int		flag;	/* TRUE to enable	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+Enable the telephone keypad if the flag is TRUE,
+disable it if FALSE.
+.s
+Returns TRUE if successful.  If FALSE, the telephone
+may have been hung up.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__msg#Send a DECtalk Command with Reply
+.pg
+.hl 1 ^&Send a DECtalk Command with Reply\&
+.s 2
+.c ;**********
+.c ;* dt__msg *
+.c ;**********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__msg -- Send a DECtalk Command with Reply
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__msg(dt, p2, p3, p4, r2, r3)
+DECTALK		*dt;	/* Device descriptor	*/
+int		p2;	/* P2__xxxx parameter	*/
+int		p3;	/* P3__PH__xxxx parameter	*/
+int		p4;	/* timeout or rings	*/
+int		r2;	/* R2__xxxx parameter	*/
+int		r3;	/* R3__xxxx parameter	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine sends a DECtalk DCS control sequence
+using the p2, p3, and p4 parameters.  It then reads
+a DCS reply from DECtalk, returning TRUE if it matches
+the r2 and r3 calling parameters.
+.s
+If p2 is -1, no sequence is sent; but a DCS reply
+is read and tested.
+.s
+Note that the Pn and Rn parameters are -1 if they
+are not sent or checked respectively.
+.s
+Returns TRUE if successful.  If FALSE, something is funny.
+.s
+Note: dt__msg() saves user keypad characters in the type-ahead
+buffer.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__offhook#####Test Phone Reply for Offhook
+.pg
+.hl 1 ^&Test Phone Reply for Offhook\&
+.s 2
+.c ;**************
+.c ;* dt__offhook *
+.c ;**************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__offhook -- Test Phone Reply for Offhook
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__offhook(dt)
+DECTALK		*dt;	/* Device descriptor	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine (which may be implemented as a macro)
+is used to test the result of a dt__phone() message.
+It returns TRUE if the current reply is the DECtalk
+phone reply with the R3 parameter equal to R3__PH__OFFHOOK.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__onhook######Test Phone Reply for Onhook
+.pg
+.hl 1 ^&Test Phone Reply for Onhook\&
+.s 2
+.c ;*************
+.c ;* dt__onhook *
+.c ;*************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__onhook -- Test Phone Reply for Onhook
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__onhook(dt)
+DECTALK		*dt;	/* Device descriptor	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine (which may be implemented as a macro)
+is used to test the result of a dt__phone() message.
+It returns TRUE if the current reply is the DECtalk
+phone reply with the R3 parameter equal to R3__PH__ONHOOK.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__open########Connect to DECtalk Terminal
+.pg
+.hl 1 ^&Connect to DECtalk Terminal\&
+.s 2
+.c ;***********
+.c ;* dt__open *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__open -- Connect to DECtalk Terminal
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+DECTALK *
+dt__open(dev)
+char		*dev;	/* Terminal device name	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+Perform operating-specific initializations to
+initiate communication with a DECtalk device.
+(This routine is similar to fopen() for FILE
+devices.)  If the open fails, return NULL;
+else return a pointer to a data descriptor
+block that will be used for all other DECtalk
+operations.
+.s
+If the open failed, the standard library perror()
+routine may be called to print error information.
+.s
+This routine does not communicate with DECtalk.
+.s
+For example, the following sequence opens DECtalk,
+checks that it is responding, sets "square-bracket"
+mode, and speaks a message:
+.s
+.nf
+    _#include <stdio.h>
+    _#include "dectlk.h"
+.s
+    DECTALK *dt;
+    ...
+    main() {
+	if ((dt = dt__open("kb2:")) == NULL) {
+	    perror("kb2:");
+	    printf("Can't open DECtalk_\n");
+	}
+	else if (!dt__init(dt))
+	    printf("Can't initiate DECtalk_\n");
+	else {
+	    dt__dcs(dt, P2__MODE, MODE__SQUARE, -1);
+	    dt__talk(dt, "Hello world.");
+	    dt__sync(dt);
+	    dt__close(dt);
+	    printf("Success._\n");
+	}
+    }
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__pesc########Transmit Escape Sequence
+.pg
+.hl 1 ^&Transmit Escape Sequence\&
+.s 2
+.c ;***********
+.c ;* dt__pesc *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__pesc -- Transmit Escape Sequence
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+.s
+dt__pesc(dt, seq)
+DECTALK		*dt;	/* Device descriptor	*/
+SEQUENCE	*seq;	/* What to transmit	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+Compile an appropriate escape sequence from the
+parameter buffer.  This is similar to putchar()
+except when seq->state is ESC, CSI, or DCS.  In
+these cases, the function generates an appropriate
+sequence from the passed data structure.  dt__pesc()
+calls the user-supplied dt__put() to output each
+character.  This version of the code enforces 7-bit
+output.
+.s
+No value is returned.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__phone#######Send a Phone Message
+.pg
+.hl 1 ^&Send a Phone Message\&
+.s 2
+.c ;************
+.c ;* dt__phone *
+.c ;************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__phone -- Send a Phone Message
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__phone(dt, p3, p4)
+DECTALK		*dt;	/* Device descriptor	*/
+int		p3;	/* P3__PH__xxxx parameter	*/
+int		p4;	/* timeout or rings	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine (which may be implemented as a macro)
+sends a DECtalk phone message (i.e., the p2 parameter
+is P2__PHONE).
+.s
+p3 and p4 should be given as -1 if no parameter is to
+be sent.
+.s
+It then reads the status reply and returns TRUE
+if the r1 and r2 parameters are R1__DECTALK and
+R2__PHONE respectively.  The application program
+should then test for offhook/onhook as appropriate.
+.s
+Returns TRUE if successful.  If FALSE, something is funny.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__ptest#######Test Phone Reply
+.pg
+.hl 1 ^&Test Phone Reply\&
+.s 2
+.c ;************
+.c ;* dt__ptest *
+.c ;************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__ptest -- Test Phone Reply
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__ptest(dt, r3)
+DECTALK		*dt;	/* Device descriptor	*/
+int		r3;	/* R3__PH__xxxx parameter	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine (which may be implemented as a macro)
+is used to test the result of a dt__phone() message.
+The parameter is a R3__PH__... reply value.
+It returns TRUE if the current reply is a DECtalk
+phone reply with the specified R3 parameter.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__put#Write one Character to DECtalk
+.pg
+.hl 1 ^&Write one Character to DECtalk\&
+.s 2
+.c ;**********
+.c ;* dt__put *
+.c ;**********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__put -- Write one Character to DECtalk
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+dt__put(dt, c)
+DECTALK		*dt;	/* Device descriptor	*/
+int		c;	/* Character to write	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+One character is written to the DECtalk terminal line.
+No value is returned.
+.s
+If DT__DEBUG is _#defined when the library is compiled
+and the global dt__debug is set non-zero (by the
+application program), the character
+written is logged to the standard output device.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__read########Read Sequence or Character
+.pg
+.hl 1 ^&Read Sequence or Character\&
+.s 2
+.c ;***********
+.c ;* dt__read *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__read -- Read Sequence or Character
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__read(dt, sec)
+DECTALK		*dt;	/* Device descriptor	*/
+char		sec;	/* O.S. timeout value	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+Read an escape sequence or keypad character.  Ignore
+any characters between the DECtalk final and the
+string terminator.  Return the character read or
+the sequence introducer.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__reset#######DECtalk Soft Reset
+.pg
+.hl 1 ^&DECtalk Soft Reset\&
+.s 2
+.c ;************
+.c ;* dt__reset *
+.c ;************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__reset -- DECtalk Soft Reset
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+dt__reset(dt)
+DECTALK		*dt;	/* Device descriptor	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+Send a "soft reset" escape sequence.
+No errors are possible.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__save########Save User Type-ahead
+.pg
+.hl 1 ^&Save User Type-ahead\&
+.s 2
+.c ;***********
+.c ;* dt__save *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__save -- Save User Type-ahead
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__save(dt, c)
+DECTALK		*dt;	/* Device descriptor	*/
+char		c;	/* Character to save	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+If c is a keypad character, save it in the
+type-ahead buffer and return TRUE, else return
+FALSE.
+.s
+If the current reply is a timeout and nothing
+is stored in the type-ahead buffer, save 'T'
+and clear the timeout flag.  This is necessary
+as a timeout sequence may be returned in
+the middle of a message/reply sequence.
+.s
+This routine should not be called by application
+programs.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__splice######Manage Local Terminal
+.pg
+.hl 1 ^&Manage Local Terminal\&
+.s 2
+.c ;*************
+.c ;* dt__splice *
+.c ;*************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__splice -- Manage Local Terminal
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+dt__splice(dt, flag)
+DECTALK		*dt;	/* Device descriptor	*/
+int		flag;	/* Required state	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+dt__splice() allows control over a terminal
+connected to DECtalk's "local" port.  Note that
+the terminal must correctly process ANSI escape
+sequences.  Specifically, it must ignore any
+escape sequence that it doesn't understand.
+.s
+The flag parameter may have the following
+(bit-encoded) values:
+.s.lm +16.nj
+.i-16;SPLICE__SPEAK#####Speak subsequent text,
+if set.  Do not speak text if not set.  Initially
+zero.
+.i-16;_SPLICE__LOG#######Text sent to DECtalk
+is sent (in raw mode) to the local terminal if
+set.  Initially not set.
+.i-16;_SPLICE__TERM######Text typed on the local
+terminal is sent to DECtalk if set.  Initially
+not set.
+.s.lm-16.j
+The bits would normally be set and cleared in combination.
+For example:
+.s.nf
+.nf
+    dt__splice(dt, SPLICE__SPEAK);
+.fill
+.s.f
+Speak text, don't log it, ignore text typed on the host.
+.s.nf
+.nf
+    dt__splice(dt, SPLICE__LOG | SPLICE__TERM);
+.fill
+.s.f
+Stop speaking text, transmit text from/to the attached
+terminal.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__st##Send String Terminator
+.pg
+.hl 1 ^&Send String Terminator\&
+.s 2
+.c ;*********
+.c ;* dt__st *
+.c ;*********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__st -- Send String Terminator
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__st(dt)
+DECTALK		*dt;	/* Device descriptor	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine sends a String Terminator to DECtalk.
+This is needed to terminate phonemic text or telephone
+dial commands.
+.s
+A phonemic text sequence would be sent as follows:
+.s.nf
+.nf
+    dt__cmd(dt, p2, p3);
+    dt__talk(dt, "hh'ehlow.");
+    dt__st(dt);
+.fill
+.s.f
+.lm 8.rm 72.nhy
+
+.st ########dt__sync########Synchronize with DECtalk
+.pg
+.hl 1 ^&Synchronize with DECtalk\&
+.s 2
+.c ;***********
+.c ;* dt__sync *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__sync -- Synchronize with DECtalk
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__sync(dt)
+DECTALK		*dt;	/* Device descriptor	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+The program delays until all text sent to DECtalk
+has been spoken.
+.s
+Returns TRUE if successful.  If FALSE, something is funny.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__talk########Speak One Line of Text
+.pg
+.hl 1 ^&Speak One Line of Text\&
+.s 2
+.c ;***********
+.c ;* dt__talk *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__talk -- Speak One Line of Text
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+dt__talk(dt, text)
+DECTALK		*dt;	/* Device descriptor	*/
+char		*text;	/* What to say		*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This function sends a line of text to DECtalk.
+.s
+dt__talk(dt, NULL) flushes DECtalk by sending
+a vertical-tab sequence.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__test########Test a DECtalk Reply
+.pg
+.hl 1 ^&Test a DECtalk Reply\&
+.s 2
+.c ;***********
+.c ;* dt__test *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__test -- Test a DECtalk Reply
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__test(dt, r2, r3)
+DECTALK		*dt;	/* Device descriptor	*/
+int		r2;	/* R2__xxx parameter	*/
+int		r3;	/* R3__xxx parameter	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine checks the last reply received from
+DECtalk against the model.  r3 is -1 to ignore it.
+It returns TRUE if the reply is a properly-parsed
+DECtalk reply sequence, or FALSE on any failure.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__timeout#####Enable or Disable Keypad Timeout
+.pg
+.hl 1 ^&Enable or Disable Keypad Timeout\&
+.s 2
+.c ;**************
+.c ;* dt__timeout *
+.c ;**************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__timeout -- Enable or Disable Keypad Timeout
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__timeout(dt, sec)
+DECTALK		*dt;	/* Device descriptor	*/
+int		sec;	/* Timeout in seconds	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+If sec is non-zero, timeouts are being enabled;
+if zero, they are being disabled.
+.s
+Enable keypad timeouts if sec is non-zero and there
+is no data in the type-ahead buffer (and timeouts
+are not already enabled).
+.s
+Disable timeouts if they are enabled and sec is zero,
+or any data is in the type-ahead buffer (even if
+sec is non-zero).
+.s
+Before enabling timeouts, DECtalk is synchronized.
+.s
+Returns TRUE if successful.  If FALSE, the telephone
+may have been hung up.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__tone########Send DTMF Tones
+.pg
+.hl 1 ^&Send DTMF Tones\&
+.s 2
+.c ;***********
+.c ;* dt__tone *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__tone -- Send DTMF Tones
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+dt__tone(dt, msg)
+DECTALK		*dt;	/* Device descriptor	*/
+char		*msg;	/* Announcement		*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This routine sends the msg text string as a tone
+dialing sequence.  If the telephone was on-hook
+when dttone() was called, it will be returned
+to the on-hook condition.  Note, this routine
+may not work to your satisfaction in countries
+which require automatic announcement messages
+on automatically dialed calls.  See your DECtalk
+programmer's manual for more information.
+.s
+For message text  may contain any valid touch-tone
+characters ("0123456789*_#ABCD")	or the characters
+'!' (for a one second delay) or the '_^' for a 250
+millisecond switch-hook flash. All other characters
+are ignored.
+.s
+Note that the telephone will not be hung up before
+dialing if it is offhook when the command is issued.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__trap########Trap <CTRL/C> Interrupts
+.pg
+.hl 1 ^&Trap <CTRL/C> Interrupts\&
+.s 2
+.c ;***********
+.c ;* dt__trap *
+.c ;***********
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__trap -- Trap <CTRL/C> Interrupts
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+dt__trap()
+.s.f
+.i -8;DESCRIPTION:
+.s
+Set the global dt__abort flag if the user types
+<CTRL/C> at the command terminal.  (On Unix,
+this is interpreted as catching the INTERRUPT
+signal, which is not necessarily <CTRL/C>, and
+which may be generated by running the "kill"
+system program.
+.s
+When the interrupt is received, pending I/O
+is cancelled (on those operating systems where
+this makes sense).
+.s
+If dt__abort is set TRUE when the interrupt is received,
+the program aborts.
+.s
+No error is returned.
+.s
+.lm 8.rm 72.nhy
+
+.st ########dt__visible#####Generate Visible Representation
+.pg
+.hl 1 ^&Generate Visible Representation\&
+.s 2
+.c ;**************
+.c ;* dt__visible *
+.c ;**************
+.s 2
+.lm +8
+.s.i -8;NAME:	dt__visible -- Generate Visible Representation
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+char		work[12]; /* Output buffer	*/
+.s
+char *
+dt__visible(c, work)
+int		c;	/* Character to dump	*/
+char		work[];	/* Work buffer		*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+A visible Ascii representation of the character
+is stored in the work buffer.  A pointer to the
+end of the output string is returned.
+.s
+Note that this routine is independent of DECtalk
+definitions (except that it knows about the DT__ERROR
+and DT__TIMEOUT error codes).
+.s
+.lm 8.rm 72.nhy
+
+.st ########dtdemo##Sample Main Program
+.pg
+.hl 1 ^&Sample Main Program\&
+.s 2
+.c ;**********
+.c ;* dtdemo *
+.c ;**********
+.s 2
+.lm +8
+.s.i -8;NAME:	dtdemo -- Sample Main Program
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+dtdemo [-d] [-t terminal] [-m max__time]
+.s.f
+.i -8;DESCRIPTION:
+.s
+This is a sample "answer the phone" main program.
+It calls a user-written subroutine, process()
+when the phone is answered.  This subroutine
+should return TRUE when the call has completed
+successfully and FALSE when the call completes
+in error.  The main program will hang up the
+phone before starting the next call.
+.s
+The following options are supported:
+.s.lm+12.nj
+.i-12;-d##########Enable debug logs.
+.i-12;-t#device###The DECtalk terminal is
+connected to this terminal line.
+.i-12;-m#seconds##Hangup the phone after
+the specified number of seconds.  (Default
+is 180 seconds or 3 minutes.)  -m_#0 disables
+the hangup.
+.s.lm-12.j
+On Unix and VMS, an environment variable, DECTALK, may be
+used to specify the DECtalk terminal line.  On VMS, this
+would be set by the DCL ASSIGN command as follows:
+.s
+.nf
+    $ ASSIGN terminal DECTALK
+.s
+.fill
+On P/OS, the DECtalk device must be attached to the
+PRO-350 printer port for the software to work correctly.
+P/OS V1.7 is required.
+.s
+The user-written process subroutine should be
+defined as follows:
+.s
+.nf
+    int
+    process(dt, max)
+    DECTALK	*dt;	/* DECtalk device	*/
+    int		max;	/* -m parameter		*/
+.s
+.lm 8.rm 72.nhy
+
+.st ########sample##Sample Application
+.pg
+.hl 1 ^&Sample Application\&
+.s 2
+.c ;**********
+.c ;* sample *
+.c ;**********
+.s 2
+.lm +8
+.s.i -8;NAME:	sample -- Sample Application
+.s.f
+.i -8;SYNOPSIS:
+.s.nf
+_#include	<stdio.h>
+_#include	"dectlk.h"
+.s
+int
+process(dt, max)
+DECTALK		*dt;	/* DECtalk device	*/
+int		max;	/* Seconds to run demo	*/
+.s.f
+.i -8;DESCRIPTION:
+.s
+This module contains source for the user-written
+"sample application".  See the documentation for
+dtdemo.c for details.
+.s
+.lm 8.rm 72.nhy
+
+.ps 58,80.lm 8.rm 72
+.ax DTLIB LIBRARY INDEX
+.t  ########DECtalk Support Library (DTLIB)
+.st ########Support Library Index
+.lm 8.rm 72
+.f
+The following is a keyword in context index to the DTLIB runtime library.
+The entry in the left-hand column is the title of the routine in
+the main library documentation.
+.s 2.nf
+.comment turn off flag recognition to allow _ in file names.
+.noflags
+dt_answer                              Answer the telephone     
+sample                          Sample application              
+dt_dump           Dump escape sequence buffer                   
+dt_inkey            a Telephone Keypad Character            Read
+dt_gesc             escape sequence or character            Read
+dt_read               Read sequence or character                
+dt_isvalid       Test for valid keypad character                
+dt_get                        Read one character from DECtalk   
+dt_ioget                      Read one character from DECtalk   
+dt_ioput                     Write one character to DECtalk     
+dt_put                       Write one character to DECtalk     
+dt_dchar                      Dump one character visibly        
+dt_dcs              Send a DECtalk DCS command                  
+dt_msg                  Send a DECtalk command with reply       
+dt_open         terminal               Connect to DECtalk       
+dt_trap                          Trap <CTRL/C> Interrupts       
+dt_dcs                  Send a DECtalk DCS command              
+dt_cmd          terminator        Send DCS w/o string           
+dt_get              one character from DECtalk              Read
+dt_ioget            one character from DECtalk              Read
+dt_sync               Synchronize with DECtalk                  
+dt_eol            Write End of Line to DECtalk                  
+dt_ioput              one character to DECtalk             Write
+dt_put                one character to DECtalk             Write
+dt_dcs                          Send a DECtalk DCS command      
+dt_close                     Terminate DECtalk Operation        
+dt_msg          reply           Send a DECtalk command with     
+dt_init         routine                DECtalk initialization   
+dectlk.h        file                   DECtalk library header   
+dt_test                         Test a DECtalk reply            
+dt_reset                               DECtalk soft reset       
+dt_open                     Connect to DECtalk terminal         
+dt_dial                                Dial the telephone       
+dt_keypad       Keypad       Enable or Disable the Telephone    
+dt_timeout                   Enable or disable keypad timeout   
+dt_drain                               Drain pending input      
+dt_tone                           Send DTMF tones               
+dt_dump         buffer                 Dump escape sequence     
+dt_dchar        visibly                Dump one character       
+dt_keypad       Telephone Keypad       Enable or Disable the    
+dt_timeout      timeout                Enable or disable keypad 
+dt_eol                           Write End of Line to DECtalk   
+dt_pesc                       Transmit escape sequence          
+dt_dump                           Dump escape sequence buffer   
+dt_gesc         character         Read escape sequence or       
+dectlk.h                library header file              DECtalk
+dt_visible      Representation         Generate Visible         
+dt_hangup                              Hangup the telephone     
+dectlk.h               DECtalk library header file              
+dt_init                        DECtalk initialization routine   
+dt_drain                 Drain pending input                    
+dt_trap                  Trap <CTRL/C> Interrupts               
+dt_keypad        Disable the Telephone Keypad          Enable or
+dt_inkey              Read a Telephone Keypad Character         
+dt_isvalid              Test for valid keypad character         
+dt_timeout           Enable or disable keypad timeout           
+dt_istimeout      Test phone reply for keypad timeout           
+dectlk.h                       DECtalk library header file      
+dt_eol                    Write End of Line to DECtalk          
+dt_talk                      Speak one line of text             
+dt_splice                       Manage Local Terminal           
+dtdemo                          Sample main program             
+dt_splice                              Manage Local Terminal    
+dt_phone                  Send a phone message                  
+dt_offhook        Test phone reply for Offhook                  
+dt_get          DECtalk           Read one character from       
+dt_ioget        DECtalk           Read one character from       
+dt_ioput                         Write one character to DECtalk 
+dt_put                           Write one character to DECtalk 
+dt_dchar                          Dump one character visibly    
+dt_talk                          Speak one line of text         
+dt_onhook         Test phone reply for onhook                   
+dt_close             Terminate DECtalk Operation                
+dt_keypad       Keypad          Enable or Disable the Telephone 
+dt_gesc           Read escape sequence or character             
+dt_read                  Read sequence or character             
+dt_timeout      timeout         Enable or disable keypad        
+dt_drain                         Drain pending input            
+dt_phone                        Send a phone message            
+dt_ptest                          Test phone reply              
+dt_offhook                        Test phone reply for Offhook  
+dt_istimeout    timeout           Test phone reply for keypad   
+dt_onhook                         Test phone reply for onhook   
+dtdemo                     Sample main program                  
+dt_inkey        Character              Read a Telephone Keypad  
+dt_gesc         character              Read escape sequence or  
+dt_get          DECtalk                Read one character from  
+dt_ioget        DECtalk                Read one character from  
+dt_read         character              Read sequence or         
+dt_msg            DECtalk command with reply              Send a
+dt_test                 Test a DECtalk reply                    
+dt_ptest                    Test phone reply                    
+dt_offhook                  Test phone reply for Offhook        
+dt_istimeout                Test phone reply for keypad timeout 
+dt_onhook                   Test phone reply for onhook         
+dt_visible            Generate Visible Representation           
+dt_reset                  DECtalk soft reset                    
+dt_init                 initialization routine           DECtalk
+sample                                 Sample application       
+dtdemo                                 Sample main program      
+dt_save                                Save user type-ahead     
+dt_cmd          terminator             Send DCS w/o string      
+dt_tone                                Send DTMF tones          
+dt_st                                  Send String Terminator   
+dt_dcs          command                Send a DECtalk DCS       
+dt_msg          with reply             Send a DECtalk command   
+dt_phone                               Send a phone message     
+dt_pesc                Transmit escape sequence                 
+dt_dump                    Dump escape sequence buffer          
+dt_read                           Read sequence or character    
+dt_gesc                    Read escape sequence or character    
+dt_reset                       DECtalk soft reset               
+dt_talk                                Speak one line of text   
+dt_st                             Send String Terminator        
+dt_cmd                    Send DCS w/o string terminator        
+dt_sync                                Synchronize with DECtalk 
+dt_keypad        Enable or Disable the Telephone Keypad         
+dt_inkey        Character       Read a Telephone Keypad         
+dt_answer                   Answer the telephone                
+dt_dial                       Dial the telephone                
+dt_hangup                   Hangup the telephone                
+dt_splice                 Manage Local Terminal                 
+dt_open             Connect to DECtalk terminal                 
+dt_close        Operation              Terminate DECtalk        
+dt_st                      Send String Terminator               
+dt_cmd             Send DCS w/o string terminator               
+dt_test                                Test a DECtalk reply     
+dt_iskey                               Test for type-ahead      
+dt_isvalid      character              Test for valid keypad    
+dt_ptest                               Test phone reply         
+dt_offhook      Offhook                Test phone reply for     
+dt_istimeout    keypad timeout         Test phone reply for     
+dt_onhook       onhook                 Test phone reply for     
+dt_talk              Speak one line of text                     
+dt_timeout           or disable keypad timeout            Enable
+dt_istimeout          reply for keypad timeout        Test phone
+dt_tone                      Send DTMF tones                    
+dt_pesc                                Transmit escape sequence 
+dt_trap                                Trap <CTRL/C> Interrupts 
+dt_save                      Save user type-ahead               
+dt_iskey                      Test for type-ahead               
+dt_save                           Save user type-ahead          
+dt_isvalid                    Test for valid keypad character   
+dt_visible                    Generate Visible Representation   
+dt_dchar            Dump one character visibly                  
+dt_cmd                        Send DCS w/o string terminator    
+dt_eol          DECtalk                Write End of Line to     
+dt_ioput        DECtalk                Write one character to   
+dt_put          DECtalk                Write one character to   

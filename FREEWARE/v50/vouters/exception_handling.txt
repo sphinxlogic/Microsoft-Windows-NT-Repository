@@ -1,0 +1,239 @@
+/*
+
+                             COPYRIGHT (C) 1996, 2000 BY
+                       COMPAQ COMPUTER CORPORATION, HOUSTON
+                        TEXAS.  ALL RIGHTS RESERVED.
+
+     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+
+     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+
+     COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+
+     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+     ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+
+     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+
+*/
+#ifdef __DECC
+#pragma module exception "V1.0-00"
+#else
+#module exception "V1.0-00"
+#endif
+/*
+
+        PROGRAM NOTES : The call tree is the following:
+        Test_exception -> Call_level_1 -> Call_level_2 -> Call_level_3
+        Call_level_1 establishes an exception handler.Possibles actions
+        from exception handler are :
+                1/ Return to last machine instruction of Call_level_3
+                2/ Return inside Call_level_1 routine [ up-level GOTO ]
+                3/ Unwind stack to return to main level.
+                4/ Not handling the exception  ( resignalling in VMS terms )
+        Note that, as ADDRESS (routine) statement is used,the routine MUST
+        be declared at module level.
+
+        Tested with DECC V5.2 on OpenVMS VAX and ALPHA V6.1, OpenVMS ALPHA
+        V7.0
+
+        Command file used :
+        $ cc exception
+        $ link exception
+        $ run exception
+*/
+
+#include <chfdef.h>
+#include <stdlib.h>
+#include <setjmp.h>
+#include <stdio.h>
+#include <ssdef.h>
+#include <starlet.h>
+#include <signal.h>
+#include <descrip.h>
+#if defined (__ALPHA)
+#include <pdscdef.h>
+#ifndef __NEW_STARLET
+typedef struct pdscdef PDSCDEF;
+#endif
+#endif
+
+#pragma noinline(call_level_3,call_level_2,call_level_1)
+
+#define BOOLEAN unsigned int
+#define TRUE 1
+#define FALSE 0
+/*
+   declare the environment variable used by longjmp in exeption handler
+   and set by setjmp in routine call_level_1.
+*/
+jmp_buf environment_buffer;
+
+BOOLEAN test_exception_handler (void *sigarr,
+                                void *mecharr)
+{
+#define Continue  TRUE
+#define Resignal  FALSE
+
+int Choice;
+#if defined (__ALPHA)
+int *ptr;
+PDSCDEF *call_level_2_pdsc;
+#else
+long int *ptr;
+#endif
+char Choice_buffer[2];
+void call_level_2();
+struct chf$signal_array *signal_args;
+struct chf$mech_array *mech_args;
+unsigned long depth;
+struct message_format {
+      int severity:3;
+      int message_number:13;
+      int facility:12;
+      int cntl:4;
+};
+unsigned int facility;
+$DESCRIPTOR(prefix_descr,"EXC");
+int number_of_args;
+
+signal_args = (struct chf$signal_array *)sigarr;
+mech_args = (struct chf$mech_array *)mecharr;
+if (signal_args->chf$l_sig_name != SS$_UNWIND) {
+          /*
+             Get error text and output it.
+          */
+          ptr= &signal_args->chf$l_sig_arg1;
+          number_of_args = signal_args->chf$l_sig_args;
+          facility = (signal_args->chf$l_sig_name & 0xfff0000) >> 16;
+          if (facility != 0)         /* Not SYSTEM message */
+              signal_args->chf$l_sig_args = signal_args->chf$l_sig_args - 2;
+          (void)sys$putmsg (signal_args,NULL,&prefix_descr);
+          signal_args->chf$l_sig_args = number_of_args;
+          printf ("\nexception at pc= %x;  psl= %x",
+                   ptr[signal_args->chf$l_sig_args-3],
+                   ptr[signal_args->chf$l_sig_args-2]) ;
+       /*
+        Display choice menu.
+       */
+       printf ("\nValid options :") ;
+       printf ("\n1/   Call_level_3 returns a null value to call_level_2") ;
+       printf ("\n2/   Return to call_level_1 after call to call_level_2") ;
+       printf ("\n3/   Return to main program after its call to call_level_1") ;
+       printf ("\n4/   Do not process exception") ;
+       printf ("\nChoice ?:") ;
+       gets(Choice_buffer);
+       Choice =atoi(Choice_buffer);
+       /*
+        Process choice.
+       */
+       switch(Choice) {
+
+        case 1 :
+                /*
+                  Modify pc value to resume just at ret machine instruction
+                  on VAX and the ret r26 on Alpha of call_level_3.Modify
+                  savr0 (savf0 on Alpha) field so that the function returns a
+                  null value. Please note that the code assumes that
+                  Call_level_3 immediatly precedes Call_level_2.
+                */
+
+
+#if defined  (__ALPHA)
+                /* Point to procedure call_level_2 descriptor */
+                call_level_2_pdsc = (PDSCDEF *)&call_level_2;
+
+                mech_args->chf$q_mch_savf0 = 0;
+                /*
+                 * It is assumed that with the compiler's optimization turned
+                 * on, CALL_LEVEL_3 ends with a NOP after the RET R26 just
+                 * before code of Call_level_2 on AXP.
+                 */
+                ptr[signal_args->chf$l_sig_args-3] =
+                                call_level_2_pdsc->pdsc$l_entry - 8;
+
+#else
+                /*
+                 * It is assumed that with the compiler's optimization turned
+                 * on, CALL_LEVEL_3 ends with a RET just before code of
+                 * Call_level_2 on VAX
+                 */
+                mech_args->chf$l_mch_savr0 = 0 ;
+                ptr[signal_args->chf$l_sig_args-3] =(int)(&call_level_2) - 1 ;
+#endif
+                return(Continue) ;
+
+        case 2 :
+                /*
+                 * To return to exception establisher,only use a up-level
+                 * GOTO. (longjmp in C)
+                 * equivalent to sys$unwind (mech_args->chf$l_mch_frame,NULL)
+                */
+                longjmp (environment_buffer,1) ;
+                return(Continue);
+
+        case 3 :
+
+#if defined (__ALPHA)
+
+               depth = mech_args->chf$q_mch_depth+1;
+
+#else
+
+               depth = mech_args->chf$l_mch_depth+1;
+
+#endif
+               (void)sys$unwind (&depth,NULL);
+               return(Continue) ;
+
+        case 4 :return(Resignal) ;
+
+        default :return(Resignal) ;
+
+        } /* end switch */
+     }
+    else  return(Continue);
+}
+
+float call_level_3 (int i, int j)
+{
+printf ("\nentering call_level_3");
+/* i/j with j = 0 causes the integer divide by zero exception */
+return (i/j);
+}
+
+void call_level_2(int i)
+{
+int j,k;
+printf ("\nEntering procedure call_level_2") ;
+k = 0 ;
+j = call_level_3 (i,k) ;
+printf ("\nExiting procedure call_level_2") ;
+}
+
+void call_level_1 ()
+{
+/*
+        Setup an exception handler for program at first call level.
+*/
+   VAXC$ESTABLISH (test_exception_handler) ;
+   printf("\nCall_level_1 calling procedure call_level_2") ;
+   if (setjmp (environment_buffer) == 0)
+             call_level_2 (1) ;
+   printf ("\nCall_level_1 after call to call_level_2") ;
+}
+
+main ()
+{
+printf("\nMain level calling call_level_1") ;
+call_level_1() ;
+printf ("\nMain level after call to call_level_1") ;
+}

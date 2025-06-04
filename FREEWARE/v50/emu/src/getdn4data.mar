@@ -1,0 +1,451 @@
+		.TITLE	GETDN4DATA  
+		.IDENT	/V02-003/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+;	01-001	PB	Creation (Thanks to A.R. for the NCB)
+;	02-001	PB	Added functions for:
+;				Known Logging char
+;				Mod x25-p known DTE char
+;				Mod x25-p known Net
+;				Mod x25-s Known dest
+; 			General tidy up
+; 	02-002	PB	Added counters
+;			Routine now maps to counter section and records
+;			counts for req/resp.
+;	02-003	PB	Added translation of NICE errors to EMU msg
+;			format.
+;++
+;1 GETDN4DATA  
+; Programme to get selected param and counter data from cooperating
+; DECnet IV node.
+;
+;2 Input
+;	Node number	Word by val DECnet address in net fmt
+;	Function	Word by val symbol. 
+;	Output		Long of adddress of desc pointing to output
+; Functions:
+;DN4_W_EXCHAR	32	; Exec Char
+;DN4_W_LICHAR	65313	; Known line Char
+;DN4_W_LGCHAR	65282	; Known logging 
+;DN4_W_CICHAR	65315	; Known Circuits Char
+;DN4_W_KNAREA	65317	; Known Area
+;DN4_W_KNOBJ	65316	; Known objects char
+;DN4_W_EXCNT	48	; Exec Count
+;DN4_W_LICNT	65329	; Known Line Count
+;DN4_W_CICNT	65331	; Known Circuit count
+;DN4_W_KNONOD	65280	; Known nodes
+;DN4_W_ACTNOD	65024	; Active nodes
+;DN4_W_X25DTE	1	; Known DTE char
+;DN4_W_X25DEST	2	; Known Destinations
+;DN4_W_X25NET	3	; Known Networks
+;
+;2 Output
+; The NML formatted block returned by the node
+; The functions are the equivelent of $MC MCP TELL Node Number SHO Function
+;
+;2 Notes
+;   -	Function codes are defined in EMNDN4DEF and are made up of a number 
+; 	of NICE params. The intent is to simplify the call and limit the
+;       options to a few immediately useful returns. 
+;   -	The Output descriptor is modified to reflect the actual len
+;	of returned data. (Low word @P3 is written)
+
+;
+;2 Returns
+;	SS$_NORMAL 	- Data recieved and written
+; Errors:
+;	SS$_BADPARAM 	- Input params error 
+;			- Node number was 0
+;	SS$_ACCVIO	- Cant read inpt or cant write outp
+;	SS$_DATAOVERUN	- Buffer too small to receive response
+;			- 1st part of response may be rec'ed
+;	SS$_ABORT	- Condition Handler was called
+;	Any possible returns from $ASSIGN, $QIO
+;--
+; Data Definitions
+		.PSECT DATA,WRT,NOEXE,QUAD
+
+	.LIBRARY        "SYS$LIBRARY:LIB.MLB"
+      	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+	EMUDN4DEF
+	EMUCNTDEF	
+	EMUMSGDEF
+	$IODEF
+	$SSDEF
+NUM=0
+VER=4
+DECO=0
+UECO=0
+COUNTERS_A:	.QUAD
+NCB_DESC:	.WORD	NCB_LEN
+		.WORD	0
+		.ADDRESS	-
+			NCB
+NCB:		.BLKB	40
+NCB_LEN=<.-NCB>
+IOSB:		.QUAD	0
+NET_CHAN:	.WORD	0
+NET_DEVICE:	.ASCID	/_NET:/
+
+NCB_CTRSTR:	.ASCID	?!UL::"19=/?<NUM><NUM>
+NCB_OPTDATA:	.ASCIC	<VER><DECO><UECO>
+		.BLKB	17-<.-NCB_OPTDATA>
+		.ASCII	/"/
+OPT_LEN=<.-NCB_OPTDATA>
+;
+;
+; Request packet
+	.ALIGN	LONG
+
+REQP_DESC:	.WORD	REQP_LEN
+		.WORD	0
+		.ADDRESS REQP
+
+REQP:		.BYTE	20      ; Function (Read Info)
+FUNC:		.BLKB	23
+REQP_LEN:	.LONG .-REQP
+INTLTIM:	.QUAD    0
+OBJREQ:		.BYTE	^X04,^X14,^X24,^XFF
+DTEREQ:		.BYTE	^X14,^X24,^X0C,^X58,^X32,^X35,^X2D,^X50,-
+			^X52,^X4F,^X54,^X4F,^X43,^X4F,^X4C,^X4C,^X04,^XFF
+DTEREQ_L = .-DTEREQ
+DESTREQ:	.BYTE	^X14,^X04,^X0A,^X58,^X32,^X35,^X2D,-
+			^X53,^X45,^X52,^X56,^X45,^X52,^X2C,^X01,^XFF
+DESTREQ_L = .-DESTREQ
+NETREQ:		.BYTE	^X14,^X04,^X0C,^X58,^X32,^X35,^X2D,^X50,^X52,-
+			^X4F,^X54,^X4F,^X43,^X4F,^X4C,^X56,^X04,^XFF
+NETREQ_L = .-NETREQ
+FIVE_SEC:	.ASCII	/0000 00:00:05.00/
+FIVE_SEC_D:	.LONG	.-FIVE_SEC
+		.ADDRESS  FIVE_SEC
+	.ALIGN	LONG
+; NICE error message table
+; NICE returns error codes as negative numbers in the 1st byte of the 
+; return frame. This routine (if error signaled from below) extracts
+; the byte, converts it to positive and looks up the EMU message to 
+; deliver in the following table. The DECnet node number is converted
+; and passed as 2 params to the message facility.
+ERRORTBL:
+	.LONG	MSG_GETDN4_UNRECG       
+	.LONG	MSG_GETDN4_INVMSG       
+	.LONG	MSG_GETDN4_NOPRIV       
+	.LONG	MSG_GETDN4_TOLONG       
+	.LONG	MSG_GETDN4_REMFAIL      
+	.LONG	MSG_GETDN4_UNRPARM      
+	.LONG	MSG_GETDN4_INCVER       
+	.LONG	MSG_GETDN4_UNRCOM       
+	.LONG	MSG_GETDN4_INVID        
+	.LONG	MSG_GETDN4_LINERR       
+	.LONG	MSG_GETDN4_WROSTA       
+	.LONG	MSG_GETDN4_BADMSG       
+	.LONG	MSG_GETDN4_FILERR       
+	.LONG	MSG_GETDN4_INVFIL       
+	.LONG	MSG_GETDN4_RESERR       
+	.LONG	MSG_GETDN4_INVPAR       
+	.LONG	MSG_GETDN4_PROERR       
+	.LONG	MSG_GETDN4_FILIO        
+	.LONG	MSG_GETDN4_MIRERR       
+	.LONG	MSG_GETDN4_INTBSP       
+	.LONG	MSG_GETDN4_MIRFAL       
+	.LONG	MSG_GETDN4_NOTAPL       
+	.LONG	MSG_GETDN4_TOOBIG       
+	.LONG	MSG_GETDN4_HARDWAR      
+	.LONG	MSG_GETDN4_OPFAIL       
+	.LONG	MSG_GETDN4_NOTSUP       
+	.LONG	MSG_GETDN4_INVGRP       
+	.LONG	MSG_GETDN4_BADLOOP      
+	.LONG	MSG_GETDN4_PARMISS      
+MAXERRNO = 29
+;
+		.PSECT CODE,NOWRT,EXE,LONG
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE,-
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETDN4DATA
+
+	MOVAB	GETDN4DATA_HANDLER,(FP)	; Last Straw
+; Set up counters
+	TSTL	COUNTERS_A
+	BNEQ	5$
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	BLBS	R0,5$
+	RET
+5$:
+
+	TSTL	INTLTIM
+	BNEQ	10$
+	PUSHAL	INTLTIM
+	PUSHAL	FIVE_SEC_D
+	CALLS	#2,G^SYS$BINTIM
+
+10$:
+	PROBER	#0,#2,4(AP)		; Check for read access
+	BEQL	20$			; No
+	PROBER	#0,#2,8(AP)		; Check for read access
+	BEQL	20$			; No
+	PROBER	#0,#4,@12(AP)		; Check for read access
+	BEQL	20$			; No
+        MOVQ	@12(AP),R8		; Get Outp desc
+	PROBEW	#0,R8,(R9)		; Check for write access
+	BNEQ	30$			; OK
+20$:
+	MOVL	#SS$_ACCVIO,R0 		; Signal Error
+	RET				; Die
+30$:
+	TSTW	4(AP)			; Node = 0?
+	BNEQU	35$                     ; No - OK
+	MOVL	#SS$_BADPARAM,R0 		; Signal Error
+	RET				; Die
+35$:
+	MOVC5	#0,0,#0,R8,(R9)         ; Clear outp
+	TSTW	NET_CHAN                ; Have a channel?
+	BNEQU	40$                     ; Yes - skip
+	$ASSIGN_S	CHAN=NET_CHAN,-
+		 	DEVNAM=NET_DEVICE
+	BLBS	R0,40$
+	RET
+40$:
+	BSBW	MAKE_LINK
+60$:
+ 	MOVZWL	8(AP),FUNC              ; Make request
+; Set req & len 
+
+	MOVB	#20,REQP			; Default = read info
+	MOVL	#5,REQP_LEN                     ; Default len
+
+	CMPW	#DN4_W_KNONOD,FUNC
+	BNEQU	61$
+	MOVL	#3,REQP_LEN
+	BRW	SEND_REQUEST
+61$:
+	CMPW	#DN4_W_ACTNOD,FUNC
+	BNEQU	62$
+	MOVL	#3,REQP_LEN
+	BRW	SEND_REQUEST
+62$:
+	CMPW	#DN4_W_LGCHAR,FUNC
+	BNEQU	63$
+	MOVL	#3,REQP_LEN
+	BRW	SEND_REQUEST
+63$:
+	CMPW	#DN4_W_KNOBJ,FUNC
+	BNEQU	64$
+	MOVB	#22,REQP			; System specific 
+	MOVL	OBJREQ,FUNC
+	BRW	SEND_REQUEST
+	
+64$:
+	CMPW	#DN4_W_X25DTE,FUNC
+	BNEQU	65$
+	MOVC5	#DTEREQ_L,DTEREQ,#0,#24,REQP
+	MOVL	#DTEREQ_L,REQP_LEN
+	BRB	SEND_REQUEST
+65$:
+	CMPW	#DN4_W_X25DEST,FUNC
+	BNEQU	66$
+	MOVC5	#DESTREQ_L,DESTREQ,#0,#24,REQP
+	MOVL 	#DESTREQ_L,REQP_LEN
+	BRB	SEND_REQUEST
+66$:
+	CMPW	#DN4_W_X25NET,FUNC
+	BNEQU	67$
+	MOVC5	#NETREQ_L,NETREQ,#0,#24,REQP
+	MOVL 	#NETREQ_L,REQP_LEN
+	BRB	SEND_REQUEST
+67$:
+	CMPW	#DN4_W_LICHAR,FUNC
+	BNEQU	68$
+	MOVL 	#3,REQP_LEN
+	BRB	SEND_REQUEST
+68$:
+	CMPW	#DN4_W_CICHAR,FUNC
+	BNEQU	69$
+	MOVL 	#3,REQP_LEN
+	BRB	SEND_REQUEST
+69$:
+	CMPW	#DN4_W_LICNT,FUNC
+	BNEQU	70$
+	MOVL 	#3,REQP_LEN
+	BRB	SEND_REQUEST
+70$:
+SEND_REQUEST:
+	MOVL	COUNTERS_A,R1
+	INCL	CNT_POL_L_NICEREQ(R1)
+	$QIOW_S	-
+		CHAN=NET_CHAN,-
+		FUNC=#IO$_WRITEVBLK,-   ; Req
+		IOSB=IOSB,-
+		P1=REQP,-
+		P2=REQP_LEN
+	BSBW	ERROR_CHK
+	CLRL	R10			; Return accumulator
+70$:           
+	$SETIMR_S-
+		DAYTIM=INTLTIM,-
+		ASTADR=TIMEOUT             ; AST address
+	$QIOW_S	-
+		CHAN=NET_CHAN,-
+		FUNC=#IO$_READVBLK,-    ; Resp
+		IOSB=IOSB,-
+		P1=(R9),-
+		P2=R8
+	BSBW	ERROR_CHK
+	$CANTIM_S			; Cancel timer
+	MOVL	COUNTERS_A,R1
+	INCL	CNT_POL_L_NICERESP(R1)
+        CMPB	#1,(R9)           	; Single Response?
+	BNEQ 	80$		        ; No - Next check
+	ADDW	IOSB+2,R10		; Add in len last packet rec'ed
+        MOVL	R10,@12(AP)		; Write len returned data
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS
+	MOVL	#SS$_NORMAL,R0          ; Return good resp
+	RET
+80$:
+	TSTB	(R9)                    ; Error?
+	BGTR	90$                     ; No - Br
+	CVTBL	(R9),R0
+	BSBW	NET_ERROR_CHK		; Return net error
+; Assume we have multiple responses (ret .ne. 1 and .gt. 0)
+90$:
+	CMPB	#3,(R9)			; Partial Response?
+	BEQLU	110$			; Yes - Store it
+100$:
+	$SETIMR_S-
+		DAYTIM=INTLTIM,-
+		ASTADR=TIMEOUT             ; AST address
+	$QIOW_S	-
+		CHAN=NET_CHAN,-
+		FUNC=#IO$_READVBLK,-    ; Resp
+		IOSB=IOSB,-
+		P1=(R9),-
+		P2=R8
+	BSBW	ERROR_CHK
+	$CANTIM_S			; Cancel timer
+	MOVL	COUNTERS_A,R1
+	INCL	CNT_POL_L_NICERESP(R1)
+110$:
+        CMPB	#-128,(R9)           	; Multiple Response done?
+	BEQL 	120$		        ; Yes - finish
+	TSTB	(R9)                    ; Error?
+	BGTR	115$                     ; No - Br
+	CVTBL	(R9),R0
+	MOVL	COUNTERS_A,R1
+	INCL	CNT_POL_L_NICEERR(R1)   ; Count error
+	DECL	CNT_POL_L_NICENORESP(R1)  ; Uncount noresponse 
+	BSBW	NET_ERROR_CHK		; Return net error
+115$:
+	CVTWL	IOSB+2,R7               ; Rec byte count
+	ADDL	R7,R10 			; Total bytes rec'ed
+	ADDL	R7,R9			; Move pointer
+	SUBL	R7,R8			; Deduct used part of buffer
+	TSTL	R8			; Any buffer left?
+	BLEQU	117$			; Br if none
+	BRW	100$			; OK - get more
+117$:
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS
+	MOVL	#SS$_DATAOVERUN,R0	; Error
+	RET
+120$:
+	CVTWL	IOSB+2,R7               ; Rec byte count
+	ADDL	R7,R10 			; Total bytes rec'ed
+        MOVL	R10,@12(AP)		; Write len returned data
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS
+	MOVL	#SS$_NORMAL,R0
+	RET
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	CMPL	R0,#SS$_NORMAL
+       	BNEQU	20$	                ; Que error
+	CMPW	IOSB,#SS$_NORMAL        
+       	BNEQU	10$	                ; Returns error 
+	RSB				; No err
+10$:
+	MOVZWL	IOSB,R0			; Error in IOSB
+20$:
+	MOVL	COUNTERS_A,R1
+	INCL	CNT_POL_L_NICENORESP(R1)
+	MOVL	R0,R7                   ; Save error
+	$CANCEL_S	CHAN=NET_CHAN
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS!IO$M_ABORT,-
+		IOSB=IOSB
+	MOVL	R7,R0                   ; Restore error
+	RET
+NET_ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; The NICE error code is in R0
+	MULL	#-1,R0			; Convert to positive
+	DECL	R0			; Make index
+	BLSS	100$			; Br if < 0
+	CMPL	#MAXERRNO,R0
+	BLSS	100$			; Br if unknown msg no
+	MOVAL	ERRORTBL,R1             ; 
+	MOVL	(R1)[R0],R0
+10$:
+	MOVL	R0,R7                   ; Save error
+	MOVL	COUNTERS_A,R1
+	INCL	CNT_POL_L_NICENORESP(R1)
+	$CANCEL_S	CHAN=NET_CHAN
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS!IO$M_ABORT,-
+		IOSB=IOSB
+	MOVL	R7,R0                   ; Restore error
+	RET
+100$:
+	MOVL	#MSG_GETDN4_BADMSG,R0
+	BRB	10$
+MAKE_LINK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	MOVW	#NCB_LEN,NCB_DESC		; Make 1st part NCB
+	$FAO_S	CTRSTR=NCB_CTRSTR,-
+		OUTLEN=NCB_DESC,-
+		OUTBUF=NCB_DESC,-
+		P1=4(AP)
+	BLBS	R0,10$
+	RET
+10$:
+	MOVAL	NCB,R6
+	MOVZWL	NCB_DESC,R7     
+	MOVC3	#OPT_LEN,NCB_OPTDATA,(R6)[R7]	; 2nd part 
+	ADDW2	#OPT_LEN,NCB_DESC
+	$QIOW_S	-
+		CHAN=NET_CHAN,-			; Make link
+		FUNC=#IO$_ACCESS,-
+		IOSB=IOSB,-
+		P2=#NCB_DESC
+	BSBW	ERROR_CHK
+	RSB					; Link OK
+; Condition Handler. 
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETDN4DATA_HANDLER
+	$UNWIND_S			; Unwind Stack
+	MOVL	#SS$_ABORT,R0		; Crash and Burn
+	RET
+
+;		.ENTRY  TIMEOUT,^M<R6>
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TIMEOUT
+	PUSHL	NET_CHAN
+	CALLS	#1,G^SYS$CANCEL
+	RET
+		.END
+

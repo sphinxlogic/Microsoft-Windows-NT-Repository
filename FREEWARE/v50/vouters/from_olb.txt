@@ -1,0 +1,739 @@
+/*
+
+                             COPYRIGHT (C) 2000 BY
+                       COMPAQ COMPUTER CORPORATION, HOUSTON
+                        TEXAS.  ALL RIGHTS RESERVED.
+
+     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+
+     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+
+     COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+
+     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+     ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+
+     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+
+
+  Compile, link as follows:
+
+     $ cc linkopt
+     $ link linkopt
+
+  Define a foreign command:
+
+     $ linkopt :== $disk:[directory]linkopt.exe
+
+  Substitute disk:[directory] by the path where the linkopt executable
+  is located. The syntax is as follows:
+
+     $ linkopt <objectLib> <option/command File> <list of object files>
+
+  Wildcards are only accepted on the list of object files. For example:
+
+     $ linkopt mylib mylib [.CXX_REPOSITARY]*.obj
+
+  This creates or updates mylib.olb and creates mylib.opt and
+  mylib.com from the object files in the [.CXX_REPOSITARY]directory.
+
+  Type the following to create the shareable image if nothing else needs
+  to be changed:
+
+     $ @<command_file>
+
+
+*/
+/*
+ * Include definition files.
+ */
+# include <stsdef.h>
+# include <ssdef.h>
+# include <rmsdef.h>
+# include <rms.h>
+# include <descrip.h>
+# include <eobjrecdef.h>
+# include <lbrdef.h>
+/*
+ * Include standard C files.
+ */
+# include <unixio.h>
+# include <string.h>
+# include <file.h>
+# include <stdio.h>
+# include <stdlib.h>
+# include <ctype.h>
+/*
+ * Include OpenVMS prototype files.
+ */
+# include <starlet.h>
+# include <str$routines.h>
+# include <lib$routines.h>
+# include <lbr$routines.h>
+
+# define MAX_FILE_NAME 256
+
+/*
+ * define the Module Header Subrecords.
+ * See Table B-4 of the OpenVMS Linker Utility Manual
+ */
+# define        EMH$C_MHD       0
+# define        EMH$C_LNM       1
+# define        EMH$C_SRC       2
+# define        EMH$C_TTL       3
+# define        EMH$C_CPR       4
+# define        EMH$C_MTC       5
+# define        EMH$C_GTX       6
+/*
+ * Define the types of GSD Subrecords
+ * See Table B-5 of the OpenVMS Linker Utility Manual
+ */
+# define        EGSD$C_PSC      0
+# define        EGSD$C_SYM      1
+# define        EGSD$C_IDC      2
+# define        EGSD$C_SPSC     5
+# define        EGSD$C_SYMV     6
+# define        EGSD$C_SYMM     7
+# define        EGSD$C_SYMG     8
+/*
+ * Define the field EGSY$W_FLAGS bit offset 0 to 6.
+ * See Page B-19 of the OpenVMS Linker Utility Manual
+ */
+# define        EGSY$V_WEAK     0
+# define        EGSY$V_DEF      1
+# define        EGSY$V_UNI      2
+# define        EGSY$V_REL      3
+# define        EGSY$V_COMM     4
+# define        EGSY$V_VECEP    5
+# define        EGSY$V_NORM     6
+                                                 /* CREATE OPTIONS:        */
+# define        CRE$C_VMSV2     2
+# define        CRE$C_VMSV3     3
+# define        CRE$M_NOCASECMP 1
+# define        CRE$M_NOCASENTR 2
+# define        CRE$M_UPCASNTRY 4
+# define        CRE$C_HLPCASING 6
+# define        CRE$C_OBJCASING 3
+# define        CRE$C_MACTXTCAS 0
+# define        CRE$K_LENGTH    80
+# define        CRE$C_LENGTH    80
+# define        CRE$S_CREDEF    80
+# define        CRE$L_TYPE      0
+# define        CRE$L_KEYLEN    4
+# define        CRE$L_ALLOC     8
+# define        CRE$L_IDXMAX    12
+# define        CRE$L_UHDMAX    16
+# define        CRE$L_ENTALL    20
+# define        CRE$L_LUHMAX    24
+# define        CRE$L_VERTYP    28
+# define        CRE$R_IDXOPT_OVERLAY    32
+# define        CRE$L_IDXOPT    32
+# define        CRE$R_IDXOPT_BITS       32
+# define        CRE$V_NOCASECMP 0
+# define        CRE$V_NOCASENTR 1
+# define        CRE$V_UPCASNTRY 2
+
+#ifdef __DECC
+#pragma extern_model globalvalue
+extern const int LBR$_NORMAL,LBR$_KEYNOTFND;
+#else
+globalvalue int LBR$_NORMAL,LBR$_KEYNOTFND;
+#endif
+
+/*
+ * Define Macros here
+ */
+#define sizeof_ascic(chr) ((chr)+sizeof(char))
+#define BUFFERSIZE 80
+
+typedef struct sdadefs objdef_t;
+typedef struct {
+     unsigned int emh$l_arch1;
+     unsigned int emh$l_arch2;
+     unsigned int emh$l_recsiz;
+     unsigned char emh$b_namlng;
+} eobj$header_t;
+
+#pragma nostandard
+#pragma member_alignment save
+#pragma nomember_alignment
+typedef struct {
+     unsigned short egsy$w_gsdtyp;
+     unsigned short egsy$w_size;
+     union{
+          unsigned egsy$b_other;
+          struct{
+                unsigned char egsy$b_datyp;
+                unsigned char egsy$b_temp;
+                union{
+                     unsigned short egsy$w_flagshort;
+                     struct{
+                        unsigned char egsy$v_weak:1;
+                        unsigned char egsy$v_def:1;
+                        unsigned char egsy$v_uni:1;
+                        unsigned char egsy$v_rel:1;
+                        unsigned char egsy$v_comm:1;
+                        unsigned char egsy$v_vecep:1;
+                        unsigned char egsy$v_norm:1;
+                        unsigned int egsy$reserved:9;
+                     }egsy$w_overlay;
+                } egsy$w_flags;
+                unsigned int esdf$l_value;
+                unsigned int esdf$l_reserved_1;
+                unsigned int esdf$l_code_address;
+                unsigned int esdf$l_reserved_2;
+                unsigned int esdf$l_ca_psindx;
+                unsigned int esdf$l_psindx;
+                unsigned char esdf$b_namlng;
+          }egsy$gsd_symm_overlay;
+     }egps$gsd_overlay;
+} egps$gsd_t;
+#pragma member_alignment restore
+
+#define egps$b_datatyp egps$gsd_overlay.egsy$gsd_symm_overlay.egps$b_datatyp
+#define egsy$w_flagshort \
+egps$gsd_overlay.egsy$gsd_symm_overlay.egsy$w_flags.egsy$w_flagshort
+#define egsy$v_weak \
+egps$gsd_overlay.egsy$gsd_symm_overlay.egsy$w_flags.egsy$w_overlay.egsy$v_weak
+#define egsy$v_def \
+egps$gsd_overlay.egsy$gsd_symm_overlay.egsy$w_flags.egsy$w_overlay.egsy$v_def
+#define egsy$v_uni \
+egps$gsd_overlay.egsy$gsd_symm_overlay.egsy$w_flags.egsy$w_overlay.egsy$v_uni
+#define egsy$v_rel \
+egps$gsd_overlay.egsy$gsd_symm_overlay.egsy$w_flags.egsy$w_overlay.egsy$v_rel
+#define egsy$v_comm \
+egps$gsd_overlay.egsy$gsd_symm_overlay.egsy$w_flags.egsy$w_overlay.egsy$v_comm
+#define egsy$v_vecep \
+egps$gsd_overlay.egsy$gsd_symm_overlay.egsy$w_flags.egsy$w_overlay.egsy$v_vecep
+#define egsy$v_norm \
+egps$gsd_overlay.egsy$gsd_symm_overlay.egsy$w_flags.egsy$w_overlay.egsy$v_norm
+#define esdf$l_value egps$gsd_overlay.egsy$gsd_symm_overlay.esdf$l_value
+#define esdf$l_code_address egps$gsd_overlay.egsy$gsd_symm_overlay.esdf$l_code_address
+#define esdf$l_psindx egps$gsd_overlay.egsy$gsd_symm_overlay.esdf$l_psindx
+#define esdf$l_ca_psindx egps$gsd_overlay.egsy$gsd_symm_overlay.esdf$l_ca_psindx
+#define esdf$b_namlng egps$gsd_overlay.egsy$gsd_symm_overlay.esdf$b_namlng
+#pragma standard
+
+typedef struct  membuf {
+     struct membuf* next;
+     unsigned short flags;
+     unsigned short bufsiz;
+     char       *buffer;
+} membuf_t;
+
+typedef struct queue {
+    int flink;                         /* forward link to next element     */
+    int blink;                         /* back link to previous element    */
+} queue_entry;
+
+typedef struct symbols {
+    queue_entry head;
+    struct dsc$descriptor dsc;
+} symbols_t;
+
+typedef unsigned char ** envbuf_t;
+#ifndef __DECC
+   static queue_entry _align ( quadword ) symbols_header ;
+#else
+#pragma member_alignment save
+#pragma nomember_alignment quadword
+   static queue_entry symbols_header ;
+#pragma member_alignment restore
+#endif
+static queue_entry *head = &symbols_header;
+
+
+
+membuf_t* new_membuf(membuf_t *flist,int size)
+{
+    membuf_t *p;
+
+    if (flist != NULL) {
+        p = flist;
+        flist = p->next;
+    } else {
+        p = (membuf_t*) malloc (sizeof (membuf_t));
+        if (p == 0)
+            lib$stop (SS$_VASFULL);
+        p->buffer = (char*) malloc (size);
+        if (p->buffer == 0)
+            lib$stop (SS$_VASFULL);
+    }
+    p->next     = 0;    /* zeroes fields of interrest */
+    p->bufsiz   = 0;
+    p->flags    = 0;
+    return p;
+}
+
+
+
+void free_membuf (membuf_t* p,membuf_t *flist)
+{
+     p->next = flist;
+     flist = p;
+}
+
+
+
+void locate_globalnames (int opt_fd, objdef_t *objdef_p, int size,
+                        envbuf_t environment, unsigned short *max_index,
+                        int *put_in_library)
+{
+    unsigned char *cp;
+    unsigned char *env_names;
+    int *env_ptr;
+    egps$gsd_t *egps$gsd;
+    unsigned int i;
+
+    while (size > 0) {
+        egps$gsd = (egps$gsd_t *)objdef_p;
+        if (egps$gsd->egsy$w_size == 0) break;
+        if (egps$gsd->egsy$w_gsdtyp == EGSD$C_SYM) {
+            /*
+             * We are only dealing with EGSD$C_SYM subrecords because this
+             * kind of subrecord contains both procedure definitions/references
+             * and data definition/references.
+             */
+            cp = &egps$gsd->esdf$b_namlng;
+            if ((egps$gsd->egsy$v_def) && (!egps$gsd->egsy$v_weak)){
+                 char buff[BUFFERSIZE];
+
+                *put_in_library = 1;
+                env_names = (unsigned char *)malloc(EOBJ$C_MAXRECSIZ+sizeof(int));
+                if (env_names == 0)
+                    lib$stop(SS$_VASFULL);
+                environment[*max_index]=env_names;
+                *max_index+=1;
+                memcpy (env_names,cp,sizeof_ascic(*cp));
+                memset(buff,0,sizeof(buff));
+                strcpy(buff,"symbol_vector=(");
+                strncat(buff,(char*)cp+1,*cp);
+                if (egps$gsd->egsy$v_norm)
+                    strcat(buff,"=procedure)");
+                else
+                    strcat(buff,"=data)");
+                write(opt_fd,buff,strlen(buff));
+            }
+        }
+        cp = (unsigned char *)egps$gsd + egps$gsd->egsy$w_size;
+        size = size - ((int)cp - (int)objdef_p);
+        objdef_p = (objdef_t *)cp;
+    }/* end while */
+    return;
+}
+
+
+
+
+int lookup_secondary_key (struct dsc$descriptor *key_name,
+                                unsigned long *mhdrfa)
+{
+    symbols_t *dsc;
+    char *nam;
+
+    dsc = malloc(sizeof(symbols_t));
+    memcpy (&dsc->dsc,key_name,sizeof(struct dsc$descriptor));
+    nam = malloc (dsc->dsc.dsc$w_length);
+    memcpy (nam,dsc->dsc.dsc$a_pointer,dsc->dsc.dsc$w_length);
+    dsc->dsc.dsc$a_pointer = nam;
+    /* Insert element at tail */
+    (void)lib$insqti (dsc,head,NULL);
+    return (SS$_NORMAL);
+}
+
+
+
+int display_module (struct dsc$descriptor *module_name,unsigned long *mhdrfa)
+{
+printf ("Module %.*s inserted into library ...\n",
+                        module_name->dsc$w_length,module_name->dsc$a_pointer);
+return (SS$_NORMAL);
+}
+
+
+
+
+void insert_library (int library_index, membuf_t list_head,
+                        envbuf_t environment, unsigned short max_index,
+                        unsigned char *module_name, char *buff, char *first,
+                        int comm_fd)
+{
+    int lbr_status,status;
+    int status_lookup_module_key;
+    int i;
+    symbols_t *dsc;
+    membuf_t    *list_p;
+    unsigned char *start;
+    unsigned char *end;
+    unsigned int *env_ptr;
+    unsigned char *ascic_data;
+    $DESCRIPTOR (env_name_descr,"");
+    unsigned long txtrfa[2],oldrfa[2],old_first_rfa[2];
+    $DESCRIPTOR (bufdsc,"");
+    int index;
+
+    /*
+     * Lookup for this module being already in library.
+     * If so delete the key..
+     */
+    index = 1;
+    env_name_descr.dsc$w_length = *module_name;
+    env_name_descr.dsc$a_pointer = (char *)module_name + sizeof(char);
+    lbr_status = lbr$lookup_key (&library_index,&env_name_descr,old_first_rfa);
+    status_lookup_module_key = lbr_status;
+    if ((lbr_status != SS$_NORMAL) && (lbr_status !=  LBR$_KEYNOTFND))
+         lib$stop (lbr_status);
+    if (lbr_status == SS$_NORMAL) {
+        lbr_status = lbr$delete_key(&library_index,&env_name_descr);
+        if (lbr_status != SS$_NORMAL) lib$stop (lbr_status);
+    }
+    /*
+     * Lookup for this module's second index keys being already in library.
+     * If so delete the stored key names.
+     */
+    index = 2;
+    lbr_status = lbr$set_index(&library_index, &index);
+    if (lbr_status != SS$_NORMAL) lib$stop (lbr_status);
+    if (status_lookup_module_key == SS$_NORMAL) {
+        lbr_status = lbr$search(&library_index,&index,old_first_rfa,
+                                  lookup_secondary_key);
+        if ((lbr_status != SS$_NORMAL) && (lbr_status !=  LBR$_KEYNOTFND))
+             lib$stop (lbr_status);
+        if (lbr_status == SS$_NORMAL) {
+            dsc = (symbols_t *)((char *)head + head->flink);
+            while (dsc != (symbols_t *)head) {
+                  lbr_status = lbr$delete_key(&library_index,&dsc->dsc);
+                  if (lbr_status != SS$_NORMAL) lib$stop (lbr_status);
+                  /* Remove element at head of queue */
+                  (void)lib$remqhi (head,dsc,NULL);
+                  free(dsc->dsc.dsc$a_pointer);
+                  free(dsc);
+                  dsc = (symbols_t *)((char *)head + head->flink);
+                  }/* end while */
+            }/* If status == SS$_NORMAL */
+        }/* if status_lookup_module_key */
+
+    /*
+     * After all keys deleted, delete the associated data.
+     */
+    if (status_lookup_module_key == SS$_NORMAL) {
+        lbr_status = lbr$delete_data(&library_index,old_first_rfa);
+        if (lbr_status != SS$_NORMAL) lib$stop (lbr_status);
+    }
+
+    /*
+     * Put/replace object module data into library.
+     * For this, copy each read object record the library
+     */
+    list_p = list_head.next;
+    while (list_p != NULL){
+       bufdsc.dsc$w_length = list_p->bufsiz;
+       bufdsc.dsc$a_pointer = list_p->buffer;
+       lbr_status = lbr$put_record (&library_index,&bufdsc,txtrfa);
+       if (lbr_status != SS$_NORMAL) lib$stop (lbr_status);
+       list_p = list_p->next;
+    }
+    lbr_status = lbr$put_end (&library_index);
+    if (lbr_status != SS$_NORMAL) lib$stop (lbr_status);
+
+
+    /*
+     * Insert/reinsert second level keys
+     */
+    for (i=0;i<max_index;i++) {
+         env_ptr = (unsigned int *)environment[i];
+         start = (unsigned char *)env_ptr;
+         ascic_data = start;
+         /*
+          * Insert all strings into the second index keys.
+          */
+         env_name_descr.dsc$w_length = *ascic_data;
+         env_name_descr.dsc$a_pointer = (char *)ascic_data + sizeof(char);
+         lbr_status = lbr$insert_key (&library_index, &env_name_descr,
+                                        txtrfa);
+         if (lbr_status != SS$_NORMAL) lib$stop (lbr_status);
+    }/* end for */
+
+    /* insert the module name */
+    index=1;
+    env_name_descr.dsc$w_length = *module_name;
+    env_name_descr.dsc$a_pointer = (char *)module_name + sizeof(char);
+    lbr_status = lbr$set_index(&library_index, &index);
+    if (lbr_status != SS$_NORMAL) lib$stop (lbr_status);
+    lbr_status = lbr$insert_key (&library_index, &env_name_descr,
+                                                txtrfa);
+    if (lbr_status != SS$_NORMAL) lib$stop (lbr_status);
+    /*
+     * Write the previous command line and insert module name into buffer.
+     */
+    strcat(buff,"-");
+    write(comm_fd,buff,strlen(buff));
+    if (*first)
+        *first = 0;
+    memset (buff,0,BUFFERSIZE);
+    strncpy(buff,(char *)module_name+1,*module_name);
+
+    /*
+     * display inserted module.
+     */
+    lbr_status = lbr$get_index (&library_index,&index,display_module,
+                                        &env_name_descr);
+    if (lbr_status != SS$_NORMAL) lib$stop (lbr_status);
+}
+
+
+
+void lookup_object (int fd,int opt_fd,int comm_fd, char *buff, char *first,
+                    int library_index, membuf_t *flist,membuf_t list_head)
+{
+    objdef_t    *objdef_p;
+    unsigned char *module_name;
+    struct eobjrecdef *object;
+    eobj$header_t *header;
+    membuf_t    *list_p;
+    membuf_t    *p;
+    int         count = 0;
+    int recordsize = EOBJ$C_MAXRECSIZ;
+    int         put_in_library = 0;
+    unsigned short max_index = 0;
+    envbuf_t    environment;
+
+    environment = (envbuf_t)malloc (65536*sizeof(int));
+    if (environment == 0) lib$stop(SS$_VASFULL);
+    list_p = &list_head;
+    while (1) {
+        list_p->next = new_membuf(flist,recordsize);
+        list_p = list_p->next;
+        list_p->bufsiz = read (fd,list_p->buffer,recordsize);
+        if (list_p->bufsiz == 0)
+           goto error;
+        object = (struct eobjrecdef *)&list_p->buffer[0];
+        switch (object->eobj$w_rectyp){
+          case EOBJ$C_EMH :
+               if ((count == 0) && (object->eobj$w_subtyp == EMH$C_MHD)) {
+                   header = (eobj$header_t *)&object->eobj$w_mhd_recsz;
+                   module_name = &header->emh$b_namlng;
+                   }
+               else if ((count != 0) && (object->eobj$w_subtyp == EMH$C_MHD))
+                   goto error;
+               break;
+          case EOBJ$C_EGSD:
+               objdef_p = (objdef_t*)&object->eobj$w_mhd_recsz;
+               locate_globalnames (opt_fd, objdef_p, list_p->bufsiz,
+                                   environment, &max_index,&put_in_library);
+               break;
+          case EOBJ$C_EEOM:
+               goto put;
+        } /* end switch */
+        count++;
+    }/* end while */
+put:
+    if (put_in_library)
+        insert_library(library_index,list_head,
+                        environment,max_index,module_name,
+                        buff, first,comm_fd);
+    goto end;
+error:
+    printf ("** OBJect file has an invalid format\n");
+end:
+    if (put_in_library)
+        for (count = 0; count <= max_index; count ++)
+             free (environment[count]);
+    free (environment);
+    list_p = list_head.next;
+    while (list_p != NULL) {
+        p = list_p;
+        list_p = list_p->next;
+        free_membuf (p,flist);
+    }
+    list_head.next = NULL;
+    return;
+}
+
+
+
+int main (int argc, char** argv)
+{
+    int         i;
+    char        first = 1;
+    char        buff[BUFFERSIZE];
+    unsigned long status;
+    membuf_t  list_head;
+    membuf_t* flist = NULL;
+    int         fd,opt_fd,comm_fd;
+    char*       fname;
+    unsigned int library_index;
+    unsigned long func;
+    unsigned long type;
+    unsigned long flags;
+    unsigned long context = 0;
+    char        result_name[NAM$C_MAXRSS];
+    $DESCRIPTOR (result_name_d, "");
+    char        file_name[NAM$C_MAXRSS];
+    char        command_name[NAM$C_MAXRSS];
+    char        opt_name[NAM$C_MAXRSS];
+    $DESCRIPTOR (file_name_d, "");
+    $DESCRIPTOR (defname_d, ".OBJ");
+    $DESCRIPTOR (libname_d, ".OLB");
+    struct dsc$descriptor lbr_rns;
+    unsigned long lbr_rnslen;
+    unsigned long options[21] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+
+    options [ CRE$L_TYPE / 4 ] = LBR$C_TYP_EOBJ;  /* ALPHA USER OBJECT LIBRARY    */
+    options [ CRE$L_KEYLEN/4 ] = 31;             /* MAX.  KEY LENGTH KEYS  */
+    options [ CRE$L_ALLOC /4 ] = 100;            /* INITIAL FILE ALLOCATION*/
+    options [ CRE$L_IDXMAX/4 ] = 2;              /* NO. LIBRARY INDEXES    */
+    options [ CRE$L_ENTALL/4 ] = 1211;           /* ENTRIES TO PREALLOCATE */
+
+    options [ CRE$L_LUHMAX/4 ] = 20;             /* MAX HISTORY RECORDS    */
+    options [ CRE$L_VERTYP/4 ] = CRE$C_VMSV3;    /* VMS VERSION 3.0 FORMAT */
+    options [ CRE$L_IDXOPT/4 ] = CRE$C_OBJCASING;/* TREAT CHAR CASE AS IS  */
+
+
+    file_name_d.dsc$w_length = strlen (argv[1]);
+    file_name_d.dsc$a_pointer = argv[1];
+    status = lib$find_file (&file_name_d,
+                            &result_name_d,
+                            &context,
+                            &libname_d);
+    if (status != RMS$_NORMAL)
+        func = LBR$C_CREATE;     /* Create the library */
+    else
+        func = LBR$C_UPDATE;     /* Open the library for update access */
+    type = LBR$C_TYP_EOBJ;        /* ALPHA Object library type */
+
+    lib$find_file_end (&context);
+    status = lbr$ini_control (&library_index,&func,&type,0);
+    if (status != LBR$_NORMAL)
+        lib$stop (status);
+
+    /*
+     * Actually open or create the library using the library index returned by
+     * lbr$ini_control.
+     */
+    lbr_rns.dsc$w_length = MAX_FILE_NAME;
+    lbr_rns.dsc$b_dtype = DSC$K_DTYPE_T;
+    lbr_rns.dsc$b_class = DSC$K_CLASS_S;
+    lbr_rns.dsc$a_pointer = malloc (MAX_FILE_NAME);
+    status = lbr$open (&library_index,&file_name_d,&options,&libname_d,0,
+                                &lbr_rns,&lbr_rnslen);
+    if (status != LBR$_NORMAL)  {
+        printf ("Error opening library %.*s\n",lbr_rnslen,
+                         lbr_rns.dsc$a_pointer);
+        lib$stop (status);
+        }
+    /*
+     * Create the option file.
+     * First parse the second argument and append ".OPT" if not present.
+     */
+    fname = strchr(argv[2],']');
+    if (fname == NULL)
+        fname = argv[2];
+    fname = strchr(fname,'.');
+    strcpy (opt_name,argv[2]);
+    if (fname == NULL) /* no dot found */
+        strcat (opt_name,".OPT");
+
+    opt_fd = creat (opt_name, 744,"ctx=rec","rfm=var","rat=cr");
+    if (opt_fd == -1) {
+        char bufmsg[80];
+        sprintf (bufmsg, "Error creating option file %s", opt_name);
+        perror (bufmsg);
+        exit(0);
+    }
+    /*
+     * Create the DCL command file which will contain the LINK/SHARE command
+     * first parse the option file name. The command file will have the same
+     * name with ".COM" extension.
+     */
+    fname = strchr(argv[2],']');
+    if (fname == NULL)
+        fname = argv[2];
+    fname = strchr(fname,'.');
+    strcpy (command_name,argv[2]);
+    if (fname == NULL) /* no dot found */
+        strcat (command_name,".COM");
+    comm_fd = creat (command_name, 744,"ctx=rec","rfm=var","rat=cr");
+    if (comm_fd == -1) {
+        char bufmsg[80];
+        sprintf (bufmsg, "Error creating command file %s", command_name);
+        perror (bufmsg);
+        exit(0);
+    }
+    /*
+     * Add link/share/exe=exefile opt_name/option,library_name/include=(
+     * For this we must compute the executable file name
+     */
+    fname = strchr(command_name, ']');
+    if (fname == NULL)
+        fname = command_name;
+    fname = strchr(fname, '.');
+    if (fname != NULL)
+        *fname = '\0';
+    strcat (command_name,".EXE");
+    sprintf(buff,"$ link/share/executable=%s %s/option,-",
+                command_name,opt_name);
+    write (comm_fd,buff,strlen(buff));
+    sprintf(buff,"%.*s/include=(",
+                lbr_rnslen,lbr_rns.dsc$a_pointer);
+    /*
+     * Search for all OBJ files specified in the rest of the command
+     */
+    context = 0;
+    for (i = 3; i < argc; i++) {
+        file_name_d.dsc$w_length = strlen (argv[i]);
+        file_name_d.dsc$a_pointer = argv[i];
+        flags = 0;
+        do {
+           result_name_d.dsc$w_length = sizeof (result_name);
+           result_name_d.dsc$a_pointer = result_name;
+           status = lib$find_file (&file_name_d,
+                                   &result_name_d,
+                                   &context,
+                                   &defname_d,
+                                   0, /* related filespec */
+                                   0, /* Status-value */
+                                   &flags);
+           if (status == RMS$_NORMAL){
+               str$trim (&result_name_d,
+                         &result_name_d,
+                         &result_name_d.dsc$w_length);
+               fname = result_name_d.dsc$a_pointer;
+               fname [result_name_d.dsc$w_length] = '\0';
+               fd = open (fname, O_RDONLY|O_EXCL,"rfm=var");
+               if (fd == -1) {
+                    char bufmsg[80];
+                    sprintf (bufmsg, "Error opening object file: %s", fname);
+                    perror (bufmsg);
+                    continue;
+               }
+              printf ("processing file %s\n", fname);
+              lookup_object (fd,opt_fd,comm_fd,buff,&first,
+                                library_index,flist,list_head);
+              (void)close (fd);
+              /* lbr$flush for all but last module */
+              if (i == argc - 2){
+                  status = lbr$flush (&library_index,LBR$C_FLUSHALL);
+                  if (status != LBR$_NORMAL) lib$stop(status);
+                  }
+           }/* end if status == RMS$_NORMAL */
+        } while (status != RMS$_NMF);
+        lib$find_file_end (&context);
+    }
+    strcat(buff,")");
+    write(comm_fd,buff,strlen(buff));
+    close(comm_fd);
+    close(opt_fd);
+    status = lbr$close (&library_index);
+    if (!(status & 1))
+        lib$stop (status);
+    exit (0);
+}

@@ -1,0 +1,128 @@
+1 EMU_CNTPOLL
+   Poller to get counters and process them thru EMU_CNTPRC.
+   This routine handles selected counts available from:
+	MOP
+	SNMP
+	CMIP
+	NICE
+	IPX
+2 COMMON_PROCESSING
+  Scan apropriate DB for devices supporting counters. If supported and 
+  not explicitly removed, call coresponding counter analyser routine
+  to acquire data. If an answer is received, register the counters by
+  passing each counter to CNTPRC. If this is 
+  the 1st time data for this count is received, CNTPRC will assign 
+  a CNTID for further references. Record this CNTID in the CNTPOLL
+  record.
+ Once all DBs have been scanned and all available counters have been
+ registered, scan the CNTPOLL DB and for each entry, call appropriate
+ analyser routine to acquire counts. Pass each count to CNTPOLL.
+ 
+  CNTPRC will return a status that indicates 1 of 3 possiblities:
+	Not enough data: Less than 8 samples stored is not considered
+			 useful for analysis.
+	No problem:      Counter did not exceed any threasholds
+	Problem:	 Counter exceeded at least 1 theashold. The 
+			 threashold(s) exceeded are indicated in the status
+			 as is an integer indicating the amount exceeded.
+			 This integer is to be used as an alert priority.
+2 Overview
+  The counter processing subsystem identifies, acquires, processes and 
+  stores counter information from remote nodes to determine performance
+  of the individual nodes and the net at large. There are a number of
+  phases to this:
+  Idenify:
+	Any node responding on a supported protocol has a default set
+       of counters this system will acquire and process. The default
+	set is propogated to the CNTRPOLL database once the node is 
+	discovered and found to respond to management querries. 
+	While hardcoded at present, it is planned to allow the defaults
+	to managed via the user interface.
+	Again, while not present in this version, the full set of counters
+	available will be presented via the user interface and allow the 
+	operator to select.
+	The only user interaction at present is to prevent the default set
+	from being collected. The user may select (by node and protocol)
+	which set to ignore.
+  Processing:
+	The set of counters is polled for and if received, is pre-processed
+	into EMU standard format - presented as TBL.PARM,Value. Where the 
+	TBL.PARM is the standard quad used in PARAMXLT to display the counter
+	name and the value is ALWAYS unsigned quad.             
+	This set is passed to CTNTRPRC where it is processed into tables,
+	averaged and compared with previous samples. If the current value
+	falls out of the range set for this counter, an alert is generated.
+	See CNTRPRC for detail.
+  Storage:
+	The previous 48 samples are stored as are the calculated ranges.
+	See CNTRPRC for detail.
+2 Database
+ There are 2 databases in the counter processing subsystem:
+	CNTRPOLL.DAT 	(This routine)
+	CNTRPROC.DAT	(see CNTRPRC.MAR for detail)
+   CNTRPOLL.DAT:
+	This database controlls which counters to poll for and provides the 
+	index to CNTRPRC.DAT
+  Protocol:  	A .long corresponding to the EMU defined SYSPID of the 
+		protocol this counter is for
+  Address:	The node address this set of counters is for. It is
+		made up of a  .long size of following address and up to 20 
+		address digits in net format.
+  Entity:	3 .longs identifying the component within the node 
+		this set of counter is for. It is made up of TBL.PRM.INSTANCE
+		where the TBL.PRM is the standard quad used in PARAMXLT 
+		to display the counter and the instance is a protocol 
+		specific identifer used to uniquely identify multiple 
+		instances of the component within the node.
+  IDTBL:	48 entries as follows:
+	TABLE.PARAM  .QUAD EMU defined param id (PARAMXLT) 
+	CNTID	     A unique ID for this counter rec. It is the index to 
+		     CNTRPRC.DAT.
+	Spare		.long to align to 2x .quad
+2 PFM_PROCESS_COUNTS
+  Initalises CTPCFM and calls CNTRPRC for each counter specified in
+ the input call frame. Assumptions:
+	The counter data is in RETURN, specified by RETURN_D
+	The return buffer is formatted according to:
+	tbl.prm.value where tbl.prm are the EMU standard ids of this
+	counter and value is a .quad unsigned integer.
+3 Processing
+  CNTRREC:
+  Polls is incremented
+  If status ($ARG2) is bad, then write alert and exit.
+  If status is good:
+  RESP is incremented and LASRESP is updated with current time.
+ Clear all prot fields in return array. If this counter is present,
+ it will be overwritten with CNTID.
+ For each counter in the return, the IDTBL is scanned and if
+ present:
+ overwrite the prot field with CNTID
+ 
+ Init
+ Alert any returns from CTRPRC
+	
+ 
+3 Inputs
+	.address of CNTRPOLL rec
+	.long	status of get count call (R0)
+3 Outputs
+	CNTPOLL rec is updated with results of poll
+	associated CTRPRC recs are written
+	Alerts may be grnerated
+	
+3 Returns
+	SS$_NORMAL -  All errors are handled by this routine
+	IF P2 (STATUS) not success then it is returned
+2 PFM_GETMOPCNT
+ Gets the MOP counters for the input CNTRPOLL rec and processes them
+ through CNTRPRC.
+3 Inputs
+	.address of CNTRPOLL rec
+3 Outputs
+	CNTPOLL rec is updated with results of poll
+	associated CTRPRC recs are written
+3 Returns
+	SS$_NORMAL -  All errors are handled by this routine
+2 PFM_MOPSCAN
+ Scans MOPBD for new addresses offering counts. Any found are added to 
+ the database.

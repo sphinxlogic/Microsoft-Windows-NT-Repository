@@ -1,0 +1,92 @@
+1 PSRLAT
+ Program to receive LAT frames from Listen, process them and
+ build the internal PSRLAT DB.
+
+2 Database
+	Ethernet (LAT) address
+	LAT Node Name
+	Multicast timer
+	Change flags
+
+3 Multicast_timer
+ This is the number of seconds after which we can expect another service
+ announcement from this node. WHile not yet implemented, this will be used
+ to detect when a LAT node stops sending. (Protocol is down).
+
+3 Change_flags
+       BIT             When Changed
+       0               Node group change
+       1               Node desc change
+       2               Service name change
+       3               Service rating change
+       4               Service desc change
+       5               Service class change
+       6               Undef
+       7               Other param change
+
+ The change flag is a toggle indicating a change in the contents of this 
+ frame from the last one. That is when a change is present, the corresponding
+ bit is toggled. To find which field(s) changed, .XOR. the 
+ current flags with the stored (last) ones. The resulting bit pattern
+ indicates the changed fields according to the table above. 
+ 
+ If any change signaled, set the update flag in the header to indicate
+ to the config monitor to update this record.
+2 LAT_NAME_CHECK
+ The node name is the key to the localy held LAT database supplied by VMS.
+ Thus all changes other than node name can be handled by the LAT poller.
+ This routine checks the LAT name against the stored one when the service 
+ node signals a change. If the name has changed, an alert is issued and the
+ stored name is overwritten with the new one. 
+3 Inputs
+ .address of EBUFF
+ .address of LAT record
+3 Outputs
+ If name in EBUFF does not match the name in LATDB the name in LATDB is 
+ overwritten with the name in EBUFF and the NAMER bit is PTYBITS is 
+ cleared forcing a change to be sent to NAMER
+3 Returns
+  	SS$_NORMAL is always returned.  
+2 LAT_SEND_RELATER   
+ Routine to extract the components , create a relater frame and send it
+ to the relater. The main process detects if any of these components 
+ are missing and if so, the entire record is resent.
+ Input
+	.address of LATDB Rec
+ Output
+	Lat address
+	DECnet address (If appropriate)
+	Ethernet address
+	Name 
+ 	A name frame is formatted
+	as follows:
+	PID	.long protocol id of sending process
+	KEY2	.long key for multiple names 
+	Name	.ascii name
+       The len is the len of the name +8
+ A relater frame is always sent.
+ Return
+	None
+2 LAT_VERIFY_NODNAM   
+ Verifies incomming node name. Name must be:
+	>1<PSR_LAT_C_MAXNAMSIZ  bytes in len
+	Contain only pritable characters
+3 Input
+	.long	 len of name
+	.address name
+3 Output
+	None
+3 Return
+	#SS$_NORMAL	OK
+	#SS$_DATACHECK	Did not pass tests
+2 MAP_LATDB   
+ Routine to create and initialise the LAT db. This is a standard routine
+ that any DB creator execxutes on it's own DB:
+	Acquire exclusive lock on this database. 
+		Fatal error if not granted.
+	Open file - if file not opened used hardcoded defaults.
+	Create section. Fatal error ir we did not CREATE.
+	Initalise with either file contents or defaults
+	Write section size (in pages) to LVB
+	Convert lock to CW
+	That's it!

@@ -1,0 +1,1299 @@
+  	.TITLE	MONHWA
+	.IDENT	/V1.2/
+
+; This program will dump information about all nodes sending a SYSID.  It
+; listens to the Remote Console multicast to gather information about nodes.
+
+; Author = David Gagne
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+
+	$IODEF				;Define I/O functions and modifiers
+	$NMADEF				;Define Network Management parameters
+	$LNMDEF				;Define logical name parameters
+
+
+; Modification history
+;
+;	1.2	David Gagne
+;		04 Allow for three digit device types
+;		03 Display nodes in numerical order after swapping bytes
+;		02 Add more options - display one device, select sort
+;		01 Add many more devices
+;	1.1	David Gagne
+;		01 Add DEQTA device
+;	1.0	David Gagne
+;		01 Initial creation
+
+
+; QIO data structures for the MOP (SYSTEM ID) channel.
+
+; P2 parameter buffer for starting the channel.
+
+SIDPARM:
+	.WORD	NMA$C_PCLI_PTY		; Protocol Type
+		.LONG	^X0260
+	.WORD	NMA$C_PCLI_MCA		; Multicast address
+		.WORD	8
+		.WORD	NMA$C_LINMC_SET
+		.BYTE	^XAB,00,00,02,00,00
+
+SIDPARMLEN = .-SIDPARM
+
+SIDPARMDSC:
+	.LONG		SIDPARMLEN
+	.ADDRESS	SIDPARM
+
+; Read buffer for receiving System IDs
+
+RCVBUF:
+	.BLKB	1504
+
+RCVBUFLEN = .-RCVBUF
+
+; Place to store incoming P5 buffer (the frame header)
+
+RCVP5:
+RCVDA:	.BLKB	6
+RCVSA:	.BLKB	6
+RCVPT:	.BLKB	2
+
+
+; Message structures
+
+; General message buffer
+
+FAODESC:
+FAOLEN:	.LONG		80
+	.ADDRESS	FAOBUF
+FAOBUF:
+	.BLKB		80
+
+HDRMSG1:
+	.ASCID	"MONHWA - Ethernet HWA monitoring program. Version 1.2"
+INPMSG1:
+	.ASCID	"Monitor requests available:"
+INPMSG2:
+	.ASCID	"    1) Display all SYSID messages"
+INPMSG3:
+	.ASCID	"    2) Display SYSID messages from one device type"
+INPMSG4:
+	.ASCID	"    any other input will stop the program"
+INPMSG5:
+	.ASCID	"Sorting methods available:"
+INPMSG6:
+	.ASCID	"    1) Sorted by Hardware Address"
+INPMSG7:
+	.ASCID	"    2) Sorted by Physical Address"
+INPMSG8:
+	.ASCID	"    3) Sorted by Device"
+INPMSG9:
+	.ASCID	"    any other input will stop the program"
+IOMSG:
+	.ASCID	"!/The contents of the 2nd longword in the IOSB is !XL"
+NDMSG:
+	.ASCID	"No device found.  Please define ETH appropriately."
+DNEMSG:
+	.ASCID	"MONHWA complete.  Thank you for your continued support."
+BLNKMSG:
+	.ASCID	""
+
+; Output strings for monitoring all periodic SYSID messages
+
+M1HDR0:
+	.ASCID	"  Monitor output from periodic SYSID messages"
+M1HDR1:
+	.ASCID	"  -------------------------------------------"
+M1HDR2:
+	.ASCID	"    Hardware Address    Device     Physical Address    Node #"
+M1HDR3:
+	.ASCID	"    -----------------   --------   -----------------   -------"
+M1INFO:
+	.ASCID	"                                                             "
+M1HWA:
+	.ASCID	"!XB-!XB-!XB-!XB-!XB-!XB"
+M1DTYP:
+	.ASCID	"!3UB=!AS"
+M1ADDR:
+	.ASCID	"!XB-!XB-!XB-!XB-!XB-!XB"
+M1NODE:
+	.ASCID	"!2UB.!UW    "
+M1NNOD:
+	.ASCID	"       "
+M1NONE:
+	.ASCID	"    There were no SYSID messages found."
+M2HDR:
+	.ASCID	"  Address usage summary"
+M2SUM1:
+	.ASCID	"    Nodes using their hardware address: !4UW"
+M2SUM2:
+	.ASCID	"    Nodes using a DECnet address:       !4UW"
+M2SUM3:
+	.ASCID	"    Nodes using their another address:  !4UW"
+M2SUM4:
+	.ASCID	"    ----------------------------------------"
+M2SUM5:
+	.ASCID	"           Total number of nodes found: !4UW"
+M3HDR1:
+	.ASCID	"  Device usage summary"
+M3HDR2:
+	.ASCID	"    Device    Amount"
+M3HDR3:
+	.ASCID	"    ------    ------"
+M3INFO:
+	.ASCID	"    !5AS     !5UW"
+
+; Running totals for address usage
+
+SUMHWA:	.WORD	0
+SUMDEC:	.WORD	0
+SUMOTH:	.WORD	0
+
+; Strings for various device names
+
+DEV001:	.ASCID	"DEUNA"
+DEV003:	.ASCID	"DECNA"
+DEV005:	.ASCID	"DEQNA"
+DEV011:	.ASCID	"DELUA"
+DEV013:	.ASCID	"MSLAN"
+DEV017:	.ASCID	"DS100"
+DEV021:	.ASCID	"DEBET"
+DEV023:	.ASCID	"DEBNA"
+DEV025:	.ASCID	"PCLAN"
+DEV033:	.ASCID	"DS200"
+DEV035:	.ASCID	"DS500"
+DEV037:	.ASCID	"DELQA"
+DEV039:	.ASCID	"DESVA"
+DEV043:	.ASCID	"DEPCA"
+DEV045:	.ASCID	"LTM  "
+DEV047:	.ASCID	"DESNC"
+DEV060:	.ASCID	"DS300"
+DEV065:	.ASCID	"DEBNI"
+DEV066:	.ASCID	"DEMNA"
+DEV072:	.ASCID	"DP250"
+DEV075:	.ASCID	"DEQTA"
+DEV076:	.ASCID	"LB150"
+DEV104:	.ASCID	"KFE52"
+DEV112:	.ASCID	"LPS20"
+DEV114:	.ASCID	"DWT-1"
+DEVUNK:	.ASCID	"Unkwn"
+DEVMIS:	.ASCID	"Misng"
+
+DEVTBL:	.BYTE	1
+	.WORD	0
+	.ADDRESS	DEV001
+	.BYTE	3
+	.WORD	0
+	.ADDRESS	DEV003
+	.BYTE	5
+	.WORD	0
+	.ADDRESS	DEV005
+	.BYTE	11
+	.WORD	0
+	.ADDRESS	DEV011
+	.BYTE	13
+	.WORD	0
+	.ADDRESS	DEV013
+	.BYTE	17
+	.WORD	0
+	.ADDRESS	DEV017
+	.BYTE	21
+	.WORD	0
+	.ADDRESS	DEV021
+	.BYTE	23
+	.WORD	0
+	.ADDRESS	DEV023
+	.BYTE	25
+	.WORD	0
+	.ADDRESS	DEV025
+	.BYTE	33
+	.WORD	0
+	.ADDRESS	DEV033
+	.BYTE	35
+	.WORD	0
+	.ADDRESS	DEV035
+	.BYTE	37
+	.WORD	0
+	.ADDRESS	DEV037
+	.BYTE	39
+	.WORD	0
+	.ADDRESS	DEV039
+	.BYTE	43
+	.WORD	0
+	.ADDRESS	DEV043
+	.BYTE	45
+	.WORD	0
+	.ADDRESS	DEV045
+	.BYTE	47
+	.WORD	0
+	.ADDRESS	DEV047
+	.BYTE	60
+	.WORD	0
+	.ADDRESS	DEV060
+	.BYTE	65
+	.WORD	0
+	.ADDRESS	DEV065
+	.BYTE	66
+	.WORD	0
+	.ADDRESS	DEV066
+	.BYTE	72
+	.WORD	0
+	.ADDRESS	DEV072
+	.BYTE	75
+	.WORD	0
+	.ADDRESS	DEV075
+	.BYTE	76
+	.WORD	0
+	.ADDRESS	DEV076
+	.BYTE	104
+	.WORD	0
+	.ADDRESS	DEV104
+	.BYTE	112
+	.WORD	0
+	.ADDRESS	DEV112
+	.BYTE	114
+	.WORD	0
+	.ADDRESS	DEV114
+	.BYTE	0
+	.WORD	0
+DEVMSG:	.WORD	0			; Number of missing device IDs
+
+DEVDSC:	.BLKQ	1			; General device name descriptor
+DEVID:	.BLKB	1			; Device ID from SYSID response
+HWA:	.BLKB	6			; Device HWA from SYSID response
+CNTADR:	.BLKL	1			; Address of device counter
+
+; Buffers, variables, and strings for the time control of the program
+
+HOURS:	.BYTE	0			; Storage of requested input
+MINUTES:.BYTE	0
+SECONDS:.BYTE	0
+
+; The following variable are for reading input from the user after prompting.
+
+INPSTRDSC:				; Input buffer descriptor
+	.LONG		0
+	.ADDRESS	INPSTR
+
+INPSTR:	.BLKB		18		; Input buffer
+
+INPSIZ:	.BLKL	1			
+
+; The prompts are defined next.
+
+RPRMT:	.ASCID	"Which monitor request would you like to make: "
+PPRMT:	.ASCID	"Which sorting method would you like: "
+HPRMT:	.ASCID	"How many hours   would you like to monitor: "
+MPRMT:	.ASCID	"How many minutes would you like to monitor: "
+SPRMT:	.ASCID	"How many seconds would you like to monitor: "
+DPRMT:	.ASCID	"Which device (number) would you like displayed: "
+APRMT:	.ASCID	"Enter the address of the node (ex: AA-00-04-00-75-4C): "
+
+ENDTIM:	.BLKQ	1			; Time to end test
+TIME:	.BLKQ	1			; Temporary time buffer
+DTIME:	.ASCID	/0 !2ZB:!2ZB:!2ZB.00/	; String for calculating delta time
+
+; Miscellaneous variables
+
+REQNUM:	.BLKB	1
+SRTNUM:	.BLKB	1
+DEVNUM:	.BLKB	1
+IOSB:	.BLKQ	1			; I/O status block
+
+; Device names
+
+DEVDSC1:.ASCID	'ETH'			; Units to use for test
+DEVDSC2:.ASCID	'ESA0'
+DEVDSC3:.ASCID	'XQA0'
+DEVDSC4:.ASCID	'ETA0'
+DEVDSC5:.ASCID	'XEA0'
+DEVDSC6:.ASCID	'EXA0'
+DEVDSC7:.ASCID	'EZA0'
+
+; Table of pointers to device names
+
+DEVADR:	.ADDRESS	DEVDSC1
+	.ADDRESS	DEVDSC2
+	.ADDRESS	DEVDSC3
+	.ADDRESS	DEVDSC4
+	.ADDRESS	DEVDSC5
+	.ADDRESS	DEVDSC6
+	.ADDRESS	DEVDSC7
+	.LONG	0
+
+; Channels - one for Remote Console
+
+CHNRMC:	.BLKL	1
+
+	.ENTRY	START,^M<>
+
+; Assign the channel to the first device found which is available
+
+	CLRL	R5			; Check each channel name to see if one
+10$:	TSTL	DEVADR(R5)		; is available until one is found: the
+	BEQL	20$			; first name checked is "ETH", a dummy
+	MOVL	DEVADR(R5),R4		; name which can be defined to the
+	$ASSIGN_S-			; device desired if either:
+		DEVNAM=(R4),-		;      1) An unregistered device is used
+		CHAN=CHNRMC		;  or  2) One device is prefered
+	BLBS	R0,ASSIGN_OK		; If success, exit the loop
+	ADDL	#4,R5			; Skip to next device name
+	CMPW	R0,#SS$_NOSUCHDEV	; Was the error "no such device"?
+	BEQL	10$			; If yes, try next device name
+	BRW	ERROR			; Else, exit with error
+
+; No device was found.
+
+20$:	BSBW	BLANK			; No device was found, so say so and
+	PUSHAB	NDMSG			; then exit.
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BRW	EXIT
+
+ASSIGN_OK:
+
+; Start up the channel for listening to SYSID messages.
+
+	$QIOW_S	FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>,-
+		CHAN=CHNRMC,-
+		IOSB=IOSB,-
+		P2=#SIDPARMDSC
+
+	BLBS	R0,START_REQ_OK
+	BRW	ERROR
+
+START_REQ_OK:
+
+	MOVL	IOSB,R0
+	BLBS	R0,START_IO_OK
+	BRW	ERROR
+
+START_IO_OK:
+
+; Print program header
+
+	BSBW	BLANK
+	PUSHAB	HDRMSG1
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+GET_TEST:
+
+; Print the prompt that requests which monitor request the user wants.  This
+; is also the top of the loop that allows the user to make multiple monitor
+; requests.
+
+	BSBW	BLANK
+	PUSHAB	INPMSG1
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	INPMSG2
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	INPMSG3
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	INPMSG4
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	BLANK
+
+; Read the user's input to our prompt for the number of the test to run.
+
+	MOVL	#2,INPSTRDSC		; Set number of bytes to read
+	PUSHAB	INPSIZ			; Push input size parameter
+	PUSHAB	RPRMT			; Push prompt string parameter
+	PUSHAB	INPSTRDSC		; Push String descriptor parameter
+	CALLS	#3,G^LIB$GET_INPUT	; Read the user's input
+
+; Convert the input to a test number.
+
+	CLRL	R1			; Start with zero in test number
+	CLRL	R2			; Clear # of input characters done
+10$:	CMPW	R2,INPSIZ		; Have we processed all the input?
+	BGEQU	12$			; If EQL, yes
+	MOVZBL	INPSTR(R2),R0		; Get an input character
+	SUBL2	#^A/0/,R0		; Convert to a digit
+	MULL2	#^D10,R1		; Shift current decimal digits
+	ADDL2	R0,R1			; Add new digit
+	INCL	R2			; Bump # of input characters done
+	BRB	10$			; Check next character
+
+; Save the request number.  If it's invalid, exit
+
+11$:	BRW	24$
+12$:	MOVB	R1,REQNUM
+	BEQL	11$
+	CMPB	R1,#2
+	BGTRU	11$
+
+; Find out how they want it sorted.
+
+	BSBW	BLANK
+	PUSHAB	INPMSG5
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	INPMSG6
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	INPMSG7
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	CMPB	REQNUM,#2		; If request 2, then skip next message
+	BEQL	13$
+	PUSHAB	INPMSG8
+	CALLS	#1,G^LIB$PUT_OUTPUT
+13$:	PUSHAB	INPMSG9
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	BLANK
+
+; Read the user's input to our prompt for the sorting method.
+
+	MOVL	#2,INPSTRDSC		; Set number of bytes to read
+	PUSHAB	INPSIZ			; Push input size parameter
+	PUSHAB	PPRMT			; Push prompt string parameter
+	PUSHAB	INPSTRDSC		; Push String descriptor parameter
+	CALLS	#3,G^LIB$GET_INPUT	; Read the user's input
+
+; Convert the input to a sorting number.
+
+	CLRL	R1			; Start with zero in test number
+	CLRL	R2			; Clear # of input characters done
+14$:	CMPW	R2,INPSIZ		; Have we processed all the input?
+	BGEQU	20$			; If EQL, yes
+	MOVZBL	INPSTR(R2),R0		; Get an input character
+	SUBL2	#^A/0/,R0		; Convert to a digit
+	MULL2	#^D10,R1		; Shift current decimal digits
+	ADDL2	R0,R1			; Add new digit
+	INCL	R2			; Bump # of input characters done
+	BRB	14$			; Check next character
+
+; Save the sorting method number and if it's not valid, exit.
+
+20$:	MOVB	R1,SRTNUM		; Store the sorting method number
+	BEQL	24$			; If zero, then bad so exit
+	CMPB	R1,#3
+	BGTRU	24$			; If more than 3, then bad so exit
+	BLSSU	25$			; If 1 or 2 then okay
+	CMPB	REQNUM,#2		; If 3 and not request 2, then okay
+	BNEQ	25$
+24$:	BRW	EXIT			; Bad value so exit
+
+; Clear the per-test global variables.
+
+25$:	CLRB	HOURS
+	CLRB	MINUTES
+	CLRB	SECONDS
+	CLRL	NODCNT
+	CLRW	SUMDEC
+	CLRW	SUMHWA
+	CLRW	SUMOTH
+
+; Loop to zero each device total in the device table.
+
+	MOVAB	DEVTBL,R5		; Start at beginning of table
+30$:	TSTB	(R5)			; End of table?
+	BEQL	40$			; If EQL, yes
+	CLRW	1(R5)
+	ADDL	#7,R5			; Skip this entry
+	BRB	30$			; Loop for more devices
+
+; Now perform the appropriate test based on the test number.
+
+40$:	CMPB	REQNUM,#1		; Check if test #1
+	BNEQ	50$			; If NEQ, no
+	BSBW	TEST_1			; Do test
+	BRW	GET_TEST		; Check for another test to run
+50$:	CMPB	REQNUM,#2		; Check if test #2
+	BNEQ	60$			; If NEQ, no
+	BSBW	TEST_2			; Do test
+	BRW	GET_TEST		; Check for another test to run
+
+; Not a supported test, so exit.
+
+60$:	BRW	EXIT			; Not any of above, so exit
+
+
+TEST_1:
+
+; Find out how long they want to listen for SYSID messages and then start
+; listening.
+
+	BSBW	GET_TIME
+	BSBW	BLANK
+	BSBW	SET_TIME
+	BSBW	BLANK
+
+;==========================================================================
+; Print the header
+
+	PUSHAB	M1HDR0
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	M1HDR1
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	BLANK
+
+; Collect SYSID information until we've either filled our data area or until
+; we've listened for the requested amount of time.
+
+	BSBW	COLLECT
+
+; Now print the results and loop for another monitor request.
+
+	BSBW	PRTBL
+	BSBW	PRADR
+	CMPB	#2,REQNUM		; If this is request 2, don't
+	BEQL	10$			; print the device summary
+	BSBW	PRDEV
+10$:	RSB
+
+
+TEST_2:
+
+; Read the user's input to our prompt for the device number.
+
+	BSBW	BLANK
+	MOVL	#3,INPSTRDSC		; Set number of bytes to read
+	PUSHAB	INPSIZ			; Push input size parameter
+	PUSHAB	DPRMT			; Push prompt string parameter
+	PUSHAB	INPSTRDSC		; Push String descriptor parameter
+	CALLS	#3,G^LIB$GET_INPUT	; Read the user's input
+
+; Convert the input to a device number.
+
+	CLRL	R1			; Start with zero in test number
+	CLRL	R2			; Clear # of input characters done
+10$:	CMPW	R2,INPSIZ		; Have we processed all the input?
+	BGEQU	20$			; If EQL, yes
+	MOVZBL	INPSTR(R2),R0		; Get an input character
+	SUBL2	#^A/0/,R0		; Convert to a digit
+	MULL2	#^D10,R1		; Shift current decimal digits
+	ADDL2	R0,R1			; Add new digit
+	INCL	R2			; Bump # of input characters done
+	BRB	10$			; Check next character
+
+; Save the device number and use TEST_1 to finish the rest of this request.
+
+20$:	MOVB	R1,DEVNUM
+	BRW	TEST_1
+
+COLLECT:
+
+; Collect SYSID information until we've either filled our data area or until
+; we've listened for the requested amount of time.
+
+; Check if we've been looping for the requested amount of time.
+
+	$GETTIM_S-			; Get current time
+		TIMADR=TIME
+	CMPL	TIME+4,ENDTIM+4		; Did we look long enough?
+	BEQL	10$			; If equal, need to check low longword
+	BLSSU	20$			; If LSSU, continue
+	RSB				; Else return
+10$:	CMPL	TIME,ENDTIM		; Check low longword
+	BLSSU	20$			; If LSSU, continue
+	RSB				; Else return
+
+; Try to read another SYSID message.
+
+20$:	$QIOW_S	FUNC=#IO$_READVBLK!IO$M_NOW,-
+		CHAN=CHNRMC,-
+		IOSB=IOSB,-
+		P1=RCVBUF,-
+		P2=#RCVBUFLEN,-
+		P5=#RCVP5
+
+	BLBS	R0,RCV_REQ_OK
+	BRW	ERROR
+
+RCV_REQ_OK:
+	MOVZWL	IOSB,R0
+	BLBS	R0,RCV_IO_OK
+	CMPW	R0,#SS$_ENDOFFILE
+	BEQL	COLLECT
+	BRW	ERROR
+
+RCV_IO_OK:
+
+; Check if this is a multicast message.  If not, throw it away and look for
+; another message.  If this is not a SYSTEM ID message, then throw it away.
+
+	BLBC	RCVDA,COLLECT		; Ignore packet if sent to physical
+
+	CMPB	RCVBUF,#7		; Is this a SYSTEM ID message?
+	BNEQ	COLLECT			; If NEQ, no, read another
+
+; Get the information about this node.  If it's not in the table yet, add it.
+; Both the HWA and the physical address must match for it to already be in
+; the table.  This allows us to capture information about nodes that run
+; with multiple physical addresses and physical addresses that run on
+; multiple nodes.
+
+	BSBW	GET_IDHWA		; Get the Device ID and HWA
+	CMPB	HWA,#^XFF		; Was there a HWA?
+	BNEQ	10$			; If yes, continue
+	BRW	COLLECT			; If none, don't list this one
+
+; If we are doing test 2 and if this is the wrong device type, throw the
+; SYSID message away.
+
+10$:	CMPB	#2,REQNUM		; Is this test 2?
+	BNEQ	15$			; If NEQ, no
+	CMPB	DEVID,DEVNUM		; Is this a device we want?
+	BEQL	15$			; If EQL, yes
+	BRW	COLLECT			; Else discard SYSID
+
+15$:	MOVAL	NODTBL,R4		; Get beginning of table
+	MOVL	NODCNT,R5		; Get number of entries to compare
+	BEQL	ADDNODE			; If none yet, just add this one
+
+20$:	CMPL	HWA,(R4)		; HWA match?
+	BNEQ	30$			; If NEQ, no match on this entry
+	CMPW	HWA+4,4(R4)		; HWA match?
+	BNEQ	30$			; If NEQ, no match on this entry
+	CMPL	RCVSA,16(R4)		; PHA match?
+	BNEQ	30$			; If NEQ, no match on this entry
+	CMPW	RCVSA+4,20(R4)		; PHA match?
+	BNEQ	30$			; If NEQ, no match on this entry
+	BRW	COLLECT			; Identical entry, ignore this SYSID
+30$:	ADDL	#NODSIZ,R4		; Get next entry in the table
+	SOBGTR	R5,20$			; Look at more entries
+
+; This is a new SYSID, so add it to the table.
+
+ADDNODE:
+
+	MOVL	HWA,(R4)+		; Add HWA
+	MOVW	HWA+4,(R4)+
+	MOVB	DEVID,(R4)+		; Add device ID
+	TSTB	(R4)+
+	MOVQ	DEVDSC,(R4)+		; Add Device name descriptor
+	MOVL	RCVSA,(R4)+		; Add Physical address
+	MOVW	RCVSA+4,(R4)
+
+	INCW	@CNTADR			; One more of this specific device
+	INCL	NODCNT			; One more node in the table
+	CMPL	NODCNT,#MAXNOD		; Table full?
+	BGEQU	10$			; If EQL, yes, so return
+	BRW	COLLECT			; Else read another SYSID
+10$:	RSB
+
+
+PRTBL:
+
+; Print the results.  If no entries were found, just print that none were
+; found.
+
+	MOVL	NODCNT,R5		; Get the number of nodes
+	BNEQ	10$			; If some exist, print table
+					; else print none found message
+
+;==========================================================================
+; Print the "no nodes found" message
+
+	PUSHAB	M1NONE
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	RSB
+
+;==========================================================================
+; Print the table header
+
+10$:	PUSHAB	M1HDR2
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	M1HDR3
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+20$:	BSBW	GET_NODE		; Get a node
+	MOVL	R2,R4			; Any found?
+	BNEQ	21$			; If NEQ, yes
+	RSB
+
+;==========================================================================
+; Get the hardware address into the table string
+
+21$:	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M1HWA,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=0(R4),-
+		P2=1(R4),-
+		P3=2(R4),-
+		P4=3(R4),-
+		P5=4(R4),-
+		P6=5(R4)
+	MOVQ	R4,-(SP)
+	MOVC3	FAOLEN,FAOBUF,M1INFO+8+4
+	MOVQ	(SP)+,R4
+
+;==========================================================================
+; Get the Ethernet controller ID and name into the table string
+
+	MOVL	#80,FAOLEN
+	MOVQ	8(R4),DEVDSC
+	$FAO_S	CTRSTR=M1DTYP,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=6(R4),-
+		P2=#DEVDSC
+	MOVQ	R4,-(SP)
+	MOVC3	FAOLEN,FAOBUF,M1INFO+8+4+19
+	MOVQ	(SP)+,R4
+
+; If the HWA is the same as the physical address, then the rest of the
+; table string can be left blank.
+
+	CMPL	(R4),16(R4)		; Addresses the same?
+	BNEQ	25$			; If NEQ, no
+	CMPW	4(R4),20(R4)		; Addresses the same?
+	BNEQ	25$			; If NEQ, no
+	MOVQ	R4,-(SP)
+	MOVC5	#0,FAOBUF,#^A' ',#27,M1INFO+8+4+19+11
+	MOVQ	(SP)+,R4
+	INCW	SUMHWA			; Another node using its HWA
+	BRW	29$
+
+;==========================================================================
+; Get the physical address into the table string
+
+25$:	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M1ADDR,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=16(R4),-
+		P2=17(R4),-
+		P3=18(R4),-
+		P4=19(R4),-
+		P5=20(R4),-
+		P6=21(R4)
+	MOVQ	R4,-(SP)
+	MOVC3	FAOLEN,FAOBUF,M1INFO+8+4+19+11
+	MOVQ	(SP)+,R4
+
+;==========================================================================
+; Get the node number in the table string if the PHA is a DECnet address
+
+	CMPL	#^X000400AA,16(R4)	; Is this a DECnet address?
+	BEQL	27$			; If EQL, yes, so print it
+	MOVQ	R4,-(SP)
+	MOVC5	#0,FAOBUF,#^A' ',#7,M1INFO+8+4+19+11+20
+	MOVQ	(SP)+,R4
+	INCW	SUMOTH			; Another node using some other address
+	BRW	29$
+
+27$:	MOVZWL	20(R4),R0
+	BICW	#^XFC00,R0
+	MOVZBL	21(R4),R1
+	ASHL	#-2,R1,R1
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M1NODE,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=R1,-
+		P2=R0
+	MOVQ	R4,-(SP)
+	MOVC3	#7,FAOBUF,M1INFO+8+4+19+11+20
+	MOVQ	(SP)+,R4
+	INCW	SUMDEC			; Another node using a DECnet address
+
+;==========================================================================
+; Print the table string
+
+29$:	PUSHAB	M1INFO
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+;==========================================================================
+	CLRL	8(R4)			; This entry has been printed
+	BRW	20$
+
+
+PRADR:
+
+; Print the address totals.
+
+;==========================================================================
+; Print the header
+
+	PUSHAB	M2HDR
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	BLANK
+
+;==========================================================================
+; Print the SUMS
+
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M2SUM1,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=SUMHWA
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M2SUM2,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=SUMDEC
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M2SUM3,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=SUMOTH
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	M2SUM4
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M2SUM5,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=NODCNT
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	RSB
+
+
+PRDEV:
+
+; Print the device totals.
+
+;==========================================================================
+; Print the header
+
+	PUSHAB	M3HDR1
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	BLANK
+	PUSHAB	M3HDR2
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	M3HDR3
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+;==========================================================================
+; Print the device totals
+
+	MOVAB	DEVTBL,R5		; Start at beginning of table
+
+; Loop printing each device in the device table.
+
+10$:	TSTB	(R5)			; End of table?
+	BEQL	20$			; If EQL, yes
+
+	MOVL	3(R5),R6		; Get the address of the descriptor
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M3INFO,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=R6,-
+		P2=1(R5)
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	ADDL	#7,R5			; Skip this entry
+	BRB	10$			; Loop for more devices
+
+; Now print the number of unknown devices.
+
+20$:	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M3INFO,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=#DEVUNK,-
+		P2=1(R5)
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Now print the number of missing devices.
+
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M3INFO,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=#DEVMIS,-
+		P2=DEVMSG
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	RSB
+
+
+GET_IDHWA:
+
+; Get the node's device ID, device name, and HWA.  This is done by looking
+; at the message received.  The message contains a device ID.  From the
+; device ID, we will select the correct device name.  Upon completion of
+; this routine, DEVID (a byte) will have the device ID and DEVDSC will point
+; to the device name.  The message also contains the hardware address.  Upon
+; completion of this routine, HWA will contain the hardware address or FF
+; in the first byte if none was found.  Another field initialized is the
+; CNTADR field which will contain the address of the counter which should
+; be incremented if this SYSID is unique.
+
+; Look for the Device ID entry in this SYSID message.
+
+	MOVL	#4,R3			; Skip over SYSID header
+
+; Loop through the entries in the SYSID looking for the Device ID entry.
+
+10$:	CMPW	R3,IOSB+2		; Any buffer left to look at?
+	BLSSU	20$			; If LSSU, yes, so look for more
+	BRW	210$			; Else report Device ID missing
+20$:	CMPW	RCVBUF(R3),#^D100	; Is this the device ID entry?
+	BEQL	30$			; If EQL, yes
+	MOVZBL	RCVBUF+2(R3),R1		; Get size of this entry
+	ADDL	#3,R3			; Skip over entry type and size
+	ADDL	R1,R3			; Skip over entry value
+	BRW	10$			; Check next entry
+
+; The Device ID was found.  Store the Device ID and select a device name.
+
+30$:	ADDL	#3,R3			; Skip over Device ID header
+	MOVB	RCVBUF(R3),DEVID	; Store the Device ID
+	MOVAB	DEVTBL,R5		; Start at beginning of table
+
+40$:	TSTB	(R5)			; End of table?
+	BEQL	200$			; If EQL, yes
+	CMPB	DEVID,(R5)+		; Device number match?
+	BEQL	50$			; If EQL, yes
+	ADDL	#6,R5			; Skip to next entry
+	BRB	40$			; Check next entry
+
+; We found a match in the table.
+
+50$:	MOVL	R5,CNTADR		; Save address of counter
+	TSTW	(R5)+			; Skip the device count
+	MOVQ	@(R5),DEVDSC		; Save descriptor
+	BRB	300$
+
+200$:	MOVAL	1(R5),CNTADR		; Save address of counter
+	MOVQ	DEVUNK,DEVDSC		; This is an unknown device
+	BRB	300$
+
+210$:	MOVAL	DEVMSG,CNTADR		; Save address of counter
+	CLRB	DEVID			; No Device ID was found
+	MOVQ	DEVMIS,DEVDSC		; Device ID is missing
+
+; Now look for the Hardware address in the SYSID response.
+
+300$:	MOVL	#4,R3			; Skip over SYSID header
+
+; Loop through the entries in the SYSID looking for the HWA entry.
+
+310$:	CMPW	R3,IOSB+2		; Any buffer left to look at?
+	BLSSU	320$			; If LSSU, yes, so look for more
+	BRW	340$			; Else report HWA missing
+320$:	CMPW	RCVBUF(R3),#^D7		; Is this the HWA entry?
+	BEQL	330$			; If EQL, yes
+	MOVZBL	RCVBUF+2(R3),R1		; Get size of this entry
+	ADDL	#3,R3			; Skip over entry type and size
+	ADDL	R1,R3			; Skip over entry value
+	BRW	310$			; Check next entry
+
+; The HWA was found.  Store the HWA.
+
+330$:	ADDL	#3,R3			; Skip over HWA header
+	MOVL	RCVBUF(R3),HWA		; Store first longword
+	MOVW	RCVBUF+4(R3),HWA+4	; Store last word
+	RSB
+340$:	MOVB	#^XFF,HWA		; Set "no HWA found"
+	RSB
+
+
+GET_TIME:
+
+; Get number of hours to run test for
+
+GET_HOUR:
+	BSBW	BLANK
+	MOVL	#6,INPSTRDSC
+	PUSHAB	INPSIZ
+	PUSHAB	HPRMT
+	PUSHAB	INPSTRDSC
+	CALLS	#3,G^LIB$GET_INPUT
+
+; Convert number of hours
+
+	CLRL	R1
+	CLRW	R2
+NUM_LOOP2:
+	MOVZBL	INPSTR(R2),R0
+	SUBL2	#^A/0/,R0
+	MULL2	#^D10,R1
+	ADDL2	R0,R1
+	INCW	R2
+	CMPW	R2,INPSIZ
+	BLSS	NUM_LOOP2
+	CMPL	R1,#^D23
+	BGTR	GET_HOUR
+	MOVL	R1,HOURS
+
+; Get number of minutes to run test for
+
+GET_MINUTE:
+	MOVL	#6,INPSTRDSC
+	PUSHAB	INPSIZ
+	PUSHAB	MPRMT
+	PUSHAB	INPSTRDSC
+	CALLS	#3,G^LIB$GET_INPUT
+
+; Convert number of minutes
+
+	CLRL	R1
+	CLRW	R2
+NUM_LOOP3:
+	MOVZBL	INPSTR(R2),R0
+	SUBL2	#^A/0/,R0
+	MULL2	#^D10,R1
+	ADDL2	R0,R1
+	INCW	R2
+	CMPW	R2,INPSIZ
+	BLSS	NUM_LOOP3
+	CMPL	R1,#^D59
+	BGTR	GET_MINUTE
+	MOVL	R1,MINUTES
+
+; Get number of seconds to run test for
+
+GET_SECOND:
+	MOVL	#6,INPSTRDSC
+	PUSHAB	INPSIZ
+	PUSHAB	SPRMT
+	PUSHAB	INPSTRDSC
+	CALLS	#3,G^LIB$GET_INPUT
+
+; Convert number of seconds
+
+	CLRL	R1
+	CLRW	R2
+NUM_LOOP4:
+	MOVZBL	INPSTR(R2),R0
+	SUBL2	#^A/0/,R0
+	MULL2	#^D10,R1
+	ADDL2	R0,R1
+	INCW	R2
+	CMPW	R2,INPSIZ
+	BLSS	NUM_LOOP4
+	CMPL	R1,#^D59
+	BGTR	GET_SECOND
+	MOVL	R1,SECONDS
+	RSB
+
+SET_TIME:
+
+; Determine the time to stop the test
+
+; Now put the total time into one string
+
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=DTIME,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=HOURS,-
+		P2=MINUTES,-
+		P3=SECONDS
+
+; Change the ASCII string for the time to a quadword value.
+
+	$BINTIM_S-
+		TIMBUF=FAODESC,-
+		TIMADR=TIME
+	MNEGL	TIME+4,TIME+4
+	MNEGL	TIME,TIME
+	SBWC	#0,TIME+4
+
+; Now get the present time and add the test time to get the end time.
+
+	$GETTIM_S-
+		TIMADR=ENDTIM
+	ADDL	TIME,ENDTIM
+	ADWC	TIME+4,ENDTIM+4
+	RSB
+
+
+GET_NODE:
+
+; Locate the next node in the table to be printed.  We will locate the node
+; using the appropriate sorting mechanism.  Once a node has been displayed
+; (returned), we will zero the device descriptor field.  So when we are
+; looking for the next noe We will skip over nodes that have a zero in their
+; device descriptor field.
+
+	MOVQ	R0,-(SP)		; Save R0 and R1
+	CLRL	R1			; Start our counter at zero
+	CLRL	R0			; Start with no node found
+	MOVAL	NODTBL,R2		; Start at beginning of table
+
+SRT_LOOP:
+	TSTL	8(R2)			; Is this a valid entry?
+	BNEQ	10$			; If NEQ, yes
+	BRW	SRT_NEXT		; Else no
+
+; Use the appropriate sorting mechanism.
+
+10$:	CMPB	SRTNUM,#2
+	BLSS	SRT_1
+	BEQL	SRT_2
+	BRB	SRT_3
+
+; If this is the first entry found, just store it.  Else compare it with the
+; smallest found so far.  Note that we will compare the lowest order byte
+; first and the highest order byte last.  This will display the addresses
+; in the order desired.
+
+SRT_1:	TSTL	R0			; Did we find a node yet?
+	BEQL	20$			; If EQL, no, so save this one
+	CMPB	(R2),(R0)		; Is the new one smaller?
+	BGTRU	SRT_NEXT		; If GTRU, no, so skip this node
+	BLSSU	20$			; If LSSU, yes, so save it
+	CMPB	1(R2),1(R0)		; Is the new one smaller?
+	BGTRU	SRT_NEXT		; If GTRU, no, so skip this node
+	BLSSU	20$			; If LSSU, yes, so save it
+	CMPB	2(R2),2(R0)		; Is the new one smaller?
+	BGTRU	SRT_NEXT		; If GTRU, no, so skip this node
+	BLSSU	20$			; If LSSU, yes, so save it
+	CMPB	3(R2),3(R0)		; Is the new one smaller?
+	BGTRU	SRT_NEXT		; If GTRU, no, so skip this node
+	BLSSU	20$			; If LSSU, yes, so save it
+	CMPB	4(R2),4(R0)		; Is the new one smaller?
+	BGTRU	SRT_NEXT		; If GTRU, no, so skip this node
+	BLSSU	20$			; If LSSU, yes, so save it
+	CMPB	5(R2),5(R0)		; Is the new one smaller?
+	BGEQU	SRT_NEXT		; If GEQU, no, so skip this node
+20$:	MOVL	R2,R0			; Save this as the smallest node
+	BRB	SRT_NEXT
+
+; If this is the first entry found, just store it.  Else compare it with the
+; smallest found so far.  Note that we will compare the lowest order byte
+; first and the highest order byte last.  This will display the addresses
+; in the order desired.
+
+SRT_2:	TSTL	R0			; Did we find a node yet?
+	BEQL	20$			; If EQL, no, so save this one
+	CMPB	21(R2),21(R0)		; Is the new one smaller?
+	BGTRU	SRT_NEXT		; If GTRU, no, so skip this node
+	BLSSU	20$			; If LSSU, yes, so save it
+	CMPB	20(R2),20(R0)		; Is the new one smaller?
+	BGTRU	SRT_NEXT		; If GTRU, no, so skip this node
+	BLSSU	20$			; If LSSU, yes, so save it
+	CMPB	19(R2),19(R0)		; Is the new one smaller?
+	BGTRU	SRT_NEXT		; If GTRU, no, so skip this node
+	BLSSU	20$			; If LSSU, yes, so save it
+	CMPB	18(R2),18(R0)		; Is the new one smaller?
+	BGTRU	SRT_NEXT		; If GTRU, no, so skip this node
+	BLSSU	20$			; If LSSU, yes, so save it
+	CMPB	17(R2),17(R0)		; Is the new one smaller?
+	BGTRU	SRT_NEXT		; If GTRU, no, so skip this node
+	BLSSU	20$			; If LSSU, yes, so save it
+	CMPB	16(R2),16(R0)		; Is the new one smaller?
+	BGEQU	SRT_NEXT		; If GEQU, no, so skip this node
+20$:	MOVL	R2,R0			; Save this as the smallest node
+	BRB	SRT_NEXT
+
+; If this is the first entry found, just store it.  Else compare it with the
+; smallest found so far.
+
+SRT_3:	TSTL	R0			; Did we find a node yet?
+	BEQL	20$			; If EQL, no, so save this one
+	CMPB	6(R2),6(R0)		; Is the new one smaller?
+	BGEQU	SRT_NEXT		; If GEQU, no, so skip this node
+20$:	MOVL	R2,R0			; Save this as the smallest node
+	BRB	SRT_NEXT
+
+; Skip to next node and continue if there are more nodes to look at.
+
+SRT_NEXT:
+	ADDL	#NODSIZ,R2		; Skip to next entry in table
+	INCL	R1			; Bump node counter
+	CMPL	R1,NODCNT		; Are we done?
+	BGEQU	10$			; If GEQU, yes, so exit
+	BRW	SRT_LOOP		; Else loop
+10$:	MOVL	R0,R2			; Return pointer to smallest node
+	MOVQ	(SP)+,R0		; Restore R0 and R1
+	RSB
+
+
+EXIT:
+	BSBW	BLANK
+	PUSHAB	DNEMSG
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	BLANK
+
+	$DASSGN_S-
+		CHAN=CHNRMC
+
+	$EXIT_S
+
+
+BLANK:
+
+; Print blank line
+
+	PUSHAB	BLNKMSG
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	RSB
+
+
+; An error has occured, so print R0 value and 2nd longword of IOSB.
+
+ERROR:	PUSHL	R0			; Pass R0 error code
+	CALLS	#1,RBL$ERCODE		; Print error code
+
+; Print IOSB 2nd longword value in hex
+
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=IOMSG,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=IOSB+4
+
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+	BRW	EXIT			; Now exit normally
+
+	.PAGE
+
+; RBL$ERCODE
+;
+; This subroutine accepts a VMS error code in binary
+; and print the message on the terminal.
+;
+; INPUT:	4(AP) = Error Code
+;
+; OUTPUT:	all registers saved except R0 and R1
+;
+; CALLING SEQ:	PUSHx	error code
+;		CALL_S	#1,RBL$ERCODE
+;
+
+	.ENTRY	RBL$ERCODE,^M<R3,R4>
+
+	MOVL	4(AP),R3		; Get error code
+
+	$GETMSG_S-			; Convert error code to message
+		MSGID=R3,-
+		MSGLEN=ERRMSG_LEN,-
+		BUFADR=ERRMSG_BUF_DESC
+
+	PUSHAB	ERRMSG_BUF_DESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+	RET				; Return to caller
+
+; Structures used to build error message from error code
+
+ERRMSG_BUF_DESC:
+ERRMSG_LEN:
+	.LONG	256
+	.ADDRESS-
+		ERRMSG_BUF
+ERRMSG_BUF:
+	.BLKB	256
+
+
+; Table for information on nodes already found.
+
+; Each entry consists of:
+;
+;	6 bytes of hardware address
+;	1 byte  of DEVICE ID
+;	1 byte  of spare info
+;	8 bytes of DEVICE NAME descriptor
+;	6 bytes of physical address
+;	4 bytes of address of device counter
+
+NODSIZ = 26
+MAXNOD = 1000
+
+NODCNT:	.LONG	0
+NODTBL:	.BLKB	MAXNOD*NODSIZ
+
+	.END	START

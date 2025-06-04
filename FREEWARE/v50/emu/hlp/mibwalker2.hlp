@@ -1,0 +1,83 @@
+1 MIBWALKER2 
+ Programme to provide User interface to SNMP variables
+ User can 'walk' thru a MIB on any cooperating system starting 
+ at an Object ID at specified points. Any MIB is divided into logical sections
+ with each section containing related params and counts. 
+ The user is presented with a menu allowing IP address input, MIB to use,
+ Community string to use and may toggle a log file on and off.
+
+2 MIB_format
+ This is the output from MIB_COMPILE2:
+
+ Field		Offs	len		desc
+ Objid         0         64      .ascic ASN.1 encoded object id             
+ Name          64        64      .ascic Name of the object                  
+ Type          128        4       symbol showing object type   
+ access        132        4       symbol showing access
+ Entry type	136        4	  direct, or table part 
+ tblparms	140	   8	  bit pattern of valid tbl entries
+2 MW_SET_IP_ADDR  
+ Subroutine to get the IP address from the user and set it as the target
+ of SNMP queries. At a later stage this routine will 'hook' dirctly
+ into the PSRIP database and present a menu of available node/addresses.
+2 MW_SET_MIB  
+ Display list of available files: (all files with type .MC2)
+ These are the files that MIB_COMPILE2 produced. Files are displayed
+ in a menu and selection causes that MIB to be used to generate SNMP
+ queries.
+2 MW_SET_COMM_STR  
+ Set the community string. If set this is passed to SNMP.
+ If not the default 'public' is used by GETSNMP.
+2 MW_MIB_ACCESS  
+ Displays all possible entry points to the MIB in a memu. AN entry point
+ is either a directly accessable MIB variable or a table entry point.
+ Selection of any item gets either the item or the entire table and 
+ displays the results. After display, the user may:
+	<CR>	Display the next iten in the MIB
+	<^Z>	Return to the menu.
+ If during the 'MIB walk', an error is returned, the walk terminates and
+ the MIB menu is displayed. This is a feature that will be made a bit more
+ graceful in future.
+3 Help_files
+ MIB_COMPILE1 extracts all text in the DESCRIPTION field in the MIB and
+ produces a VMS help file with the same name as the MIB file input with
+ an extension of .hlp. This file is placed in EMU5_HLP. 
+ In the menu any item can be selected and by hitting the Help key the 
+ corresponding entry will be displayed if:
+	The .hlp file was succesfully placed in a .HLB with the same name
+	and
+  	In the original MIB a corresponding DECSCRIPTION actualy provided
+	a description.  
+2 MW_DISPLAY_ERROR   
+ This routine displays any error a called routine returns
+ Inputs addr of IP Addr, value of Error
+ FMT and display both params then wait for any user input.
+2 DISPLAY_DATA  
+ This routine parses the ans.1 encoded data into printable strings
+ Input is the addr of descriptor pointing to the asn.1 data block.
+ one line /block is printed
+ Inputs: Addr of MIB entry this objid
+	  addr of desc pointing to returned data
+
+ If this is a table, store the addr of the 1st entry in the section for 
+ this table in R8. This will allow the print routine to determine which
+ paramater name is being displayed. At some future time, it may 
+ be allowed to select which params are returned using the bit pattern
+ constructed above. This then can  allow the print routine to find
+ the correct name by skipping those params not set in the pattern.
+2 CVT_ANS1TOINT
+   
+ CONVERT ASN.1 Integer to VMS .quad integer. Note that on a VAX this 
+ may cause incorrect data to be displayed if the caller does not check
+ the high .long. (VAX cannt format .quad integers)
+
+3 inputs
+	Addr of PROCESS_ASN1_TAG outp block
+	addr of asn1 encoded integer
+	addr of outp .quad
+3 returns:
+ 	r0 = normal or overflow
+       .quad converted int 
+3 Status Returns
+ SS$_NORMAL	- OK
+ SS$_INTOVF	- Len > 8 bytes or = 0

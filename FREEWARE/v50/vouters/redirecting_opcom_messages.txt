@@ -1,0 +1,803 @@
+
+This file contains two sample programs that demonstrate the correct
+way to redirect OPER1 OPCOM messages to a TCP/IP server using OpenVMS 
+or DIGITAL UNIX. It contains the C source files for the OPER.C and 
+OPERATOR_SERVER.C programs.
+
+The OPER1.C OPCOM message interceptor runs on OpenVMS only. It forwards
+the OPCOM messages to a TCP/IP server running on either OpenVMS Version
+7.1 with DECThreads or UNIX. The server source file name is OPERATOR_-
+SERVER.C.
+
+******** Source OPER1.C **********
+/*
+ *                             COPYRIGHT (C) 1994 BY
+ *                       DIGITAL EQUIPMENT CORPORATION, MAYNARD
+ *                        MASSACHUSETTS.  ALL RIGHTS RESERVED.
+ *
+ *     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+ *     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+ *     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+ *     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+ *     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+ *
+ *     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+ *     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.
+ *
+ *     DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+ *     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL.
+ *
+ *     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+ *     ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL EQUIPMENT CORPORATION.
+ *
+ *     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY DIGITAL SOFTWARE
+ *     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+ *     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+ */
+/*
+ * This is an OpenVMS Alpha V7.1 OPCOM messages interceptor. It is based
+ * on STARS Article "Example-C Using Pseudoterminal Driver to Capture
+ * OPCOM Messages". The difference is that instead of writing captured
+ * OPCOM messages to a file , it forwards these messages to either a Digital
+ * UNIX or another Digital OpenVMS machine through TCP/IP. This program can
+ * run as a detached process.
+ * In this version, it only intercepts OPER1 messages.
+ * To generate OPER1 messages from an OpenVMS terminal, do the following:
+ * $ REQUEST/TO=OPER1 "Dear operator1, do you receive my test message ?"
+ * Compilation under OpenVMS V7.1,DEC C V5.6
+ * $ CC OPER1
+ * $ LINK OPER1
+ * $ RUN OPER1
+ */
+/*
+ * Include standard C headers.
+ */
+#include <errno.h>
+#include <types.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stddef.h>     /* for the definition of offsetof macro. */
+#ifdef __DECC
+#pragma extern_prefix save
+#pragma extern_prefix "decc$"
+#include <socket.h>
+#include <unixio.h>
+#include <in.h>
+#include <inet.h>
+#include <netdb.h>
+#pragma extern_prefix restore
+#else
+#include <socket.h>
+#include <in.h>
+#include <inet.h>
+#include <unixio.h>
+#include <netdb.h>
+#endif
+/*
+ * Include pure OpenVMS C headers.
+ */
+#include <starlet.h>
+#include <descrip.h>
+#include <psldef.h>
+#include <cmbdef.h>
+#include <lib$routines.h>
+#include <iodef.h>
+#include <ssdef.h>
+#include <lnmdef.h>
+#include <opcdef.h>
+#include <dvidef.h>
+#include <ttdef.h>
+#include <tt2def.h>
+#include <dcdef.h>
+
+#define UNIX_PARTNER "UNIX_PARTNER"
+#define BUFLEN 1024
+#define TCP_NODELAY 0x01
+#define BUFQUO 8*BUFLEN
+
+#ifndef FD_SET
+#ifndef __DECC
+struct fd_set_struct {u_char fds_bits[64/8];};
+typedef struct fd_set_struct fd_set;
+#endif
+#define NFDBITS         sizeof(fd_set)/sizeof (u_char)
+#define FD_SETSIZE      NFDBITS
+#define FD_SET(n, p)    ((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+#define FD_CLR(n, p)    ((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+#define FD_ISSET(n, p)  ((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+#define FD_ZERO(p)      memset((char *)(p), 0,sizeof(*(p)))
+#endif
+
+#ifdef __ALPHA
+#pragma member_alignment save
+#pragma nomember_alignment
+#endif
+
+typedef struct {  /* I/O Status Block */
+    unsigned short status;
+    unsigned short count;
+    unsigned long funcdep;
+} iosb_t;
+
+typedef struct {  /* Standard item for VMS system services */
+    unsigned short length;
+    unsigned short code;
+    void *buffer;
+    unsigned short *retlen;
+} item_t;
+
+typedef struct ast_parameter{
+      unsigned short mbxchan;
+      char *buffer;
+      iosb_t iosb;
+      int s;
+} ast_param_t;
+
+typedef struct buffer_type {
+        short len;
+        char buffer [BUFLEN];
+} buf_type;
+typedef struct ascic{
+       char len;
+       char buffer[256];
+} ascic_t;
+#ifdef __ALPHA
+#pragma member_alignment restore
+#endif
+
+void cleanup (shut, socket)
+int shut ;
+int socket ;
+{
+   int retval ;
+
+   if (shut)
+        {
+        retval = shutdown (socket,2) ;
+        if (retval == -1 )
+           perror ("tcp_client shutdown error") ;
+        }
+   retval = close(socket) ;
+   if (retval)
+        perror ("close error") ;
+}
+
+void create_terminal (unsigned short *pseudoterm_chan,
+                char *term_name){
+   unsigned short PDT_chan;
+   unsigned int inadr[2];
+   int pages = 8*512;
+   iosb_t iosb;
+   int status;
+   char equivalence[256];
+   unsigned short equivlen;
+   item_t itmlst [] = { /* (partially initialized)*/
+                {0, 0, NULL, NULL},
+                {0, 0, NULL,NULL}};
+
+   /*
+    * Create some virtual address for use by the pseudo terminal
+    * for buffer space. Allocate the the maximum required for the
+    * device plus 2 guard pages.
+    */
+   status = lib$get_vm_page (&pages,inadr);
+   if (!(status&1)) lib$signal(status);
+   inadr[0] += 512;
+   inadr[1] = inadr[0] + 6*512;
+   /*
+    * Create the terminal device.
+    */
+   status = ptd$create(&PDT_chan,0,0,0,0,0,0,inadr);
+   if (!(status&1)) lib$signal(status);
+   /*
+    * get its full device name.
+    */
+   itmlst[0].length =  sizeof (equivalence);
+   itmlst[0].code = DVI$_FULLDEVNAM;
+   itmlst[0].buffer = equivalence;
+   itmlst[0].retlen = &equivlen;
+
+   status = sys$getdviw (1,PDT_chan,0,itmlst,&iosb,0,0,0);
+   if (status & 1) status = iosb.status;
+   if (!(status &1)) lib$signal(status);
+   equivalence[equivlen] = 0;
+   /*
+    * Returned obtained values.
+    */
+   *pseudoterm_chan = PDT_chan;
+   strcpy (term_name,equivalence);
+}
+
+
+void set_characteristics(struct dsc$descriptor_s *mailbox_name,
+                         char *equivalence,
+                         ast_param_t *ast_param){
+#ifdef __ALPHA
+#pragma member_alignment save
+#pragma nomember_alignment
+#endif
+   struct {
+        char class,type;
+        short page_width;
+        int charactristics : 24;
+        int page_length : 8;
+        int extended_characteristics;
+        int filler[2];
+   } dev_buffer = { DC$_TERM,DT$_VD,80,
+                    TT$M_ESCAPE|TT$M_LOWER|TT$M_NOBRDCST|TT$M_NOTYPEAHD,
+                    24,
+                    TT2$M_ANSICRT|TT2$M_BRDCSTMBX,0,0};
+#ifdef __ALPHA
+#pragma member_alignment restore
+#endif
+   struct dsc$descriptor_s term = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+   unsigned short tmp_channel;
+   iosb_t iosb;
+   int status;
+   char mailbox_dev[256];
+
+   /*
+    * Create a named mailbox and assign a channel
+    */
+   status = sys$crembx (0,              /* temporary mailbox  */
+                        &ast_param->mbxchan,/* returned mailbox channel */
+                        BUFLEN,         /* maximum size */
+                        BUFQUO,
+                        0,              /* protection mask */
+                        PSL$C_USER,     /* access mode */
+                        mailbox_name,   /* Mailbox logical name */
+                        0,              /* read/write access to the mailbox */
+                        0);             /* Null arg */
+   if (!(status & 1)) lib$signal(status);
+   /*
+    * Associate the terminal with the mailbox.
+    * Don't deassign the superfluous channel. So
+    * the mailbox association will not go away.
+    */
+   term.dsc$w_length = strlen(equivalence);
+   term.dsc$a_pointer = equivalence;
+   status = sys$assign(&term,&tmp_channel,0,mailbox_name,0);
+   if (!(status & 1)) lib$signal(status);
+   /*
+    * Set the device characteristics.
+    */
+   status = sys$qiow(1,tmp_channel, IO$_SETMODE,&iosb,0,0,
+                        &dev_buffer,sizeof(dev_buffer),0,0,0,0);
+   if (status & 1) status = iosb.status;
+   if (!(status &1)) lib$signal(status);
+}
+
+int ast (ast_param_t *ast_param){
+   buf_type message;
+   int flag, status ;
+   fd_set writefds;
+   char *cp;
+
+   /*
+    * Read the broadcast message from OPCOM.
+    */
+   status = sys$qiow(1,ast_param->mbxchan,IO$_READVBLK|IO$M_NOW,
+                        &ast_param->iosb,0,0,
+                        ast_param->buffer,BUFLEN,0,0,0,0);
+   if (status &1) status = ast_param->iosb.status;
+   if (!(status&1)) lib$signal (status);
+   /*
+    * prepare for sending data to remote peer.
+    */
+   flag = 0;
+   FD_ZERO(&writefds);
+   FD_SET(ast_param->s,&writefds);
+   switch (select(ast_param->s+1,NULL,&writefds,NULL,NULL)){
+        case -1: perror ("Select error");
+                 lib$signal(SS$_ABORT) ;
+                 break;
+
+        case 1: /*
+                 * send the message after locating the first percent
+                 * character from OPCOM
+                 */
+                cp = memchr(ast_param->buffer,'%',ast_param->iosb.count);
+                message.len = ast_param->iosb.count - (int)cp +
+                                        (int) ast_param->buffer;
+                memcpy (message.buffer,cp,
+                                message.len);
+                status = send (ast_param->s,(char *)&message,
+                                message.len+sizeof(short),flag) ;
+                if (status < 0)
+                   {
+                   perror ("send error") ;
+                   lib$signal (SS$_ABORT);
+                   }
+                break;
+        default : break ;
+   }/* end switch */
+   /*
+    * Redeclare the AST by issuing a QIO.
+    */
+   status = sys$qiow(2,ast_param->mbxchan,IO$_SETMODE | IO$M_WRTATTN,
+                        &ast_param->iosb,0,0,ast,ast_param,0,0,0,0);
+   if (status &1) status = ast_param->iosb.status;
+   if (!(status&1)) lib$signal (status);
+   return (status);
+}
+
+
+void enable_broadcast_trapping(ast_param_t *ast_param){
+   int status;
+
+   status = sys$qiow(1,ast_param->mbxchan,IO$_SETMODE | IO$M_WRTATTN,
+                       &ast_param->iosb, 0,0, ast,ast_param,0,0,0,0);
+   if (status & 1) status = ast_param->iosb.status;
+   if (!(status &1)) lib$signal(status);
+}
+
+void enable_operator(char *equivalence){
+   struct dsc$descriptor_s term = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+   struct opcdef *opc$terminal;
+   ascic_t *term_name;
+   iosb_t iosb;
+   item_t itmlst [] = { /* (partially initialized)*/
+                {0, 0, NULL, NULL},
+                {0, 0, NULL,NULL}};
+   char *cp;
+   unsigned int unit;
+   int status;
+
+   /*
+    * use $SNDOPR to enable our mailbox as the enabled operator terminal.
+    */
+   opc$terminal = malloc (sizeof(struct opcdef) + 16);
+   cp = (char *)opc$terminal +
+                        offsetof(struct opcdef,opc$w_ms_ounit) +
+                        sizeof(short);
+   term_name = (ascic_t *)cp;
+   opc$terminal->opc$b_ms_type = OPC$_RQ_TERME;
+   opc$terminal->opc$b_ms_enab = 1;
+   opc$terminal->opc$l_ms_mask = OPC$M_NM_OPER1; /* Can OR with other items */
+   /*
+    * Fill it in the counted ascii string of the actual device.
+    */
+   term_name->len = strlen(equivalence);
+   strcpy(term_name->buffer,equivalence);
+   /*
+    * For the OPC$W_MS_OUNIT, the manual suggest to use $getdvi with the
+    * DVI$_UNIT item code.
+    */
+   itmlst[0].length =  sizeof (unit);
+   itmlst[0].code = DVI$_UNIT;
+   itmlst[0].buffer = &unit;
+   itmlst[0].retlen =  0;
+   term.dsc$w_length = term_name->len;
+   term.dsc$a_pointer = term_name->buffer;
+   status = sys$getdviw(0,0,&term,itmlst,&iosb,0,0,0);
+   if (!(status & 1)) lib$signal(status);
+   opc$terminal->opc$w_ms_ounit = (unsigned short) unit;
+   /*
+    * Fill in the term descriptor for the sys$sndopr.
+    */
+   term.dsc$w_length = offsetof(struct opcdef,opc$w_ms_ounit) +
+                        sizeof(short)+sizeof(char) + term_name->len;
+   term.dsc$a_pointer = (char *)opc$terminal;
+
+   /*
+    * Fill it in the counted ascii string of the actual device.
+    */
+   term_name->len = strlen(equivalence);
+   strcpy(term_name->buffer,equivalence);
+   term.dsc$w_length = offsetof(struct opcdef,opc$w_ms_ounit) +
+                        sizeof(short)+sizeof(char) + term_name->len;
+   term.dsc$a_pointer = (char *)opc$terminal;
+   status = sys$sndopr(&term,0);
+   if (!(status & 1)) lib$signal(status);
+}
+void connect_socket(int *s,int argc,char **argv){
+   int socket_1 ;
+   static struct sockaddr_in socket_2_name;
+   int value,status;
+   int retval ;
+   int shut = 0 ;
+   int ia;
+   struct hostent *hp;
+
+   if (argc != 3)
+        {
+        printf ("Usage; OPA0 <port number> <hostname>.\n") ;
+        exit (1) ;
+        }
+   if ((socket_1 = socket (AF_INET, SOCK_STREAM, 0)) == -1)
+        {
+        perror ("socket error") ;
+        exit (1) ;
+        }
+   socket_2_name.sin_family = AF_INET ;
+   socket_2_name.sin_port = htons(atoi(argv[1])) ;
+   /*
+    * Get internet address of host.
+    */
+   ia = (int) inet_addr(argv[2]);
+   if (ia == -1){
+       hp = gethostbyname(argv[2]);
+       if (hp)
+           memcpy ((char *)&ia,(char *)*hp->h_addr_list,hp->h_length);
+        else{
+           printf ("%%OPCOM_CLIENT-F-NOSUCHHOST, Unknown host %s\n",argv[2]);
+           exit(0);
+        }
+   }
+   socket_2_name.sin_addr.s_addr = ia;
+   retval = connect (socket_1,(struct sockaddr *)&socket_2_name,
+                                sizeof(socket_2_name)) ;
+   if (retval){
+        perror ("connect error") ;
+        cleanup (shut, socket_1) ;
+        exit(0);
+        }
+   value = 1;
+   shut = 1;
+   status = setsockopt (socket_1,
+                     IPPROTO_TCP,
+                     TCP_NODELAY,
+                     (char *)&value,
+                     sizeof (value));
+    if (status == -1){
+        perror ("setsockopt error") ;
+        cleanup (shut,socket_1) ;
+        exit(0);
+        }
+   *s = socket_1;
+}
+int main(int argc,char **argv){
+   int status;
+   $DESCRIPTOR (mailbox_name,UNIX_PARTNER);
+   char equivalence[256];
+   unsigned short pseudoterm_chan;
+   ast_param_t *ast_param;
+
+   /*
+    * Allocate ast_param and buffer.
+    */
+   ast_param = malloc (sizeof(ast_param_t));
+   ast_param->buffer = malloc (BUFLEN);
+   /*
+    * Connect to remote peer.
+    */
+   connect_socket(&ast_param->s,argc,argv);
+   /*
+    * Create the pseudo-terminal.
+    */
+   create_terminal (&pseudoterm_chan,equivalence);
+   /*
+    * Set terminal characteristics.
+    */
+   set_characteristics(&mailbox_name,equivalence,ast_param);
+   /*
+    * enable broadcast trapping.
+    */
+    enable_broadcast_trapping(ast_param);
+   /*
+    * Enable OPER1 operator.
+    */
+   enable_operator(equivalence);
+   /*
+    * Hibernate. We will never be awakened.
+    */
+   if(((status = sys$hiber()) &1) != 1)
+       lib$stop(status);
+
+}
+
+*********** Source file OPERATOR_SERVER.C **************
+/*
+ *                             COPYRIGHT (C) 1994 BY
+ *                       DIGITAL EQUIPMENT CORPORATION, MAYNARD
+ *                        MASSACHUSETTS.  ALL RIGHTS RESERVED.
+ *
+ *     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+ *     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+ *     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+ *     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+ *     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+ *
+ *     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+ *     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.
+ *
+ *     DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+ *     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL.
+ *
+ *     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+ *     ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL EQUIPMENT CORPORATION.
+ *
+ *     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY DIGITAL SOFTWARE
+ *     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+ *     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+ */
+/*
+ * This the TCP/IP OPCOM server.
+ * Compilation and link under Digital UNIX:
+ * # cc -o operator_server operator_server.c -pthread
+ * Activation under Digital Unix :
+ * # ./operator_server
+ * Compilation under OpenVMS Alpha V7.1:
+ * $ cc/prefix=all operator_server
+ * link:
+ * $ link operator_server
+ * Activation:
+ * $ run operator_server
+ */
+
+#include  <errno.h>
+#include  <stdio.h>
+#include  <stdlib.h>
+#include  <pthread.h>
+#include  <string.h>
+#ifdef __unix__
+#include  <sys/types.h>
+#include <sys/socket.h>
+#include <fcntl.h>
+#include </sys/include/netinet/in.h>
+#include <netdb.h>
+#include <sys/file.h>
+#include <arpa/inet.h>
+#include <sys/time.h>
+#endif /* #ifdef __unix__ */
+#ifdef __VMS
+#include  <types.h>
+#include  <descrip.h>
+#include  <starlet.h>
+#ifdef __DECC
+#pragma extern_prefix save
+#pragma extern_prefix "DECC$"
+#endif
+#include <unixio.h>
+#include  <socket.h>
+#include  <in.h>
+#include  <netdb.h>             /* change hostent to comply with BSD 4.3 */
+#include  <inet.h>
+#ifdef __DECC
+#pragma extern_prefix restore
+#endif
+#include  <ucx$inetdef.h>       /* INET symbol definitions */
+#endif /* #ifdef __VMS */
+#define AUXSERVER_PORT 5020
+#define BUFLEN 256
+
+#ifndef FD_SET
+#ifndef __DECC
+struct fd_set_struct {u_char fds_bits[64/8];};
+typedef struct fd_set_struct fd_set;
+#endif
+#define NFDBITS         sizeof(fd_set)/sizeof (u_char)
+#define FD_SETSIZE      NFDBITS
+#define FD_SET(n, p)    ((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+#define FD_CLR(n, p)    ((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+#define FD_ISSET(n, p)  ((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+#define FD_ZERO(p)      memset((char *)(p), 0,sizeof(*(p)))
+#endif
+
+
+#ifdef __ALPHA
+#pragma member_alignment save
+#pragma nomember_alignment
+#endif
+
+typedef struct {
+        short len;
+        char buffer [BUFLEN];
+} buf_type;
+#ifdef __ALPHA
+#pragma member_alignment restore
+#endif
+
+typedef struct {
+   pthread_attr_t *attr;
+   pthread_mutex_t *mutex;
+   int rcv_length;
+   int s;
+} arg_t;
+
+cleanup(int sock2)
+{
+  int   retval;
+
+/*
+ * If given, shutdown and close sock2.
+ */
+  retval = shutdown(sock2,2);
+  if (retval == -1)
+    perror ("shutyxxdown");
+
+  retval = close (sock2);
+  if (retval)
+    perror ("close");
+
+} /* end cleanup*/
+
+/*
+ * This is our per socket thread.
+ */
+void *serve_connection (void *ptr){
+  fd_set readmask;
+  int   flag;
+  int   on = 1;
+  int remaining;
+  arg_t *arg =(arg_t *)ptr;
+  int r,retval;
+  buf_type message;
+
+  if (setsockopt(arg->s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof (on)) < 0){
+      pthread_mutex_lock(arg->mutex);
+      perror("error on setsocketopt (SO_REUSEADDR)");
+      pthread_mutex_unlock(arg->mutex);
+      goto out;
+  }
+  for (;;) {
+      arg->rcv_length = 0;
+      remaining = sizeof(short);
+      /* Get length of data sent by remote peer */
+      while (remaining != 0){
+           FD_ZERO(&readmask);
+           FD_SET(arg->s,&readmask);
+
+           /*
+            * Is the socket s readable ? If yes, the bit at position s in
+            * readmask  will be set to one enabling us to receive data from
+            * the remote partner
+            */
+
+           switch(select (arg->s+1,&readmask,NULL,NULL,NULL)){
+              case -1:
+                pthread_mutex_lock(arg->mutex);
+                perror("Socket select error");
+                pthread_mutex_unlock(arg->mutex);
+                goto out;
+              case 0 :
+                pthread_mutex_lock(arg->mutex);
+                fprintf (stderr,"No data received ??\n");
+                pthread_mutex_unlock(arg->mutex);
+                goto out;
+              case 1 :
+                if (FD_ISSET (arg->s,&readmask)) {
+                    /*
+                     * Receive message data length from socket s
+                     */
+
+                    flag = 0;     /* maybe 0 or MSG_OOB or MSG_PEEK */
+                    if ((r = recv(arg->s, (char *)&message.len +arg->rcv_length,
+                                        remaining, flag))< 0){
+                         pthread_mutex_lock(arg->mutex);
+                         perror (" error on read");
+                         pthread_mutex_unlock(arg->mutex);
+                         goto out;
+                    } /* end r = recv */
+                 remaining -= r;
+                 arg->rcv_length += r;
+                 } /* end if FD_ISSET */
+              }/* end switch */
+      }/* end while */
+      arg->rcv_length = 0;
+      remaining = message.len;
+      /*
+       * Get rest of remote opcom message.
+       */
+      while (remaining != 0){
+             /*
+              * Is the socket s readable ? If yes, the bit at position s
+              * in readmask will be set to one enabling us to receive data
+              * from the remote partner
+              */
+           switch(select (arg->s+1,&readmask,NULL,NULL,NULL)){
+                  case -1:
+                          pthread_mutex_lock(arg->mutex);
+                          perror("Socket select error");
+                          pthread_mutex_unlock(arg->mutex);
+                          goto out;
+                  case 0 :
+                          pthread_mutex_lock(arg->mutex);
+                          fprintf (stderr,"No data received ??\n");
+                          pthread_mutex_unlock(arg->mutex);
+                          goto out;
+                  case 1 :
+                          if (FD_ISSET (arg->s,&readmask)) {
+                            /*
+                             * Receive message data length from socket s
+                             */
+
+                              flag = 0;     /* maybe 0 or MSG_OOB or MSG_PEEK */
+                              if ((r = recv(arg->s, message.buffer +
+                                                arg->rcv_length,
+                                                remaining,flag))< 0){
+                                pthread_mutex_lock(arg->mutex);
+                                perror (" error on read");
+                                pthread_mutex_unlock(arg->mutex);
+                                goto out;
+                             } /* end r = recv */
+                          remaining -=r;
+                          arg->rcv_length += r;
+                          } /* end if FD_ISSET */
+           }/* end switch */
+      }/* end while */
+  printf ("%.*s\n",message.len,message.buffer);
+  } /* end for(;;) */
+out:;
+  cleanup (arg->s) ;
+  free(arg->attr);
+  free(arg);
+  return(NULL);
+}
+
+main(argc,argv)
+int     argc;      /* we dont use these in this program */
+char    **argv;
+{
+  int     sock_2;                    /* sockets */
+  struct  sockaddr_in sock2_name;    /* Address struct for socket2.*/
+  struct  hostent hostentstruct;     /* Storage for hostent data.  */
+  struct  hostent *hostentptr;       /* Pointer to hostent data.   */
+  char    hostname[256];             /* Name of local host.        */
+  unsigned int   namelength;
+/*  int drop_option =  60*7*2; */ /* Total live time 2 minutes */
+/*  unsigned int drop_ret; */
+  arg_t *arg;
+  pthread_t dynthread;
+  pthread_mutex_t *mutex;
+
+/*  $DESCRIPTOR(dropdsc,"0 00:07:00.00"); */
+
+  fprintf(stderr," beginning of the program\n ");
+  if ((sock_2 = socket (AF_INET, SOCK_STREAM, 0)) == -1)
+        {
+        perror ("socket error") ;
+        exit (1) ;
+        }
+  sock2_name.sin_family = AF_INET ;
+  sock2_name.sin_port = htons(AUXSERVER_PORT) ;
+  if ((sock2_name.sin_addr.s_addr = htonl(INADDR_ANY)) == -1) exit(2);
+  if (bind (sock_2,(struct sockaddr *)&sock2_name, sizeof (sock2_name))<0){
+      perror ("bind error") ;
+      cleanup (sock_2) ;
+      exit(1);
+  }
+
+
+  if (listen (sock_2, 5) < 0){
+       perror ("listen error") ;
+       cleanup (sock_2) ;
+       exit(2);
+  }
+  mutex = malloc(sizeof(pthread_mutex_t));
+  pthread_mutex_init(mutex,NULL);
+  for (;;){
+      namelength = sizeof (sock2_name);
+      arg = malloc(sizeof (arg_t));
+      arg->mutex = mutex;
+      arg->s = accept (sock_2,(struct sockaddr *)&sock2_name,&namelength) ;
+      if (arg->s == -1){
+          pthread_mutex_lock(mutex);
+          perror ("accept error") ;
+          pthread_mutex_unlock(mutex);
+          cleanup (sock_2);
+          free(arg);
+          pthread_mutex_destroy(mutex);
+          exit(2);
+      }
+      pthread_mutex_lock(mutex);
+      fprintf (stderr,"Client address : %s\n",inet_ntoa(sock2_name.sin_addr)) ;
+      fprintf (stderr,"Client port : %d\n",ntohs(sock2_name.sin_port) ) ;
+      pthread_mutex_unlock(mutex);
+      /* Start the thread that will serve the connection */
+      arg->attr = malloc(sizeof(pthread_attr_t));
+      pthread_attr_init(arg->attr);
+      pthread_attr_setstacksize(arg->attr,PTHREAD_STACK_MIN+BUFSIZ);
+      pthread_attr_setdetachstate(arg->attr,PTHREAD_CREATE_DETACHED);
+      pthread_create(&dynthread,
+                     arg->attr,
+                     serve_connection,
+                     arg);
+   }
+} /* end main */
+/* end of example source code */
+
+
+[R]  UNIX is a registered trademark in the United States and other countries
+     licensed exclusively through X/Open Company Limited.

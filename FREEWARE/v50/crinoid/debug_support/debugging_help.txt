@@ -1,0 +1,240 @@
+COMMON PROBLEMS:
+===============
+Problems starting TENTACLE, STUB, etc: look for text messages
+(unknown message type is usually a text message) in the CRINOID.LOG
+file.   For example, if TENTACLE has a problem with the PERL logicals
+(it needs PERL_ROOT and PERLSHR) it will show up in the CRINOID.LOG
+file.
+----------------------------------------------------------------
+Problems starting CRINOID will show up in a NETSERVER.LOG file in
+your OSU_HTTP home directory.
+
+Proxy problems and nonfunctional proxy accounts generally won't show
+up in the NETSERVER.LOG files; you may need to check $ accounting or
+look at the OSU_HTTP log files.  I've seen situations where you have
+to reboot (!)  to get a proxy definition to "take", but that was
+likely caused by some misconfiguration of the various
+SYS$SYSTEM:*PROXY*.DAT files.
+
+It's useful to log into your HTTP-server account and try things
+like:
+    $ DIR 0::
+and
+    $ DIR 0"HTTP"::
+            ^^^^ or whatever username
+...you should get directories of the HTTP server.
+
+----------------------------------------------------------------
+Script problems: make sure your scripts will run interactively!
+(e.g, "perl myscript.cgi")  and use the -w flag when testing!
+
+It helps to have an OYSTER.CONFIG that defines a log file, and check
+that logfile for messages.  You can set the loglevel to 3 or higher to
+get more verbose output, and any writes to STDERR in your scripts will
+go to the logfile.
+
+Your scripts will be running in a "virgin" process (i.e., without your
+LOGIN.COM having run) so you may need to do some manual setup to be
+able to use utilities beyond what is in Perl (PGPLOT, Databases,
+etc.).  You can use AddENV and AddINC commands in OYSTER.CONFIG to
+import logicals into the script's %ENV and to put directories into the
+script's @INC array, but any defining of logicals/symbols will have to
+be done in TENTACLE.COM.   See TENTACLE.COM for an example of setting
+up PGPLOT.
+
+You might encounter messages like:
+    ERROR while running: Unable to create sub named "*Blah::blah::blah" at /perl/lib...
+These *can* be caused by modules not being preloaded...if they are
+loaded in the process of running OYSTER but not on a preload list then
+they will not be available to the scripts.  (The script won't load
+them because they're "already loaded", but they haven't been imported
+into the Safe:: partition so are not available to the script).  Set
+the OYSTER logging level to 3 and look at the logfile to see what
+modules are there at startup and which are preloaded into the Safe::
+partitions.  Then adjust preloads appropriately.
+
+----digression---
+    There's some trickiness regarding putting things into module namespaces
+    that can also cause the "unable to create sub" error.  If OYSTER creates
+    a symbol:
+        $(safename)::SOME_PACKAGE::SUBPKG::stuff
+    The symbol tables (stashes) for SOME_PACKAGE:: and
+    SOME_PACKAGE::SUBPKG are created.  _BUT_ if this occurs outside the
+    Safe:: partition, the "HvNAME" on these stashes will refer back
+    to the real, true "main::" rather than the Safe:: partition.
+
+    The solution is to do a:
+            $safeptr->init_stash('SOME_PACKAGE::SUBPKG');
+    first, which simple creates a dummy variable using a Safe::reval procedure,
+    thereby creating the symbol tables with the correct HvNAMEs.
+
+    This is how CGI::Carp can be made to function properly...it has an "exit"
+    call that Safe would normally trap.  We first create the symbol tables, then
+    insert an "exit" procedure into the (safename)::CGI::Carp symbol table.
+
+    Note that CGI::Carp should not be preloaded because it overloads
+    the usual Carp symbols that some scripts may want to use.
+
+    CGI should not be preloaded, because of it's tricky export handling and
+    i/o initialization.
+----end digression---
+
+
+You can change preloads for all Tentacles by editing OYSTER's preload
+list near the top of the file.   One can also edit OYSTER.CONFIG to
+change preloads on a per-user basis.
+
+Note that the "modules at startup" will almost certainly change
+between Perl versions, requiring slight changes to the preloads.  And
+I'm sure that I haven't tried all possible modules, so the need for
+some preloads hasn't been encountered yet.
+
+========================================================================
+Script global symbol pollution:
+
+This *shouldn't* be a problem, at least with moderately modern Perls.
+There's a little test script "test_globals.pl" that scans through
+symbols like $^A, $#, etc. to see which are actually "global" (i.e.,
+changes inside a Safe partition persist outside).
+
+Some of these don't matter: $. (the current line number).  But others
+like $\ can make real problems if they get changed by a script and persist.
+
+The SCRIPT.PM module tries to save/restore these globals, but future versions
+of Perl might have some more.  So you can run test_globals.pl and check
+against SCRIPT.PM... NOTE that there are several ways that the globals
+get reset, so just because it's not on the "save_globals" list doesn't
+mean it isn't saved.
+
+========================================================================
+
+It is unlikely that you'll encounter a serious CRINOID/TENTACLE/STUB
+problem that will require running one or more of these programs in the
+VMS debugger.  But if you need to, here's how...
+
+Steps for running CRINOID processes in the debugger:
+----------------------------------------------------------------
+With AUTHORIZE set up an account with the same UIC, home directory,
+etc. the same as your OSU_HTTP server, but with privs:
+
+    LOG_IO, PHY_IO, SYSPRV, SYSNAM, DETACH, WORLD
+    [+IMPERSONATE for VMS7.2 and higher]
+
+OPTION 1:
+If you are going to only run one CRINOID server, and you want that server
+to be "debuggable":
+--------------------------------------------------------------------------
+    Do a FULL shutdown of any existing CRINOID server, to remove installed
+    images.
+
+    Suppose that your OSU_HTTP server runs in account HTTP, and you've just
+    added account DBGHTTP...add a proxy:
+
+        $ MCR AUTHORIZE
+        UAF> ADD/PROXY mynode::HTTP  /DEFAULT=DBGHTTP      !! use your nodename for 'mynode'
+        UAF> SHOW/PROXY *::*
+
+        should then show something like:
+
+        mynode::HTTP
+        DBGHTTP (D)                             HTTP
+
+    (you'll want to set the default back to HTTP after you switch to a non-debug
+    version of CRINOID)
+
+OPTION 2:
+If you are going to run multiple CRINOID servers, for example one being
+a "production" server, and another for debugging:
+---------------------------------------------------------------------
+    As an example, the process name of the debug-CRINOID will be "CRINOID2"
+    that listens to DECNET service WWWPERL2.  It should be installed in a
+    separate directory from the main server.
+
+    You don't need a full shutdown...just shut down any previous CRINOID2
+    servers by using @SHUTDOWN DEINSTALL in the CRINOID2 installation directory.
+
+    Create a proxy, but it doesn't have to be default:
+
+        $ MCR AUTHORIZE
+        UAF> ADD/PROXY mynode::HTTP  DBGHTTP        !! use your nodename for 'mynode'
+        UAF> SHOW/PROXY *::*
+
+        should then show something like:
+
+        mynode::HTTP
+        HTTP(D)                             DBGHTTP
+
+    In your WWW_SYSTEM:HTTP_SCRIPTS.CONF file, put an exec rule something like:
+
+       exec /cgi/*            0::"0=WWWPERL"nl:                   ! normal
+       exec /cgi2/*           0"DBGHTTP"::"0=WWWPERL2"nl:         ! extra, for debugging
+
+    The result will be that while "normal" CGI urls (http://mynode.etc.net/cgi/...)
+    get serviced by the "normal" CRINOID, urls like http://mynode.etc.net/cgi2/...
+    are handed to CRINOID2, running in the DBGHTTP account.   You'll have to put WWWPERL2.COM
+    into the WWW_ROOT:[000000] directory, which the INSTALL procedure prompts you to do.
+
+
+Then, in both options:
+---------------------
+
+Build and install a debug version of the code:
+
+    @CONFIGURE     with "VMS-debug" option, UIC for the new acct,
+                   set process name and decnet service name if doing OPTION2.
+    @BUILD CLEAN   if previous "nodebug" build was done
+    @BUILD
+    @INSTALL       and copy WWWPERL*.COM if it's changed/new
+
+Note that if you do a @STARTUP of CRINOID, there will be complaints
+about installing images linked "/TRACEBACK".  That's good, you don't
+want them installed.  But you do want to make sure that the old images
+are deinstalled.
+
+Copy the debug support files (in this directory) to the CRINOID installation
+directory:
+
+    COPY *.INI  disk:[directory]
+    COPY *.COM  disk:[directory]
+
+Because CRINOID and TENTACLE need to respond to connection requests
+in a timely manner (or the net connections get wiped out), it's a
+good idea to get them up to speed quickly when debugging.
+
+Sometimes that means setting your breakpoints etc. in the .INI
+file and having the program "go" initially.  (It takes two "go"s
+to actually run; the default .INI's supply one of them).
+
+The DO_DEBUG procedure is to make it easy to set debugging output.
+For detached/network processes, the best bet is to have debugging
+be directed to a DEC- or X-windows display.
+
+Do a @DO_DEBUG and give it the IP# or node name of the X-display
+you want to use for debugging, and answer the questions for which
+programs you want to debug (CRINOIDLOG, CRINOID, TENTACLE).
+If these processes are currently running, you'll have to shut
+them down, and new processes will get the debugging settings.
+
+DEBUG LOGGING:
+=============
+The command files CRINOID.COM and TENTACLE.COM have logging levels
+and flags that can be set prior to running the executables.  The
+`higher' the level, the more things get logged.  There are several
+`flags' (MS bits in the loglevel) that turn on logging from various
+parts of the programs.  The logging from CRINOID and TENTACLE gets
+sent to CRINOIDLOG which writes it to CRINOID.LOG.
+
+The log level changes made in the command files will take effect the
+next time the program is run... you can stop/id the old ones, or
+use @SHUTDOWN.   Log level changes made via the "control" cgi
+interface take effect immediately.
+
+The NEWLOG.COM procedure starts a new CRINOID.LOG file, letting you
+view/edit the old one more easily.
+
+Note that if you run more than one CRINOID, the first one started will
+start the CRINOIDLOG process which will then be used by all the CRINOIDs
+and TENTACLES.  If you do a @SHUTDOWN FULL (for any of the CRINOIDs) it
+will also shut down CRINOIDLOG, which will be a problem for any remaining
+CRINOIDS.  So do @SHUTDOWN DEINSTALL for all CRINOIDS but the last one,
+which gets a @SHUTDOWN FULL.

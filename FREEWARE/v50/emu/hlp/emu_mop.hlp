@@ -1,0 +1,183 @@
+1 EMU_MOP   
+ Collection of routines used to process Digital MOP protocols. 
+ See individual routines for descriptions
+2 MOP_GETDATA
+ Routine to manage the single MOP channel available between processes
+ attempting to use it. 
+3 Input
+	.long	function
+ 	.address of 6 byte Ethernet address in network format
+	.address of desc pointing to output block
+3 Output
+	The output block is written with the response from the
+	remote system.
+3 Return
+	SS$_NORMAL	Responce received and written
+	SS$_UNREACHABLE	Failed to receive response from target
+	SS$_ACCVIO	Can' read input params or can't write outp field
+	SS$_TIMEOUT	Could not get channel 
+	SS$_BADPARAM	Unrecognised function
+	Any return from:
+		$ASCEFC,$WFLOR,$QIO,$CLREF,ASSETHCHN
+4 Functions
+	1	SYSID	Gets MOP SYSID block
+	2	Counts	Gets MOP Counter block 
+
+2 MOP_UNLOCK
+ Routine called by current owner of the MOP channel when it
+ is finished using it.  This routine:
+	Deassigns the mop channel
+	converts the lock to null
+2 MOP_LOCK
+ Routine called to acquire the MOP channel.  
+ This routine:
+	Requests the lock in exclusive mode and when received...
+	Assigns the mop channel
+	Note: The lock request will wait until completion
+2 MOP_GETSYSID
+ Routine to get MOP SYSID from cooperatingg station. It is used as
+ a LOOP type routine and provides the standard LOOP options.
+ NOTE: This routione enables MOP in shared destination mode to allow
+ the MOP counter processors to co-exist with it. This involves 
+ shutting down and restarting the controller on each call.
+	Options:
+	Reponse time to station. Time in 100th sec intervals representing
+	round trip time to this station is returned
+3 Inputs
+ 	.address of 6 byte Ethernet address in network format
+	.address of desc pointing to output block
+	.address of .long where response time is written (Optional)
+3 Outputs 
+   	The MOP SYSID block returned by the node
+3 Returns
+ 	SS$_NORMAL	OK
+	SS$_UNREACHABLE	Failed to receive loop response from target
+	SS$_ACCVIO	Can' read input params or can't write outp field
+2 MOP_LOST_MSG
+ Routine called when read timer expires. Cancels outstanding IO and 
+ returns. Caller received SS$_ABORT in IOSB
+ No inputs, outputs or returns.
+2 EMU_GETMOPCNT 
+ Get datalink counters from Device supporting counter function via MOP
+ and proccess into standard array.
+
+3 Inputs
+		.ADDRESS of 6 byte array containing Ethernet address
+		.ADDRESS of DESC pointing to 64 byte array to receive counter data
+3 Outputs
+ The following array is written upon successful receipt of data:
+
+	  Bytes	   Counter Name
+	    3  Mop header
+           2  Seconds since last zeroed
+           4  Bytes received
+           4  Bytes sent
+           4  Frames received
+           4  Frames sent
+           4  Multicast bytes received
+           4  Multicast frames received
+           4  Blocks sent, initially deferred
+           4  Blocks sent, single collision
+           4  Blocks sent, multiple collisions
+           2  Send failure
+           2  Send failure reason bitmap  
+           2  Receive failure
+           2  Receive failure reason bitmap  
+           2  Unrecognized frame destination
+           2  Data overrun
+           2  System buffer unavailable
+           2  User buffer unavailable
+ The counter data is always ordered thus	
+ 
+3 Returns 
+	SS$_NORMAL 	- Counter data recieved and processed
+	SS$_UNREACHABLE	- No Response to counter request
+	Any error from ASSETHCHN
+2 MOP_SETTIME
+ Set timeout for read MOP. The input time in coverted to
+ binary and a timer is set. The Routine called by the timer
+ expiring is always LOST_MOP_MSG. This routine cancels the
+ QIO and returns SS$_ABORT of the caller.
+
+3 Input
+ Address of .ascid pointing to valid vms delta time string
+
+3 Output
+ None
+3 Return
+ Any from  	$BINTIM, $SETIMR 
+2 MOP_PARSE_SYSID   
+ Routine to parse the incoming sysid frame and return information
+ about each param found. Each call to this routine returns info 
+ about 1 paramater.
+3 Inputs
+   .address of MOP encoded paramater
+   .address of 12 byte array to recive info
+3 Outputs
+  The return frame is encoded:
+  .long	MOP param number
+  .long	Len of value
+  .long	addr of value
+3 Returns
+  SS$_NORMAL		Always
+2 MOP_XLATE
+ Programme to translate MOP encloded paramaters into printable
+ strings.
+
+3 Inputs	
+	.address of EMUDB record  			(read only)
+ 	.ADDRESS - Desc pointing to output area         (read/write)
+ 
+3 Returns
+	SS$_NORMAL  	successful completion Translation written.
+	SS$_NOTRAN	Unrecognised MOP paramater
+	SS$_BADPARAM	Not a MOP record
+ 	Any error return from $EXPREG, $OPEN, $GET
+2 MOP_DLTXLT
+ Programme to translate the binary datalink type field to
+ printable string
+
+
+3 Inputs	
+	.LONG address of .BYTE input pointing to datalink  (read only)
+ 	.ADDRESS - Desc pointing to output area         (read/write)
+3 Outputs
+	Translation of datalink code
+ Note: The returned len is always written in the input desc len field
+ 
+3 Returns
+	SS$_NORMAL  	successful completion Translation written.
+	$SS_BADPARAM	Unrecognised code (must be 1-12)
+3 Translation_table
+ 	Hardcoded ascii table. Each entry - 8 bytes
+	This table is fixed by Digital and no new assigns
+	are allowed.
+2 MOP_DEVXLT
+ Programme to translate the binary SYSID field to either:
+	The DEC standard device mneumonic 
+ 	Descriptive string more suited for reports
+
+3 Inputs	
+	.LONG address of .BYTE input pointing to SYSID  (read only)
+ 	.ADDRESS - Desc pointing to output area         (read/write)
+3 Outputs
+		1. If the len found in the outp descriptor  = 4:
+		   It is a byte (val=3) followed by a 2 or 3 byte DEC code.
+		   The 2 byte code is padded with 1 blank
+		2. If the len found in the descriptor input is > 4:
+		   The string translation (up to 18 bytes) is returned.
+		   The string is truncated as necessary and the actual
+		   len returned is written in the len field of the Desc.
+		If the len < 4 an error is returned	
+ Note: The returned len is always written in the input desc len field
+ 
+3 Returns
+	SS$_NORMAL  	successful completion Translation written.
+	SS$_ACCVIO	Can't write outp or can;t read inpt
+ 	Any error return from $EXPREG, $OPEN, $GET
+
+3 Translation_table
+	1  byte  hex device ID 
+	4  byte  ASCIC translation to DEC standard Mneumanic
+	19 byte  ascic description string (Optional return)
+

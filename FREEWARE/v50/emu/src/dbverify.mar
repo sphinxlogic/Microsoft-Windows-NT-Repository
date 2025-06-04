@@ -1,0 +1,948 @@
+ 	.TITLE	DBVERIFY  
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+;	Oct 1997	PB	Creation v1
+;++
+;1 DBVERIFY   
+; Routine to verify the links between the databases. The following 
+; is verified:
+;	1. Each entry in relater table in relater db is looked up
+;	   to ensure it exists. The number found is printed. Any 
+;	   entries in relater with 0 db entries is bad.
+;	2. Each PSR db is scanned and the coresonding entry is looked
+;	   up in Relater tables. If not found error is printed.
+;	   If PSR rec indicates entries in EMUDB then the entries
+;	   are looked up. A count of entries found is printed. 0 is bad.
+;	3. EMUDB is scanned and all IDs are looked up in the relater DB
+;	   to ensure a forward link. If not found then Bad count is 
+;	   incremented
+;
+;--
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY        /EMU5_LIB:EMU5.MLB/
+	$TRMDEF
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$NMADEF
+	$LCKDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUCNTDEF
+	EMUPSRDEF
+	EMUPSRDEF
+	EMUMSGDEF
+	EMURLTDEF
+	EMUDBDEF
+;
+
+	.PSECT	DBVERIFY_SEC,WRT,NOEXE,PIC,SHR,PAGE
+;
+; 
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+PSRTBL_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+COUNTERS_A:	.QUAD	0
+RELATER_A:	.QUAD	0
+INADDR:		.QUAD	0
+GBLSIZ:		.LONG	0
+; 
+PSRTBLCNT:	.LONG	0
+CONTEXT:	.LONG	0
+
+EMUDBFAB:	$FAB	FAC = <GET>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		MRS = 768,-                     ; Largest rec
+		RFM = VAR,-			; Variable len
+		DNM = <EMU5_DAT:EMUDB.DAT>,-	; Default Filename 
+		FNM = <EMUDB>			; Filename 
+; Read RAB
+EMUDBRAB:	$RAB	FAB = EMUDBFAB,-		; pointer to FAB
+		RBF = EMUDBREC_BUF,-		; i/o buffer 
+		RSZ = EMUDBREC_SIZE,-		; Write this many bytes
+		UBF = EMUDBREC_BUF,-		; i/o buffer 
+		USZ = EMUDBREC_SIZE,-		; 
+		RAC = SEQ			; Keyed file
+
+EMUDBREC_BUF:	.BLKB	768
+EMUDBREC_SIZE = .-EMUDBREC_BUF 
+
+
+
+	.ALIGN 	LONG
+RECBUF:
+EMUDB_KEYBUF:	.BLKB	DB_C_KSZ 			; 
+RECDAT:		.BLKB	DB_REC_C_MRS-DB_C_KSZ		; 768 (Total)
+RECBUF_DESC:	.LONG	.-RECBUF
+		.ADDRESS  RECBUF
+TEMPDESC:	.QUAD
+	.ALIGN 	LONG
+
+DBTBL:
+; Ordering in this table is important - the order in which they
+; appear is the order in which the PID was assigned
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 0 = invalid
+		.BLKB	SYS_MAP_C_MAPSIZ        ; = listener (no db)
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN4
+		.LONG	PSR_DN4_W_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN4DB
+		.ADDRESS EMU_PSRDN4
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN5
+		.LONG	PSR_DN5_B20_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN5DB
+		.ADDRESS EMU_PSRDN5
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRSCS
+		.LONG	PSR_SCS_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_SCSDB
+		.ADDRESS EMU_PSRSCS
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRLAT
+		.LONG	PSR_LAT_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_LATDB
+		.ADDRESS EMU_PSRLAT
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIP
+		.LONG	PSR_IP_L_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPDB
+		.ADDRESS EMU_PSRIP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIPX
+		.LONG	PSR_IPX_L_NET
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPXDB
+		.ADDRESS EMU_PSRIPX
+;
+
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 9 = DNS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 10 = DTS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 11 = ARP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRETH
+		.LONG	PSR_ETH_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_ETHDB
+		.ADDRESS EMU_PSRETH
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 13 = unassigned  
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRBRD
+		.LONG	PSR_BRD_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_BRDDB
+		.ADDRESS EMU_PSRBRD
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 15 = unassigned  
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 16 = unassigned  
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_NAMER
+		.LONG	NAM_DB_AS_NAME
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_NAMERDB
+		.ADDRESS EMU_NAMER
+
+
+DBTBL_DESC:	.LONG 	.-DBTBL
+		.ADDRESS  DBTBL
+
+MAPRELATER:
+                .QUAD	0
+		.LONG	SYS_PID_C_RELATER
+		.LONG	0
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_RELATERDB
+		.ADDRESS EMU_RELATER
+
+DBXLTTBL:
+		.LONG	0
+		.LONG	0
+		.ASCIC	/DN4/
+		.ASCIC	/DN5/
+		.ASCIC	/SCS/
+		.ASCIC	/LAT/
+		.ASCIC	/MOP/
+		.ASCIC	/IP /
+		.ASCIC	/IPX/
+		.ASCIC	/DNS/
+		.ASCIC	/DTS/
+		.ASCIC	/ARP/
+		.ASCIC	/ETH/
+		.LONG	0
+		.ASCIC	/BRD/
+		.LONG	0
+		.LONG	0
+		.ASCIC	/RLT/
+		.ASCIC	/NAM/
+MAX_DBXLTTBL = 18
+	.ALIGN	LONG
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 40
+VD_COLS: 	.LONG 132
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+BYTCNT:		.WORD		; Input Byte counter
+; Misc SMG ...
+BOLD:		.LONG	SMG$M_BOLD
+PROMPT:		.ASCII	/YEAM> /
+CMDCOL:		.LONG	1
+CMDROW:		.LONG	24
+STCOL:		.LONG	1
+STROW:		.LONG	3
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+TIMEOUT:	.LONG	15
+CHARCNT:	.LONG	15
+CURCOL:		.LONG
+CURROW:		.LONG
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+reset_cursor:	.long	<smg$m_cursor_on!smg$m_scroll_smooth>
+
+	
+
+; Message Buffer
+FAOBUF:		.BLKB	132 
+FAODESC:
+FAOLEN: 	.LONG		.-FAOBUF
+        	.ADDRESS        FAOBUF
+
+; Messages
+TEST1:		.ASCID	/ Checking Relater to PSRDB links.../
+ENDTEST:	.ASCID	/ End of test./
+TEST1ERR:	.ASCID	/ RTL Rec !4<!UL!> has !3<!UL!> entries for BOXID !6<!UL!> (!AC)/
+TEST2ERR:	.ASCID	/ RLT Rec !4<!UL!> Bit set for !AC with no corresponding table entry/
+TEST3ERR:	.ASCID	/ RLT Rec !4<!UL!> Table entry for !AC with no corresponding bit set/
+TEST2:		.ASCID	/ Checking !UL entries in !AC /
+TEST5ERR:	.ASCID	/ !AC Rec !4<!UL!> no correspnding Relater entry/
+TEST6ERR:	.ASCID	/ DB Rec with boxid !9<!UL.!UL!> has no correspnding Relater entry/
+INVBOXFLG:	.ASCID	/ Deleted rec BOX = !UL, FLG = !XL/
+MAPRELERR:	.ASCID	/ Error Mapping to RELATER, !XL/
+PSRCNTERR:	.ASCID	/ Error  !XL mapping to !AC/
+CONTMSG:	.ASCID	/ Any key to continue or ^Z to Exit/
+ZERRELENT:	.ASCID	/ No relater entries/
+
+;
+; Lock Names
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_IPDB:	
+		.ASCID	\EMU_IPDB\            ; Lock name
+EMU_IPXDB:	
+		.ASCID	\EMU_IPXDB\            ; Lock name
+EMU_SCSDB:	
+		.ASCID	\EMU_SCSDB\            ; Lock name
+EMU_DN5DB:	
+		.ASCID	\EMU_DN5DB\            ; Lock name
+EMU_DN4DB:	
+		.ASCID	\EMU_DN4DB\            ; Lock name
+EMU_LATDB:	
+		.ASCID	\EMU_LATDB\            ; Lock name
+EMU_ETHDB:	
+		.ASCID	\EMU_ETHDB\            ; Lock name
+EMU_BRDDB:	
+		.ASCID	\EMU_BRDDB\            ; Lock name
+EMU_NAMERDB:		
+		.ASCID	/EMU_NAMERDB/	; DB Lock name 
+EMU_RELATERDB:		
+		.ASCID	/EMU_RELATERDB/	; DB Lock name 
+; Section names
+EMU_PSRMOP:
+		.ASCID	/EMU_PSRMOP/
+EMU_RELATER:
+		.ASCID	/EMU_RELATER/
+EMU_PSRIP:
+		.ASCID	/EMU_PSRIP/
+EMU_PSRIPX:
+		.ASCID	/EMU_PSRIPX/
+EMU_NAMER:
+		.ASCID	/EMU_NAMER/
+EMU_PSRSCS:	
+		.ASCID	\EMU_PSRSCS\  		; Section name
+EMU_PSRDN5:	
+		.ASCID	\EMU_PSRDN5\  		; Section name
+EMU_PSRDN4:	
+		.ASCID	\EMU_PSRDN4\  		; Section name
+EMU_PSRLAT:	
+		.ASCID	\EMU_PSRLAT\  		; Section name
+EMU_PSRETH:	
+		.ASCID	\EMU_PSRETH\  		; Section name
+EMU_PSRBRD:
+		.ASCID	/EMU_PSRBRD/
+
+
+RELATDBLKNAM:		.ASCID	/EMU_RELATERDB/	; DB Lock name 
+RELATSECNAM:		.ASCID	/EMU_RELATER/
+; Misc
+DELETED:		.LONG	0
+RECCNT:			.LONG	0
+
+	.PSECT	DBVERIFY_C,NOWRT,EXE,SHR,PIC,LONG
+	.sbttl	dbverify ()
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DBVERIFY
+
+
+	BSBW	CREATE_ENVIRONMENT
+; Test 1
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	BSBW	ERROR_CHK            		; Error Check
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	pushal	test1
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+; Map to relater
+
+	PUSHAL	MAPRELATER		; Map structure
+        CALLS	#1,G^MAPLVB_DB          ; Map db
+	BLBS	R0,100$                 ; Br if DB mapped
+	MOVL	#132,FAODESC
+	PUSHL	R0
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+        PUSHAL	MAPRELERR
+	CALLS	#4,G^SYS$FAO
+
+	CLRQ	-(SP)
+	pushal	faodesc
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+        BRW	1000$
+100$:
+	MOVL	MAPRELATER,R6
+	MOVL	COM_DBHDR_L_RECSIZE(R6),R7	; Rec size
+	MOVL	COM_DBHDR_L_ENTRIES(R6),R11	; Entries
+	ADDL3	R7,R6,R6                	; 1st entry
+	BNEQ	110$				; br if SOME
+
+	CLRQ	-(SP)
+	pushal	ZERRELENT
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+        BRW	1000$
+110$:
+	INCL	RECCNT
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),150$	; Br if not deleted
+	INCL	DELETED
+120$:
+	ADDL	R7,R6			; Next rec
+	SOBGTR	R11,110$
+	BRW	1000$			; Next test
+150$:
+; Check for matching entries/ptybits
+	PUSHL 	RECCNT
+	PUSHL	R6
+	CALLS	#2,G^DBV_RLTPTY		; No error returns
+; Check each entry in the table
+	MOVL	#2,R4			; Start at 1st valid
+	ADDL3	#RLT_DB_TL_BOXIDS,R6,R9
+155$:
+	TSTL	(R9)[R4]                ; Entry here?
+	BNEQ	157$			; Br if present
+156$:
+	BRW	200$                    ; No entry
+157$:
+	PUSHL	(R9)[R4] 		; Boxid
+	PUSHL	R4			; DB
+	CALLS	#2,G^DBVERIFY_COUNTPSRENT ; Returns count in R1
+	BLBC	R0,156$
+; Lookup protocol name
+	MOVAL	DBXLTTBL,R3
+	MULL3	#4,R4,R2
+	ADDL	R2,R3
+	MOVL	R1,R2
+;
+	MOVL	#132,FAODESC
+	PUSHL	R3
+	PUSHL	(R9)[R4]
+        PUSHL	R1
+	PUSHL	RECCNT
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+        PUSHAL	TEST1ERR
+	CALLS	#7,G^SYS$FAO
+;
+        TSTL	R2
+	BEQL	180$
+
+;	CLRQ	-(SP)
+;	pushal	faodesc
+;	PUSHAL	VD_DISP
+;	CALLS	#4,G^SMG$PUT_LINE
+	BRB	200$
+
+180$:
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	pushal	FAODESC
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+	CLRL	(R9)[R4]			; Delete entry
+	BBSC	R4,COM_HDR_L_PTYBITS(R6),200$	; Clear ptybit
+
+200$:
+	AOBLSS #RLT_DB_C_MAXBOXID,R4,210$
+	BRW	120$
+210$:
+	BRW	155$
+1000$:
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	PUSHAL	ENDTEST
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+
+	PUSHAL	BYTCNT
+	PUSHAL	VD_DISP
+	PUSHAL	CONTMSG 
+	CALLS	#3,G^DBV_READ_PROMPT
+	BLBS	R0,5000$
+        RET
+5000$:
+
+; Test 2: Map to each known PSRdb and verify that each entry
+; has corresponding relater entry.
+	MOVAL	DBTBL,R9
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R10   ; ENd of table
+5100$:
+	TSTL	SYS_MAP_L_PID(R9) 	; DB Here?
+	BNEQ	5150$
+5110$:
+	ADDL	#SYS_MAP_C_MAPSIZ,R9    ; Next
+	CMPL	R9,R10                         ; AT END?
+	BLSSU	5100$
+	BRW	6000$			      ; Br if end
+5150$:
+	TSTL	SYS_MAP_Q_ADDR(R9)  	; Access this DB?     
+	BNEQ	5200$                     ; Br if OK
+	PUSHL	(R9)                    ; MAP
+	CALLS	#1,G^DBV_GETDB
+	BLBS	R0,5200$
+; 
+; Lookup protocol name
+	MOVAL	DBXLTTBL,R3
+	MULL3	#4,SYS_MAP_L_PID(R9),R2
+	ADDL3	R3,R2,R11
+;
+	MOVL	#132,FAODESC
+	PUSHL	R11
+	PUSHL	R0
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+        PUSHAL	PSRCNTERR
+	CALLS	#5,G^SYS$FAO
+;
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	pushal	FAODESC
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+	BRW	5110$
+5200$:
+	MOVL	SYS_MAP_Q_ADDR(R9),R6	; 1st addr
+	MOVL	COM_DBHDR_L_RECSIZE(R6),R8	; Entry SIZE
+	MOVL	COM_DBHDR_L_ENTRIES(R6),R7	; Entry count 
+	ADDL	R8,R6			; DB start
+; Lookup protocol name
+	MOVAL	DBXLTTBL,R3
+	MULL3	#4,(R6),R2
+	ADDL3	R3,R2,R11
+;
+	MOVL	#132,FAODESC
+	PUSHL	R11
+	PUSHL	R7
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+        PUSHAL	TEST2
+	CALLS	#5,G^SYS$FAO
+;
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	pushal	FAODESC
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+	TSTL	R7			; Entries
+	BNEQ	5210$			; Br if Some
+        BRW	5110$
+5210$:
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),5230$	; Br if NOT deleted
+5220$:
+	ADDL	R8,R6			; Next rec
+	SOBGTR	R7,5210$
+	BRW	5110$			; Next db
+5230$:
+; Ensure both boxid and pid (Flags) are valid
+	TSTL	COM_HDR_L_BOXID(R6)
+	BEQL	5240$
+	CMPL	COM_HDR_L_BOXID(R6),#SYS_COM_C_MAXBOXID
+	BGTR	5240$
+	CMPL	COM_HDR_L_FLAGS(R6),#2		; Lowest valid
+	BLSS	5240$
+	CMPL	COM_HDR_L_FLAGS(R6),#32		; Highest valid
+	BLEQ	5250$                      ; BR IF OK
+5240$:
+; delete this record
+	BISL	#SYS_COM_M_DELETE,COM_HDR_L_SYSCTL(R6)
+
+	MOVL	#132,FAODESC
+	PUSHL	COM_HDR_L_FLAGS(R6)
+	PUSHL	COM_HDR_L_BOXID(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+        PUSHAL	INVBOXFLG
+	CALLS	#5,G^SYS$FAO
+;
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	pushal	FAODESC
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+	BRW	5220$
+5250$:
+
+	
+	ADDL3	#COM_HDR_L_FLAGS,R6,-(SP)	; This db pid
+	PUSHAL	MAPRELATER		; Map structure
+	ADDL3	#COM_HDR_L_BOXID,R6,-(SP)	; This db pid
+	CALLS	#3,G^LOCATE_RELATER_BOXID
+	BLBS	R0,5220$
+; 
+	MOVL	#132,FAODESC
+	PUSHL	COM_HDR_L_BOXID(R6) 
+	PUSHL	R11
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+        PUSHAL	TEST5ERR
+	CALLS	#5,G^SYS$FAO
+;
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	pushal	FAODESC
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+; Send this box to relater
+	PUSHL	R6
+	CALLS	#1,G^PSRREC_TO_RELATER 
+	BRW	5220$
+	
+
+
+
+6000$:
+	PUSHAL	BYTCNT
+	PUSHAL	VD_DISP
+	PUSHAL	CONTMSG 
+	CALLS	#3,G^DBV_READ_PROMPT
+	BLBS	R0,7000$
+	RET
+7000$:
+; Open EMUDB and check that each BOXID in DB has corresponding entry in 
+; PSRdbs
+;
+	CLRL	TEMPDESC
+	$OPEN	FAB=EMUDBFAB
+	BLBS	R0,7010$
+	RET
+7010$:
+	$CONNECT RAB=EMUDBRAB
+	BLBS	R0,7020$
+	RET
+7020$:
+	$GET	RAB=EMUDBRAB
+	BLBS	R0,7030$
+	BRW	8000$
+7030$:
+	MOVAL	EMUDBREC_BUF,R6
+	CMPL	DB_REC_L_PROTO(R6),TEMPDESC
+	BNEQU	7050$
+	CMPL	DB_REC_L_BOXID(R6),TEMPDESC+4
+	BEQLU	7020$
+7050$:
+	MOVL	DB_REC_L_PROTO(R6),TEMPDESC
+	MOVL	DB_REC_L_BOXID(R6),TEMPDESC+4
+
+	ADDL3	#DB_REC_L_PROTO,R6,-(SP)	; This db pid
+	PUSHAL	MAPRELATER			; Map structure
+	ADDL3	#DB_REC_L_BOXID,R6,-(SP)	; This db pid
+	CALLS	#3,G^LOCATE_RELATER_BOXID
+	BLBS	R0,7020$
+;
+	MOVL	#132,FAODESC
+	PUSHL	DB_REC_L_PROTO(R6)	; This db pid
+	PUSHL	DB_REC_L_BOXID(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+        PUSHAL	TEST6ERR
+	CALLS	#5,G^SYS$FAO
+;
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	pushal	FAODESC
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+	BLBS	R0,7100$
+	RET
+7100$:
+	BRW	7020$
+
+
+
+8000$:
+	PUSHAL	BYTCNT
+	PUSHAL	VD_DISP
+	PUSHAL	CONTMSG 
+	CALLS	#3,G^DBV_READ_PROMPT
+	BLBS	R0,9000$
+9000$:
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+        RET
+ERROR_CHK:
+
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+ 
+	BLBC	R0,10$
+	RSB
+10$:
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	RET
+	.CALL_ENTRY	MAX_ARGS=5, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DBV_READ_PROMPT 
+
+;++
+;2 DVB_READ_PROMPT
+; Displays the prompt specified by the input on the specified 
+; display, waits for user input and returns the input in KB_BUF.
+;	
+;3 Input
+;	P1. address of desc pointing to ascii string to display
+;	P2. address of display
+;	P3. address of bytcnt, where READ_STRING writes the count 
+;	    of user input bytes.
+;--
+
+		PUSHL	8(AP)                   ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	12(AP)                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	UPCASE                  ; Case 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	4(AP)                 	; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		RET                             ; Any error handled by caller
+		  
+
+
+
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DBV_RLTPTY
+;++
+;2 DBV_RLTPTY
+; Routine to verify the bits set in PTYBIT field of relater record has
+; corresponding entry in table and vice versa.
+;3 Inputs
+; .address  relater db record
+; .long reccnt. Position of record in relater db
+;3 Outputs
+; Error message printed for any nomatch
+;3 Returns
+;	None
+;--
+	MOVL	4(AP),R6
+	MOVL	COM_HDR_L_PTYBITS(R6),R11	; Bit pattern
+        MOVL	#2,R4				; Start at 1st valid
+	ADDL3	#RLT_DB_TL_BOXIDS,R6,R9
+100$:
+	BBS	R4,R11,150$
+110$:
+	AOBLSS #RLT_DB_C_MAXBOXID,R4,100$
+	BRW	200$
+150$:
+        TSTL	(R9)[R4]
+	BNEQ	110$
+;
+; Lookup protocol name
+	MOVAL	DBXLTTBL,R3
+	MULL3	#4,R4,R2
+	ADDL	R2,R3
+	MOVL	R1,R2
+;
+	MOVL	#132,FAODESC
+	PUSHL	R3
+	PUSHL	8(AP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+        PUSHAL	TEST2ERR
+	CALLS	#5,G^SYS$FAO
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	pushal	FAODESC
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+        BRW	110$
+200$:
+        MOVL	#2,R4				; Start at 1st valid
+210$:
+        TSTL	(R9)[R4]
+	BNEQ	250$
+230$:
+	AOBLSS #RLT_DB_C_MAXBOXID,R4,210$
+	RET
+250$:
+	BBS	R4,R11,230$
+	MOVAL	DBXLTTBL,R3
+	MULL3	#4,R4,R2
+	ADDL	R2,R3
+	MOVL	R1,R2
+;
+	MOVL	#132,FAODESC
+	PUSHL	R3
+	PUSHL	8(AP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+        PUSHAL	TEST3ERR
+	CALLS	#5,G^SYS$FAO
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	pushal	FAODESC
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+        BRW	230$
+
+
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DBVERIFY_COUNTPSRENT
+;++
+;2 DBVERIFY_COUNTPSRENT
+; Routine to count the number of entries for the specified BOXID in 
+; the specified DB.
+;3 Inputs
+; .long db. This is the SYS_PID of the db to be searched.
+; .long BOXID The boxid to count the entries for.
+;3 Outputs
+; R1 = number of entries found
+;3 Returns
+; SS$_NORMAL	OK
+; Any from   DVB_GETDB
+;--
+	PUSHL	4(AP)
+	CALLS	#1,G^DBV_GETDB
+	BLBS	R0,10$
+	MOVL	R0,R11	; Save err
+; Print error and exit
+; Lookup protocol name
+	MOVAL	DBXLTTBL,R3
+	MULL3	#4,4(AP),R2
+	ADDL	R2,R3
+
+	MOVL	#132,FAODESC
+	PUSHL	R3
+	PUSHL	R0
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+        PUSHAL	PSRCNTERR
+	CALLS	#5,G^SYS$FAO
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	pushal	faodesc
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+	MOVL	R11,R0	; Restore error
+	RET
+10$:
+	MOVL	(R1),R6
+	CLRL	R1
+	MOVL	COM_DBHDR_L_RECSIZE(R6),R7	; Rec size
+	MOVL	COM_DBHDR_L_ENTRIES(R6),R11	; Entries
+	ADDL3	R7,R6,R6                	; 1st entry
+	BNEQ	100$				; br if SOME
+        MOVL	#SS$_NORMAL,R0
+	RET
+100$:
+	CMPL	8(AP),COM_HDR_L_BOXID(R6)
+	BNEQU	110$
+        INCL	R1
+110$:
+	ADDL	R7,R6
+	SOBGTR	R11,100$
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DBV_GETDB 
+;++
+;2 REL_GETDB
+; Returns pointer to the mapped db entry specified by the input pid
+;3 Input
+; .long of PID of db to check/map
+; The table used for lookup is hard coded in this routine (DBTBL)
+;3 Output
+;  The address of the entry is returned in R1 if mapped successfuly.
+;3 Return
+;  SS$_NORMAL		OK
+;  SS$_ITEMNOTFOUND     Unknown db specified
+;  SS$_INSFMAP		Could not map specified db
+;--
+	MOVL	4(AP),R6
+        MOVAL	DBTBL,R9
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R7   ; ENd of table
+	
+40$:
+	CMPL	R9,R7                         ; AT END?
+	BGEQU	100$			      ; Br if end
+
+	CMPL	SYS_MAP_L_PID(R9),R6
+	BEQLU	60$			; br if this DB
+	ADDL	#SYS_MAP_C_MAPSIZ,R9    ; Next
+	BRB	40$                     ; Loop
+60$:
+	TSTL	SYS_MAP_Q_ADDR(R9)  	; Access this DB?     
+	BNEQ	70$                     ; Br if OK
+	PUSHL	R9
+	CALLS	#1,G^MAPLVB_DB 		; Attempt to map
+	BLBS	R0,70$
+	RET
+70$:
+	MOVL	#SS$_NORMAL,R0
+	MOVL	R9,R1
+	RET
+100$:
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+
+
+
+
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+;
+; Create Virtual Display
+;
+CR_DISP:
+	CLRL	-(SP)
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	VD_COLS
+	PUSHAL	VD_ROWS
+	CLRL	-(SP)
+	PUSHAL	PB_BOARD
+	CALLS	#4,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+
+	PUSHAL	VD_ROWS
+	CLRL	-(SP)
+	PUSHAL	VD_COLS	
+	PUSHAL	PB_BOARD
+	CALLS	#4, G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BSBW	ERROR_CHK
+
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+
+	RSB
+
+
+
+	.END  DBVERIFY	

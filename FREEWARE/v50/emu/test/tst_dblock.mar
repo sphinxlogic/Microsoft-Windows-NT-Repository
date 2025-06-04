@@ -1,0 +1,239 @@
+        .title  TST_DBLOCK    
+        .ident  /V05-001/ 
+; TEST db locking                  
+
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUCNTDEF
+	$LCKDEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+; returned addresses
+	.ALIGN	QUAD
+INADDR:		.QUAD	0
+SCSDB_A: 	.QUAD	0
+PSRTBL_A:	.QUAD   0
+COUNTERS_A:	.QUAD	0
+GBLSIZ:		.LONG	0
+; Locking
+; Lock value block
+SCSDBLVB:
+SCSLVBSTA:	.WORD	0		; Status
+SCSLVBRES:	.WORD	0		; Reserved
+SCSLVBID:	.LONG	0		; Lock id
+SCSLVBSIZ:	.LONG	0		; Begining of LVB (Size of DB in pages)
+SCSLVBSPR:	.BLKL	3		; Unused 12 bytes
+; $ENQ call frame
+SCSDBLOCK:	
+		.LONG	12		; Arguments
+		.LONG	0		; EFN
+LKMODE:		.LONG	LCK$K_EXMODE	; Lock mode
+		.ADDRESS SCSDBLVB	; Lock value block
+LKFLGS:         .LONG 	LCK$M_VALBLK	; Use value block
+		.ADDRESS SCSDBLKNAM 	; Resourse name
+		.LONG	0		; Parent id 
+                .LONG	0               ; AST
+		.LONG	0		; AST Param
+		.LONG	0		; BLAST
+		.LONG	0		; ACC Mode
+		.LONG	0		; RSDM_ID
+		.LONG	0		; Null
+
+
+
+	.ALIGN	LONG
+SCSSECFAB:	
+		$FAB	FAC = <GET,PUT>,-        ; Access
+			FNM = <EMU5_ROOT:[DAT]EMU_PSRSCS.SEC>
+SCSSECRAB:	
+		$RAB	FAB = SCSSECFAB,-            ; Record 
+			RAC = SEQ,-
+       			RBF = SCSSECREC,-			; 
+       			UBF = SCSSECREC,-			; 
+       			USZ = SCSSECREC_SIZE,-		; 
+       			RSZ = SCSSECREC_SIZE   		; 
+		
+
+SCSSECREC:	 .BLKB	PSR_SCS_C_RECSIZ   
+SCSSECREC_SIZE = .-SCSSECREC
+
+
+SCSDBLKNAM:		.ASCID	/EMU5_SCSDB/	; DB Lock name 
+SCSSECNAM:		.ASCID	/EMU5_TST_DBLOCK/	; DB Lock name 
+;misc
+	.align long
+FLAG:		.LONG	0
+DEFRECCNT:      .LONG	1000			; DEF dbsize
+
+
+
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=TST_DBLOCK
+
+
+
+; 
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	calls	#0, g^asn_tempmbx_system
+
+;	
+; Create and Map to sections 
+;
+
+; Lock and map our database
+	PUSHAL	FLAG
+	PUSHL	#SYS_MAP_C_PSRSCS
+	PUSHAL	SCSDB_A
+        CALLS	#3,G^MAPLVB_DB  
+	BLBS	R0,10$
+	RET
+10$:
+; Now mapped
+; Try exclusive access
+	CALLS	#0,G^tstMAP_SCSDB
+	BLBS	R0,20$
+20$:
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=tstMAP_SCSDB  
+
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	MOVL	#LCK$M_VALBLK,LKFLGS	; Clear any other flags
+	$ENQW_G	SCSDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	R0,10$
+	RET
+10$:
+	$OPEN	FAB= SCSSECFAB			; Attempt to open
+	BLBS	R0,20$                          ; Br if OK
+	BRW	1000$				; Use defaults
+20$:
+	$CONNECT RAB=SCSSECRAB
+	BLBS	R0,30$
+	RET
+30$:
+	$GET	RAB=SCSSECRAB		; Get 1st rec
+	BLBS	R0,40$
+	RET
+40$:
+; Calc memory/file size, Get memory & Map section
+       	MOVAL	SCSSECREC,R7
+	MULL3	COM_DBHDR_L_MAXENTRIES(R7),COM_DBHDR_L_RECSIZE(R7),GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+100$:	clrq	-(sp)			; p0 space, access mode
+	pushal	inaddr		; returned address
+	pushl	gblsiz          	; no. of pages
+	calls	#4, g^sys$expreg	; Expand process space
+; map section	
+	clrq	-(sp)			; pfc, protection
+	clrl	-(sp)			; virtual block number
+	pushl	gblsiz			; no. of pages
+	clrq	-(sp)			; channel, rel page no.
+	clrl	-(sp)			; version id
+	pushal	SCSSECNAM		; section name
+	pushl	#<sec$m_gbl!sec$m_dzro!sec$m_wrt!sec$m_pagfil!sec$m_sysgbl>
+	clrl	-(sp)			; access mode
+	pushal	scsdb_a			; returned address
+	pushal	inaddr			; in address
+	calls	#12, g^sys$crmpsc	; create section
+	CMPL	#SS$_CREATED,R0
+	BEQL	200$
+	$CLOSE	FAB=SCSSECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	RET
+200$:
+; We created the section. Load it with file contents
+; Move the 1st rec to rec header
+; 1st rec cannot exceed common header size...
+	MOVL	SCSDB_A,R11			; Start of section
+	MOVL	(R11),R7                        ;
+	MOVC3	#COM_HDR_C_SIZE,SCSSECREC,(R7)     ; Init header
+	ADDL3	COM_DBHDR_L_RECSIZE(R7),R7,R8       ; Location of 1st rec
+	CLRL	COM_DBHDR_L_ENTRIES(R7)		; No entries yet
+	MOVL	COM_DBHDR_L_RECSIZE(R7),R9    ; rec size
+210$:
+	MOVL	R8,SCSSECRAB+RAB$L_UBF    ; Write rec here
+	MOVW	R9,SCSSECRAB+RAB$W_RSZ		; Record size
+	MOVW	R9,SCSSECRAB+RAB$W_USZ		; Record size
+	$GET	RAB = SCSSECRAB		; Get a record
+	BLBC	R0,260$			; BR IF  error 
+	INCL	COM_DBHDR_L_ENTRIES(R7)			; Count
+	ADDL	R9,R8     		; Next slot
+	ADDL3	R9,R8,R10		; Check if enough room
+	CMPL	R10,4(R11)		; OK?
+	BLEQU	210$			; OK
+	BRW	280$			; Undo
+	
+260$:
+	CMPL	R0,#RMS$_EOF		; Was error end of file
+	BEQLU	270$			; Yes - OK
+	RET				; No - Die
+270$:
+	$CLOSE	FAB=SCSSECFAB
+	BRW	2000$
+280$:
+; Undo and set to default
+	$CLOSE	FAB=SCSSECFAB
+	CLRQ	-(SP)
+        PUSHL	4(AP)
+	CALLS	#3,G^SYS$DELTVA
+
+1000$:
+; File was not found, or otherwise unloadable
+; Use defaults
+	MULL3	#PSR_SCS_C_RECSIZ,DEFRECCNT,GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+	clrq	-(sp)			; p0 space, access mode
+	pushal	inaddr			; returned address
+	pushl	gblsiz          	; no. of pages
+	calls	#4, g^sys$expreg	; Expand process space
+; map section	
+	clrq	-(sp)			; pfc, protection
+	clrl	-(sp)			; virtual block number
+	pushl	gblsiz			; no. of pages
+	clrq	-(sp)			; channel, rel page no.
+	clrl	-(sp)			; version id
+	pushal	SCSSECNAM		; section name
+	pushl	#<sec$m_gbl!sec$m_dzro!sec$m_wrt!sec$m_pagfil!sec$m_sysgbl>
+	clrl	-(sp)			; access mode
+	pushal	scsdb_a			; returned address
+	pushal	inaddr			; in address
+	calls	#12, g^sys$crmpsc	; create section
+	CMPL	#SS$_CREATED,R0
+	BEQL	1100$
+	$CLOSE	FAB=SCSSECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	RET
+; init header rec
+1100$:
+	MOVL	scsdb_a,R6
+	MOVL	#PSR_SCS_C_RECSIZ,COM_DBHDR_L_RECSIZE(R6)   ; write recsize 
+	MOVL	DEFRECCNT,COM_DBHDR_L_MAXENTRIES(R6)
+2000$:
+	SUBL3	SCSDB_A,SCSDB_A+4,R10 		; Size if section (bytes)
+	DIVL3	#512,R10,SCSLVBSIZ              ; Size (Pages) in LVB
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	MOVL	#LCK$K_CWMODE,LKMODE		; COnvert to CW
+	$ENQW_G	SCSDBLOCK 			; Convert DB lock 
+	RET					; Return with any errors
+
+        .END	TST_DBLOCK

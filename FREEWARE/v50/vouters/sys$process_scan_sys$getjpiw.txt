@@ -1,0 +1,237 @@
+/*
+    PROGRAM PSCAN_WILD.C
+
+    **********************************************************************
+
+                             COPYRIGHT (C) 1996 BY
+                       DIGITAL EQUIPMENT CORPORATION, MAYNARD
+                        MASSACHUSETTS.  ALL RIGHTS RESERVED.
+
+     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+
+     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.
+
+     DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL.
+
+     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+     ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL EQUIPMENT CORPORATION.
+
+     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY DIGITAL SOFTWARE
+     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+
+    **********************************************************************/
+
+/*
+ *   This program demonstrate use of the system services $PROCESS_SCAN and
+ *   $GETJPI to perform a search of all nodes in a cluster, to return a list 
+ *   of process names that match a wildcard that is specified at program 
+ *   runtime.
+ *   
+ *   PROGRAM NOTES:
+ *   
+ *   Use these commands to compile and link this program on OpenVMS VAX or 
+ *   on OpenVMS Alpha:
+ *   
+ *      $ CC PSCAN_WILD.C
+ *      $ LINK PSCAN_WILD
+ *   
+ *   This program is intended to be invoked by a foreign command that is
+ *   executed from DCL.  To build the foreign command, execute a DCL command
+ *   such as the following:
+ *   
+ *       $ PSCAN_WILD :== $disk:[dir]pscan_wild.exe
+ *   
+ *   Replace "disk:[dir]" with the current default location of the executable
+ *   image PSCAN_WILD.EXE.
+ *   
+ *   The program accepts 2 arguments:
+ *   
+ *   1.  NODENAME - a complete or wildcarded (including "*") string of up
+ *       to 64 characters.  Passed to $PROCESS_SCAN with the item code
+ *       PSCAN$_NODENAME, to request information about processes that match
+ *       the specified nodename.
+ *   
+ *   2.  NAME_PROCESS - a complete or wildcarded (including "*") string of up
+ *       to 64 characters.  Passed to $PROCESS_SCAN with the item code
+ *       PSCAN$_PRCNAM, to request information about processes that match
+ *       the specified process name.
+ *   
+ *   To pass the arguments to the program, execute a command that has the
+ *   format:
+ *   
+ *       $ PSCAN_WILD <nodename> <process-name>
+ *   
+ *   For example, to search nodes with names that start with "YO", for process
+ *   names that contain "MY":
+ *   
+ *       $ PSCAN_WILD YO* *MY*
+ *   
+ */
+#include ctype
+#include lib$routines
+#include jpidef
+#include pscandef
+#include ssdef
+#include starlet
+#include stdio
+#include stdlib
+#include string
+
+struct pscan_item_list_type
+{
+#ifdef __ALPHA
+#pragma member_alignment save
+#pragma nomember_alignment word
+#endif
+
+    short buffer_length;
+    short item_code;
+
+#ifdef __ALPHA
+#pragma member_alignment restore
+#endif
+
+    union
+    {
+        int item_value;
+        int buffer_address;
+    }   value_address;
+
+    int item_specific_flags;
+};
+
+struct getjpi_item_list_type
+{
+#ifdef __ALPHA
+#pragma member_alignment save
+#pragma nomember_alignment word
+#endif
+
+    short buffer_length;
+    short item_code;
+
+#ifdef __ALPHA
+#pragma member_alignment restore
+#endif
+
+    int buffer_address;
+    int return_length_address;
+};
+
+struct iosb_type
+{
+
+#ifdef __ALPHA
+#pragma member_alignment save
+#pragma nomember_alignment word
+#endif
+
+      short status;short count;
+
+#ifdef __ALPHA
+#pragma member_alignment restore
+#endif
+
+      int dev;
+};
+
+
+/*   uppercase() -- formats string in UPPERCASE letters                 */
+
+void uppercase (char *text)
+{
+  int i;
+
+  for (i=0; i < strlen (text); i++)
+      text[i] = toupper (text[i]);
+}
+
+
+/*   Main procedure                                                     */
+
+int main (int argc, char **argv)
+{
+   char   nodename[64],
+          name_process[64];
+   short  name_process_length,
+          nodename_length;
+
+   struct pscan_item_list_type   pscan_item_list[3];
+   struct getjpi_item_list_type  getjpi_item_list[3];
+   struct iosb_type              iosb;
+
+   int    status, i;
+   int    context = 0;
+
+/* 1.  Verify that command line contains 2 arguments.                   */
+
+   if (argc != 3)
+   {
+        printf ("Usage is PSCAN_WILD <nodename> <process-name>.\n");
+        exit (1);
+   }
+
+/* 2.  Read NODENAME argument and build PSCAN item list element.        */
+
+   strcpy (nodename, argv[1]);
+   uppercase (nodename);
+
+   pscan_item_list[0].buffer_length                = strlen (nodename);
+   pscan_item_list[0].item_code                    = PSCAN$_NODENAME;
+   pscan_item_list[0].value_address.buffer_address = (int)nodename;
+   pscan_item_list[0].item_specific_flags          = PSCAN$M_WILDCARD;
+
+/* 3.  Read NAME_PROCESS argument and build PSCAN item list element.    */
+
+   strcpy (name_process, argv[2]);
+   uppercase (name_process);
+
+   pscan_item_list[1].buffer_length                = strlen (name_process);
+   pscan_item_list[1].item_code                    = PSCAN$_PRCNAM;
+   pscan_item_list[1].value_address.buffer_address = (int)name_process;
+   pscan_item_list[1].item_specific_flags          = PSCAN$M_WILDCARD;
+
+   pscan_item_list[2].buffer_length = 0;
+   pscan_item_list[2].item_code     = 0;
+
+/* 4.  Call $PROCESS_SCAN to establish context for call to $GETJPIW.    */
+
+   status = sys$process_scan (&context, pscan_item_list);
+   if (! (status&1)) lib$stop (status);
+
+   getjpi_item_list[0].buffer_length         = sizeof (name_process);
+   getjpi_item_list[0].item_code             = JPI$_PRCNAM;
+   getjpi_item_list[0].buffer_address        = (int)name_process;
+   getjpi_item_list[0].return_length_address = (int) (&name_process_length);
+   getjpi_item_list[1].buffer_length         = sizeof (nodename);
+   getjpi_item_list[1].item_code             = JPI$_NODENAME;
+   getjpi_item_list[1].buffer_address        = (int)nodename;
+   getjpi_item_list[1].return_length_address = (int) (&nodename_length);
+   getjpi_item_list[2].buffer_length         = 0;
+   getjpi_item_list[2].item_code             = 0;
+
+/* 5.  For each process that matches the criteria set up by $PROCESS_SCAN,
+       call $GETJPIW to return the process's name and host node.        */
+
+   i = 0;
+   do {
+      status = sys$getjpiw (0, &context, 0, getjpi_item_list, &iosb, 0, 0);
+
+      if (status == SS$_NOMOREPROC) break;
+      if (! (status&1)) lib$stop (status);
+
+      if (iosb.status == SS$_NORMAL)
+          printf ("| %d\t | Process \t: %.*s on %.*s\n", i++,
+                name_process_length, name_process,
+                nodename_length, nodename);
+   } while (status != SS$_NOMOREPROC);
+
+   exit (EXIT_SUCCESS);
+}

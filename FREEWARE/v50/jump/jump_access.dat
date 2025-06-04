@@ -1,0 +1,154 @@
+#-------------------------------------------------------------------------------
+#
+#  JUMP_ACCESS.DAT
+#
+#  For a complete description of the format of this file, see below.
+#...............................................................................
+#
+jonathan : testuser : e
+testuser : jer
+operator : !testuser
+#
+!!!		# Avoid processing all the comments below.
+#-------------------------------------------------------------------------------
+#  This file contains access lists which determine who is explicitly authorised
+#  to use JUMP, or explicitly prohibited from using JUMP, and to whom they can
+#  or cannot JUMP.
+#
+#  Each list specifies one or more caller usernames, UICs or Rights Identifiers
+#  which are matched against those of the caller of JUMP to determine if that
+#  user is authorised to JUMP to the target(s) specified in the list.
+#
+#  Each list also specifies one or more target usernames, UICs or Rights
+#  Identifiers which are matched against those of the target user to
+#  determine if that user is accessible to the caller(s) specified in the list.
+#
+#  NOTE: The *FIRST* record with matches of both caller and target is used.
+#        The order of items in the list is important - the *FINAL* match in
+#          the list is the one which determines access.  Therefore, put more
+#          general items ahead of more specific ones.
+#
+#  The format of the file is:
+#
+#    A hash ('#') starts a comment.  Comments may be appended to data lines.
+#
+#    Blank lines are treated as comments.
+#
+#    A backslash ('\') is a continuation character which allows data lines
+#      to span records.  Trailing comments may follow the backslash.
+#
+#    A special data line consisting of only '!!!' (three exclamation marks
+#      in a row) terminates processing of the access file.  This can be used
+#      to prevent processing of these comments at the end of the file.
+#
+#    Data lines are free format of the form:
+#	 <calling user list>  :  <target user list> [: <options>] [<comment>]
+#      where
+#	 The calling user list, the first colon and the target user list
+#	   are mandatory;
+#	 The options and comments are optional;
+#	 A user list has the form:
+#	    id[,id[,...]]
+#	 An id is one of these forms:
+#	    [negated] [wildcarded] Username
+#	    [negated] [wildcarded] UIC
+#	    [negated] Rights-Identifier
+#	 The negation character is an exclamation mark ('!');
+#
+#	 Options can be a string of one or more of the following characters:
+#	    'A' meaning notify when JUMP /EXACT completes;
+#	    'B' meaning notify when JUMP /EXACT initiates;
+#	    'E' meaning Exact only - /EXACT is required;
+#		'!E' means Exact prohibited - /NOEXACT is required;
+#	    'I' meaning include log file in notification;
+#	    'M' meaning notify by Mail;
+#	    'N' meaning set all possible notification options;
+#	    'O' meaning notify by OPCOM;
+#	    'R' meaning record session;
+#	    'S' meaning use Secure Mode;
+#	    'X' meaning exempt from Secure Mode constraints;
+#	    '!' negates any option (except 'S' and 'X');
+#	    '+' meaning add the string which follows to the mailing list;
+#	    '=' meaning replace the mailing list with the string which follows;
+#
+#    Constraints on options:
+#	'!E' must be the ONLY option specified when used;
+#	'R'  is mutually exclusive with 'S';
+#	'S'  must be specified FIRST when used;
+#	'S'  is mutually exclusive with 'R';
+#	'!S' canNOT be used - specify 'X' instead;
+#	'X'  must be the ONLY option specified when used;
+#	'!X' canNOT be used;
+#	'+'  must be specified LAST when used;
+#	'+'  is mutually exclusive with '=';
+#	'!+' canNOT be used;
+#	'='  must be specified LAST when used;
+#	'='  is mutually exclusive with '+';
+#	'!=' canNOT be used;
+#
+#    Options are processed in order from left to right.  This means that the
+#      outcome of specifying each option is contextualized to the state of
+#      all the options at the time each option is processed.
+#
+#    Options and relevant logical names and CLI qualifiers have the
+#      following precedence in order from highest to lowest:
+#
+#	1. CLI qualifiers when the 'X' option is specified.
+#	2. Secure Mode logical name is 'TRUE'.
+#	3. Options when the 'X' option is NOT specified.
+#	4. CLI qualifiers when the 'X' option is NOT specified.
+#
+#-------------------------------------------------------------------------------
+#  Here are some example records:
+#
+#    # Give user FRED access to user HARRY ...
+#    fred : harry
+#
+#    # Give user RITA access to all users starting with TEAM ...
+#    rita: team*	# Research team led by Rita.
+#
+#    # Give users ALF and JANE access to user PROJECT ...
+#    alf , jane :project
+#
+#    # Give user SALLY and all users starting with TEAM (except user TEAM5)
+#    # access to users SECRET and all SITE%% data accounts except SITE07 ...
+#    # A big list deserves a couple of lines :) ...
+#    team*,!team5,sally : \
+#    secret,site%%_data,!site07_data
+#
+#    # Prevent operator CHUCKY from JUMPing to user DEBBIE ...
+#    chucky: !debbie
+#
+#    # Ensure user SAM always operates in Secure Mode ...
+#    sam : production : s	# Keep an eye on Sammy!
+#
+#    # Ensure user PAM always operates in Secure Mode ...
+#    pam : worker : s!i		# Keep an eye on Pammy, but without mailing log.
+#
+#    # Force "before" notification by OPCOM (only) for users FRAN and STAN ...
+#    fran,stan : peter,peta : n!m!a
+#    #  (or alternatively ...)
+#    fran,stan : peter,peta : bo
+#
+#    # Notify user NICOLE as well ...
+#    mimi,tom : stanley : bm+nicole	# Let Nicole know too!
+#
+#    # Avoid all lines below this point ...
+#    !!!
+#
+#    # Allow all developers to access production accounts, except FINANCE ...
+#    [dev,*] : [prod,*],!finance
+#
+#    # Allow users with the GRANT_ACCESS identifier to access test accounts ...
+#    grant_access : [test,*] : !e	# ... but only in poor man's mode.
+#
+#    # Allow user SYSPROG to avoid Secure Mode ...
+#    sysprog : * : x
+#
+#    # Force an entry to be *REQUIRED* in this file for all access ...
+#    # **** Do *NOT* use this type of construct unless you are  ****
+#    # **** ABSOLUTELY CERTAIN this is exactly what you need!!! ****
+#    # **** This should be the FINAL entry in the file.         ****
+#    * : !*
+#
+#-------------------------------------------------------------------------------

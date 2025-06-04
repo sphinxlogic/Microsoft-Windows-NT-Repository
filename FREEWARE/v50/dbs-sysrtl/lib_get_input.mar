@@ -1,0 +1,123 @@
+	.title	lib_get_input
+	.ident	/X1-002/
+
+;+
+; Version:	X1-002
+;
+; Facility:	General system routines.
+;
+; Abstract:	Effectively a LIB$GET_INPUT with command recall.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	22-Oct-1990, DBS, Version X1-001
+; 001 -	Original version.  (Taken from VAX Professional, February 1989, P9.
+;	Author of the original is Hunter Goatley.)
+;	19-Jan-1996, DBS, Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	Uses SMG$ routines to do the input and implement command recall,
+;	but uses the same arguments as LIB$GET_INPUT.
+;	Note that NO CASE CONVERSION is done (as is done by LIB$GET_FOREIGN
+;	and LIB$GET_INPUT).
+;
+; Calling Sequence:
+;	status = lib_get_input (buffer, prompt, buffer_len)
+;		-or-
+;	pushal	buffer_len
+;	pushaq	prompt
+;	pushaq	buffer
+;	calls	#3, g^lib_get_input
+;	blbc	r0, error
+;
+; Formal Argument(s):
+;	buffer.wt.ds	The address of a string descriptor pointing to the
+;			buffer which will contain the returned text.
+;	prompt.rt.ds	The address of a string descriptor pointing to a
+;			prompt string.
+;	buffer_len.ww.r  The address of a word to contain the length of the
+;			text returned in the buffer.
+;
+; Implicit Inputs:
+;	Virtual keyboard and key table id's.  Created on first call.
+;
+; Implicit Outputs:
+;	Virtual keyboard and key table id's.  Created on first call.
+;
+; Routine Value:
+;	As returned by SMG routine.
+;
+; Side Effects:
+;	None.
+;--
+
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	.external smg$_eof
+	.external smg$create_key_table
+	.external smg$create_virtual_keyboard
+	.external smg$read_composed_line
+
+	$rmsdef
+	$smgdef
+	$ssdef
+
+buffer=4				; offset to buffer descriptor address
+prompt=8				; offset to prompt descriptor address
+retlen=12				; offset to return length address
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+_key_table_id::	.long	0		; initialized on the first call
+_keyboard_id::	.long	0		; so we can use them later
+
+	reset_psect
+
+	set_psect _sys_code
+
+        .entry -
+lib_get_input, ^m<>
+
+	tstl	_key_table_id		; see if this is the first call
+	bnequ	10$			; yes, skip initialization
+	pushal	_key_table_id		; now create a key table
+	calls	#1, g^smg$create_key_table
+	blbc	r0, 40$			; bail out if any errors
+	pushal	_keyboard_id		; now create a virtual keyboard
+	calls	#1, g^smg$create_virtual_keyboard
+	blbc	r0, 40$			; bail out if it went wrong
+10$:	movl	#3, r0			; say at least three arguments
+	cmpw	#2, (ap)		; see how many params were passed
+	beql	20$			; handle two
+	bgtr	30$			; handle one
+	pushaw	@retlen(ap)		; we got three, pass this one on
+	incl	r0			; bump up the argument count
+20$:	pushaq	@prompt(ap)		; pass on the prompt
+	incl	r0			; and bump up the argument count
+30$:	pushaq	@buffer(ap)		; pass on the buffer
+	pushal	_key_table_id		; say where the table id is
+	pushal	_keyboard_id		; and the keyboard id
+	calls	r0, g^smg$read_composed_line ; now do the input
+	cmpl	#smg$_eof, r0		; see if we got eof
+	bnequ	40$			; if not, leave status as is
+	movl	#rms$_eof, r0		; otherwise return RMS eof
+40$:	ret
+
+	.end

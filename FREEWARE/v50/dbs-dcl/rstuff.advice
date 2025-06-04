@@ -1,0 +1,212 @@
+
+For users of SEND, RJOB, RCMD and VISIT... read on, everyone else carry on
+doing what you were doing.
+
+The "new" procedures are ready to be implemented...  if I receive no comments
+to the contrary I will install them sometime in the next few days.  I will
+advise everyone before I do it.
+I have included a description of each of the commands below.
+
+PLEASE read the following notes.  If you don't understand what they are
+about, please ask so that you don't find yourself in an unexpected situation.
+
+The following procedures exist because I use them to make system management
+easier for *me*.  If you find them useful, great.  However, they are NOT
+intended to be used anywhere within OLGA for anything whatsoever.  Any bugs
+may or may not get fixed.
+
+Note:	A reference to the HOST command in my "survey" was in fact referring
+	to *my* symbol HOST which uses the procedure OLGA$SYS:VISIT.COM, not
+	the HOST definition that *you* are using.
+	The symbol VISIT is defined to use OLGA$SYS:VISIT.COM.
+
+Note:	The processing of the <nodelist> parameter HAS CHANGED.
+
+	The old format was
+		"<include> [-<exclude>] [/<attribute>]"
+	where the attribute applied only to <include>.
+
+	The new format is
+		"<include> [/<attribute>] [-<exclude> [/<attribute>] ]
+	where both <include> AND <exclude> can each have an attribute
+	to select multiple nodes.
+
+Note:	Due to the manner in which the IP version of RCMD and RJOB handle
+	commands, there is no continuity of context between successive
+	commands.  The DECnet version handles all of the commands within
+	the context of a single process, the IP version uses a separate
+	process to handle each command.  The DECnet version uses RJOB.COM
+	at the remote end of the link, the IP version DOES NOT (therefore
+	the symbols described below are NOT available).  There is currently
+	no way around this "context" issue.
+	(You want IP, you live with the design features.)
+
+If you have any questions about any of what follows, please ask.
+
+Dave.
+
+  ----------------------------------------------------------------------------
+
+o   OLGA$SYS:NODES.DAT
+
+    Description:
+
+	This is the file used by the following procedures.  This file
+	contains a list of the nodes on the network (including the
+	transport to use for non-DECnet nodes) along with some attributes
+	for each node that allow the selection criteria to work.
+
+	DO NOT play with this file (unless you know what you are doing).
+	DO NOT copy this file around (unless you know what will happen).
+
+	If you change something and it breaks - YOU FIX IT!
+
+  ----------------------------------------------------------------------------
+
+o   SYS_FIND_NODES				OLGA$SYS:SYS_FIND_NODES.COM
+
+    Description:
+
+	This procedure is NOT intended to be used directly.  It doesn't do
+	anything that would interest you.  It is called by each of the other
+	procedures to process the <nodelist> parameter.
+
+  ----------------------------------------------------------------------------
+
+o   SEND					OLGA$SYS:SEND_IT.COM
+
+    Description:
+
+	This procedure allows one or more files to be sent to one or more
+	remote systems.  It is also possible for the resulting remote file
+	to have a different name by including the appropriate filename in
+	the destination parameter.  Note that if you include a comma
+	separated list in <source>, please ensure that the number of items
+	in <destination> is the same as the number in <source>.  Note also
+	that if you specify a destination that uses only a logical, you
+	MUST include the colon or things will not go where you want them.
+
+    Format:
+
+	$ send <source> [<nodelist>] [<destination>] [<username>]
+
+    Defaults:
+
+	There is NO default for <source> and if not supplied, the procedure
+	will exit without any messages.
+	The default <nodelist> is ALL nodes in NODES.DAT.
+	The default <destination> is to use the same as <source>.
+	The default <username> is YOUR username.
+
+  ----------------------------------------------------------------------------
+
+o   RJOB					OLGA$SYS:RJOB.COM
+
+    Description:
+
+	RJOB allows for non-interactive access to a remote node.  Any
+	command that does not rely on user input can "usually" be
+	executed.  This procedure has two distinct parts.  The first
+	part is the "interactive" side which is what you see when you
+	type the RJOB command.  The second part is the "network" side
+	which is what runs on the remote node to process your commands
+	and return the output to you.  The remote part of the procedure
+	is only active for DECnet connections.
+	At the "rjob" prompt enter your command and press return.
+	To exit from the "rjob" prompt, use control/Z.
+	If you have specified multiple nodes, "exiting" will take you
+	to the next node in the list.
+
+    Format:
+
+	$ rjob [<nodelist>] [<username>]
+
+    Defaults:
+
+	The default <nodelist> is ALL nodes in NODES.DAT.
+	The default <username> is ON_LINE.
+
+    The following symbols are available for use at the remote end of the
+    connection (DECnet only):
+
+	scsnode = f$getsyi("SCSNODE")
+	groupat = @OLGA$COM:GROUP_AT
+	groupdo = @OLGA$COM:GROUP_DO
+	groupsubmit = @OLGA$COM:GROUP_SUBMIT
+
+  ----------------------------------------------------------------------------
+
+o   RCMD					OLGA$SYS:RCOMMAND.COM
+
+    Description:
+
+	RCMD allows for the execution of multiple non-interactive commands
+	on multiple nodes.  Any command that does not rely on user input can
+	"usually" be executed.  It operates in a similar fashion to RJOB
+	except that it repeatedly prompts for commands to be executed,
+	then when all the commands have been entered, does the processing.
+	End the command list by pressing return.
+	Once all the commands are entered, RCMD will attempt to execute
+	the commands on each of the nodes specified.
+	RJOB is used at the remote end of a DECnet connection.
+
+    Format:
+
+	$ rcmd [<nodelist>] [<username>]
+
+    Defaults:
+
+	The default <nodelist> is ALL nodes in NODES.DAT.
+	The default <username> is ON_LINE.
+
+  ----------------------------------------------------------------------------
+
+o   VISIT					OLGA$SYS:VISIT.COM
+
+    Description:
+
+	This command will issue whatever command is necessary to get you to
+	the specified remote nodes to enable you to attempt to log in.
+	Note that if a DECnet connection is used, you will NOT be prompted
+	for the username.  All other connections will require you to enter a
+	username and password.
+
+    Format:
+
+	$ visit [<nodelist>] [<username>]
+
+    Defaults:
+
+	The default <nodelist> is ALL nodes in NODES.DAT.
+	The default <username> is ON_LINE.
+
+  ----------------------------------------------------------------------------
+
+Definitions:
+
+	<nodelist> = <include> [/<attribute>] [- <exclude> [/<attribute>] ]
+
+	<include> = { <nodename> | "*" } [,<nodename>...]
+
+	<exclude> = { <nodename> | "*" } [,<nodename>...]
+
+	<nodename> = a valid DECnet (or IP) node name
+
+	"*" will select ALL nodes in NODES.DAT, if an <attribute> is also
+			used, it will select ALL nodes with that attribute
+
+	<attribute> = one of the attribute values in NODES.DAT, if you
+			abbreviate the value - MAKE SURE IT IS UNIQUE else
+			you will get undesirable and possibly nasty results
+			Note: that only ONE attribute is valid on <include>
+			and ONE attribute is valid on <exclude> (they can
+			be different)
+
+	<source> = <filespec>[,<filespec>...]
+			normal VMS wildcards are valid
+
+	<destination> = [<filespec>[,<filespec>...]]
+			the default is to use the same <filespec> as used
+			in <source>
+
+	<username> = a valid VMS username on the remote system(s)

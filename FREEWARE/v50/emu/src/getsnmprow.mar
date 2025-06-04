@@ -1,0 +1,239 @@
+	.TITLE	GETSNMPROW
+	.IDENT	/01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 01 001	Mar-1995	PB	Creation
+;
+;++
+;1 GETSNMPROW
+; This routine will request paramaters as specified in the input selector
+; for the next row in the table specified.
+; If all requested params are returned an array of UNALIGNED data is returned
+; as a series of ASN.1 objects. 
+;  
+;2 Inputs
+;	P1	.address of 4 byte IP address of target node
+;	P2	.address of desc pointing to outp
+;	P3	.addr of ObjID this routine performs GetNext on.
+;	P4	.addr where 1st response obj ID is written
+;	P5	.addr of .quad bit pattern specifying which columns to return.
+;	P6	.addr of the Table ID
+;	P7	.addr of .long where number of bytes returned (p2) is written 
+;	P8	.addr of .ascic community string 
+;
+;2 Description.
+; An SNMP table is in 2 dimensions and usualy accessed lexically - that is 
+; by performing getnext operations and retireving by column. It is more useful
+; to return rows - that is a complete data structure for a single entity.
+; This routine performs a getnext on the input obj ID and then using the
+; the return, updates the param number with the next desired param and 
+; performs a series of get operations for the number of params requested.
+;
+;3 Example
+; 
+; TableID = 1.2.3.4.5
+; BitPat = ^B00011001 (params 1,4-5)
+; Do getnext on  1.2.3.4.5.0
+; returned ObjID 1.2.3.4.5.1.128.60.25.56
+;                          ^ ^...........^ Indexed by IP addr 
+;			   ^		  (this is the index)
+;                          ^ Returned 1st param.
+; Write this ObjId to P3 addr
+; Scan Bit pattern and if this param requested get len an value and add to outp
+; array.
+; Scan bit pattern for next bit set. Use bit set to replace param num
+; and issue get operation.
+; Add outp to array and loop until no params left.
+; The caller can then use the returned ObjId to address the next row.
+; 
+;2 Returns
+;	SS$_NORMAL	Request successful, data written
+;	SS$_UNREACHABLE	Failed to receive response from target
+;	SS$_ACCVIO	Can' read input params or can't write outp 
+;	SS$_NOSUCHOBJ	Agent does not recognise this objId.
+;	SS$_BUFFEROVF	Outp buffer too small.
+;	SS$_NOMOREITEMS Input ObjID was last item in table 
+;			Item was not table
+; 	SS$_BADPARAM	Table ID len was 0	
+;	SS$_ITEMNOTFOUND Partial return - some part of the request failed
+;			 after initial success.
+; Any return from GETSNMP
+;
+;2 return_format
+; Values are returned as from SNMP as ASN.1 encoded data:
+; Datatype	.byte	ASN.1 primitve datatype (see _EMUSNMPDEF)
+; Len		.byte	Len of follwing data
+; data		
+;--
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"    ; Temp loc of inet defs
+
+	EMUSNMPDEF      ; EMU
+;
+		.PSECT	GETSNMPROW_DATA,WRT,NOEXE,QUAD
+;
+CUROBJID:	.BLKB	128	; Max (arch) limit of returned objid
+RETBUF:		.BLKB	256
+RETBUF_DESC:	.LONG	.-RETBUF
+		.ADDRESS  RETBUF
+CUROBJ:		.LONG
+;
+
+
+	.PSECT	GETSNMPROW_CODE,EXE,NOWRT,QUAD
+	.CALL_ENTRY	MAX_ARGS=8, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETSNMPROW
+; Get and Validate Params
+	PROBER	#0,#4,4(AP)  		; Read IP address?
+	BNEQ	10$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+10$:
+
+	MOVQ	@8(AP),R6     		; R6 = len, R7 = addr retbuf
+	ADDL3	R6,R7,R11		; Set last addr
+	PROBEW	#0,R6,(R7)     		; Write?
+	BNEQ	50$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+50$:
+	PROBER	#0,#4,12(AP)     	; Read objid
+	BNEQ	60$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+60$:
+	PROBEW	#0,#4,16(AP)     	; Write?
+	BNEQ	70$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+70$:
+	PROBER	#0,#8,20(AP)     	; Read bit pat
+	BNEQ	80$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+80$:
+	PROBER	#0,#4,24(AP)     	; Read table ID
+	BNEQ	90$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+90$:	
+	PROBEW	#0,#4,28(AP)     	; Write return len?
+	BNEQ	100$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+100$:
+	CMPL	#8,(AP)			; Optional string present?
+	BNEQ	110$			; No
+	MOVZBL	@32(AP),R1		; Get len of str
+	PROBER	#0,R1,@32(AP)     	; Read Community string
+	BNEQ	110$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+110$:	
+PARAMS_OK:
+	MOVC5	#0,#0,#0,R6,(R7)	; Clr outp
+	CLRL	@28(AP)			; No data returned (yet)
+; Get next value for inpt
+	MOVAL	RETBUF,RETBUF_DESC+4	; Reset desc
+	MOVL	#256,RETBUF_DESC        ; reset len
+	PUSHL	32(AP)			; Community string
+	PUSHAL	CUROBJ			; .addr of returned obj
+	PUSHAL	RETBUF_DESC
+	PUSHL	#SNMP_PDU_GETN		; Operation
+	PUSHL	12(AP)			; ObjID 
+	PUSHL	4(AP)			; IP address
+	CALLS	#6,G^GETSNMP5
+	BLBS	R0,10$
+	RET
+10$:
+; Save returned objid for later use
+	MOVL	CUROBJ,R3		; Address of returned objid
+	MOVZBL	(R3),R1			; Get len
+	INCL	R1			; Include len
+	MOVC3	R1,(R3),CUROBJID	; Save this objid
+	MOVAL	CUROBJID,@16(AP)        ; Return addr of this obj
+; Make sure returned Id is in this table
+	MOVL	CUROBJ,R3		; Address of returned objid
+	MOVL	24(AP),R1		; Get addr of tableid
+	MOVZBL	(R1),R2			; Get len
+	MOVL	#1,R4			; Loop control (Skip count byte)
+15$:
+	CMPB	(R1)[R4],(R3)[R4]
+	BNEQ    17$			; Br if return is not in this table
+	AOBLSS	R2,R4,15$
+; This should be the 1st parm in the row. If not we are probably
+; now reading the 2nd param of the last row in the table.
+;	INCL	R4                      ; Point to index
+	CMPB	#1,(R3)[R4]             ; Param 1 ?
+	BNEQ    17$			; Br if not param 1
+
+; OK
+	MOVL	20(AP),R11		; Get bit pattern
+	BLBC	(R11),30$		; br if not wanted param 
+	MOVZBL	RETBUF+1,R10		; Get len
+	ADDL	#2,R10			; Include type an len
+	CMPL	R10,R6			; Enough room?
+	BLEQ	20$			; Br if ok
+	MOVL	#SS$_BUFFEROVF,R0	;
+	RET
+17$:
+	MOVL	#SS$_NOMOREITEMS,R0	;
+	RET
+
+20$:
+	MOVC3   R10,RETBUF,(R7)
+	ADDL	R10,R7			; Adjust outp pointer
+	SUBL	R10,R6			; Adjust remaining len
+	ADDL	R10,@28(AP)		; Accumulate
+30$:
+	MOVL	#1,R10			; Loop control
+	
+40$:
+	BBS	R10,(R11),50$		; Br if next parm wanted
+41$:
+	AOBLSS	#63,R10,40$             ; 63 = max numb of params in any row
+	MOVL	#SS$_NORMAL,R0          ; Got all requested
+	RET
+50$:
+; The wanted param number is the value in R10 +1 
+; This value is written at offset (len tablid +1) in the last returned objid
+; This is suposed to be simple!
+	MOVZBL	@24(AP),R1		; Get len of returned ObjID
+;	INCL	R1			; Point to last byte
+	BNEQ	55$			; Br if len not = 0
+	MOVL	#SS$_BADPARAM,R0
+	RET
+55$:
+	MOVL	CUROBJ,R9		; Get addr returned objid
+	ADDB3	#1,R10,(R9)[R1]		; Set param num
+	
+; Get this param
+	MOVQ	R6,RETBUF_DESC
+	PUSHL	32(AP)
+	PUSHAL	CUROBJ
+	PUSHAL	RETBUF_DESC
+	PUSHL	#SNMP_PDU_GET		; Operation
+	PUSHL	R9			; ObjID 
+	PUSHL	4(AP)			; IP address
+	CALLS	#6,G^GETSNMP5
+	BLBS	R0,60$
+	MOVL	#SS$_ITEMNOTFOUND,R0	; Partial success
+	RET
+60$:
+	MOVZBL	1(R7),R9		; Get len
+	ADDL	#2,R9			; Include type an len
+	ADDL	R9,R7			; Adjust outp pointer
+	SUBL	R9,R6			; Adjust remaining len
+	ADDL	R9,@28(AP)		; Accumulate len written
+	BRW	41$
+	.END 
+

@@ -1,0 +1,180 @@
+/*
+                             COPYRIGHT (C) 1996, 2000 BY
+                       COMPAQ COMPUTER CORPORATION, HOUSTON
+                        TEXAS.  ALL RIGHTS RESERVED.
+
+     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+
+     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+
+     COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+
+     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+     ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+
+     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+
+*/
+/*
+ *   This file contains a program that shows a way to program a file
+ *   purge using RMS calls to get all filenames that match the search
+ *   criterion followed by erasing (delete) previous versions of files.
+ *   
+ *   Compile and link like any DEC C programs:
+ *   
+ *        $ cc[/decc] purge
+ *        $ link purge
+ *   
+ *   Execute it like any standard VMS programs:
+ *   
+ *        $ RUN purge
+ *   
+ */
+
+#include <rms.h>
+#include <starlet.h>
+#include <stdlib.h>
+#include <string.h>
+#include <lib$routines.h>
+#include <stsdef.h>
+#include <ssdef.h>
+#include <stdio.h>
+
+/*
+ * Declare a structure that will store all filenames to be deleted
+ * at program ending.
+ */
+typedef struct delete_file {
+    struct delete_file *next;
+    char        delfilspec[NAM$C_MAXRSS];
+} delete_file_t;
+
+/*
+ * This routine allocates dynamic memory and is called when a filename to be
+ * later deleted will be stored.
+ */
+delete_file_t *new_membuf()
+{
+    delete_file_t *p;
+
+    p = (delete_file_t*) malloc (sizeof (delete_file_t));
+    if (p == 0)
+        lib$stop (SS$_VASFULL);
+    p->next     = 0;    /* zeroes fields of interrest */
+    return p;
+}
+int main(){
+
+
+    struct      FAB fab;
+    struct      NAM nam;
+    char        rsa[NAM$C_MAXRSS];
+    char        esa[NAM$C_MAXRSS];
+    char        name[NAM$C_MAXRSS];
+    char        type[NAM$C_MAXRSS];
+    unsigned    long status;
+    char        buffer[100];
+    delete_file_t *delfil = 0, *tmp;
+    delete_file_t head ={0,""};
+    char *cp;
+    int len;
+
+    /*
+     * Prompt the user for him to give the file or directory to purge.
+     */
+    printf ("enter file to purge : ");
+    gets (buffer);
+    /*
+     * Note the given filename must not contain a semi-colon. It is appended
+     * using the strcat call below.
+     */
+    cp = strchr(buffer,';');
+    if (cp != NULL) {
+        printf ("Invalid file version\n");
+        exit (0);
+    }
+    else strcat (buffer,";*");
+    fab                 = cc$rms_fab;
+    nam                 = cc$rms_nam;
+
+
+    /*
+     * Complete the fab and nam structures, parse the filename and search
+     * matching files.
+     */
+    fab.fab$l_dna       = buffer;
+    fab.fab$b_dns       = strlen(buffer);
+    fab.fab$l_nam       = &nam;
+
+    nam.nam$l_esa       = esa; nam.nam$b_ess = NAM$C_MAXRSS;
+    nam.nam$l_rsa       = rsa; nam.nam$b_rss = NAM$C_MAXRSS;
+    delfil = &head;
+
+    status = sys$parse (&fab, 0, 0);
+    name[0] = type[0] = 0;
+    if (! (status&STS$M_SUCCESS)) lib$stop (status);
+    for (;;) {
+        status = sys$search (&fab, 0, 0);
+        if (status == RMS$_NMF)
+            break;
+        else if (! (status & STS$M_SUCCESS))
+            lib$stop (status);
+        /*
+         * Look for duplicate files name.type. If so allocate memory and
+         * store the full file name to be deleted. If there is no comparison
+         * store the name and type in our temporary variables used for
+         * matches.
+         */
+        if ((strncmp (name,nam.nam$l_name,nam.nam$b_name) == 0) &&
+            (strncmp (type,nam.nam$l_type,nam.nam$b_type) == 0)) {
+                delfil->next = new_membuf();
+                delfil = delfil->next;
+                len = 0;
+                delfil->delfilspec[len] = 0;
+                strncat (delfil->delfilspec,nam.nam$l_dev,nam.nam$b_dev);
+                len += nam.nam$b_dev;
+                delfil->delfilspec[len] = 0;
+                strncat (delfil->delfilspec,nam.nam$l_dir,nam.nam$b_dir);
+                len += nam.nam$b_dir;
+                delfil->delfilspec[len] = 0;
+                strncat (delfil->delfilspec,nam.nam$l_name,nam.nam$b_name);
+                len += nam.nam$b_name;
+                delfil->delfilspec[len] = 0;
+                strncat (delfil->delfilspec,nam.nam$l_type,nam.nam$b_type);
+                len += nam.nam$b_type;
+                delfil->delfilspec[len] = 0;
+                strncat (delfil->delfilspec,nam.nam$l_ver,nam.nam$b_ver);
+                len += nam.nam$b_ver;
+                delfil->delfilspec[len] = 0;
+             }
+        else {
+                strncpy (name,nam.nam$l_name,nam.nam$b_name);
+                name [nam.nam$b_name] = 0;
+                strncpy (type,nam.nam$l_type,nam.nam$b_type);
+                type [nam.nam$b_type] = 0;
+        }/* end if */
+   } /* end for (;;) */
+   /*
+    * All duplicates have been found. Now erase (delete) the files.
+    */
+   tmp = &head;
+   delfil = tmp->next;
+   while (delfil != 0){
+       printf ("deleting %s\n",delfil->delfilspec);
+       fab.fab$b_fns = strlen(delfil->delfilspec);
+       fab.fab$l_fna = delfil->delfilspec;
+       status = sys$erase(&fab);
+       if (!(status & STS$M_SUCCESS)) lib$stop (status);
+       tmp = delfil->next;
+       free (delfil);
+       delfil = tmp;
+       }
+}

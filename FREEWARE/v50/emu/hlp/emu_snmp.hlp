@@ -1,0 +1,181 @@
+1 EMU_SNMP   
+ Collection of routines used to process SNMP protocols. 
+ See individual routines for descriptions
+2 SNMP_XLT_BRIDGEID
+
+ Routine to translate an ASN.1 encoded bridgeid to pritable string.
+ A bridge id is made up of the assigned cost of this bridge and the MAC
+ address. The assigned cost is used to determine which bridge will be root
+ of the spanning tree (high cost = less likely)
+3 Inputs
+	p1	.address pointing to coded string
+	p2	.address of desc pointing to outp
+3 Outputs
+	The string is formated to:
+	dddd:XX-XX-XX-XX-XX-XX
+	Where dddd is decimal 1-65535
+	xx is hex digit (Mac address)
+3 Returns
+ 	SS$_NORMAL  	OK
+ 	SS$_BADPARAM	Input was not formatted correctly or was not
+			a bridge id (len was not = 8)
+	Any from FAO
+2 SNMP_MAKTBL_ID
+
+ Routine to parse an ASN.1 encoded object id and return the EMUDB table.param
+ it belongs in.
+3 Inputs
+	p1	.address pointing to EMU form of OBJid
+	p2	.address of quad outp
+3 Outputs
+	.long 	table number
+	.long	param number
+3 Returns
+ 	SS$_NORMAL  	OK
+ 	SS$_BADPARAM	Input objid had len = 0
+3 Description
+ The target object as formatted by MIB_COMPILE2 is a counted string
+ of decimal digits used to specify the data SNMP should return.
+ The string has some changes from the MIB standard:
+ 1. The 1st 2 digits are transformed to conform to the ASN.1 
+    standard that says we must multiply the 1st digit by 40 
+    and add the 2nd digit.
+ 2. It always ends with .0 which is not part of the standard input. 
+    This is how the protocol expects it so it is stored this way.
+ 3. The count includes the .0 at the end so:
+
+"atPhysAddress"         "1.3.6.1.2.1.3.1.1.2"
+ 	becomes
+ 10.43.6.1.2.1.3.1.1.2.0
+ The table is  "43.6.1.2.1.3.1.1"
+ the param is 2
+ This routine parses a string in this format and returns:
+	The CRC of the string less the count, and last 2 digits
+	The paramater number
+
+2 SNMP_MAKTBL_NAME
+
+ Routine to parse an ASN.1 encoded object id of type MC_MIBT_C_TYPNAM
+ and return the EMUDB table.param it belongs in. As opposed to MAKTBL_ID
+ the table portion is always 02xxxxxx where xxxxxxx is the mib ID set
+ during the register process. The param portion is CRC of the obj ID.
+
+3 Inputs
+	p1	.address pointing to EMU form of OBJid
+	p2	.address of quad outp
+	p3	.long MIB ID
+3 Outputs
+	.long 	table number	(MIBID)
+	.long	param number    (CRC of Table ObjId)
+3 Returns
+ 	SS$_NORMAL  	OK
+ 	SS$_BADPARAM	Input objid had len = 0
+3 Description
+ The target object as formatted by MIB_COMPILE2 is a counted string
+ of decimal digits used to specify the data SNMP should return.
+ The string has some changes from the MIB standard:
+ 1. The 1st 2 digits are transformed to conform to the ASN.1 
+    standard that says we must multiply the 1st digit by 40 
+    and add the 2nd digit.
+ 2. It always ends with .0 which is not part of the standard input. 
+    This is how the protocol expects it so it is stored this way.
+ 3. The count includes the .0 at the end so:
+
+"ifTable"         "1.3.6.1.2.1.2.2.0"
+ 	becomes
+ 	43.6.1.2.1.2.2
+ The table is  "43.6.1.2.1.3.1.1"
+ This routine parses a string in this format and returns:
+	The CRC of the string less the count, and last  digit
+
+2 SNMP_GET_IFTBL
+
+ Routine to get all params OR all counts for all interfaces on the device
+ specified by the input IP address.
+3 Inputs
+	p1	.address pointing to IP address in net format
+	p2	.address of descriptor pointing to outp
+		The len should be:
+	 max number of expected interfaces*SNMP_IFT_C_TBLSIZ (296)
+	P3	.long address where number of interfaces found is returned
+	P4	.long One of: SNMP_IFT_C_PARAM	(paramaters)
+			      SNMP_IFT_C_PARAM  (Counts)
+	P5	.address of .ascic community string.
+		If not present 'public' is used.
+3 Outputs
+	.long 	Number of interfaces
+ One of:
+ For params:
+  	Desc			Type	Ofs	Len
+ Interface Description         .ascic	0	256
+ Interface Index               .long	256	4
+ Interface type                .long	260	4
+ Max trasmition unit           .long	264	4
+ Speed in BPS                  .long	268	4
+ Layer 2 addr                  .quad	272	8
+ Admin status                  .long	280	4
+ Current status                .long	284	4
+ Last change                   .long	288	4
+ Spare/align			.long	292	4
+ For counts:
+  	Desc			Type	Ofs              
+ Interface Index		.quad	0
+ INOCTETS    			.quad	8                
+ INUCASTPKTS          		.quad   16              
+ INNUCASTPKTS         		.quad   24               
+ INDISCARDS           		.quad   32               
+ INERRORS             		.quad   40               
+ INUNKNOWNPROTOS      		.quad   48               
+ OUTOCTETS            		.quad   56               
+ OUTUCASTPKTS         		.quad   64               
+ OUTNUCASTPKTS        		.quad   72               
+ OUTDISCARDS          		.quad   80               
+ OUTERRORS            		.quad   88               
+ OUTQLEN              		.quad   96                
+3 Returns
+ 	SS$_NORMAL  	OK
+ 	SS$_BADPARAM	Invalid P4
+	SS$_BUFFEROVF	Outp buffer too small. Partial return. Number of 
+			interfaces is number successfuly written.
+	SS$_FORMAT	Returned buffer in bad format or internal error.
+	SS$_UNREACH	No response from target
+	SS$_DATACHECK	Error returned from target
+	any error from GETSNMPROW, PROCESS_ASN1_TAG, CVT_ASN1TOINT
+2 SNMP_GET_ADJNODES
+
+ Routine to get all IP address from the routing table of the node
+ specified by the input IP address.
+3 Inputs
+	p1	.address pointing to IP address in net format
+	p2	.address of descriptor pointing to outp
+	P3	.long address where number of addresses 
+	P4 (Optional .address of .ascic community string. If not present
+	default 'public' is used
+3 Outputs
+	.long 	Number of interfaces
+	list of IP addresses in net format, 1 per count.
+3 Returns
+ 	SS$_NORMAL  	OK
+	SS$_ACCVIO	Cant read/write inpt/outp params
+	SS$_BUFFEROVF	Outp buffer too small. Partial return. Number of 
+			interfaces is number successfuly written.
+	SS$_FORMAT	Returned buffer in bad format or internal error.
+	SS$_UNREACH	No response from target
+	SS$_DATACHECK	Error returned from target
+	any error from GETSNMPROW, PROCESS_ASN1_TAG, CVT_ASN1TOINT
+2 CVT_ASN1TOINT
+   
+ CONVERT ASN.1 Integer to VMS integer. 
+
+3 inputs
+	Addr of PROCESS_ASN1_TAG outp block
+	addr of asn1 encoded integer
+	addr of outp 
+	Len of outp	(either 4 or 8)
+3 returns:
+ 	r0 = normal or overflow
+       .quad or .long converted int 
+3 Status Returns
+ SS$_NORMAL	- OK
+ SS$_INTOVF	- Len > len of outp, If len = 0 then 0 is written in outp.
+

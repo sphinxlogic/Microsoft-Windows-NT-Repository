@@ -1,0 +1,164 @@
+1 PSRBRD 
+ Program to receive STP (Bridge) frames from Listen, process them and
+ build the internal PSRBRD DB.
+
+2 Database
+    Symbol	       offs	   Desc
+PSR_BRD_EA_ADDR         128     ; Ethernet address  
+PSR_BRD_L_ADDRLO        132     ; Ethernet address  (Low long)
+PSR_BRD_W_SPR           134     ; Spare /align
+PSR_BRD_Q_ROOT          136     ; Root id. Made of:
+PSR_BRD_W_PRIO          136     ; Root priority
+PSR_BRD_EA_ROOT         138     ; Ethernet address  
+PSR_BRD_L_ROOTLO        140     ; Ethernet address  (Low long)
+PSR_BRD_W_HINT          144     ; Hello interval
+PSR_BRD_W_LIST          142     ; Listen timer
+PSR_BRD_W_FDT           146     ; Forward delay timer
+PSR_BRD_W_TYP           148     ; STP type (dec or 802)
+PSR_BRD_L_COST          152     ; Cost to root
+PSR_BRD_L_SPR           156     ; Spare /align
+2 Error_Log
+ The error system works as follows:
+ Fill in MSGDCE, PARCNT and required params and call EMU_LOGGER with 
+ the addr of this message as the param. 
+ MSGCDE is the EMU message code. Symbols are defined in _EMUMSGDEF
+ PARCNT is the count of params in the MSGPARAMS area. There may be up to 
+ 7 params in any message. The params are FAO directives as required
+ by the message. See EMUMSG.MSG
+2 BRD_CREATE_DEC
+ Routine to complete entry for newly created record with bridge type
+ dec. 
+3 Input
+   .address of newly created BRDDB rec
+   .address of EBUFF frame
+3 Output
+  Following data fields are written:
+	PSR_BRD_Q_ROOT	 Root id. Made of:
+	PSR_BRD_W_PRIO	  Root priority
+	PSR_BRD_EA_ROOT	  Ethernet address  
+	PSR_BRD_L_ROOTLO  Ethernet address  (Low long)
+	PSR_BRD_W_HINT	 Hello interval
+	PSR_BRD_W_LIST	 Listen timer
+	PSR_BRD_W_FDT	 Forward delay timer
+	PSR_BRD_W_TYP	 STP type (dec or 802)
+	PSR_BRD_L_COST	 Cost to root
+3 Return
+  SS$_NORMAL	OK
+2 BRD_CREATE_802
+ Routine to complete entry for newly created record with bridge type
+ 802.1D. 
+3 Input
+   .address of newly created BRDDB rec
+   .address of EBUFF frame
+3 Output
+  Following data fields are written:
+	PSR_BRD_Q_ROOT	 Root id. Made of:
+	PSR_BRD_W_PRIO	  Root priority
+	PSR_BRD_EA_ROOT	  Ethernet address  
+	PSR_BRD_L_ROOTLO  Ethernet address  (Low long)
+	PSR_BRD_W_HINT	 Hello interval
+	PSR_BRD_W_LIST	 Listen timer
+	PSR_BRD_W_FDT	 Forward delay timer
+	PSR_BRD_W_TYP	 STP type (dec or 802)
+	PSR_BRD_L_COST	 Cost to root
+3 Return
+  SS$_NORMAL	OK
+2 BRD_CHECK_ROOT
+ Routine to ensure the root id in incoming frame is in both 
+ ethernet and bridge db.
+3 Input
+ 	.address of PSRBRD record
+3 Output
+ The root address is located in ethernet db and if not present is created
+ The ptybits are checked and if not also in bridge db, it is added
+ If either the above is not true, a relater frame is sent.
+3 Return
+  SS$_NORMAL	OK
+ ANy other errors are logged/counted in this routine.
+2 BRD_CHECK_DEC
+
+
+MOVL	COUNTERS_A,R11	; Counters
+MOVL	4(AP),R7	; data rec
+MOVL	8(AP),R6	; Incoming
+ADDL3	#IPC_ETH_1500_DATA,R6,R8	; Data
+
+
+ Check it is STP
+
+CMPB	#225,(R8)               ; STP Hello?
+BEQL	50$                     ; Yes
+ Count format error
+MOVL	#SS$_NORMAL,R0
+RET
+0$:
+ Root ID
+ADDL3	#PSR_BRD_DEC_Q_BRIBROOT,R8,R1
+CMPB	(R1),PSR_BRD_W_PRIO(R7)
+BNEQU	60$
+CMPW	1(R1),PSR_BRD_EA_ROOT(R7)
+BNEQU	60$
+CMPW	3(R1),PSR_BRD_L_ROOTLO(R7)
+BNEQU	60$
+BRB	100$
+0$:
+ send alert
+00$:
+ Cost 
+ Listen timer
+ Foward delay
+ Hello interval
+       CMPW	PSR_BRD_DEC_W_BRICOST(R8),PSR_BRD_L_COST(R7)
+BEQLU	110$
+10$:
+CMPW	PSR_BRD_DEC_B_BRILISN(R8),PSR_BRD_W_LIST(R7)
+BEQLU	120$
+20$:
+CMPW	PSR_BRD_DEC_B_BRIFWD(R8),PSR_BRD_W_FDT(R7)
+BEQLU	130$
+30$:
+CMPW	PSR_BRD_DEC_B_BRIHINT(R8),PSR_BRD_W_HINT(R7)
+BEQLU	140$
+40$:
+CMPW	#PSR_BRD_C_STP_DEC,PSR_BRD_W_TYP(R7)
+       BEQLU	150$
+MOVW	#PSR_BRD_C_STP_DEC,PSR_BRD_W_TYP(R7)
+50$:
+MOVL	#SS$_NORMAL,R0
+	RET
+
+       .CALL_ENTRY     MAX_ARGS=2, -
+                       HOME_ARGS=TRUE, -
+                       INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                       PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                       LABEL=BRD_CHECK_802   
+++
+2 BRD_CHECK_802
+ Routine to compare incomming params with stored params on 802.1d frame.
+3 Input
+   .address of BRDDB rec
+   .address of EBUFF frame
+3 Output
+  Following data fields are checked and alerted on any changes:
+	PSR_BRD_Q_ROOT	 Root id. Made of:
+	PSR_BRD_W_PRIO	  Root priority
+	PSR_BRD_EA_ROOT	  Ethernet address  
+	PSR_BRD_L_ROOTLO  Ethernet address  (Low long)
+	PSR_BRD_W_HINT	 Hello interval
+	PSR_BRD_W_LIST	 Listen timer
+	PSR_BRD_W_FDT	 Forward delay timer
+	PSR_BRD_W_TYP	 STP type (dec or 802)
+	PSR_BRD_L_COST	 Cost to root
+3 Return
+  SS$_NORMAL	OK
+2 MAP_BRDDB   
+ Routine to create and initialise the BRD db. This is a standard routine
+ that any DB creator execxutes on it's own DB:
+	Acquire exclusive lock on this database. 
+		Fatal error if not granted.
+	Open file - if file not opened used hardcoded defaults.
+	Create section. Fatal error ir we did not CREATE.
+	Initalise with either file contents or defaults
+	Write section size (in pages) to LVB
+	Convert lock to CW
+	That's it!

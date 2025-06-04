@@ -1,0 +1,591 @@
+	.TITLE	GETOSI  
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 GETOSI
+; Routines to get DECnet V data, strip the protocol and return 
+; The data in standard format.
+;2 Inputs
+; Address.	A .word DECnet address in network format
+; Function	An EMU symbol specifying the data to return
+; Output	A descriptor pointing to the output table
+; Context	A .long used internaly to return each table in sequence
+;		when multiple instances are found. This should always be 0
+;		on the 1st call and never written until another entity
+;		is selected.
+;2 Outputs
+; The data is returned in the output area with each paramater in the 
+; following format:
+; Len	.long	Total len of this paramater's data
+; Par	.long	Paramater number
+; Prim	.long	Number of primatives following.
+;       for each primitive found:
+;       unaligned sequence of tag,len,value
+;       tag = .WORD Class
+;             .WORD Tag value (stripped)
+;       len = .long
+;       Value = ASN.1 encoded stripped of all protocol.
+;
+;2 Returns
+;	SS$_NORMAL		Table written - may be more entities
+;	SS$_ITEMNOTFOUND        Success - no more entities
+;	SS$_NOTINSTALL 		Valid request - not yet implemented
+;	SS$_ACCVIO		Can't read/write inpt/outp
+
+;3 Function 
+; A particular dataset is selected by
+; symbol which points to a table containing 5 paramaters:
+; Entity	a counted string specifying the CMIP formatted entity to 
+;		operate on.
+; Instance	a counted CMIP string specifying the paramaters to return.
+; Attribues	a byte long symbol specifying type of data to return
+;
+;4 Attributes
+;  This is an EMU defined symbol. Possible values are:
+;	CMIP_ATS_C_ALL          0       ; All attributes
+;	CMIP_ATS_C_ID           1       ; All Identifiers
+;	CMIP_ATS_C_STATUS       2       ; All status
+;       CMIP_ATS_C_COUNT        3       ; All count
+;       CMIP_ATS_C_CHAR         4       ; All char
+;--
+
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+	EMUCMIPDEF
+	EMUDBDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	$SECDEF				; Global Section 
+	.PSECT	DATA WRT,NOEXE,QUAD
+
+; returned addresses
+PARAMTBL_D:	.QUAD	
+FAOBUF:		.BLKL	132
+FAODESC:
+FAOLEN:		.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+FAOLIST:	.BLKL	64
+FAOSTR:		.BLKB	64
+FAOSTR_D:	.LONG	.-FAOSTR 		; Dynamic
+		.ADDRESS  FAOSTR
+; Return packet
+	.ALIGN	LONG
+RETBUF_SIZ = 16384
+RETURN:	 	.BLKB	RETBUF_SIZ 		
+RETURN_D:       .LONG	.-RETURN
+		.ADDRESS  RETURN
+PRETURN:	.BLKB	2048
+PRETURN_D:	.LONG	.-PRETURN
+		.ADDRESS  PRETURN
+
+FUNCTBL:
+	.ADDRESS	NODE		;10
+	.ADDRESS	ALIAS		;11
+	.ADDRESS	ALIASPORT	;	12
+	.ADDRESS	CSMACD		;13
+	.ADDRESS	CSMACDPORT	;	14
+	.ADDRESS	CSMACDSTN	;	15
+	.ADDRESS	DDCMP		;16
+	.ADDRESS	DDCMP_LNK	;	17
+      	.ADDRESS	DDCMP_LNKSTN	;18
+	.ADDRESS	DDCMP_PORT	;	19
+	.ADDRESS	DEVICE		;20
+	.ADDRESS	DEVICE_UNIT	;21
+	.ADDRESS	DNS		;22
+	.ADDRESS	DNS_SERV	;	23
+	.ADDRESS	DNS_SERV_CH	;24
+	.ADDRESS	DNS_CLRK	;	25
+	.ADDRESS	DNS_CLRK_KNS	;26
+	.ADDRESS	DNS_CLRK_RCH	;27
+	.ADDRESS	DNS_CLRK_MNS	;28
+	.ADDRESS	DTS		;29
+	.ADDRESS	DTS_GBLSRV	;	30
+	.ADDRESS	DTS_LOCSRV	;	31
+	.ADDRESS	EVD		;32
+	.ADDRESS	EVD_OS		;33
+	.ADDRESS	EVD_REL		;34
+	.ADDRESS	EVD_RECLOG	;	35
+	.ADDRESS	EVD_SNK		;36
+	.ADDRESS	EVD_SNKIS	;	37
+	.ADDRESS	FRAME		;38
+	.ADDRESS	FRAME_LINK	;	39
+	.ADDRESS	FRAME_PORT	;	40
+	.ADDRESS	HDLC		;41
+	.ADDRESS	HDCL_LNK	;	42
+	.ADDRESS	HDLC_LNKLS	;	43
+	.ADDRESS	HDLC_PORT	;	44
+	.ADDRESS	LAPB		;45
+	.ADDRESS	LAPB_LINK	;	46
+	.ADDRESS	LAPB_PORT	;	47
+	.ADDRESS	LLC2		;48
+	.ADDRESS	LLC2_PORT	;	49
+	.ADDRESS	LLC2_SAP	;	50
+	.ADDRESS	LLC2_SAPLNK	;51
+	.ADDRESS	LOOPBACK	;	52
+	.ADDRESS	MODEM		;53
+	.ADDRESS	MODEM_PORT	;	54
+	.ADDRESS	MODEM_LINE	;	55
+	.ADDRESS	MOP		;56
+	.ADDRESS	MOP_CIRC	;	57
+	.ADDRESS	MOP_CIRCOP	;	58
+	.ADDRESS	MOP_CIRCSTN	;59
+	.ADDRESS	MOP_CLIENT	;	60
+	.ADDRESS	NSP		;61
+	.ADDRESS	NSP_LNSAP	;	62
+	.ADDRESS	NSP_RNSAP	;	63
+	.ADDRESS	NSP_PORT	;	64
+	.ADDRESS	OSIT		;65
+	.ADDRESS	OSIT_APP	;	66
+	.ADDRESS	OSIT_LNSAP	;	67
+	.ADDRESS	OSIT_RNSAP	;	68
+	.ADDRESS	OSIT_PORT	;	69
+	.ADDRESS	TEMPL		;70
+	.ADDRESS	RTN		;71
+	.ADDRESS	RTN_CIRC	;	72
+	.ADDRESS	RTN_CRICADJ	;73
+	.ADDRESS	RTN_CIRCIPAT	;74
+	.ADDRESS	RTN_CIRCIPAJ	;75
+	.ADDRESS	RTN_CIRCIPRA	;76
+	.ADDRESS	RTN_CIRCRA	;	77
+	.ADDRESS	RTN_DESTAREA	;78
+	.ADDRESS	RTN_DESNNODE	;79
+	.ADDRESS	RTN_EGPGRP	;	80
+	.ADDRESS	RTN_EGPNEI	;	81
+	.ADDRESS	RTN_IPDA	;	82
+	.ADDRESS	RTN_PERNEI	;	83
+	.ADDRESS	RTN_PORT	;	84
+	.ADDRESS	SC		;	85
+	.ADDRESS	SC_APP   	;	86
+	.ADDRESS	SC_PORT		;87
+	.ADDRESS	SC_TOWMAINT	;88
+	.ADDRESS	SC_TRASVC	;	89
+	.ADDRESS	X25A		;90
+	.ADDRESS	X25A_APP	;	91
+	.ADDRESS	X25A_DTECLASS	;92
+	.ADDRESS	X25A_FILT	;	93
+	.ADDRESS	X25A_PORT	;	94
+	.ADDRESS	X25A_SECDTE	;95
+	.ADDRESS	X25A_REMDTE	;96
+	.ADDRESS	X25A_RA		;97
+	.ADDRESS	X25A_SECFILT	;98
+	.ADDRESS	X25A_TEMPL	;	99
+	.ADDRESS	X25C		;100
+	.ADDRESS	X25P		;101
+	.ADDRESS	X25P_DTE	;	102
+	.ADDRESS	X25P_DTEPVC	;103
+	.ADDRESS	X25P_GRP	;	104
+	.ADDRESS	FDDI		;	105
+	.ADDRESS	FDDI_STN	;	106
+	.ADDRESS	FDDI_PORT	;	107
+FUNCTBL_END:
+
+
+NODE:            ; Node Characteristics
+		.BYTE ^X08,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01
+                .BYTE   0                       ; Len
+                .BYTE   CMIP_ATS_C_ALL          ; ALL
+         
+
+
+ALIAS:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X20
+                .BYTE   ^X02,^X05,^X00          ; Len
+                .BYTE   CMIP_ATS_C_ALL          ; ALL
+ALIASPORT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X20,^X00
+                .BYTE   ^X04,^X05,^X00,^X5D,^X00 ; Len
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+CSMACD:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X02
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+CSMACDPORT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X02,^X00
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+CSMACDSTN:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X02,^X01
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+DDCMP:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X01
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+DDCMP_LNK:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X01,^X01
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+
+DDCMP_LNKSTN:
+		.BYTE	0			; Not implemented
+DDCMP_PORT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X01,^X00
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+DEVICE:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X11,^X00
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+DEVICE_UNIT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X11,^X00
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+DNS:
+		.BYTE	0			; Not implemented
+
+DNS_SERV:
+		.BYTE	0			; Not implemented
+
+DNS_SERV_CH:
+		.BYTE	0			; Not implemented
+DNS_CLRK:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X09
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+DNS_CLRK_KNS:
+		.BYTE	0			; Not implemented
+DNS_CLRK_RCH:
+		.BYTE	0			; Not implemented
+DNS_CLRK_MNS:
+		.BYTE	0			; Not implemented
+DTS:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X0A
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+DTS_GBLSRV:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X0A,^X01
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+DTS_LOCSRV:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X0A,^X02
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+EVD:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X0E
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+EVD_OS:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X0E,^X00
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+EVD_REL:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X0E,^X01
+		.BYTE	^X04,^X05,^X00,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+EVD_RECLOG:                 
+		.BYTE	^X0B,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X0E,^X01,^X01
+		.BYTE	^X06,^X05,^X00,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+EVD_SNK:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X0E,^X02
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+EVD_SNKIS:
+		.BYTE	0			; Not implemented
+FDDI:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X23
+		.BYTE	^X02,^X05,00 
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+FDDI_STN:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X23,^X00
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+FDDI_PORT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X23,^X01
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+   
+	   
+	
+
+FRAME:
+		.BYTE	0			; Not implemented
+FRAME_LINK:
+		.BYTE	0			; Not implemented
+FRAME_PORT:
+		.BYTE	0			; Not implemented
+HDLC:
+		.BYTE	0			; Not implemented
+HDCL_LNK:
+		.BYTE	0			; Not implemented
+HDLC_LNKLS:
+		.BYTE	0			; Not implemented
+HDLC_PORT:
+		.BYTE	0			; Not implemented
+LAPB:
+		.BYTE	 ^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X19
+		.BYTE	 ^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+
+LAPB_LINK:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X19,^X01
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+
+LAPB_PORT:
+		.BYTE 0
+; Nomally we do not want the ports (dynamic entry) may be useful for later
+; monitor
+;
+; A1 82 00 23 02 01 0A 02 01 03 30 82 00 19 80 0A 2B 0C 02
+; 87 73 02 01 01 19 00 A3 04 05 00 5D 00 AB 82 00 03 81 01
+; 00
+
+LLC2:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X1D
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+LLC2_PORT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X1D,^X00
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+LLC2_SAP:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X1D,^X01
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+LLC2_SAPLNK:
+
+		.BYTE	0			; Not implemented
+LOOPBACK:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X0F
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+MODEM:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X0C
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+MODEM_PORT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X0C,^X01
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+MODEM_LINE:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X0C,^X03
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+MOP:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X10
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+MOP_CIRC:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X10,^X01
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+MOP_CIRCOP:
+		.BYTE	0			; Not implemented
+MOP_CIRCSTN:
+		.BYTE	0			; Not implemented
+MOP_CLIENT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X10,^X00
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+NSP:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X06
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+NSP_LNSAP:
+		.BYTE	0			; Not implemented
+NSP_RNSAP:
+		.BYTE	0			; Not implemented
+NSP_PORT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X06,^X00
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+OSIT:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X07
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+OSIT_APP:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X07,^X05
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+OSIT_LNSAP:
+		.BYTE	0			; Not implemented
+OSIT_RNSAP:
+		.BYTE	0			; Not implemented
+OSIT_PORT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X07,^X00
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+TEMPL:
+		.BYTE	0			; Not implemented
+RTN:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X04
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+RTN_CIRC:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X04,^X02
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+RTN_CRICADJ:
+		.BYTE	0			; Implemented as seperate rtn
+RTN_CIRCIPAT:
+		.BYTE	0			; Not implemented
+RTN_CIRCIPAJ:
+		.BYTE	0			; Not implemented
+RTN_CIRCIPRA:
+		.BYTE	0			; Not implemented
+RTN_CIRCRA:
+		.BYTE	0			; Not implemented
+RTN_DESTAREA:
+		.BYTE	0			; Not implemented
+RTN_DESNNODE:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X04,^X03
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+RTN_EGPGRP:
+		.BYTE	0			; Not implemented
+RTN_EGPNEI:
+		.BYTE	0			; Not implemented
+RTN_IPDA:
+		.BYTE	0			; Not implemented
+RTN_PERNEI:
+		.BYTE	0			; Not implemented
+RTN_PORT:
+		.BYTE	0			; Not implemented
+SC:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X08
+		.BYTE	^X02,^X05,^X00
+                .BYTE   CMIP_ATS_C_ALL           ; ALL
+
+SC_APP:			; Session control application
+		.BYTE ^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,-
+	      	      ^X08,^X04
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+		.BYTE   CMIP_ATS_C_ALL          ; ALL 
+SC_PORT:
+		.BYTE	0			; Not implemented
+SC_TOWMAINT:
+		.BYTE	0			; Not implemented
+SC_TRASVC:
+		.BYTE	0			; Not implemented
+X25A:
+	        .BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X15
+		.BYTE	^X02,^X05,^X00
+		.BYTE   CMIP_ATS_C_ALL          ; ALL 
+
+X25A_APP:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X15,^X07
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+		.BYTE   CMIP_ATS_C_ALL          ; ALL 
+
+X25A_DTECLASS:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X15,^X04
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+		.BYTE   CMIP_ATS_C_ALL          ; ALL 
+X25A_FILT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X15,^X01
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+		.BYTE   CMIP_ATS_C_ALL          ; ALL 
+
+X25A_PORT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X15,^X03
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+		.BYTE   CMIP_ATS_C_ALL          ; ALL 
+
+X25A_SECDTE:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X15,^X06
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+		.BYTE   CMIP_ATS_C_ALL          ; ALL 
+
+X25A_REMDTE:
+		.BYTE	0			; Not implemented
+X25A_RA:
+		.BYTE	0			; Not implemented
+X25A_SECFILT:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X15,^X05
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+		.BYTE   CMIP_ATS_C_ALL          ; ALL 
+
+X25A_TEMPL:
+		.BYTE	0			; Not implemented
+X25C:
+		.BYTE	0			; Not implemented
+X25P:
+		.BYTE	^X09,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X05
+		.BYTE	^X02,^X05,^X00
+		.BYTE   CMIP_ATS_C_ALL          ; ALL 
+X25P_DTE:
+		.BYTE	^X0A,^X2B,^X0C,^X02,^X87,^X73,^X02,^X01,^X01,^X05,^X00
+		.BYTE	^X04,^X05,^X00,^X5D,^X00
+		.BYTE   CMIP_ATS_C_ALL          ; ALL 
+X25P_DTEPVC:
+		.BYTE	0			; Not implemented
+X25P_GRP:
+		.BYTE	0			; Not implemented
+
+	.PSECT	CODE	EXE,NOWRT,LONG
+
+	.CALL_ENTRY	MAX_ARGS=4, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETOSI
+; Check params
+	PROBER	#0,#4,4(AP)			; decnet addr
+	BEQL	20$				; No
+	PROBER	#0,#4,8(AP)			; function
+	BEQL	20$				; No
+	MOVQ	@12(AP),R10			; outp table desc
+	PROBEW	#0,R10,(R11)			; Check for write access
+	BEQL	20$
+	PROBEW	#0,#4,@16(AP)			; Check context for write access
+	BNEQ	30$				; OK
+20$:
+	MOVL	#SS$_ACCVIO,R0
+
+30$:
+; Calc the various addresses:
+	MOVAL	FUNCTBL,R6
+	SUBL3	#DB_FAC_C_DN5_TBLOFFS,8(AP),R7
+	MOVL	(R6)[R7],R6			; R6 = entity
+	MOVZBL	(R6),R1
+	BEQL	50$				; Br if not implemented
+	INCL	R1                              ; Include count
+	ADDL3	R1,R6,R7			; R7 = Instance
+	MOVZBL	(R7),R1
+	INCL	R1                              ; Include count
+	ADDL3	R1,R7,R8			; R8 = attribute
+; If context .ne. 0 then this is subsequent call - skip net call
+	TSTL	@16(AP)
+	BNEQ	100$
+        MOVL	#RETBUF_SIZ,RETURN_D
+	PUSHAL	RETURN_D          ; Output block
+	PUSHL	(R8)              ; Attr
+	PUSHL	R7                ; Inst
+	PUSHL	R6                ; Ent
+	PUSHL	4(AP)             ; Node number
+	CALLS	#5,G^GETDN5
+	BLBS	R0,100$
+	RET
+50$:
+	MOVL	#SS$_NOTINSTALL,R0
+	RET
+100$:
+	PUSHL 	16(AP)
+        PUSHL	12(AP)				; Caller's return
+	PUSHAL	RETURN_D               	 	; Local input block
+	CALLS	#3,G^CMIP_XTRPARAM
+	RET
+	.END	
+
+

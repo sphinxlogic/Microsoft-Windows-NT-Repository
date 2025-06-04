@@ -1,0 +1,943 @@
+	.TITLE	EMU_XLTTBL   
+	.IDENT	/V5-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	APR-1997	PB	Creation
+;	
+;++
+;1 EMU_XLTTBL   
+; Collection of routines used to implement the translation table subsystem.
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+	.LIBRARY        /EMU5_LIB:MACROLIB.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SMGDEF
+	$SECDEF				; Global Section 
+	$SSDEF
+	$TRMDEF
+	$PRVDEF
+	$LCKDEF
+        EMUSYSDEF
+	EMUDBDEF
+	EMUUIDEF
+	;	
+
+	.PSECT	EMU_XLTTBL_D,WRT,NOEXE,PIC,SHR,QUAD
+
+; Section addresses
+SAPSEC_A:	.QUAD
+MOPSEC_A:	.QUAD
+PTYSEC_A:	.QUAD
+ETHSEC_A:	.QUAD
+
+
+XTBINFAB:	$FAB	FAC = <DEL,UPD,GET,PUT>,-        ; Access
+		SHR = <DEL,UPD,GET,PUT>,-
+		MRN = 0,-		; No Max rec No.
+		ORG = seq,-		; Indexed
+		DNM = <EMU5_DAT:SAPLIST.ITXT>		
+
+XTBINRAB: $RAB	FAB = XTBINFAB,-            ; Record 
+		RBF = XTBINREC,-  
+		UBF = XTBINREC,-  
+		RAC = SEQ
+XTBINREC:
+		.BLKB	80
+XTBINREC_SIZE = .-XTBINREC
+
+
+XTBOUTFAB:	$FAB	FAC = <DEL,UPD,GET,PUT>,-        ; Access
+		SHR = <DEL,UPD,GET,PUT>,-
+		MRN = 0,-		; No Max rec No.
+		ORG = SEQ,-		; Indexed
+		DNM = <EMU5_DAT:SAPLIST.XTBL>		
+
+XTBOUTRAB: $RAB	FAB = XTBOUTFAB,-            ; Record 
+		RAC = SEQ,-
+		KBF = XTBOUTREC,-
+		RBF = XTBOUTREC  
+
+                                       
+
+XTBOUTREC:
+XTB_KEY:	.QUAD
+XTB_LEN:	.LONG
+XTB_STR:	.BLKB	68
+XTBOUTREC_SIZE = .-XTBOUTREC
+FILNAM_DESC:	.QUAD	0
+FILNAMTBL:
+	.ADDRESS SAPLIST
+	.ADDRESS MOPDEV
+	.ADDRESS PTYLIST
+	.ADDRESS ETHMAN
+FILNAMTBL_LEN = .-FILNAMTBL
+
+
+; Misc
+PARSE_DESC:	.QUAD
+PARSE_KEYL:	.LONG
+
+SAPDEFXLT:	.ASCID	/(!XW)/
+IEEDEFXLT:	.ASCID	/(!XB)/
+ETHDEFXLT: 	.ASCID	/(!XB-!XB)/
+EXTDEFXLT:	.ASCID	/(!XB-!XB-!XB-!XB-!XB)/
+MOPDEFXLT:	.ASCID	/(!UB)/
+PREIVERS:	.ASCII	/.ITXT;-1/		; .QUAD!!
+PREOVERS:	.ASCII	/.XTBL;-1/		; .QUAD!!
+LCNT:		.LONG	0	
+FILSTR:	        .BLKB	32
+FILSTR_DESC:	.LONG	.-FILSTR
+		.ADDRESS  FILSTR
+; Prompt strings and params
+FAOBUF:		.BLKB	80
+FAODESC:	.LONG 	.-FAOBUF
+		.ADDRESS  FAOBUF
+
+RETLEN:		.LONG 	0
+
+RETBUF:		.BLKB	80
+RETDESC:        .LONG	.-RETBUF
+		.ADDRESS  RETBUF
+
+NEWFILMSG:	.ASCID	/ New File created. Keep Changes? [Y]: /
+COMPILEERR:	.ASCID	/ Error !XL encountered at line !UL/
+CONTMSG:	.ASCID	/ Continue? [N]: /
+PURMSG:		.ASCID	/ Purged !UL files. Any key to EXIT/
+; Table file names
+SAPLIST:	.ASCID	/EMU5_DAT:SAPLIST.ITXT/
+MOPDEV:		.ASCID	/EMU5_DAT:MOPDEV.ITXT/
+PTYLIST:	.ASCID	/EMU5_DAT:PTYLIST.ITXT/
+ETHMAN:		.ASCID	/EMU5_DAT:ETHMAN.ITXT/
+
+       .PSECT EMU_XLTTBL_EXE,EXE,NOWRT,LONG
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_XLTTBL
+;++
+;2 EMU_XLTTBL
+;	Main entry point for the user into the XLTTBL routines.
+;	The file indicated by the call is:
+;		Opened in the editor
+;		Upon exit:
+;			New file always created. User may:
+;			Keep new file delete prev version 
+;			and compile new table.
+;			OR
+;			Delete current version.
+;3 Input
+;	.long	Choice. This is the menu item selected in EMU_UILIB
+;		The menu in EMU_UILIB and case statement in this 
+;		routine MUST stay in sync.
+;	The selected *.ITXT file is edited
+;3 Output
+;	XLATE table files: 
+;	The selected *.ITXT file is edited
+;	If user selects to keep new version, the corresponding
+;	*.XTB file is created. The -1 version of both files is 
+;	deleted.
+;	If user selects to not keep new version, the current
+;	version of *.ITXT is deleted.
+;3 Return
+;	SS$_NORMAL	OK
+;	Any return from:
+;		$RMS
+;--
+
+	MOVAL	FILNAMTBL,R6		; File names
+	SUBL3	#1,4(AP),R1             ; Make index
+	MOVL	(R6)[R1],R7             ; Set address 
+
+	PUSHL	R7
+	PUSHL	R7
+	CALLS	#2,G^TPU$EDIT
+	BLBS	R0,10$
+	RET
+10$:
+; Here advise user file has been modified. User may:
+;	Save current (purge prev versions, compile
+;	Abandon (delete current version and end)
+;
+	MOVL	#80,RETDESC
+	PUSHAL	RETLEN
+	PUSHAL	NEWFILMSG
+	PUSHAL	RETDESC
+	CALLS	#3,G^LIB$GET_INPUT
+	BLBS	R0,50$			; Assume any error = ^z
+20$:
+; Do not save
+	MOVZWL	(R7),R8
+        MOVL	4(R7),R9
+	MOVC3	R8,(R9),FILSTR		; Move file name
+	MOVB	#^A/;/,(R9)[R8]		; add ';' (current version)
+	ADDB3	#1,R8,XTBINFAB+FAB$B_FNS
+	MOVL	R9,XTBINFAB+FAB$L_FNA
+	$ERASE	FAB=XTBINFAB
+	MOVL	#SS$_NORMAL,R0
+	RET
+50$:
+	TSTW	RETLEN			; Any input?
+	BEQL	60$
+	CMPB	#^A/N/,RETBUF	        ; User entered 'N'?
+	BEQLU	20$			; Br if so
+	CMPB	#^A/n/,RETBUF	        ; User entered 'n'?
+	BEQLU	20$			; Br if so
+60$:
+	PUSHL	4(AP)
+	CALLS	#1,G^XLTTBL_COMPILE  
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=XLTTBL_COMPILE  
+;++
+;2 XLTTBL_COMPILE
+;	Called by EMU_XLTTBL, this routine compiles the selected
+;	text input file to the corresponding binary translation
+;	table used by the translation routines.
+;3 Input
+;	.long	Choice. This is the menu item selected in EMU_UILIB
+;		The menu in EMU_UILIB and case statement in this 
+;		routine MUST stay in sysnc.
+;	The selected *.ITXT file is read only
+;3 Output
+;	The corresponding *.XTBL file is created.
+;	On any error the current version is deleted. If successful
+;	compile, the previous version is deleted.
+;	All errors are logged to screen.
+;
+;3 Return
+;	SS$_NORMAL	OK
+;	Any return from:
+;		$RMS
+;3 Processing
+;--
+
+	MOVAL	FILNAMTBL,R6		; File names
+	SUBL3	#1,4(AP),R1             ; Make index
+	MOVL	(R6)[R1],R7             ; Set address 
+;Open text file, create bin
+; Set name (less extension)
+	SUBB3	#5,(R7),XTBOUTFAB+FAB$B_FNS
+	SUBB3	#5,(R7),XTBINFAB+FAB$B_FNS
+	MOVL	4(R7),XTBOUTFAB+FAB$L_FNA
+	MOVL	4(R7),XTBINFAB+FAB$L_FNA
+
+	$OPEN	FAB=XTBINFAB 
+	BLBS	R0,110$
+	RET
+110$:
+	$CONNECT RAB=XTBINRAB
+	BLBS	R0,120$
+	RET
+120$:
+	$CREATE	FAB=XTBOUTFAB 
+	BLBS	R0,130$
+	RET
+130$:
+	$CONNECT RAB=XTBOUTRAB
+	BLBS	R0,140$
+	RET
+140$:
+150$:
+190$:
+	       
+	CASEL	4(AP),#1,#3		; Select processing routine
+200$:                                   
+	.WORD	300$-200$          ; SAP            
+	.WORD	400$-200$          ; MOP dev            
+	.WORD	500$-200$          ; ENET Protocol            
+	.WORD	600$-200$          ; ENET Manu            
+	MOVL	#SS$_BADPARAM,R0         
+	RET                                             
+300$:
+;++
+;4 Netware SAP
+; Input is 4 byte hex string, 1 space, 1-68 byte translation string.
+; Converted to:
+; Hex string = .quad hex string in net byte order (byte reversed)
+;	0003(ascii) = 0000000000000300 (hex)
+;	Len of string is written as .long @ofs 12
+;	String is written for lesser of (len or 68)
+;--
+	CLRL	LCNT
+305$:
+	INCL	LCNT
+	MOVW	#80,XTBINRAB+RAB$W_RSZ
+	MOVW	#80,XTBINRAB+RAB$W_USZ
+	$GET	RAB=XTBINRAB
+	BLBS	R0,320$
+	CMPL	R0,#RMS$_EOF
+	BNEQU	310$
+	BRW	10000$
+310$:
+	CALLS	#0,G^XLTTBL_DISP_ERROR
+	BLBS	R0,305$ 		; More if continue
+	RET                             ; Nope
+320$:
+	MOVZWL	XTBINRAB+RAB$W_RSZ,PARSE_DESC
+	MOVAL	XTBINREC,PARSE_DESC+4
+	PUSHAL	PARSE_DESC
+	CALLS	#1,G^XLTTBL_PARSE_REC
+	BLBC	R0,310$
+;
+	TSTL	PARSE_DESC		; Any string to process?
+	BEQL	305$			; Br if not
+	CMPL	#4,PARSE_KEYL           ; Key correct size
+	BNEQU	310$                    ; Br not
+
+	
+	CLRQ	XTB_KEY
+	PUSHAL	XTB_KEY		; Outp
+	PUSHAL	XTBINREC	; Input
+	PUSHL	PARSE_KEYL	; Num char
+	CALLS	#3,G^LIB$CVT_HTB
+	BLBS	R0,340$
+; Reverse bytes
+340$:
+	ASHL	#8,XTB_KEY,XTB_KEY
+	MOVB	XTB_KEY+2,XTB_KEY
+	CLRB	XTB_KEY+2
+
+350$:
+	PUSHAL	PARSE_DESC
+	CALLS	#1,G^XLTTBL_VALIDATE_STRING
+	BLBS	R0,360$
+	BRW	310$
+360$:
+	MOVQ	PARSE_DESC,R10
+	MOVL	R10,XTB_LEN
+	MOVC3	R10,(R11),XTB_STR
+	ADDW3	#12,R10,XTBOUTRAB+RAB$W_RSZ		
+	ADDW3	#12,R10,XTBOUTRAB+RAB$W_USZ		
+        $PUT	RAB=XTBOUTRAB
+	BLBS	R0,370$
+	BRW	310$
+370$:
+	BRW	305$
+
+
+
+
+
+400$:
+;++
+;4 MOP_Device
+; Input is  decimal number in range 1-255 , 1 space, 1-68 byte translation 
+; string.
+; Converted to:
+; Hex string = .quad integer
+;	64(ascii) = 0000000000000040 (hex)
+;	Len of string is written as .long @ofs 12
+;	String is written for lesser of (len or 68)
+;--
+	CLRL	LCNT
+405$:
+	INCL	LCNT
+	MOVW	#80,XTBINRAB+RAB$W_RSZ
+	MOVW	#80,XTBINRAB+RAB$W_USZ
+	$GET	RAB=XTBINRAB
+	BLBS	R0,420$
+	CMPL	R0,#RMS$_EOF
+	BNEQU	410$
+	BRW	10000$
+410$:
+	CALLS	#0,G^XLTTBL_DISP_ERROR
+	BLBS	R0,405$ 		; More if continue
+	RET                             ; Nope
+420$:
+	MOVZWL	XTBINRAB+RAB$W_RSZ,PARSE_DESC
+	MOVAL	XTBINREC,PARSE_DESC+4
+	PUSHAL	PARSE_DESC
+	CALLS	#1,G^XLTTBL_PARSE_REC
+	BLBC	R0,410$
+;
+	TSTL	PARSE_DESC		; Any string to process?
+	BEQL	405$			; Br if not
+
+	
+	CLRQ	XTB_KEY
+	PUSHAL	XTB_KEY		; Outp
+	PUSHAL	XTBINREC	; Input
+	PUSHL	PARSE_KEYL	; Num char
+	CALLS	#3,G^LIB$CVT_DTB
+	BLBC	R0,410$
+; Range check
+440$:
+;	TSTL	XTB_KEY
+;	BEQL	410$
+;	CMPL	#255,XTB_KEY
+;	BLSS	410$
+450$:
+	PUSHAL	PARSE_DESC
+	CALLS	#1,G^XLTTBL_VALIDATE_STRING
+	BLBS	R0,460$
+	BRW	410$
+460$:
+	MOVQ	PARSE_DESC,R10
+	MOVL	R10,XTB_LEN
+	MOVC3	R10,(R11),XTB_STR
+	ADDW3	#12,R10,XTBOUTRAB+RAB$W_RSZ		
+	ADDW3	#12,R10,XTBOUTRAB+RAB$W_USZ		
+        $PUT	RAB=XTBOUTRAB
+	BLBS	R0,470$
+	BRW	410$
+470$:
+	BRW	405$
+500$:
+;++
+;4 Ethernet protocol types
+; Input is 1,2 or 5 byte hex string, 1 space, 1-68 byte translation string.
+; Converted to:
+; Key len (Char) 	Byte 0 		       Remainder of quad
+; 4		 	 1		bytes 6,7 = bytes 12,13 of original
+; 2			 2		Byte 7 = DSAP (byte 12 of original
+; 10		  	 3		Bytes 3 - 7 = bytes 15 - 20 or original
+;--
+	CLRL	LCNT
+505$:
+	INCL	LCNT
+	MOVW	#80,XTBINRAB+RAB$W_RSZ
+	MOVW	#80,XTBINRAB+RAB$W_USZ
+	$GET	RAB=XTBINRAB
+	BLBS	R0,520$
+	CMPL	R0,#RMS$_EOF
+	BNEQU	510$
+	BRW	10000$
+510$:
+	CALLS	#0,G^XLTTBL_DISP_ERROR
+	BLBS	R0,505$
+	RET
+
+520$:
+	MOVZWL	XTBINRAB+RAB$W_RSZ,PARSE_DESC
+	MOVAL	XTBINREC,PARSE_DESC+4
+	PUSHAL	PARSE_DESC
+	CALLS	#1,G^XLTTBL_PARSE_REC
+	BLBC	R0,510$
+
+	TSTL	PARSE_DESC		; Any string to process?
+	BEQL	505$			; Br if string len = 0
+
+; Following section creates the internal EMU protcol type encoding
+	CASEL	PARSE_KEYL,#0,#10
+525$:
+	.WORD	530$-525$	; Invalid
+	.WORD	530$-525$	; Invalid
+	.WORD	531$-525$       ; SAP
+	.WORD	530$-525$	; Invalid
+	.WORD	532$-525$       ; Enet
+	.WORD	530$-525$       ;Invalid
+	.WORD	530$-525$       ;Invalid
+	.WORD	530$-525$	; Invalid
+	.WORD	530$-525$	; Invalid
+	.WORD	530$-525$	; Invalid
+	.WORD	533$-525$       ;Extended
+530$:
+	BRW	510$		; Br on error
+531$:
+	MOVAL	XTB_KEY,R1	; Set addr for outp
+	ADDL	#7,R1		; Write in top byte
+	CLRQ	XTB_KEY
+	PUSHL	R1		; Outp
+	PUSHAL	XTBINREC	; Input
+	PUSHL	PARSE_KEYL	; Num char
+	CALLS	#3,G^LIB$CVT_HTB
+	BLBC	R0,540$
+; Set type in low byte
+	MOVB	#2,XTB_KEY
+	BRW	550$
+532$:
+; We can be a bit smart here... After conversion the bytes have to be 
+; reversed. Create the output in bytes 5,6, then move byte 5 to byte 7
+; and clear byte 5.
+	MOVAL	XTB_KEY,R1	; Set addr for outp
+	ADDL	#5,R1		; Write in top 2 bytes
+	CLRQ	XTB_KEY
+	PUSHL	R1		; Outp
+	PUSHAL	XTBINREC	; Input
+	PUSHL	PARSE_KEYL	; Num char
+	CALLS	#3,G^LIB$CVT_HTB
+	BLBC	R0,540$
+; Set type in low byte
+	MOVB	#1,XTB_KEY
+; Reverse bytes
+	MOVB	XTB_KEY+5,XTB_KEY+7
+	CLRB	XTB_KEY+5
+	BRW	550$
+533$:
+	BRW	510$
+
+540$:
+	BRW	510$
+550$:
+	PUSHAL	PARSE_DESC
+	CALLS	#1,G^XLTTBL_VALIDATE_STRING
+	BLBS	R0,560$
+	BRW	510$
+560$:
+	MOVQ	PARSE_DESC,R10
+	MOVL	R10,XTB_LEN
+	MOVC3	R10,(R11),XTB_STR
+	ADDW3	#12,R10,XTBOUTRAB+RAB$W_RSZ		
+	ADDW3	#12,R10,XTBOUTRAB+RAB$W_USZ		
+        $PUT	RAB=XTBOUTRAB
+	BLBS	R0,570$
+	BRW	510$
+570$:
+	BRW	505$
+
+600$:
+
+10000$:
+	$CLOSE	FAB=XTBINFAB
+	$CLOSE	FAB=XTBOUTFAB
+; Purge old files
+	MOVAL	FILNAMTBL,R6		; File names
+	SUBL3	#1,4(AP),R1             ; Make index
+	MOVL	(R6)[R1],R7             ; Set address 
+	MOVQ	(R7),R6			; Get desc
+	MOVZWL	R6,R6			; Get len only
+; Get filename and add ext and version (-1)
+	LOCC	#^A/./,R6,(R7)
+	SUBL	R0,R6			; Set new len
+	MOVC3	R6,(R7),FILSTR		; Move file name
+	ADDL3	R6,R7,R1
+	MOVQ	PREIVERS,(R1)		; add 'ITXT.;-1;' (prev version)
+
+	ADDB3	#8,R6,XTBINFAB+FAB$B_FNS
+	MOVL	R7,XTBINFAB+FAB$L_FNA
+	CLRL	LCNT			; Count deleted files
+10010$:
+	INCL	LCNT			; Count as deleted
+	$ERASE	FAB=XTBINFAB
+	BLBS	R0,10010$			; Erase until no more
+        DECL 	LCNT			; Correct count
+;
+	ADDL3	R6,R7,R1
+	MOVQ	PREOVERS,(R1)		; add 'XTBL.;-1;' (prev version)
+
+	ADDB3	#8,R6,XTBOUTFAB+FAB$B_FNS
+	MOVL	R7,XTBOUTFAB+FAB$L_FNA
+	CLRL	LCNT			; Count deleted files
+10020$:
+	INCL	LCNT			; Count as deleted
+	$ERASE	FAB=XTBOUTFAB
+	BLBS	R0,10020$		; Erase until no more
+        DECL 	LCNT			; Correct count
+; Final message
+	MOVL	#80,FAODESC
+	PUSHL	LCNT
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PURMSG
+	CALLS	#4,G^SYS$FAO
+;
+	MOVL	#80,RETDESC
+	PUSHAL	RETLEN
+	PUSHAL	FAODESC
+	PUSHAL	RETDESC
+	CALLS	#3,G^LIB$GET_INPUT
+	MOVL	#SS$_NORMAL,R0
+        RET
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=XLTTBL_DISP_ERROR  
+;++
+;2 XLTTBL_DISP_ERROR  
+;	Routine called whenever a compile process discovers an error
+;	The error and line number it occured on is displayed and 
+;	the user may decide to continue or not.
+;
+;3 Input
+;	
+;	None. R0 contains the error and other structures used
+;	are assumed.
+;3 Output
+;3 Returns
+;	SS$_CONTINUE	OK - Continue compile
+;	SS$_ENDOFFILE	Compile stopped
+;--
+; Display error
+; No error checks in this routine - any failures just add to the rudeness!
+	MOVL	#80,FAODESC
+	PUSHL	LCNT
+	PUSHL	R0
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	COMPILEERR
+	CALLS	#5,G^SYS$FAO
+	PUSHAL	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+;
+	MOVL	#80,RETDESC
+	PUSHAL	RETLEN
+	PUSHAL	CONTMSG
+	PUSHAL	RETDESC
+	CALLS	#3,G^LIB$GET_INPUT
+	BLBC	R0,515$			; Assume any error = ^z
+
+	TSTW	RETLEN			; Any input?
+	BEQL	515$
+	CMPB	#^A/Y/,RETBUF	        ; User entered 'Y'?
+	BEQLU	520$			; Br if so
+	CMPB	#^A/y/,RETBUF	        ; User entered 'y'?
+	BEQLU	520$			; Br if so
+
+515$:
+	$CLOSE	FAB=XTBINFAB
+	$CLOSE	FAB=XTBOUTFAB
+	$ERASE	FAB=XTBOUTFAB
+	MOVL	#SS$_ENDOFFILE,R0
+        RET
+
+520$:
+	MOVL	#SS$_CONTINUE,R0
+	RET
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=XLTTBL_PARSE_REC   
+;++
+;2 XLTTBL_PARSE_REC  
+; Routine to Parse an input rec and return to following info:
+;	Len of key
+;	Len and address of string
+;  1. Any comment char are found and rec is limmited to processing
+;     up to that point. If no rec is left all fields are returned with 
+;     0 len
+;  2. The seperating space is found. If not present error is returned.
+;  3. The key len is written. Caller must check if valid
+;  4. The string len and address is written.
+;3 Input
+;	
+;	.address of desc pointing to rec
+;3 Output
+; 	Input desc is overwritten with string len and address
+;	If string len > 68 then string is truncated
+;	PARSE_KEYL is written
+;3 Returns
+;	SS$_NORMAL	OK
+;	SS$_FORMAT	; Could not find seperating space
+;--
+	MOVQ	@4(AP),R6
+	CLRL	PARSE_KEYL
+	LOCC	#^A/!/,R6,(R7)
+	TSTL	R0
+	BEQL	10$		; Br if not found
+; Adjust input
+	SUBL3	R7,R1,R6	; Replace with new len
+	BNEQ	10$		; Br if some left
+	CLRL	@4(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+10$:
+	LOCC	#^A/ /,R6,(R7)
+	TSTL	R0
+	BNEQ	20$			; Br if found
+        MOVL    #SS$_FORMAT,R0
+	RET
+20$:
+	SUBL3	R7,R1,PARSE_KEYL	; Set key len
+	SUBL	PARSE_KEYL,R6           ; Set str len
+	DECL	R6			; Adjust for ' '
+	CMPL	#68,R6                  ; Check for > max
+	BGEQU	30$                     ; Br ok
+	MOVL	#68,R6                  ; Truncate if not
+30$:
+	ADDL3	#1,R1,R7                ; String addr
+	MOVQ	R6,@4(AP)		; Write back desc
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=XLTTBL_VALIDATE_STRING   
+;++
+;2 XLTTBL_VALIDATE_STRING   
+; Routine to validate that the input name contains only printable characters
+;3 Input
+;	.address of desc pointing to string
+;3 Output
+; 	None
+;3 Returns
+;	SS$_NORMAL	OK
+;	SS$_DATACHECK	Name contains unprintable characters
+;--
+	MOVQ	@4(AP),R6
+; Check each char in name for printable 
+	DECL	R6			; Make index
+40$:
+	CMPB	#^A/ /,(R7)[R6]      	; If char < ascii space it is invalid
+	BGTR	60$
+50$:
+	SOBGEQ	R6,40$
+	MOVL	#SS$_NORMAL,R0
+	RET
+60$:
+	MOVL	#SS$_DATACHECK,R0
+	RET
+
+; Translation routines. 
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=XLTTBL_XLTSAP   
+;++
+;2 XLTTBL_XLTSAP   
+; Routine to lookup the specified 2 byte code in the SAP translation
+; table and if found, return the translation.
+;3 Input
+;	.address of 2 byte Netware SAP (Network format)
+;	.address of desc pointing to area to write translation to
+;	Note: the max len of the output string is 68 bytes.
+;3 Output
+; 	If found, the translation string is written to P2
+;3 Returns
+;	SS$_NORMAL		OK
+;	SS$_BUFFEROVF		output buffer too small 
+;	Any from $FAO	
+; Note: If translation is unavailable
+;	the input SAP is converted to text and returned. Any underlying 
+;	problem with files, sections etc are suppressed.
+;--
+ 	TSTL	SAPSEC_A	; Mapped?
+	BNEQ	100$		; Br if done
+	PUSHAL	SAPSEC_A
+	PUSHL	#XTBL_C_SAP	; Map saps
+	CALLS	#2,G^MAP_XLTTBL
+	BLBS	R0,100$
+; Here write error message to log file
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+100$:
+	MOVQ	SAPSEC_A,R6	
+	MOVL	4(AP),R8	; Find this sap
+200$:
+	CMPW	(R8),(R6)	; This one?
+	BEQLU	300$		; Br if got it
+210$:
+	ADDL3	#12,R6,R1	; Check if header next rec exists
+	CMPL	R1,R7           ; ?
+	BGEQU	220$            ; Br not
+
+	ADDL3	#12,8(R6),R1	; Len of hdr + len of string
+	ADDL	R1,R6		; Next string
+	CMPL	R6,R7		; Still in section?
+	BLSSU	200$		; Br if more
+; Convert SAP
+220$:
+	MOVL	(R8),LCNT	; Spare long       
+	ASHL	#8,LCNT,LCNT    ; Shift left 1 byte
+	MOVZWL	LCNT,LCNT	; CLear top word
+	PUSHL	LCNT
+	PUSHL	8(AP)
+	PUSHL	8(AP)
+	PUSHAL	SAPDEFXLT
+	CALLS	#4,G^SYS$FAO
+	RET
+300$:
+	MOVQ	@8(AP),R9	; Get outp desc
+	CMPL	8(R6),R9        ; Enough space?
+	BGTRU	310$            ; Br not
+	MOVL	8(R6),R9        ; Set len
+	MOVC3	R9,12(R6),(R10) ; Move xlation
+	MOVQ	R9,@8(AP)       ; Write desc 
+	MOVL	#SS$_NORMAL,R0  ; OK
+	RET
+310$:
+	MOVL	#SS$_BUFFEROVF,R0
+	RET		
+
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=XLTTBL_XLTPTY   
+;++
+;2 XLTTBL_XLTPTY   
+; Routine to lookup the specified Ethernet protocol type in  translation
+; table and if found, return the translation.
+;3 Input
+;	.address of .quad ethernet protocol type (EMU format)
+;	.address of desc pointing to area to write translation to
+;	Note: the max len of the output string is 68 bytes.
+;3 Output
+; 	If found, the translation string is written to P2
+;	If not found, the input is translated and returned as string.
+;3 Returns
+;	SS$_NORMAL		OK
+;	SS$_BUFFEROVF		output buffer too small 
+;	SS$_FORMAT		Input is not in recognised EMU format
+;	Any from $FAO	
+; Note: Any underlying  problem with files, sections etc are suppressed.
+;--
+ 	TSTL	PTYSEC_A	; Mapped?
+	BNEQ	100$		; Br if done
+	PUSHAL	PTYSEC_A
+	PUSHL	#XTBL_C_PTYTYP	; Map saps
+	CALLS	#2,G^MAP_XLTTBL
+	BLBS	R0,100$
+; Here write error message to log file
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+100$:
+	MOVQ	PTYSEC_A,R6	
+	MOVL	4(AP),R8	; Find this type
+200$:
+	CMPL	(R8),(R6)	; Top Long match?
+	BEQLU	215$		; Br if so
+210$:
+	ADDL3	#12,R6,R1	; Check if header next rec exists
+	CMPL	R1,R7           ; ?
+	BGEQU	220$            ; Br not
+
+	ADDL3	#12,8(R6),R1	; Len of hdr + len of string
+	ADDL	R1,R6		; Next string
+	CMPL	R6,R7		; Still in section?
+	BLSSU	200$		; Br if more
+215$:
+	CMPL	4(R8),4(R6)	; Bot Long match?
+	BNEQU	210$		; Br if Not
+	BRW	300$		; Found it!
+
+; Convert PTY
+220$:
+	CASEB	(R8),#1,#2	; 
+230$:
+	.WORD	240$-230$	; Ethernet
+	.WORD	250$-230$       ; SAP
+	.WORD	260$-230$       ; Extended
+	MOVL	#SS$_FORMAT,R0
+	RET
+240$:
+	MOVZBL	7(R8),-(SP)
+	MOVZBL	6(R8),-(SP)
+	PUSHL	8(AP)
+	PUSHL	8(AP)
+	PUSHAL	ETHDEFXLT
+	CALLS	#5,G^SYS$FAO
+	RET
+250$:
+	MOVZBL	7(R8),-(SP)
+	PUSHL	8(AP)
+	PUSHL	8(AP)
+	PUSHAL	IEEDEFXLT
+	CALLS	#4,G^SYS$FAO
+	RET
+260$:
+	MOVZBL	7(R8),-(SP)
+	MOVZBL	6(R8),-(SP)
+	MOVZBL	5(R8),-(SP)
+	MOVZBL	4(R8),-(SP)
+	MOVZBL	3(R8),-(SP)
+	PUSHL	8(AP)
+	PUSHL	8(AP)
+	PUSHAL	EXTDEFXLT
+	CALLS	#8,G^SYS$FAO
+	RET
+
+300$:
+	
+	MOVQ	@8(AP),R9	; Get outp desc
+	CMPL	8(R6),R9        ; Enough space?
+	BGTRU	310$            ; Br not
+	MOVL	8(R6),R9        ; Set len
+	MOVC3	R9,12(R6),(R10) ; Move xlation
+	MOVQ	R9,@8(AP)       ; Write desc 
+	MOVL	#SS$_NORMAL,R0  ; OK
+	RET
+310$:
+	MOVL	#SS$_BUFFEROVF,R0
+	RET		
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=XLTTBL_MOPDEV   
+;++
+;2 XLTTBL_MOPDEV   
+; Routine to lookup the specified MOP device type in  translation
+; table and if found, return the translation.
+;3 Input
+;	.address of .byte MOP device type
+;	.address of desc pointing to area to write translation to
+;	Note: the max len of the output string is 68 bytes.
+;3 Output
+; 	If found, the translation string is written to P2
+;	If not found, the input is translated and returned as string.
+;3 Returns
+;	SS$_NORMAL		OK
+;	SS$_BUFFEROVF		output buffer too small 
+;	SS$_FORMAT		Input is not in recognised EMU format
+;	Any from $FAO	
+; Note: Any underlying  problem with files, sections etc are suppressed.
+;--
+ 	TSTL	MOPSEC_A	; Mapped?
+	BNEQ	100$		; Br if done
+	PUSHAL	MOPSEC_A
+	PUSHL	#XTBL_C_MOPDEV	; Map MOP
+	CALLS	#2,G^MAP_XLTTBL
+	BLBS	R0,100$
+; Here write error message to log file
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+100$:
+	MOVQ	MOPSEC_A,R6	
+	MOVL	4(AP),R8	; Find this type
+200$:
+	CMPB	(R8),(R6)	; match?
+	BEQLU	300$		; Br if so
+210$:
+	ADDL3	#12,R6,R1	; Check if header next rec exists
+	CMPL	R1,R7           ; ?
+	BGEQU	240$            ; Br not
+
+	ADDL3	#12,8(R6),R1	; Len of hdr + len of string
+	ADDL	R1,R6		; Next string
+	CMPL	R6,R7		; Still in section?
+	BLSSU	200$		; Br if more
+; Convert MOP
+240$:
+	MOVZBL	(R8),-(SP)
+	PUSHL	8(AP)
+	PUSHL	8(AP)
+	PUSHAL	MOPDEFXLT
+	CALLS	#4,G^SYS$FAO
+	RET
+
+300$:
+	
+	MOVQ	@8(AP),R9	; Get outp desc
+	CMPL	8(R6),R9        ; Enough space?
+	BGTRU	310$            ; Br not
+	MOVL	8(R6),R9        ; Set len
+	MOVC3	R9,12(R6),(R10) ; Move xlation
+	MOVQ	R9,@8(AP)       ; Write desc 
+	MOVL	#SS$_NORMAL,R0  ; OK
+	RET
+310$:
+	MOVL	#SS$_BUFFEROVF,R0
+	RET		
+
+
+		.END								
+		
+

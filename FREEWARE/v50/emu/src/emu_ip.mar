@@ -1,0 +1,282 @@
+	.TITLE	EMU_IP  
+	.IDENT	/V1-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	June-1997	PB	Creation
+;	
+;++
+;1 EMU_IP   
+; Collection of routines used to process IP and related protocols. 
+; See individual routines for descriptions
+;--
+
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"    ; Temp loc of inet defs
+
+	$IODEF		; I/O functions
+        $INETSYMDEF
+        EMUICMPDEF	; Emu offsets
+		.PSECT	EMU_IP_DATA,WRT,NOEXE,QUAD
+
+IOSTATUS:	.QUAD	0			; I/O status block block
+INTLTIM:	.QUAD   ^XFFFFFFFFFF1B1E40      ; 1.5 sec Delta
+TIMER_ID:	.LONG	0
+INTIM_D:	.LONG	16
+		.ADDRESS  INTIM
+INTIM:		.ASCII	/0000 00:00:01.50/      ; Max Wait for response
+CHANNEL:	.WORD 	0		; Channel assigned to INET
+DEV:		.ASCID	/BG:/		; Internet device name
+;
+;	INET Socket address structure for local host IP address
+;
+	.ALIGN	LONG
+LOCAL_ADR:
+	.WORD 	INET$C_AF_INET	; Inet domain
+	.WORD	0		; Port number (system assigns) 
+ 	.LONG	0		; IP Address (system assigns local)
+	.BLKB	8		; not used
+LEN=.-LOCAL_ADR	
+;
+;	Peer Socket address structure
+;
+REMOTE_ADR:	
+	.WORD 	INET$C_AF_INET	; Inet domain
+	.BYTE 	0,7		; Port number 7 ICMP
+TARGET:	.LONG	0		; Place P1 here
+	.BLKB	8		; not used
+;
+;	Socket parameters for Socket creation
+;
+PAR11:	.WORD	INET$C_ICMP		; ICMP/IP protocol
+	.BYTE	INET_PROTYP$C_RAW 	; Socket type is datagram
+	.BYTE	0
+;
+;	Descriptor of Local Socket for the Bind operation
+;
+PAR12:	.LONG	LEN
+	.ADDRESS LOCAL_ADR
+;
+;	Descriptor of Remote Socket for the Connect operation
+;
+PAR13:	.LONG	LEN
+	.ADDRESS REMOTE_ADR
+
+PINGFRM :	.BYTE	8		; Echo request
+		.BYTE	0		; Code (0)
+ICMPCKS:	.WORD	0		; Checksum
+		.WORD	123		; ID
+		.WORD	1		; Seq
+		.LONG	1234		; Opt (Echoed data)
+PINGFRM_LEN=.-PINGFRM 
+RETBUF:		.BLKB	512
+RETBUF_LEN = .-RETBUF
+;
+	.PSECT	EMU_PING_CODE,EXE,NOWRT,QUAD
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_PING
+;++
+;2 EMU_PING
+; This routine will test the specified IP layer address on the Internet with 
+; an ICMP echo packet.
+;
+;
+;3 Inputs
+;	P1	.address of 4 byte IP address of target node
+;    Optional:
+;	P2 	.address of .long  where reponse time is written
+;3 Output
+;  	If P2 specified, the round trip reponse time is returned
+;	as a number of 1/100 second units.
+;3 Returns 
+;	SS$_NORMAL	Requested echo(s) were succesful
+;	SS$_UNREACHABLE	Failed to receive response from target
+;	SS$_ACCVIO	Can' read input params or can't write outp field
+;--
+
+
+; Get and Validate Params
+	PROBER	#0,#6,4(AP)  		; Read Ethernet address?
+	BNEQ	1$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+1$:
+ 	TSTW	CHANNEL		; Init?
+	BNEQ	10$		; Done - Br
+;
+;	Assign the INET device
+;
+	$ASSIGN_S	DEVNAM=DEV, CHAN=CHANNEL
+	BLBS	R0,5$
+	RET
+; Compute checksum - required param
+5$:
+	DIVL3	#2,#PINGFRM_LEN,-(SP)	; Number of  WORDS!
+	PUSHAL	PINGFRM 
+	CALLS	#2,G^CKSUM
+	MOVW	R0,ICMPCKS		; Put in message
+
+
+; Create a Socket and Bind the socket to a port and address
+;
+	$QIOW_S	CHAN=CHANNEL, -		; Channel
+		FUNC=#IO$_SETMODE,-	; I/O function
+		IOSB= IOSTATUS, -	; I/O status
+		P1=PAR11		; Socket creation parameters
+	BSBW	ERROR_CHK
+; 
+10$:
+; Set target address
+	MOVL	@4(AP),TARGET
+	MOVL	EXE$GL_ABSTIM_TICS,R10       ; Get current time
+	MOVL	#1,R9			    ; Number of loops to perform
+	CMPL	#2,(AP)			    ; Respnse time?
+	BNEQ	12$
+	MOVL	#50,R9
+12$:
+	$QIOW_S	CHAN=CHANNEL, -		; Channel
+		FUNC=#IO$_WRITEVBLK,-	; I/O function
+		IOSB= IOSTATUS, -	; I/O Status block
+		P1=PINGFRM ,-		; I/O buffer address
+		P2=#PINGFRM_LEN,-	; I/O buffer length
+		P3= #PAR13              ; Remote IP address
+	BSBW	ERROR_CHK
+; Set timer, attempt count and que read for response
+15$:
+	MOVL	#3,R8                   ; Try 3 times
+	BSBW	SET_TIME		; Don't wait forever
+	$QIOW_S	CHAN=CHANNEL, -		; Channel
+		FUNC=#IO$_READVBLK,-	; I/O function
+		IOSB= IOSTATUS, -	; I/O Status block
+		P1=RETBUF,-		; I/O buffer address
+		P2=#RETBUF_LEN		; I/O buffer length
+	BLBS	R0,20$
+	BSBW	ERROR_CHK
+20$:
+	CLRL	-(SP)
+	PUSHL	TIMER_ID		; TIMER ID
+	CALLS	#2,G^SYS$CANTIM		; Stop Read timer - No error Check
+	BLBS	IOSTATUS,30$            ; Br on no err
+25$:
+	MOVL	#SS$_UNREACHABLE,R0     ; ASSUME Signal Timeout
+	RET
+30$:	
+	SOBGTR	R8,35$                  ; No. of attempts left
+	BRB	25$                     ; None left
+35$:
+	CMPL	RETBUF+IP_SRCIADDR,TARGET    ; Make sure respose is from target
+	BNEQU	15$                          ; Try read again if not
+	SOBGTR	R9,50$                       ; Number of successful loops
+	MOVL	EXE$GL_ABSTIM_TICS,R11      ; Get current time
+	CMPL	#2,(AP)				; Response time?
+	BNEQ	40$
+	SUBL3	R10,R11,@8(AP)           ; Get diff
+	DIVL	#5,@8(AP)                      ; 1/10 SEC
+40$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+50$:
+	BRW	12$
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBS	R0,10$                  ; Br no error
+	RET                             ;
+10$:
+	BLBC	IOSTATUS,20$            ; Br if error
+	RSB                             ; Done
+20$:	
+	MOVZWL	IOSTATUS,R0             ; Return error
+	RET
+SET_TIME:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+; Set the timeout for read
+;
+;
+; Set the timer
+; Convert the input time - must be DELTA
+;
+	$SETIMR_S-
+		DAYTIM=INTLTIM,-
+		ASTADR=LOST_IP_MSG             ; AST address
+	BSBW	ERROR_CHK
+        RSB
+; Here on Read Timout
+;
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=LOST_IP_MSG
+	PUSHL	CHANNEL
+	CALLS	#1,G^SYS$CANCEL		; Cancel I/O - No error check
+	RET                             ; Exit to main
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CKSUM 
+;++
+;2 CKSUM 
+;
+; Returns 1's complement checksum of a number of 16 bit words
+; Thanks to Commer,Stevens 
+; 
+;3 Input
+;	P1      addr of 1st word to checksum
+;	p2	Number of words
+;
+;3 Output
+;
+; Returns checksum in r0 
+;
+;3 Return
+;  None
+;3 Original_source
+; Follows is the original source code. This was compiled with 
+; /machine, the macro instructions extracted and corrected.
+; 
+;    2        	short	cksum(buf, nwords)
+;    3        	unsigned short	*buf;
+;    4        	int		nwords;
+;    5        		{
+;    6    1   		unsigned long	sum;
+;    7    1   	
+;    8    1   		for(sum = 0; nwords > 0; nwords--) { sum += *buf++; }
+;    9    1   	
+;   10    1   		sum = (sum >> 16) + (sum & 0xFFFF);
+;   11    1   		sum += (sum >> 16);
+;   12    1   		return ~sum;
+;   13    1   		}
+
+;--
+		CLRL	R2        	;accumlator
+		MOVL	4(AP),R3        ; Pointer
+10$:
+		MOVZWL	(R3)+,R0        ; Get next .word
+		ADDL2	R0,R2           ; Accumulate
+		SOBGTR 	8(AP),10$	; Loop
+		EXTZV	#16,#16,R2,R1   ; Get carry bit(s)
+		BICL3	#-65536,R2,R0   ; Clear top word
+		ADDL3	R0,R1,R2        ; Add in cary
+
+		EXTZV	#16,#16,R2,R0   ; Just in case..
+		ADDL2	R0,R2           ; Add in any carry
+
+		MCOMW	R2,R0           ; flip bits
+		RET	
+
+
+
+
+	.END 
+

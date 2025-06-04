@@ -1,0 +1,169 @@
+File: INSTALLING_SAMBA_VMS_2_0_6.TXT
+
+21-Oct-2000	J. Malmberg
+
+
+ Copyright 2000, John E. Malmberg, All Rights Reserved
+
+
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+
+
+I will attempt to get this more automated in a future release,
+for now it must be a manual procedure.
+
+
+If you are moving from an older release of SAMBA for OpenVMS, I
+would use a different directory for this new release, or rename
+your old directory and keep your files around.
+
+
+
+
+* * * * * * * * WARNING * * * * * * * * WARNING * * * * * * * * * * * * * *
+
+	Pay attention to the comments smb.conf_sample provided.
+	Because this release is attempting to be exactly compatible
+	with the UNIX version of SAMBA, some settings that were
+	ignored before are now used.
+
+	The parameter "ole locking compatability = off" must not be
+	set to true.  If it is enabled OpenVMS will attempt to create
+	giant Empty files.
+
+	The printing settings have also changed.  The older settings
+	may be incompatible with this version.
+
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+
+
+
+This port was developed from a different perspective from the
+previous versions of SAMBA for OpenVMS.
+
+I do not have support for encoding of case preservation for
+ODS-2 disks built.
+
+Some testing on ODS-5 has been done though.
+
+
+I also do not have the command procedures tried for other than
+Compaq OpenVMS 5.0.  I think that anything that is missing for
+other TCP/IP programs can be obtained from the previous SAMBA
+for VMS releases.
+
+
+The installation procedure for SAMBA on OpenVMS 2.0.6 is as follows:
+
+ 1. Create a directory with the suggested name of [SAMBA_ROOT] at
+    the root of a physical device.
+
+ 2. Define logical name SAMBA_ROOT as a concealed logical such as:
+
+    $DEFINE/SYSTEM/EXEC SYS$SYSDEVICE:[SAMBA_ROOT.]/TRANS=CONCEALED
+
+ 3. Put this logical name definition where it will be created when
+    the OpenVMS system boots.  SYS$MANAGER:SYLOGICALS.COM can be
+    used for this, or what ever your site uses.
+
+ 4. UNZIP the SAMBA base kit into the SAMBA_ROOT:[000000] directory.
+    It should create all the directories that are needed.
+    Just to be certain, run the command procedure CREATE_SAMBA_ROOT.COM
+    in the SAMBA_ROOT:[BIN] directory.
+
+    For test or custom installations, read the comments in the
+    CREATE_SAMBA_ROOT.COM
+
+ 5. This version of SAMBA requires a GUEST account for the SMBD
+    process to exist.  The default for this account is now
+    SAMBA__GUEST.  Note that there are two underscores in the
+    name to avoid namespace collision.
+
+    To create this account run the command procedure
+    MAKE_SAMBA_GUEST_ACCOUNT in the SAMBA_ROOT:[BIN] directory.
+
+    Before running this command procedure, inspect it and make any
+    site specific changes for running it.
+
+ 6. The binaries are shipped as .OLB files.  The command procedure
+    LINK_SAMBA_VMS.COM will link them into executables.  SMBD is no
+    longer linked against the system symbol table.  The FRONTPORT
+    library has a module that does the SETUID function and is linked
+    against the system image.  For more details see the documentation
+    for the FRONTPORT library shared image.
+
+ 7. Edit SAMBA_ROOT:[LIB]SMB.CONF to suit your needs.  If you are
+    upgrading compare your old settings with the comments in the
+    new file.  Note the warning earlier in this file.
+
+    My installation using Compaq UCX 4.2 on VAX required an interface line:
+
+    interfaces = 10.10.10.1/8
+
+    For Compaq TCPIP 5.0, I did not need an interface statement in the
+    smb.conf.
+
+ 8. Edit the file SAMBA_ROOT:[BIN]SITE_SAMBA_VMS_LOGICALS.COM to
+    specify any site specific logical names that you may have for
+    setting SAMBA options.
+
+ 9. If you do not have a Timezone logical set, you need to set one.
+    The FRONTPORT library will interpret the standard OpenVMS
+    TIMEZONE logicals in the same order as OpenVMS is documented to.
+    See the file TIMEZONE_RULE.TXT
+
+10. Place a call to the SAMBA_ROOT:[BIN]SAMBA_STARTUP.COM file in
+    the SYSTARTUP_*.COM file where it can be executed on system boot.
+    It must be placed after the startup procedure for the FRONTPORT
+    library, and also your TCPIP program has started.
+
+11. Place a call to the SAMBA_ROOT:[BIN]SAMBA_COMMANDS.COM in either
+    the SYLOGIN.COM file or individual login.com files.
+
+
+Notes:
+
+    The following programs appear to work:
+
+    MAKE_SMBCODEPAGE
+
+    NMBD
+
+    NMBLOOKUP
+
+    SMBCLIENT
+
+    SMBD
+
+    SMBPASSWD
+
+    SMBSTATUS
+
+    TESTPARM
+
+
+    The SWAT program might work, I have not had the time to test it or
+    configure it into a web server.
+
+    The RPCCLIENT routine will not work.  It is coded to use select to wait
+    on input from stdin.  That will cause a failure on OpenVMS.
+
+    Not sure how useful the following routines are.  They compile and link.
+    Use if you can.  For a few of them, I do not even know what they do.
+
+    DEBUG2HTML, MAKE_PRINTERDEF, RPCTORTURE, SMBFILTER, SMBSH, SMBSPOOL,
+    TESTPRNS.

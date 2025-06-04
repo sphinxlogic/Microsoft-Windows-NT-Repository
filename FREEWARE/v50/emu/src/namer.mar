@@ -1,0 +1,630 @@
+ 	.TITLE	NAMER  
+	.IDENT /V01-003/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+;	Jan 1997	PB	Creation v1
+;	aug-1997	PB	Added 2 fields to namer frame to 
+;				enable this process to create 
+;				relater frame. Has 2 effects:
+;				Allows this process to create relationship
+;				on sender's behalf.
+;				Causes PTYBITS to be written back to sender
+;				showing relationship and positive confirm
+;				name has been received and stored.
+;	DEC-1997        PB	All but obsoleted. Now that NAMER DB is
+;				treated exactly like any other PSR this
+;				proces has limited purpose. Only creates
+;				the namer db and exists as owner. All 
+;				DB processing is done via relater and 
+;				other routines.
+;++
+;1 NAMER   
+; This programme maintains the name to address translation table.
+; Any routine establishing a name for a device deposits that name here
+; along with keying information for later comparisons and lookups.
+;	
+;2 Namer database
+; Common Header The 64 byte header common to all internal databases.
+; PID		The PID of the sender. This serves to identify the 
+;		protocol this name has been seen on. A name when defined
+;		by the user sets this field to 0 . This is then
+;		interpreted by lookups as the 'prefered' name.
+; 2ndkey	A further unique id to distiguish multiple names. This is
+;		a 16 bit CRC of the .ascii name
+; Name		.ascii string containg only printable characters.
+;2 Notes
+;	The basic unit of transaction - the key - in this db is the ascii
+;	name qualified by the PID and 2nd key . The len of the key is held 
+;	in the  header as in all DBs and the len of the name is the len 
+;	of the key - 8.  
+;--
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY        /EMU5_LIB:EMU5.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$NMADEF
+	$LCKDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUCNTDEF
+	EMUPSRDEF
+	EMUPSRDEF
+	EMURLTDEF
+	EMUMSGDEF
+;
+
+THIS_PROCESS = SYS_PID_C_NAMER
+THIS_PROCESS_FLAG = SYS_FLG_C_NAMER  
+	.psect	listen_sec,wrt,noexe,pic,shr,page
+;
+; 
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+CONTROL_A:	.QUAD	0
+COUNTERS_A:	.QUAD	0
+NAMER_A:	.QUAD	0
+INADDR:		.QUAD	0
+GBLSIZ:		.LONG	0
+CONTEXT:	.LONG	0
+RLTCXT:		.LONG	0
+
+; 
+DEFRECCNT:      .LONG	3000			; DEF dbsize
+
+; Locking
+; Lock value block
+NAMEDBLVB:
+NAMELVBSTA:	.WORD	0		; Status
+NAMELVBRES:	.WORD	0		; Reserved
+NAMELVBID:	.LONG	0		; Lock id
+NAMELVBSIZ:	.LONG	0		; Begining of LVB (Size of DB in pages)
+NAMELVBSPR:	.BLKL	3		; Unused 12 bytes
+; $ENQ call frame
+NAMEDBLOCK:	
+		.LONG	12		; Arguments
+		.LONG	0		; EFN
+LKMODE:		.LONG	LCK$K_EXMODE	; Lock mode
+		.ADDRESS NAMEDBLVB	; Lock value block
+LKFLGS:         .LONG 	<LCK$M_SYSTEM!LCK$M_VALBLK>	; Use value block
+LKNAM:		.ADDRESS NAMEDBLKNAM 	; Resourse name
+		.LONG	0		; Parent id 
+                .LONG	0               ; AST
+		.LONG	0		; AST Param
+		.LONG	0		; BLAST
+		.LONG	0		; ACC Mode
+		.LONG	0		; RSDM_ID
+		.LONG	0		; Null
+
+ 
+NAMESECFAB:	
+		$FAB	FAC = <GET,PUT>,-        ; Access
+			FNM = <EMU5_ROOT:[DAT]EMU_NAMER.SEC>
+NAMESECRAB:	
+		$RAB	FAB = NAMESECFAB,-            ; Record 
+			RAC = SEQ,-
+       			RBF = NAMESECREC,-			; 
+       			UBF = NAMESECREC,-			; 
+       			USZ = NAMESECREC_SIZE,-		; 
+       			RSZ = NAMESECREC_SIZE   		; 
+		
+
+NAMESECREC:	 .BLKB	NAM_C_RECSIZE   
+NAMESECREC_SIZE = .-NAMESECREC
+
+
+
+; Error Log
+; Error System Params
+
+	.ALIGN 	LONG
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/NAMER/
+
+	.ALIGN	LONG
+EXIT_BLOCK:	.LONG	0
+		.ADDRESS NAMEREXIT_HDLR  
+		.LONG	1
+		.ADDRESS EXIT_STATUS
+EXIT_STATUS:	.LONG	0
+;
+; Misc
+EFLAGS2:	.ASCID  /EFLAGS2/ 
+NAMEDBLKNAM:		.ASCID	/EMU_NAMERDB/	; DB Lock name 
+NAMESECNAM:		.ASCID	/EMU_NAMER/
+
+
+	.PSECT	NAMER_C,NOWRT,EXE,SHR,PIC,LONG
+	.sbttl	namer ()
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=NAMER
+
+; Errors between here and READ: are fatal
+;
+; Ensure death if control process dies
+	CALLS	#0, G^GET_CONTROL_LOCK	; 
+	BLBS	R0,10$
+        MOVL	#MSG_GENPSR_CTLLCK,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+;
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+10$:
+
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BLBS	R0,20$
+        MOVL	#MSG_GENPSR_ASSMBX,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+	RET
+
+;	
+; Create and Map to sections 
+20$:
+	PUSHAL	CONTROL_A		; Control section return addresses     
+	CALLS	#1, G^MAP_CONTROL	; Create and map control section       
+	BLBS	R0,30$
+        MOVL	#MSG_GENPSR_MAPCTL,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+30$:
+	PUSHAL	COUNTERS_A		; Counters                             
+	CALLS	#1,G^MAP_COUNTERS                                              
+	BLBS	R0,40$
+        MOVL	#MSG_GENPSR_MAPCNT,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+40$:
+; Map our DB
+        CALLS	#0,G^MAP_NAMERDB
+	BLBS	R0,50$
+        MOVL	#MSG_GENPSR_MAPNAM,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+50$:
+
+60$:
+; Set registers. 	
+	MOVL	COUNTERS_A,R11          ; Counters
+	MOVL	NAMER_A,R6 		; Relater section
+
+; Init counters
+	MOVC5	#0,#0,#0,#CNT_NAM_C_SIZ,CNT_NAM_C_1ST(R11) ; Zero all  	
+
+; Common Event flag Cluster:
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	BLBS	R0,120$
+        MOVL	#MSG_GENPSR_NOCEF,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+120$:
+; Declare exit handler
+	$DCLEXH_S	DESBLK=EXIT_BLOCK
+	BLBS	R0,READ
+        MOVL	#MSG_GENPSR_NOHNDLR,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+
+
+READ:
+; Wait until system shudown
+	$HIBER_S
+	RET
+
+ 
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=NAM_VALIDATE_NAME   
+;++
+;2 NAM_VALIDATE_NAME   
+; Routine to validate that the input name :
+;	is not longer than NAM_DB_C_MAXNAMSIZ 
+;	contains only printable characters
+; Note that the checking is in this order - if the name is too long, the 
+; next check is not done, and so on.
+;3 Input
+;	.address of namer frame. The frame must be type add.
+;3 Output
+; 	Any unpritable char is replaced by '?'
+;3 Returns
+;	SS$_NORMAL	Name is written
+;	SS$_BADPARAM	Namer frame is not add type
+;	SS$_BUFFEROVF	Name is too long - not written
+;			Len of name is < 1
+;	SS$_DATACHECK	Name contains unprintable characters
+;--
+	MOVL	4(AP),R6
+; Must be type = add
+	CMPL	NAM_FRM_L_MTYPE(R6),#NAM_FRM_C_MSGADD
+	BEQLU	10$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+10$:
+; Check len is OK
+	TSTL	NAM_FRM_L_NAMLEN(R6)  
+	BLEQ	20$
+	CMPL	NAM_FRM_L_NAMLEN(R6),#NAM_DB_C_MAXNAMSIZ
+	BLEQ	30$
+20$:
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+30$:
+; Check each char in name for printable 
+	MOVL	NAM_FRM_L_NAMLEN(R6),R2
+	DECL	R2			; Make index
+	ADDL3	#NAM_FRM_AS_NAME,R6,R1
+40$:
+	CMPB	#^A/ /,(R1)[R2]      	; If char < ascii space it is invalid
+	BGTR	60$
+50$:
+	SOBGTR	R2,40$
+	MOVL	#SS$_NORMAL,R0
+	RET
+60$:
+	MOVB	#^A/?/,(R1)[R2]
+	BRB	50$
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=MAP_NAMERDB   
+;++
+;2 MAP_NAMERDB   
+; Routine to create and initialise the NAMER db. This is a standard routine
+; that any DB creator executes on it's own DB:
+;	Acquire exclusive lock on this database. 
+;		Fatal error if not granted.
+;	Open file - if file not opened used hardcoded defaults.
+;	Create section. Fatal error ir we did not CREATE.
+;	Initalise with either file contents or defaults
+;	Write section size (in pages) to LVB
+;	Convert lock to CW
+;	That's it!
+;--
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	$ENQW_G	NAMEDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	NAMELVBSTA,10$            ; Br if got it
+	CMPW	#SS$_VALNOTVALID,NAMELVBSTA  ;  Ignore LVB not valid error
+	BEQLU	10$
+
+        MOVL	#MSG_EMUSYS_LOCKDB,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                   ; 2  params
+	MOVAL	MSGPARAMS,R1                ; Plist
+	MOVL	R0,(R1)+
+	MOVL	LKNAM,(R1)		    ; Addr of lock name
+	PUSHAL	ERRORMSG                    ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+10$:
+	$OPEN	FAB= NAMESECFAB			; Attempt to open
+	BLBS	R0,20$                          ; Br if OK
+	BRW	1000$				; Use defaults
+20$:
+	$CONNECT RAB=NAMESECRAB
+	BLBS	R0,30$
+	BRW	280$			; Abandon and use defaults
+30$:
+	$GET	RAB=NAMESECRAB		; Get 1st rec
+	BLBS	R0,40$
+	BRW	280$			; Abandon and use defaults
+40$:
+; Calc memory/file size, Get memory & Map section
+       	MOVAL	NAMESECREC,R7
+	MULL3	COM_DBHDR_L_MAXENTRIES(R7),COM_DBHDR_L_RECSIZE(R7),GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+100$:	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR		; returned address
+	PUSHL	GBLSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BLBS	R0,110$
+	RET
+; map section	
+110$:
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	GBLSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	NAMESECNAM		; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	NAMER_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	BLBS	R0,120$
+	RET
+120$:
+	CMPL	#SS$_CREATED,R0
+	BEQL	200$
+	$CLOSE	FAB=NAMESECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	RET
+200$:
+; We created the section. Load it with file contents
+; Move the 1st rec to rec header
+; 1st rec cannot exceed common header size...
+	MOVAL	NAMER_A,R11			; Start of section
+	MOVL	(R11),R7                        ;
+	MOVC3	#COM_HDR_C_SIZE,NAMESECREC,(R7)     ; Init header
+	ADDL3	COM_DBHDR_L_RECSIZE(R7),R7,R8       ; Location of 1st rec
+	CLRL	COM_DBHDR_L_ENTRIES(R7)		; No entries yet
+	MOVL	COM_DBHDR_L_RECSIZE(R7),R9    ; rec size
+210$:
+	MOVL	R8,NAMESECRAB+RAB$L_UBF    ; Write rec here
+	MOVW	R9,NAMESECRAB+RAB$W_RSZ		; Record size
+	MOVW	R9,NAMESECRAB+RAB$W_USZ		; Record size
+	$GET	RAB = NAMESECRAB		; Get a record
+	BLBC	R0,260$			; BR IF  error 
+	INCL	COM_DBHDR_L_ENTRIES(R7)			; Count
+	ADDL	R9,R8     		; Next slot
+	ADDL3	R9,R8,R10		; Check if enough room
+	CMPL	R10,4(R11)		; OK?
+	BLEQU	210$			; OK
+	BRW	280$			; Undo
+	
+260$:
+	CMPL	R0,#RMS$_EOF		; Was error end of file
+	BEQLU	270$			; Yes - OK
+	RET				; No - Die
+270$:
+	$CLOSE	FAB=NAMESECFAB
+	BRW	2000$
+280$:
+300$:
+; Undo and set to default
+	$CLOSE	FAB=NAMESECFAB
+	CLRQ	-(SP)
+        PUSHL	4(AP)
+	CALLS	#3,G^SYS$DELTVA
+
+1000$:
+; File was not found, or otherwise unloadable
+; Use defaults
+	MULL3	#NAM_C_RECSIZE,DEFRECCNT,GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+	CLRQ	-(SP)			; p0 space, access mode
+	PUSHAL	INADDR			; returned address
+	PUSHL	GBLSIZ          	; no. of pages
+	CALLS	#4, G^SYS$EXPREG	; Expand process space
+	BLBS	R0,1010$
+	RET
+; map section	
+1010$:
+	CLRQ	-(SP)			; pfc, protection
+	CLRL	-(SP)			; virtual block number
+	PUSHL	GBLSIZ			; no. of pages
+	CLRQ	-(SP)			; channel, rel page no.
+	CLRL	-(SP)			; version id
+	PUSHAL	NAMESECNAM		; section name
+	PUSHL	#<SEC$M_GBL!SEC$M_DZRO!SEC$M_WRT!SEC$M_PAGFIL!SEC$M_SYSGBL>
+	CLRL	-(SP)			; access mode
+	PUSHAL	NAMER_A			; returned address
+	PUSHAL	INADDR			; in address
+	CALLS	#12, G^SYS$CRMPSC	; create section
+	BLBS	R0,1020$
+	RET
+1020$:
+	CMPL	#SS$_CREATED,R0
+	BEQL	1100$
+	$CLOSE	FAB=NAMESECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	RET
+; init header rec
+1100$:
+; If EMUDB.DAT exists, attempt rebuild.
+; We must release access to the DB here to allow the relater access. The
+; PSR is not yet enabled so other processes, while they have access will
+; not trigger.
+	SUBL3	NAMER_A,NAMER_A+4,R10 		; Size if section (bytes)
+	DIVL3	#512,R10,NAMELVBSIZ              ; Size (Pages) in LVB
+	INCL	NAMELVBSIZ			; Real number
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	MOVL	#LCK$K_CWMODE,LKMODE		; COnvert to CW
+	$ENQW_G	NAMEDBLOCK 			; Convert DB lock 
+
+	MOVL	NAMER_A,R6
+	MOVL	#NAM_C_RECSIZE,COM_DBHDR_L_RECSIZE(R6)   ; write recsize 
+	MOVL	#THIS_PROCESS,COM_DBHDR_L_FLAG(R6)          ; Write flag
+	MOVL	DEFRECCNT,COM_DBHDR_L_MAXENTRIES(R6)
+
+        CALLS	#4,G^REBUILD_PSRDB
+	BLBS	R0,1110$
+; Only error handled is insufficient mem. In this case make section 1.5x
+; bigger. In all other cases simply continue. The called routine either
+; completes successfully or does not write the section at all and we
+; start with defaults.
+	CMPW	#SS$_INSFMEM,R0		; Mem?
+	BNEQU	1110$                   ; Br no
+; Regain exclusive access...
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	$ENQW_G	NAMEDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	NAMELVBSTA,1105$            ; Br if got it
+	CMPW	#SS$_VALNOTVALID,NAMELVBSTA  ;  Ignore LVB not valid error
+	BEQLU	1105$
+	BRW	1110$
+1105$:
+	MULL	#15,DEFRECCNT           ; Def Number of recs
+	DIVL	#10,DEFRECCNT           ; 1.5x
+     	BRW	300$			; Delete and recreate section
+
+
+1110$:
+2000$:
+	SUBL3	NAMER_A,NAMER_A+4,R10 		; Size if section (bytes)
+	DIVL3	#512,R10,NAMELVBSIZ              ; Size (Pages) in LVB
+	INCL	NAMELVBSIZ			; Real number
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	MOVL	#LCK$K_CWMODE,LKMODE		; COnvert to CW
+	$ENQW_G	NAMEDBLOCK 			; Convert DB lock 
+
+	$ERASE	FAB= NAMESECFAB			  ; Delete all versions
+	BLBS	R0,2000$                          ; Br until no more
+	MOVW	NAMELVBSTA,R0
+	RET					; Return with any errors
+
+	
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=COUNT_NAM_EVENT
+; Routine to increment the counter set by input.
+; Input:
+;	.long value of counter name. This is an offset from COUNTERS_A
+; Outputs:
+;  	The counter is incremented
+; Returns:
+;	None 
+;
+	MOVL	COUNTERS_A,R1
+	ADDL	4(AP),R1
+	INCL	(R1)
+	RET
+	.sbttl	exit_hdlr ()
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=NAMEREXIT_HDLR 
+; here to shut down orderly.
+; Write NAMER DB out to file
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+
+	$ENQW_G	NAMEDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	NAMELVBSTA,10$            ; Br if got it
+	CMPW	#SS$_VALNOTVALID,NAMELVBSTA  ;  Ignore LVB not valid error
+        MOVL	#MSG_EMUSYS_LOCKDB,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                   ; 2  params
+	MOVAL	MSGPARAMS,R1                ; Plist
+	MOVL	R0,(R1)+
+	MOVL	LKNAM,(R1)		    ; Addr of lock name
+	PUSHAL	ERRORMSG                    ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+10$:
+	$CREATE	FAB= NAMESECFAB			; create
+	BLBS	R0,20$                          ; Br if OK
+	RET
+20$:
+	$CONNECT RAB=NAMESECRAB
+	BLBS	R0,30$
+	RET
+30$:
+; analyse section, dec entry count for any deleted recs
+	MOVL	NAMER_A,R10			; Top of section
+        MOVL	COM_DBHDR_L_ENTRIES(R10),R6      ; Number of entries
+	BEQL	65$				; Br if none
+        MOVL	COM_DBHDR_L_RECSIZE(R10),R7      ; Size of entries
+	ADDL3	R7,R10,R8				; 1st rec
+50$:
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R8),60$ ; Br if not deleted
+	DECL	COM_DBHDR_L_ENTRIES(R10)			   ; uncount
+60$:
+	ADDL	R7,R8 
+	SOBGTR	R6,50$
+; The count is now the count of valid recs
+; Calc a new MAXENTRY
+65$:
+	MULL3	#100,COM_DBHDR_L_ENTRIES(R10),R1
+        DIVL	#15,R1			; increase by 15 %
+	CMPL	#10,R1			; must be > 10
+	BLSS	70$
+	MOVL	#10,R1			; Set min
+	BRB	100$
+70$:
+	CMPL	#1000,R1			; must be < 1000
+	BGTR	100$
+	MOVL	#1000,R1			; Set min
+100$:
+; Set header and write it
+; 
+	MOVW	COM_DBHDR_L_RECSIZE(R10),NAMESECRAB+RAB$W_RSZ     ; rec size
+	ADDL3	R1,COM_DBHDR_L_ENTRIES(R10),COM_DBHDR_L_MAXENTRIES(R10)		; Set new max size
+	MOVL	#-1,COM_HDR_L_ACNT(R10)	; Set this field Max count (FOR SORT)
+	MOVL	R10,NAMESECRAB+RAB$L_RBF    ; Write this rec 
+	$PUT	RAB = NAMESECRAB		; Write a record
+	BLBS	R0,110$			; BR IF no error 
+	RET
+
+110$:
+; Write out all recs (skip deletes)
+        MOVL	COM_DBHDR_L_ENTRIES(R10),R6      ; Number of entries
+	BEQL	200$				; Br if none
+        MOVL	COM_DBHDR_L_RECSIZE(R10),R7      ; Size of entries
+        MOVW	COM_DBHDR_L_RECSIZE(R10),NAMESECRAB+RAB$W_RSZ    ; Size of record
+	ADDL3	R7,R10,R8			; 1st rec
+120$:
+	MOVL	R8,NAMESECRAB+RAB$L_RBF    ; Write this rec 
+	$PUT	RAB = NAMESECRAB		; Write a record
+	BLBC	R0,210$			; BR IF  error 
+	ADDL	R7,R8 
+	SOBGTR	R6,120$
+200$:
+	$CLOSE	FAB= NAMESECFAB	; 
+        RET
+210$:
+	$CLOSE	FAB= NAMESECFAB	; 
+	$ERASE	FAB= NAMESECFAB			; Delete Partial
+        RET
+	.END	NAMER

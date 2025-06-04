@@ -1,0 +1,429 @@
+	.TITLE	TST_SCAPPLIALL
+	.IDENT /V01-001/
+;
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+	EMUCMIPDEF
+	EMUDBDEF
+	EMUPSRDEF
+	EMUSYSDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	$SECDEF				; Global Section 
+	.PSECT	DATA WRT,NOEXE,QUAD
+
+; returned addresses
+CONTROL_A:		.QUAD
+DN5MAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN5
+		.LONG	PSR_DN5_B20_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN5DB
+		.ADDRESS EMU_PSRDN5
+
+
+COUNTERS_A:		.QUAD
+DADDR:			.QUAD
+CRCDESC:		.QUAD	0
+CRCINIT:		.LONG	0
+CRCPOLY:		.LONG  ^O120001
+CRCTBL:			.BLKL	16	
+KEY_BUF:
+PROTO:		.LONG
+BOXID:		.LONG
+TBL:		.LONG
+PARAM:		.LONG
+INSTANCE:	.LONG
+HIORD:		.BYTE	^XAA,^X00,^X04,^X00	; Hi order of decnet address
+DECID:		.BYTE	^X2B,^X0C,^X02,^X87     ; Hi order of DEC Id
+FAOBUF:		.BLKL	132
+FAODESC:
+FAOLEN:		.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+FAOLIST:	.BLKL	64
+FAOSTR:		.BLKB	64
+FAOSTR_D:	.LONG	.-FAOSTR 		; Dynamic
+		.ADDRESS  FAOSTR
+DN4TYP:		.WORD	^X0360
+CLI:		.ASCID	/ Client            = (!UL) !UL !UL !AC/
+EUSER:		.ASCID	/ End User          = (!UL) !UL !UL !AC/
+PROX:		.ASCID	/ Proxy             = (!UL) !UL !UL !UL/
+IPROX:		.ASCID	/ Incoming proxy    = (!UL) !UL !UL !UL/
+MAXI:		.ASCID	/ Max Instance      = (!UL) !UL !UL !UL/
+IMAGE:		.ASCID	/ Image             = (!UL) !UL !UL !AC/
+USER:		.ASCID	/ User 	            = (!UL) !UL !UL !AC/
+RESPMSG:      	.ASCID	/ !2UL.!4UL Status = !XL /
+EMU_DN5DB:	
+		.ASCID	\EMU_DN5DB\            ; Lock name
+EMU_PSRDN5:	
+		.ASCID	\EMU_PSRDN5\  		; Section name
+
+; Return packet
+	.ALIGN	LONG
+CONTEXT:	.LONG	0
+RETURN:	 	.BLKB	8192		
+RETURN_D:       .LONG	.-RETURN
+		.ADDRESS  RETURN
+;
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 48
+VD_COLS: 	.LONG 132
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+BYTCNT:		.WORD		; Input Byte counter
+OSITYP: 	.WORD   ^XFE00
+; Misc SMG ...
+PROMPT:		.ASCII	/YEAM> /
+CMDCOL:		.LONG	1
+CMDROW:		.LONG	1
+CURCOL:		.LONG   1
+CURROW:		.LONG   3
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+TIMEOUT:	.LONG	15
+CHARCNT:	.LONG	15
+FIRSTFLG:	.LONG	0
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+
+
+	.PSECT	CODE	EXE,NOWRT,LONG
+;	.ENTRY	TST_SCAPPLIALL,^M<>
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TST_SCAPPLIALL
+; Command interface MBX. Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	calls	#0, g^asn_tempmbx_system
+	bsbw	sca_error_chk		; 
+;
+
+; Build Initial Display
+	
+	BSBW	CREATE_ENVIRONMENT
+; Create CRC table for later input to CRC generation
+	PUSHAL	CRCTBL
+	PUSHAL	CRCPOLY		;  16 bit 
+	CALLS	#2,G^LIB$CRC_TABLE
+;	
+; Create and Map to sections 
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	BSBW	SCA_ERROR_CHK
+	pushal	control_a		; Control section return addresses
+	calls	#1, g^map_control	; Create and map control section
+	BSBW	SCA_error_chk		; check errors
+
+	BSBW	SCA_ERROR_CHK
+	PUSHAL	DN5MAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+
+	BSBW	SCA_ERROR_CHK		;
+	MOVL	DN5MAPS,R11		; Top of table
+	ADDL3	#PSR_DN5_C_RECSIZE,R11,R6		; 1st entry 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	BRW	100$				; br if None
+10$:
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),20$ ; Br if not deleted
+	BRW	100$
+; Deternmine if this address is a candidate.
+; if the last 7 digits of the address match :
+; AA-00-04-00-xx-xx-21 (xx = dont care)
+; then select this addr
+20$:
+       	SUBL3	#7,PSR_DN5_L_ADDRLEN(R6),R1	; Offset to last 7
+	ADDL3	#PSR_DN5_B20_ADDR,R6,R10         ; Addr
+	ADDL	R1,R10				; 
+	CMPL	(R10),HIORD
+	BEQLU	30$
+	BRW	55$
+30$:
+;
+;
+
+	CLRL	CONTEXT
+        MOVL	#8192,RETURN_D
+40$:
+	PUSHAL	CONTEXT
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#GD5_FCN_C_DN5_MOP_CLIENT
+	MOVZWL	#1026,-(SP)             ; Node number
+	CALLS	#4,G^GETOSI
+	MOVL	R0,R8                  ; Save return
+	MOVL	#132,FAODESC
+	MOVZWL	4(R10),DADDR
+	EDIV    #1024,DADDR,R2,R3
+	PUSHL	R0			; Return
+	PUSHL	R3
+	PUSHL	R2
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RESPMSG
+	CALLS	#6,G^SYS$FAO
+	BLBS	R0,50$
+	RET
+50$:
+	BSBW	PRINT
+	CMPL	#SS$_NOMOREITEMS,R8
+	BEQLU	55$
+	BLBS	R8,70$
+55$:
+	ADDL	#PSR_DN5_C_RECSIZE,R6		; Next entry
+	SOBGTR	R11,57$
+        RET
+57$:	BRW	10$
+60$:
+; Output:
+; Name
+; Field	ofs	len	typ	cmip		desc
+; clien	0	255	ascic	1	Application
+; endU	256	255	ascic	2	End user spec		
+; Image	512	255	ascic	9	Image
+; User	768	255	ascic	10	User name
+; prox	1024	4	int	3	Outgoing Proxy (T,F)
+; Iprox	1028	4	int	4	Incomming proxy
+; MaxI	268	4	bits	56	Max instances
+	PUSHAL	CONTEXT
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#GD5_FCN_C_DN5_SC_APP
+	PUSHL	4(R10)             ; Node number
+	CALLS	#4,G^GETOSI
+	MOVL	r0,r7		; SAVE
+
+; NAME param is used to group each set together. This is CRCd and 
+; becomes the instance field in the key.
+70$:
+
+; Print client
+	MOVL	#132,FAODESC
+	ADDL3	#SCAPPLIC_AC_CLIENT,R8,R1
+	ADDL3	#12,R1,-(SP)			; Name
+	PUSHL	8(R1)				; Len of data
+	PUSHL	4(R1)				; Field len
+	PUSHL	(R1)				; Param no.
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	CLI
+	CALLS	#7,G^SYS$FAO
+	BSBW	PRINT
+; Write the rec
+; Make data desc
+	ADDL3	#SCAPPLIC_AC_CLIENT,R8,R1
+	ADDL3	#12,R1,CRCDESC+4			; Addr
+	MOVZBL	8(R1),CRCDESC  			; Len
+; Complete key
+	MOVW	(R1),PARAM
+; Print END USER SPEC
+	MOVL	#132,FAODESC
+	ADDL3	#SCAPPLIC_AC_EUSER,R8,R1			; Version
+	ADDL3	#12,R1,-(SP)
+	PUSHL	8(R1)				; Len of data
+	PUSHL	4(R1)				; Field len
+	PUSHL	(R1)			
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	EUSER
+	CALLS	#7,G^SYS$FAO
+	BSBW	PRINT
+; Write the rec
+; Make data desc
+	ADDL3	#SCAPPLIC_AC_EUSER,R8,R1
+	ADDL3	#12,R1,CRCDESC+4			; Addr
+	MOVZBL	8(R1),CRCDESC  			; Len
+; Complete key
+	MOVL	(R1),PARAM
+; Print OUT PROX
+	MOVL	#132,FAODESC
+	ADDL3	#SCAPPLIC_L_OPROX,R8,R1			; Listeners
+	PUSHL	12(R1)			; Version
+	PUSHL	8(R1)				; Len of data
+	PUSHL	4(R1)				; Field len
+	PUSHL	(R1)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PROX
+	CALLS	#7,G^SYS$FAO
+	BSBW	PRINT
+; Write the rec
+; Make data desc
+	ADDL3	#SCAPPLIC_L_OPROX,R8,R1
+	ADDL3	#12,R1,CRCDESC+4			; Addr
+	MOVZBL	#8,CRCDESC  			; Len
+; Complete key
+	MOVW	(R1),PARAM
+; Print IN PROX
+	MOVL	#132,FAODESC
+	ADDL3	#SCAPPLIC_L_IPROX,R8,R1			; State
+	PUSHL	12(R1)			; Version
+	PUSHL	8(R1)				; Len of data
+	PUSHL	4(R1)				; Field len
+	PUSHL	(R1)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	IPROX
+	CALLS	#7,G^SYS$FAO
+	BSBW	PRINT
+; Write the rec
+; Make data desc
+	ADDL3	#SCAPPLIC_L_IPROX,R8,R1
+	ADDL3	#12,R1,CRCDESC+4			; Addr
+	MOVZBL	#8,CRCDESC  			; Len
+; Complete key
+	MOVW	(R1),PARAM
+; Print MAXIMUM INSTANCES
+	MOVL	#132,FAODESC
+	ADDL3	#SCAPPLIC_L_MAXI,R8,R1			; Functions
+	PUSHL	12(R1)			; Version
+	PUSHL	8(R1)				; Len of data
+	PUSHL	4(R1)				; Field len
+	PUSHL	(R1)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	MAXI
+	CALLS	#7,G^SYS$FAO
+	BSBW	PRINT
+; Write the rec
+; Make data desc
+	ADDL3	#SCAPPLIC_L_MAXI,R8,R1
+	ADDL3	#12,R1,CRCDESC+4			; Addr
+	MOVZBL	#8,CRCDESC  			; Len
+; Complete key
+	MOVW	(R1),PARAM
+; Print IMAGE
+	MOVL	#132,FAODESC
+	ADDL3	#SCAPPLIC_AC_IMAGE,R8,R1			; LAN addr
+	ADDL3	#12,R1,-(SP)
+	PUSHL	8(R1)				; Len of data
+	PUSHL	4(R1)				; Field len
+	PUSHL	(R1)			
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	IMAGE
+	CALLS	#7,G^SYS$FAO
+	BSBW	PRINT
+; Write the rec
+; Make data desc
+	ADDL3	#SCAPPLIC_AC_IMAGE,R8,R1
+	ADDL3	#12,R1,CRCDESC+4			; Addr
+	MOVZBL	8(R1),CRCDESC  			; Len
+; Complete key
+	MOVW	(R1),PARAM
+; Print USER
+	MOVL	#132,FAODESC
+	ADDL3	#SCAPPLIC_AC_USER,R8,R1
+	ADDL3	#12,R1,-(SP)
+	PUSHL	8(R1)				; Len of data
+	PUSHL	4(R1)				; Field len
+	PUSHL	(R1)			
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	IMAGE
+	CALLS	#7,G^SYS$FAO
+	BSBW	PRINT
+; Write the rec
+; Make data desc
+	ADDL3	#SCAPPLIC_AC_USER,R8,R1
+	ADDL3	#12,R1,CRCDESC+4			; Addr
+	MOVZBL	8(R1),CRCDESC  			; Len
+; Complete key
+	MOVW	(R1),PARAM
+	CMPL	R7,#SS$_NORMAL
+	BEQL	100$
+	brw	40$
+100$:
+	BRW	55$					; NEXT NODE
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	SCA_ERROR_CHK
+		RSB
+
+PRINTH:		
+		PUSHL	R1			; Addr of .ascid in R1
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	SCA_ERROR_CHK
+		RSB
+;
+
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Virtual Display
+;
+CR_DISP:
+	CLRL	-(SP)
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	SCA_ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	SCA_ERROR_CHK
+;
+; Enable Unsolocited Input
+;
+;	PUSHAL	GET_INPUT                        ; AST Routine
+;	PUSHAL	PB_BOARD                         ; PB ID
+;	CALLS	#2,G^SMG$ENABLE_UNSOLICITED_INPUT
+;	BSBW	SCA_ERROR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	SCA_ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	SCA_ERROR_CHK
+;
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	RSB
+SCA_ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	$EXIT_S	R0
+	.END	TST_SCAPPLIALL
+
+

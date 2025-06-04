@@ -1,0 +1,262 @@
+              The OpenVMS Alpha Virtual Server V1.0
+
+          Fred Kleinsorge, Compaq Computer Corporation
+
+  1.   Introduction
+
+     Welcome to the Virtual Server! This guide is designed to
+     both instruct the user on how to install and use the server,
+     and XVCFB application.
+
+     The Virtual Server consists of an X11 Server DDX that
+     creates a Global Section as a Color Frame Buffer, and a
+     remote application (XVCFB) which maps the global section. It
+     then creates an X11 window allowing the user to interact
+     with the virtual server.
+
+     The original code dates from 1991, and was used to debug the
+     X11R4 MIT sample server on the Alpha Development Unit (ADU)
+     prior to real hardware becoming available. The server code
+     was enhanced in 1995 to implement "virtual" screen
+     capability for the Alphabook, and the embedded Cirrus Logic
+     on the AS1000A. The enhancement was to implement a set of
+     wrapper functions for the CFB server, which allows bounding
+     extents to be generated, call-outs to display changes, and
+     hooks to allow virtual panning.
+
+     Another feature of the original port of the MIT sample
+     server to Alpha was to implement a virtual input queue. Like
+     the virtual CFB, the server creates a global section, which
+     is initialized to look like the shared memory between the
+     input device drivers, and the server. By mapping this
+     section, input can be delivered to the server as if a real
+     mouse and keyboard were sending data from the device
+     drivers.
+
+     The current incarnation brings the XVCFB code up to date,
+     and uses the enhanced features. The server was enhanced to
+     make interaction with an external process more efficient,
+     and more important - added some security features. Finally,
+     an automatic startup procedure was implemented that allows
+     unprivileged users to start Virtual Server sessions.
+
+  2.   Installing and Using the Virtual Server and XVCFB
+
+     The Virtual Server is installed using the PRODUCT INSTALL
+     command:
+     
+     $ PRODUCT INSTALL VIRTCFB
+     
+     Cleverly, none of the filenames conflict with the standard
+     DECwindows/Motif files, and so does not invalidate your
+     normal DECwindows/Motif support. Images or command files
+     that needed modifications, have had alternate names provided
+
+       1.   Starting a Virtual Server
+
+          When the installation has completed, you will be ready
+          to use the Virtual Server. Normally this is done using
+          the automatic startup feature when you invoke XVCFB. To
+          use the automatic startup feature, you must start the
+          Virtual Server Connection Controller (VCFBCONNECT).
+          
+          $ @SYS$MANAGER:DECW$START_VCFBCONNECT
+          
+          This starts VCFBCONNECT as a detached process. The
+          default is a limit of 16 servers, with a maximum per-
+          UIC limit of 4 connections (that is, for any UIC, only
+          4 server sessions can be initiated and active at one
+          time using the automatic startup feature). You can
+          invoke this application directly, and can provide
+          alternate limits ($ vcfbconnect -? will give help) up
+          to a maximum of 512 servers. Servers started manually
+          count towards the MAX servers in VCFBCONNECT, but do
+          not count against the per-UIC limit. Stopping and
+          starting VCFBCONNECT also resets the per-UIC knowledge
+          about currently running servers. Connections for UIC
+          [1,4] have no per-UIC limit.
+
+          New server sessions can be started manually by invoking
+          the command procedure sys$manager:decw$start_vcfb.com.
+          This is generally not needed, if automatic startup is
+          allowed.
+          
+          $ @SYS$MANAGER:DECW$START_VCFB <server> <depth> <width> <height>
+          
+          where <server> is the server number, and <depth> is the
+          pixel depth (default 8) for the screen. The <width> and
+          <height> parameters define the size of the screen, the
+          default is 1024 by 768.
+
+          The Virtual Server can be run using any server number
+          from 0 to 999. Each instance must have its own server
+          number, and more than one Virtual Server can be active
+          at the same time. In fact, the standard Server 0
+          running on real hardware can be active on the same
+          system. Typically, the server number will be non-zero,
+          especially on a workstation. For example:
+          
+          $ @SYS$MANAGER:DECW$START_VCFB 2 24 1900 1200
+          
+          starts the process decw$server_2 and creates a virtual
+          CFB with a pixel depth of 24 planes, with a size of
+          1900 x 1200. The defaults are 8 planes, and 1280x1024.
+          
+       2.   Starting XVCFB
+          
+          XVCFB is the means to access the Virtual Server, it
+          does this by initiating a connection to the server,
+          mapping both input and output Global Sections, and
+          creating a real X11 window to display the frame buffer
+          and pass input to the server. It is invoked as a
+          foreign command by:
+          
+          $ define dcl$path sys$system
+          $ xvcfb -display <display>
+          
+          where <display> is the location to create the X11
+          window. For example:
+          
+          $ xvcfb -display MYNODE::0.0
+          Connection established to Server 2
+
+          Requests an automatic creation of a new server
+          connection. In the example, a new Virtual Server is
+          created with server number 2, and X11 display output
+          and input from MYNODE::0.0. Any valid X11 display
+          string can be specified, including WSAx:
+          If the XVCFB session is interrupted, except by
+          selecting CLOSE from the left/top window control,
+          (process killed, etc), the connection to the server can
+          be resumed by:
+          
+          $ xvcfb -server <n> -display <display>
+          
+          If the server has not detected the broken connection,
+          you will be instructed to add –grab to the command
+          line.
+
+            1.   Additional XVCFB Features
+
+               The -grab feature noted above, can also be used to
+               "steal" the display from another process (provided
+               you are the same user, or are logged in as a
+               system manager). The other instance of XVCFB
+               currently executing will exit, and a new
+               connection will be established.
+
+               The -exit_reset features tells the server to force
+               a connection re-establishment when a server reset
+               occurs (for instance, the logout of a CDE
+               session), that is the Server will EXIT. Normally,
+               server resets have no effect on the server
+               session.
+               
+            2.   XVCFB Security
+
+               The Virtual Server is a component of the X11
+               Server, and runs in the context of the system.
+               However, there is nothing that requires the XVCFB
+               display program to be privileged to operate -
+               except to ensure that only authorized or
+               privileged users can access the global once
+               created.
+
+               When the Virtual Server starts, if automatic
+               startup is selected it creates a mailbox, and
+               stalls until it receives a message containing the
+               user identification of a connecting XVCFB
+               application. It then creates the global sections
+               with read/write access granted only to SYSTEM and
+               USER, and changes the OWNER of the section to the
+               user requesting the connection.
+
+               Only SYSTEM or matching owner processes can map
+               the section files. Should the process that
+               established the connection exit, it can be re-
+               established by simply restarting the XVCFB
+               application, which will re-map the sections. But
+               other users without privilege cannot access the
+               section. Logging in or out of a CDE session
+               (within the Virtual Server session) does not
+               change the owner of the global sessions.
+
+               A SYSTEM user can use the SET SECURITY command in
+               DCL to alter the owner and access rights to the
+               sections, should the need arise.
+
+            3.   Exiting XVCFB and the Virtual Server
+
+               To cause XVCFB and the Virtual Server to both (the
+               X11 server process) exit, select CLOSE from the
+               window control menu on the left top corner of the
+               window.
+
+            4.   XVCFB Restrictions
+
+               1.   The pixel depth must be the same in the Virtual Server and
+                    the output display. If a 24-bit frame buffer is created,
+                    then it can only be displayed on a 24-bit system. The
+                    same is true of 8-bit frame buffers.
+
+               2.   Only 8 and 24-bit depths are supported.
+
+               3.   The 8-bit depth will create a private colormap on the
+                    display, this may turn other window colors technicolor.
+
+               4.   Only 1 XCFB instance can operate on a specific Virtual
+                    Server at a time, the code as written will refuse to
+                    allow more than one user.
+
+       1.   Trouble Shooting
+
+            The most common problems (with limited testing) appear to be
+            lack of resources for the server to start. This is usually
+            too few global sections (GBLSECTIONS in SYSGEN), too small
+            of a page file, too low page file quota on the system
+            account (AUTHORIZE).
+
+            Stranded server processes can also cause some interesting
+            side effects, for instance – a single user, in the same
+            session (same Process) starts multiple server instances. The
+            process can end up being the target of SYS$WAKE calls from
+            all of the servers. The user must also remember what the
+            server number was for the servers to reconnect.
+            Other problems can be simply low bandwidth displaying over
+
+            the wire for a remote display using XVCFB… there is not much
+            you can do other than get a faster connection.
+
+       2.   To Do List
+
+            1.   XVCFB is not a Motifized application, it is a XLIB
+                 application. It would be nice to change this, and add a status
+                 pane to the window with interesting tidbits. I'll leave that
+                 for other folks when the source kit is sent out.
+            2.   Pixel depth conversion. It may be slow, but it shouldn't be
+                 too bad - I did this on a version of XANIM without too bad of
+                 results (scaled 8-bits to 24-bits).
+
+       1.   Files
+
+            [SYSMGR]DECW$DEVICE_VCFB.COM
+            [SYSMGR]DECW$SPECIAL_VCFB.COM
+            [SYSMGR]DECW$STARTSERVER_VCFB.COM
+            [SYSMGR]DECW$START_VCFB.COM
+            [SYSMGR]DECW$START_VCFBCONNECT.COM
+            [SYSMGR]DECW$VCFB.COM
+     
+            [SYSLIB]DECW$SERVER_DDX_VCFB.EXE
+            [SYSLIB]DECW$SERVER_DIX_VCFB.EXE
+     
+            [SYSEXE]VCFBCONNECT.EXE
+            [SYSEXE]XVCFB.EXE
+     
+            [SYSHLP]VIRTCFB-V0100.RELEASE_NOTES
+            [SYSHLP]VIRTCFB-V0100.HTML
+     
+       2.   Revision History
+
+            Version  Modified by                Date        Comments
+
+            V1.0     Frederick G. Kleinsorge    09/23/99    Initial Version

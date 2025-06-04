@@ -1,0 +1,649 @@
+.layout 2,2
+.style headers 3,1,6,7,7,2,1,9,2
+.first title
+.title Auto-Tune User Guide
+.fill
+.no autojustify
+.no justify
+.no number
+.require "auto_tune.rnt"
+.subtitle
+.page
+.send toc ^^Preface
+.blank 10
+Preface
+.blank 2
+This manual is intended as a guide to the use of the Auto-Tune Facility.
+It is not intended as a guide to File Tuning.  It is assumed that you are
+familiar with the following manuals:
+.list "o"
+.list element;Guide to File Applications
+.list element;Analyze/RMS__File
+.list element;File Definition Language (FDL)
+.end list
+.number page
+
+.chapter ^^Auto-Tune Facility Description
+
+.header level 1 ^^Overview
+
+The Auto-Tune Facility is designed to allow the optimizing and reloading
+of RMS files during the downtime scheduled for Doomsday Backups.
+.blank
+Because it is not always possible to obtain access to some files without
+serious disruption to normal processing, this facility allows these files
+to be optimized and reloaded during a scheduled time when the system
+is not available for normal activity for a known period of time.
+.blank
+In conjunction with a well defined file tuning schedule, this facility will
+greatly ease the maintenance burden of those responsible for file tuning.
+It is not necessary to reload every file every month.  It should be
+possible to tune files for periods of three to six months.
+.blank
+Although Auto-Tune is designed primarily to be used during Doomsday
+Backups, it can be run online if the designated files are accessible.
+Because BYPASS privilege is required, the procedure can only be run by
+Computer Services personnel.
+
+.header level 1 ^^Components
+
+Auto-Tune consists of a single DCL procedure which is invoked by the
+operators during the Doomsday Backup processing.  The procedure then
+attempts to locate control files in pre-defined directories.
+.blank
+These control files determine which RMS files are to be reloaded and in
+which sequence. When a control file is located, a logfile is created (in
+the same directory) which will contain a comprehensive log of all activities
+performed during the Auto-Tuning process.
+.blank
+The procedure AUTO__TUNE.COM is located in WMC__MANAGER.  The control files
+are named AUTO__TUNE.CONTROL__FILE and should be located in the application
+level directory under the PROOPN directory root on those disks that wish to
+make use of the facility e.g_. [PROOPN.KNO.BHAMMS]AUTO__TUNE.CONTROL__FILE.
+This enables each application to maintain a separate control file suited
+to their file tuning schedule.
+.blank
+The logfiles are generated in this same directory e.g_. [PROOPN.KNO.BHAMMS]
+and are called AUTO__TUNE.LOG__dd-mmm-yyyy where the dd-mmm-yyyy represents
+the date the Auto-Tune was performed.
+.blank
+In addition to the logfile mentioned above, a second logfile is created in
+the WMC$MANAGER area.  This logfile contains essentially the same information
+and is named AUTO__TUNE__disk-name.LOG__dd-mmm-yyy, where disk-name is the
+volume label of the disk e.g_. KNO__ONE.
+
+.chapter ^^Auto-Tune Control Files
+
+.header level 1 ^^Overview
+
+The Auto-Tune Control Files are named AUTO__TUNE.CONTROL__FILE and are
+found by default in a [PROOPN.group.application] directory on the device
+being Auto-Tuned.
+.blank
+The files can be created and maintained with your favourite editor.
+There is no facility for line continuations.
+.blank
+Each line in the file contains either
+.list "o"
+.list element;a comment
+.list element;a directive or
+.list element;a file specification and optional qualifiers.
+.end list
+The control file determines which files are reloaded and also the sequence
+in which the files are reloaded.  It is advisable to list larger files at
+the beginning of the control file since the decision to process the file is
+based not only on the available space on the disks involved but on the size
+of the current file and the time remaining until the end of the scheduled
+downtime.
+
+.header level 1 ^^Comments
+
+Comments are designated by the use of an exclamation mark "!" and may appear
+anywhere in the Control File, either as whole line comments or comments at
+the end of directives or file specifications.  Comments can be used, for
+example, to keep track of the dates that particular files were last tuned.
+This can be useful if there is a large number of files and only part
+of the list can be processed at any one time. Blank lines are also allowed
+in Control Files and can appear anywhere.
+
+.header level 1 ^^Directives
+
+Auto-Tune Directives change the default behaviour of processing.  Directives
+must be specified on a single line and be preceded by a dollar sign "$".
+
+.header level 2 EXIT
+
+The EXIT directive tells Auto-Tune to stop processing the current Control
+File.  No further records are read from the Control File and Auto-Tune
+continues looking for other Control Files on the current disk.
+.blank
+.indent 4;Format:####$EXIT
+
+.header level 2 FDL__LOCATION
+
+The FDL__LOCATION directive tells Auto-Tune to use the location specified
+as the location of FDL files rather than the default (FDL's are normally
+located in the same directory as the data files).  An FDL__LOCATION directive
+with no parameter resets the FDL location to be the same directory as
+the data files.  The directory specified must be a complete directory
+specification (with or without brackets) e.g.  [PROOPN.KNO.BHAMMS.FDL].
+.blank
+.indent 4;Format:####$FDL__LOCATION[=dir_spec]
+
+.header level 2 PARENT__OWNERSHIP
+
+This directive causes the owner of the data file to be that of the
+parent directory rather than the original owner of the file.
+.blank
+.indent 4;Format:####$PARENT__OWNERSHIP
+
+.header level 2 ORIGINAL__OWNERSHIP
+
+This directive causes the owner of the data file to be that specified in
+the FDL.
+.blank
+.indent 4;Format:####$ORIGINAL__OWNERSHIP
+
+.header level 2 MARGIN
+
+The MARGIN directive controls the minimum amount of free disk space that must
+be left on the source disk when the current file is reloaded.  The value is
+specified as an integer which is interpreted as a percentage.
+.blank
+During the assessment to determine whether the current file will be processed,
+if the amount of free space on the source disk would drop below the threshold
+set by the current margin, the file will not be processed.
+.blank
+The default value is 20 i.e_. there must be at least 20 percent free space on
+the source disk at the end of processing the current file.
+The disk space margin cannot be set to a value of less than 10 i.e_. you
+cannot specify that less than 10_% freespace will be left on the source disk
+when the current file is reloaded.  If the value you specify is for any
+reason invalid, the default margin will be used.  A MARGIN directive with
+no value has the same effect as a RESET__MARGIN directive.
+.blank
+.indent 4;Format:####$MARGIN[=n]
+
+.header level 2 RESET__MARGIN
+
+The RESET__MARGIN directive resets the disk space margin to the default
+value, either that within the procedure or that currently defined by the
+system logical AUTO__TUNE__MARGIN.
+.blank
+.indent 4;Format:####$RESET__MARGIN
+
+.header level 1 ^^File Specifications
+
+File specification lines indicate which files are to be processed.  Since
+the disk being processed is aleady defined, the file specification should
+consist of a directory specification, filename and filetype.
+.blank
+Because the filenames are processed in the sequence they appear within the
+Control File, you are advised to place larger files first, since they will
+obviously take longer to process and the assessment on whether or not to
+process the current file is based on file size and time.
+.blank
+File specification lines can contain optional qualifiers that govern whether
+to generate an optimized FDL file before processing and further control that
+optimization.  These are discussed in the next section.
+.blank
+.indent 4;Format:####[LEVEL1.LEVEL2.LEVEL3]THISFILE.DATA [/QUALIFIERS]
+
+.header level 1 ^^File Specification Qualifiers
+
+By default, when a file specification is encountered, it is assumed that an
+FDL for the file exists in the same directory as the file. If no FDL is
+found, this file is not processed.  See the description os the
+FDL__LOCATION directive for more details on FDL's.
+.blank
+The use of the /OPTIMIZE qualifier will cause Auto-Tune to generate an
+optimized FDL file before continuing processing.
+Auto-Tune uses the procedure WMC__TOOL:OPTIMIZE__RMS.COM to perform the
+optimization.  The following qualifiers directly relate to the parameters
+used by this procedure.  A brief description of this procedure can be found
+in Appendix A.
+.blank
+Qualifiers may be abbreviated to no less than three characters and
+must be on the same line as the file specification.
+
+.header level 2 /OPTIMIZE
+
+The /OPTIMIZE qualifier is required if you want an optimized FDL to be
+generated.  Even if other qualifiers appear after the file specification,
+if this qualifier is not present, no optimization will be performed.
+When the /OPTIMIZE qualifier is used, Auto-Tune will always attempt to
+generate a new FDL whether an FDL exists for the file or not.
+.blank
+.indent 4;Format:####/OPTIMIZE
+
+.note ^^Use of the /OPTIMIZE Qualifier
+It should not be necessary to use the /OPTIMIZE qualifier every time
+a file is reloaded.  Use of this qualifier can add considerable time
+to the reloading process depending on the size of the file and the
+number of keys involved.  If optimization is done correctly, this should
+only need to be used ONCE, with subsequent reloads not requiring
+further optimization.  This of course depends on the nature of the
+file in question.
+.end note
+
+.header level 2 /ADD
+
+The /ADD qualifier specifies how many additional records will be added to
+the file after the initial load.  This is used to determine how much extra
+space is allocated now so that the file does not have to be extended later.
+Since extending a file can be a relatively expensive process, it is
+advisable to allocate extra space in the file at the outset.
+.blank
+.indent 4;Format:####/ADD=n
+
+.header level 2 /INDEX__COMPRESSION
+
+The /INDEX__COMPRESSION qualifier determines whether index compression is
+turned on or off in the reloaded file.  If not specified, or no value is
+given, index compression is turned on.
+.blank
+.indent 4;Format:####/[NO]INDEX__COMPRESSION[=YES_|NO]
+
+.header level 2 /DATA__COMPRESSION
+
+The /DATA__COMPRESSION qualifier determines whether data compression is
+turned on or off in the reloaded file.  If not specified, or no value is
+given, data compression is turned on.
+.blank
+.indent 4;Format:####/[NO]DATA__COMPRESSION[=YES_|NO]
+
+.header level 2 /FILL
+
+The /FILL qualifier determines how full buckets are allowed to get during
+the initial load.  The default value is 75 (percent).
+.blank
+.indent 4;Format:####/FILL=n
+
+.chapter ^^Auto-Tune Processing
+
+.header level 1 ^^Overview
+
+This chapter takes you step by step through the Auto-Tune processing
+cycle.  The two chapters following discuss the information from the
+points of view of the System Manager and the User.  This chapter may be
+skipped in preference to one of the following chapters that more
+closely meets your requirements.
+
+.header level 1 ^^Detailed Description
+
+The following sections detail the steps involved in the Auto-Tune
+process and explain the decisions made along the way.
+
+.header level 2 ^^Invoking Auto-Tune
+
+Auto-Tune is invoked automatically during the Doomsday Backups,
+either for every disk backed up or individually on selected disks.
+Auto-Tune can also be invoked manually by typing the following:
+.blank
+.indent 4;@WMC__MANAGER:AUTO__TUNE device: [directory]
+.blank
+Where "device:" is either the physical device name or a logical that
+translates to a physical device specification.  Various checks are
+performed on the device you specify e.g_. is it a valid device,
+is it a disk, is it available, is it mounted.  If any problems are
+encountered, Auto-Tune will proceed no further.
+.blank
+"Directory" is an optional parameter that specifies the location of
+Control Files.  If specified, the directory must exist or this disk
+will not be processed.  If not specified, it defaults to [PROOPN.*.*].
+
+.header level 2 ^^Setting Up Initial Conditions
+
+Once a valid device and directory have been established, Auto-Tune
+attempts to locate a work area to be used during the file conversions.
+This is accomplished by first attempting to use the logical
+DISK$AUTO__TUNE.  If this is not valid, an attempt is made to use the
+logical DISK$AUTO__TUNE1.  If both of these are not valid,
+AUTO__TUNE__WORK__DEVICE is then evaluated.
+If none of these are valid, processing ceases.
+When a valid work device has been found, checks similar to those
+performed on the source disk are performed to ensure that the device
+is valid and usable.  Again, any problems will result in Auto-Tune
+terminating.  Given that we get this far, a master logfile is
+created in WMC$MANAGER called AUTO__TUNE__device-label.LOG__dd-mmm-yyyy,
+where "device-label" is the name of the volume.  A logfile is also
+created, in the same directory as the Control File, named
+AUTO__TUNE.LOG__dd-mmm-yyyy.  Both these logfiles contain details
+of all the steps involved in the processing and reasons why various
+decisions were made.
+.blank
+To indicate that processing has started, a system logical is
+defined with a name of "AUTO__TUNE__OF__device-label" and is set to
+the value "In Progress".
+
+.header level 2 ^^Selecting Control Files
+
+Control Files are found by using the f$search() DCL lexical based on
+the current device, as specified on the command line, and the directory
+location.  If no control files are found, processing terminates and
+the "in progress" logical is deassigned.
+
+.header level 2 ^^Selecting Files for Processing
+
+Before the processing of a file begins, a check is made to see if the
+logical AUTO__TUNE__DISABLE is defined.  If this logical exists,
+processing of the current Control File will cease.
+A check is also made to see if a system shutdown is currently in progress,
+if it is then processing of the current Control File will cease.
+Control Files are processed sequentially and any directives encountered
+are acted upon.  When a file specification is encountered an attempt
+is made to locate the file.  If the file is not found, a message is
+placed in the logfile and the next record is read from the Control File.
+If the file is located, its size is recorded for later use.  If the
+/OPTIMIZE qualifier was specified, the OPTIMIZE__RMS procedure will
+be executed with the appropriate parameters to generate an FDL file.
+An attempt is now made to locate an FDL file (note that if you do not
+use /OPTIMIZE, then you should have created your own FDL by this stage)
+based on the filename of the input file and a file type of ".FDL".
+If no FDL file is found, a message is placed in the logfile and
+the next record is read from the Control File.
+
+.header level 2 ^^Determining Space Requirements
+
+At this stage, we know the size of the input file, the free space on
+the input device and the free space on the work disk.  The FDL file
+is now scanned to determine the allocation required for the new file,
+if the FDL does not have any allocation statements, processing of this
+file ends.  If there is sufficient space on the work disk, and
+sufficient space on the input disk (taking into account that the
+input file will be deleted) then processing continues.  Any problems
+with disk space requirements will be reported in the logfile.
+
+.note ^^FDL Allocation Quantities
+If the allocation quantities in the FDL file do not accurately
+reflect the size of the new file, it is possible that the new file
+will be created on the work disk but not copied back to the input
+disk.  It is also possible that the creation of the new file will
+fail due to insufficient space on the work disk.  Since both of
+these circumstances leave the input file intact, it defeats the
+purpose of the Auto-Tune Facility and simply wastes resources.
+.end note
+
+.note ^^File Protection in FDL's
+If a /OPTIMIZE qualifier is used, there should be no problems with
+the file protection of the newly generated file since it will be
+the same as the original input file.  If you generate your own
+FDL's - please ensure that the protection specification is correct.
+.end note
+
+.header level 2 ^^Determining Time Requirements
+
+Determinations based on file size and time have not yet been implemented.
+
+.header level 2 ^^Processing the File
+
+The processing of the file is fairly trivial and consists of performing
+a CONVERT/FDL command to generate a new file on the work disk, deleting
+the original input file and copying the new file back to the original
+location.  The work file is named AUTO__TUNE__device-label.WORK__FILE
+and is placed in the MFD of the work disk.  If the CONVERT fails, the
+original file remains intact, the work file is deleted, messages are
+written to the logfiles containing details of the problem and processing
+continues with the next file.  If for any reason after the
+original file has been deleted, the new file cannot be copied back,
+messages are sent to the operators advising that they should investigate
+the problem and no further processing is performed on this disk.
+The "in progress" logical is updated to contain the name of the file
+currently being processed.
+
+.header level 2 ^^Tidying Up
+
+When all processing has completed successfully, there should be no
+work files left on the work disk and all that remains to be done is to
+deassign the "in progress" logical defined at the start of processing.
+Once the logicalis deassigned, the process terminates.
+
+.chapter ^^Auto-Tune for System Managers
+
+.header level 1 ^^Overview
+
+.blank 4
+.centre ;This chapter will be prepared at a later date.
+
+.chapter ^^Auto-Tune for Users
+
+.header level 1 ^^Overview
+
+This chapter covers those aspects of Auto-Tune that are controlled by
+the user or other person responsible for maintenance of files within
+an application.
+
+.header level 1 ^^Creating a Control File
+
+Probably the quickest way of creating a Control File for a large number
+of files is to do a directory command and send the output to a file
+which can then be edited.  For example:
+.list "o"
+.list element;set default to the directory that will contain the
+control file
+.no fill
+.list element;directory/noheader/notrailer [...]*.* -
+####/output=auto__tune.control__file
+.fill
+.list element;edit the output file to remove all device specifications
+and all version details
+.list element;turn every line into a comment by placing "!" at the
+start of each line
+.list element;rearrange the files to put the larger ones first
+.list element;uncomment those files that will be reloaded on the
+next doomsday backup
+.list element;add any optimization qualifiers if required
+.end list
+.note ^^Unsupported MAKE__AT__CTL procedure
+There exists a procedure called MAKE__AT__CTL.COM in the WMC__TOOL directory
+which can be used to generate Control Files.  An example of its use
+follows:
+.list "$"
+.list element;set default disk$kno__one:[proopn.kno.bhamms]
+.list element;define sys$output auto__tune.control__file
+.list element;@wmc__tool:make__at__ctl [.dat]
+.list element;deassign sys$output
+.end list
+The Control File is now ready for further editing.
+.end note
+Appendix B contains an example of a Control File.
+
+.header level 1 ^^File Sequence within the Control File
+
+Because the time required to reload (and optimize) a file is related to
+the size of the file, number of keys and the current state of the file,
+it is strongly recommended that larger files are placed at the start of
+the Control File.  This will ensure that there is sufficient time to
+perform the reloads on these files.  The sequence may be changed at a
+later date once information has been gathered from the log files
+indicating how long reloads are taking.
+
+.header level 1 ^^Disabling a Control File
+
+The easiest way to disable a Control File, if no files need to be reloaded
+on a particular Doomsday, is to place a $EXIT directive as the first line
+in the file.
+
+.header level 1 ^^Checking the Logfile
+
+A logfile will be created in the same directory as the Control File when
+the Auto-Tune is performed.  This file will be named
+AUTO__TUNE.LOG__dd-mmm-yyy and a sample of the output generated can be
+found in Appendix C.  This logfile should be checked after every Doomsday
+weekend to ensure that the desired results have been obtained.
+
+.appendix ^^OPTIMIZE__RMS Procedure
+
+.header level 1 ^^Overview
+
+The OPTIMIZE__RMS procedure will perform an ANALYZE/RMS__FILE/FDL command
+on the specified file to generate an FDL with analysis data.  This FDL
+is then used to generate an optimized FDL based on the other parameters
+specified, or the default values if none are given.
+.note Support for OPTIMIZE__RMS
+The OPTIMIZE__RMS procedure uses an undocumented and unsupported
+feature of the EDIT/FDL facility.  As a result of this, no
+guarantees are made about the reliability or continued functionality
+of this procedure.  Should the procedure "break" in a future release
+of the operating system, it will still be possible to generate
+optimized FDL's - It will just have to be done manually.
+.end note
+
+.header level 1 ^^Processing
+
+The procedure can be invoked by typing "@WMC__TOOL:OPTIMIZE__RMS" and
+including the relevant parameters on the command line.  This procedure
+does NOT perform any file reloading, it simply generates an FDL which
+can then be used at a convenient time to reload the file.  The FDL is
+created in the same directory as the input file and has the same name
+as the input file but with a file type of ".FDL".
+
+.note ^^Use of the OPTIMIZE__RMS Procedure
+It should not be necessary to use the OPTIMIZE__RMS procedure every time
+a file is reloaded.  Use of this procedure can add considerable time
+to the reloading process depending on the size of the file and the
+number of keys involved.  If optimization is done correctly, this should
+only need to be used ONCE, with subsequent reloads not requiring
+further optimization.  This of course depends on the nature of the
+file in question.
+.end note
+
+.header level 1 ^^Parameters
+
+.header level 2 ^^P1 - File Specification
+
+The File Specification parameter identifies the file to use to generate
+the FDL.  There are no defaults and wildcards are not permitted.
+
+.header level 2 ^^P2 - Additional Records
+
+The Additional Records parameter specifies how many additional records
+will be added to the file after the initial load.
+This is used to determine how much extra space is initially allocated so
+that the file does not have to be extended later.
+Since extending a file can be a relatively expensive process, and 
+negates the benefits of the Auto-Tuning process it is advisable
+to allocate extra space in the file at the outset.
+This parameter defaults to zero and if specified should be given as
+a positive integer.
+
+.header level 2 ^^P3 - Index Compression
+
+The Index Compression parameter determines whether index compression is
+turned on or off in the FDL. Index compression is turned on by default.
+This parameter should be specified as either "Yes" or "No".
+
+.header level 2 ^^P4 - Data Compression
+
+The Data Compression parameter determines whether data compression is
+turned on or off in the FDL.  Data compression is turned on by default.
+This parameter should be specified as either "Yes" or "No".
+
+.header level 2 ^^P5 - Bucket Fill Percentage
+
+The Bucket Fill Percentage parameter determines how full buckets are
+allowed to get during the initial load.  The default value is 75 (percent).
+This parameter should be specified as an integer in the range 50 to 100.
+
+.appendix ^^Sample Control File
+
+.literal
+! these files have NOT been sorted by file size but appear
+! here as they came from the directory command
+
+! note that none of the lines that use /optimize, use /add which
+! should be used to preallocate space for later additions
+
+[PROOPN.ASD.BHAMMS.DATDEM]CA01MST.DAT !/optimize
+[PROOPN.ASD.BHAMMS.DATDEM]CA02MST.DAT !/optimize
+[PROOPN.ASD.BHAMMS.DATDEM]CA03MST.DAT !/optimize
+[PROOPN.ASD.BHAMMS.DATDEM]CA04MST.DAT !/optimize
+[PROOPN.ASD.BHAMMS.DATDEM]CA05MST.DAT !/optimize
+![PROOPN.ASD.BHAMMS.DATDEM]CA08MST.DAT
+![PROOPN.ASD.BHAMMS.DATDEM]CA11MST.DAT
+![PROOPN.ASD.BHAMMS.DATDEM]CA12MST.DAT
+[PROOPN.ASD.BHAMMS.DATDEM]CA21MST.DAT !/optimize
+[PROOPN.ASD.BHAMMS.DATDEM]CA22MST.DAT !/optimize
+![PROOPN.ASD.BHAMMS.DATDEM]CO01MST.DAT
+[PROOPN.ASD.BHAMMS.DATDEM]PM01MST.DAT !/optimize
+[PROOPN.ASD.BHAMMS.DATDEM]PM02MST.DAT !/optimize
+[PROOPN.ASD.BHAMMS.DATDEM]PM06MST.DAT !/optimize
+[PROOPN.ASD.BHAMMS.DATDEM]PM08MST.DAT !/optimize
+[PROOPN.ASD.BHAMMS.DATDEM]ST01MST.DAT !/optimize
+![PROOPN.ASD.BHAMMS.DATDEM]ST14MST.DAT
+[PROOPN.ASD.BHAMMS.DATDEM]ST15MST.DAT !/optimize
+[PROOPN.ASD.BHAMMS.DATDEM]ST25MST.DAT !/optimize
+$exit	! nothing more to process, so may as well get out here
+![PROOPN.ASD.BHAMMS.DATDEM]ST27MST.DAT
+![PROOPN.ASD.BHAMMS.DATDEM]ST27MST.DAT
+![PROOPN.ASD.BHAMMS.DATDEM]ST43MST.DAT
+.end literal
+
+.appendix ^^Sample Logfile
+
+The following details were extracted from an actual run of the Auto-Tune
+procedure.  The master logfile was used since this contains other
+details not found in the individual logfiles.  There is only one master
+logfile produced for each disk, but there may be more than one logfile
+produced on each disk.  The master logfile contains all details from all
+individual logfiles on a disk.
+.blank
+The first section appears only in the master logfile and indicates
+which disk is being used and where the Control Files should reside.
+Each Control File found will result in a header line indicating the
+Control File being processed and the name of the corresponding logfile.
+.blank
+.literal
+11:03:53  Starting device _$255$DUA195:WAO_ONE
+11:03:53  Searching for control files in [PROOPN.*.*]
+11:03:53  
+11:03:53  Processing control file _$255$DUA195:[PROOPN.ASD.BHAMMS]AUTO
+_TUNE.CONTROL_FILE;1
+11:03:53  User logfile is _$255$DUA195:[PROOPN.ASD.BHAMMS]AUTO_TUNE
+.LOG_28-AUG-1992
+.end literal
+.blank
+The following section shows all the messages that are generated when
+everything goes smoothly.  This information will appear in both the
+master logfile and the individual logfile.
+.blank
+.literal
+11:03:54  
+11:03:54  Processing file [PROOPN.ASD.BHAMMS.DATDEM]CA01MST.DAT
+11:03:54   Options /OPTIMIZE
+11:03:54   Current file allocation 8607 blocks
+11:03:54   Generating optimized FDL (additions=0,index_cmp=Yes
+,data_cmp=Yes,fill=75)
+11:04:52   FDL allocation is 10527 blocks
+11:04:52   Free space on work disk 381261 (547041)
+11:04:53   Free space on input disk 1116306 (2376153)
+11:04:53   Required free space on input disk 475220
+11:04:53   Sufficient space on input disk to reload file
+11:04:53   Sufficient space on work disk to convert file
+11:04:53   Converting...
+11:06:58   Convert complete
+11:07:10   File successfully reloaded, work file deleted
+11:07:10  Completed file [PROOPN.ASD.BHAMMS.DATDEM]CA01MST.DAT
+.end literal
+.blank
+The following is an example of the messages generated when no FDL
+is found.
+.blank
+.literal
+12:25:33  
+12:25:33  Processing file [PROOPN.ASD.BHAMMS.DATDEM]ST43MST.DAT
+12:25:33   Current file allocation 3 blocks
+12:25:33   No FDL file found
+12:25:34  Completed file [PROOPN.ASD.BHAMMS.DATDEM]ST43MST.DAT
+.end literal
+.blank
+The following lines only appear in the master logfile and indicate that
+the Control File has been processed and that this is the last Control
+File on this disk.  Had there been another Control File on the disk,
+the process would be repeated.
+.blank
+.literal
+12:25:34  Completed control file _$255$DUA195:[PROOPN.ASD.BHAMMS]AUTO
+_TUNE.CONTROL_FILE;1
+12:25:35  Completed device _$255$DUA195:WAO_ONE
+.end literal

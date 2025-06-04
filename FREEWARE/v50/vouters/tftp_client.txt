@@ -1,0 +1,2996 @@
+$!
+$!
+$!                          COPYRIGHT (C) 1997 BY
+$!                    DIGITAL EQUIPMENT CORPORATION, MAYNARD
+$!                     MASSACHUSETTS.  ALL RIGHTS RESERVED.
+$!
+$! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+$! ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+$! OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+$! THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+$! PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+$!
+$! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+$! SHOULD NOT BE CONSTRUED AS A COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.
+$!
+$! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+$! SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL.
+$!
+$! NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+$! ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL EQUIPMENT CORPORATION.
+$!
+$! SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY DIGITAL SOFTWARE
+$! PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+$! CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+$!
+$!
+$! This example contains an OpenVMS TFTP client which can be used to test
+$! TFTP servers.
+$! 
+$! This program creates all files necessary to build the executable TFTP.EXE.
+$! When the program has completed, execute the "$ RUN TFTP" command. This will
+$! display the program's prompt. Execute on-line help to provide details and
+$! command formats accepted by this ulility.
+$!
+$!
+$!
+$!
+$!
+$!
+$! Procedure parameter P1 can have three options : not specified, DECC or VAXC
+$!
+$!
+$!
+$!
+$!
+$!
+$ compiler_switch = "/"+ P1
+$ decc = f$search ("sys$system:decc$compiler.exe")
+$ vaxc_compiler = f$search ("sys$system:vaxc.exe")
+$ if vaxc_compiler .eqs. "" .and. decc .eqs. "" then goto end
+$ if vaxc_compiler .eqs. "" .and. decc .nes. ""
+$ then
+$     compiler_switch = ""
+$     compiler = "DECC"
+$ endif
+$ if vaxc_compiler .nes. "" .and. decc .eqs. ""
+$ then
+$     compiler_switch = ""
+$     compiler = "VAXC"
+$ endif
+$ if vaxc_compiler .nes. "" .and. decc .nes. ""  .and. P1 .eqs. ""
+$ then
+$     compiler_switch = "/VAXC"
+$     compiler = "VAXC"
+$ else
+$ if P1 .nes. ""
+$ then
+$     compiler_switch = "/"+ P1
+$     compiler = P1
+$ endif
+$ endif
+$ create dbgdmp.c
+/*
+*/
+#ifdef __DECC
+#pragma module dbgdmp "V1.0-00"
+#else
+#module dbgdmp "V1.0-00"
+#endif
+#include <starlet.h>            /* defines system services */
+#include <lib$routines>         /* defines the lib$ rtl routines */
+#include <descrip.h>            /* defines the various descriptors offsets */
+#include <string.h>             /* for the memcpy call */
+#include <stdlib.h>             /* for the malloc, free, exit calls */
+#include <stdio.h>              /* for the printf call */
+
+struct ascic {
+   unsigned char len;
+   char faostr[3];
+};
+
+/* Define length of data to be dumped */
+typedef enum {LONG_LENGTH,WORD_LENGTH,BYTE_LENGTH} length;
+
+/* Define radices */
+typedef enum {OCTAL,DECIMAL,HEXADECIMAL,BINARY} radices;
+
+#define dump$c_maxlisiz 80      /* Maximum screen's output size */
+#define max_fao_size 40         /* Size of largest of faotables' expanded -
+fao strings */
+#define screenwidth 80          /* Width of one full dump listing line */
+#define maxlines 20
+
+#define CH$COPY(bytesleft,buffer,a,bytesperline,tempbuffer)     \
+        lib$movc5 (&(bytesleft),(buffer),&(a),&(bytesperline),(tempbuffer));
+
+#define CH$MOVE(length,pointer1,pointer2)                       \
+        memcpy ((pointer2),(pointer1),(length));
+
+#define CH$FILL(bytefill,padlength,pointer)                     \
+{ char *src;                                                    \
+   for (src=(pointer);src<(pointer)+(padlength);src++)          \
+         *src=(bytefill);}
+
+#define cstring(data,string)                                    \
+{ char *src,*start,*dst = (data).faostr;                        \
+   for (src=start=(string); *src !='\0';src++)                  \
+        *dst++ = *src;                                          \
+   (data).len = src - start;                                    \
+}
+
+
+void dump$fao_line(char *buff,int numentperline,int size,
+                   int byte_offset,int num_entries,int format,
+                   struct dsc$descriptor_s *fao,
+                   struct dsc$descriptor_s *outbuff,
+                   unsigned char binary_dump)
+{
+  int i,j;
+  unsigned char *cp;
+  unsigned short *cp1;
+  unsigned long *cp2 ;
+  unsigned long *ptr;
+  unsigned long *ptr1;
+  unsigned char *ptr2;
+  int min;
+  int bit_length;
+  unsigned char *start_of_ptr2;
+
+  /* get the minimum of numentperline and num_entries */
+  min = (numentperline < num_entries ? numentperline : num_entries);
+
+  /* allocate a dynamic buffer which hold the values to be converted by the
+   * sys$faol routine.
+   */
+if (binary_dump)
+ ptr = (unsigned long *) malloc ((3+2*numentperline)*sizeof(unsigned long));
+else
+ ptr = (unsigned long *) malloc ((3+numentperline*size)*sizeof(unsigned long));
+
+  /* intialize the buffer to all zero's. */
+  for (i=0; i < 3 + numentperline*size; i++) ptr[i] = 0;
+
+  /* For binary format dumping set up the bit length
+   * and allocates a buffer that will hold the bit value to ASCII
+   * representation '0' or '1'. Do not forget the space separator (+1)
+   */
+  if (binary_dump){
+       switch (format) {
+        case 0 : bit_length = 32;
+                 break;
+        case 1 : bit_length = 16;
+                 break;
+        case 2 : bit_length = 8;
+        }
+      ptr2= (unsigned char *)malloc(numentperline*(bit_length+1));
+      start_of_ptr2 = ptr2;
+  }
+  /*
+   * ptr value will be modified by increments. For the sys$faol and the free
+   * calls save ptr. Copy each byte to a longword, each word to a longword
+   * and each longword to a longword depending on the format. In order to
+   * to display data from right to left like the dump command setup the
+   * pointer to the last data and decrement it. When displayed this will
+   * give a reading a dumped data from rigth to left. For a binary dump,
+   * the highest bit must be displayed first and lower bit last.
+   */
+  ptr1 = ptr;
+  if (!(binary_dump)){
+      switch (format) {
+        case 0 : cp2 = (unsigned long *)buff+ min -1;
+                 for (i=0;i<min;i++)
+                        *ptr++ = *cp2--;
+                 break;
+        case 1 : cp1 = ((unsigned short *)buff)+ min -1;
+                 for (i=0;i<min;i++){
+                        *ptr = (unsigned long)(*cp1--);
+                        ptr++;
+                        }
+                 break;
+        case 2 : cp = (unsigned char *)buff+min-1;
+                 for (i=0;i<min;i++) {
+                        *ptr = (unsigned long) (*cp--);
+                        ptr++;
+                }
+      }/* end switch */
+   }
+  else {
+      switch (format) {
+        case 0 : cp2 = (unsigned long *)buff+ min -1;
+                 for (i=0;i<min;i++){
+                        for (j=0;j<bit_length;j++)
+                                *ptr2++ = (((*cp2<<j) & (1<<(bit_length-1)))
+                                                >>(bit_length-1)) + '0';
+                        cp2--;
+                        *ptr2++ = ' ';
+                        }
+                 break;
+        case 1 : cp1 = ((unsigned short *)buff)+ min -1;
+                 for (i=0;i<min;i++){
+                        for (j=0;j<bit_length;j++)
+                                *ptr2++ = (((*cp1<<j) & (1<<bit_length))
+                                                >>(bit_length-1)) + '0';
+                        cp1--;
+                        *ptr2++ = ' ';
+                        }
+                 break;
+        case 2 : cp = (unsigned char *)buff+min-1;
+                 for (i=0;i<min;i++) {
+                        for (j=0;j<bit_length;j++)
+                                *ptr2++ = (((*cp<<j) & (1<<(bit_length-1)))
+                                                >>(bit_length-1)) + '0';
+                        cp--;
+                        *ptr2++ = ' ';
+                        }
+      }/* end switch */
+      for (i=0;i<min;i++){
+        *ptr++ = bit_length+1;
+        *ptr++ = (unsigned long)(start_of_ptr2 + (bit_length+1)*i);
+        }
+  }
+
+  /*
+   * This last three arguments are expected by the FAO directive. Include them
+   */
+  *ptr++ = (unsigned long)byte_offset;
+  *ptr++ = (unsigned long)numentperline*size;
+  *ptr++ = (unsigned long)(buff);
+  ptr = ptr1;
+
+  /*
+   * The fao directive is contained in the variable fao (passed by descriptor)
+   * The output buffer when sys$faol will store the result is contained in
+   * outbuff and ptr is a buffer containing data to be converted to ASCII.
+   */
+  sys$faol (fao,outbuff,outbuff,ptr);
+  if (binary_dump)
+      free (start_of_ptr2);
+  free (ptr1);
+}
+
+void dump_buffer (struct dsc$descriptor_s *bufdesc, unsigned int mem_address,
+                    int radix,int length)
+{
+     struct ascic offtable[4] ;
+     struct ascic *faotable;
+     $DESCRIPTOR(descr0,"!!!ZL(!AC) |!!!AC| !!!ZLAF");
+     $DESCRIPTOR(descr1,"!!!!!!ZL(!AC) |!!!!!AC| !!!!!ZLAF");
+     struct dsc$descriptor_s dump$gl_outdesc = {
+        0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+     char dump$ab_outbuf [dump$c_maxlisiz];
+     struct dsc$descriptor_s buffer_desc ;
+     char tempbuffer [512];
+     struct dsc$descriptor_s tempdesc ;
+     char tempfaobuf [max_fao_size];
+     int additional;
+     int padbytes;
+     char *buffer;
+     char *bufferpointer;
+     struct dsc$descriptor_s *faopointer;
+     int buffer_length;
+     unsigned short bytesperline;
+     unsigned short bytesleft;
+     int dumpmode;
+     int dumpwidth;
+     int mempointer = mem_address;
+     int modeindex;                     /* Index into faotable  */
+     int number;
+     unsigned int entry;
+     int entrysize;                     /* Size of one entry */
+     int entsinbuf;
+     int entsperline;                   /* Number of entries on one line */
+     char plinfaostring [max_fao_size]; /* FAO string for partial lines  */
+     struct dsc$descriptor_s plinfaodesc = {            /* Desciptor for partial line fao control string */
+        0,DSC$K_DTYPE_T, DSC$K_CLASS_S,0};
+     char faoctrstring [max_fao_size];  /* FAO control string */
+     struct dsc$descriptor_s faoctrdesc =       {       /* FAO control string descriptor */
+        0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+   int sizetbl[12] = {9,5,3,11,6,4,12,7,4,33,17,9};
+   int charsperbyte[4] = {2,3,3,8}; /* Number of ascii chars/byte based on radix */
+   int sizetable[11] = {
+                        1,                      /* Table to round entry's per */
+                        2,                      /* line to nearest lower power*/
+                        4,                      /* of two.  Max length is 32. */
+                        8,
+                        16,
+                        32,
+                        64,
+                        128,
+                        256,
+                        512,
+                        1024};
+
+   /* ! FAO control to print buffer offsets */
+   cstring(offtable[0],"9XL");
+   cstring(offtable[1],"SL");
+   cstring(offtable[2],"9OL");
+   cstring(offtable[3],"9AF");
+
+   /*
+    * The faotable contains in the order an longword, word and byte format
+    * for the hexadecimal, decimal, octal, binary radices.
+    */
+   faotable = (struct ascic *) malloc (12*sizeof(struct ascic));
+   cstring(faotable[0],"9XL"); /* Longword hexadecimal */
+   cstring(faotable[1],"5XW"); /* Word hexadecimal */
+   cstring(faotable[2],"3XB"); /* Byte hexadecimal */
+   cstring(faotable[3],"11SL");/* longword decimal */
+   cstring(faotable[4],"6SW"); /* word decimal */
+   cstring(faotable[5],"4SB"); /* byte decimal */
+   cstring(faotable[6],"12OL");/* Longword octal */
+   cstring(faotable[7],"7OW"); /* word octal */
+   cstring(faotable[8],"4OB"); /* byte octal */
+   cstring(faotable[9],"AD");  /* Longword binary */
+   cstring(faotable[10],"AD"); /* word binary */
+   cstring(faotable[11],"AD"); /* byte binary */
+
+  plinfaodesc.dsc$w_length =  max_fao_size;
+  plinfaodesc.dsc$a_pointer = (char *)plinfaostring;
+  faoctrdesc.dsc$w_length = max_fao_size;
+  faoctrdesc.dsc$a_pointer = (char *)faoctrstring;
+  entry = 0;                    /* used for entry size calc.*/
+  if (radix == DECIMAL)
+      modeindex = 3;            /* modeindex index of faotable */
+  else if (radix == OCTAL)
+      modeindex = 6;
+  else if (radix == BINARY)
+      modeindex = 9;
+  else
+      modeindex = 0;            /* Default to hex dump */
+
+  if  (length == LONG_LENGTH) {
+      dumpmode = 0;  /* Dumpmode is the format in dump$fao_line */
+      entrysize = 4; /* A longword is 4 bytes */
+      }
+  else if (length == WORD_LENGTH){
+      entrysize = 2;
+      dumpmode = 1;
+      modeindex = modeindex + 1;
+      }
+  else if (length == BYTE_LENGTH){
+      entrysize = 1;
+      dumpmode = 2;
+      modeindex = modeindex + 2;
+      }
+
+  /* Find entries per line and make it the nearest lower power of 2.
+  */
+  entsperline = ((screenwidth - 7)/(sizetbl[modeindex]+entrysize))& (~1);
+
+  if (entsperline > 64 )        /* Make sure entsperline is reasonable */
+  {
+      printf ("DBGDMP\\DUMP_BUFFER\\ entsperline greater than 64\n");
+      return;
+  }
+  if (entsperline == 0)
+      entry = 1;
+
+  while (entsperline >= sizetable[entry])       /* Find nearest largest power of 2 */
+       entry = entry + 1;                       /* from entsperline. */
+
+  entsperline = sizetable[entry-1];             /* Make entsperline nearest lower */
+                                                /* power of two. */
+  dumpwidth = entsperline*(sizetbl[modeindex] + entrysize) + 8 + 5;
+
+  faoctrdesc.dsc$w_length = max_fao_size;
+
+  /*
+   * convert the fao directive contained in descr0 to a simpler fao directive
+   * that contains the correct number of entries and the radix.
+   * This is for plain lines (i.e. lines not completed by spaces)
+   */
+  sys$fao(&descr0,
+          &faoctrdesc,
+          &faoctrdesc,
+          entsperline,
+          &faotable[modeindex],
+          &offtable[0],
+          entsperline * entrysize);
+
+  /* Set up FAO control string to be used for partial lines.
+  */
+  sys$fao(&descr1,
+          &plinfaodesc,
+          &plinfaodesc,
+          &faotable[modeindex],
+          &offtable[0],
+          entsperline * entrysize);
+
+  number = 0;
+  buffer = bufdesc->dsc$a_pointer;
+  dump$gl_outdesc.dsc$a_pointer = dump$ab_outbuf;
+  dump$gl_outdesc.dsc$w_length = dump$c_maxlisiz;
+  faopointer = &faoctrdesc;
+  bytesperline = entsperline*entrysize;
+  entsinbuf = ((bufdesc->dsc$w_length + entrysize - 1)
+                        & (~(entrysize-1)))/entrysize;
+  bytesleft = bufdesc->dsc$w_length;
+  while (entsinbuf > 0) {
+      if (bytesleft < bytesperline) {
+          /* Copy partial line, zero fill to end */
+          CH$COPY(bytesleft,buffer +number,0,bytesperline,tempbuffer);
+          /* Set up work area for partial lines  */
+          tempdesc.dsc$w_length = max_fao_size;
+          tempdesc.dsc$a_pointer = tempfaobuf;
+          /* Set up fao with # of entries for partial line */
+          sys$fao(&plinfaodesc,&tempdesc,&tempdesc,entsinbuf);
+          /* Use this fao control string instead  */
+          faopointer = &tempdesc;
+          bufferpointer = tempbuffer;
+          /* Set output length to default value  */
+          dump$gl_outdesc.dsc$w_length = screenwidth;
+          /* Format the output line */
+          dump$fao_line(bufferpointer,entsperline,entrysize,
+                mempointer+number,entsinbuf,dumpmode,faopointer,
+                &dump$gl_outdesc,(radix==BINARY));
+          additional = 0;
+          /* Calculate padding (word offset)*/
+          padbytes = dumpwidth - dump$gl_outdesc.dsc$w_length;
+          if (!(radix == DECIMAL)){
+              /* Find additional offset */
+              if ((additional = bytesleft % entrysize) > 0)
+                    {
+                     /* Customize it to type of dump */
+                     additional = (entrysize - additional) *
+                                 charsperbyte[modeindex/3] + 1;
+                     padbytes = padbytes + additional;
+                    }
+          }
+          CH$MOVE(dump$gl_outdesc.dsc$w_length - additional,
+                  dump$gl_outdesc.dsc$a_pointer + additional,
+                  dump$gl_outdesc.dsc$a_pointer + padbytes);
+          /* Move blanks to pad areas */
+          CH$FILL(' ',padbytes,dump$gl_outdesc.dsc$a_pointer);
+          /* Set output length to  */
+          dump$gl_outdesc.dsc$w_length = dumpwidth;
+          }
+      else
+          {
+          /* Dump full line */
+          bufferpointer = &buffer[number];
+          /* Set output length to default value */
+          dump$gl_outdesc.dsc$w_length = screenwidth ;
+          /* Format the output line */
+          dump$fao_line(bufferpointer,entsperline,entrysize,
+                  mempointer+number,entsinbuf,dumpmode,faopointer,
+                  &dump$gl_outdesc,(radix == BINARY));
+          }
+      printf ("\n%.*s",dump$gl_outdesc.dsc$w_length,dump$gl_outdesc.dsc$a_pointer);
+      /* Calculate next index */
+      number = number + bytesperline;
+      /* Update # of entry's in buffer */
+      entsinbuf = entsinbuf - entsperline;
+      /* Calculate how many bytes left in buffer */
+      bytesleft = bytesleft - (entsperline*entrysize);
+      }
+   free (faotable);
+   printf("\n");
+}
+$ create $tftp_utility.h
+/********************************************************************************************************************************/
+/* Created 18-MAR-1992 12:21:34 by VAX SDL V3.2-12     Source: 18-MAR-1992 11:48:20 USER1:[VOUTERS.TCPIP]$TFTP_UTILITY.SDL;17 */
+/********************************************************************************************************************************/
+/
+/*** MODULE $tftp_utility IDENT VAXELN V4.3-00 ***/
+/*** MODULE $tftpdef ***/
+#define BUFFERSIZE 512
+#define NETASCII 1
+#define OCTET 2
+#define MAIL 3
+#define TFTP$K_SUCCESS 0                /* successfull completion           */
+#define TFTP$K_FNF -1                   /* file not found                   */
+#define TFTP$K_ACVIO -2                 /* access violation                 */
+#define TFTP$K_DSKFULL -3               /* Disk full or allocation exceeded */
+#define TFTP$K_BADOP -4                 /* illegal TFTP operation           */
+#define TFTP$K_BADID -5                 /* unknown transfer ID              */
+#define TFTP$K_FILEXIST -6              /* file already exists              */
+#define TFTP$K_NOUSER -7                /* no such user                     */
+#define TFTP$K_UDPERR -8                /* socket operation failed          */
+#define TFTP$K_TMO -9                   /* timeout                          */
+#define TFTP$K_NULERR -10               /* Remote error code is null        */
+#define TFTP$K_INVMOD -11               /* Invalid mode                     */
+
+struct queue {
+    int flink;                         /* forward link to next element     */
+    int blink;                         /* back link to previous element    */
+    };
+typedef struct queue QUEUE_ENTRY;
+struct queue_element {
+    QUEUE_ENTRY header;
+    unsigned short int datasize;        /* Number of bytes in data buffer   */
+    unsigned char data [512];           /* data buffer                      */
+    } ;
+
+int eln$tftp_read_file (int remote_address,
+                        char *filename,
+                        int mode,
+                        struct queue *data_queue,
+                        char *error_message,
+                        unsigned short port,char debug) ;
+
+int eln$tftp_write_file (int remote_address,
+                        char *filename,
+                        int mode,
+                        struct queue *data_queue,
+                        char *error_message,
+                        int dispose,
+                        unsigned short port,char debug) ;
+$ create tftpc.c
+#ifdef __DECC
+#pragma module tftpc "TFTPC V1.0-00"
+#else
+#module tftpc "TFTPC V1.0-00"
+#endif
+\* TFTP protocol (described in RFC 1350).
+\*
+\* Author : Philippe Vouters
+\* Creation date : 14-NOV-1996
+\*
+\* Modification history :
+ */
+#include <errno.h>
+#include <types.h>
+#include <stdio.h>
+#ifdef __DECC
+#pragma extern_prefix save
+#pragma extern_prefix "decc$"
+#include <socket.h>
+#include <unixio.h>
+#include <in.h>
+#pragma extern_prefix restore
+#else
+#include <socket.h>
+#include <in.h>
+#include <unixio.h>
+#endif
+#include <string.h>
+#include <stdlib.h>
+#include <descrip.h>
+#include <inet.h>
+#include <lib$routines.h>
+
+#define BOOLEAN unsigned char
+#define FALSE 0
+#define TRUE 1
+#define DATASIZ 512
+
+#define RRQ 1
+#define WRQ 2
+#define DATA 3
+#define ACK 4
+#define ERROR 5
+#define TFTP_SERVICE 69
+
+#define NETASCII 1
+#define OCTET 2
+#define MAIL 3
+
+#define SUCCESS 0   /* Successfull completion */
+#define FNF  -1     /* File not found */
+#define ACVIO -2    /* Access violation */
+#define DSKFULL -3  /* Disk full or allocation exceeded */
+#define ILLTID -4   /* Illegal transfer ID */
+#define FILEXIST -6 /* File already exists */
+#define NOUSER -7   /* No such user */
+#define UDPERR -8   /* UDP error */
+#define TMO -9      /* timeout */
+#define NULERR -10  /* Error code received from TFTP equals 0 */
+#define INVMOD -11  /* Invalid mode */
+
+
+struct queue_entry {
+        int flink;
+        int blink;
+};
+typedef struct queue_entry QUEUE_ENTRY;
+
+struct queue_element {
+        QUEUE_ENTRY header ;
+        unsigned short datasize ;
+        unsigned char data [DATASIZ] ;
+} ;
+
+/* Define length of data to be dumped */
+typedef enum {LONG_LENGTH,WORD_LENGTH,BYTE_LENGTH} length;
+
+/* Define radices */
+typedef enum {OCTAL,DECIMAL,HEXADECIMAL,BINARY} radices;
+
+extern void dump_buffer (struct dsc$descriptor_s *bufdesc,
+                                unsigned int mem_address,
+                                int radix,int length);
+
+
+#define RETRY 2
+
+#ifndef FD_SET
+struct fd_set_struct {u_char fds_bits[8];};
+typedef struct fd_set_struct fd_set;
+#define NFDBITS         sizeof(struct fd_set_struct)/sizeof (u_char)
+#define FD_SETSIZE      NFDBITS
+#define FD_SET(n, p)    ((p)->fds_bits[(n)/NFDBITS] |= (1 << ((n) % NFDBITS)))
+#define FD_CLR(n, p)    ((p)->fds_bits[(n)/NFDBITS] &= ~(1 << ((n) % NFDBITS)))
+#define FD_ISSET(n, p)  ((p)->fds_bits[(n)/NFDBITS] & (1 << ((n) % NFDBITS)))
+#define FD_ZERO(p)      (void) bzero((char *)(p), sizeof(*(p)))
+#endif
+
+#define cvt_ntohs(cp)        \
+((*(unsigned short *)cp<<8) | (*(unsigned short *)cp>>8))
+
+#define cvt_htons(cp,value) {                      \
+      *((cp)+1) =(unsigned short)(value) & 0xff;   \
+      *(cp) = ((unsigned short)(value)>>8) & 0xff; \
+}
+
+#pragma inline (cleanup)
+
+void cleanup (socket)
+int socket ;
+{
+   (void) shutdown (socket,0) ;
+   (void) close (socket) ;
+}
+/*
+ * eln$tftp_read_file reads a remote file using the TFTP protocol.
+ * Inputs : filename is a null terminated string being either a remote file
+ *                   name or if mode=MAIL, the name of a remote user.
+ *          mode can be NETASCII, OCTET or MAIL.
+ *          data_queue is the address of a variable of type QUEUE_ENTRY.
+ *                   data can be read by walking the queue.
+ * Output:
+ *         if success, the routine returns 0. If failure, the routine returns
+ *         a negative number :
+ *                      -1     File not found
+ *                      -2     Access violation
+ *                      -3     Disk full or allocation exceeded
+ *                      -4     Illegal transfer ID
+ *                      -6     File already exists
+ *                      -7     No such user
+ *                      -8     UDP error
+ *                      -9     timeout
+ *                      -10    Error code received from TFTP equals 0
+ *                      -11    Invalid mode
+ */
+int eln$tftp_read_file (remote_address,filename,mode,data_queue,
+                error_message,port,debug)
+struct in_addr remote_address ;
+char *filename ;
+int mode ;
+QUEUE_ENTRY *data_queue ;
+char *error_message ;
+unsigned short port ;
+char debug;
+{
+   int s ;
+   struct sockaddr_in *s_name;
+   fd_set read_mask,write_mask,exception_mask ;
+   struct timeval timeout ;
+   int retval,flag,sendlen,tolen,rcvlen;
+   unsigned int fromlen ;
+   int retry_nbr ;
+   int received_bytes ;
+   int size;
+   int status ;
+   unsigned short code,block,error_code ;
+   BOOLEAN connected ;
+   unsigned char buffer [DATASIZ+4] ;
+   struct queue_element *outdata ;
+   char mode_buffer [20] ;
+   char *mode_str [4] = {"invalid","netascii","octet","mail"};
+   struct dsc$descriptor_s TTbufdsc =   {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+
+   if (( mode < NETASCII ) || (mode > MAIL ))
+        return (INVMOD) ;
+   retry_nbr = 0 ;
+   connected = FALSE ;
+   /* Initialize the read queue */
+   data_queue->flink = data_queue->blink = 0 ;
+
+   /* Fill in buffer request */
+   cvt_htons (buffer,RRQ) ;
+   strcpy ((char *)&buffer[2],filename);
+   sendlen = strlen(filename) + 3 ;
+   strcpy ((char *)&buffer[sendlen],mode_str [mode]) ;
+   sendlen = sendlen + strlen(mode_str[mode])+1;
+   if ((s = socket (AF_INET, SOCK_DGRAM, 0)) == -1) {
+        strcpy (error_message,"socket error");
+        return (UDPERR) ;
+        }
+   s_name = calloc (1,sizeof(struct sockaddr_in));
+   s_name->sin_family = AF_INET ;
+   s_name->sin_port = htons (0) ;
+   s_name->sin_addr.s_addr = htonl (INADDR_ANY) ;
+   if (bind (s, (struct sockaddr *)s_name, sizeof(struct sockaddr_in))!= 0)
+        {
+        strcpy (error_message,"bind error");
+        cleanup (s) ;
+        return (UDPERR) ;
+        }
+   s_name->sin_family = AF_INET ;
+   if (port != 0)
+        s_name->sin_port = htons (port) ;
+   else s_name->sin_port = htons (TFTP_SERVICE) ;
+   s_name->sin_addr.s_addr = remote_address.s_addr ;
+
+   do
+     {
+     /*
+      * send buffer containing the read request (RRQ) to remote destination
+      * specified by s_name
+      */
+      if (debug) {
+         printf ("Sent:");
+         TTbufdsc.dsc$w_length = sendlen;
+         TTbufdsc.dsc$a_pointer = (char *)buffer;
+         dump_buffer (&TTbufdsc,0,HEXADECIMAL,BYTE_LENGTH);
+         }
+      if (sendto (s,(char *)&buffer,sendlen,0,(struct sockaddr *)s_name,
+                        sizeof (struct sockaddr_in)) ==1 )
+        {
+        strcpy (error_message,"sendto error") ;
+        cleanup (s) ;
+        return (UDPERR) ;
+        }
+
+      /* check if there is a response */
+      FD_ZERO(&read_mask);
+      FD_SET( s, &read_mask);
+      FD_ZERO(&exception_mask);
+      FD_ZERO(&write_mask);
+      timeout.tv_sec = 10 ;
+      timeout.tv_usec = 0 ;
+      switch ( select (s+1,&read_mask,&write_mask,&exception_mask,&timeout) )
+        {
+        case -1:
+                strcpy (error_message,"select error") ;
+                cleanup (s) ;
+                return (UDPERR) ;
+                break ;
+        case 0 :
+                retry_nbr++ ;
+                connected = FALSE ;
+                break ;
+        default :
+                if (!FD_ISSET( s, &read_mask))
+                     retry_nbr++ ;
+                else
+                     connected = TRUE ;
+        }/* end switch */
+      } while ((retry_nbr < RETRY) & (!connected)) ;
+   if (!connected)
+        {
+        cleanup (s) ;
+        return (TMO) ;
+        }
+   do {
+      /*
+       * receive data on s from remote destination specified by
+       * socket3_name
+       */
+       fromlen = sizeof (struct sockaddr_in) ;
+       if ((received_bytes = recvfrom (s,(char *)&buffer,sizeof (buffer),0,
+                                (struct sockaddr *)s_name,
+                                &fromlen))==-1)
+            {
+            strcpy (error_message,"recvfrom error") ;
+            cleanup (s) ;
+            return (UDPERR) ;
+            }
+      if (debug) {
+         printf ("Received:");
+         TTbufdsc.dsc$w_length = received_bytes;
+         TTbufdsc.dsc$a_pointer = (char *)buffer;
+         dump_buffer (&TTbufdsc,0,HEXADECIMAL,BYTE_LENGTH);
+         }
+       code = cvt_ntohs (buffer);
+       if (code == ERROR)
+           {
+           error_code = cvt_ntohs (&buffer[2]);
+           strcpy (error_message,(char *)&buffer[4]) ;
+           if (error_code != 0)
+                status = -error_code ;
+           else
+                status = NULERR ;
+           cleanup (s) ;
+           return (status) ;
+           }
+       if (code == DATA)
+           {
+           /* Received in buffer
+            *  2 bytes  2 bytes  n bytes
+            * +--------+--------+---------+
+            * |03=DATA |Block # | Data    |
+            * +--------+--------+---------+
+            *  Sent back in same buffer
+            *  2 bytes  2 bytes
+            * +--------+--------+
+            * | 04=ACK |Block # |
+            * +--------+--------+
+            */
+            size = ((sizeof(struct queue_element)+511)/512);
+            lib$get_vm_page(&size,&outdata) ;
+            outdata->datasize = received_bytes - 4 ;
+            memcpy((char*)outdata->data,(char *)&buffer[4],received_bytes - 4);
+            /* Insert element at tail */
+            (void)lib$insqti (outdata,data_queue,NULL);
+            /* Send an ACK packet to the remote host */
+            cvt_htons (buffer,ACK) ;
+            sendlen = 4 ;
+            if (debug) {
+                 printf ("Sent:");
+                 TTbufdsc.dsc$w_length = sendlen;
+                 TTbufdsc.dsc$a_pointer = (char *)buffer;
+                 dump_buffer (&TTbufdsc,0,HEXADECIMAL,BYTE_LENGTH);
+                 }
+            if (sendto (s,(char *)&buffer,sendlen,0,
+                                (struct sockaddr *)s_name,
+                                sizeof (struct sockaddr_in)) ==-1)
+                {
+                strcpy (error_message,"sendto error") ;
+                cleanup (s) ;
+                return (UDPERR) ;
+                }/* end if (retval == -1) */
+            if (received_bytes < DATASIZ + 4) break;
+            do
+                {
+                /* check if there is a response */
+                FD_ZERO(&read_mask);
+                FD_SET(s, &read_mask);
+                FD_ZERO(&exception_mask);
+                FD_ZERO(&write_mask);
+                timeout.tv_sec = 10 ;
+                timeout.tv_usec = 0 ;
+                switch( select (s+1,&read_mask,&write_mask,
+                                        &exception_mask,&timeout))
+                  {
+                  case -1:
+                          strcpy (error_message,"select error") ;
+                          cleanup (s) ;
+                          return (UDPERR) ;
+                          break ;
+                  case 0 :
+                          retry_nbr++ ;
+                          connected = FALSE ;
+                          break ;
+                  default :
+                          if (!FD_ISSET(s,&read_mask))
+                               retry_nbr++ ;
+                          else
+                               connected = TRUE ;
+                  }/* end switch */
+                } while ((retry_nbr < RETRY) & (!connected)) ;
+            if (!connected)
+                 {
+                 cleanup (s) ;
+                 return (TMO) ;
+                 }
+
+            }/* end if (code == DATA) */
+      } while (received_bytes == DATASIZ + 4) ;
+   /* Now shutdown and close the socket */
+   cleanup (s) ;
+   free (s_name);
+   return (SUCCESS) ;
+}
+/*
+ * eln$tftp_write_file write to a remote file using the TFTP protocol.
+ * Inputs : filename is a null terminated string being either a remote file
+ *                   name or if mode=MAIL, the name of a remote user.
+ *          mode can be NETASCII, OCTET or MAIL.
+ *          data_queue is the address of a variable of type QUEUE_ENTRY.
+ *                   data has been queued by using lib$insqti.
+ * Output:
+ *         if success, the routine returns 0. If failure, the routine returns
+ *         a negative number :
+ *                      -1     File not found
+ *                      -2     Access violation
+ *                      -3     Disk full or allocation exceeded
+ *                      -4     Illegal transfer ID
+ *                      -6     File already exists
+ *                      -7     No such user
+ *                      -8     UDP error
+ *                      -9     timeout
+ *                      -10    Error code received from TFTP equals 0
+ */
+int eln$tftp_write_file (remote_address,filename,mode,data_queue,error_message,
+                        dispose,port,debug)
+struct in_addr remote_address ;
+char *filename ;
+int mode ;
+QUEUE_ENTRY *data_queue ;
+char *error_message  ;
+BOOLEAN dispose ;
+unsigned short port ;
+char debug;
+{
+   int s ;
+   struct sockaddr_in *s_name;
+   fd_set read_mask,write_mask,exception_mask ;
+   struct timeval timeout ;
+   int retval,flag,sendlen,tolen,rcvlen;
+   unsigned int fromlen ;
+   int retry_nbr, status, received_bytes,size ;
+   struct queue_element *outdata ;
+   BOOLEAN connected;
+   unsigned char buffer [DATASIZ+4] ;
+   char mode_buffer [20] ;
+   unsigned short code,error_code,block_number,block_received ;
+   char *mode_str [4] = {"invalid","netascii","octet","mail"} ;
+   struct dsc$descriptor_s TTbufdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+
+   if (( mode < NETASCII ) || (mode > MAIL ))
+        return (INVMOD) ;
+   retry_nbr = 0 ;
+   connected = FALSE ;
+   /*
+    * Fill in buffer request with WRQ in first two bytes (network order)
+    * following by the null terminated file name, followed by the null
+    * terminated mode.
+    */
+   cvt_htons (buffer,WRQ) ;
+   strcpy ((char *)&buffer[2],filename);
+   sendlen = strlen(filename) + 3 ;
+   strcpy ((char *)&buffer[sendlen],mode_str [mode]) ;
+   sendlen = sendlen + strlen(mode_str[mode]) + 1;
+
+   if ((s = socket (AF_INET, SOCK_DGRAM, 0)) == -1)
+        {
+        strcpy (error_message,"socket error") ;
+        return (UDPERR) ;
+        }
+
+   s_name = calloc (1,sizeof(struct sockaddr_in));
+   s_name->sin_family = AF_INET ;
+   s_name->sin_port = htons (0) ;
+   s_name->sin_addr.s_addr = htonl (INADDR_ANY) ;
+   if (bind (s,(struct sockaddr *)s_name,sizeof(struct sockaddr_in))!= 0)
+        {
+        strcpy (error_message,"bind error") ;
+        cleanup (s) ;
+        return (UDPERR) ;
+        }
+
+   s_name->sin_family = AF_INET ;
+   if (port != 0)
+        s_name->sin_port = htons (port) ;
+   else s_name->sin_port = htons (TFTP_SERVICE) ;
+   s_name->sin_addr.s_addr = remote_address.s_addr ;
+   do
+     {
+     /*
+      * send the write request buffer to remote destination specified
+      * by s_name
+      */
+     if (debug) {
+         printf ("Sent:");
+         TTbufdsc.dsc$w_length = sendlen;
+         TTbufdsc.dsc$a_pointer = (char *)buffer;
+         dump_buffer (&TTbufdsc,0,HEXADECIMAL,BYTE_LENGTH);
+         }
+     if (sendto (s,(char *)&buffer,sendlen,0,
+                        (struct sockaddr *)s_name,
+                        sizeof (struct sockaddr_in)) ==1 )
+        {
+        strcpy (error_message,"sendto error") ;
+        cleanup (s) ;
+        return (UDPERR) ;
+        }
+
+     /*
+      * check if there is a response. Repeat until response from remote peer.
+      * or exhausted retries.
+      */
+     FD_SET( s, &read_mask);
+     FD_ZERO(&exception_mask);
+     FD_ZERO(&write_mask);
+     timeout.tv_sec = 10 ;
+     timeout.tv_usec = 0 ;
+     switch( select (s+1,&read_mask,&write_mask,&exception_mask,&timeout) )
+       {
+       case -1:
+          {
+          strcpy (error_message,"select error") ;
+          cleanup (s) ;
+          return (UDPERR) ;
+          }
+          break ;
+       case 0 :
+          {
+          retry_nbr++ ;
+          connected = FALSE ;
+          }
+          break ;
+       default :
+          {
+          if (!FD_ISSET(s,&read_mask))
+             retry_nbr++ ;
+          else
+             connected = TRUE ;
+          }
+       }/* end switch */
+   } while ((retry_nbr < RETRY) & (!connected)) ;
+   if (!connected)
+        {
+        cleanup (s) ;
+        return (TMO) ;
+        }
+
+/*
+ * receive data ACK or ERROR from remote destination on WRQ request.
+ */
+   fromlen = sizeof (struct sockaddr_in) ;
+   if ((received_bytes = recvfrom (s,(char *)&buffer,sizeof (buffer),0,
+                                        (struct sockaddr *)s_name,
+                                        &fromlen)) == -1) {
+       strcpy (error_message,"recvfrom error") ;
+       cleanup (s);
+       return (UDPERR) ;
+       }
+   if (debug) {
+       printf ("received:");
+       TTbufdsc.dsc$w_length = received_bytes;
+         TTbufdsc.dsc$a_pointer = (char *)buffer;
+         dump_buffer (&TTbufdsc,0,HEXADECIMAL,BYTE_LENGTH);
+         }
+   code = cvt_ntohs (buffer) ;
+   if (code == ERROR)
+        {
+        error_code = cvt_ntohs (&buffer[2]) ;
+        strcpy (error_message,(char *)&buffer[4]) ;
+        if (error_code != 0)
+            status = -error_code ;
+        else
+            status = NULERR ;
+        cleanup (s) ;
+        return (status) ;
+        }
+   /*
+    * Received ACK. Carry on.
+    * Remove element at head of queue
+    */
+   (void)lib$remqhi (data_queue,&outdata,NULL);
+   block_number = 1 ;
+   for(;;) {
+      cvt_htons (buffer,DATA) ;
+      cvt_htons (&buffer[2],block_number) ;
+      memcpy((char *)&buffer[4],(char *)outdata->data,outdata->datasize) ;
+      sendlen = outdata->datasize + 4 ;
+      if (debug) {
+         printf ("Sent:");
+         TTbufdsc.dsc$w_length = sendlen;
+         TTbufdsc.dsc$a_pointer = (char *)buffer;
+         dump_buffer (&TTbufdsc,0,HEXADECIMAL,BYTE_LENGTH);
+         }
+      if (sendto (s,(char *)&buffer,sendlen,0,
+                        (struct sockaddr *)s_name,
+                        sizeof (struct sockaddr_in)) == -1)
+         {
+         strcpy (error_message,"sendto error") ;
+         cleanup (s) ;
+         return (UDPERR) ;
+         }/*end if (sendto == -1)*/
+      do
+         {
+         /* check if there is a response */
+         FD_ZERO(&read_mask);
+         FD_SET(s, &read_mask);
+         FD_ZERO(&exception_mask);
+         FD_ZERO(&write_mask);
+         timeout.tv_sec = 10 ;
+         timeout.tv_usec = 0 ;
+         switch (select (s+1,&read_mask,&write_mask,&exception_mask,&timeout))
+           {
+           case -1:
+                   strcpy (error_message,"select error") ;
+                   cleanup (s);
+                   return (UDPERR) ;
+                   break ;
+           case 0 :
+                   retry_nbr++;
+                   connected = FALSE;
+                   break ;
+           default:
+                   if (!FD_ISSET(s,&read_mask))
+                        retry_nbr++ ;
+                   else
+                        connected = TRUE ;
+           }/* end switch */
+         } while ((retry_nbr < RETRY) & (!connected)) ;
+      if (!connected)
+           {
+           cleanup (s) ;
+           return (TMO) ;
+           }
+     /*
+      * receive data on s from remote destination specified by
+      * socket3_name
+      */
+      fromlen = sizeof (struct sockaddr_in) ;
+      if ((received_bytes = recvfrom (s,(char *)&buffer,sizeof (buffer),0,
+                                        (struct sockaddr *)s_name,
+                                        &fromlen)) == -1)
+          {
+          strcpy (error_message,"recvfrom error") ;
+          cleanup (s) ;
+          return (UDPERR) ;
+          }
+      if (debug) {
+         printf ("received:");
+         TTbufdsc.dsc$w_length = received_bytes;
+         TTbufdsc.dsc$a_pointer = (char *)buffer;
+         dump_buffer (&TTbufdsc,0,HEXADECIMAL,BYTE_LENGTH);
+         }
+      code = cvt_ntohs (buffer) ;
+      if (code == ERROR)
+          {
+          error_code = cvt_ntohs (&buffer[2]) ;
+          strcpy (error_message,(char *)&buffer[4]) ;
+          if (error_code != 0)
+              status = -error_code ;
+          else
+              status = NULERR ;
+          cleanup (s) ;
+          return (status) ;
+          }
+      if (code == ACK)
+          {
+          block_received = cvt_ntohs (&buffer[2]);
+          /*
+           * If this is the last block and it has been acknowledge, exit loop
+           */
+          if ((block_received == block_number) &&
+                (outdata->datasize < DATASIZ)) break;
+          /*
+           * If the block has been acknowledged sent next block.
+           * Otherwise, resend the data.
+           */
+          if (block_received == block_number)
+              {
+              /*
+               * Free allocated memory if asked for and the block has been
+               * received.
+               */
+              if (dispose){
+                  size = ((sizeof(struct queue_element)+511)/512);
+                  lib$free_vm_page(&size,&outdata) ;
+                  }
+              /* Remove element at head of queue */
+              (void)lib$remqhi (data_queue,&outdata,NULL);
+              block_number++ ;
+              }/* end if block match */
+           }/* end if (code == ACK) */
+       }
+   /*
+    * Free last allocated memory block if asked for.
+    */
+   if (dispose) {
+        size = ((sizeof(struct queue_element)+511)/512);
+        lib$free_vm_page(&size,&outdata) ;
+        }
+   /* Now shutdown and close the socket */
+   cleanup (s) ;
+   free (s_name);
+   return (SUCCESS) ;
+}
+
+
+
+#ifndef __DECC
+int bzero(char *buffer, int len){
+  char *cp;
+  for (cp = buffer;len--;) {
+       *cp = '\0'; cp++;
+  }
+}
+#endif
+$ create lbr.h
+/********************************************************************************************************************************/
+/* Created: 25-NOV-1996 18:26:15 by OpenVMS SDL EV1-52     */
+/* Source:  25-NOV-1996 18:25:52 $64$DUA2130:[STARLET_H.SRC]LBR$ROUTINES.SDI;1 */
+/********************************************************************************************************************************/
+/*** MODULE LBR$ROUTINES IDENT X-1 ***/
+#ifndef __LBR_ROUTINES_LOADED
+#define __LBR_ROUTINES_LOADED 1
+
+#pragma __nostandard                     /* This file uses non-ANSI-Standard features */
+#pragma __member_alignment __save
+#pragma __nomember_alignment
+#ifdef __INITIAL_POINTER_SIZE                    /* Defined whenever ptr size pragmas supported */
+#pragma __required_pointer_size __save           /* Save the previously-defined required ptr size */
+#pragma __required_pointer_size __short          /* And set ptr size default to 32-bit pointers */
+#endif
+
+#ifdef __cplusplus
+    extern "C" {
+#define __unknown_params ...
+#define __optional_params ...
+#else
+#define __unknown_params
+#define __optional_params ...
+#endif
+
+#if !defined(__VAXC)
+#define __struct struct
+#define __union union
+#else
+#define __struct variant_struct
+#define __union variant_union
+#endif
+
+/*                                                                          */
+/*                                                                          */
+/* This package defines the interfaces to the Librarian utility             */
+/* routines as documented in the OpenVMS Utility Routines Reference         */
+/* Manual.                                                                  */
+/*                                                                          */
+/*                                                                          */
+/* LBR$CLOSE - CLose a library                                              */
+/*                                                                          */
+/* status = LBR$CLOSE (library_index)                                       */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*                                                                          */
+#define  lbr$close  LBR$CLOSE
+#ifdef __NEW_STARLET
+unsigned int lbr$close(
+        unsigned int *library_index);
+#else   /* __OLD_STARLET */
+unsigned int lbr$close(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$DELETE_DATA - Delete a module's data                                 */
+/*                                                                          */
+/* status = LBR$DELETE_DATA (library_index, txtrfa)                         */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  txtrfa        - RFA of module header for module to delete               */
+/*                                                                          */
+#define  lbr$delete_data  LBR$DELETE_DATA
+#ifdef __NEW_STARLET
+unsigned int lbr$delete_data(
+        unsigned int *library_index,
+        unsigned int *txtrfa);
+#else   /* __OLD_STARLET */
+unsigned int lbr$delete_data(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$DELETE_KEY - Delete a key                                            */
+/*                                                                          */
+/* status = LBR$DELETE_KEY (library_index, key_name)                        */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  key_name      - Key to be deleted - for binary keys, passed by          */
+/*                  reference, for string keys, by descriptor               */
+/*                                                                          */
+#define  lbr$delete_key  LBR$DELETE_KEY
+#ifdef __NEW_STARLET
+unsigned int lbr$delete_key(
+        unsigned int *library_index,
+        unsigned int *key_name);
+#else   /* __OLD_STARLET */
+unsigned int lbr$delete_key(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$FIND - Lookup a module by its RFA                                    */
+/*                                                                          */
+/* status = LBR$FIND (library_index, txtrfa)                                */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  txtrfa        - RFA of module to access                                 */
+/*                                                                          */
+#define  lbr$find  LBR$FIND
+#ifdef __NEW_STARLET
+unsigned int lbr$find(
+        unsigned int *library_index,
+        unsigned int *txtrfa);
+#else   /* __OLD_STARLET */
+unsigned int lbr$find(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$FLUSH - Recover virtual memory                                       */
+/*                                                                          */
+/* status = LBR$FLUSH (library_index, block_type)                           */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  block_type    - Extent of the flush operation                           */
+#define  lbr$flush  LBR$FLUSH
+#ifdef __NEW_STARLET
+unsigned int lbr$flush(
+        unsigned int *library_index,
+        unsigned int block_type);
+#else   /* __OLD_STARLET */
+unsigned int lbr$flush(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$GET_HEADER - Retrieve library header information                     */
+/*                                                                          */
+/* status = LBR$GET_HEADER (library_index, retary)                          */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  retary        - Array of 128 longwords to receive library header        */
+/*                                                                          */
+#define  lbr$get_header  LBR$GET_HEADER
+#ifdef __NEW_STARLET
+unsigned int lbr$get_header(
+        unsigned int *library_index,
+        unsigned int *retary);
+#else   /* __OLD_STARLET */
+unsigned int lbr$get_header(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$GET_HELP - Retrieve help text                                        */
+/*                                                                          */
+/* status = LBR$GET_HELP (library_index [,line_width] [,routine]            */
+/*                        [,data] [,key_n...])                              */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  line_width    - Width of the help text line                             */
+/*  routine       - Routine called to output text line                      */
+/*  data          - User data passed to routine                             */
+/*  key_n         - Zero or more key strings                                */
+/*                                                                          */
+#define  lbr$get_help  LBR$GET_HELP
+#ifdef __NEW_STARLET
+unsigned int lbr$get_help(
+        unsigned int *library_index,
+        __optional_params
+        );
+#else   /* __OLD_STARLET */
+unsigned int lbr$get_help(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$GET_HISTORY - Retrieve a library history update record               */
+/*                                                                          */
+/* status = LBR$GET_HISTORY (library_index, action_routine)                 */
+/*                                                                          */
+/*  library_index  - Index value returned by LBR$INI_CONTROL                */
+/*  action_routine - Routine to process history records                     */
+/*                                                                          */
+#define  lbr$get_history  LBR$GET_HISTORY
+#ifdef __NEW_STARLET
+unsigned int lbr$get_history(
+        int *library_index,
+        int (*action_routine)(void));
+#else   /* __OLD_STARLET */
+unsigned int lbr$get_history(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$GET_INDEX - Call routine for selected index keys                     */
+/*                                                                          */
+/* status = LBR$GET_INDEX (library_index, index_number, routine_name        */
+/*                        [,match_desc])                                    */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  index_number  - Number of the index to search                           */
+/*  routine_name  - User routine to process selections                      */
+/*  match_desc    - Key matching string                                     */
+/*                                                                          */
+#define  lbr$get_index  LBR$GET_INDEX
+#ifdef __NEW_STARLET
+unsigned int lbr$get_index(
+        unsigned int *library_index,
+        unsigned int *index_number,
+        int (*routine_name)(void),
+        __optional_params);
+#else   /* __OLD_STARLET */
+unsigned int lbr$get_index(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$GET_RECORD - Read a data record                                      */
+/*                                                                          */
+/* status = LBR$GET_RECORD (library_index [,inbufdes] [,outbufdes])         */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  inbufdes      - Buffer to receive record                                */
+/*  outbufdes     - Descriptor receiving information about record           */
+#define  lbr$get_record  LBR$GET_RECORD
+#ifdef __NEW_STARLET
+unsigned int lbr$get_record(
+        unsigned int *library_index,
+        __optional_params
+        );
+#else   /* __OLD_STARLET */
+unsigned int lbr$get_record(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$INI_CONTROL - Initialize a library control structure                 */
+/*                                                                          */
+/* status = LBR$INI_CONTROL (library_index, func [,type] [,namblk])         */
+/*                                                                          */
+/*  library_index - Receives index value                                    */
+/*  func          - Function to be performed                                */
+/*  type          - Type of library                                         */
+/*  namblk        - RMS NAM block for library                               */
+/*                                                                          */
+#define  lbr$ini_control  LBR$INI_CONTROL
+#ifdef __NEW_STARLET
+unsigned int lbr$ini_control(
+        unsigned int *library_index,
+        unsigned int *func,
+        __optional_params
+        );
+#else   /* __OLD_STARLET */
+unsigned int lbr$ini_control(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$INSERT_KEY - Insert a new key                                        */
+/*                                                                          */
+/* status = LBR$INSERT_KEY (library_index, key_name, txtrfa)                */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  key_name      - Name of key to insert (reference for binary key,        */
+/*                  descriptor for text key)                                */
+/*  txtrfa        - RFA of module                                           */
+/*                                                                          */
+#define  lbr$insert_key  LBR$INSERT_KEY
+#ifdef __NEW_STARLET
+unsigned int lbr$insert_key(
+        unsigned int *library_index,
+        unsigned int *key_name,
+        unsigned int *txtrfa);
+#else   /* __OLD_STARLET */
+unsigned int lbr$insert_key(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$LOOKUP_KEY - Look up a library key                                   */
+/*                                                                          */
+/* status = LBR$LOOKUP_KEY (library_index, key_name, txtrfa)                */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  key_name      - Name of key to insert (reference for binary key,        */
+/*                  descriptor for text key)                                */
+/*  txtrfa        - Receives RFA of module                                  */
+/*                                                                          */
+#define  lbr$lookup_key  LBR$LOOKUP_KEY
+#ifdef __NEW_STARLET
+unsigned int lbr$lookup_key(
+        unsigned int *library_index,
+        unsigned int *key_name,
+        unsigned int *txtrfa);
+#else   /* __OLD_STARLET */
+unsigned int lbr$lookup_key(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$OPEN - Open or create a library                                      */
+/*                                                                          */
+/* status = LBR$OPEN (library_index [,fns] [,create_options] [,dns]         */
+/*                   [,rlfna] [,rns] [,rnslen])                             */
+/*                                                                          */
+/*  library_index  - Index value returned by LBR$INI_CONTROL                */
+/*  fns            - File specification of the library                      */
+/*  create_options - Library characteristics ($LBRDEF, $CREDEF)             */
+/*  dns            - Default file specification                             */
+/*  rlfna          - Related file name block                                */
+/*  rns            - Receives resultant file specification                  */
+/*  rnslen         - Receives length of resultant file specification        */
+/*                                                                          */
+#define  lbr$open  LBR$OPEN
+#ifdef __NEW_STARLET
+unsigned int lbr$open(
+        unsigned int *library_index,
+        __optional_params
+        );
+#else   /* __OLD_STARLET */
+unsigned int lbr$open(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$OUTPUT_HELP - Output help messages                                   */
+/*                                                                          */
+/* status = LBR$OUTPUT_HELP (output_routine [,output_width] [,line_desc]    */
+/*                           [,library_name] [,flags] [,input_routine])     */
+/*                                                                          */
+/*  output_routine - Routine called to output text lines                    */
+/*  output_width   - Maximum width of output lines                          */
+/*  line_desc      - Help request line                                      */
+/*  library_name   - Name of the help library                               */
+/*  flags          - Flags to control operation                             */
+/*  input_routine  - Routine used for prompting                             */
+/*                                                                          */
+#define  lbr$output_help  LBR$OUTPUT_HELP
+#ifdef __NEW_STARLET
+unsigned int lbr$output_help(
+        int (*output_routine)(void),
+        __optional_params
+        );
+#else   /* __OLD_STARLET */
+unsigned int lbr$output_help(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$PUT_END - Write an end-of-module record                              */
+/*                                                                          */
+/* status = LBR$PUT_END (library_index)                                     */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*                                                                          */
+#define  lbr$put_end  LBR$PUT_END
+#ifdef __NEW_STARLET
+unsigned int lbr$put_end(
+        unsigned int *library_index);
+#else   /* __OLD_STARLET */
+unsigned int lbr$put_end(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$PUT_HISTORY - Write an update history record                         */
+/*                                                                          */
+/* status = LBR$PUT_HISTORY (library_index, record_desc)                    */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  record_desc   - History record                                          */
+/*                                                                          */
+#define  lbr$put_history  LBR$PUT_HISTORY
+#ifdef __NEW_STARLET
+unsigned int lbr$put_history(
+        unsigned int *library_index,
+        void *record_desc);
+#else   /* __OLD_STARLET */
+unsigned int lbr$put_history(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$PUT_RECORD - Write a data record                                     */
+/*                                                                          */
+/* status = LBR$PUT_RECORD (library_index, bufdes, txtrfa)                  */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  bufdes        - Record to be written                                    */
+/*  txtrfa        - Receives RFA of module                                  */
+/*                                                                          */
+#define  lbr$put_record  LBR$PUT_RECORD
+#ifdef __NEW_STARLET
+unsigned int lbr$put_record(
+        unsigned int *library_index,
+        void *bufdes,
+        unsigned int *txtrfa);
+#else   /* __OLD_STARLET */
+unsigned int lbr$put_record(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$REPLACE_KEY - Replace a library key                                  */
+/*                                                                          */
+/* status = LBR$REPLACE_KEY (library_index, key_name, oldrfa, newrfa)       */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  key_name      - Name of key, passed by reference or descriptor          */
+/*  oldrfa        - RFA of old module header                                */
+/*  newrfa        - RFA of new module header                                */
+/*                                                                          */
+#define  lbr$replace_key  LBR$REPLACE_KEY
+#ifdef __NEW_STARLET
+unsigned int lbr$replace_key(
+        unsigned int *library_index,
+        unsigned int *key_name,
+        unsigned int *oldrfa,
+        unsigned int *newrfa);
+#else   /* __OLD_STARLET */
+unsigned int lbr$replace_key(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$RET_RMSSTV - Return VMS RMS status value                             */
+/*                                                                          */
+/* status = LBR$RET_RMSSTV ()                                               */
+/*                                                                          */
+#define  lbr$ret_rmsstv  LBR$RET_RMSSTV
+#ifdef __NEW_STARLET
+unsigned int lbr$ret_rmsstv(void);
+#else   /* __OLD_STARLET */
+unsigned int lbr$ret_rmsstv(void);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$SEARCH - Search an index                                             */
+/*                                                                          */
+/* status = LBR$SEARCH (library_index, index_number, rfa_to_find,           */
+/*                      routine_name)                                       */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  index_number  - Number of index to search                               */
+/*  rfa_to_find   - RFA of module to search for                             */
+/*  routine_name  - Routine called to process keys                          */
+#define  lbr$search  LBR$SEARCH
+#ifdef __NEW_STARLET
+unsigned int lbr$search(
+        unsigned int *library_index,
+        unsigned int *index_number,
+        unsigned int *rfa_to_find,
+        int (*routine_name)(void));
+#else   /* __OLD_STARLET */
+unsigned int lbr$search(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$SET_INDEX - Set the current index number                             */
+/*                                                                          */
+/* status = LBR$SET_INDEX (library_index, index_number)                     */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  index_number  - New index number                                        */
+/*                                                                          */
+#define  lbr$set_index  LBR$SET_INDEX
+#ifdef __NEW_STARLET
+unsigned int lbr$set_index(
+        unsigned int *library_index,
+        unsigned int *index_number);
+#else   /* __OLD_STARLET */
+unsigned int lbr$set_index(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$SET_LOCATE - Set record access to locate mode                        */
+/*                                                                          */
+/* status = LBR$SET_LOCATE (library_index)                                  */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*                                                                          */
+#define  lbr$set_locate  LBR$SET_LOCATE
+#ifdef __NEW_STARLET
+unsigned int lbr$set_locate(
+        unsigned int *library_index);
+#else   /* __OLD_STARLET */
+unsigned int lbr$set_locate(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$SET_MODULE - Read or update a module header                          */
+/*                                                                          */
+/* status = LBR$SET_MODULE (library_index, rfa [,bufdesc]                   */
+/*                         [,buflen] [,updatedesc])                         */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*  rfa           - RFA of module header                                    */
+/*  bufdesc       - Receives module header                                  */
+/*  buflen        - Receives length of module header                        */
+/*  updatedesc    - Additional information to be stored in module header    */
+/*                                                                          */
+#define  lbr$set_module  LBR$SET_MODULE
+#ifdef __NEW_STARLET
+unsigned int lbr$set_module(
+        unsigned int *library_index,
+        unsigned int *rfa,
+        __optional_params
+        );
+#else   /* __OLD_STARLET */
+unsigned int lbr$set_module(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+/*                                                                          */
+/* LBR$SET_MOVE - Set record access to move mode                            */
+/*                                                                          */
+/* status = LBR$SET_MOVE (library_index)                                    */
+/*                                                                          */
+/*  library_index - Index value returned by LBR$INI_CONTROL                 */
+/*                                                                          */
+#define  lbr$set_move  LBR$SET_MOVE
+#ifdef __NEW_STARLET
+unsigned int lbr$set_move(
+        unsigned int *library_index);
+#else   /* __OLD_STARLET */
+unsigned int lbr$set_move(__unknown_params);
+#endif  /* #ifdef __NEW_STARLET */
+
+#pragma __member_alignment __restore
+#ifdef __INITIAL_POINTER_SIZE                    /* Defined whenever ptr size pragmas supported */
+#pragma __required_pointer_size __restore                /* Restore the previously-defined required ptr size */
+#endif
+#ifdef __cplusplus
+    }
+#endif
+#pragma __standard
+
+#endif /* __LBR_ROUTINES_LOADED */
+$ create tftp.c
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <signal.h>
+#ifdef __DECC
+#pragma extern_prefix save
+#pragma extern_prefix "decc$"
+#include <in.h>
+#include <netdb.h>
+#include <inet.h>
+#pragma extern_prefix restore
+/* For AXP V6.1 lbr$routines is not found in alpha$library:sys$starlet_c.tlb */
+#ifdef __ALPHA
+#  if ((__VMS_VER >= 60100022) && (__VMS_VER < 60200005))
+#        include "lbr.h"
+#  else
+#        include <lbr$routines.h>
+#     endif
+#endif
+#else
+#include <in.h>
+#include <netdb.h>
+#include <inet.h>
+#endif
+#include <str$routines.h>
+#include <starlet.h>
+#include <lib$routines.h>
+#include <smg$routines.h>
+#include <smgmsg.h>
+#include <descrip.h>
+#include <ssdef.h>
+#include <dvidef.h>
+#include <devdef.h>
+#include <chfdef.h>
+#include <rmsdef.h>
+#include <rms.h>
+#include <tpadef.h>
+#include <libdef.h>
+#include "$tftp_utility.h"
+
+#ifdef __DECC
+extern int ufd_state, ufd_key;
+#pragma extern_model save
+#pragma extern_model strict_refdef
+struct dsc$descriptor_s filedsc;
+struct dsc$descriptor_s ipdsc;
+char quote;
+#pragma extern_model restore
+#endif
+#if defined (VAXC) || defined (__VAXC)
+globalref int ufd_state, ufd_key;
+globaldef struct dsc$descriptor_s filedsc;
+globaldef struct dsc$descriptor_s ipdsc;
+globaldef char quote;
+#endif
+#if defined (VAXC) || defined (__VAX)
+#define __int32 int
+#endif
+#define DATASIZ 512
+
+typedef enum {READ,WRITE} function_t;
+
+char *tftp_status_text[] = {
+        " successfull completion",
+        " file not found",
+        " access violation",
+        " Disk full or allocation exceeded",
+        " illegal TFTP operation",
+        " unknown transfer ID",
+        " file already exists",
+        " no such user",
+        " socket operation failed",
+        " timeout",
+        " Remote error code is null",
+        " Invalid mode"
+};
+void tftp_read (char *filestring,char *vmsfile,int remote_address,
+                        int mode,unsigned short port,char debug);
+void tftp_write (char *filestring,char *vmsfile,int remote_address,
+                        int mode,unsigned short port,char debug);
+int             remote_address;
+char            *filestring;
+char            *format_ia ();
+char            *hostname =NULL;
+char            *vmsfilenam;
+int             keep_going;
+char            string_case_save[132];
+char            string[132];
+int             mode;
+function_t      function;
+unsigned short  port;
+char            debug;
+#ifndef __DECC
+   QUEUE_ENTRY _align ( quadword ) my_queue ;
+#endif
+#ifdef __DECC
+#pragma member_alignment save
+#pragma nomember_alignment quadword
+   QUEUE_ENTRY my_queue ;
+#pragma member_alignment restore
+#endif
+#ifdef __ALPHA
+#pragma member_alignment save
+#pragma nomember_alignment word
+#endif
+typedef struct {  /* Standard item for VMS system services */
+    unsigned short length;
+    unsigned short code;
+    void *buffer;
+    unsigned short *retlen;
+} item_t;
+#ifdef __ALPHA
+#pragma member_alignment restore
+#endif
+
+unsigned long screen_setup()
+{
+/*
+ * Returns a keyboard id for a pasteboard
+ */
+   $DESCRIPTOR (device,"TT:");
+   int stat,pbid, kbdid;
+
+   stat = smg$create_virtual_keyboard(&kbdid,0,0,0);
+   if (!(stat&1)) lib$stop(stat);
+   return (kbdid);
+}
+int main()
+{
+      char *bstring;
+      int status, options, count,i;
+      short len, pos;
+      int flags = 0;
+      struct tpadef tpars;
+      struct dsc$descriptor_s command_desc;
+      $DESCRIPTOR (prompt,"TFTP> ");
+      int ia;
+      struct    hostent *hp;
+      char *instring;
+      $DESCRIPTOR (inputdsc,"SYS$INPUT:");
+      item_t itmlst[2];
+      unsigned long devchar;
+      unsigned long keyboard_id;
+
+/*
+ * Initialize static variables.
+ */
+    keep_going = 1;
+    remote_address = -1;
+    mode = NETASCII;
+    filedsc.dsc$w_length = 0;
+    vmsfilenam = 0;
+    filestring = 0;
+    ipdsc.dsc$w_length = 0;
+    port = 0;
+    debug = 0;
+/*
+** Determine whether this input is from an interactive terminal or
+** a command file by using $getdvi or order to use lib$get_input
+** (command file) or SMG$READ_COMPOSED_LINE (Terminal with a command
+** recall).
+*/
+    itmlst[0].length = sizeof (devchar);
+    itmlst[0].code = DVI$_DEVCHAR;
+    itmlst[0].buffer = &devchar;
+    itmlst[0].retlen = (unsigned short *)&len;
+    itmlst[1].length = itmlst[1].code = 0;
+    status = sys$getdvi(NULL,NULL,&inputdsc,&itmlst,NULL,NULL,NULL,NULL);
+    if (!(status & 1)) lib$stop (status);
+/*
+** if terminal, call necessary SMG routines to setup the display and keyboard
+*/
+    if (devchar & DEV$M_TRM) keyboard_id = screen_setup();
+    while (keep_going){
+cont:;
+
+/*
+** Setup the CLASS S descriptor.
+*/
+       command_desc.dsc$w_length = sizeof(string);
+       command_desc.dsc$b_dtype = DSC$K_DTYPE_T;
+       command_desc.dsc$b_class = DSC$K_CLASS_S;
+       command_desc.dsc$a_pointer = string;
+
+/*
+** Read input string from user. Call lib$get_input to get the input
+** line if from a command file. Otherwise, call SMG$READ_COMPOSED_LINE.
+*/
+       if (devchar & DEV$M_TRM)
+           status = smg$read_composed_line(&keyboard_id,NULL,&command_desc,
+                                           &prompt,&len,NULL,NULL,NULL,
+                                           NULL,NULL,NULL,NULL);
+
+       else status = lib$get_input(&command_desc,&prompt,&len);
+       if ((status == RMS$_EOF) || (status == SMG$_EOF)) break;
+/*
+** Save exact case.
+*/
+        string[len]='\0';
+        strcpy(string_case_save,string);
+/*
+** Convert lowercase to UPPERCASE
+*/
+        for (i=0; i<len; i++)
+           string[i]=toupper(string[i]);
+/*
+** Set parameter block count
+*/
+        tpars.tpa$l_count = TPA$K_COUNT0;
+/*
+** Set options. Do not process blanks and allow abbreviations.
+*/
+        tpars.tpa$v_blanks = 0;
+        tpars.tpa$v_abbrev = 1;
+/*
+** Call LIB$T[ABLE]_PARSE
+*/
+        tpars.tpa$l_stringcnt = len;
+        tpars.tpa$l_stringptr = (int)string;
+#if defined (__VAX) || defined (VAX)
+        status = lib$tparse(&tpars, &ufd_state, &ufd_key);
+#else
+#if defined __ALPHA
+        status = lib$table_parse(&tpars, &ufd_state, &ufd_key);
+#endif
+#endif
+
+/*
+** Check syntax and if syntax is correct, setup if it has been specified
+** in the command the remote Internet address (ipdsc.dsc$w_length non null)
+** and dispatch to the READ or WRITE routines.
+*/
+
+        if (status == LIB$_SYNTAXERR) {
+           /*
+            * Syntax error. Parsing stopped at erroneous data.
+            * Recall the command and point to the erroneous with an up
+            * arrow.
+            */
+            pos = strlen(string) - tpars.tpa$l_stringcnt;
+            printf("%s\n",string);
+            for (i=0;i<pos;i++) printf (" ");
+            printf ("^\n");
+            for (i=0;i<pos;i++) printf ("-");
+            printf ("+\n");
+
+            if (tpars.tpa$l_stringcnt != 0)
+                printf ("%%TFTP-I-UNRCONFLICT, Unrecognized or conflicting: \\%.*s\\\n",tpars.tpa$l_tokencnt,
+                        (char *)tpars.tpa$l_tokenptr);
+
+            else if ((tpars.tpa$l_stringptr != (int)string)  || (pos == 0))
+                      printf ("%%TFTP-I-UNXPEOL, Unexpected end-of-line. Check syntax\n");
+
+            goto cont;
+        }
+        if ((ipdsc.dsc$w_length != 0) && (strncmp (string,"CONNECT",1) == 0)){
+                instring = malloc(ipdsc.dsc$w_length+1);
+                instring[ipdsc.dsc$w_length] = '\0';
+                strncpy(instring, (char *)string_case_save+
+                                (int)ipdsc.dsc$a_pointer - (int)string,
+                                        ipdsc.dsc$w_length);
+                ia = (int) inet_addr(instring);
+                if ( ia == -1) {
+                     hp = gethostbyname(instring);
+                     if (hp) {
+                          memcpy((char *)&ia,(char *)*hp->h_addr_list,
+                                                        hp->h_length);
+                          hostname = hp->h_name;
+                       }
+                    else {
+                          printf("%%TFTP-F-NOSUCHHOST, Unknown host %s\n",instring);
+                          goto cont;;
+                         }
+                }
+                else hostname = 0;
+                remote_address = ia;
+                printf ("%%TFTP-I-SET, Setting remote host to %s\n",format_ia(remote_address));
+                free (instring);
+        }
+        if ((status == SS$_NORMAL) && (filedsc.dsc$w_length != 0) &&
+            (vmsfilenam != 0) && (remote_address != -1) && (keep_going)) {
+              if (filedsc.dsc$w_length != 0) {
+                  filestring = malloc (filedsc.dsc$w_length+1);
+                  filestring [filedsc.dsc$w_length] = 0;
+               strncpy (filestring,string_case_save+(int)filedsc.dsc$a_pointer
+                                      - (int)string,filedsc.dsc$w_length);
+                  }
+              switch (function) {
+                case READ : tftp_read(filestring,vmsfilenam,
+                                        remote_address,mode,port,debug);
+                            break;
+                case WRITE : tftp_write(filestring,vmsfilenam,
+                                        remote_address,mode,port,debug);
+                } /* end switch */
+                free (vmsfilenam);
+                filedsc.dsc$w_length = 0;
+                free (filestring);
+        }
+       if ((remote_address == -1) && (vmsfilenam != 0)) {
+       printf ("%%TFTP-I-NOHOST, Open a connection to a remote host first\n");
+                free (vmsfilenam);
+                filedsc.dsc$w_length = 0;
+        }
+     }/* end while(keep_going) */
+  exit (EXIT_SUCCESS);
+}
+
+
+
+void free_mem (QUEUE_ENTRY *queue_ptr)
+{
+   struct queue_element *queue_elmt, *tmp_ptr ;
+   int size;
+   char *base_address;
+
+   size = ((sizeof(struct queue_element)+511)/512);
+   if (queue_ptr->flink == 0) return;
+   queue_elmt = (struct queue_element *)((char *)queue_ptr + queue_ptr->flink);
+   while (queue_elmt->datasize == DATASIZ) {
+       tmp_ptr = (struct queue_element *)((char *)queue_elmt +
+                                queue_elmt->header.flink);
+       base_address = (char *)queue_elmt;
+       lib$free_vm_page(&size,&base_address) ;
+       queue_elmt = tmp_ptr ;
+   }
+   base_address = (char *)queue_elmt;
+   lib$free_vm_page(&size,&base_address) ;
+}
+
+
+
+unsigned int write_handler (void *sigarr, void *mecharr)
+{
+   struct chf$signal_array *signal_args;
+   struct chf$mech_array *mech_args;
+   unsigned int facility;
+   $DESCRIPTOR(prefix_descr,"%TFTP");
+   int number_of_args;
+   int depth;
+
+   signal_args = (struct chf$signal_array *)sigarr;
+   mech_args = (struct chf$mech_array *)mecharr;
+   if (signal_args->chf$l_sig_name != SS$_UNWIND) {
+       /*
+        * Get error text and output it.
+        */
+       number_of_args = signal_args->chf$l_sig_args;
+       facility = (signal_args->chf$l_sig_name & 0xfff0000) >> 16;
+       if (facility != 0)         /* Not SYSTEM message */
+           signal_args->chf$l_sig_args = signal_args->chf$l_sig_args - 2;
+       (void)sys$putmsg (signal_args,NULL,&prefix_descr);
+       signal_args->chf$l_sig_args = number_of_args;
+       if (signal_args->chf$l_sig_name & 1)
+           return (SS$_CONTINUE);
+       else  {
+           /* Return to main level */
+#if defined (__ALPHA)
+           depth = mech_args->chf$q_mch_depth+1;
+#else
+           depth = mech_args->chf$l_mch_depth+1;
+#endif
+           (void)sys$unwind (&depth,NULL);
+           return(SS$_CONTINUE) ;
+           }
+       }
+}
+
+
+
+void tftp_write (char *outfile,char *vmsfile,int remote_address,int mode,
+                   unsigned short port,char debug)
+{
+  int retval ;
+  char error_string [80] ;
+  struct queue_element *outdata ;
+  int end_of_file ;
+  int status;
+  struct FAB infab;
+  struct RAB inrab;
+  struct NAM innam;
+  char esa_in[NAM$C_MAXRSS];
+  char rsa_in[NAM$C_MAXRSS];
+  char *user_buffer;
+  int remaining_size;
+  int size;
+
+  size = ((sizeof(struct queue_element)+511)/512);
+  memset (error_string,0,sizeof(error_string));
+  VAXC$ESTABLISH (write_handler) ;
+  user_buffer = malloc(DATASIZ);
+  remaining_size = DATASIZ;
+  /* Initialize the read queue */
+  my_queue.flink = my_queue.blink = 0 ;
+  /*
+   * Set up RMS structures for the input file
+   */
+  infab = cc$rms_fab;
+  innam = cc$rms_nam;
+  infab.fab$l_fna = vmsfile;
+  infab.fab$b_fns = strlen(vmsfile);
+  infab.fab$l_nam = &innam;
+  innam.nam$l_esa = esa_in;
+  innam.nam$b_ess = NAM$C_MAXRSS;
+  memcpy(rsa_in,vmsfile,strlen(vmsfile));
+  innam.nam$l_rsa = rsa_in;
+  innam.nam$b_rss = NAM$C_MAXRSS;
+  innam.nam$b_rsl = strlen(vmsfile);
+  innam.nam$b_nop = NAM$V_NOCONCEAL;
+  infab.fab$l_fop = FAB$M_NAM;
+  if (mode == OCTET)
+      infab.fab$b_fac = FAB$M_BRO | FAB$M_GET;
+  if ((mode == NETASCII) || (mode == MAIL))
+      infab.fab$b_fac = FAB$M_GET;
+  status = sys$open(&infab);
+  if (!(status&1))
+       lib$signal(infab.fab$l_sts,infab.fab$l_stv);
+
+  /*
+   * Connect RAB to FAB
+   */
+  inrab = cc$rms_rab;               /* initialize the rab */
+  inrab.rab$l_fab = &infab;         /* Point the rab to the fab */
+  inrab.rab$l_ubf = user_buffer;
+  inrab.rab$w_usz = DATASIZ;
+  if (mode == OCTET)
+      inrab.rab$l_rop = RAB$M_BIO;
+  status = sys$connect(&inrab,0,0);
+  if (!(status&1)) lib$signal(inrab.rab$l_sts,inrab.rab$l_stv);
+  /* Get each record until end-of-file */
+  while (1) {
+     if (mode == OCTET)
+         status = sys$read(&inrab,0,0);
+     if ((mode == NETASCII) || (mode == MAIL))
+         status = sys$get(&inrab,0,0);
+     if (status == RMS$_EOF) break;
+     if (!(inrab.rab$l_sts&1))
+            lib$signal(inrab.rab$l_sts,inrab.rab$l_stv);
+     if (mode == OCTET) {
+         lib$get_vm_page(&size,&outdata);
+         outdata->datasize = inrab.rab$w_rsz;
+         memcpy (outdata->data,user_buffer,inrab.rab$w_rsz);
+         /* Insert element at tail */
+         (void)lib$insqti (outdata,&my_queue,NULL);
+         }
+     if ((mode == NETASCII) || (mode == MAIL)) {
+         if (remaining_size == DATASIZ) {
+             lib$get_vm_page(&size,&outdata);
+             /* Insert element at tail */
+             (void)lib$insqti (outdata,&my_queue,NULL);
+             }
+         /* Append CRLF pair to user buffer */
+         user_buffer[inrab.rab$w_rsz] = '\015';
+         user_buffer[inrab.rab$w_rsz+1] = '\012';
+         inrab.rab$w_rsz += 2;
+         /* If enough space in TFTP buffer, copy RMS record there */
+         if (inrab.rab$w_rsz < remaining_size) {
+             memcpy (outdata->data+outdata->datasize,user_buffer,
+                        inrab.rab$w_rsz);
+             outdata->datasize += inrab.rab$w_rsz;
+             remaining_size -= inrab.rab$w_rsz;
+             }
+         /*
+          * If not enough space in TFTP buffer, copy remainder to
+          * previous buffer. Allocate a new one and copy rest of
+          * RMS record to this new TFTP buffer
+          */
+         if (inrab.rab$w_rsz >= remaining_size) {
+              memcpy (outdata->data+outdata->datasize,user_buffer,
+                        remaining_size);
+              outdata->datasize = DATASIZ;
+              lib$get_vm_page(&size,&outdata);
+              /* Insert element at tail */
+              (void)lib$insqti (outdata,&my_queue,NULL);
+              memcpy (outdata->data,user_buffer+remaining_size,
+                                inrab.rab$w_rsz - remaining_size);
+              outdata->datasize = inrab.rab$w_rsz - remaining_size;
+              remaining_size = DATASIZ - outdata->datasize;
+              }
+         }
+  }
+  /*
+   * Close input file.
+   */
+  status = sys$close(&infab);
+  if (!(status&1))
+     lib$signal(infab.fab$l_sts,infab.fab$l_stv);
+  VAXC$ESTABLISH (NULL) ;
+  free(user_buffer);
+/*
+  For the operation to succeed, the file must exist and be world writeable
+  The value parameter 1 indicates that TFTP_WRITE_FILE must free allocated
+  memory. If port contains 0, this means, that UCX will chose the standard
+  TFTP port number (69).
+*/
+  retval = eln$tftp_write_file (remote_address,
+                               outfile,
+                               mode,
+                               &my_queue,
+                               error_string,
+                               1,port,debug) ;
+
+  printf ("%%TFTP-I-STATUS, write status :%s\n",tftp_status_text[-retval]);
+  if (strlen(error_string) != 0)
+        printf ("\t Error : %s\n",error_string);
+
+  if (retval != TFTP$K_SUCCESS) {
+        free_mem (&my_queue);
+        return;
+        }
+  if (hostname != NULL)
+      printf ("%%TFTP-I-SUCCESS, File %.*s copied\n\tto file %s on node %s (%s)\n",
+                innam.nam$b_rsl,innam.nam$l_rsa,
+                outfile,
+                hostname,
+                format_ia(remote_address));
+  else
+      printf ("%%TFTP-I-SUCCESS, File %.*s copied\n\tto file %s on node %s\n",
+                innam.nam$b_rsl,innam.nam$l_rsa,
+                outfile,
+                format_ia(remote_address));
+  return;
+}
+void tftp_read (char *infile,char *vmsfile,int remote_address, int mode,
+                 unsigned short port,char debug)
+{
+  int retval ;
+  char error_string [80] ;
+  struct queue_element *outdata ;
+  int end_of_file ;
+  char *cp,*cp1;
+  FILE *fp;
+  char cr = '\015';
+  unsigned char line [132] ;
+  int status;
+  char result_name[256];
+  int context = 0;
+  struct dsc$descriptor_s result_name_descr = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+  struct dsc$descriptor_s filename_descr = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+  void get_line();
+  void copy_file (FILE *fp,struct queue_element **queue_ptr);
+
+  memset (error_string,0,sizeof(error_string));
+/*
+  For the operation to succeed, the file must exist and be world readable
+*/
+  retval = eln$tftp_read_file (remote_address,
+                               infile,
+                               mode,
+                               &my_queue,
+                               error_string,
+                               port,debug) ;
+  printf ("%%TFTP-I-STATUS, read status :%s\n",tftp_status_text[-retval]);
+  if (strlen(error_string) != 0)
+        printf ("\t Error : %s\n",error_string);
+
+  if (retval != TFTP$K_SUCCESS) {
+        free_mem (&my_queue);
+        return;
+  }
+  outdata = (struct queue_element *)((char *)&my_queue + my_queue.flink);
+  if ((mode == NETASCII) || (mode == MAIL)){
+        /*interpret data */
+        fp = fopen(vmsfile,"w","ctx=rec","rfm=var");
+        cp = (char *)outdata ->data;
+        end_of_file = 0;
+        do {
+           get_line (&outdata,&line,&cp,&end_of_file);
+           cp1 = strpbrk((char *)line,&cr);
+           if (cp1 != NULL)
+              (void) fwrite (line,(int)cp1-(int)line,1,fp);
+        } while (!end_of_file);
+  }
+  if (mode == OCTET) {
+        fp = fopen(vmsfile,"w","ctx=bin","mrs=512","rfm=fix");
+        copy_file (fp,&outdata);
+ }
+ fclose (fp);
+ result_name_descr.dsc$w_length = sizeof (result_name);
+ result_name_descr.dsc$a_pointer = result_name;
+ filename_descr.dsc$w_length = strlen(vmsfile);
+ filename_descr.dsc$a_pointer = vmsfile;
+ status = lib$find_file (&filename_descr,&result_name_descr,&context,
+                                        NULL,NULL,NULL,NULL);
+ if ((status & 1) == 0) { lib$signal(status); exit(0);}
+ cp = strchr(result_name,' ');
+ if (hostname != NULL)
+      printf ("%%TFTP-I-SUCCESS, File %s from node %s (%s)\n\tcopied to %.*s\n",
+                infile,
+                hostname,
+                format_ia(remote_address),
+                (int)cp - (int)result_name,
+                result_name);
+ else
+      printf ("%%TFTP-I-SUCCESS, File %s from node %s\n\tcopied to %.*s\n",
+                infile,
+                format_ia(remote_address),
+                (int)cp - (int)result_name,
+                result_name);
+}
+
+
+
+void copy_file (FILE *fp,struct queue_element **queue_ptr)
+{
+   int eof = 0;
+   struct queue_element *queue_elmt, *tmp_ptr ;
+   int size;
+   char *base_address;
+
+   size = ((sizeof(struct queue_element)+511)/512);
+   queue_elmt = *queue_ptr;
+   do {
+        if (queue_elmt->datasize !=0)
+           (void) fwrite (queue_elmt->data,queue_elmt->datasize,1,fp);
+        if (queue_elmt->datasize !=DATASIZ)
+                eof = 1 ;
+        if ((queue_elmt->datasize ==DATASIZ) || (eof))
+                {
+                tmp_ptr = (struct queue_element *)((char *)queue_elmt +
+                                queue_elmt->header.flink);
+                base_address = (char *) queue_elmt;
+                lib$free_vm_page(&size,&base_address) ;
+                queue_elmt = tmp_ptr ;
+                *queue_ptr = queue_elmt ;
+                }
+   }
+   while (!eof) ;
+}
+
+
+
+void get_line (queue_ptr,line,char_ptr,eof)
+struct queue_element **queue_ptr ;
+unsigned char *line ;
+unsigned char **char_ptr ;
+int *eof ;
+{
+#define LF '\12'
+   int i ;
+   struct queue_element *queue_elmt, *tmp_ptr ;
+   unsigned char *cp ;
+   int size;
+   char *base_address;
+
+   size = ((sizeof(struct queue_element)+511)/512);
+   i = -1 ;
+   cp = *char_ptr ;
+   queue_elmt = *queue_ptr;
+   do {
+        if (queue_elmt->datasize !=0)
+           {
+           i++ ;
+           line [i] = *cp ;
+           cp++ ;
+           }
+        if ((cp == queue_elmt->data + queue_elmt->datasize) &&
+           (queue_elmt->datasize !=DATASIZ))
+                *eof = 1 ;
+        if (((cp == queue_elmt->data + queue_elmt->datasize) &&
+           (queue_elmt->datasize ==DATASIZ)) || (*eof))
+                {
+                tmp_ptr = (struct queue_element *)((char *)queue_elmt +
+                                queue_elmt->header.flink);
+                base_address = (char *) queue_elmt;
+                lib$free_vm_page(&size,&base_address) ;
+                queue_elmt = tmp_ptr ;
+                *queue_ptr = queue_elmt ;
+                if (!*eof)
+                   cp = queue_elmt->data ;
+                }
+   }
+   while ((line[i] != LF) & (!*eof)) ;
+   *char_ptr = cp ;
+}
+
+
+
+char *format_ia(ia)
+unsigned long   ia;
+{
+        static char     str[16];
+
+        sprintf (str, "%d.%d.%d.%d", ia&0xFF, (ia>>8)&0xFF, (ia>>16)&0xFF,
+                (ia>>24)&0xFF);
+
+        return (str);
+}
+
+
+
+/*
+** Here is the Action Routines
+*/
+#if defined (__VAX) || defined (VAX)
+int get_host (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int get_host (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the host is.
+** This routine will set the module level variable remote_address if the string
+** is an IP address or a valid known host name. If address is invalid, it re-
+** turns a parsing failure.
+*/
+
+      int ia;
+      int stat = 0;
+      struct    hostent *hp;
+      char *instring;
+
+      instring = malloc(tpars->tpa$l_tokencnt+1);
+      instring[tpars->tpa$l_tokencnt] = '\0';
+      strncpy(instring, (char *)tpars->tpa$l_tokenptr,
+                        tpars->tpa$l_tokencnt);
+      ia = (int) inet_addr(instring);
+      if ( ia == -1) {
+           hp = gethostbyname(instring);
+           if (hp) {
+               memcpy((char *)&ia,(char *)*hp->h_addr_list, hp->h_length);
+               hostname = hp->h_name;
+               stat = 1;
+               }
+           else printf("%%TFTP-F-NOSUCHHOST, Unknown host %s\n",instring);
+           }
+      else {
+           stat = 1;
+           hostname = 0;
+           }
+if (stat == 1) {
+  remote_address = ia;
+  printf ("%%TFTP-I-SET, Setting remote host to %s\n",format_ia(remote_address));
+  }
+free (instring);
+return(stat);
+}
+
+
+
+#if defined (__VAX) || defined (VAX)
+int get_mode (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int get_mode (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the mode is.
+** This routine set the mode, then return.
+*/
+if (strncmp((char *)tpars->tpa$l_tokenptr,
+                "NETASCII",tpars->tpa$l_tokencnt)== 0) {
+        mode = NETASCII;
+        printf ("%%TFTP-I-SET, Type is NETASCII\n");
+        }
+if (strncmp((char *)tpars->tpa$l_tokenptr,
+                "OCTET",tpars->tpa$l_tokencnt)== 0) {
+        mode = OCTET;
+        printf ("%%TFTP-I-SET, Type is OCTET\n");
+        }
+if (strncmp((char *)tpars->tpa$l_tokenptr,
+                "MAIL",tpars->tpa$l_tokencnt)== 0) {
+        mode = MAIL;
+        printf ("%%TFTP-I-SET, Type is MAIL\n");
+        }
+return(1);
+}
+
+
+
+#if defined (__VAX) || defined (VAX)
+int vmsfile_fetch (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int vmsfile_fetch (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the VMS file specification is.
+** This routine sets the filename, then return.
+*/
+       vmsfilenam = malloc(tpars->tpa$l_tokencnt+1);
+       vmsfilenam [tpars->tpa$l_tokencnt]= 0;
+       strncpy (vmsfilenam,(char *)tpars->tpa$l_tokenptr,
+                           tpars->tpa$l_tokencnt);
+       return(1);
+}
+
+
+
+#if defined (__VAX) || defined (VAX)
+int get_string (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int get_string (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the remote file name or ip dest is.
+** This routine returns 0 when the quote character is found.
+*/
+      if (tpars->tpa$b_char == quote)
+                return(0);
+      else
+                return(1);
+}
+
+
+
+#if defined (__VAX) || defined (VAX)
+int quit (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int quit (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the exit command is.
+** This routine will set the module variable keep_going to FALSE,
+** which will cause an exit of the program. It returns parsing success (1).
+*/
+    keep_going--;
+    return(1);
+}
+
+
+
+#if defined (__VAX) || defined (VAX)
+int get (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int get (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the read command is.
+** This routine will set the module variable function to READ,
+** then returns parsing success (1).
+*/
+    function = READ;
+    return(1);
+}
+
+
+
+#if defined (__VAX) || defined (VAX)
+int put (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int put (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the write command is.
+** This routine will set the module variable function to WRITE,
+** then returns parsing success (1).
+*/
+    function = WRITE;
+    return(1);
+}
+
+
+
+#if defined (__VAX) || defined (VAX)
+int help (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int help (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the help command is.
+** This routine will output the required help text from TFTP.HLB
+** then returns parsing success (1).
+*/
+  struct dsc$descriptor_s libspec = {sizeof("TFTP.HLB")-1,
+                                        DSC$K_DTYPE_T,DSC$K_CLASS_S,
+                                        "TFTP.HLB"};
+  struct dsc$descriptor_s linedsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+  int status;
+
+  linedsc.dsc$w_length = tpars->tpa$l_tokencnt;
+  linedsc.dsc$a_pointer = (char *)tpars->tpa$l_tokenptr;
+  status = lbr$output_help (lib$put_output,0,&linedsc,&libspec,0,lib$get_input);
+  if (!(status&1)) lib$stop(status);
+  return(1);
+}
+#if defined (__VAX) || defined (VAX)
+int get_debug (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int get_debug (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the debug flag is.
+** This routine set the debug flag, then return.
+*/
+if (strncmp((char *)tpars->tpa$l_tokenptr,
+                "ON",tpars->tpa$l_tokencnt)== 0) {
+        debug = 1;
+        printf ("%%TFTP-I-SET, Debug turned on\n");
+        }
+if (strncmp((char *)tpars->tpa$l_tokenptr,
+                "OFF",tpars->tpa$l_tokencnt)== 0) {
+        debug = 0;
+        printf ("%%TFTP-I-SET, Debug turned off\n");
+        }
+return(1);
+}
+
+
+
+#if defined (__VAX) || defined (VAX)
+int get_port (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int get_port (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the IP destination port is.
+** This routine set the port number if value is less than 65536, then return.
+*/
+   if (tpars->tpa$l_number < 65536) {
+        port = (unsigned short)tpars->tpa$l_number;
+        printf ("%%TFTP-I-SET, Remote TFTP port set to %d\n",port);
+        return(1);
+   }
+   else return (0);
+}
+
+
+
+#if defined (__VAX) || defined (VAX)
+int show_characteristics (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int show_characteristics (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the 'CHARACTISTICS' keyword is.
+** This routine displays the characteristics, then return.
+*/
+   if (hostname != 0)
+       printf ("\t Connected to %s (%s)\n",hostname,format_ia(remote_address));
+   if ((hostname == 0) && (remote_address != -1))
+       printf ("\t Connected to %s\n", format_ia(remote_address));
+   if (remote_address == - 1)
+       printf ("\t Not yet connected to a remote host\n");
+   switch (mode) {
+        case NETASCII : printf ("\t TYPE is set NETASCII\n");
+                        break;
+        case OCTET    : printf ("\t TYPE is set OCTET\n");
+                        break;
+        case MAIL     : printf ("\t TYPE is set MAIL\n");
+        }
+   printf ("\t Remote TFTP port set to %d\n",port);
+   if (debug)
+        printf ("\t Debug is turned ON\n");
+   else
+        printf ("\t Debug is turned OFF\n");
+   return (1);
+}
+$ create parse.mar
+       .TITLE PARSE
+;+
+; This macro routine will set up the state tables for
+; the TFTP client commands.
+;-
+;+
+; Define control block offsets
+;-
+       $TPADEF GLOBAL
+       $LIBDEF GLOBAL
+
+;+
+; Begin definition of the state table.  UFD_STATE and UFD_KEY are
+; the names of the state and key tables.
+;-
+        $INIT_STATE     UFD_STATE, UFD_KEY
+;+
+; The $STATE Macro designates that we are entering a new state and
+; a name for that state.  The name is used for branching to.
+; The $TRAN Macro specifies a keyword and, optionally, a state to branch
+; to.
+;-
+        $STATE  COMMAND
+        $TRAN   'GET',GET_STATE,GET
+        $TRAN   'PUT',PUT_STATE,PUT
+        $TRAN   'TYPE',TYPE
+        $TRAN   'CONNECT',CONNECT
+        $TRAN   'HELP',HELP_STATE
+        $TRAN   '?',HELP_STATE
+        $TRAN   'SET',SET_STATE
+        $TRAN   'SHOW',SHOW_STATE
+        $TRAN   'EXIT',TPA$_EXIT,QUIT     ; to exit the utility
+        $TRAN   '!',TPA$_EXIT             ; for comments
+        $TRAN   TPA$_EOS, TPA$_EXIT       ; for empty strings
+
+;+
+; for help, the 'SET' command, the next accepted keyword can be any
+; 'DEBUG' or 'PORT'. The 'DEBUG' keyword must be followed by either
+; 'ON' or 'OFF' and then the line must be terminated. The 'PORT' keyword
+; must be followed by an unsigned short decimal and the end of line.
+;-
+        $STATE  SET_STATE
+        $TRAN   'DEBUG'
+        $TRAN   'PORT',PORT_STATE
+        $TRAN   TPA$_EOS,TPA$_FAIL
+
+        $STATE
+        $TRAN   'ON',,GET_DEBUG
+        $TRAN   'OFF',,GET_DEBUG
+        $TRAN   TPA$_EOS,TPA$_FAIL
+
+        $STATE
+        $TRAN   TPA$_EOS,TPA$_EXIT
+        $TRAN   TPA$_ANY,TPA$_FAIL
+
+        $STATE  PORT_STATE
+        $TRAN   TPA$_DECIMAL,,GET_PORT
+        $TRAN   TPA$_EOS,TPA$_FAIL
+
+        $STATE
+        $TRAN   TPA$_EOS,TPA$_EXIT
+        $TRAN   TPA$_ANY,TPA$_FAIL
+;+
+; for the 'SHOW' keyword, it must be followed by 'CHARACTERISTICS' followed
+; by the end of line.
+;-
+        $STATE  SHOW_STATE
+        $TRAN   'CHARACTERISTICS'
+        $TRAN   TPA$_EOS,TPA$_FAIL
+
+        $STATE
+        $TRAN   TPA$_EOS,TPA$_EXIT,SHOW_CHARACTERISTICS
+        $TRAN   TPA$_ANY,TPA$_FAIL
+;+
+; for help, the next string can be any alphabetic string or the end of line.
+;-
+        $STATE  HELP_STATE
+        $TRAN   TPA$_SYMBOL,TPA$_EXIT,HELP
+        $TRAN   TPA$_EOS,TPA$_EXIT,HELP
+
+        $STATE
+        $TRAN   TPA$_ANY,TPA$_EXIT
+        $TRAN   TPA$_EOS,TPA$_EXIT
+
+;+
+; for type, the next keywords must be NETASCII , OCTET or MAIL. It must be
+; succeeded by an end-of-line.
+;-
+        $STATE  TYPE
+        $TRAN   'NETASCII',,GET_MODE
+        $TRAN   'OCTET',,GET_MODE
+        $TRAN   'MAIL',,GET_MODE
+
+        $STATE
+        $TRAN   TPA$_ANY, TPA$_FAIL
+        $TRAN   TPA$_EOS, TPA$_EXIT
+
+;+
+; Here start the IP host address or host name (quoted strings) or
+; alias (normal unquoted string)
+;-
+        $STATE  CONNECT
+        $TRAN   TPA$_STRING,TPA$_EXIT,GET_HOST
+        $TRAN   TPA$_ANY,,,,QUOTE
+
+        $STATE
+        $TRAN   !QUOTED,,,,ipdsc
+
+        $STATE
+        $TRAN   TPA$_ANY, TPA$_EXIT
+        $TRAN   TPA$_EOS, TPA$_FAIL
+
+;+
+; PUT starts with a VMS filespec and then a quoted foreign filespec.
+;-
+        $STATE  PUT_STATE
+        $TRAN   TPA$_FILESPEC,,VMSFILE_FETCH
+        $TRAN   TPA$_EOS,TPA$_FAIL
+
+; Here start the quoted file name.
+        $STATE
+        $TRAN   TPA$_ANY,,,,QUOTE
+
+        $STATE
+        $TRAN   !QUOTED,,,,filedsc
+
+        $STATE
+        $TRAN   TPA$_ANY,TPA$_EXIT
+        $TRAN   TPA$_EOS, TPA$_FAIL
+
+;+
+; GET starts with a quoted foreign filespec and then a VMS filespec.
+;-
+        $STATE  GET_STATE
+        $TRAN   TPA$_ANY,,,,QUOTE
+
+        $STATE
+        $TRAN   !QUOTED,,,,filedsc
+
+        $STATE
+        $TRAN   TPA$_ANY
+        $TRAN   TPA$_EOS, TPA$_FAIL
+
+        $STATE
+        $TRAN   TPA$_FILESPEC,,VMSFILE_FETCH
+        $TRAN   TPA$_EOS,TPA$_FAIL
+
+        $STATE
+        $TRAN   TPA$_ANY,TPA$_FAIL
+        $TRAN   TPA$_EOS,TPA$_EXIT
+
+        $STATE  QUOTED
+        $TRAN   TPA$_ANY,QUOTED,GET_STRING
+        $TRAN   TPA$_LAMBDA, TPA$_EXIT
+
+        $END_STATE
+       .END
+$ delete = "delete"
+$ if f$search ("SYS$HELP:TFTP.HLB") .nes. "" then delete SYS$HELP:TFTP.HLB;*
+$ create tftp.hlp
+1 HELP
+    This TFTP (Trivial File Transfer Protocol) program is the client
+    side. It has been written to specifications described in RFC 1350.
+
+    This command displays help on available commands for this file
+    exchange program.
+
+1 CONNECT
+    This command sets up the remote IP address of the TFTP server.
+    It is to be issued prior any other commands. It has one parameter.
+2   Parameter
+        This is the IP server host address expressed as an alias or
+        IP address or IP host name enclosed between quotation or apos-
+        trophes marks.
+2   Example
+        IP server alias :
+        TFTP> connect prssos
+
+        IP server host name :
+        TFTP> connect "prssos.evt.dec.com"
+            or
+        TFTP> connect 'prssos.evt.dec.com'
+
+        IP server address :
+        TFTP> connect "16.189.128.61"
+            or
+        TFTP> connect '16.189.128.61'
+
+1 TYPE
+    This command sets up the file transfer mode (NETASCII, OCTET or MAIL).
+    It accepts one parameter.
+2   NETASCII
+        Set the type to this value if the file to be transfered is an
+        ASCII file. With this type of transfer, file records are ter-
+        minated by a carriage return/line feed pair. The files, trans-
+        fered from the remote TFTP server to this computer using
+        NETASCII, are got rid from the CRLF pair, and the file has the
+        variable length RMS attribute making it editable, like any VMS
+        text file.
+2   OCTET
+        Set the type to this value if the file to be transfered is a
+        binary file. With this type of transfer, file records are sent
+        and received in block (512 bytes per block) mode. No assumption
+        is made on the content of each block.
+2   MAIL
+        Set the type to this value if the file to be transfered is a
+        text file you want to mail (PUT) to a remote user, or read
+        mail (GET) from a remote user. Not all TFTP servers accept this
+        mode.
+
+1 GET
+    This command does a file transfer from the remote TFTP server to
+    the local host. It accepts two parameters : an input foreign file
+    or remote Internet user mail address specification enclosed between
+    quotes (") or apostrophes ('), and an output VMS file specification.
+    The casing of the remote foreign file specification is preserved.
+    For the file transfer to succeed, the remote file protection must
+    be World Readable, or if type of transfer is MAIL, the remote user
+    must exists.
+2   Example
+        TFTP> get "sys$sysdevice:[ucx$tftp]login.com" login.com
+             or
+        TFTP> get 'sys$sysdevice:[ucx$tftp]login.com' login.com
+             or
+        TFTP> get 'user@remote_host' login.com
+
+
+1 PUT
+    This command does a file transfer from the local host to the
+    remote TFTP server. It accepts two parameters : an input VMS
+    file specification and a output foreign file specification
+    or remote Internet user mail address, enclosed between quotes
+    (") or apostrophes ('). The casing of the remote foreign file
+    specification is preserved. For the file transfer to succeed,
+    the remote file must exist and its protection must be World
+    Writeable, or if type of transfer is MAIL, the remote user
+    must exists.
+2   Example
+        TFTP> put login.com "sys$sysdevice:[ucx$tftp]tsceln.dat"
+            or
+        TFTP> put login.com 'sys$sysdevice:[ucx$tftp]tsceln.dat'
+            or
+        TFTP> put login.com 'user@remote_host'
+
+1 EXIT
+    This command exits this utility, returning to the VMS prompt.
+1 <EM>
+    The exclamation mark (EM) as the first character makes the rest
+    of the line uninterpreted. This enables to run this utility from
+    a command file and put comments between the different commands.
+
+1 <CR>
+    This carriage return (CR) character as the first character returns to
+    this TFTP client prompt.
+1 SET
+    This command enables to set an option.
+2   DEBUG
+        Turns debugging on or off, enabling a trace of data exchanged with
+        the remote TFTP server. The trace consist of the Data exchanged
+        dumped in hexadecimal on the the two-third left and the ASCII
+        equivalent on the right.
+3       ON
+        set the debugging option.
+3       OFF
+        cancel the debugging option
+2   PORT
+        Sets the IP destination port value. If this is not specified, the
+        remote port value is set to 69 which is usually the port value of
+        the remote TFTP service.
+3       Parameter
+        Any value between 0 (defaults to remote port value 69) and 65535
+        incluse.
+3       Example
+        TFTP> set port 10
+1 SHOW
+        Shows variables setting.
+2   CHARACTERISTICS
+        Returns remote host name and address, as well as the remote IP port
+        value, the debugging mode and the type mode.
+$ library/create/help sys$help:tftp.hlb tftp.hlp
+$ macro parse
+$ cc'compiler_switch' tftp
+$ cc'compiler_switch' tftpc
+$ cc'compiler_switch' dbgdmp
+$ if compiler .EQS. "VAXC"
+$ then
+$     link tftp,tftpc,dbgdmp,parse,sys$library:ucx$ipc/lib,-
+            sys$library:vaxcrtl/lib
+$ else
+$     link tftp,tftpc,dbgdmp,parse
+$ endif
+$ delete tftp.c;*,tftp.obj;*,tftp.hlp;*
+$ delete tftpc.c;*,tftpc.obj;*,parse.*;*
+$ delete dbgdmp.c;*,dbgdmp.obj;*
+$ delete $tftp_utility.h;*
+$ exit
+$end:
+$ write sys$output "Fatal- no C compiler present"
+$ exit

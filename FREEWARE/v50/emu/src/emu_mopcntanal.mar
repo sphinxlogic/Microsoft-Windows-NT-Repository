@@ -1,0 +1,168 @@
+	.TITLE	EMU_MOPCNTANAL	
+	.IDENT /V02-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modification History:
+; 001	PB		Creation
+; 002	PB 		Changed Avg Frame size calculations to
+;			reflect Avg Frames /Sec
+; 003   PB  26-Apr-1993 Modified handler to return actual error. Removed 
+;			assumption that handler was called for div by 0 only.
+; 004	PB  13-Oct-1993  Undid change 003.
+;			 General fixes to sanity checks. 
+;
+; 02-001 PB	Oct 1999 Rewrite for V5.
+;++
+;1 EMU_MOPCNTANAL
+; 
+; Get and analyse MOP counter data from cooperating nodes and process into
+; formatted output
+
+;2 Inputs	
+;	.ADDRESS of 6 byte array containing Ethernet address
+;	.ADDRESS of descriptor pointing to output array (328 BYTES)
+;3 Outputs	
+; The MOP counter block recieved is processed and formatted into a 
+; standard array. After processing, each resulting counter is presented as:
+; 
+; Protocol	.long	(SYS_PID_C_PSRMOP)
+; Table		.long   (DB_FAC_C_MOP)
+; param		.long   (DB_PRM_MOPCNT_Q_xxxx)
+; Value		.quad   unsigned
+; 
+; Return 
+;	SS$_NORMAL 	- Counter data recieved and processed
+;	SS$_UNREACHABLE	- No Response to counter request
+;	SS$_INTOVF	- Bad data rec'ed or calculated
+;	SS$_IVTIME	- Timer overflowed - Calcs not performed
+;	SS$_BADPARAM    - Input params error (only No. of params is checked)
+;
+;--
+; Data Definitions
+      .LIBRARY        "SYS$LIBRARY:LIB.MLB"
+      .LIBRARY        "EMU5_LIB:EMU5.MLB"
+	EMUDBDEF
+	EMUPSRDEF
+	EMUSYSDEF
+	EMUMOPDEF
+ 	EMUMSGDEF
+	EMUCTPDEF
+ 	$SSDEF
+	$SECDEF				; Global Section 
+	$NMADEF
+
+; Local defs... 
+;MOP Counter block
+
+$EQU	MOPCNT_POV	0    ;Protocol overhead (x0b+read receipt (2 bytes)
+$EQU	MOPCNT_TIM	3    ;Seconds since last zeroed          
+$EQU	MOPCNT_BYTR	5    ;Bytes received                     
+$EQU	MOPCNT_BYTS	9    ;Bytes sent                         
+$EQU	MOPCNT_FRMR	13   ;Frames received                    
+$EQU	MOPCNT_FRMS	17   ;Frames sent                        
+$EQU	MOPCNT_MCBR	21   ;Multicast bytes received           
+$EQU	MOPCNT_MCFR	25   ;Multicast frames received          
+$EQU	MOPCNT_DEFR	29   ;Frames sent, initially deferred    
+$EQU	MOPCNT_COL1	33   ;Frames sent, single collision      
+$EQU	MOPCNT_COLM	37   ;Frames sent, multiple collisions   
+$EQU	MOPCNT_SNDF	41   ;Send failure                       
+$EQU	MOPCNT_SFBM	43   ;Send failure reason bitmap         
+$EQU	MOPCNT_RCVF	45   ;Receive failure                    
+$EQU	MOPCNT_RFBM	47   ;Receive failure reason bitmap      
+$EQU	MOPCNT_UNFD	49   ;Unrecognized frame destination     
+$EQU	MOPCNT_DOVR	51   ;Data overrun                       
+$EQU	MOPCNT_SBUN	53   ;System buffer unavailable          
+$EQU	MOPCNT_UBUN	55   ;User buffer unavailable            
+                                                    
+		.PSECT DATA,WRT,NOEXE,QUAD
+RETBUF_SIZE = 256
+RETBUF:		.BLKB	RETBUF_SIZE
+RETBUF_D:	.LONG	.-RETBUF
+		.ADDRESS  RETBUF
+
+; Error Log
+
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/MOPCNTANAL/
+
+;
+
+		.PSECT CODE,NOWRT,EXE,LONG
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_MOPCNTANAL
+
+
+	MOVL	4(AP),R6		; Input Ethernet address
+	MOVQ	@8(AP),R7               ; Output Array desc
+; Get counts
+	MOVL	#RETBUF_SIZE, RETBUF_D	; 
+	PUSHAL	RETBUF_D
+	PUSHL	4(AP)
+	PUSHL	#MOP_FUN_C_COUNT
+	CALLS	#3,G^MOP_GETDATA
+        BLBS	R0,100$
+; Failed to get counts. This is always a problem as the node has 
+; been previously contacted and advertises counts are available.
+; In future, send alert. For now log error.
+        MOVL	#MSG_PRFMON_MOPFAIL,MSGCDE      ; No ipc map
+	MOVL	#7,PARCNT                    ; 7 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVZBL	5(R6),(R1)+                  ; address
+	MOVZBL	4(R6),(R1)+
+	MOVZBL	3(R6),(R1)+
+	MOVZBL	2(R6),(R1)+
+	MOVZBL	1(R6),(R1)+
+	MOVZBL	(R6),(R1)+
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+
+100$:
+; Convert and move counts to outp table
+; Clear outp
+        MOVC5	#0,#0,#0,R7,(R8)
+	MOVAL	RETBUF,R10		; Ret block	
+	ADDL	#MOPCNT_BYTR,R10	; Start of counts
+; 1st 9 counts are long...
+	MOVL	#DB_PRM_MOPCNT_BYTR,R9  ; 1st param
+	MOVL	#9,R11			; Loop  
+110$:
+	MOVL	#SYS_PID_C_PSRMOP,CTP_RET_L_PROT(R8) 	; Prot
+	MOVL	#DB_FAC_C_MOP,CTP_RET_L_TABLE(R8)     ; Tbl
+	MOVL	R9,CTP_RET_L_PARAM(R8)	                ; Prm
+        MOVL	(R10),CTP_RET_Q_VALUE(R8)		; Value
+	ADDL	#CTP_RET_C_SIZE,R8			; Next outp
+	ADDL	#4,R10			; Next inpt
+	INCL	R9			; Next param
+	SOBGTR	R11,110$
+; Last 8 counts are word...
+	MOVL	#8,R11			; Loop  
+120$:
+	MOVL	#SYS_PID_C_PSRMOP,CTP_RET_L_PROT(R8) 	; Prot
+	MOVL	#DB_FAC_C_MOP,CTP_RET_L_TABLE(R8)     ; Tbl
+	MOVL	R9,CTP_RET_L_PARAM(R8)	                ; Prm
+        MOVW	(R10),CTP_RET_Q_VALUE(R8)		; Value
+	ADDL	#CTP_RET_C_SIZE,R8			; Next outp
+	ADDL	#2,R10			; Next inpt
+	INCL	R9			; Next param
+	SOBGTR	R11,120$
+	MOVL	#340,@8(AP)		; Set return len
+        MOVL	#SS$_NORMAL,R0
+	RET
+
+	.END

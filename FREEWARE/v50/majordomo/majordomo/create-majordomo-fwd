@@ -1,0 +1,123 @@
+$cf = $ENV{'UCX$MAJORDOMO_CF'};
+if ($majordomo_debug) {print "\$cf is $cf\n";}
+eval(`type $cf`) || &my_die("eval of majordomo.cf failed $@");
+
+$tmp = "/SYS\$SCRATCH/CREATE-FORWARD_$$";
+$status = 0;
+$tmp_filename;
+
+$defdir = `SHOW DEFAULT`;
+$defdir =~ s/\s//g;
+if ($majordomo_debug) {print "Default directory is $defdir\n";}
+
+# Go to the home directory specified by the .cf file
+chdir($homedir) || &my_die("Can't chdir(\"$homedir\"): $!");
+
+# All these should be in the standard PERL library
+unshift(@INC, $homedir);
+require "majordomo.pl";		# all sorts of general-purpose Majordomo subs
+require "majordomo-util.pl";	# all sorts of general-purpose Majordomo for
+				# config purposes
+
+if ($majordomo_debug) {&log_cf_stuff;}
+
+$my_system_name = &systemname;
+
+$majordomo_owner = ();
+&print_set_forward_help("MAJORDOMO-OWNER");
+print "Enter name of Majordomo owner: ";
+while ($majordomo_owner = <STDIN>)
+  {
+  chop($majordomo_owner);
+  if (($majordomo_owner eq "") || (!$majordomo_owner)) {&my_exit(0);}
+  if (!&majordomo_owner_valid($majordomo_owner))
+    {
+    print "String \"$majordomo_owner\" is invalid.\nEnter name of Majordomo owner: ";
+    next;
+    }
+  else
+    {last;}
+  }
+
+# This handles Ctrl-Z
+if (!$majordomo_owner) {&my_exit(0);}
+
+print "Majordomo owner:	$majordomo_owner\n";
+print "System name:	$my_system_name\n";
+
+$tmp_filename = $tmp  . "_" . $my_system_name . ".COM";
+
+# Just being suresure. open_temp opens for append so need to clean up first.
+unlink($tmp_filename);
+
+&open_temp(TMP, $tmp_filename) || &my_die("Can't open $tmp_filename: $!\n");
+&cmds_to_file(TMP)             || &my_die("Error writing sommands to $tmp_filename: $!\n");
+close(TMP)                     || &my_die("Can't close $tmp_filename: $!\n");
+&execute_file($tmp_filename)   || &my_die("Error while executing $tmp_filename: $!\n");
+unlink($tmp_filename)          || warn "Error while deleting $tmp_filename: $!\n";
+
+&print_final;
+
+
+sub print_final
+{
+local($tmp_string);
+print
+"********************************************************************************
+Majordomo forwarding has been set up.
+
+$majordomo_owner is now the owner of majordomo. To see the forwards
+created by this script do
+
+   MAIL> SHOW FORWARD/USER=*MAJORDOM*
+
+To change the majordomo owner either manually set the new forwarding or run
+the DELETE-MAJORDOMO-FWD Perl script and then re-run this script.
+";
+print "********************************************************************************\n\n";
+}
+
+sub cmds_to_file
+{
+local($FH) = shift;
+local($tmp_string) = ();
+local($use_triple_doubles) = &main'set_forward_triple_doubles;
+print $FH "\$ MAIL\n";
+print $FH "SET FORWARD/USER=MAJORDOM          OWNER-MAJORDOMO\n";
+print $FH "SET FORWARD/USER=MAJORDOMO-OWNER   $majordomo_owner\n";
+
+if ($use_triple_doubles)
+  {print $FH "SET FORWARD/USER=MAJORDOMO-SMTP SMTP%\"\"\"majordomo\@$whereami\"\"\"\n";}
+else
+  {print $FH "SET FORWARD/USER=MAJORDOMO-SMTP SMTP%\"majordomo\@$whereami\"\n";}
+
+print $FH "SET FORWARD/USER=OWNER-MAJORDOMO   MAJORDOMO-OWNER\n";
+print $FH "SET FORWARD/USER=UCX\$MAJORDOM     OWNER-MAJORDOMO\n";
+
+
+if ($use_triple_doubles)
+  {$tmp_string = "PIPE%\"\"\"UCX\$MAJORDOMO_HOME:MAJORDOMO.COM UCX\$MAJORDOM\"\"\"";}
+else
+  {$tmp_string = "PIPE%\"UCX\$MAJORDOMO_HOME:MAJORDOMO.COM UCX\$MAJORDOM\"";}
+
+print $FH "SET FORWARD/USER=MAJORDOMO $tmp_string\n";
+print $FH "EXIT\n";
+print $FH "\$ EXIT\n";
+}
+
+
+sub list_name_valid
+{
+return(1);
+}
+
+
+sub majordomo_owner_valid
+{
+local($owner_string) = shift;
+
+if (&main'set_forward_valid($owner_string))
+  {return(1);}
+else
+  {return(undef);}
+}

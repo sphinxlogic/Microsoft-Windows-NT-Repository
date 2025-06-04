@@ -1,0 +1,185 @@
+$cf = $ENV{'UCX$MAJORDOMO_CF'};
+if ($majordomo_debug) {print "\$cf is $cf\n";}
+eval(`type $cf`) || &my_die("eval of majordomo.cf failed $@");
+
+$tmp = "/SYS\$SCRATCH/DELETE-LIST_$$";
+$status = 0;
+$rms_fnf = 98962;
+$tmp_filename;
+
+$defdir = `SHOW DEFAULT`;
+$defdir =~ s/\s//g;
+if ($majordomo_debug) {print "Default directory is $defdir\n";}
+
+# Go to the home directory specified by the .cf file
+chdir($homedir) || &my_die("Can't chdir(\"$homedir\"): $!");
+
+# All these should be in the standard PERL library
+unshift(@INC, $homedir);
+require "majordomo.pl";		# all sorts of general-purpose Majordomo subs
+require "majordomo-util.pl";	# all sorts of general-purpose Majordomo for
+				# config purposes
+require "shlock.pl";		# NNTP-style file locking
+require "config_parse.pl";	# functions to parse the config files
+
+if ($majordomo_debug) {&log_cf_stuff;}
+
+$my_system_name = &systemname;
+
+$list = ();
+print "\nThis script will delete an existing majordomo mailing list for you.\n";
+print "You need SYSPRV turned on to run this script.\n";
+
+print "Enter name of list: ";
+
+while ($list = <STDIN>)
+  {
+  chop($list);
+  if (($list eq "") || (!$list)) {&my_exit(0);}
+  $clean_list = &valid_list_name($list);
+  if (!$clean_list)
+    {
+    print "Clean is $clean_list\n";
+    print "List name $list is invalid.\nEnter name of list: ";
+    next;
+    }
+  elsif (!&list_exists($listdir,$clean_list))
+    {
+    print "List $clean_list doesn't exist.\nEnter name of list: ";
+    next;
+    }
+  else
+    {last;}
+  }
+
+# This handles Ctrl-Z
+if (!$list) {&my_exit(0);}
+
+&get_config($listdir, $clean_list) 
+  if !&cf_ck_bool($clean_list, '', 1);
+
+$passwd = ();
+print "Enter password for list: ";
+while ($passwd = <STDIN>)
+  {
+  chop($passwd);
+  if (($passwd eq "") || (!$passwd)) {&my_exit(0);}
+  if (!&valid_passwd($listdir, $clean_list, $passwd))
+    {print "Password $passwd is invalid.\nEnter password for list: ";next;}
+  else
+    {last;}
+  }
+
+# This handles Ctrl-Z
+if (!$passwd) {&my_exit(0);}
+
+print "List name:	$clean_list\n";
+print "Password:	$passwd\n";
+print "System name:	$my_system_name\n";
+
+$tmp_filename = $tmp  . "_" . $my_system_name . ".COM";
+
+# Just being suresure. open_temp opens for append so need to clean up first.
+unlink($tmp_filename);
+
+&open_temp(TMP, $tmp_filename) || &my_die("Can't open $tmp_filename: $!\n");
+&cmds_to_file(TMP)             || &my_die("Error writing sommands to $tmp_filename: $!\n");
+close(TMP)                     || &my_die("Can't close $tmp_filename: $!\n");
+&execute_file($tmp_filename)   ||
+  warn "Error while executing $tmp_filename: $!\nTrying to continue...\n";
+unlink($tmp_filename)          || warn "Error while deleting $tmp_filename: $!\n";
+
+&delete_list_files($listdir,$clean_list) || &my_die("Error while deleting list files: $!\n");
+
+&print_final;
+my_exit(0);
+
+
+sub print_final
+{
+print
+"********************************************************************************
+List $clean_list has been deleted.
+********************************************************************************\n\n";
+}
+
+sub cmds_to_file
+{
+local($FH) = shift;
+local($tmp_string) = ();
+print $FH "\$ MAIL\n";
+print $FH "SET NOFORWARD/USER=OWNER-$clean_list\n";
+print $FH "SET NOFORWARD/USER=OWNER-$clean_list-OUTGOING\n";
+print $FH "SET NOFORWARD/USER=OWNER-$clean_list-REQUEST\n";
+print $FH "SET NOFORWARD/USER=$clean_list-APPROVAL\n";
+print $FH "SET NOFORWARD/USER=$clean_list-OWNER\n";
+print $FH "SET NOFORWARD/USER=$clean_list-LIST\n";
+print $FH "SET NOFORWARD/USER=$clean_list\n";
+print $FH "SET NOFORWARD/USER=$clean_list-OUTGOING\n";
+print $FH "SET NOFORWARD/USER=$clean_list-REQUEST\n";
+print $FH "EXIT\n";
+print $FH "\$ EXIT\n";
+}
+
+
+sub delete_list_files
+{
+local($listdir) = shift;
+local($list) = shift;
+local($FH) = "EMPTY";
+local($fn);
+local($fn_vms);
+#
+# Convert each file to VMS syntax, append ;* and delete.
+$fn = "$listdir/$list.";
+$fn_vms = VMS::Filespec::vmsify($fn);
+if ($majordomo_debug) {print "Deleting file $fn_vms\n";}
+1 while (unlink($fn_vms));
+
+$fn = "$listdir/$list.info";
+$fn_vms = VMS::Filespec::vmsify($fn);
+if ($majordomo_debug) {print "Deleting file $fn_vms\n";}
+1 while (unlink($fn_vms));
+
+$fn = "$listdir/$list.config";
+$fn_vms = VMS::Filespec::vmsify($fn);
+if ($majordomo_debug) {print "Deleting file $fn_vms\n";}
+1 while (unlink($fn_vms));
+
+$fn = "$listdir/$list\_old.config";
+$fn_vms = VMS::Filespec::vmsify($fn);
+if ($majordomo_debug) {print "Deleting file $fn_vms\n";}
+1 while (unlink($fn_vms));
+
+$fn = "$listdir/$list.passwd";
+$fn_vms = VMS::Filespec::vmsify($fn);
+if ($majordomo_debug) {print "Deleting file $fn_vms\n";}
+1 while (unlink($fn_vms));
+
+return 1;
+}
+
+
+sub make_passwd_file
+{
+local($listdir) = shift;
+local($list) = shift;
+local($passwd) = shift;
+local($FH) = "PASSWD";
+open($FH, ">$listdir/$list.passwd") || return 0;
+print $FH $passwd;
+close($FH) || return 0;
+return 1;
+}
+
+
+sub list_name_valid
+{
+return(1);
+}
+
+
+sub list_owner_valid
+{
+return(1);
+}

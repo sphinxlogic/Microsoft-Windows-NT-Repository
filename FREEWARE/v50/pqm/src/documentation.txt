@@ -1,0 +1,315 @@
+PQM - Printer Queue Manager for Users and Operators - Documentation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+PQM is written and maintained by Jeremy Begg, VSM Software Services Pty Ltd.
+Copyright © 2000, 2001 VSM Software Development.  All rights reserved.
+
+This software maybe freely used, distributed and modified subject to the
+following conditions:
+
+    - No responsibilty is accepted by anyone associated with this software for
+      any adverse effects it may have on any system.  Use it at your own risk.
+
+    - Ownership of the software and derivative works remain with the author and
+      the copyright holders.
+
+    - This file, including the copyright notice, is included with all
+      distributions.
+
+    - The copyright notice must be displayed when PQM starts up.
+
+Please direct all bug reports or requests for enhancements to <pqm@vsm.com.au>.
+If you modify the code and think that others would benefit from your
+modification, feel free to submit the modifications to that address for
+inclusion in a future release of PQM.
+
+Documentation for PQM V1.1-00	28-Dec-2000
+===========================================
+
+1.  Installing PQM
+------------------
+PQM is supplied with executable images for VAX and Alpha which have been
+linked against OpenVMS V6.1.  Simply copy the appropriate image to
+suitable location then define a foreign command for it, e.g.
+
+	$ PQM :== $dev:[dir]PQM.EXE
+
+where 'dev:[dir]' is the location to which you copied PQM.  You might like
+to put the above in your site-wide login command procedure (e.g.
+SYS$MANAGER:SYLOGIN.COM).
+
+Installing PQM with privileges is entirely optional and will depend on your
+site-specific requirements:
+
+    - OPER privilege will be required if you wish to allow PQM to manipulate
+      all jobs and all queues regardless of ownership and job/queue
+      protection.  Alternatively, use ACLs to provide finer control over
+      access to queues and jobs.
+
+    - ALTPRI privilege will be required if you wish to allow PQM to raise
+      job priorities above the SYSGEN paramenter MAXQUEPRI (normally 100).
+
+
+2.  Running PQM
+---------------
+The PQM command accepts the following optional qualifiers:
+
+	/BROWSER="DCL-command"
+
+		Specify a DCL command to invoke a program which will be used
+		to display the contents of files in printer queues.  The
+		command should accept a single parameter, the file to
+		display.
+
+		If not specified, PQM will attempt to translate the logical
+		name PQM_BROWSER to find the DCL command.
+
+	/INITIAL_SCREEN=QUEUE=queue
+
+		Begin with the Queue display, highlighting the specified
+		queue.
+
+		If /INITIAL_SCREEN is not specified, PQM begins by
+		displaying on the Queues display with the first queue
+		highlighted.
+
+	/INITIAL_SCREEN=JOBS=queue
+
+		Being by displaying the Jobs display for the specified
+		queue.
+
+		If /INITIAL_SCREEN is not specified, PQM begins by
+		displaying on the Queues display with the first queue
+		highlighted.
+
+	/NOSERVER_SYMBIONTS
+
+		Do not display server symbiont queues, i.e. symbiont queues
+		which process files without sending them to an output
+		device.
+
+	/UPDATE=n
+
+		Automatically update the screen every 'n' seconds.
+		If this qualifier is not specified, the screen will be
+		updated every 15 seconds.
+
+	/NOUPDATE
+	
+		Do not automatically update the screen.
+
+3. Queue Display
+----------------
+The Queue Display lists the print queues on the system.  The top part of
+the screen shows detailed information about the currently highlighted queue.
+
+The following table shows the actions which are available in the Queues
+display.
+
+     Prev Screen	Select the queue which appears approximately 2/3 of
+    			the way up the screen.
+
+     Next Screen	Select the queue which appears approximately 2/3 of
+    			the way down the screen.
+
+     Up Arrow		Select the queue which appears immediately above the
+    			current queue.
+
+     Down Arrow		Select the queue which appears immediately above the
+    			current queue.
+
+     Do or PF4		Display a menu of operations appropriate to the
+    			current queue.  (See below for menu details.)
+
+     Return/Enter	Display the jobs in the current queue.
+
+     Space bar		Update the display.  (This is useful if /NOUPDATE
+    			was specified when starting PQM, or if an update is
+    			required now.)
+
+     Letter "F"		Display the file currently being printed by each
+    			queue (if any).
+
+     Letter "J"		Display the job currently being printed by each
+    			queue (if any).
+
+     Letter "Q"		Quit PQM.
+
+     Question Mark	Display on-screen Help.
+
+     Ctrl/W		Redraw the screen.
+
+     Ctrl/Z		Quit PQM.
+
+Pressing the Do key or the PF4 key displays a menu of actions which are
+appropriate to the currently highlighted queue.  These actions include:
+
+     Set Formtype	Change the queue's formtype.  By default it
+			will be set to match that of the first job
+			in the queue, so that the job will start
+			printing.
+
+     Pause Queue	Suspends output to the printer, but the job
+			stays on the queue.
+
+     Stop Queue		Lets the job which is currently printing
+			(if any) finish, but prevents any other jobs
+    			from starting.
+
+     Reset Queue	Causes the queue to stop immediately; no
+			more jobs will be printed.  This is the
+			same as "Stop Queue" but aborts the current
+			job mid-stream and causes that job to remain
+			in the queue.
+
+     Start Queue	Starts a Paused or Stopped queue.
+
+     Abort Job		Kill the currently executing job, and
+			remove it from the queue.
+
+     SHOW QUEUE/FULL	Runs the DCL command SHOW QUEUE/FULL.
+
+     Exit this menu	Exits the menu without changing anything.
+
+Within the above menu you can use the Up and Down arrow keys to move around.
+Pressing PF1-Up will jump to the top of the menu; PF1-Down will jump to the
+bottom of the menu.  Pressing Up or Down at the top or bottom of the menu
+(respecively) will take you to the bottom or top of the menu.  Pressing
+Ctrl/Z exits the menu without doing anything.  Pressing Help will attempt
+to display some help text but this isn't working just yet and instead you
+get some garbage.  Press Ctrl/W to redraw the screen.
+
+
+4. Jobs Display
+---------------
+This shows the jobs in the selected queue.  The top part of the screen shows
+detailed information about the currently highlighted job.
+
+The list of jobs is presented in the order that the VMS queue manager supplies
+them to PQM, with the exception that jobs which are retained in the queue are
+listed in reverse order of completion: those jobs which printed most recently
+are listed first.  In effect this means that jobs are listed in the following
+order:
+
+	1.  The job which is currently printing (if any).
+	2.  Jobs which are waiting their turn to print, i.e. Pending.
+	3.  Jobs which are waiting until a particular time before they
+	    start printing.
+	4.  Jobs which are Holding (and therefore must be manually released).
+	5.  Jobs which have recently completed printing (or failed).
+	6.  Jobs which completed printing (or failed) less recently.
+
+For groups 2-4, within each group, the order of jobs is usually the order in
+which they were submitted for printing.  However, VMS allows a priority to
+be assigned to a job thus altering its position in the queue.  Also, depending
+on the printer queue definition, jobs might be ordered in reverse size order
+-- large jobs are printed after small jobs.
+
+The following table shows the actions which are available in the Queues
+display.
+
+     Prev Screen	Select the job which appears approximately 2/3 of
+    			the way up the screen.
+
+     Next Screen	Select the job which appears approximately 2/3 of
+    			the way down the screen.
+
+     Up Arrow		Select the job which appears immediately above the
+    			current job.
+
+     Down Arrow		Select the job which appears immediately above the
+    			current job.
+
+     Do or PF4		Display a menu of operations appropriate to the
+    			current job.  (See below for menu details.)
+
+     Return/Enter	Return to the Queues display.
+
+     Space bar		Update the display.  (This is useful if /NOUPDATE
+    			was specified when starting PQM, or if an update is
+    			required now.)
+
+     Letter "Q"		Return to the Queues display.
+
+     Question Mark	Display on-screen Help.
+
+     Ctrl/W		Redraw the screen.
+
+     Ctrl/Z		Quit PQM.
+
+The Do and PF4 keys display a menu of actions which are appropriate to the
+highlighted job:
+
+     Display File	Uses the command specified by the /BROWSER qualifier
+			or the PQM_BROWSER logical name to display the file
+			currently being printed or the first file in the job
+			(if the job is not currently printing).
+
+     Pause		Pauses the queue; suspends output to the
+			printer until the queue is started.
+
+     Stop & Retain	Aborts execution of the current job but
+			retains that job in the queue so that it
+			can be reprinted.  The queue is not stopped;
+			it will begin to print the next job if there
+			is one.
+
+     Abort Job		Aborts (kills) the current job and removes it
+			from the queue.
+
+     Release Job	Changes a Holding job so that it will print
+			immediately (or as soon as the printer can
+			print it) or reprints a Completed or Failed
+			job.
+
+     Hold Job		Force the job into the Holding state, so that it
+			must be manually released before it will be printed.
+
+     Move to Queue	Allows you to move a job to another queue.
+
+     Raise Job Priority	Increase the job priority by 5.
+
+     Lower Job Priority	Decrease the job priority by 5.
+
+     Delete Job		Removes the job from the queue.
+
+     Set Job Formtype	Changes the form type of the job.  By default
+			it will change the job's form to match the
+			queue's.
+
+     Set Queue Formtype	Changes the form type of the queue.  By
+			default it will be set to match the current
+			job.
+
+     Stop Queue		Stops the queue, i.e. waits for the queue to
+			finish the current job (if any) and doesn't
+			start the next job in the queue.
+
+     Reset Queue	Immediately stops the queue; the currently
+			printing job is aborted but remains on the
+			queue.  No more jobs are started.
+
+     SHOW ENTRY/FULL	Runs the DCL command SHOW ENTRY/FULL to
+			display as much information as possible about
+			the job.
+
+     Exit this menu	Does nothing.
+				
+Within the menu the arrows and other keys behave as they do for the Queue
+action menus.
+
+
+5. Known Bugs
+-------------
+There are a couple of bugs or behavioural "features" which I have not yet
+been able to fix.
+
+  - if the Help screen is pressed in an action menu the screen displays a
+    traceback dump; press Ctrl/W to remove it
+
+  - the completion time and/or failure reason for a job is not displauyed
+    (use SHOW ENTRY/FULL to display this information)
+
+  - the program will eventually crash with an "insufficient dynamic memory"
+    error in SYS$GETQUI.
+

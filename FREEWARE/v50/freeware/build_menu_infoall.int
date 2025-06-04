@@ -1,0 +1,136 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program: Build_menu_info
+        ! System : Freeware CD-ROM
+        ! Author : Daniel Esbensen
+        ! W.R.No : {work_no}
+        ! Purpose: Build the MENU_INFO database for FREEWARE_MENU.INT
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+900     title$     = 'Build_menu_info - Freeware CD-ROM pre-processor'
+        scan_spec$ = '[*...]freeware_readme.txt;'
+
+        demo_txt_spec$ = 'freeware_demo.txt'
+        demo_com_spec$ = 'freeware_demo.com'
+
+        max_packages = 1000
+        dim packages$(max_packages)
+
+
+1000    !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M a i n   l o g i c   a r e a
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ask pagesize psize
+        clear
+        print at 1,1, bold, reverse: cpad$(title$, 80)
+        line input 'Disk device to scan', at 3,1, length 20, &
+            default 'FREEWARE$CD:', erase: devname$
+        if _exit or _back then stop
+        devname$ = filespec$(devname$, 'device')
+        fspec$ = devname$ + scan_spec$
+
+        message 'Creating new MENU_INFO database...'
+        pass 'create/fdl=freeware$loc:menu_info.fdl freeware$loc:menu_info.dat'
+        open structure menu_info: name 'freeware$loc:menu_info', access outin
+
+        scan_packages
+        message 'MENU_INFO databased loaded.  Total packages: '; packages
+        set scroll 1, psize
+        print
+
+9999    stop
+
+
+
+12000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S C A N   P A C K A G E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Scan for packages (by looking for a readme.txt file spec)
+        ! 
+        ! Expected:
+        !  fspec$  = readme.txt file spec to scaqn for
+        ! 
+        ! Results:
+        !   packages = number of packages found
+        !   menu_info() is loaded with the package data
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine scan_packages
+          message 'Scanning for packages using '; fspec$; '...'
+          set scroll 6,22
+          print at 6,1:
+          pcount = 0
+          for idx = 1 to 9999999
+            filename$ = findfile$(fspec$, idx)
+            if filename$ = '' then exit for
+            filename$ = replace$(filename$, '[000000.=[')
+            pcount = pcount + 1
+            packages$(pcount) = filename$
+          next idx
+          message 'Possible packages: '; pcount;' -- Loading database...'
+          for idx = 1 to pcount
+            filename$ = packages$(idx)
+            add_menu_info
+          next idx
+        end routine
+
+
+12500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A D D   M E N U   I N F O
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Add information to MENU_INFO structure$??w
+        ! 
+        ! Expected:
+        !   filename$ = file specification of the README.TXT file
+        !   demo_txt_spec$ = name of the demo text file
+        !   demo_com_spec$ = name of the demo command file
+        ! 
+        ! Results:
+        !    a new MENU_INFO() record is loaded
+        !    packages is incremented
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine add_menu_info
+          demo_txt? = false
+          demo_com? = false
+          package_dir$ = filespec$(filename$, 'directory')
+          package_loc$ = filespec$(filename$, 'location')
+          get_info_line
+          if findfile$(package_loc$+demo_txt_spec$) <> '' then demo_txt? = true
+          if findfile$(package_loc$+demo_com_spec$) <> '' then demo_com? = true
+          add structure menu_info
+            menu_info(package)  = element$(info_line$, 1)
+            menu_info(category) = element$(info_line$, 2)
+            menu_info(desc)     = element$(info_line$, 3)
+            menu_info(dir)      = package_dir$
+            if demo_txt? then menu_info(demo_txt) = 'Y'
+            if demo_com? then menu_info(demo_com) = 'Y'
+          end add
+          packages = packages + 1
+        end routine
+
+
+13000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   I N F O   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Get information line from the readme.txt file
+        ! 
+        ! Expected:
+        !   filename$ = name of the readme.txt file
+        ! 
+        ! Results:
+        !   info_line$ = information line from the readme.txt file
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_info_line
+          readme_ch = _channel
+          open #readme_ch: name filename$
+          do
+            line input #readme_ch: info_line$
+            if info_line$[1:1] = '!' then repeat do
+          end do
+          print info_line$  ! You might remove this??
+          close #readme_ch
+        end routine

@@ -1,0 +1,146 @@
+                        CGI PROGRAMMING NOTES
+                        =====================
+
+This file contains suggestions for writing Perl CGIs for use with
+CRINOID.
+
+CRINOID CGI STYLE GUIDE
+=======================
+
+First off, try your script from an interactive prompt, using the
+"-w" (warnings) flag:
+
+$ PERL -w myscript.cgi
+
+Anything that gets complained about, fix. That will solve about 80%
+of the potential problems.
+
+For efficiency, you'd like to be able to re-run scripts multiple times
+after they've been loaded.  You can tell CRINOID to do this by including
+the statement:
+
+    $CRINOID::Reuse = 1;
+
+in your script.  But beware, your script has to be "well behaved" to be
+able to be reused.
+
+
+The Well-Behaved Script #1: Initialization
+------------------------------------------
+
+Perl with the -w flag should catch uninitialized variables for you, but
+in general uninitialized variables are a much more serious concern for
+CRINOID CGI scripts.
+
+If you have a script like:
+
+    print "Content-type: text/plain\n\n";
+    print "first time? ",($x ? "NO" : "YES"), "\n";
+
+Then you're using the fact that $x is false (undefined, even), which
+will not be the case if the script is re-run.
+
+There *are* times when it's useful to bend the rules about initialization
+a bit, particularly when you have a largeish amount of static data that
+you don't want to re-initialize each time the script is run:
+
+    if (!defined(@MyArray)) {
+        @MyArray = (1, 1, 2, 3, 5, 8,
+                ...
+         );
+    }
+
+
+
+The Well-Behaved Script #2: Variable Scoping
+--------------------------------------------
+Wherever possible put your variables in "my" or "local"; this helps
+keep the memory use from rerunning scripts within reasonable bounds.
+
+This is also just good programming practice.
+
+
+The Well-Behaved Script #3: Close what you Open
+-----------------------------------------------
+Any files (and dirs) you open in your script will *NOT* be
+automatically closed for you.  You need to close them explicitly in
+your script.  In particular watch out that you close files when
+you encounter an error condition.
+
+Failing to close files, and then rerunning the script with the
+files already open, can be a real pain to diagnose.
+
+There are some exceptions: you should NOT close STDIN, STDOUT and
+STDERR.  These are dealt with in the server code.
+
+
+Watch where you are, part 1
+---------------------------
+The default directory when your script is run may very well NOT
+be the directory where the script is located....in fact, it's a
+good idea for the scripts in:
+        MYDISK:[USER.WWW-CGI]
+to have the default set to:
+        MYDISK:[USER.WWW-TEMPFILES]  (or similar)
+when they are run, so that they can't inadvertantly mess up another
+script, or create a file that might be runnable as a script.
+
+Setting the "HomeDir" in your OYSTER.CONFIG will chdir to the
+the directory you select before running your script.
+
+Watch where you are, part 2
+---------------------------
+If you do not set the "HomeDir" in your OYSTER.CONFIG, the default directory
+will be the same as the top-level script directory (as the previous example):
+        MYDISK:[USER.WWW-CGI]
+even when the script is actually in a subdirectory:
+        MYDISK:[USER.WWW-CGI.KEWL]STUFF.
+
+This latter case also illustrates the interaction between PATH_INFO and
+the script directory.
+
+        http://host/cgi/~user/kewl/stuff/more/path/info
+
+will run the script
+        MYDISK:[USER.WWW-CGI.KEWL]STUFF.
+(if it exists!) with the PATH_INFO set to  "more/path/info"
+
+But if you had a script:
+        MYDISK:[USER.WWW-CGI.KEWL.STUFF]MORE.
+then IT will be run, with PATH_INFO set to "path/info".
+
+The search for scripts is done "deepest first" until a script is found.
+
+If you set the parameter "NoDescend" in your OYSTER.CONFIG, then
+the search will be confined to the uppermost CGI directory and no
+subdirectories will be searched.
+
+If you keep your scripts with a suffix like ".pl" or ".cgi" then lower
+directory levels can't be searched, since (on VMS) a directory named
+"myscript.pl" isn't part of a valid directory-spec.
+
+Also on the topic of "searching for a script", note that the "Suffixes"
+parameter in OYSTER.CONFIG lets you confine valid script names to those
+that have one of a specified set of filetypes.
+
+
+SCRIPT COMMAND LINE OPTIONS:
+----------------------------
+Recent changes to SCRIPT.PM (v0.4-1) allows _some_ command flags to be
+used in CGI scripts.  In particular, the first line of your script
+should look like:
+
+    #!  perl    [options]
+
+Just as for a "normal" Perl script.  The parsing of the options is
+done "manually" (i.e., by OYSTER s/w, not by Perl) and only a limited
+subset of options are understood.  Also, the parser doesn't understand
+combining single-character options.
+
+Options available:
+        -w      turn on warnings
+        -Dfff   debug flags 'fff'
+        -Idir   put 'dir' on the @INC list
+
+Of these, I expect that -I will be the most useful, so that your CGI
+scripts can put any custom modules in a directory of your choice.

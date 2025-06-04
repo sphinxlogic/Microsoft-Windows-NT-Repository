@@ -1,0 +1,2373 @@
+<HTML>
+<HEAD>
+<TITLE>
+Miniproc documentation, html format, version 3.01 30-JAN-1999
+</TITLE>
+</HEAD>
+<BODY>
+<PRE>
+<H1><A name="top">Miniproc documentation</A></H1>
+version 3.04, 04-JAN-1999
+
+<A href="#introduction">Introduction</A>
+<A href="#obtaining">Obtaining a copy</A>
+<A href="#building">Building instructions</A>
+<A href="#commandline">Command line usage</A>
+<A href="#commandfile">Command file usage</A>
+<A href="#comments">Comment lines</A>
+<A href="#variables">Variables</A>
+<A href="#strings">Indicating string literals</A>
+<A href="#reserved">Reserved and special variables</A>
+<A href="#scope">Scope of variables and macros</A>
+<A href="#arrays">Array variables</A>
+<A href="#shorthand">Command pass through</A>
+<A href="#functions">Functions</A>
+  <A href="#f$out">f$out</A>
+  <A href="#f$in">f$in</A>
+  <A href="#f$read">f$read,f$write</A>
+  <A href="#f$exit">f$exit,f$break</A>
+  <A href="#f$date">f$date</A>
+  <A href="#f$file_info">f$file_info</A>
+  <A href="#f$dir_list">f$dir_list</A>
+  <A href="#f$type">f$type</A>
+  <A href="#mathfunctionsnew">[ RPN calculator ]</A>
+    <A href="#rpnops_type">Summary of RPN calculator operators by type</A>
+    <A href="#rpnops_name">Summary of RPN calculator operators by name</A>
+    <A href="#rpnops_detail">Details of RPN calculators operators</A>
+      <A href="#rpnops_math">math operators</A>
+      <A href="#rpnops_string">string operators</A>
+      <A href="#rpnops_convert">conversion operators</A>
+      <A href="#rpnops_stack">stack operators</A>
+      <A href="#rpnops_array">array operators</A>
+      <A href="#rpnops_misc">miscellaneous operators</A>
+    <A href="#rpnops_bitlimit">bitwise operators - limitations</A>
+  <A href="#mathfunctions">f$evaluate,f$&lt;- Math, String, and Logical Operations</A>
+<A href="#macros">Macros</A>
+  <A href="#f$macro_record">f$macro_record</A>
+  <A href="#f$macro_create">f$macro_create</A>
+  <A href="#f$macro_break">f$macro_break, f$macro_return</A>
+  <A href="#f$macro_repeat">f$macro_repeat</A>
+  <A href="#f$macro_body">f$macro_body</A>
+  <A href="#f$macro_map">f$macro_map</A>
+<A href="#ifelse">If structures</A>
+<A href="#loop">Loop structures</A>
+<A href="#substag">&lt;&lt;&gt;&gt; embedded substitution tags</A>
+<A href="#gotchas">Common programming errors</A>
+<A href="#versions">Version specific incompatibilities</A>
+<A href="#limits">Limits</A>
+<A href="#copyright">Copyright</A>
+<A href="#bugs">Reporting bugs, getting more information</A>
+<A href="testfile.mpc">Example miniproc script (testfile.mpc)</a>
+
+
+<HR>
+<H2><A name="introduction">Introduction</A></H2>
+Miniproc is a tiny preprocessor for use in formatting HTML
+or other documents, and performing other similar tasks.  It
+may be used to embed preprocessing information for any
+language into the source code, so that platform specific
+versions of the final code result after the presource code
+is processed.  (Like the C preprocessor, but it will work
+with any language.)  Miniproc scripts are case sensitive in
+all locations (variable names, function names, macro names).
+ In order to keep Miniproc very small the script syntax is
+extremely rigid.  Although this can make Miniproc scripts a
+bit ugly, it also eliminates many common coding problems
+(for instance, incorrectly nested if/then/else constructs,
+or use of = for ==, or operator precedence problems).  That
+isn't to say it isn't possible to miscode a Miniproc script,
+just that miscoded scripts will usually exit with an error
+message - which is better than going on to do the wrong
+thing.
+
+It is called "miniproc" because it is a mini processor, and
+because the term "miniproc" appears not to be in general use
+at the time it is written (less than 10 hits in AltaVista on
+22-NOV-1997.)
+
+<A href="#top">table of contents</A>
+<HR>
+<H2><A name="obtaining">Obtaining a copy</A></H2>
+
+To obtain source, documentation, and binaries for several platforms 
+visit the Miniproc home page at: 
+
+  <A href="http://seqaxp.bio.caltech.edu/www/miniproc.html">http://seqaxp.bio.caltech.edu/www/miniproc.html</A>
+
+<A href="#top">table of contents</A>
+<HR>
+<H2><A name="building">Building instructions</A></H2>
+
+Miniproc is completely contained in miniproc.c.  It is an
+ANSI C program, and compiles cleanly on OpenVMS and Irix
+with the pickiest ANSI C compiler settings.  Just compile it
+in ANSI C mode, link it (if that's a separate step on your
+OS), and run it.
+
+
+<A href="#top">table of contents</A>
+<HR>
+<H2><A name="commandline">Command line usage</A></H2>
+
+(This varies a bit with operating system, add quotes
+slashes, etc. as required to pass the double quotes seen
+here):
+
+  miniproc input.mpc int1=123 s1="a string" s2=&123
+
+That is, the first parameter is the name of the first input
+file to open. If that isn't provided, the program prompts
+for one. Subsequent parameters are pairs of
+"variablename"="variablecontents", they are equivalent to
+input file commands like:
+
+  #__ intvar=123
+  #__ stringvar="this is a string"
+  #__ alsostring=&123
+  #__ adouble=1.234
+  #__ an_rpn_operator=.multiply.
+
+Variable names are case sensitive, and you may need to use
+OS specific quoting to get the desired results.  Variables
+may be defined on the command line, but neither macros nor
+functions may be invoked.
+
+When the first argument on the command line after the 
+miniproc command is: help, HELP, -help, -HELP, -h, -H, or ?
+the program outputs the following
+
+  miniproc Version 3.04 - 04-JAN-2000
+  For more information read the file miniproc.doc
+
+and then exits immediately with exit status as "success".
+
+<A href="#top">table of contents</A>
+<HR>
+<H2><A name="commandfile">Command file usage</A></H2>
+Miniproc scripts or command files consist of 2 classes of lines:
+
+1.  Pass through.  A line is read from the current input
+    file, substitutions are performed, and the line is
+    written to the current default output file.  Pass
+    through lines may not be continued.  The substitution
+    tags are &lt;&lt;&gt;&gt; or {{}}, where the contents
+    of the variable named is inserted into that position
+    in the line. These lines may not begin with either the
+    altprefix string or "#__", which are the command line
+    indicators.  If altprefix is set to an empty string, 
+    then there will be no pass through lines.
+
+2.  Commands.  These begin with the altprefix string or
+    "#__" and may be continued by placing a final "-" as
+    the last character on the line, with the final line lacking
+    this character.  There is only one command per command line.
+    The maximum length of a command line is normally 32768
+    characters, but it may be adjusted at compile time up or down.
+    There are exactly 6 types of command line:
+
+    #__! this is a comment              <A href="#comments">Comment lines</A>
+    #__var1=var2                        <A href="#variables">Variable Assignment</A>
+    #__macrnoname parameter parameter   <A href="#macros">Macro invocations</A>
+    #__f$whatever parameter parameter   <A href="#functions">Function invocations</A>
+    #__if/elseif/else/endif test        <A href="#ifelse">If structures</A>
+    #__"#__command"                     <A href="#shorthand">Command pass through</A>
+
+    Commands are read in, continued lines are assembled into
+    a single command, substitutions are performed, and then
+    the final command line is passed to the command line
+    interpreter.  Trailing spaces and tabs on command lines
+    are ignored, as are spaces and tabs between the altprefix
+    string or "#__" and the command.  Multiple spaces and tabs
+    will be reduced to a single space between each token in a
+    command line, and for assignments, white space around "="
+    is allowed, but has no affect.
+
+<A href="#top">table of contents</A>
+<HR>
+<H3><A name="comments">Comment lines</A></H3>
+As with any scripting or programming language, it is
+important to be able to add comments.  Two different types
+of comment lines are allowed, and they can be mixed together
+in various combinations.  Note that comments are removed
+very early during command processing, so that they do not
+appear in TRACE statements. Here is the first form
+
+#__! text
+
+The "!" must follow the command line prefix immediately - no
+intervening characters are allowed.  When this is
+encountered, the entire line is not processed further.
+Comment lines may be inserted inside continued commands, and
+when so placed, do NOT need to have an end of line
+continuation line themselves. 
+
+#__ if  a -
+#__!        comment embeded in a continued command line
+#__            [ 1 2 .+_. ]
+
+Trailing comments may also be placed at the ends of command
+lines. In this format the last character in the line must be
+"!", or if the line is to be continued, the second to last
+character must be "!".  All text forward until the next
+encountered "!" is a comment.  For this reason, trailing
+comments may not include other "!" characters. Examples: 
+
+#__ [ a b c .append_. ] aresult ! trailing comments!
+
+#__ [ a                   ! this is a comment about a !-
+#__   b                   ! this is a comment about b !-
+#__   c                   ! this is a comment about c !-
+#__   .append_. ] aresult ! this is a comment aresult !
+
+Note that none of the lines in this somewhat contrived
+example are trailing comments: 
+
+#__ [ a "!-
+#__abc!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"-
+#__   "!!!!!!!!!!" .append_. ] aresult
+
+It is only possible to place comments on command lines.
+
+<A href="#top">table of contents</A>
+<HR>
+<H3><A name="variables">Variables</A></H3>
+There are an unlimited number of variables.  Variables are
+created when they first appear to the left of "=", or when
+they are the result of a [ ] reverse Polish calculation. 
+(There are also some predefined  variables, see <A href="#reserved">Reserved
+and special variables</A>.) Variables are deleted when they go
+out of scope. ( See <A href="#scope">Scope of variables and macros</A>.)
+Variables can hold integers, double precision real numbers,
+strings, or reverse Polish operators.  For most variables
+once the type is set, it cannot be changed. For certain
+special predefined variables, it can be changed. String
+variables can be used as pointers to other strings or
+integer variables.  Multiple levels of redirection can be
+obtained by prepending as many "*" as needed. Variable names
+may NOT start with a digit, a digit indicates an immediate
+integer value. 
+
+Examples:
+
+#__name="string"       put the <A href="#strings">string literal</A> into name
+     (without the outermost set of quotes.  If it doesn't
+     exist, create it.  The type is determined by the value
+     it will hold.  Double quotes mark off a region from the
+     first pair on the line to the last. So that: ="foobar"
+     "foobar" "boo" will store the string:
+
+       foobar" "foobar" "boo
+
+     This is different from most other languages! Even
+     though Miniproc is written in C, \t,\n and  so forth
+     have no special meaning in strings.
+
+#__name=&string        put the string literal into name
+#__name='string'       "
+#__name=""             reset name value to an empty string
+#__name=''             "
+#__name=&              "
+#__name=name2          copy contents of name2 into name
+#__name=&12            put the string "12" into name
+#__count=12            put the integer 12 into count
+#__name2=&count        name2 contains "count"
+#__pointme1=&name2     pointme1 contains "name2"
+#__pointme2=&count     pointme2 contains "count"
+#__name3=*pointme1     name3 takes on the value of name2 = "count"
+#__count2=*pointme2    count2 takes on the value of count
+#__count2=**pointme1   count2 takes on the value of count
+#__double=1.2          a double precision value
+#__anoper=.multiply_3. an RPN operator
+
+     Strict type matching is enforced.  For instance, this
+     will trigger an error, because count is an integer
+     variable, and double is a double precision.
+
+#__count=double
+
+
+<A href="#top">table of contents</A>
+<HR>
+<H3><A name="strings">Indicating string literals</A></H3>
+There are three ways to indicate "this is a string literal": 
+
+  external quotation = enclose it in double quotes
+       The string extends from the first double quote
+       to the LAST.  Any double quotes within will be
+       part of the string literal.  Only one string
+       contained in external quotes may be used per
+       line.
+
+  internal quotatation = enclose it in single quotes
+       The string extends from the first single quote
+       to the single quote.  If two single quotes in
+       a row, not counting the opening quote, they will
+       be reduced to a single quote within the string.
+       Multiple strings delimited by internal quotes may
+       be used on each line.
+
+  tagged string   = precede with "&"
+       When used in an assignment statement the "&" 
+       indicates a string literal extending from the
+       first character after the "&" to the end of the line.
+
+       When used for command pass through, the "&" indicates
+       that the entire line is to be passed through to the
+       output.
+
+       When used in other locations, the token beginning
+       with "&" and extending to the next tab, space,
+       or end of line is a string.
+
+Externally quoted strings are best used for command
+passthrough and simple string assignments.  The
+advantage of this form is that everything in it goes
+out verbatim, with no possible chance of modification.
+One such string may be used in any other command, but
+be very careful not to use two such strings in one command
+or they will fuse with undesired and unpredictable
+consequences. Examples of good usage:
+
+#__"#__ some comand line"
+#__a = "some "string"!"
+
+In the following example, there is only a single
+externally quoted string (begining with "some"
+and ending with "string") , but it would be
+easy to misinterpret this as consisting of two
+such strings. 
+
+#__[ "some text" a "another string" .append_. ]
+
+Internally quoted strings are similar to strings
+in most other languages.  Here are some examples:
+
+#__A = 'this is a string'
+#__B = 'this isn''t illegal'
+#__C = ''''
+#__[ A B C '''this is ok too''' .showstack_. ]
+3: S: 'this is ok too'
+2: S: '
+1: S: this isn't illegal
+0: S: this is a string
+
+Tagged strings are often most useful for working
+around the quoting system of the command line shell,
+but they are also useful in command passthrough and
+for marking simple tokens as strings.  Examples:
+
+#__&#__ this is a passthrough command
+#__A = &all of this goes into A
+#__ [ &word & &. .showstack_. ]
+2: S: .
+1: S: ZERO LENGTH string 
+0: S: word
+
+<A href="#top">table of contents</A>
+<HR>
+<H3><A name="reserved">Reserved and special variables</A></H3>
+Some variables are reserved and have special meanings
+and uses.  These all have PROGRAM or MINIPROC scope, and may 
+not be removed with a .free. command.  They are:
+
+STATUS
+  Integer returned by macros, functions, and command
+  files.
+  0 = failed, anything else = ok.
+  Functions usually return 1 for ok.
+  To set STATUS on macro exit use f$macro_return or
+    f$macro_break.
+  To set STATUS on input file exit use f$exit or f$break.
+
+RESULT
+  The special variable used by the f$<- function to
+  return the results of a calculation.  It may be
+  either an integer or a string.
+
+altprefix
+  String. The "#__" string always indicates the beginning of
+  a command line.  The altprefix variable specifies a string
+  which also indicates the presence of a command line.  Example:
+
+  #__ altprefix="$"
+  $! the next command and all others can use "$" OR "#__"
+
+  If you use alternate prefixes in command files you should
+  always begin with an altprefix definition, as you cannot know
+  that another routine might not call the miniproc script, and
+  if the calling script uses a different altprefix, or none at
+  all, the called script will fail.  Macros and called scripts
+  keep track of altprefix changes and reset the value correctly
+  when they exit.
+
+convertwidth
+  Integer
+  Sets the maximum size of an output string produced by .d-&gt;s.
+  or .i-&gt;s, and defaults to a value of 32.  This is adequate for
+  conversions where only a single number is output, but inadequate
+  for a conversion embedded in a long text string.  For the latter
+  case, the convertwidth variable must be adjusted upwards so that 
+  the entire formatted string will fit in the output.  Scripts will be
+  more memory efficient if this variable is kept as small as possible
+  for every conversion.
+
+macrosubs
+  Integer
+  Similar to subs, but controls replacements while
+  macros are recording.  The default level is 0 - no
+  replacements while macros are recording.  It is
+  important to note that line continuation resolution
+  occurs during macro execution, so that if a
+  a substituted variable is split across two lines it will not
+  be substituted during recording no matter what
+  macrosubs is set to.
+
+MC1,2,3
+MC1,2,3MAX
+  Integers.
+  These hold macro repeat count information.
+  See f$macro_repeat for more information.
+
+P0
+  Integer
+  The number of special variables passed into a macro.
+
+P1-P9
+  Special variables (integer or string)
+  Used to pass parameters into Macros.  If the corresponding
+  parameter is not supplied, the value of that Pn variable
+  will be a zero length string.
+
+safety
+  Integer
+  Set on command line ONLY to restrict actions taken by
+  possibly hostile input files.  Bit map. Default is 0.
+   1   use only string to the right of /\]>: in file names,
+       disabling paths (excluding the file name passed from
+       the command line)
+   2   disables f$in
+   4   disables f$out (all output to stdout)
+   8   disables f$file_info
+  16   disables f$dir_list
+
+subs
+  Integer
+  The number of levels of &lt;&lt;&gt;&gt; or {{}} substitution to perform.
+  The default is 1, so if a new &lt;&lt;&gt;&gt; is created, it
+  will not be substituted.  If the value is set higher
+  than 1, then after the first full pass through a
+  line a second or third pass will be made.  Set it to
+  something very large and it will go until it cannot find
+  any more &lt;&lt;&gt;&gt;.  If N is set to 0 it will not do
+  any &lt;&lt;&gt;&gt; substitutions.
+
+trace
+  Integer.  Set the trace level, for debugging.
+  This is a bit mask, any bit set causes that
+  operation to be logged to stdout.
+  (But the integer must be specified in decimal syntax!)
+    1   Log command lines
+    2   Log noncommand lines
+    4   Log variable creation
+    8   Log variable setting
+   16   Log macro invocation
+   32   Log function invocation
+   64   Log output lines (to stderr)
+  128   Log results of substitution passes
+  512   Log variable deletion
+  Default is 0, nothing is logged.
+  It is not possible to log command line actions!
+
+<A href="#top">table of contents</A>
+<HR>
+<H3><A name="scope">Scope of variables and macros</A></H3>
+Variables and macros have a defined scope within which they
+exist. "Local" objects have a scope which is strictly
+limited to within the module where they were created.  The
+initial scope of a "global" object, where "global" here
+means "not local", is defined by the time and place of its
+creation. When any variable or macro goes out of scope, it
+is deleted automatically. 
+
+Variables and macros with "local" scope have names which
+begin with a colon, as in ":var".  They may not be promoted
+to a higher scope, and may only be referenced within the
+module (macro or file) where they were defined.  Note that
+"var1" and ":var1" are different variables, and ":var1",
+":macro1" in one module are never the same as in another.  
+"Local" variables may not be set from the command line. 
+
+There are four "global" scope classes, PROGRAM, MINIPROC,
+FILE, and MACRO. Each input file, and each macro which is
+executing has attached to it a list of active objects.  When
+execution of that file or macro terminates all of those
+objects are deleted.  Before this happens, a program may
+promote a "global", but NOT a "local" variable, to a higher
+scope.  For instance, a MACRO variable might be promoted to
+the scope of the file which called it, or the first file, or
+it might just be promoted to the level above it via the
+.lifetime. RPN command.  As a miniproc script executes the
+scope levels become nested as indicated in the following
+diagram: 
+
+  [ PROGRAM [ MINIPROC [ FILE1 [ MACRO1 [ MACRO2 [ FILE2 ...]]]]]]
+
+If Miniproc is used as a standalone program, then the
+PROGRAM and MINIPROC classes are functionally equivalent. 
+If Miniproc is embedded in a program, then the MINIPROC
+scope refers to all variables and macros created within a
+single miniproc run within that program, and PROGRAM
+refers to variables and macros which are carried over
+to subsequent runs.
+
+MACRO scope variables and macros may be promoted to PROGRAM, 
+MINIPROC, or a FILE scope, but not to a higher MACRO scope.
+
+FILE scope variables and macros may be promoted to PROGRAM,
+MINIPROC, or a higher FILE scope, but not to a higher
+MACRO scope.
+
+MINIPROC scope variables and macros may be promoted to
+PROGRAM scope.
+
+PROGRAM scope variables and macros may not be promoted.
+
+More details on automatic scoping:
+
+Global variable or macro "name":
+   Visible in all input files and macros called directly or
+   indirectly from the level at which it was declared (or
+   promoted to).
+   Deleted when program execution goes "above" that level.
+   Internal name = "name"
+Local variable or macro declared in command file "input.mpc",
+but not inside a macro:
+   Visible only in that command file
+   Deleted when "input.mpc" exits.
+   Internal name = "^input.mpc^name"
+Local variable or macro declared in command file "input.mpc",
+inside a macro "amacro":
+   Visible only in that macro inside that command file
+   Deleted when that macro exits.
+   Internal name = "^^input.mpc^amacro^name"
+
+(If you are familiar with DCL from OpenVMS, the scoping
+rules for "global" versus "local" are somewhat similar to those
+for = vs ==, except that there are multiple "global" types.)
+
+It is a very bad idea to refer to local variables indirectly
+through global variables.  That is:
+
+  #__aglobal=&*:var        In one module
+  #__whatever=aglobal      later, in another module
+
+if there is not a local variable ":var" in the new module
+the reference will cause a fatal error.  If there is a local
+variable ":var" it will be referenced instead of the
+original, which is probably not the intended use.
+
+It is ok to pass the values of local variables into a macro
+because the value is copied into the special Pn variables.
+As in:
+
+  #__somemacro :localvar
+
+but local variables should not be passed by reference (by
+name) for the same reason as described above.
+
+The general idea with scopes is that the structure of a 
+miniproc script is "onion-like", with "global" variables 
+defined at each level available to the routines within, but 
+not above.  Sometimes though a routine will need to export
+"global" variables or macros outward several levels.  Here 
+is the simplest example of that - when using miniproc as a 
+preprocessor, for instance, for Fortran, which doesn't have
+its own portable preprocessor.  A file like
+"template_for.mpc" might have near the front some lines
+like: 
+
+#__ f$in "platfrom.mpc"
+#__ if      NONPORTABLE sgi
+code for sgi
+#__ elseif  NONPORTABLE [ hpux du solaris aix .or_. ]
+code for these OS's
+#__ elseif  NONPORTABLE [ wnt vms .or_. ]
+code for these OS's
+#__ endif
+
+The command file "platform.mpc" initializes the OS variables
+which are then used for subsequent conditional processing.
+So it needs to pass these back out, or "promote" them.
+Here is an example of a script which does so.
+
+
+#__!  platform.mpc
+#__!  create and set variables for the assorted platforms
+#__!
+#__ ifnot  PLATFORMDEFINED f$test platform
+Fatal error, the variable "platform" is not defined.
+Supported platforms are:  aix  du  hpux  sgi  solaris  wnt  vms
+
+Add something like this
+
+   platform=vms
+
+to the command line.
+#__    f$break 0 BANG
+#__ endif  PLATFORMDEFINED
+#__!
+#__! This macro creates a variable with the name passed in P1
+#__! and promotes it to FILE scope
+#__!
+#__ f$macro_record test_symbol deck
+#__     [ P1 platform .ccompare. -
+#__       P1 .store. -
+#__       FILE .lifetime. ]
+#__ f$macro_return
+#__ deck
+#__!
+#__! test the allowed OS's
+#__!
+#__ test_symbol &aix
+#__ test_symbol &du
+#__ test_symbol &hpux
+#__ test_symbol &sgi
+#__ test_symbol &solaris
+#__ test_symbol &wnt
+#__ test_symbol &vms
+#__ ifnot  SOMEPLATFORM [ aix du hpux sgi solaris wnt vms .or_. ]
+Platform is &lt;&lt;platform&gt;&gt;, which is not one of these supported
+platforms:    aix du hpux sgi solaris wnt vms.
+#__    f$break 0 BANG
+#__ endif  SOMEPLATFORM
+#__ f$exit
+
+<A href="#top">table of contents</A>
+<HR>
+<H3><A name="shorthand">Command pass through</A></H3>
+Command pass through is a special shorthand for handling
+lines that would normally be interpreted as commands.
+Without the shorthand one of these two forms must be used:
+
+#__var="#__some command line &lt;&lt;name&gt;&gt;"
+#__f$write var
+
+  or
+
+#__var="#__some command line &lt;&lt;name&gt;&gt;"
+&lt;&lt;var&gt;&gt;
+
+But these take two lines and require the creation of a
+temporary variable. The shorthand forms are:
+
+#__"#__some command line &lt;&lt;name&gt;&gt;"
+#__&#__some command line &lt;&lt;name&gt;&gt;
+
+If altprefix is set to an empty string then all lines are
+interpreted as command lines.  In this instance, command pass
+through may be used to send text lines to the default output file.
+
+These are equivalent:
+
+#__! next line goes to output
+This line goes to output var = &lt;&lt;var&gt;&gt;
+
+and
+
+#__altprefix=""
+!   next line goes to output, this one doesn't
+"This line goes to output var = &lt;&lt;var&gt;&gt;"
+
+<A href="#top">table of contents</A>
+<HR>
+<H3><A name="arrays">Array variables</A></H3>
+Miniproc supports two types of arrays.  
+
+The first is a sort of pseudoarray which works because of
+the way variables are accessed by name.  If a series of
+variables is named 
+
+  foo[1], foo[2],... foo[20] 
+
+they will be stored as 20 separate variables.  However, they 
+may be loaded onto the RPN calculator stack all at once with
+the .load. operator, and a series of values may be retrieved
+from the stack and stored in this type of array with the 
+combination of the .array. and .store. operators.  All other
+usage is via substitution operators.  Example:
+
+  #__ i=10
+  #__ j=11
+  #__ foo[&lt;&lt;i&gt;&gt;] = foo[&lt;&lt;j&gt;&gt;]
+
+The command line will substitute the variables to convert
+the last line into:
+
+  #__ foo[10] = foo[11]
+
+The second type of array is a true array.  These may contain
+integer, double, or string values.  A true array holds 
+multiple instances of one type of value in a single variable.
+However, only one cell of each array is active at a time.
+Use the specialized <A href="#rpnops_array">array</A> RPN operators to manipulate arrays
+and the f$macro_map function to map array dimensions onto 
+the repeat counts for macros.  There may be up to 3 
+dimensions per array, and indices within each dimension
+of size N lie between 1 and N.
+
+Example:
+
+Create an integer variable
+
+  #__ iarray=1
+  #__ jarray=2
+
+Convert these to same sized arrays.  The (1,1,1) cell is
+active,  all values are set to 0.  (Real initializes to 0.0
+values, and string to empty strings.) 
+
+  #__ [ 'jarray' 'iarray' 3 4 5 .(dim)_. ]
+  #__"active cell of iarray has value &lt;&lt;iarray&gt;&gt;"
+  active cell of iarray has value 0
+
+Now make another cell active in jarray, store a value
+in it, then transfer it to iarray.
+
+  #__ [ 'jarray' 1 2 3 .(). ]
+  #__ jarray = 5
+  #__ iarray = jarray
+  #__"active cell of iarray has value &lt;&lt;iarray&gt;&gt;"
+  active cell of iarray has value 5
+
+At this point jarray(1,2,3) has value 5, as
+does iarray(1,1,1).  
+
+
+<A href="#top">table of contents</A>
+<HR>
+<H3><A name="functions">Functions</A></H3>
+
+Functions cause certain actions to take place and most
+change the value of one or more variables.  All set the
+variable STATUS (uppercase) when they return. For the rest
+of this, string means either an explicit string, like
+"string" or &string, or a string variable, like name.
+Integer is either an explicit integer like 123, or an
+integer variable like >count<.
+
+  <A href="#f$out">f$out</A>
+  <A href="#f$in">f$in</A>
+  <A href="#f$read">f$read,f$write</A>
+  <A href="#f$exit">f$exit,f$break</A>
+  <A href="#f$date">f$date</A>
+  <A href="#f$file_info">f$file_info</A>
+  <A href="#f$type">f$type</A>
+  <A href="#f$dir_list">f$dir_list</A>
+  <A href="#mathfunctionsnew">[ RPN calculator ] - Math, String, and Logical Operations</A>
+  <A href="#mathfunctions">f$evaluate,f$&lt;- Math, String, and Logical Operations</A>
+
+<A href="#top">table of contents</A>
+<HR>
+<H4><A name="f$out">f$out</A></H4>
+#__f$out filename [filenumber  [disposition]]
+
+  Opens the file "filename" for output.  Filename is
+  a variable name, or "string", or &string.  With
+  no other parameters, it redirects the primary output
+  stream (filenumber 0) to the new file.  Filenumbers
+  may be in the range 0-9, inclusive.
+  Disposition is a string variable and may be either
+  "new" or "append".  Default is "new" - that is, the
+  output file is created when opened.  On most
+  operating systems this will destroy any previous
+  versions, but if file versions are allowed it will
+  just create a new version.  To use disposition you
+  must include a filenumber.  f$out automatically
+  closes open files if a filenumber is reused. If
+  filename is an empty string, it closes that
+  filenumber.
+
+<A href="#top">table of contents</A> <A href="#functions">Functions</A>
+<HR>
+<H4><A name="f$in">f$in</A></H4>
+#__f$in filename [filenumber]
+  Opens the file "filename" for input.  Filename is
+  a variable name, or "string", or &string.  With
+  no other parameters, it redirects the primary input
+  stream (filenumber 10) to the new file.  Filenumbers
+  may be in the range 10-19, inclusive.  The primary
+  input stream may be redirected up to 10 levels deep
+  with f$in commands. When a redirected stream executes
+  f$exit or f$break that input file is closed and the
+  input stream continues from the previous file.
+
+  Filenumbers 11-19 are automatically closed if reused.
+  This does not generate a warning or error.  If
+  filename is an empty string, the file is closed
+  without opening another file.
+
+  Filenumber 10 may only be closed via f$exit or f$break.
+
+<A href="#top">table of contents</A> <A href="#functions">Functions</A>
+<HR>
+<H4><A name="f$read">f$read,f$write</A></H4>
+#__f$read string filenumber
+#__f$write string filenumber
+
+  Read or write a string variable from/to a filenumber.
+  Note that it is VERY DANGEROUS to read from
+  filenumber 0 (the command stream) since any mistakes
+  will corrupt the logic of the script it contains.
+  An input string may not be larger than any input
+  line, but the output string can be any size that the
+  operating system supports.
+
+  Read returns 1 if the read was normal, and 0
+  on any error or EOF.  If the string truncated
+  on read it is a fatal error.
+
+  Write returns 1 for normal operation, 0 for
+  any error.
+
+<A href="#top">table of contents</A> <A href="#functions">Functions</A>
+<HR>
+<H4><A name="f$exit">f$exit,f$break</A></H4>
+#__f$exit  integer [bang]
+#__f$break integer [bang]
+
+  Close current input file and return integer status.
+  If status isn't specified, defaults to 1 (true).
+  If input stream has been redirected, return to last
+  input stream.  When all input streams are closed the
+  program exits.
+
+  If the second parameter is present it causes an
+  immediate exit from the entire program, passing the
+  status value to the operating system.  Either f$exit
+  or f$break may be used for this function anywhere in
+  a miniproc script.
+
+  Use f$exit to exit unconditionally from an input script.
+  f$exit checks for dangling bits from if/elseif/else
+  structures, indicating bad command file syntax.  As a
+  consequence, it may not be used conditionally.
+
+  Use f$break to exit from within an if/elseif/else
+  structure.  f$break does not check for dangling
+  if/elseif/else structures on exit.  f$break may not be
+  used outside of such a structure.
+
+  Except when executing an unconditional program exit,
+  neither of these may be used within a macro.
+
+<A href="#top">table of contents</A> <A href="#functions">Functions</A>
+<HR>
+<H4><A name="f$date">f$date</A></H4>
+#__f$date              sets the following variables (implicitly)
+
+ day                  the day (Sun - Sat)  (string)
+ month                the month (Jan - Dec) (string)
+ dd                   the date (1-31) integer
+ mm                   the month (1-12) "
+ wday                 day of the week (1-7) "
+ yday                 day of the year (1-365) "
+ yyyy                 the year (4 digit) "
+ hour                 the hour (0-23) "
+ minute               the minute (0-59) "
+ second               the second (0-59) "
+ unixtime             store time in Unix format
+
+<A href="#top">table of contents</A> <A href="#functions">Functions</A>
+<HR>
+<H4><A name="f$file_info">f$file_info</A></H4>
+#__f$file_info filename
+
+  sets the following variables for the file named in the immediate
+  string variable filename.
+
+  file_exists          1=true, 0=false
+  file_size            In bytes.  The size may not be exact
+                         on some operating systems and for some
+                         types of files.
+  file_modified        Time file was last modified, in Unix time
+  file_isdir           1=true, 0=false
+
+<A href="#top">table of contents</A> <A href="#functions">Functions</A>
+<HR>
+<H4><A name="f$dir_list">f$dir_list</A></H4>
+#__f$dir_list directory varname
+
+  List the names of all the files included in the 
+  named directory and store them in varname as
+  an array of strings.  varname must exist and be
+  a STRING variable.  Any data in it will be lost
+  when it is filled with the file names.  It will
+  also be redimensioned (if it was already an array)
+  and the active cell set to (1,0,0). If varname
+  is not of string type a fatal error will occur.
+  Pay attention to STATUS after this call. It
+  will be set as follows:
+
+  0  directory could not be opened (probably isn't a directory)
+  1  did a listing, array was created
+  2  directory was empty, no array was created.
+
+<A href="#top">table of contents</A> <A href="#functions">Functions</A>
+<HR>
+<H4><A name="f$type">f$type</A></H4>
+#__f$type name
+
+  Returns the type of the variable named in the
+  immediate string value.
+
+  STATUS    Meaning
+  0         not defined
+  1         integer
+  2         string
+  3         macro
+  4         zero length string
+  5         RPN operator
+  6         double
+
+  The special variables P1-P9 will return a type of 4
+  when they have not been set on a macro call.
+
+<A href="#top">table of contents</A> <A href="#functions">Functions</A>
+<HR>
+<H3><A name="mathfunctionsnew">Reverse Polish Notation calculator</A></H3>
+
+  The RPN calculator provides a simple way to perform most
+  common math and string operations.  The general syntax is:
+
+#__ [ operands arguments .operator. ] var1 var2 ... varN
+
+  <B>The only space in the above line which may be removed
+  is the one before the "[".  If an RPN statement ends with
+  ".... .operator.]" the terminal "]" will not be recognized
+  and a fatal error will result.</B>
+
+  RPN calculations may also be used as the conditional argument of
+  an if/elseif/else statement, as in this example:
+
+#__ if         label  [ var1 var2 var3 .eq_. ]
+   All variables are equal
+#__ elseifnot  label  [ var1 var2 var3 .+_. ]
+   Here if variables add to zero
+#__ endif      label
+
+  More than one operation may be performed within a single
+  use of the RPN calculator.  The RPN calculator is stack
+  based - operands and arguments are pushed onto the stack
+  until an operator is encountered.  Then that operation
+  is performed, and the results, if any, left on the stack.
+  Subsequent operators may act on these results.  Here is
+  a simple example:
+
+#__ [ 1 2 .+. 3 .*. &fred .uppercase. ] thestring theresult
+
+  After this line executes, the integer variable "theresult" will
+  hold the value 9, and the string variable "thestring" will
+  hold "FRED".  The special variable RESULT always also assumes
+  the value left on the stack, so it too is set to "FRED".
+
+  Here are some examples of operators:
+
+  .+.     add the default number of operands (varies
+            by operator usually one or two)
+  .+_4.   add the previous four operands
+  .+_.    add all operands on the stack
+  .+_0.   add all operands on the stack
+
+  The types of operands on the stack are checked, and if
+  they do not match what the operator expects, a fatal error
+  will result.  For instance, this will fail:
+
+#__ [ 2 &fred .+. ]
+
+  Some operators have one or more arguments, in addition to
+  their operands.  For instance:
+
+#__ [ &fred &sally &frank 7 .head_. ]
+
+  Results in the value "fredsal", corresponding to the first
+  7 characters of all stack operands.
+
+  Within the RPN calculator all math operations are done
+  as double precision real numbers.  When an integer
+  value is loaded into the stack it is converted to this
+  type.  When values are unloaded from the stack, floating
+  point numbers may be stored back into preexisting integer
+  variables (in which case they are truncated to the nearest
+  integer) or into floating point variables.  If a new
+  variable is created by receiving the result of an RPN
+  calculation which has a real value, then that variable
+  will have that type as well.  Example:
+
+#__ anint = 5
+#__ adouble = 7.1
+#__ [ anint adouble ] anint adouble
+
+  Result, anint holds the integer value 7, and adouble holds
+  the real value 5.0.
+
+  All RPN operations also set the STATUS variable.
+
+<HR>
+<H4><A name="rpnops_type">RPN calculator operators by type</A></H4>
+
+The following table contains a summary of the RPN calculator
+operators sorted into groups by type. Operand and Argument
+type may be double (D), string (S), or any (A). Operators
+work on min# to max# operands and may also have 1 to 3
+arguments. When max# is MS (MAXSTACK) it means that operands
+may fill the RPN calculator stack all the way to its maximum
+capacity. 
+
+                 Operands  #Arguments
+                   min Type   Action
+Name       class     max
+power      <A href="#rpnops_math">math</A>    2 MS D  0  raise to exponent
+modulo     <A href="#rpnops_math">math</A>    2 MS D  0  take modulo (of integer)
+add        <A href="#rpnops_math">math</A>    2 MS D  0  add
++          <A href="#rpnops_math">math</A>    2 MS D  0  add 
+subtract   <A href="#rpnops_math">math</A>    2 MS D  0  subtract
+-          <A href="#rpnops_math">math</A>    2 MS D  0  subract
+multiply   <A href="#rpnops_math">math</A>    2 MS D  0  multiply
+*          <A href="#rpnops_math">math</A>    2 MS D  0  multiple
+divide     <A href="#rpnops_math">math</A>    2 MS D  0  divide
+/          <A href="#rpnops_math">math</A>    2 MS D  0  divide
+sin        <A href="#rpnops_math">math</A>    1 MS D  0  sine 
+cos        <A href="#rpnops_math">math</A>    1 MS D  0  cosine 
+tan        <A href="#rpnops_math">math</A>    1 MS D  0  tangent 
+asin       <A href="#rpnops_math">math</A>    1 MS D  0  arcsine 
+acos       <A href="#rpnops_math">math</A>    1 MS D  0  arccosine 
+atan       <A href="#rpnops_math">math</A>    1 MS D  0  arctangent 
+expe       <A href="#rpnops_math">math</A>    1 MS D  0  exponent base e 
+exp10      <A href="#rpnops_math">math</A>    1 MS D  0  exponent base 10 
+loge       <A href="#rpnops_math">math</A>    1 MS D  0  natural logarithm 
+log10      <A href="#rpnops_math">math</A>    1 MS D  0  base 10 logarithm 
+deg-&gt;rad   <A href="#rpnops_math">math</A>    1 MS D  0  degrees to radians 
+rad-&gt;deg   <A href="#rpnops_math">math</A>    1 MS D  0  radians to degrees 
+scale      <A href="#rpnops_math">math</A>    1 MS D  X:D
+                              X multiplies operands
+offset     <A href="#rpnops_math">math</A>    1 MS D  X:D
+                              X added to operands
+b-xor      <A href="#rpnops_math">math</A>    1 MS D  X:D
+                              binary xor X with operands
+b-not      <A href="#rpnops_math">math</A>    1 MS D  0  binary not
+b-and      <A href="#rpnops_math">math</A>    2 MS D  0  binary and
+b-or       <A href="#rpnops_math">math</A>    2 MS D  0  binary or
+eq         <A href="#rpnops_logic">logic</A>   2 MS D  0  equal to
+ne         <A href="#rpnops_logic">logic</A>   2 MS D  0  not equal to
+ge         <A href="#rpnops_logic">logic</A>   2 MS D  0  greater than or equal to
+gt         <A href="#rpnops_logic">logic</A>   2 MS D  0  greater than
+lt         <A href="#rpnops_logic">logic</A>   2 MS D  0  less than
+le         <A href="#rpnops_logic">logic</A>   2 MS D  0  less than or equal to
+xor        <A href="#rpnops_logic">logic</A>   2 MS D  0  exclusive or
+not        <A href="#rpnops_logic">logic</A>   1 MS D  0  logical negation
+and        <A href="#rpnops_logic">logic</A>   2 MS D  0  logical and
+or         <A href="#rpnops_logic">logic</A>   2 MS D  0  logical or
+nand       <A href="#rpnops_logic">logic</A>   2 MS D  0  logical not and
+nor        <A href="#rpnops_logic">logic</A>   2 MS D  0  logical not or
+head       <A href="#rpnops_string">string</A>  1 MS S  L:D
+                              extract L characters from
+                              front of catenated string(s)
+tail       <A href="#rpnops_string">string</A>  1 MS S  L:D
+                              extract L characters from
+                              back of catenated string(s)
+segment    <A href="#rpnops_string">string</A>  1 MS S  B:D L:D
+                              extract L characters from
+                              position B in catenated string(s)
+append     <A href="#rpnops_string">string</A>  2 MS S  X:S
+                              catenate strings separated X
+uppercase  <A href="#rpnops_string">string</A>  1 MS S  0  convert string(s) to upper case
+lowercase  <A href="#rpnops_string">string</A>  1 MS S  0  convert string(s) to lower case
+shortest   <A href="#rpnops_string">string</A>  1 MS S  0  return shortest string
+longest    <A href="#rpnops_string">string</A>  1 MS S  0  return longest string
+eliminate  <A href="#rpnops_string">string</A>  1 MS S  X:S 
+                              eliminate chars in X from string(s)
+retain     <A href="#rpnops_string">string</A>  1 MS S  X:S 
+                              retain chars in X in string(s)
+element    <A href="#rpnops_string">string</A>  1 MS S  X:S I:D
+                              return element I of string(s)
+                              delimited by X.
+locate     <A href="#rpnops_string">string</A>  1 MS S  Q:S
+                              find position of Q in string(s)
+compare    <A href="#rpnops_string">string</A>  1 MS S  Q:S
+                              case sensitive compare Q to string(s)
+ccompare   <A href="#rpnops_string">string</A>  1 MS S  Q:S 
+                              case insensitive compare Q to string(s)
+length     <A href="#rpnops_string">string</A>  1 MS S  0  length of string(s)
+lexhigh    <A href="#rpnops_string">string</A>  2 MS S  0  lexically highest value from strings
+lexlow     <A href="#rpnops_string">string</A>  2 MS S  0  lexically lowest value from strings
+stringdel  <A href="#rpnops_string">string</A>  1 MS S  Q:S 
+                              find and eliminate string Q
+resize     <A href="#rpnops_string">string</A>  1 MS S  L:D 
+                              named variables resized to L 
+storage    <A href="#rpnops_string">string</A>  1 MS S  0  show available storage for variables
+substitute <A href="#rpnops_string">string</A>  1 MS S  L:D 
+                              do L rounds of substitution
+edit       <A href="#rpnops_string">string</A>  1 MS S  T:S 
+                              apply T edit operation to string(s)
+d-&gt;s       <A href="#rpnops_convert">convert</A> 1 MS D  F:S 
+                              write double to string using format F
+i-&gt;s       <A href="#rpnops_convert">convert</A> 1 MS D  F:S 
+                              write integer to string using format F
+s-&gt;d       <A href="#rpnops_convert">convert</A> 1 MS S  F:S 
+                              read double from string using F
+s-&gt;i       <A href="#rpnops_convert">convert</A> 1 MS S  F:S 
+                              read integer from string using F
+array      <A href="#rpnops_stack">stack</A>   1 MS S  N:D 
+                              load var[1] to var[N] onto stack
+delete     <A href="#rpnops_stack">stack</A>   1 MS A  0  remove indicated range in stack
+duplicate  <A href="#rpnops_stack">stack</A>   1 MS A  0  duplicate the range of stackentries
+elements   <A href="#rpnops_stack">stack</A>   1 MS S  X:S N:D
+                              expand N elements from X delimited
+                              string(s) onto stack.
+load       <A href="#rpnops_stack">stack</A>   1 MS A  0  push a variable(s)'s values onto stack
+rot-&gt;down  <A href="#rpnops_stack">stack</A>   2 MS A  0  rotate entries down over stack range
+rot-&gt;up    <A href="#rpnops_stack">stack</A>   2 MS A  0  rotate entries up over stack range
+showstack  <A href="#rpnops_stack">stack</A>   0 MS A  0  print range of RPN stack
+stacksize  <A href="#rpnops_stack">stack</A>   1 MS A  0  number of entries is saved onstack
+swap       <A href="#rpnops_stack">stack</A>   1 MS A  X:D 
+                              swap up to X stack entries
+                              over range indicated in operator.
+(dim)      <A href="#rpnops_array">array</A>   1 MS S  X:D  Y:D  Z:D
+                              convert variable(s) to array(s) with
+                              dimensions(X,Y,Z)
+()         <A href="#rpnops_array">array</A>   1 MS S  X:D  Y:D  Z:D
+                              make cell (X,Y,Z) active in
+                              the named array(s)
+(showdim)  <A href="#rpnops_array">array</A>   1  1 S  0  put the dimensions on the RPN stack
+(showcell) <A href="#rpnops_array">array</A>   1  1 S  0  put the indices for the active cell
+                              on the RPN stack
+(scale)    <A href="#rpnops_array">array</A>   1 MS S  X:D 
+                              multiply all array cells by X
+(offset)   <A href="#rpnops_array">array</A>   1 MS S  X:D 
+                              add X to all array cells
+(subdim)   <A href="#rpnops_array">array</A>   1 MS S  X:D  Y:D  Z:D
+                              specify that array is an assembly
+                              of smaller arrays of indicated
+                              dimensions.  Only used for array
+                              multiplication                          
+constant   <A href="#rpnops_misc">misc</A>    1 MS S  0  save integer value of predefined
+                              constant(s) on the stack
+debug      <A href="#rpnops_misc">misc</A>    1 MS A  0  print string(s)
+free       <A href="#rpnops_misc">misc</A>    1 MS S  0  delete the named variable(s)
+getenv     <A href="#rpnops_misc">misc</A>    1 MS S  0  return values of environmental
+                              variables
+lifetime   <A href="#rpnops_misc">misc</A>    1 MS S  N:D 
+                              promote the last N variables or
+                              macros created to the liftetime
+                              specified by the operand.
+store      <A href="#rpnops_misc">misc</A>    1 MS A  X:S 
+                              store stack value into variable X
+showscope  <A href="#rpnops_misc">misc</A>    0 MS A  0  print lifetimes of extant variables
+setdepth   <A href="#rpnops_misc">misc</A>    1 MS S  X:D 
+                              apply depth X to an RPN operator
+
+<HR>
+<H4><A name="rpnops_name">RPN calculator operators by name</A></H4>
+The following table contains a summary of the RPN calculator
+operators. Operand and Argument type may be double (D),
+string (S), or any (A). Operators work on min# to max#
+operands and may also have 1 to 3 arguments. When max# is MS
+(MAXSTACK) it means that operands may fill the RPN
+calculator stack all the way to its maximum capacity. 
+
+                 Operands  #Arguments
+                   min Type   Action
+Name       class     max
++          <A href="#rpnops_math">math</A>    2 MS D  0  add 
+-          <A href="#rpnops_math">math</A>    2 MS D  0  subract
+*          <A href="#rpnops_math">math</A>    2 MS D  0  multiple
+/          <A href="#rpnops_math">math</A>    2 MS D  0  divide
+()         <A href="#rpnops_array">array</A>   1 MS S  X:D  Y:D  Z:D
+                              make cell (X,Y,Z) active in
+                              the named array(s)
+(dim)      <A href="#rpnops_array">array</A>   1 MS S  X:D  Y:D  Z:D
+                              convert variable(s) to array(s) with
+                              dimensions(X,Y,Z)
+(offset)   <A href="#rpnops_array">array</A>   1 MS S  X:D 
+                              add X to all array cells
+(scale)    <A href="#rpnops_array">array</A>   1 MS S  X:D 
+                              multiply all array cells by X
+(showcell) <A href="#rpnops_array">array</A>   1  1 S  0  put the indices for the active cell
+                              on the RPN stack
+(showdim)  <A href="#rpnops_array">array</A>   1  1 S  0  put the dimensions on the RPN stack
+(subdim)   <A href="#rpnops_array">array</A>   1 MS S  X:D  Y:D  Z:D
+                              specify that array is an assembly
+                              of smaller arrays of indicated
+                              dimensions.  Only used for array
+                              multiplication                          
+acos       <A href="#rpnops_math">math</A>    1 MS D  0  arccosine 
+add        <A href="#rpnops_math">math</A>    2 MS D  0  add
+and        <A href="#rpnops_logic">logic</A>   2 MS D  0  logical and
+append     <A href="#rpnops_string">string</A>  2 MS S  X:S
+                              catenate strings separated X
+asin       <A href="#rpnops_math">math</A>    1 MS D  0  arcsine 
+array      <A href="#rpnops_stack">stack</A>   1 MS S  N:D 
+                              load var[1] to var[N] onto stack
+atan       <A href="#rpnops_math">math</A>    1 MS D  0  arctangent 
+b-and      <A href="#rpnops_math">math</A>    2 MS D  0  binary and
+b-or       <A href="#rpnops_math">math</A>    2 MS D  0  binary or
+b-not      <A href="#rpnops_math">math</A>    1 MS D  0  binary not
+b-xor      <A href="#rpnops_math">math</A>    1 MS D  X:D
+                              binary xor X with operands
+ccompare   <A href="#rpnops_string">string</A>  1 MS S  Q:S 
+                              case insensitive compare Q to string(s)
+compare    <A href="#rpnops_string">string</A>  1 MS S  Q:S
+                              case sensitive compare Q to string(s)
+constant   <A href="#rpnops_misc">misc</A>    1 MS S  0  save integer value of predefined
+                              constant(s) on the stack
+cos        <A href="#rpnops_math">math</A>    1 MS D  0  cosine 
+d-&gt;s       <A href="#rpnops_convert">convert</A> 1 MS D  F:S 
+                              write double to string using format F
+debug      <A href="#rpnops_misc">misc</A>    1 MS A  0  print string(s)
+deg-&gt;rad   <A href="#rpnops_math">math</A>    1 MS D  0  degrees to radians 
+delete     <A href="#rpnops_stack">stack</A>   1 MS A  0  remove indicated range in stack
+divide     <A href="#rpnops_math">math</A>    2 MS D  0  divide
+duplicate  <A href="#rpnops_stack">stack</A>   1 MS A  0  duplicate the range of stackentries
+edit       <A href="#rpnops_string">string</A>  1 MS S  T:S 
+                              apply T edit operation to string(s)
+element    <A href="#rpnops_string">string</A>  1 MS S  X:S I:D
+                              return element I of string(s)
+                              delimited by X.
+elements   <A href="#rpnops_stack">stack</A>   1 MS S  X:S N:D
+                              expand N elements from X delimited
+                              string(s) onto stack.
+eliminate  <A href="#rpnops_string">string</A>  1 MS S  X:S 
+                              eliminate chars in X from string(s)
+eq         <A href="#rpnops_logic">logic</A>   2 MS D  0  equal to
+expe       <A href="#rpnops_math">math</A>    1 MS D  0  exponent base e 
+exp10      <A href="#rpnops_math">math</A>    1 MS D  0  exponent base 10 
+free       <A href="#rpnops_misc">misc</A>    1 MS S  0  delete the named variable(s)
+
+ge         <A href="#rpnops_logic">logic</A>   2 MS D  0  greater than or equal to
+getenv     <A href="#rpnops_misc">misc</A>    1 MS S  0  return values of environmental
+                              variables
+gt         <A href="#rpnops_logic">logic</A>   2 MS D  0  greater than
+head       <A href="#rpnops_string">string</A>  1 MS S  L:D
+                              extract L characters from
+                              front of catenated string(s)
+i-&gt;s       <A href="#rpnops_convert">convert</A> 1 MS D  F:S 
+                              write integer to string using format F
+le         <A href="#rpnops_logic">logic</A>   2 MS D  0  less than or equal to
+length     <A href="#rpnops_string">string</A>  1 MS S  0  length of string(s)
+lexhigh    <A href="#rpnops_string">string</A>  2 MS S  0  lexically highest value from strings
+lexlow     <A href="#rpnops_string">string</A>  2 MS S  0  lexically lowest value from strings
+lifetime   <A href="#rpnops_misc">misc</A>    1 MS S  N:D 
+                              promote the last N variables or
+                              macros created to the liftetime
+                              specified by the operand.
+load       <A href="#rpnops_stack">stack</A>  1 MS A  0  push a variable(s)'s values onto stack
+locate     <A href="#rpnops_string">string</A>  1 MS S  Q:S
+                              find position of Q in string(s)
+loge       <A href="#rpnops_math">math</A>    1 MS D  0  natural logarithm 
+log10      <A href="#rpnops_math">math</A>    1 MS D  0  base 10 logarithm 
+longest    <A href="#rpnops_string">string</A>  1 MS S  0  return longest string
+lowercase  <A href="#rpnops_string">string</A>  1 MS S  0  convert string(s) to lower case
+lt         <A href="#rpnops_logic">logic</A>   2 MS D  0  less than
+modulo     <A href="#rpnops_math">math</A>    2 MS D  0  take modulo (of integer)
+multiply   <A href="#rpnops_math">math</A>    2 MS D  0  multiply
+nand       <A href="#rpnops_logic">logic</A>   2 MS D  0  logical not and
+ne         <A href="#rpnops_logic">logic</A>   2 MS D  0  not equal to
+nor        <A href="#rpnops_logic">logic</A>   2 MS D  0  logical not or
+not        <A href="#rpnops_logic">logic</A>   1 MS D  0  logical negation
+offset     <A href="#rpnops_math">math</A>    1 MS D  X:D
+                              X added to operands
+or         <A href="#rpnops_logic">logic</A>   2 MS D  0  logical or
+power      <A href="#rpnops_math">math</A>    2 MS D  0  raise to exponent
+
+rad-&gt;deg   <A href="#rpnops_math">math</A>    1 MS D  0  radians to degrees 
+resize     <A href="#rpnops_string">string</A>  1 MS S  L:D 
+                              named variables resized to L 
+retain     <A href="#rpnops_string">string</A>  1 MS S  X:S 
+                              retain chars in X in string(s)
+rot-&gt;up    <A href="#rpnops_stack">stack</A>   2 MS A  0  rotate entries up over stack range
+rot-&gt;down  <A href="#rpnops_stack">stack</A>   2 MS A  0  rotate entries down over stack range
+s-&gt;d       <A href="#rpnops_convert">convert</A> 1 MS S  F:S 
+                              read double from string using F
+s-&gt;i       <A href="#rpnops_convert">convert</A> 1 MS S  F:S 
+                              read integer from string using F
+scale      <A href="#rpnops_math">math</A>    1 MS D  X:D
+                              X multiplies operands
+segment    <A href="#rpnops_string">string</A>  1 MS S  B:D L:D
+                              extract L characters from
+                              position B in catenated string(s)
+setdepth   <A href="#rpnops_misc">misc</A>    1 MS S  X:D 
+                              apply depth X to an RPN operator
+shortest   <A href="#rpnops_string">string</A>  1 MS S  0  return shortest string
+showscope  <A href="#rpnops_misc">misc</A>    0 MS A  0  print lifetimes of extant variables
+showstack  <A href="#rpnops_stack">stack</A>   0 MS A  0  print range of RPN stack
+sin        <A href="#rpnops_math">math</A>    1 MS D  0  sine 
+stacksize  <A href="#rpnops_stack">stack</A>   1 MS A  0  number of entries is saved onstack
+storage    <A href="#rpnops_string">string</A>  1 MS S  0  show available storage for variables
+store      <A href="#rpnops_misc">misc</A>    1 MS A  X:S 
+                              store stack value into variable X
+stringdel  <A href="#rpnops_string">string</A>  1 MS S  Q:S 
+                              find and eliminate string Q
+substitute <A href="#rpnops_string">string</A>  1 MS S  L:D 
+                              do L rounds of substitution
+subtract   <A href="#rpnops_math">math</A>    2 MS D  0  subtract
+swap       <A href="#rpnops_stack">stack</A>   1 MS A  X:D 
+                              swap up to X stack entries
+                              over range indicated in operator.
+tail       <A href="#rpnops_string">string</A>  1 MS S  L:D
+                              extract L characters from
+                              back of catenated string(s)
+tan        <A href="#rpnops_math">math</A>    1 MS D  0  tangent 
+uppercase  <A href="#rpnops_string">string</A>  1 MS S  0  convert string(s) to upper case
+xor        <A href="#rpnops_logic">logic</A>   2 MS D  0  exclusive or
+<HR>
+<H4><A name="rpnops_detail">Details of RPN calculators operators</A></H4>
+<H3><A name="rpnops_math">math operators</A></H4>
+Arithmetic operators:
+
+  operators         Example                      Equivalent
+    +,add           [ 4 5 .+. ]                   [ 9 ]
+    +,add           [ 1 2 3 4 5 .+_. ]            [ 15 ]
+    +,add           [ .1 .2 .3 4 .+_. ]           [ 4.6 ]
+    -,subtract      [ 4 5 .-. ]                   [ -1 ]
+    *,multiply      [ 4 5 .*. ]                   [ 20 ]
+    /,divide        [ 4 5 ./. ]                   [ .8 ]
+    power           [ 2 3 .power. ]               [ 9 ]
+                    [ 2 3 4 .power_. ]            [ 2 64 .power.] 
+                    [ 2 64 .power.]               [ 4096 ]
+    modulo          [ 3 5 .modulo. ]              [ 2 ]
+                    [ 3 5 8 .modulo. ]         [ 3 3 .modulo. ]
+                    [ 3 3 .modulo. ]              [ 0 ]
+
+Bitwise operators: (be aware of possible <a href="#rpnops_bitlimit">limitations</a>)
+
+  operators         Example                      Equivalent
+    b-or            [ 1 2 4 .b-or_. ]             [ 7 ]
+    b-and           [ 1 2 4 .b-and_. ]            [ 0 ]
+    b-xor           [ 8 2 4 7 .b_xor_. ]          [ 15 5 3 ]
+[ A B C N .b_xor_. ]              [ A N .b_xor. B N .b_xor. C N .b_xor. ]
+    b-nor           [ 128 .b_nor. 255 .b_and. ]     [ 127 ]
+
+Double precision numeric operators:
+  (In all cases the result is a double precision real value.)
+
+   deg-&gt;rad             degrees to radians
+         [ 180 .deg-&gt;rad. ]   [ 3.14159 ]
+   rad-&gt;deg             radians to degrees
+         [ 3.14159 rad-&gt;deg ]  [ 179.999848 ]
+   sin, cos, tan        Trigonometric functions, arguments in radians.
+         [ 1.5708 .sin. ]      [ 1 ]
+         [ 1.5708 .cos. ]      [ -3.673205103e-06 ]  (due to rounding)
+         [ .7854  .tan. ]      [ 1.000003673 ]
+   asin, acos, atan     Trigonometric functions, results in radians.
+         [ 0.0 .asin. ]        [ 0.0 ]
+         [ 0.0 .acos. ]        [ 1.570796327 ]
+         [ 1.0 .atan. ]        [ 0.7853981634 ]
+   expe, exp10          Standard exponential functions
+         [ 1.0 .expe. ]        [ 2.718281828 ]
+         [ 1.0 .exp10. ]       [ 10.0 ]
+   loge, log10          Standard logarithmic functions.
+         [ 2.718281828 .loge ] [ 1.0 ]
+         [ 0.1 .log10. ]      [ -1.0 ]
+
+<A href="#top">table of contents</A>  <A href="#mathfunctionsnew">[ RPN calculator ]</A>
+<HR>
+<H3><A name="rpnops_logic">Logic operators</A></H3>
+
+Logical values are 0 = false, 1 = true.
+
+    not             [ 9 0 -5 0 .not_. ]               [ 0 1 0 1 ]
+
+    xor is the logical exclusive or.  For more than two operands,
+    the logic is:   "true if (not all true AND not all false)"
+
+    xor             [ 0 0 1 .xor_. ]              [ 1 ]
+                    [ 1 2 3 .xor_. ]              [ 0 ]
+
+    For the following, if there are more than two operands,
+    the logic applied is:
+    [ a b c .operator_.] = [ a .operator. b .operator. c ]
+    All require at least two operands.
+
+    and             [ 0 1 2 .and. ]                [ 0 ]
+                    [ 2 1 3 .and_. ]               [ 1 ]
+                    [ 0 1 2 .and_. ]               [ 0 ]
+    or              [ 0 0 9 .or_. ]                [ 1 ]
+                    [ 0 0 0 .or_. ]                [ 0 ]
+    nand            [ 2 1 3 .and_. ]               [ 0 ]
+                    [ 0 1 3 .and_. ]               [ 1 ]
+    nor             [ 0 0 9 .or_. ]                [ 0 ]
+                    [ 0 0 0 .or_. ]                [ 1 ]
+
+Numeric comparison logic
+    Minimum of two numeric operands
+    Logical numerical result (0 = false, 1 = true)
+
+  For more than two operands, the logic is:
+  [ a b c .operator_.] = [ a b .operator. a c .operator. .and. ]
+
+    eq              [ 2 1 3 .eq_. ]               [ 0 ]
+                    [ 2 2 2 .eq_. ]               [ 1 ]
+                    [ 2.1 2.09 .eq_. ]            [ 0 ]
+    neq             [ 2 1 3 .neq_. ]              [ 1 ]
+                    [ 2 1 2 .neq_. ]              [ 0 ]
+    ge              [ 2 1 3 .ge_. ]               [ 0 ]
+                    [ 2 1 2 .ge_. ]               [ 1 ]
+    le              [ 2 1 3 .le_. ]               [ 0 ]
+                    [ 2 3 2 .le_. ]               [ 1 ]
+    gt              [ 2 1 3 .gt_. ]               [ 0 ]
+                    [ 2 1 0 .gt_. ]               [ 1 ]
+    lt              [ 2 1 3 .lt_. ]               [ 0 ]
+                    [ 2 3 4 .lt_. ]               [ 1 ]
+
+<A href="#top">table of contents</A>  <A href="#mathfunctionsnew">[ RPN calculator ]</A>
+<HR>
+<H3><A name="rpnops_string">String operators</A></H3>
+
+    append   [ &fred &jane &mary &, .append_. ] [ 'fred,jane,mary' ]
+      Append the indicated operands separated by the supplied
+      delimiter string (which may be an empty string.)
+
+    ccompare   [ &foo &this &This &this .ccompare_. ]  [ 0 1 1 ]
+      Result = 1 if argument matches an operand, ignoring case.
+      0 otherwise.
+
+    compare    [ &foo &this &This &this .compare_. ]   [ 0 1 0 ]
+      Result = 1 if argument exactly matches an operand, 0 otherwise.
+
+    edit         [ &,A,B,.C, &compress &,. .edit. ]     [ &,A,B,C, ]
+                 [ &,A,B,.C, &collapse &,. .edit. ]     [ &ABC ]
+                 [ &,A,B,.C, &classify &., .edit. ]     [ &.A.B.C. ]
+                 [ &,A,B,.C, &trim     &,. .edit. ]     [ &A,B,.C ]
+      Edit operations similar to DCL f$edit, except that the
+      list of characters to act on must be explicitly supplied.
+      Classify is similar to compress, except that the character
+      used to replace a run which matches the set in that list
+      is the first from the list supplied, whereas from compress
+      it is just the first in the run of characters.
+                  
+    element         [ &A,B,C 1 &, .element. ]     [ &A]
+                    [ &A,B,C &W,YZ 2 &, .element_. ]
+                                                [ &B &YZ ]
+                    [ &A,B,C &W,YZ 10 &, .element_. ]
+                                                [ &EMPTY &EMPTY ]
+      Select an element from the string operands, delimiter
+      determined by one argument, the number of the element
+      by the other.  When no element matches, STATUS is set
+      to false, and a zero length string is entered onto the
+      stack, here shown as &EMPTY.
+
+    elements        [ &A,B,C 5 &, .element. ]     [ &A &B &C &EMPTY &EMPTY]
+                    [ &A,B,C 1 &, .element_. ]    [ &A ]
+      Expands up to N elements in the operand string and
+      leaves them all on the stack.  Operates ONLY on the
+      single preceding string, .elements,.elements_., and
+      .elements_3. are all equivalent.  Delimiter determined
+      by one argument, the number of the elements to extract
+      by the other.  When elements are missing, STATUS is set
+      to false  and as many zero length strings as are 
+      required are entered onto the stack, here shown as &EMPTY.
+
+    eliminate  [ &First &Tried &ir .eliminate_. ]    [ &Fst &Ted ]
+      Eliminate from operands any characters that are in argument.
+
+    head   [ &fred &sally &frank 7 .head_. ]     [ &fredsal ]
+           [ &fred &sally &frank 100 .head_. ] [ &fredsallyfrank ]
+      Extract argument characters starting from the first character
+      and working backwards, looking only at the indicated operands.
+
+    length           [ & &this &the .length_. ]        [ 0 4 3 ]
+      Replace each string operand with its length.
+
+    lexhigh         [ &ABC &abc &abc2 .lexhigh. ]  [ &ABC ]
+    lexlow          [ &ABC &abc &abc2 .lexlow. ]   [ &abc ]
+      Compare operands for lexical value pairwise and find
+      the highest/lowest.  If in one pair the lengths are not
+      equal, and they are identical up to the length of the
+      shorter of the two, the longer one has the higher
+      lexical value.
+
+    locate      [ &56 &1234 &34abc &34 .locate_. ]     [ 0 3 1 ]
+      Find the position of the argument ("34") in each of
+      the string operands.  Returns zero if it isn't found.
+      Search is case sensitive.
+
+    longest         [ &A &ab &1234 .shortest_. ]   [ &1234 ]
+      Select the longest of the indicated operands.
+
+    lowercase       [ &Fred .lowercase. ]        [ &fred ]
+      Change the case in the indicated operands.
+
+    retain          [ &First &Tried &FTir .retain_. ]
+                                                     [ &Fir &Tri ]
+      Retain in operands only characters that are in argument.
+
+   resize          [ &var1 &var2 1000 .resize_. ]      none
+     The named variable's string memory area is increased/decreased
+     to the size provided in the argument.  If the string is
+     truncated by the resize a terminating character is applied in
+     the final remaining position, and STATUS is set to 0.  The
+     argument may not be smaller than 1, which is a null string (a
+     single terminating character.)
+
+    segment    [ &first &second &third &fourth 4 10 .segment_3. ]
+                                                  [ 'ondthirdfo' ]
+      Start from the 3rd operand down into the stack (4 and 10
+      are arguments), beginning at the 4th character found, scan up
+      through the remaining operands and extract a total of
+      10 characters.
+
+    shortest        [ &A &ab &1234 .shortest_. ]   [ &A ]
+      Select the shortest of the indicated operands.
+
+    storage        [ &var1 &var2 .resize_. ]      [ 100 1000 ]
+      The named variable's string memory area is checked, and the
+      allocated memory size is stored in the stack.  The example
+      shown says that 100 charcters will fit in var1, 1000 in var2.
+      Note that this is NOT the length of the string, use the
+      .length. operator to find that value, rather it is one more
+      than the maximum string length (because a '\0' must be
+      present on the end of any string.
+
+    substitute [ "a &lt;&lt;foo&gt;&gt; fly" 1 .substitute. ]     [ "a foo_contents fly" ]
+               [ "a &lt;&lt;foo&gt;&gt; fly" subs .substitute. ]     [ "a foo_contents fly" ]
+            or
+               [ "a {{foo}} fly" 1 .substitute. ]     [ "a foo_contents fly" ]
+               [ "a {{foo}} fly" subs .substitute. ]     [ "a foo_contents fly" ]
+
+      Causes the &lt;&lt;&gt;&gt; or {{}} substitution operators
+      to be applied to the string variable(s) in the stack.  The single
+      integer parameter is the substitution level, to use
+      the current default, use the form shown in the second
+      example, which references the special variable
+      "subs", containing this default.  Note that the example shown
+      here would only work in a Macro.  If read directly from a file
+      and executed the substitution would take place before the RPN
+      calculator was invoked. 
+
+    stringdel  [ &First &Tried &ir .stringdel_. ]   [ &Fst &Tried ]
+      Eliminate from operands the substring matching the argument.
+      Search is case sensitive.
+
+    tail   [ &fred &sally &frank 7 .tail_. ]     [ &lyfrank ]
+           [ &fred &sally &frank 100 .tail_. ]   [ &fredsallyfrank ]
+      Extract argument characters starting from the final character
+      and working forward, looking only at the indicated operands.
+
+    uppercase       [ &Fred .lowercase. ]        [ &FRED ]
+      Change the case in the indicated operands.
+
+<A href="#top">table of contents</A>  <A href="#mathfunctionsnew">[ RPN calculator ]</A>
+<HR>
+<H3><A name="rpnops_array">Array operators</A></H3>
+
+    (dim)      [ 'array' 3 4 5 .(dim). ]
+       Converts a regular variable (integer, string, float) 
+       into an array with dimensions (3,4,5).  Sets the
+       active cell to (1,1,1).  Initializes all cell values
+       in the array to:
+         integer = 0
+         float   = 0.0
+         string  = ''   (empty string
+
+    ()        [ 'array' 1 2 3 .(). 5 .store. ]
+       Makes the (1,2,3) cell active, then put the value
+       5 into it.
+
+    (showdim)   [ 'array' .showdim. ]    [ 3 4 5 ]
+       Extracts the dimensions of the array and leaves them
+       on the RPN calculator stack.
+
+    (showcell)  [ 'array' .showcell. ]   [ 1 2 3 ]
+       Extracts the indices which define the active cell
+       and leaves them on the RPN calculator stack.
+
+    (scale)     [ 'array' 0.5 .scale. ]
+       Multiplies all cells in an array of double precision
+       real numbers by 0.5.  (scale) may only be applied to
+       this type of array.
+
+    (offset)   [ 'array' 1000 .scale. ]
+       Adds 1000 to all cells in an array of double precision
+       real numbers.  (offset) may only be applied to
+       this type of array.
+
+    (subdim)   [ 'array' 3 1 1 .(subdim). ]
+       Indicates that the array is to be treated as an assembly
+       of smaller arrays of the indicated dimensions.  
+       This is only used for array multiplication.  Example,
+       an array has dimensions (5,2000), where the first 3 
+       values of each line are (x,y,z) values.  After the
+       (subdim) command above, multiplication by a rotation
+       matrix would act on the first 3 values of each 
+       "record" independently.  (MATRIX MULTIPLICATION
+       has not yet been implemented.)
+
+<A href="#top">table of contents</A>  <A href="#mathfunctionsnew">[ RPN calculator ]</A>
+<HR>
+<H3><A name="rpnops_misc">Miscellaneous operators</A></H3>
+
+   constant     [ 'command_trace' .constant. ] [ 1 ]
+     Look up the name of one of the predefined constants and
+     place the value on the stick.  Case is ignored. Valid for
+     these constant names only:
+
+     Bit values for trace:
+       ADDVAR_TRACE, COMMAND_TRACE, DELVAR_TRACE, FULLNAME_TRACE,
+       FUNCTION_TRACE, INPUT_TRACE, MACRO_TRACE, OUTPUT_TRACE,
+       SETVAR_TRACE, SUBS_TRACE
+
+     Bit values for sets in complex find (NOT IMPLEMENTED YET):
+       ALPHANUMERIC, CONTROL, HEX, LETTERS, LOWER, NUMERIC,
+       PUNCTUATION, UPPER, VISIBLE, WHITESPACE
+
+     MAXINLINE  the length of the input/substitution buffer.
+
+   debug        [ string .debug. ]           NONE
+     Used to send messages to the debug device (which differs from
+     platform to platfrom and between standalone and embedded miniproc.
+     All other IO is to files.
+
+   free [ &:local &global .free_. ]           NONE
+     Deletes the named variables, whether "local" or "global".
+     Special variables may not be deleted.
+
+   getenv           [ &USER .getenv. ]               [ &USER'S_NAME ]
+     Replaces each operand with the contents of the matching
+     environmental variable.  STATUS is always true, but is 1 if
+     the variable exists, 2 if not (in which case an empty string
+     goes into the stack at that position.) getenv may not be present
+     on all operating systems.
+
+   lifetime         [ &file 4 .lifetime. ]            [ [
+     Promote the last 4 variables and/or macros declared at,
+     or promoted to, the current scope to the FILE scope.
+     Promotions are described below.  Promotion to PROGRAM
+     only differs from promotion to MINIPROC when miniproc 
+     is used as an embedded command processor.
+
+        From       To        Result
+        MACRO      FILE      scope of active file
+        MACRO      UPFILE    \  scope of file above active file, 
+        FILE       UPFILE    /  or uppermost active file
+        MACRO      TOPFILE   scope of uppermost active file
+        FILE       TOPFILE   scope of uppermost active file
+        MACRO      MINIPROC  scope of miniproc instance
+        FILE       MINIPROC  scope of miniproc instance
+        MACRO      PROGRAM   \
+        FILE       PROGRAM   + scope of program (for embedded Miniproc)
+        MINIPROC   PROGRAM   /
+        FILE       FILE      no change in scope
+
+   setdepth      [ &rpnoper 4 .setdepth. ]         rpnoper = .add+4.
+     Sets the depth of an RPN operator. Zero means the whole stack.
+     Used in conjuction with .stacksize. to adjust depth of RPN
+     operators before use, for instance, if rpnoper = .add., then
+       [ 1 2 3 4 5 6 7 &rpnoper .stacksize. 3 .subtract. rpnoper ]
+     is equivalent to
+       [ 1 2 3 4 5 6 7 .add_5. ]
+
+   showscope     [ .showscope. ]           NONE
+     Sends a summary of the scopes of extant variables to the primary output
+     file.  Useful primarily for debugging .lifetime. and garbage 
+     collection interactions.
+
+<A href="#top">table of contents</A>  <A href="#mathfunctionsnew">[ RPN calculator ]</A>
+<HR>
+<H3><A name="rpnops_convert">String/Numeric conversions</A></H3>
+     Minimum of one operand of the appropriate type for the conversion.
+     Result specific to conversion type.
+
+   <B><I>Note 1.  The single argument is an ANSI C formatting string.
+
+   Note 2.  As with ANSI C, there is nothing to prevent you 
+   from applying the wrong format string to a given type
+   conversion. This will not usually crash a script, but the results
+   will often be incorrect.
+
+   Note 3.  The size of the output string created by the 
+   .d-&gt;s. and .i-&gt;s. is set by the convertwidth special
+   variable, which has a default value of 32.  If the resultant
+   string will be bigger than that, this variable must be adjusted
+   upwards.</I></B>
+
+ Convert a number as a double precision real to a string.
+
+    d-&gt;s        [-2 1234.1 "%e" .d-&gt;s_. ]
+                                [ &-2.000000e+00 &1.234100e+03 ]
+
+ Convert a number as an integer to a string. Numbers are
+ stored on the stack as double precision real numbers, before
+ the format is applied this number is first converted to
+ an integer.
+
+   i-&gt;s        [-2 1234.1 "%d" .i-&gt;s_. ]
+                                              [ &-2 &1234 ]
+ 
+ Example where convertwidth had to be adjusted <b>before</b>
+ the string was written.
+
+   #__ cstring="This is too long for the standard convertwidth. [%d]"
+   #__ [ cstring .length. 8 .+. ] convertwidth
+   #__ [ 123 cstring .i-&gt;s_. ]
+   #__ convertwidth=32
+
+ Convert a string to a double precision real.
+
+   s-&gt;d        [ "-2.0" "1234.1" "%le" .s-&gt;d_. ]
+                                              [ -2.0 1234.1 ]
+
+ Convert a string to an integer.  The integer is then further
+ converted to a double precision real before being stored on
+ the stack.
+
+    s-&gt;i        [ "-2.2" "1234.1" "%le" .s-&gt;i_. ]
+                                              [ &-2 &1234 ]
+
+                    [ "1F" "%x" .s-&gt;i_. ]     [ 31 ]
+                    [ "17" "%o" .s-&gt;i_. ]     [ 15 ]
+
+  Method to insert Unix "new line" or other control characters
+  into a string:
+
+     [ 'foo' 'boo' 'blue' 10 '%c' .i->s. .append_. ] string
+
+     string contains foo(LF)boo(LF)blue.  Warning, it may not 
+     be safe to print this string on some platforms!  There
+     is no supported method for inserting the string terminator
+     character into a string.
+
+  Using the wrong format type will often crash miniproc with
+  an access violation.  Here's one command line that did just
+  that:
+
+     [ 10 '%s' .i->s. ]
+
+<A href="#top">table of contents</A>  <A href="#mathfunctionsnew">[ RPN calculator ]</A>
+<HR>
+<H3><A name="rpnops_stack">Stack operators</A></H3>
+
+
+   array        [ &name 3 .array. ]      [ &name[3] &name[2] &name[1] ]
+     Load an "array" of names onto the stack. The values
+     corresponding to these variables may then be loaded
+     with the .load. command. The variables may be created
+     with the .store. command.  Only operates on the single
+     string variable named.  .array., .array_. and .array_3.
+     are all equivalent.
+
+   delete       [ &1 &2 &3 &4 &5 1 .swap_3. ]   [ &1 &2 ]
+     Removes the range of operands indicated by the operator
+     _ extension from the stack.
+
+   duplicate    [ 2 &this &1 .duplicate_2. ]   [ 2 &this &1 &this &1 ]
+     Duplicate argument operands, starting from the operand
+     indicated by the operator's _ extension.
+
+   load  [ &var1 &var2 .load_2. ]      [ value_of_var1 value_of_var2 ]
+     Load the values from the named variables onto the stack, replacing
+     the name with the value.  It will NOT load an array (the inverse
+     of a .store_n. operation).  To do so, use .array. first.
+
+   rot-&gt;down    [ &1 &2 &3 &4 &5 .rot-&gt;down_. ]   
+                                               [ &5 &1 &2 &3 &4 ]
+     Rotate stack operands in range shown down by one position.
+     Bottom rotates up to fill top of stack.
+
+   rot-&gt;up      [ &1 &2 &3 &4 &5 .rot-&gt;up_. ]   
+                                               [ &2 &3 &4 &5 &1 ]
+     Rotate stack operands in range shown up by one position.
+     Top rotates down to fill bottom of stack.
+
+   showstack    [ 1 &this .showstack_. ]           NONE
+     Sends a summary of the stack contents to the primary output
+     file.  Useful primarily for debugging RPN calculations.
+
+   stacksize    [ &a 2 &b .stacksize. ]      [  &a 2 &b 3 ]
+     Puts the number of stack variables present, not counting
+     itself, onto the stack.
+
+   store  [ var1 var2 &name .store_2. ]      [ var1 var2 ] name[2] name[1]
+          [ var3 &name .store. ]             name = var3
+     Variables created and assigned like: name[1] = var2, name[2] = var.
+     If only one variable is created, then no [#] is appended.
+
+   swap  [ &1 &2 &3 &4 &5 &6 1 .swap_. ]   [ &6 &2 &3 &4 &5 &1] 
+    [1]  [ &1 &2 &3 &4 &5 &6 2 .swap. ]    [ &1 &2 &3 &4 &5 &6] 
+         [ &1 &2 &3 &4 &5 &6 2 .swap_. ]   [ &6 &5 &3 &4 &2 &1] 
+         [ &1 &2 &3 &4 &5 &6 1000000000 .swap_. ]   [ &6 &5 &4 &3 &2 &1] 
+
+     Swap the variables on the stack from the top to the bottom.
+     The operand is the maximum number of variables to move.
+     The range is from the top of the stack down to the variable
+     indicated by the the .swap. operator _ extension.  If the
+     operand is at least as large as half the range, the order
+     of the range is reversed.  A range of 1 variable is possible,
+     and legal, but has no effect on the order of the operands
+     in the stack (see first example.)  The last example shows
+     a safe way to swap all variables on the stack without knowing
+     the size of the stack, as the stack will never be a billion
+     variables in size.
+
+<A href="#top">table of contents</A>  <A href="#mathfunctionsnew">[ RPN calculator ]</A>
+<HR>
+<H3><A name="rpnops_bitlimit">bitwise operators - limitations</A></H3>
+    Floating numeric value in RPN stack is converted to unsigned integer,
+    operated on, and converted back.  Some platforms may not be able to
+    operate on one or more of the highest bits due to conversion problems!
+    Conversions are:
+      less than zero                 = zero
+      more than max unsigned integer = max unsigned integer
+      float  (128.4)                 = int (128)
+      int    (128)                   = float (128.0)
+
+<A href="#top">table of contents</A>  <A href="#mathfunctionsnew">[ RPN calculator ]</A>
+<HR>
+<H4>f$evaluate</H4>
+<H4>f$&lt;-</H4>
+
+#__f$evaluate result op operand operand operand ...
+#__f$<-              op operand operand operand ...
+
+These were available in versions of Miniproc lower than 2.0.  They
+have been removed and the newer reverse Polish notation implemented.
+If either of these functions is encountered in a script it will
+trigger an error message and an immediate exit.
+
+<A href="#top">table of contents</A> <A href="#functions">Functions</A>
+<HR>
+<H3><A name="macros">Macros</A></H3>
+
+Macros contain a series of lines, command or pass through,
+and are permanent, they may be recorded exactly one time.
+Macro names must start with a letter, and may not be the
+same as a variable name. Macros are invoked by name.  If the
+name doesn't correspond to a known macro it is assumed to be
+a string variable, with the value of that variable being the
+macro's name.  Examples:
+
+  foobar       Execute the macro named foobar
+  string       Execute the macro named in the string variable
+  *string      Execute the macro pointed to by the string variable.
+
+Macros accept up to 9 parameters which are passed by value.
+(To pass a variable by name just enclose it in double quotes
+or precede it with an &).
+
+  #__name "foo" &boo name2 1 count
+
+The preceding line says execute the macro "name", and pass
+it the string literals foo and boo (which may be the names
+of other variables), the value of name2 and count, and the
+integer value 1.  Parameters show up inside a Macro in
+variables P1 - P9. These are special variables, and may
+contain either strings or integers. They may not contain a
+macro, but may contain the name of a macro. Since P
+variables are globals, if a macro will invoke another macro,
+it must first save the contents of the P variables in named
+variables. To pass more than one string literal, use string
+variables or & operators:
+
+  #__null=""
+  #__name &foo null null null 10
+
+or either of these forms
+
+  #__name &foo & & & 10
+  #__name "foo" "" "" "" 10
+
+but this won't work as expected
+
+  #__name "foo" " " " " " " 10
+
+as the use of " " to enclose spaces is only
+allowed in a variable assignment statement.
+
+For macros (but not functions) you can use local
+variables to pass a string which, in effect, contains
+spaces.  Pass the values like this:
+
+  #__name "foo&lt;&lt;:s&gt;&gt;has&lt;&lt;:s&gt;&gt;spaces"
+
+and inside the macro name (but NOT in the calling
+routine have this local variable assignment)
+
+  #__ :s = " "
+
+If subs is at least 2, this line in the macro:
+
+  P1 is [&lt;&lt;P1&gt;&gt;]
+
+would be substituted out to:
+
+  P1 is [foo has spaces]
+
+
+<A href="#top">table of contents</A> <A href="#macros">Macros</A>
+<HR>
+<H4><A name="f$macro_record">f$macro_record</A></H4>
+#__f$macro_record name [deck]
+
+  Create and begin recording a macro.  When a macro
+  is recording it goes in verbatim.  Substitutions
+  are performed if the special variable <B>macrosubs</B> is
+  is set to a positive value.  However, no other
+  processing of any kind is performed.
+  Only one macro may be recording at a time.
+  The name is a literal string, the only way to
+  change it during execution is by &lt;&lt;var&gt;&gt;
+  substitution.  deck is also a string literal.
+  Deck terminates the macro when it appears on a line
+  like #__deck.  If deck is not supplied it
+  defaults to "f$macro_end".
+
+  It is a fatal error to try to rerecord a macro,
+  so if there is any chance that a file will be
+  reexecuted during a single run, protect the macros
+  as you would C header files, like this:
+
+  #__ifnot f$test macroname
+  #__f$macro_record macroname deck
+  ...(macro contents)...
+  #__deck
+  #__endif a
+<A href="#top">table of contents</A> <A href="#macros">Macros</A>
+<HR>
+<H4><A name="f$macro_create">f$macro_create</A></H4>
+#__f$macro_create name
+
+  Create and begin recording a macro.  Differs from
+  f$macro_record in that rather than passively storing
+  the commands as they are read in from a file, all output
+  is redirected to the macro, so that it may be constructed
+  under program control.  This also allows macros to be
+  constructed on the fly, without having to write them
+  to a file and then read them back in.  (On most systems 
+  this offers a huge speed advantage.)  Note that the
+  special variable <b>subs</b> controls substitutions,
+  and that <b>macrosubs</b> is ignored.
+  
+  Recording terminates when f$macro_end executes. 
+
+  Example of usage:
+
+  #__f$macro_create foobar
+  "#__! this macro doesn't do much"
+  #__! now do some hairy calculation in a macro
+  #__! that stores 3 command lines in A,B, and C.
+  #__! normally it would just write them there, but
+  #__! this is an illustration
+  #__ hairy_macro
+  &lt;&lt;A&gt;&gt;
+  &lt;&lt;B&gt;&gt;
+  &lt;&lt;C&gt;&gt;
+  " it also writes this one line"
+  "#__f$macro_return 1"
+  #__f$macro_end
+
+  It is a fatal error to try to rerecord a macro
+  so if there is any chance that a file will be
+  reexecuted during a single run, protect the macros
+  as you would C header files, like this:
+
+  #__ifnot f$test macroname
+  #__f$macro_record macroname deck
+  ...(macro contents)...
+  #__deck
+  #__endif a
+
+<A href="#top">table of contents</A> <A href="#macros">Macros</A>
+<HR>
+<H4><A name="f$macro_break">f$macro_break, f$macro_return</A></H4>
+#__f$macro_break status
+#__f$macro_return status
+
+  The final command in any macro MUST be an
+  f$macro_return. Following the execution of an
+  f$macro_return statement, the macro's counters are
+  incremented, and if the counter limits have not
+  been reached, another iteration of the macro is
+  performed.  The function also checks syntax for
+  dangling if/elseif/else/endif constructs.  
+
+  Use f$macro_break to immediately terminate a macro
+  and return to the calling script or macro.  No further
+  iterations of the macro will be performed, no matter
+  what the setting of the iteration counters.  
+  f$macro_break is only used within conditional
+  statements, and it does not check syntax for incomplete
+  if structures. 
+
+  Macros return a status value in the integer
+  variable STATUS.  Status defaults to 1 (true) unless
+  it is explicitly set.
+
+<A href="#top">table of contents</A> <A href="#macros">Macros</A>
+<HR>
+<H4><A name="f$macro_repeat">f$macro_repeat</A></H4>
+#__f$macro_repeat name [int1 [int2  [int3]]]]
+
+  Defines up to 3 repeat counters that are initiated
+  each time the named macro is executed.  These are
+  named MC1, MC2, and MC3, with corresponding range
+  limits of MC1MAX, MC2MAX, and MC3MAX.  These are
+  readonly integer variables.  (Actually, you can
+  rewrite their values, but they are reset on each
+  repeat through the macro without regard to your
+  actions.)  The default setting for f$macro_repeat is
+  that the macro executes once.
+
+    #__f$macro_repeat foobar 3 2
+
+  Means that the macro command
+
+    #__foobar
+
+  would execute 6 times, and while it did so the
+  counter MC1 would count from 1 to 3, and for each
+  of those, the counter MC2 would count from 1 to 2.
+
+    #__f$macro_repeat foobar 0
+
+  Disables the macro foobar.  The next instance of
+
+    #__foobar
+
+  would be skipped, without even touching the STATUS
+  variable.
+<A href="#top">table of contents</A> <A href="#macros">Macros</A>
+<HR>
+<H4><A name="f$macro_body">f$macro_body</A></H4>
+#__f$macro_body
+
+  This command is used within a macro to delineate a 
+  "header" region, which is only executed on the first cycle, 
+  and a "body" region, which is executed on each cycle.  
+  F$macro_body eliminates the need for an explicit test of 
+  MC1,MC2,MC3 to detect the condition "first cycle in this 
+  macro."  Example:
+
+  #__f$macro_record ncount deck
+  #__   :a=P1
+  #__ f$macro_body
+  #__   &lt;&lt;:a&gt;&gt;
+  #__   [ :a 1 .+. ] :a
+  #__ f$macro_return 1
+  #__ deck
+  #__f$macro_repeat ncount 2 2
+  Start at  5
+  #__ ncount  5
+  Start at 15
+  #__ ncount 15
+
+  Would output:
+
+  Start at  5
+  5
+  6
+  7
+  8
+  Start at 15
+  15
+  16
+  17
+  18
+
+  Because the initialization of the local variable :a
+  would only occur on the first cycle of each invocation
+  of the macro "ncount".
+
+<A href="#top">table of contents</A> <A href="#macros">Macros</A>
+<HR>
+<H4><A name="f$macro_map">f$macro_map</A></H4>
+#__f$macro_map
+
+  This command maps the size of an array onto the repeat
+  values for a macro.  It is provided as a convenience so
+  that the dimensions needn't be extracted from the array
+  and then applied separately with f$macro_repeat.  The
+  dimensions of a single array may be mapped onto multiple
+  macros in one operation.  Example:
+
+  An array "bigR" exists and has dimensions (3,4,5).
+  A macro "sumarray" exists which looks like this:
+
+  #__! a macro which sums all elements of an array
+  #__f$macro_record sumarray deck
+  #__   :a=0
+  #__ f$macro_body
+  #__   [ P1 MC1 MC2 MC3 .(). :a .+. ] :a
+  #__ f$macro_return :a
+  #__ deck
+
+  Then to use sumarray on bigR do:
+
+  #__ f$macro_map bigR sumarray
+  #__ sumarray bigR
+
+<A href="#top">table of contents</A> <A href="#macros">Macros</A>
+<HR>
+<H3><A name="ifelse">If structures</A></H3>
+
+#__ifnot     label test
+#__if        label test
+#__elseif    label test
+#__elseifnot label test
+#__else      label
+#__endif     label
+
+  If, elseif, else structure.
+
+  Label is an arbitrary immediate string, case sensitive.
+  If a variable is to be used for the label it must
+  be substituted all the way to a value, ie
+
+    #__if &lt;&lt;alabel&gt;&gt;  test
+
+  The function of the label is to allow detection of
+  overlapping if structures at run time.
+  The "not" forms invert the logic of the test.
+
+
+  Test  type   interpretation
+  int          0 = false, anything else is true
+  string       Zero length string is false, anything else is true
+  *string      As for string, but indirect reference
+  macro        Check STATUS returned, 0 is false, anything else
+                  true.  Note that a macro which has been set to
+                  loop zero times returns a status of 1 when
+                  invoked, so if used in a test in this state it
+                  will always be true.
+  function     Check STATUS, false if 0, true if not.
+  [ RPN calculator ]
+               Check STATUS, if 0, this is a fatal error.
+               Oterwise, check the value of RESULT (which is set
+               implicitly on RPN calculator exit to be the most
+               recent value on the stack).
+
+  Examples:
+
+  #__ intvar = 0
+  #__ dblvar = 0.0
+  #__ stringvar = &
+  #__!
+  #__ if       label    intvar
+    not here, as intvar is not nonzero
+  #__ elseif   label    dblvar
+    not here, as dblvar is not nonzero
+  #__ elseif   label    stringvar
+    not here, as stringvar is a zero length string
+  #__ elseif   label    f$type nonexistant
+    not here, as the type of an undeclared variable is 0
+  #__ elseif   label    somemacro arg1 arg2
+    maybe here, depends on the return status of the macro
+    somemacro
+  #__ elseif   label    [ intvar 1 .lt. ]
+    here, because the calculation returns a STATUS of 1
+    (no error, otherwise there would have been a "fatal
+    error" program exit) and a RESULT of 1.0 (not zero,
+    so true.)
+  #__ endif    label
+
+<A href="#top">table of contents</A>
+<HR>
+<H3><A name="loop">Loop structures</A></H3>
+The only loop mechanism in miniproc is to use <A href="#f$macro_repeat">f$macro_repeat</A>
+to set the repeat counters for a macro, and then execute
+that macro. There is no way to set an infinite loop
+condition since the counter limits are finite.  However, if
+you do
+
+  #__f$macro_repeat foobar 2000000000 2000000000 2000000000
+  #__foobar
+
+that is effectively the same thing as an infinite loop,
+since the macro will take 8 x 10^27 cycles to complete.
+
+Typical loop structures can be implemented within a macro
+without much difficulty.  For instance:
+
+do 100 times
+
+  #__f$macro_record do100 deck
+  ...(operations)...
+  #__f$macro_return 1
+  #__deck
+  #__f$macro_repeat do100 100
+
+do while variable is true
+
+  #__f$macro_record dowhile deck
+  #__if    a variable
+  ...(operations)...
+  #__else  a
+  #__  f$macro_break 1
+  #__endif a
+  #__f$macro_return 1
+  #__deck
+
+do until variable is true
+
+  #__f$macro_record dountil deck
+  ...(operations)...
+  #__if    a variable
+  #__  f$macro_break 1
+  #__endif a
+  #__f$macro_return 1
+  #__deck
+
+and so forth.
+
+<A href="#top">table of contents</A>
+<HR>
+<H3><A name="substag">&lt;&lt;&gt;&gt; embedded substitution tags</A></H3>
+The &lt;&lt;&gt;&gt; and {{}} substitution tags are the only
+miniproc operations that can be mixed with other characters in an output line.
+Two types of tags are supplied so that one or the other may be used in 
+any given environment.  For instance,  &lt;&lt;&gt;&gt; will be mangled by 
+any program operating on HTML, so use {{}} for that application.  <B><I>Do 
+not mix the two types of substitution tags within a single line as the 
+result is not specified and will likely not be what you want.</I></B>
+
+&lt;&lt;&gt;&gt; and {{}} substitutions are done before ANYTHING else
+on each line.  See above for the action of "subs", which
+controls how many times the line is processed to remove
+&lt;&lt;&gt;&gt; or {{}}.  The * operator does not work inside
+&lt;&lt;&gt;&gt; or {{}}, that is &lt;&lt;*name&gt;&gt; will not resolve to whatever
+name points to.  This is not an error, it will leave &lt;&lt;*name&gt;&gt;
+as is on the output line.
+
+  &lt;&lt;name&gt;&gt;              Insert the string variable text.
+  &lt;&lt;name&gt;&gt;              Insert the integer variable into text.
+
+Typical usage might be:
+
+  #__whichstory=&weapon
+  #__whichpocket="right coat"
+  #__killer="Robert"
+  #__! then much, much later...
+  #__! the next three lines have some single or double
+  #__! substitutions and then go right to the output
+  "I have an invitation to dinner," said &lt;&lt;killer&gt;&gt; as he
+  gripped the &lt;&lt;&lt;&lt;whichstory&gt;&gt;&gt;&gt; in his &lt;&lt;whichpocket&gt;&gt; 
+  pocket ever more tightly.
+
+See <a href="testfile.mpc">testfile.mpc</a> for an example miniproc script.
+
+<A href="#top">table of contents</A>
+
+<HR>
+<H2><A name="versions">Version specific incompatibilities</A></H2>
+Version 2.  Eliminated f$evaluate and f$&lt;-, introduced the []
+   RPN calculator.
+
+Version 3.  Garbage collection introduced along with a much more
+   complex "global" scope scheme for variables and macros.  Scripts
+   for previous versions may fail when run with Version 3 because
+   expected variables and macros may have been deleted when they
+   went out of scope.  It should be relatively easy to find
+   these problems by just running the scripts - missing macros and
+   variables will generate warnings.
+   
+
+<A href="#top">table of contents</A>
+
+<HR>
+<H2><A name="limits">Limits</A></H2>
+There is a length limit of 32768 characters
+which applies to:
+<UL>
+command lines <BR>
+fully substituted command lines<BR>
+pass through lines<BR>
+fully substituted pass through lines<BR>
+</UL>
+This limit does not apply anywhere else in Miniproc. In
+particular, f$read and f$write can handle arbitrarily long
+strings, as can the RPN calculator.  This limit may be adjusted
+at program compilation by defining MAXINLINE to be some other value.
+<A href="#top">table of contents</A>
+<HR>
+<H2><A name="gotchas">Common programming errors</A></H2>
+Here are some of the programming errors which are
+easy to make when writing miniproc scripts.  Most
+of these will generate a fatal error when the script runs.
+
+Missing spaces in RPN calculations.
+<UL>
+#__ [ 1 2 .+.] output
+
+which should have been
+
+#__ [ 1 2 .+. ] output
+</UL>
+
+Assumed substitution level does not match
+real one.
+<UL>
+#__ &lt;&lt;&lt;&lt;variable&gt;&gt;&gt;&gt;
+
+Fails to substitute completely because subs is only 1.
+Or, the inverse error, it isn't supposed to substitute 
+all the way, but does, because subs is 10.
+</UL>
+
+Invalid file numbers.  These are the only ones 
+which may be used:
+<UL>
+  f$in  10-19, 10 is the default
+  f$out 0 - 9,  0 is the default
+</UL>
+
+When altprefix has been set to "" (null string) there will
+be no passthrough lines without quoting, and blank lines
+will generate a fatal error as they become empty commands. 
+
+Example:
+
+  #__ foo = 1
+  #__
+  #__ "one blank line in output before this one"
+  #__ altprefix=""
+  foo = 2
+
+  "won't get here, because preceding blank line is"
+  "an illegal empty command, not a blank line to"
+  "the default output.  See next line for blank output"
+  ""
+
+Never mix &lt;&lt;&gt;&gt; and {{}} on a line.  The result
+of this construct is not specified and will likely not be
+what you want.  For instance, don't try any of the following:
+
+   "&lt;&lt;{{var}}&gt;&gt;"
+   "&lt;&lt;{{var&gt;&gt;}}"
+
+The next form will usually work but is still a bad idea:
+   "&lt;&lt;var&gt;&gt;  {{var2}}" 
+
+<A href="#top">table of contents</A>
+<HR>
+<H2><A name="copyright">Copyright</A></H2>
+Copyright 1997, 1998, 1999 by David Mathog and 
+the California Instititute of Technology.
+
+This software may be used freely, but may not be
+redistributed.  You may modify this sofware for your own
+use, but you may not incorporate any part of the original
+code into any other piece of software which will then be
+distributed (whether free or commercial) unless prior
+written consent is obtained.
+
+<A href="#top">table of contents</A>
+<HR>
+<H2><A name="bugs">Reporting bugs, getting more information</A></H2>
+
+ For more information, or to report bugs, contact:
+
+   mathog@seqaxp.bio.caltech.edu
+
+<A href="#top">table of contents</A>
+<HR>
+</PRE>
+</BODY>
+</HTML>

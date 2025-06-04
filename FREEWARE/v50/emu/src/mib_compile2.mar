@@ -1,0 +1,1057 @@
+	.TITLE	MIB_COMPILE2
+	.IDENT	/V1-002/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;
+; 001	APR-1995	PB	Creation
+; 002   Feb-1996	PB      fixed name and objid lens to allow for 
+;				max 64 byte lens.
+; 003	May-1997	PB	Made type table entries 8 bytes long (from 4)
+;				4 not long enough to always be unique.
+;++
+;1 MIB_COMPILE2
+; Programme to read .MC1 files from MIB_COMPILE1 and convert the entries
+; for direct use by MIBWALKER and EMU utilities.
+;
+;
+;2 Inputs
+; Any .MC1 file previously generated (and possible subsequetialy edited)
+; by MIB_COMPILE1.
+;
+; 
+;3 Input_rec_fmt
+; 
+; Field		     Desc
+; ObjID		     ASN.1 encoded object ID
+; ObjName	     Name as in MIB
+; Mdatatype	     As given in SYNTAX statemenmt in MIB
+; Access	     As given in ACCESS statemenmt in MIB
+; 
+;  Each field is .ascii with a '/' seperating the fields             
+;  This file is editable before input to MIB_COMPILE2
+; 
+;2 Output
+; The Binary file, named with the same name as input but with extension
+; .MC2. e.g. File rfc1287-mib.mc1 is processed into rfc1287-mib.MC2.
+;3 Outp_rec_fmt
+; Field		Offs	len		desc
+; Objid         0         64      .ascic ASN.1 encoded object id             
+; Name          64        64      .ascic Name of the object                  
+; Type          128        4       symbol showing object type (detail below)  
+; access        132        4       symbol showing access
+; Entry type	136	   4	  direct, or table part (see below)
+; Spare		140	   4	  Align/spare
+;                                                                          
+;2 Description
+;
+; The intention is to group like entries together. Like entries are either
+; standalone (get directly on objid works) and part of a logical 
+; division within the MIB or table entries.  An example of how tables are 
+; specified follows: (output from MIB_COMPILE1)
+;1.3.6.1.2.1.3.1/atTable/SEQUENCE OF AtEntry/not-accessible/
+;1.3.6.1.2.1.3.1.1/atEntry/AtEntry/not-accessible/
+;1.3.6.1.2.1.3.1.1.1/atIfIndex/INTEGER/read-write/
+;1.3.6.1.2.1.3.1.1.2/atPhysAddress/PhysAddress/read-write/
+;1.3.6.1.2.1.3.1.1.3/atNetAddress/NetworkAddress/read-write/
+;1.3.6.1.2.1.4.1/ipForwarding/INTEGER/read-write/
+; This is the Address Translation (at) table. The name is of the table is 
+; the name specified when type is SEQUENCE OF.... (atTable). The entry point 
+; to the table in this case is atEntry. This entry specifies the len of the 
+; objid that is common to this table (1.3.6.1.2.1.3.1.1). This programme
+; uses that to determine the entries in the table. Given all that, 
+; an entry is specified
+; as either direct (not a table entry) or as a table part (table name, table
+; entry point or table entry)
+;--   
+; Temp symbols
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+	$DSCDEF
+        $IODEF          ;Define I/O functions and modifiers
+	$SSDEF
+	$SMGDEF
+	$TRMDEF
+	EMUSNMPDEF	; SNMP 
+
+	.PSECT	MIB_COMPILE2_D,WRT,NOEXE,PIC,SHR,QUAD
+
+OBJID_DESC:	.QUAD
+NAME_DESC:	.QUAD
+ACCESS_DESC:	.QUAD
+TYPE_DESC:	.QUAD
+OUTPFAB:	
+	$FAB	FAC = <PUT>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; 
+		DNA = MIBDIR,-
+		MRS = MC_MIBT_C_RECSIZE,-	; Fixed record size
+		DNS = MIBDIRSIZ,-
+		ORG = SEQ,-
+		RFM = FIX,-
+		RAT = CR			; 
+OUTPRAB:	
+	$RAB	FAB = OUTPFAB,-		; pointer to FAB
+		RBF = OUTBUF,-		; o/p buffer 
+		RSZ = MC_MIBT_C_RECSIZE,-		; Write this many bytes
+		UBF = OUTBUF,-		; i/p buffer 
+		USZ = MC_MIBT_C_RECSIZE		; Write this many bytes
+;
+INFAB:	$FAB	FAC = <GET>,-			; Access
+		DNA = MIBDIR,-
+		DNS = MIBDIRSIZ,-
+		ORG = SEQ,-
+		RAT = CR			; 
+
+INRAB:	$RAB	FAB = INFAB,-		; pointer to FAB
+		RBF = INBUF,-		; o/p buffer 
+		RSZ = MC_MIBT_C_RECSIZE,-	; Write this many bytes
+		UBF = INBUF,-		; i/p buffer 
+		USZ = MC_MIBT_C_RECSIZE		; Write this many bytes
+;
+; Record buffers
+INBUF:		.BLKB	MC_MIBT_C_RECSIZE  
+OUTBUF:		.BLKB	MC_SYMT_C_LEN 
+FILENAME:	.BLKB	40
+FILENAME_LEN:	.LONG	0
+
+	.ALIGN LONG
+; File extentions:
+EMDEXT:		.ASCII	/.MC2/
+MIBDIR:		.ASCII	/EMU5_MIB:/
+MIBDIRSIZ = .-MIBDIR
+; FAO
+FAOBUF:		.BLKB	132
+FAODESC:
+FAOLEN:		.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+WCNT:		.LONG	0	; Lines written
+LCNT:		.LONG	0       ; Lines read
+;
+
+; Messages
+FILEPRMPT:	.ASCID	/ Filename>/
+NOFILMSG:	.ASCID	/ Could not open file !AD/
+CONTMSG:	.ASCID	/ Continue? (^Z if no)>/
+READERRMSG:	.ASCID	/ File Read Error : !XL/
+FMTERRMSG:  	.ASCID	/ Error in field !AC, Value = !AD/
+STATSFMT:	.ASCID	/ Lines read = !UL, Symbols written = !UL/
+;
+	.ALIGN	LONG
+F1:	.ASCIC	/Data Type /
+F2:	.ASCIC	/Access    /
+F3:	.ASCIC	/Name      /
+F4:	.ASCIC	/Object Id /
+FIELD_TABLE:
+	.ADDRESS	F1
+	.ADDRESS	F2
+	.ADDRESS	F3
+	.ADDRESS	F4
+TYPE_TABLE:
+	.ASCII	/TimeTick/	; Time ticks
+	.ASCII	/OBJECT I/  ; Object Identifier
+	.ASCII	/DisplayS/  ; Display String
+	.ASCII	/INTEGER /  ; Integer
+	.ASCII	/SEQUENCE/  ; Sequence
+	.ASCII	/Gauge   /  ; Gauge
+	.ASCII	/PhysAddr/  ; Physical Address (MAC)
+	.ASCII	/Counter /  ; COunter
+	.ASCII	/IpAddres/  ; IP Addr
+	.ASCII	/NetworkA/  ; Network Addr (IP)
+	.ASCII	/OCTET ST/  ; Octet string
+	.ASCII	/BridgeID/  ; Bridge Id
+	.ASCII	/MacAddre/  ; Mac (Physical)
+	.ASCII	/FddiSMTS/  ; SMT STATION ID - Process as BridgeID
+	.ASCII	/FddiMACL/  ; Mac (Physical)
+
+
+	.LONG	
+ACCESS_TABLE:
+	.ASCII	/read-onl/	
+	.ASCII	/write-on/
+	.ASCII	/read-wri/
+	.ASCII	/not-acce/
+	.LONG	0		;
+NONE:	.ASCII	/NONE/		; Special case  
+IMPT:	.ASCII	/IMPO/          ; Special case  
+TOPOID:	.ASCII	/1.3./
+;
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 45
+VD_COLS: 	.LONG 80
+VD_DISP2:	.LONG		; Display 2
+VD_ROW2:	.LONG 	3
+VD_COL2:	.LONG	80      ;
+;
+; Optional Display Characteristics
+;
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	5
+PB_BOARD2:	.LONG 		; Pasteboard ID 2
+PB_COL2:	.LONG	1      ; Position for DISP2
+PB_ROW2:	.LONG 	1
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           	; Virtual Keyboard ID
+KB_BUF:		.BLKB	80		; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 	2
+W3:    		.LONG 	3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+UPCASE:		.LONG	TRM$M_TM_CVTLOW 	;Convert lower to upper case
+CHOICE:		.WORD
+BYTCNT:		.WORD
+CURCOL:		.LONG   1
+CURROW:		.LONG   1
+SAVE_DISP:	.LONG	0		; Saved char
+SCR_WID:	.LONG	80
+SCR_HEIGHT:	.LONG	48
+; Misc
+RESULT:		.LONG	0
+
+       .PSECT MIB_COMPILE2_C,EXE,NOWRT,LONG
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MIB_COMPILE2
+;
+   	BSBW	CREATE_ENVIRONMENT
+;
+; Get file name to process.
+1$:
+	MOVAL	FILEPRMPT,R1
+	BSBW	READ_PROMPT
+	BSBW	ERROR_CHK		; Any error exits (EOF)
+; Open the file
+	MOVAL	KB_BUF,INFAB+FAB$L_FNA	; Location of name
+	MOVB	BYTCNT,INFAB+FAB$B_FNS	; Size of name
+	$OPEN	FAB=INFAB
+	BSBW	ERROR_CHK
+	$CONNECT RAB=INRAB
+	BSBW	ERROR_CHK
+	MOVW	#MC_MIBT_C_RECSIZE,INRAB+RAB$W_RSZ
+; Parse the file name to create others.
+; 
+	LOCC	#^A/:/,BYTCNT,KB_BUF    ; Find ':'
+	TSTL	R0			; Found?
+	BNEQ	10$			; Br if no
+	MOVAL	KB_BUF,R1
+10$:
+	MOVL	R1,R5			; Set start of filename
+	LOCC	#^A/./,BYTCNT,KB_BUF    ; Find '.'
+	SUBL3	R5,R1,FILENAME_LEN	; Len of filename
+	MOVC3	FILENAME_LEN,(R5),FILENAME
+; Open output file
+; .MC2 file
+	MOVAL	FILENAME,R11
+	ADDL	FILENAME_LEN,R11
+	MOVL	EMDEXT,(R11)	
+	MOVAL	FILENAME,OUTPFAB+FAB$L_FNA	; Location of name
+	ADDL3	#4,FILENAME_LEN,R1
+	MOVB	R1,OUTPFAB+FAB$B_FNS		; Size of name
+	$CREATE	FAB=OUTPFAB
+	BSBW	ERROR_CHK
+	$CONNECT RAB=OUTPRAB
+	BSBW	ERROR_CHK
+	MOVW	#MC_MIBT_C_RECSIZE,OUTPRAB+RAB$W_RSZ
+
+READ:
+	CALLS	#0,G^MC2_READ_FILE      ; Read next record
+	BLBS	R0,20$
+;
+	CMPL	R0,#RMS$_EOF
+	BEQLU	10$
+
+ 	MOVL	#132,FAODESC            ; 
+	PUSHL	R0                      ; Error message
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	READERRMSG
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	BSBW	PRINT                   ; Print it
+	MOVAL	CONTMSG,R1              ; Wants to continue?
+	BSBW	READ_PROMPT             ;
+	BLBS	R0,READ                 ; Br if yes
+10$:
+	BRW	END_OF_INPUT            ; No
+20$:
+; Call each processor in turn
+; Type is called 1st to allow table entries to be built.
+; Any eror returned causes that rec to not be processed.
+;
+	MOVAL	OUTBUF,R11
+	PUSHAL	TYPE_DESC
+	CALLS	#1,G^MC2_GET_TYPE
+	BLBS	R0,30$
+	CMPL	#SS$_RESIGNAL,R0  	; If we have just processed a table...
+	BEQLU	20$ 			; ... Re-start processing this record
+	BRW	READ			; ASSUME any other error is NO ACCESS
+30$:
+	PUSHAL	ACCESS_DESC
+	CALLS	#1,G^MC2_GET_ACCESS
+	BLBS	R0,40$
+	BRW	READ		; Ignore any rec with error
+40$:
+	PUSHAL	NAME_DESC
+	CALLS	#1,G^MC2_SET_NAME
+	BLBS	R0,50$
+	BRW	READ		; 
+50$:
+	PUSHAL	OBJID_DESC
+	CALLS	#1,G^MC2_SET_OBJID
+	BLBS	R0,60$
+	BRW	READ		; 
+60$:
+; When the entry is written here it is of type DIRECT.
+	MOVL	#MC_MIBT_C_TYPDIR,MC_MIBT_L_ENTTYP(R11) ; Direct access
+	$PUT	RAB=OUTPRAB
+	BLBS	R0,70$
+	RET
+70$:
+	INCL	WCNT
+	MOVL	#132,FAODESC
+	PUSHL	WCNT
+	PUSHL	LCNT
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	STATSFMT
+	CALLS	#5,G^SYS$FAO
+	BSBW	PRINT22
+	BRW	READ
+;
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=MC2_READ_FILE  
+;++
+;2 MC2_READ_FILE  
+; Reads an input record and parses it into descriptors.
+;3 Inputs
+; None - it is assumed the file is open before this call
+;3 Outp
+; 4 descriptors pointing to each of the 4 fields in the rec.
+;--
+;
+	INCL	LCNT
+	$GET	RAB=INRAB
+	BLBS	R0,20$                  ; Br no err
+	CMPL	R0,#RMS$_EOF
+	BNEQU	1$
+	RET				; Return eof
+1$:
+	MOVL	#132,FAODESC
+	PUSHL	R0
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	READERRMSG
+	CALLS	#4,G^SYS$FAO
+	BSBW	PRINT
+	MOVAL	CONTMSG,R1
+	BSBW	READ_PROMPT
+	BLBC	R0,10$	
+	RET
+10$:
+	$EXIT_S
+
+20$:
+; Get each param into descriptors:
+	MOVAL	INBUF,R1		; Record addr 
+	MOVZWL	INRAB+RAB$W_RSZ,R0      ; Rec len
+	MOVL	R1,R8
+	LOCC	#^A'/',R0,(R1)		; Next occurence of '/'
+	INCL	R1
+	MOVL	R1,R9
+	LOCC	#^A'/',R0,(R1)		; Next occurence of '/'
+	INCL	R1
+	MOVL	R1,R10
+	LOCC	#^A'/',R0,(R1)		; Next occurence of '/'
+	INCL	R1
+	MOVL	R1,R11
+	LOCC	#^A'/',R0,(R1)		; Last occurence of '/'
+; Make descriptors:
+	MOVL	R8,OBJID_DESC+4
+	SUBL3	R8,R9,OBJID_DESC
+	DECL	OBJID_DESC
+	MOVL	R9,NAME_DESC+4
+	SUBL3	R9,R10,NAME_DESC
+	DECL	NAME_DESC
+	MOVL	R10,TYPE_DESC+4
+	SUBL3	R10,R11,TYPE_DESC
+	DECL	TYPE_DESC
+	MOVL	R11,ACCESS_DESC+4
+	SUBL3	R11,R1,ACCESS_DESC
+	MOVL	#SS$_NORMAL,R0
+	RET	
+;
+	.CALL_ENTRY	MAX_ARGS=1, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=MC2_GET_ACCESS  
+;++
+;2 MC2_GET_ACCESS  
+; Sets the internal symbol showing access to this object.
+;
+;3 Inputs
+; addr of descriptor pointing to ascii access
+;3 Outp
+; Bit pattern showing r/w access written to current outp record
+;3 Returns
+; If access is any combination of r/w then ss$_normal
+; If no access (none,not-accessible) then SS$_NOFILACC   
+;-- 
+	MOVQ	@4(AP),R10
+	CMPL	(R11),NONE		; is it none
+	BNEQ	5$
+	MOVL	#SS$_NOFILACC,R0
+	RET
+5$:
+	CMPL	(R11),IMPT		; is it IMPORT?
+	BNEQ	7$
+	MOVL	#MC_MIBT_C_TYPIMP,MC_MIBT_L_ACCESS(R11) ; Read write
+	MOVL	#SS$_NOFILACC,R0
+	RET
+7$:
+
+
+	MOVAL	ACCESS_TABLE,R6
+	CLRL	R7			; Index
+10$:
+	TSTL	(R6)                    ; End of table?
+	BEQL	30$			; Br if no matching entry found
+	CMPL	(R11),(R6)              ; Top part
+	BNEQU	20$                     ; Br no match
+	CMPL	4(R11),4(R6)            ; Bott part
+	BEQLU	40$	                ; Br on match
+20$:
+	ADDL	#8,R6			; Next entry
+	INCL	R7                      ; Next index
+	BRB	10$
+30$:
+	PUSHAL	ACCESS_DESC
+	PUSHL	#1
+	CALLS	#2,G^DISPLAY_ERROR
+	MOVL	#SS$_BADPARAM,R0
+	RET
+40$:
+	MOVAL	OUTBUF,R11
+	CASEL	R7,#0,#3
+100$:
+	.WORD	101$-100$
+	.WORD	102$-100$
+	.WORD	103$-100$
+	.WORD	104$-100$
+	BRB	30$
+101$:
+	MOVL	#1,MC_MIBT_L_ACCESS(R11) ; Read only
+	MOVL	#SS$_NORMAL,R0
+	RET
+102$:
+	MOVL	#2,MC_MIBT_L_ACCESS(R11) ; Write only
+	MOVL	#SS$_NORMAL,R0
+	RET
+103$:
+	MOVL	#3,MC_MIBT_L_ACCESS(R11) ; Read write
+	MOVL	#SS$_NORMAL,R0
+	RET
+104$:
+	CLRL	MC_MIBT_L_ACCESS(R11) 	; No access
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=MC2_GET_TYPE 
+;++
+;2 MC2_GET_TYPE 
+; Converts the datatype keyword supplied by the MIB to the code used by EMU.
+;
+;3 Inputs
+; addr of desc pointing to type keyword
+;3 Output
+; keyword is converted to code and written to current record.
+; The conversion is through a hardcoded table in this routine.
+;4 Conversion_table
+; Keyw	  	   Desc			
+; TimeTick	 Time ticks
+; OBJECT I	 Object Identifier
+; DisplayS	 Display String
+; INTEGER 	 Integer
+; SEQUENCE	 Sequence
+; Gauge   	 Gauge
+; Physical	 Physical Address (MAC)
+; Counter 	 COunter
+; IpAddres	 IP Addr
+; NetworkA	 Network Addr (IP)
+; OCTET ST	 Octet string
+; BridgeID	 Bridge Id
+; MacAddre	 Mac (Physical)
+; FddiSMTS	 SMT STATION ID - Process as BridgeID
+; FddiMACL	 Mac (Physical)
+;
+; ASSUME if type is unknown it is NONE - That is table top of table entry. 
+;--
+	MOVQ	@4(AP),R10
+
+	MOVAL	TYPE_TABLE,R6
+	CLRL	R7			; Index
+10$:
+	TSTL	(R6)                    ; End of table?
+	BEQL	30$			; Br if no matching entry found
+	CMPC3	R10,(R11),(R6)          ; Match?
+	BEQLU	40$	                ; Br on match
+20$:
+	ADDL	#8,R6			; Next entry
+	INCL	R7                      ; Next index
+	BRB	10$
+30$:
+	MOVL	#MC_MIBT_C_TYPTOP,MC_MIBT_L_TYPE(R11) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+40$:
+	MOVAL	OUTBUF,R11
+	CASEL	R7,#0,#14
+100$:
+	.WORD	101$-100$
+	.WORD	102$-100$
+	.WORD	103$-100$
+	.WORD	104$-100$
+	.WORD	105$-100$
+	.WORD	106$-100$
+	.WORD	107$-100$
+	.WORD	108$-100$
+	.WORD	109$-100$
+	.WORD	110$-100$
+	.WORD	111$-100$
+	.WORD	112$-100$
+	.WORD	107$-100$
+	.WORD	111$-100$
+	.WORD	107$-100$
+	PUSHAL	TYPE_DESC
+	CLRL	-(SP)
+	CALLS	#2,G^DISPLAY_ERROR
+	MOVL	#SS$_BADPARAM,R0
+	RET
+101$:
+	MOVL	#SNMP_ASN1_TIMET,MC_MIBT_L_TYPE(R11) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+102$:
+	MOVL	#SNMP_ASN1_OBJID,MC_MIBT_L_TYPE(R11) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+103$:
+	MOVL	#SNMP_ASN1E_DISPSTR,MC_MIBT_L_TYPE(R11) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+104$:
+	MOVL	#SNMP_ASN1_INT,MC_MIBT_L_TYPE(R11) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+105$:
+; Process this and all subsequent records in this table.
+	MOVL	#SNMP_ASN1_SEQ,MC_MIBT_L_TYPE(R11) 
+	MOVL	#MC_MIBT_C_TYPTOP,MC_MIBT_L_TYPE(R11) 
+        CALLS	#0,G^MC_PROCESS_TABLE 
+	RET
+106$:
+	MOVL	#SNMP_ASN1_GUAGE,MC_MIBT_L_TYPE(R11) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+107$:
+	MOVL	#SNMP_ASN1E_MACADDR,MC_MIBT_L_TYPE(R11) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+108$:
+	MOVL	#SNMP_ASN1_COUNT,MC_MIBT_L_TYPE(R11) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+109$:
+	MOVL	#SNMP_ASN1_IPADDR,MC_MIBT_L_TYPE(R11) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+110$:
+	MOVL	#SNMP_ASN1_IPADDR,MC_MIBT_L_TYPE(R11) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+111$:
+	MOVL	#SNMP_ASN1_STR,MC_MIBT_L_TYPE(R11) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+112$:
+	MOVL	#SNMP_ASN1E_BRIDID,MC_MIBT_L_TYPE(R11) 
+	MOVL	#SS$_NORMAL,R0
+	RET
+	
+	.CALL_ENTRY	MAX_ARGS=1, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=MC2_SET_NAME 
+;++
+;2 MC2_SET_NAME 
+; Sets the name of the object in the output record.
+;
+;3 Inputs
+; addr of desc pointing to objecty name
+;
+;3 Name is written as .ascic to current record
+;-- 
+
+	MOVQ	@4(AP),R10
+	MOVAL	OUTBUF,R6
+	CMPL	#63,R10			; Longer than max?
+	BGEQU	10$
+	PUSHAL	NAME_DESC
+	PUSHL	#2
+	CALLS	#2,G^DISPLAY_ERROR
+	MOVL	#63,R10			; Truncate on continue
+10$:
+	ADDL	#MC_MIBT_AC_NAME,R6
+	MOVB	R10,(R6)+
+	MOVC5	R10,(R11),#^A/ /,#63,(R6)
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=MC2_SET_OBJID
+;++
+;2 MC2_SET_OBJID
+; The .ascic input object id is converted to a standard SNMP object string.
+;
+;3 Inputs
+; addr of desc pointing to object identifier
+;3 Output
+; Id is written as asn.1 encoded objid (preceded by count byte)
+; Get 1st 2 'leaves' These should ALWAYS be 1.3 and convert to 43. ISO in it's
+; wisdom dicates that the formula for the 1st encoded digit will always be:
+; 	digit1*40+digit2	
+;--
+	MOVQ	@4(AP),R6
+	CMPL	(R7),TOPOID
+	BEQLU	10$		
+	PUSHAL	OBJID_DESC
+	PUSHL	#3
+	CALLS	#2,G^DISPLAY_ERROR
+	MOVL	#SS$_BADPARAM,R0
+	RET
+10$:
+	MOVAL	OUTBUF,R11
+	MOVC5	#0,#0,#0,#32,(R11)	; Clear field
+	ADDL	#MC_MIBT_AC_OBJID,R11
+	INCL	R11			; Write ist digit here
+	MOVB	#43,(R11)+		; Write 1st 
+	MOVL	#1,R10			; Count of digits written
+	SUBL	#4,R6			; remaining len
+	ADDL	#4,R7			; Next digit
+; loop for all remaining string
+; 
+20$:
+	LOCC	#^A/./,R6,(R7)		; find len of next digit
+        TSTL	R0			; Found?
+	BNEQ	30$			; Br if so
+	ADDL3	R7,R6,R1		; ASSUME this is the last digit...	
+30$:                                    ;  ...and reset len to end of string
+	SUBL3	R7,R1,R8		; Len of digit
+	PUSHAL	RESULT			; Write here
+	PUSHL	R7			; Digit(s)
+	PUSHL	R8			; Len
+	CALLS	#3,G^LIB$CVT_DTB	; Convert
+	BLBS	R0,40$
+	PUSHAL	OBJID_DESC
+	PUSHL	#3
+	CALLS	#2,G^DISPLAY_ERROR
+	MOVL	#SS$_BADPARAM,R0
+	RET
+40$:
+; If RESULT < 128 then simply write the result
+; If > convert according to ASN.1 standard (below)
+	CMPL	#128,RESULT
+	BLEQ	100$
+	MOVB	RESULT,(R11)+		; Write result
+	INCL	R10			; Byte count
+45$:
+	INCL	R8			; Len of digit + trailing '.'
+	ADDL	R8,R7			; Move pointer
+	SUBL	R8,R6			; Remiaining len
+	BGTR	20$			; COntinue if more
+50$:
+	MOVAL	OUTBUF,R11
+	INCL	R10			; Trailing digit is always '0'
+	MOVB	R10,MC_MIBT_AC_OBJID(R11)	; Set count resulting string
+	MOVL	#SS$_NORMAL,R0			; OK
+	RET
+100$:
+; In an ObjId a value < 127 is represented as normal decimal conversion.
+; When > 127 the hi bit is set and the low 7 bits are used to represent 
+; the number of octets folowing which contain the value. Example:
+;
+;	 ascii		Binary
+;	1		00000001
+;	128		10000001 10000000
+;	256		10000010 00000001 00000000
+; Note these are NOT reversed (as much of ASN.1 is)
+	MOVL  	#3,R1		; Make index
+	MOVAL	RESULT,R2	;
+110$:
+	TSTB	(R2)[R1]	; Test each byte (hi=>lo) for 0
+	BNEQ	120$		; Br when not 0
+	SOBGTR	R1,110$		; Next
+120$:
+	INCL	R1		; Actual count of significant bytes
+	MOVB	R1,(R11)	; Write count
+	BISB2	#128,(R11)+	; Set hi bit
+	INCL	R10		; Count written digit
+	DECL	R1 		; Reset index
+	CLRL	R3
+130$:
+	MOVB	(R2)[R3],(R11)+
+	INCL	R10
+	AOBLEQ	R1,R3,130$
+	BRW	45$
+
+
+END_OF_INPUT:
+	$CLOSE FAB=INFAB
+	$CLOSE FAB=OUTPFAB
+	PUSHAL	SAVE_DISP	
+	PUSHAL  PB_BOARD
+	CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+	PUSHAL	VD_DISP         			; Delete Environment
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+       	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	RET
+; Subroutines
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	MOVL	R0,R6
+	PUSHAL	SAVE_DISP	
+	PUSHAL  PB_BOARD
+	CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+	PUSHAL	VD_DISP         	; Delete Environment
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+       	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	R6,R0
+	$EXIT_S	R0				; Die
+
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=MC_PROCESS_TABLE  
+;++
+;2 MC_PROCESS_TABLE  
+; This routine called when an access of SEQUENCE OF... is encountered.
+; In brief:
+; This record becomes the table name
+; Next record is table top and entry point
+; Any subsequent record with ObjId matching the table top Id is an entry.
+; Process records until 1st rec beyond the table is encountered.
+;--	
+; Set the access (none)
+	CLRL	MC_MIBT_L_ACCESS(R11) 			; No access
+	MOVL	#MC_MIBT_C_TYPNAM,MC_MIBT_L_ENTTYP(R11)   ; Table name
+; 
+	PUSHAL	NAME_DESC
+	CALLS	#1,G^MC2_SET_NAME
+	BLBS	R0,10$
+	RET		; 
+10$:
+	PUSHAL	OBJID_DESC
+	CALLS	#1,G^MC2_SET_OBJID
+	BLBS	R0,20$
+	RET		; 
+20$:
+	$PUT	RAB=OUTPRAB
+	BLBS	R0,30$
+	RET
+30$:
+	INCL	WCNT
+	BSBW	PRINT_STATS
+; Get the next rec - it will be the table top (entry point to the table)
+	CALLS	#0,G^MC2_READ_FILE
+	BLBS	R0,40$
+	RET
+40$:
+; set and test the acccess - it should be none (0)
+	PUSHAL	ACCESS_DESC
+	CALLS	#1,G^MC2_GET_ACCESS
+	TSTL	MC_MIBT_L_ACCESS(R11) 	; No access?
+	BEQL	50$
+	MOVL	#SS$_ABORT,R0
+	RET
+50$:
+; Set type (Table top) 
+	MOVL	#MC_MIBT_C_TYPTOP,MC_MIBT_L_ENTTYP(R11) 
+; Set name ( not meaningful -just for completeness)
+	PUSHAL	NAME_DESC
+	CALLS	#1,G^MC2_SET_NAME
+	BLBS	R0,60$
+	RET
+60$:
+; Process ObjId - it is this that will determine the number of recs 
+; following if they are members of this table.
+
+	PUSHAL	OBJID_DESC
+	CALLS	#1,G^MC2_SET_OBJID
+	BLBS	R0,70$
+	RET
+70$:
+; Store the last digit and offset to it. If this is the same in subsequent
+; recs then it belongs to this table.
+	MOVZBL	MC_MIBT_AC_OBJID(R11),R6	; Len of objid
+	DECL	R6                              ; offset to last digit
+	ADDL3	R11,#MC_MIBT_AC_OBJID,R7	; Addr
+	MOVZBL	(R7)[R6],R8			; Value
+; Write this entry
+	$PUT	RAB=OUTPRAB
+	BLBS	R0,80$
+	RET
+80$:
+	INCL	WCNT
+	BSBW	PRINT_STATS
+; Loop through all recs until we encounter a rec not in this table.
+90$:
+	CALLS	#0,G^MC2_READ_FILE
+	BLBS	R0,100$
+	RET
+100$:
+	PUSHAL	OBJID_DESC
+	CALLS	#1,G^MC2_SET_OBJID
+	BLBS	R0,110$
+	RET
+110$:
+; See if we are still in the table
+	ADDL3	R11,#MC_MIBT_AC_OBJID,R7	; Addr
+	CMPB	(R7)[R6],R8			; Value
+        BEQL	120$
+	MOVL	#SS$_RESIGNAL,R0  		; signla end of table processs
+	RET
+120$:
+	MOVL	#MC_MIBT_C_TYPENT,MC_MIBT_L_ENTTYP(R11)	; Table entry
+	PUSHAL	TYPE_DESC
+	CALLS	#1,G^MC2_GET_TYPE
+	BLBS	R0,130$
+	RET
+130$:
+	PUSHAL	ACCESS_DESC
+	CALLS	#1,G^MC2_GET_ACCESS
+	BLBS	R0,140$
+	RET
+140$:
+	PUSHAL	NAME_DESC
+	CALLS	#1,G^MC2_SET_NAME
+	BLBS	R0,150$
+	RET
+150$:
+; Write this entry
+	$PUT	RAB=OUTPRAB
+	BLBS	R0,160$
+	RET
+160$:
+	INCL	WCNT
+	BSBW	PRINT_STATS
+	BRW	90$
+
+PRINT_STATS:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	MOVL	#132,FAODESC
+	PUSHL	WCNT
+	PUSHL	LCNT
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	STATSFMT
+	CALLS	#5,G^SYS$FAO
+	BSBW	PRINT22
+	RSB
+READ_PROMPT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+; Address of .ascid is in R1
+		PUSHAL	VD_DISP                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)		           ; Timeout 
+		PUSHAL	UPCASE                  ; Make input UPCASE 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	R1                      ; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		RSB				; Process any err on return
+;
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+
+PRINT22:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		MOVL	#1,CURCOL
+		MOVL	#2,CURROW
+		PUSHAL	CURCOL			; Column (1)
+		PUSHAL	CURROW			; Row (2)
+		PUSHAL	VD_DISP2
+		CALLS	#3,G^SMG$SET_CURSOR_ABS
+		BSBW	ERROR_CHK
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+
+
+
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=DISPLAY_ERROR
+;++
+;2 DISPLAY_ERROR
+; Displays any processing errors on the user display.
+;3 Input:
+; P1 value of filed type in error to display
+; Addr of desciptor pointing to ascii param to display
+;3 Output
+; The message is formatted with the input params and displayed
+;3 Field_types
+; 	Data Type 
+; 	Access    
+; 	Name      
+; 	Object Id 
+;-- 
+	MOVQ	@8(AP),R6
+	MOVAL	FIELD_TABLE,R1
+	MOVL	4(AP),R2
+	MOVL	#132,FAODESC
+	PUSHL	R7
+	PUSHL	R6
+	PUSHL	(R1)[R2]		; Field name
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	FMTERRMSG
+	CALLS	#6,G^SYS$FAO
+	BSBW	PRINT
+	MOVAL	CONTMSG,R1
+	BSBW	READ_PROMPT
+	BLBC	R0,10$
+	RET
+10$:
+	RET	
+	
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Pasteboards
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+	PUSHAL	PB_BOARD2
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+; Save the current screen set up. Attempt to set it to 48x80. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	PB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BSBW	ERROR_CHK
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	VD_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	VD_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	PB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BSBW	ERROR_CHK
+	SUBL	#4,VD_ROWS			; Set our page len
+;
+
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+ 	PUSHAL	BORDER
+	PUSHAL	VD_DISP2
+	PUSHAL	VD_COL2
+        PUSHAL	VD_ROW2
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+	PUSHAL	PB_COL2		;Column
+	PUSHAL	PB_ROW2		;Row
+	PUSHAL	PB_BOARD2
+	PUSHAL	VD_DISP2
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	RSB
+	.END	MIB_COMPILE2

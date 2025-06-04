@@ -1,0 +1,788 @@
+	.TITLE EXTR_IFCNT  
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications
+; 001 	MAY-22-1997		PB	Creation		
+;++
+;1 EXTR_IFCNT  
+;	Interactive program to:
+;		extr results in IFCNT.DAT
+;--
+
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	EMUSNMPDEF
+	$RMSDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	
+;
+
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+RETURN:		.BLKB	4096
+RETURN_D:	.LONG	.-RETURN
+		.ADDRESS  RETURN
+CURKEY:		
+CURIF:		.LONG	0
+CURIP:		.LONG	0
+
+IFIDXFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		RFM = FIX,-
+		FOP = CIF,-
+		MRS = IFIDXREC_SIZE,-                       ; Largest rec
+		DNM = <IFIDX.DAT>,-	; Default Filename 
+		FNM = <IFIDX>,-			; Filename 
+		XAB = IFIDXXAB0                  ; Keys
+
+IFIDXRAB:	
+		$RAB  FAB = IFIDXFAB,-		; pointer to FAB
+		RBF = IFIDXREC_BUF,-		; i/o buffer 
+		RSZ = IFIDXREC_SIZE,-		; Write this many bytes
+		UBF = IFIDXREC_BUF,-		; i/o buffer 
+		USZ = IFIDXREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		ROP = NLK,-			; Do not lock rec
+		KBF = IFIDXREC_BUF,-		; Key location
+		KSZ = 8
+
+IFIDXXAB0:	$XABKEY	REF = 0,-  	; IP addr,IF INDEX
+		DTP = BN8,-             ; Key = 8 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+                NXT = IFIDXXAB1
+IFIDXXAB1:	$XABKEY	REF = 1,-  	; IP addr,IF INDEX
+		DTP = BN4,-             ; Key = 8 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+;
+IFIDXREC_BUF:
+IFIDX_IF: 		.LONG	0       ; If index
+IFIDX_ADDR:		.LONG	0 	; Ip addr
+; Last sample
+IFIDX_TIME:		.QUAD	0	; Sample time
+IFIDX_INOCTETS:		.QUAD	0 	; 16               
+IFIDX_INUCASTPKTS:	.QUAD	0 	; 24              
+IFIDX_INNUCASTPKTS:	.QUAD	0 	; 32               
+IFIDX_INDISCARDS:	.QUAD	0 	; 40               
+IFIDX_INERRORS:		.QUAD	0 	; 48               
+IFIDX_INUNKNOWNPROTOS:	.QUAD	0 	; 56               
+IFIDX_OUTOCTETS:	.QUAD	0 	; 64               
+IFIDX_OUTUCASTPKTS:	.QUAD	0 	; 72               
+IFIDX_OUTNUCASTPKTS:	.QUAD	0 	; 80               
+IFIDX_OUTDISCARDS:	.QUAD	0 	; 88               
+IFIDX_OUTERRORS:	.QUAD	0 	; 96               
+IFIDX_OUTQLEN:		.QUAD	0 	; 104                
+IFIDXREC_SIZE = .-IFIDXREC_BUF
+
+
+
+
+
+IFCNTFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		RFM = FIX,-
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <IFCNT.DAT>,-	; Default Filename 
+		FNM = <IFCNT>,-			; Filename 
+		XAB = IFCNTXAB0                  ; Keys
+
+IFCNTRAB:	$RAB	FAB = IFCNTFAB,-		; pointer to FAB
+		RBF = IFCNTREC_BUF,-		; i/o buffer 
+		RSZ = IFCNTREC_SIZE,-		; Write this many bytes
+		UBF = IFCNTREC_BUF,-		; i/o buffer 
+		USZ = IFCNTREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		ROP = NLK,-			; Do not lock rec
+		KBF = IFCNTREC_BUF,-		; Key location
+		KSZ = 8
+IFCNTRAB2:	
+		$RAB	FAB = IFCNTFAB,-		; pointer to FAB
+		RBF = IFCNTREC_BUF,-		; i/o buffer 
+		RSZ = IFCNTREC_SIZE,-		; Write this many bytes
+		UBF = IFCNTREC_BUF,-		; i/o buffer 
+		USZ = IFCNTREC_SIZE		; 
+
+IFCNTXAB0:	$XABKEY	REF = 0,-  	; IP addr,Interface
+		DTP = BN8,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-               ; Key len (dups allowed)
+		FLG = DUP,-
+		NXT = IFCNTXAB1
+IFCNTXAB1:
+		$XABKEY	REF = 1,-  	; IP addr
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP,-
+		NXT = IFCNTXAB2
+IFCNTXAB2:
+		$XABKEY	REF = 2,-  	; Interface
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+;
+IFCNTREC_BUF:	
+IFCNT_KEY:
+IFCNT_IF:		.LONG	0	; IF
+IFCNT_ADDR:		.LONG	0	; ipaddr
+IFCNT_TIME:		.QUAD	0	
+; Differences 
+IFCNT_INOCTETS:		.LONG	0 ;   16               
+IFCNT_INUCASTPKTS:	.LONG	0 ;   20             
+IFCNT_INNUCASTPKTS:	.LONG	0 ;   24              
+IFCNT_INDISCARDS:	.LONG	0 ;   28              
+IFCNT_INERRORS:		.LONG	0 ;   32              
+IFCNT_INUNKNOWNPROTOS:	.LONG	0 ;   36              
+IFCNT_OUTOCTETS:	.LONG	0 ;   40              
+IFCNT_OUTUCASTPKTS:	.LONG	0 ;   44             
+IFCNT_OUTNUCASTPKTS:	.LONG	0 ;   48              
+IFCNT_OUTDISCARDS:	.LONG	0 ;   52              
+IFCNT_OUTERRORS:	.LONG	0 ;   56              
+IFCNT_OUTQLEN:		.LONG	0 ;   60               
+IFCNTREC_SIZE = .-IFCNTREC_BUF        ; = 64
+;	
+PRTFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		DNM = <EXTRCNTPRT.LOG>  		; Default Filename 
+
+PRTRAB:	$RAB	FAB = PRTFAB,-		; pointer to FAB
+		RBF = PRTREC_BUF,-		; i/o buffer 
+		RSZ = PRTREC_SIZE,-		; Write this many bytes
+		UBF = PRTREC_BUF,-		; i/o buffer 
+		USZ = PRTREC_SIZE		; 
+PRTREC_BUF:
+	.BLKB	132
+PRTREC_SIZE = .-PRTREC_BUF
+
+
+
+;
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 	48      ; 
+VD_COLS: 	.LONG 	132      ;
+;
+;
+; Menu Items
+;
+M_LIST:		.ASCII	/View                    /
+		.ASCII	/Add                     /
+		.ASCII	/Toggle Log File         /
+M_LIST_SIZE = .-M_LIST	
+
+;Menu Display Characteristics
+;
+M_DCS:		.WORD	24                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+MADDR:		.ADDRESS M_LIST             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+MSIZE:		.LONG   0		    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+
+; Space for Dynamic menu
+DYNMENU:	.BLKL	100			; Allows 100 items
+DYNDESC:	.QUAD	0
+TEMPDESC:	.QUAD	0
+
+
+
+; Optional Display Characteristics
+;
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 2
+W3:    		.LONG 3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+UPCASE:		.LONG	TRM$M_TM_CVTLOW 	;Convert lower to upper case
+DELITM:		.LONG	SMG$M_REMOVE_ITEM       ; Remove selected item from menu
+CHOICE:		.WORD
+BYTCNT:		.WORD
+SAVE_DISP:	.LONG	0		; Saved char
+SCR_WID:	.LONG	132
+SCR_HEIGHT:	.LONG	48
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+;
+; Prompt strings and parameters
+; FAO
+FAOBUF:		.BLKB	132
+FAODESC:
+FAOLEN: 	.LONG		.-FAOBUF
+        	.ADDRESS        FAOBUF
+
+
+
+;
+EXITMSG:	.ASCID	/No more Interfaces. Press Return for Menu/
+CONTMSG:	.ASCID	/Return for Next interface or ^Z to exit: /
+NEWFILEMSG:	.ASCID	/Creating new File .../
+FILWRTERR:	.ASCID	/ Could not write file. Error = !XL.../
+FILRDERR:	.ASCID	/ Could not read file. Error = !XL.../  
+CFMDELSTR:	.ASCID	/ Delete [N]?/
+IPADDRPRMPT:	.ASCID	/ Enter IP address to monitor: /
+HDR1:		.ASCID	/Counts for !UB.!UB.!UB.!UB on Interface !UL/
+HDR2:   .ASCID / Counts per Second        |                  Input                            |          Output                                |/
+HDR3:   .ASCID /    Sample Time             Bytes   Unicast  MCast     Dis-            Unknon   Bytes   Unicast     MCast     Dis-             Que  /
+HDR4:	.ASCID /                                    Frames   Frames    card    Error     Prot           Frames      Frames    card    Error    Len  /
+DATA:		.ASCID	/!%D !12(9UL)/
+IPADDR:		.ASCID	/!24<!UB.!UB.!UB.!UB!>/
+GETIFMSG:	.ASCID	/ Getting Interfaces .../
+GOTIFMSG:	.ASCID	/ Got !UL Interfaces .../
+
+;
+; Misc data areas
+	.ALIGN	LONG
+OUTINT:		.LONG	0
+IFCNT:		.LONG
+PRTFLG:		.LONG	0
+;
+;	.End data definitions
+;
+	.PSECT EXTR_IFCNT_CODE,EXE,pic
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EXTR_IFCNT
+;
+; Open file 
+;
+	BSBW	CREATE_ENVIRONMENT
+;
+; Display Menu
+;
+
+START:
+	MOVAL	M_LIST,MADDR
+	MOVL	#M_LIST_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBC	R0,30$			; Assume any error = eof
+	CASEW	CHOICE,#1,#2
+10$:
+	.WORD	11$-10$
+	.WORD	12$-10$
+	.WORD	13$-10$
+	RET
+11$:
+	BRW	1000$		; view
+12$:
+	BRW	2000$		; Add
+13$:
+	INCL	PRTFLG
+	BRW	START
+30$:
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	RET
+
+;
+;
+1000$:
+; Display (brief) list of items in menu
+	CALLS	#0,EXTR_IFCNT_GETTABLE  
+	BLBS	R0,1030$                        ; Returns IP addr in R1
+	BRW	30$				; Exit
+
+1030$:
+	MOVL	R1,CURIP          	; Set key
+	$OPEN	FAB = IFCNTFAB		; Open counter file
+	BSBW	ERROR_CHK
+; 	$CONNECT RAB = IFCNTRAB		; Connect input stream
+ 	$CONNECT RAB = IFCNTRAB2		; Connect input stream
+	BSBW	ERROR_CHK
+; Indexed read to get 1st occurence of this ip addr
+;	MOVB	#RAB$C_KEY,IFCNTRAB+RAB$B_RAC   ; Indexed read
+;	MOVB	#1,IFCNTRAB+RAB$B_KRF			; Key 1
+;	MOVB	#4,IFCNTRAB+RAB$B_KSZ			; Key 1
+;	MOVAL   CURIP,IFCNTRAB+RAB$L_KBF		; Key buffer
+; Display headers
+1040$:
+	$GET	RAB=IFCNTRAB2
+	BLBS	R0,1043$
+	BRW	1950$
+1043$:
+	CMPL	IFCNT_ADDR,CURIP
+	BNEQU	1040$
+1045$:
+;	MOVB	#RAB$C_SEQ,IFCNTRAB+RAB$B_RAC        
+	MOVL	IFCNT_IF,CURIF
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	MOVAL	IFCNT_ADDR,R1
+	PUSHL	IFCNT_IF
+	MOVZBL	3(R1),-(SP)
+	MOVZBL	2(R1),-(SP)
+	MOVZBL	1(R1),-(SP)
+	MOVZBL	(R1),-(SP)
+        PUSHAL	FAODESC	
+        PUSHAL	FAODESC	
+	PUSHAL	HDR1
+	CALLS	#8,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	MOVAL	HDR2,R1
+	BSBW	PRINT
+	MOVAL	HDR3,R1
+	BSBW	PRINT
+	MOVAL	HDR4,R1
+	BSBW	PRINT
+	
+	BRB	1100$
+1050$:
+	$GET	RAB=IFCNTRAB2
+ 	BLBS	R0,1060$
+	BRW	1950$
+1060$:
+	CMPL	IFCNT_ADDR,CURIP
+	BNEQU	1050$
+	CMPL	IFCNT_IF,CURIF
+	BNEQU	1080$
+	BRB	1100$
+1070$:
+	BRW	1950$
+1080$:
+	BRW	1900$
+
+1100$:
+	MOVAL	IFCNT_OUTQLEN,R6
+	MOVL	#12,R10
+1110$:
+	PUSHL	(R6)
+	SUBL	#4,R6
+	SOBGTR	R10,1110$
+	SUBL	#4,R6
+	PUSHL	R6			; Time
+	MOVL	#132,FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	DATA
+	CALLS	#16,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+        BRW	1050$
+
+1900$:
+	PUSHAL	CONTMSG	
+	CALLS	#1,G^READ_PROMPT
+	BLBS	R0,1910$
+	$CLOSE FAB=IFCNTFAB
+	BRW	START
+1910$:	
+	MOVL	IFCNT_IF,CURIF
+        BRW	1045$
+
+
+1950$:
+	PUSHAL	EXITMSG	
+	CALLS	#1,G^READ_PROMPT
+	$CLOSE FAB=IFCNTFAB
+	BRW	START	
+
+
+2000$:
+	$CREATE	FAB = IFIDXFAB			; Open input file
+	CMPL	R0,#RMS$_CREATED		; New File?
+	BNEQU	2005$				; No
+;
+; This Section should only run once. The first time the system starts, the 
+; data file does not exist. Create it with 0  records.
+;
+ 	$CONNECT RAB = IFIDXRAB		;Connect input stream
+	MOVAL	NEWFILEMSG,R1
+	BSBW	PRINT
+	$CLOSE FAB=IFCNTFAB
+	BRB	2000$
+;
+2005$:
+ 	$CONNECT RAB = IFIDXRAB		;Connect input stream
+	BSBW	ERROR_CHK
+
+	MOVB	#RAB$C_KEY,IFIDXRAB+RAB$B_RAC   ; Indexed write
+2010$:
+	PUSHAL	IPADDRPRMPT	
+	CALLS	#1,G^READ_PROMPT
+	BLBS	R0,2020$
+	BRW	START				; Exit
+; Translate IP addr
+2020$:
+	MOVZWL	BYTCNT,TEMPDESC
+	MOVAL	KB_BUF,TEMPDESC+4
+	PUSHAL	IFIDX_ADDR			; Write here
+	PUSHAL	TEMPDESC
+	CALLS	#2,G^EMU_ASCIPADRTONET
+	BSBW	ERROR_CHK
+; Check if Interfaces are available. If so create rec with 1st sample.
+; If not ---- too bad
+	MOVAL	GETIFMSG,R1
+	BSBW	PRINT
+	MOVL	#4096,RETURN_D
+	PUSHL	#SNMP_IFT_C_COUNT
+	PUSHAL	IFCNT
+	PUSHAL	RETURN_D
+	PUSHAL	IFIDX_ADDR 
+	CALLS	#4,G^SNMP_GET_IFTBL
+
+2100$:
+	MOVL	#132,FAODESC
+	PUSHL	IFCNT
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	GOTIFMSG
+	CALLS	#4,G^SYS$FAO
+	BLBS	R0,2105$
+	RET
+2105$:
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	TSTL	IFCNT   	; Any interfaces?
+	BNEQ	2110$		; Br if Some
+	ret
+2110$:
+	MOVAL	RETURN,R8       ; Data
+        CLRL	R11		; Loop control
+
+; Make key 
+2120$:
+	MOVL	(R8),IFIDX_IF
+; Create this rec in index
+	MOVAL	IFIDX_INOCTETS,R7		; Last sample
+        ADDL3	#8,R8,R9			; This sample
+	MOVL	#12,R10				; Loop control
+	MOVQ	EXE$GQ_SYSTIME,IFIDX_TIME
+2130$:
+	MOVQ	(R9)+,(R7)+
+	SOBGTR	R10,2130$
+	$PUT	RAB=IFIDXRAB 
+	BLBS	R0,2140$
+	RET
+2140$:
+	ADDL	#SNMP_IFT_C_CNTSIZ,R8
+	SOBGTR	IFCNT,2120$
+	PUSHAL	EXITMSG	
+	CALLS	#1,G^READ_PROMPT
+	BRW	START
+
+; Subroutines
+;
+;
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		MOVL	R1,R6
+		PUSHL	R1
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		BLBS	PRTFLG,10$
+		RSB
+10$:
+	TSTL	PRTFAB+FAB$W_IFI	; File open?
+	BNEQ	20$
+	$CREATE	FAB=PRTFAB
+	BSBW	ERROR_CHK
+	$CONNECT RAB=PRTRAB
+	BSBW	ERROR_CHK
+20$:
+	MOVW	(R6),PRTRAB+RAB$W_RSZ
+	MOVW	(R6),PRTRAB+RAB$W_USZ
+	MOVL	4(R6),PRTRAB+RAB$L_RBF
+	MOVL	4(R6),PRTRAB+RAB$L_UBF
+	$PUT	RAB=PRTRAB
+	BSBW	ERROR_CHK
+	RSB
+
+
+
+EXPRMPT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Display exit prompt
+;			
+		PUSHAL	VD_DISP                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes input
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	EXITMSG                 ; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		BSBW	ERROR_CHK               ; RETURN
+	RSB
+;
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+;
+; Create Virtual Display
+;
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK            		; Error Check
+;
+; Save the current screen set up. Attempt to set it to 48x80. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	PB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BSBW	ERROR_CHK
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	VD_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	VD_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	PB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BSBW	ERROR_CHK
+	SUBL	#4,VD_ROWS			; Set our page len
+;
+
+
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+50$:	
+	RSB
+;
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		BLBC	R0,10$
+		RSB
+10$:
+	PUSHAL	SAVE_DISP	
+	PUSHAL  PB_BOARD
+	CALLS	#1,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+
+	MOVL	R0,R6			; Save Error
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	RET
+; Callable routines
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=READ_PROMPT  
+;++
+;2 READ_PROMPT  
+; Routine to write prompt on screen and get the input in KB_DES
+;3 Inputs	
+;	.address of .ascid prompt
+;	.address of input conversion. Optional. If not present
+;	input is not forced to uppercase
+;3 Outputs:
+;	.word BYTCNT is written with count of bytes entered
+;	descriptor KB_DES points to chanracters received 
+;3 Returns:
+;	Any return from SMG$READ_STRING
+;--
+; Check if options param present
+	CLRL	UPCASE			; Assume not present
+	CMPL	#2,(AP)
+	BNEQ	10$
+	MOVL	#TRM$M_TM_CVTLOW,UPCASE ; Force to upper
+10$:
+	PUSHAL	VD_DISP                 ; Output display
+	CLRL	-(SP)                   ; Blank 
+	PUSHAL	BYTCNT                  ; Bytes to display
+	CLRL	-(SP)                   ; Blank 
+	CLRL	-(SP)                   ; Blank 
+	PUSHAL	UPCASE                  ; Make input UPCASE 
+	CLRL	-(SP)                   ; Blank 
+	PUSHL	4(AP)                      ; Output DSC
+	PUSHAL	KB_DES                  ; Input buf
+	PUSHAL	KB_BOARD                ; Input ID
+	CALLS	#10,G^SMG$READ_STRING
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EXTR_IFCNT_GETTABLE 
+;++
+;2 EXTR_IFCNT_GETTABLE 
+; Routine to display all index entries by IP addr in menu. 
+; Selection is returned in P1 and is the relative record 
+; number of the selcted destination in the data file.
+;3 Inputs:
+;	None
+;3 Outputs:
+; 	.long net format IP addr is returned in R1
+;3 Returns:
+;	SS$_NORMAL	did it
+;	Any return from SMG Menu create, select
+;--
+
+	$OPEN	FAB = IFIDXFAB			; Open input file
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = IFIDXRAB		;Connect input stream
+	BSBW	ERROR_CHK
+
+20$:
+	CLRL	CURIP
+	CLRL	IFCNT
+	MOVB	#RAB$C_SEQ,IFIDXRAB+RAB$B_RAC   ; Sequential read
+	MOVAL	DYNMENU,R6
+	MOVL	#24,DYNDESC
+100$:
+	$GET	RAB=IFIDXRAB
+	BLBS	R0,110$
+	BRW	200$
+110$:
+	CMPL	CURIP,IFIDX_ADDR  
+	BEQLU	100$
+	INCL	IFCNT
+	MOVL	IFIDX_ADDR,CURIP
+	MOVAL	IFIDX_ADDR,R1
+	MOVL	R6,DYNDESC+4			; Complete descriptor
+	MOVZWL	3(R1),-(SP)
+	MOVZWL	2(R1),-(SP)
+	MOVZWL	1(R1),-(SP)
+	MOVZWL	(R1),-(SP)
+        PUSHAL	DYNDESC
+	PUSHAL	DYNDESC
+	PUSHAL	IPADDR
+	CALLS	#7,G^SYS$FAO
+	BSBW	ERROR_CHK
+	ADDL	#24,R6
+	BRB	100$
+200$:
+	MOVAL	DYNMENU,MADDR
+	MULL3	#24,IFCNT,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,210$			; Assume any error = eof
+        CLRL	R1
+	RET
+210$:
+	MOVZWL	CHOICE,R1
+	MOVAL	DYNMENU,R2
+	DECL	R1
+	MULL	#24,R1
+	ADDL3	R1,R2,TEMPDESC+4	; Address of ip
+; Find len
+	LOCC	#^A/ /,#24,@TEMPDESC+4
+	SUBL3	TEMPDESC+4,R1,TEMPDESC
+; Translate
+	PUSHAL	OUTINT			; Write here
+	PUSHAL	TEMPDESC
+	CALLS	#2,G^EMU_ASCIPADRTONET
+	BLBS	R0,220$
+	RET
+220$:
+	$CLOSE	FAB=IFIDXFAB
+	MOVL	OUTINT,R1
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+		.END EXTR_IFCNT

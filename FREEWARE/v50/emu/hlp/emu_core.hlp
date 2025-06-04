@@ -1,0 +1,737 @@
+1 EMU_CORE
+ Collection of routines used primarily in EMU core processes
+ See each routine for detail
+2 Modifications
+  002	30-jun-1998	PB	Changed variable NF_NAM to be 512 char
+				was .quad - programming error.
+2 SET_UPDATE
+  Routine to set the update bit in all PSRdb records matching the 
+  input. Setting this bit causes this box to be updated on the next
+  cycle.
+ Modification:
+	Clear the NO-POLL bit at same time. 
+3 Inputs
+	.address of EMUDB record. Only the BOXID(4) and PROTOCOL(0) fields
+	are accessed. That is the complete record need not be present.
+	.address of .quad 1st and last address of section to search.
+3 Outputs
+	Any matching boxes in the specified db have the update bit set.
+	SYS_COM_V_UPDATE bit is set in field COM_HDR_L_SYSCTL
+3 Returns
+	SS$_NORMAL	At least 1 match was found and bit set
+	SS$_BADPARAM	Boxid = 0
+			protocol specified did not match P2
+	SS$_ITEMNOTFOUND No matching box found in specified db
+2 CHECK_PRIVS
+  Routine to compare the caller's authorised privs with the input
+  param. It returns true(1) is all privs in the input
+  are present or false (0) if not.
+3 Inputs
+	.address of .quad VMS priv mask. The bit positions are defined by
+	the $PRVDEF macro
+3 Outputs
+	None
+3 Returns
+ 	True (1)	All bits set in the input quad are set in 
+			the caller's AUTHPRIV mask
+	False(0)	At least 1 bit set in the input quad was not
+			set in the caller's AUTHPRIV mask. (UAF)
+	Any from $GETJPI
+2 GET_EMUDBSYSLOCK
+	Routine to get a lock for access to the EMU databases
+	system wide. It is used by those routines that must access multiple
+	records to satisfy a single input. Current participants:
+	RELATER
+	SCANNER
+   Note: the lock is queued in wait mode; The caller waits until the lock is 
+	granted.
+3 Inputs
+	.address of lockid. If the value at this address = 0 then the 
+	lock is queued in EXMODE and the created id returned to caller. 
+ 	If .ne. 0 then the lock is converted to EXMODE 
+
+	.long caller's pid. The EMU designated id of the caller. Used to 
+	log activity of this routine.
+
+	.long  lock level. Optional - if not present defaults to LCK$K_EXMODE
+	May be any valid LCK$K_xxMODE symbol. 
+
+
+3 Outputs
+	If Id = 0 and lock completes successfully, the created id is 
+	returned in P1
+	All activity is recorded as messages in EMU_LOGGER
+	Messages written:
+	All messages contain the time, caller's pid and activity:
+	Attempt to que
+	Result from $ENQ
+
+3 Returns
+ Any from $ENQ (status block)
+3 Modifications
+	001	PB	Commented out logging of all activity - 
+			too many useless messages.
+2 RELEASE_EMUDBSYSLOCK
+	Routine to release the lock gained by calling GET_EMUDBSYSLOCK
+	The routine converts the lock specified to NULL
+	See that routine for detail.
+3 Inputs
+	.address of lockid. Must not = 0
+
+	.long caller's pid. The EMU designated id of the caller. Used to 
+	log activity of this routine.
+
+3 Outputs
+	None other that status log message
+	Messages written:
+	All messages contain the time, caller's pid and activity:
+	Result from $ENQ
+
+3 Returns
+	SS$_BADPARAM	Lock id = 0
+ Any from $ENQ (status block)
+ 
+3 Modifications
+	001	PB	Commented out logging of all activity - 
+			too many useless messages.
+2 PSRREC_TO_RELATER
+	The input PSR record is parsed and components are added to a 
+       relater frame. The resulting frame is sent to the relater.
+3 Inputs
+	.address of PSR record
+3 Outputs
+	Relater frame
+3 Returns
+	SS$_NORMAL	OK
+	SS$_BADPARAM	Invalid PSR rec. One of:
+			FLAG field is not in valid range
+ Any from CREATE_RELATER_FRAME, SEND_RELATER_FRAME
+2 MAKE_CRC
+	The input specified by the paramaters is CRC'ed using a 16 bit
+	seed and the resulting CRC is returned in R0.
+3 Inputs
+	.long len of string to CRC
+	.address of string to CRC
+3 Outputs
+	The string is CRCed and the CRC is returned in R0
+3 Returns
+	None. The result in R0 is the CRC value
+2 DBV_RELPSR 
+	   Each entry in relater table in relater db is looked up
+	   in the corresponding PSRdb to ensure it exists. 
+	   The number of PSR entries found is counted. Any 
+	   entries in relater with 0 PSRdb entries is bad.
+3 Inputs
+	.address of .quad context
+	.address of .long entry count
+	.address of .long option bit pattern
+4 Options
+	Bit		When set
+	0		Return after each check. For interactive verify.
+	1		Delete invalid links. When a relater entry 
+			has no corresponding PSR entry, the relater 
+			entry is deleted. 
+3 Outputs
+	Context:	.long	Current relative rec in relater db. 
+				Count starts at 1. If not set, routine
+				returns only if count = 0, on map error
+				or at end of search.
+			.long	Current relative entry in relater
+				table. Corresponds to PSRid
+	entry count:
+			.long	Count of PSR entries found for this 
+				relater entry. 
+3 Returns
+	SS$_NORMAL	OK 
+2 DBV_PSRREL 
+	   Each entry in relater table in relater db is looked up
+	   in the corresponding PSRdb to ensure it exists. 
+	   The number of PSR entries found is printed. Any 
+	   entries in relater with 0 PSRdb entries is bad.
+3 Inputs
+	
+3 Outputs
+	The count of PSR entries for each Relater entry is printed.
+	Counts of 0 are highlighted (This is an error)
+3 Returns
+	SS$_NORMAL	OK 
+2 DBV_DBPSR 
+	Takes a file specification and returns the file name.
+	Note: This routine will fail if the node field is present.
+3 Inputs
+	.long	  len of file spec
+	.address  file spec
+	.address of desc pointing to area where file name is written.
+3 Outputs
+	File name is written to area pointed to by p3
+	P3 is written with resulting len
+3 Returns
+	SS$_NORMAL	OK 
+	SS$_BUFFEROVF	outp buffer too small
+2 STRIP_FILSPEC 
+	Takes a file specification and returns the file name.
+	Note: This routine will fail if the node field is present.
+3 Inputs
+	.long	  len of file spec
+	.address  file spec
+	.address of desc pointing to area where file name is written.
+3 Outputs
+	File name is written to area pointed to by p3
+	P3 is written with resulting len
+3 Returns
+	SS$_NORMAL	OK 
+	SS$_BUFFEROVF	outp buffer too small
+2 PHYSADR
+ Get the physical mac address in use on the local node and place in output
+3 Input
+	P1	.address of 6 byte array to which this routine
+		writes the node's Physical Ethernet address
+3 Output
+	The ethernet address is written to the output
+ Returns:
+	SS$_NORMAL      Local address written 
+	SS$_BADPARAM	Input param error:
+			Number of params was .NE. 1
+	SS$_ACCVIO	Can't write outp field
+2 QUAD2FLOAT 
+	Converts a quadword integer to F floating number
+3 Inputs
+	Addr of .quad integer
+3 Outputs
+	R1 = F Float equivalent
+3 Returns
+	SS$_NORMAL	OK , R1 contains .float equivalent
+
+MOVL	4(AP),R6
+CVTLF	(R6),R1		; low long
+CVTLF	4(R6),R2	; Hi long
+MULF2	#4294967295,R2	; Scale
+ADDF	R2,R1
+MOVL	#SS$_NORMAL,R0
+RET
+
+
+       .CALL_ENTRY     MAX_ARGS=3, -
+                       HOME_ARGS=TRUE, -
+                       INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                       PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                       LABEL=EMU_CVTIME
+++
+2 EMU_CVTIME
+  Routine to translate a binary time to ascii and return selected components.
+
+3 Inputs
+  	.long function code
+	.address of .quad binary time. If 0 is specified, the current system
+	time is used.
+	.address of desc pointing to output
+3 Outputs
+ The input time is converted to ascii and the component(s) selected
+ by the funtion code is returned in the output.
+3 Functions
+  Code				Return
+  0			Full date/time (as from $ASCTIM)
+  1			Day/Month
+  2			Hours/Min
+
+3 Returns
+	SS$_NORMAL	OK
+	SS$_BADPARAM	Unrecognised function code
+	SS$_BUFFEROVF	Output too small
+	Any from $ASCTIM
+2 TIMEDIFF_SEC  
+ Calculate the difference between 2 absolute times and return the 
+ difference in seconds.
+3 Inputs
+	Addr of TIME1
+	Addr of TIME2
+3 Outputs
+	R1 = Time difference in seconds
+3 Returns
+	SS$_NORMAL	OK , R1 contains seconds passed from time1 to time2
+	Any retunrn from LIB$SUB_TIMES
+ (Time1 must be later or = time2)
+       PUSHAL	QTIME		; Result
+PUSHL	8(AP)
+PUSHL	4(AP)
+CALLS	#3,G^LIB$SUB_TIMES
+BLBS	R0,10$
+RET
+0$:
+ Test if resulting time = 0
+TSTL	QTIME       	; low long
+BNEQ	20$             ; Br if ne
+TSTL	QTIME+4         ; hi long
+BNEQ	20$             ; br if not
+CLRL	R1              ; Time diff = 0
+MOVL	#SS$_NORMAL,R0  ; OK
+RET
+0$:
+EDIV    #-10000000,QTIME,R1,R2     ; R1 = Seconds since
+       MOVL	#SS$_NORMAL,R0
+RET
+
+       .CALL_ENTRY     MAX_ARGS=1, -
+                       HOME_ARGS=TRUE, -
+                       INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                       PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                       LABEL=ALLOCATE_BOXID
+++
+2 ALLOCATE_BOXID 
+ Allocates the next free BOXID
+3 Inputs
+	Addr of Control section
+3 Outputs
+	R1 = Next BOXID
+3 Returns
+	SS$_NORMAL	BOXID allocated and returned
+	SS$_INTOVF 	BOXID allocated is invalid (top byte is written)
+	SS$_DEADLOCK 	Could not allocate after 100 attempts
+3 Note
+ BOXID is a 4 byte quantity uniquely identifying a physical device on
+ the network. The bottom 3 bytes are assigned locally and the top byte
+ is reserved for identifying the EMU server that maintains this box.
+ This routine allocates the next boxid using an 'increment and test'
+ algorithm. That is:
+ Read the current number, increment and store it
+ Increment the current number
+ Compare current and stored numbers. If not equal,(indicates collision with 
+ another process)  repeat.
+2 UNLOCREC 
+ UnLock record in database by decrementing the access type on this rec.
+ For saftey, after decrement check if field >= 0. If not clear field
+ and return error.
+3 Inputs
+	addr of .quad lock field 
+	value of .long lock type (read, write, exclusive)
+3 Outputs
+	none
+3 Returns
+ R0 =  SS$_NORMAL  	 Rec unlocked
+	SS$_OBJNOTLOCKED Not currently locked
+	SS$_ACCVIO	Could not read or write input param
+	SS$_BADPARAM 	Unknown lock mask
+2 LOCREC  
+ Lock record in database
+3 Inputs
+	addr of .quad lock field 
+	value of .long lock type (read, write, exclusive)
+3 Output
+	none
+3 Returns
+ R0 =  SS$_NORMAL  	Rec locked
+	SS$_DEADLOCK	Could not lock
+	SS$_ACCVIO	Could not read or write input param
+	SS$_BADPARAM 	Unknown lock mask
+3 Description
+ As the fields in any database are exclusively written by a single process
+ it allows for simpler locking technique:
+ Writers can share with writers and readers can share with readers
+ To lock for write requires no readers
+ To lock for read requires no writers.
+ To lock exclusive requires no current access.
+ Any record capable of being locked has a 2x .long field which is:
+	Number of readers currently accessing.
+	Number of writers currenly accessing
+4 To_acquire_lock
+ If exclusive check both fields = 0
+ If write check read field = 0
+ If read check write field = 0
+ If checked fields(s) clear then increment the required field
+ If not clear wait 1 sec and try again
+ Do this up to  SYS_COM_C_LOCATT times
+ If not locked return DEADLOCK.
+2 LOCATE_RELATER_BOXID 
+ locate record by BOXID in RELATER database
+3 Inputs
+	addr of .long boxid to find 
+	addr of RELATER DB (.quad 1st and last addr)
+	addr of .long SYS_PID_C_xxxx of PSRDB this boxid is in
+3 Outputs
+	R1 = addr of entry if either found or 1st available entry
+ 
+3 Returns
+ R0 =  SS$_NORMAL  	 Rec found
+	SS$_ITEMNOTFOUND Rec not found
+	SS$_INVARG	 BOXID input was .le. 0
+			 PID > MAXBOXID 
+	SS$_ACCVIO	 Could not read or write input params
+2 MAKE_NAMER_FRAME 
+ Takes disparate inputs and congeals them into a namer frame.
+ 
+3 Inputs
+	.long PID of PSRdb this name belongs to
+	.long len of name
+	.addr of .ascii name
+	.addr of desc pointing to outp
+3 Outputs
+ 	A namer frame is written to the outp using input params.
+	Namer frame:
+	PID	Protocol this name is associated with
+	KEY2	16 bit CRC of name
+	Name	the .ascii name
+  The entire len of this frame is written in the outp disc.
+3 Returns
+ R0 =  SS$_NORMAL  	 OK
+	SS$_BUFFEROVF	 Outp buffer too small
+	SS$_BADPARAM	 Name len was > NAM_DB_C_MAXNAMSIZ or < 0
+2 LOCATE_BOXID 
+ locate record by BOXID in any database (other than RELATER)
+3 Inputs
+	addr of .long boxid to find 
+	addr of section to search  (.quad 1st and last addr)
+ 	addr of .long context used to recursively locate multiple entries
+3 Outputs
+	R1 = addr of entry if either found or 1st available entry
+ 
+3 Returns
+ R0 =  SS$_NORMAL  	 Rec found
+	SS$_ITEMNOTFOUND Rec not found
+	SS$_ACCVIO	 Could not read or write input params
+	SS$_INSFMEM	 Attempted to return rec beyond end of section.
+2 LOCATE_ALTID 
+ locate record by ALTID in any database (other than RELATER)
+3 Inputs
+	addr of .long ALTID to find 
+	addr of section to search  (.quad 1st and last addr)
+ 	addr of .long context used to recursively locate multiple entries
+3 Outputs
+	R1 = addr of entry if found 
+ 
+3 Returns
+ R0 =  SS$_NORMAL  	 Rec found
+	SS$_ITEMNOTFOUND Rec not found
+	SS$_ACCVIO	 Could not read or write input params
+	SS$_INVARG	 ALTID was not > 0
+2 CHKSUM_NAME        
+ Add all the bytes of an .ascic string together (not including count byte)
+ and return the byte result in R1
+3 Return 
+       SS$_NORMAL      - OK
+       SS$_ACCVIO      - Could not read input
+2 EXTRACT_DBDATA  
+ Extracts the data portion from an EMUDB database record and returns 
+ a descriptor pointing to the data.
+3 Inputs
+	.address of .quad descriptor
+	.address of descriptor pointing to EMUDB record
+3 Outputs
+	The descriptor is written with the len and address of the data
+	portion of the record.
+3 Returns
+	SS$_NORMAL	ok
+	SS$_BADPARAM	Unrecognised PID
+2 VERIFY_RELATER  
+ Verifies if the specified relationship exists in the relater database.
+3 Input
+	.address of PID 1
+	.address of BOXID 1
+	.address of PID 2
+	.address of BOXID 2
+3 Output
+	The 1st relater record containing PID, BOXID is returned in R1
+	Boxid 1  is searched for in the relater tables at the position
+	set by pid 1. If found, the address of this entry is returned.
+3 Return
+	SS$_NORMAL	 Relationship exists
+	SS$_ITEMNOTFOUND Relationship does not exist
+	SS$_DATACHECK	 Did not find either PID/BOXID combination
+	Any from MAPLVB_DB, LOCATE_RELATER_BOXID
+3 Description
+ The 1st PID/BOXID combination is located in the relater.
+ If found:
+ Check that 2nd BOXID is in this rec at position PID 
+ 	If not:
+		SS$_ITEMNOTFOUND
+	Else:
+		SS$_NORMAL
+ If not found:
+		SS$_DATACHECK
+2 VERIFY_ADDRESS  
+ Validates the address given in the input descriptor is:
+	Valid length
+	Valid Range
+ See the individual descriptions for detail on the specific tests made.
+
+3 Inputs
+	.address of descriptor pointing to address
+	.Long value of PID 
+3 Outputs
+	None
+3 Returns
+	SS$_NORMAL	ok
+	SS$_BADPARAM	Unrecognised PID
+	SS$_IVADDR	Address is invalid	
+4 DECnetIV
+ Address must be 2 bytes in len and in range 1025 - 65535
+4 OSI
+ Address must be: 
+	1-20 bytes in len
+	recognised AFI. That is one of:
+		49 Local
+		37 x.121 
+		53 x.121 
+		39 ISO DCC
+		41 F.69
+		55 F.69
+		43 E.163
+		57 E.163
+		45 E.164
+		59 E.164
+		47 ISO 6523-ICD
+4 SCS
+ See Ethernet description
+4 LAT
+ See Ethernet description
+4 MOP
+ See Ethernet description
+4 IP
+ Address must be:
+	4 bytes in len
+	1st byte must not be 0,127, or 255
+	bytes 1,2  may be anything
+	byte 3 must be 1-254
+ Note that this passes virtualy anything - this is not a good validation.
+ In later versions something more clever may be made available.
+4 IPX
+ Address must be:
+	>= 10 bytes in len
+	Top 4 bytes must not be 0
+4 Ethernet
+ Address must be:
+	6 bytes in len
+	Multicast not set
+	Top 3 bytes must not be 0
+	bot 3 bytes cannot be 0
+4 Bridge
+ See Ethernet description
+4 Namer
+ Verify PID is in range,
+ All char are printable strings
+
+CMPL	(R7),#SYS_COM_C_LOWPID 			; Lowest valid
+BLSS	11810$
+CMPL	(R7),#SYS_COM_C_HIPID 			; Highest valid
+BGTR	11810$
+CMPL	R6,#400			; Too long?
+BGTR	11810$
+
+185$:
+ADDL3	#8,R7,R2		; Point to name
+SUBL	#9,R6                   ; Adjust len (make index)
+BLSS	11810$                  ; Br if <= 0 
+186$:
+CMPB	(R2)[R6],#^A/ /      	; If char < ascii space it is invalid
+BLSS	11810$
+SOBGEQ	R6,1186$
+MOVL	#SS$_NORMAL,R0
+RET
+1810$:
+MOVL	#SS$_BADPARAM,R0
+RET
+2 LOCATE_PSRREC  
+ Locates (by address) a record in a PSR database and optionaly creates
+ a new record. 
+3 Inputs
+	.long len of following PSR specific address
+	.long offset from start of PSR rec where network addr is located 
+ 	.address of network address to locate in net format
+	.address of .quad (1st & last addr) of PSR section
+    ---------- Optional params - supply if creation wanted ------------
+	.address of BOXID to use (if created)
+	.long	value of SYS_PID_C_xxxx of caller  
+	.long value of create flag. If param is not present or
+	     = 0 then record is not created if not found. If flag = 1
+	     then create record.
+	.long VAR. If param is present and rec is created then this
+	     routine sets the flag corresponding to this PSR in the PTYTBL.
+	     The purpose here is to allow the relater to indicate to the
+	     sending PSR the rec has been created without having to indicate
+	     other relationships.
+
+4 Record_creation.
+ A record may be created in 2 ways:
+	1. The protocol address did not exist and (if creation wanted)
+	   it is added to the DB with either the given BOXID or a 
+	   new boxid is created. 
+	2. The protocol address did exist, the given boxid was not 0
+	   and the given boxid and the found boxid did not match. In this
+	   case, the found boxid is changed to the given boxid and 
+	   the return is SS$_CREATED. The routine exits at this point.
+
+	If a record is created under condition 1 above, it is locked 
+	for exclusive access and:
+	If BOXID = 0 then new BOXID is generated, else given is used.
+	The PSR header field is written (see INIT_PSRHDR)
+	The PSR data field is cleared then the address is writen to the record
+	The PSR header rec may be updated with rec count (if new rec created)
+ 	The rec is unlocked
+3 Outputs
+ 	R1 = either located address or next available slot
+3 Returns
+	R0 = SS$_NORMAL		Record located
+	     SS$_ACCVIO		Could not read/write 1 of 1st 4 params
+	     SS$_BADPARAM	Len (P1) .gt. COM_PSR_C_MAXSIZE (512)
+	     SS$_ITEMNOTFOUND	Not found, not created
+	     SS$_CREATED	Not found, allocated and initalised
+	     SS$_INSFMEM	Could not create
+	Any return from: LOCREC, UNLOCREC, ALLOCATE_BOXID, INIT_PSRRECHDR,
+			 $CRMPSC, VERIFY_ADDRESS
+2 INIT_PSRRECHDR
+  Inialises any PSR record header. The record is assumed to be previously
+  locked against other access by the caller.
+3 Inputs
+ 	.address of record to be initalised
+	.long of BOXID to use
+	.Long	value of SYS_PID_C_xxxx of caller 
+	.long addr of PSR header rec 
+3 Outputs
+ The following fields are writtten:
+   Field		Written with
+   FLAGS		FLAG value in DB header
+   BOXID	        Given value
+   PTYBITS		cleared
+   SYSCTL		cleared
+   LSTHRD		Current time
+   FSTHRD		Current time
+   LSTALT		cleared
+   Status		cleared
+   ACNT		1
+   Len			cleared
+   HOWSET		Given value
+   SYSCTL		SYS_COM_V_UPDATE bit is set
+   alertid		same as boxid		
+3 returns
+ 	SS$_NORMAL
+2 CREATE_RELATER_FRAME
+ Create (and/or) add to existing relater frame. This routine allocates
+ a relater frame from IPC pool and initalises it with input params. It 
+ returns a context to the caller to identify this frame for any future 
+ additions. The caller will normaly send the frame when completed. 
+ The RELATER receives the frame, processes it and deallocates it by 
+ returning it to the pool.
+3 Input
+   --- Params 1 - 4 are added only on the 1st call and form the header
+   of the relater frame.
+
+  1 .address of context field. If this is 0 a new frame is allocated 
+		and the address of the frame is written here.
+  2 .address of BOXID the following frame relates to
+  3 .long value of action. Either add or delete relationships.
+  4 .long value of sender ID. This is the SYS_PID_C_xxxx of the sending 
+		process. This is the owner process.
+   --- The following are optional and if present, added on each call ---
+  5 .long value of target following. This is the SYS_PID_C_xxxx 
+		of the target process. 
+  6 .long value of len of address following
+  7 .address of the network address the sender belives it has a relationship
+		to. A relationship means that the set of addresses in this 
+		frame all exist on the same box.
+3 Output
+ Frame format:
+	.long	ready indicator. If the low bit is set the frame is 
+		ready to be processed by the Relater. This bit is set by
+		SEND_RELATER_FRAME.
+	.long	Owner field. If this field is 0 the frame is not in use.
+		Else it is owned by the PID indicated.
+ 	Upon create new frame:
+		New frame is initalised with caller's ID.
+		Context is written at P1 address.
+	On all calls:	
+       Relater frame identified by both context and sender's ID is 
+	written with the target params specified.
+3 Returns.
+	SS$_NORMAL	OK
+	SS$_ACCVIO	can't write context
+	MSG_CRERLT_NOIPC   Could not allocate Inter-Process Comm buffer	
+	MSG_CRERLT_BADBOX  Boxids of sender and stored do not match	
+	MSG_CRERLT_BADACT  Action directive is not same as stored this frame	
+	MSG_CRERLT_BADSDR  Sender's Id and Frame sender's Id do not match	
+	MSG_CRERLT_BUFOVF  Cound not add relationship to frame
+ Any from MAP_SECTIONS $ASCEFC	
+3 Sanity_checks
+ For any additions to existing frame ALL the following must be true:
+  Caller's BOXID = frame BOXID 
+  Caller's ID = frame SENDERID 
+  Caller's ACTION = frame ACTION
+2 COUNT_IPCBUF
+ An arrray is maintained to cound IPC usage aganst PID. The array is 
+ 32 .longs (1 per possible PID) and indexed by the PID. 
+3 Input
+	signed integer  If + the location is inc'ed else dec'ed
+	.address of relater frame
+3 Output
+	As above, in the counter section.
+3 Returns.
+	SS$_NORMAL	OK
+	SS$_BADOWNER	PID was not in legal range
+	SS$_RESULTOVF   PID already has buffer allocated and has 
+			not returned it.
+2 SEND_RELATER_FRAME
+ Send existing relater frame to the RELATER. 
+3 Input
+  1 .address of context field. This is the address of an allocated
+	and completed frame the caller wishes to send. The context 
+	was originaly written by CREATE_RELATER_FRAME.
+3 Output
+	The frame is checked for validity and if OK the status bit is 
+	set indicating that the RELATER should process this frame.
+	The relater flag is set to wake that process.
+	The buffer count is decremented for this PID.
+3 Returns.
+	SS$_NORMAL		OK
+	MSG_CRERLT_BADONR	PID and OWNER do not match
+				PID  is not valid
+	Any from MAP_SECTION, $SETEF, COUNT_IPCBUF
+2 EMU_LOGGER
+ Write an error message to the log file. 
+3 Input
+ 	.address of standard error message structure
+	The caller must specify:
+		Error code
+		Name of sender (.addr of .ascid routine name)
+		Param count  (may be 0 - 7)
+	The caller may specify:
+	Up to 7 .long params. The required params are message
+	specific
+	All other params are written by this routine before
+	passing to $PUTMSG. The output from $PUTMSG is 
+	fielded by EMU_WRTERR and written to the output file.
+ 
+3 Output
+	Calls EMU_WRTERR to write message to EMU5_LOG:EMUERR.LOG  
+3 Return
+	Original status in R0 is preserved and returned to the caller
+	Any RMS error   While not yet available, it is intended that 
+			any error this routine encounters is transformed
+			into a system level alert and sent. Thus the
+			error logging system is backed up by the alert
+			system and vice versa.
+      **NOTE**
+	The following params are checked for validity:
+	SENDER		- String described by .ascid must be readable
+	Param Count     - Must be in range 0 - MSG_C_MAXPARAM (7)
+	If either of these tests fail, the message is ignored, a failed
+	message is logged to the logfile. 
+
+3 Error_message_structure
+  Symbol	Offs		Desc
+ MSG_W_ARG	0	; Argument count
+ MSG_W_OPT	2	; Options (default = 15)
+ MSG_L_ERROR	4	; Error code
+ MSG_W_PARAMS	8	; Param count
+ MSG_W_OPT2	10	; Display options (15 = display all)
+ MSG_L_TIME	12	; Time recorded
+ MSG_L_SENDER	16	; .ascid of sending routine
+ MSG_C_PARAMS	20	; Start of params
+ 
+2 EMU_WRTERR
+ Write an error message to the log file. This routine is invoked
+ by $PUTMSG to capture the formatted error message and write it
+ to the log file
+3 Inputs
+	.address of desc pointing to message to be written
+3 Output
+	The message is written to the file.
+3 Return
+  	Any RMS error

@@ -1,0 +1,516 @@
+$! File created by DCL_DIET at 22-FEB-1999 10:39:27.69 from
+$! DBS0:[MT]AUTO_TUNE.COS;
+$__vfy = "VFY_''f$parse(f$environment("PROCEDURE"),,,"NAME")'"
+$if (f$type('__vfy') .eqs. "") then __vfy = 0
+$__vfy_saved = f$verify(&__vfy)
+$procedure = f$element(0,";",f$environment("PROCEDURE"))
+$location = f$parse(procedure,,,"DEVICE","NO_CONCEAL") -
++ f$parse(procedure,,,"DIRECTORY","NO_CONCEAL") - "]["
+$set noon
+$saved_priv = f$getjpi("", "CURPRIV")
+$set process/privilege=(all,bypass)
+$on control_y then goto bail_out
+$__warning = %X10000000
+$__success = %X10000001
+$__error = %X10000002
+$__information = %X10000003
+$__fatal = %X10000004
+$exit_status = __success
+$say = "write sys$output"
+$facility = "AUTO_TUNE"
+$dc$_disk = 1
+$calc_free_blocks = "@OLGA$SYS:SYS_CALC_FREE_BLOCKS"
+$do_optimize = "@OLGA$SYS:OPTIMIZE_RMS"
+$report = "call write_logfile"
+$auto_tune_device = f$edit(P1, "COLLAPSE,UPCASE")
+$auto_tune_directory = f$edit(P2, "COLLAPSE,UPCASE")
+$if (auto_tune_device .eqs. "") then goto no_device
+$if (auto_tune_directory .eqs. "") then auto_tune_directory = "[AUTO_TUNE]"
+$if (.not. f$getdvi(auto_tune_device, "EXISTS")) then goto bad_device
+$if (f$getdvi(auto_tune_device, "DEVCLASS") .ne. dc$_disk) then goto not_disk
+$if (.not. f$getdvi(auto_tune_device, "AVL")) then goto bad_device
+$if (.not. f$getdvi(auto_tune_device, "MNT")) then goto not_mounted
+$auto_tune_work_device = "DISK$''facility'"
+$if (.not. f$getdvi(auto_tune_work_device, "EXISTS")) then -
+$auto_tune_work_device = f$trnlnm("''facility'_WORK_DEVICE" -
+,"LNM$SYSTEM_TABLE")
+$if (auto_tune_work_device .eqs. "") then goto bad_workdev
+$if (.not. f$getdvi(auto_tune_work_device, "EXISTS")) then goto bad_workdev
+$if (f$getdvi(auto_tune_work_device, "DEVCLASS") .ne. dc$_disk) then -
+$goto bad_workdev
+$if (.not. f$getdvi(auto_tune_work_device, "AVL")) then goto bad_workdev
+$if (.not. f$getdvi(auto_tune_work_device, "MNT")) then goto bad_workdev
+$auto_tune_work_device = f$getdvi(auto_tune_work_device, "FULLDEVNAM")
+$device_label = f$getdvi(auto_tune_device, "VOLNAM")
+$auto_tune_device = f$getdvi(auto_tune_device, "FULLDEVNAM") - "_"
+$just_checking = "''auto_tune_device'''auto_tune_directory'JUST.CHECKING"
+$if (f$parse(just_checking) .eqs. "") then goto no_directory
+$call calculate_margin
+$dmy = f$edit(f$cvtime("TODAY", "ABSOLUTE", "DATE"), "COLLAPSE")
+$if (f$length(dmy) .eq. 10) then dmy = "0''dmy'"
+$master_logfile = "SYS$MANAGER:''facility'_''device_label'.LOG_''dmy'"
+$auto_tune_work_file = auto_tune_work_device + "[000000]''facility'_" -
++ device_label + ".WORK_FILE"
+$auto_tune_disable = facility + "_DISABLE"
+$auto_tune_logical = facility + "_OF_" + device_label
+$define/job/exec/nolog sys$scratch 'auto_tune_work_device'[000000]
+$define/system/nolog 'auto_tune_logical' "In Progress"
+$open/write mlf 'master_logfile'
+$report "Starting device ''auto_tune_device'''device_label'" yes
+$report "Searching for control files in ''auto_tune_directory'" yes
+$call scan_directories
+$report "Completed device ''auto_tune_device'''device_label'" yes
+$deassign/system 'auto_tune_logical'
+$goto bail_out
+$no_device:
+$say "%''facility'-E-NODEVICE, no device specified for control files"
+$exit_status = __error
+$goto bail_out
+$bad_device:
+$say "%''facility'-E-BADDEVICE, bad device specified for control files"
+$exit_status = __error
+$goto bail_out
+$not_disk:
+$say "%''facility'-E-NOTDISK, specified device is not a disk"
+$exit_status = __error
+$goto bail_out
+$not_mounted:
+$say "%''facility'-E-NOTMOUNTED, device is not mounted"
+$exit_status = __error
+$goto bail_out
+$no_directory:
+$say "%''facility'-E-DIRNOTFND, control file directory not found"
+$exit_status = __error
+$goto bail_out
+$bad_workdev:
+$say "%''facility'-E-BADWRKDEV, work device problems"
+$exit_status = __error
+$goto bail_out
+$bail_out:
+$if (f$trnlnm("LF") .nes. "") then close/nolog lf
+$if (f$trnlnm("MLF") .nes. "") then close/nolog mlf
+$set process/privilege=('saved_priv')
+$exitt exit_status
+$write_logfile: subroutine
+$set noon
+$message = P1
+$mlf_only = P2
+$if (.not. mlf_only) then -
+$write/error=write_logfile_err lf f$fao("!8%T  !AS", 0, message)
+$write/error=write_logfile_err mlf f$fao("!8%T  !AS", 0, message)
+$goto exit_write_logfile
+$write_logfile_err:
+$say f$fao("!8%T  !AS", 0, message)
+$exit_write_logfile:
+$exitt 1
+$endsubroutine
+$calculate_margin: subroutine
+$set noon
+$default_margin == 20
+$system_margin == f$trnlnm("''facility'_MARGIN", "LNM$SYSTEM_TABLE")
+$if (f$type(system_margin) .eqs. "INTEGER")
+$then
+$current_margin == system_margin
+$else
+$current_margin == default_margin
+$endif
+$exitt 1
+$endsubroutine
+$scan_directories: subroutine
+$set noon
+$search_spec = auto_tune_device + auto_tune_directory + facility -
++ ".CONTROL_FILE*"
+$dir_loop:
+$dir_spec = f$search(search_spec, 52836)
+$if (dir_spec .eqs. "") then goto end_dir_loop
+$control_file = dir_spec
+$logfile = f$parse(dir_spec,,,"DEVICE") + f$parse(dir_spec,,,"DIRECTORY") -
++ f$parse(dir_spec,,,"NAME") + ".LOG_''dmy'"
+$report "" yes
+$report "Processing control file ''control_file'" yes
+$report "User logfile is ''logfile'" yes
+$call process_control_file
+$report "Completed control file ''control_file'" yes
+$goto dir_loop
+$end_dir_loop:
+$exitt 1
+$endsubroutine
+$process_control_file: subroutine
+$set noon
+$exit_control_file == 0
+$open/read/error=cf_open_err cf 'control_file'
+$open/write/error=lf_open_err lf 'logfile'
+$file_ownership == "/by_owner=parent"
+$fdl_home == ""
+$read_loop:
+$if (f$trnlnm(auto_tune_disable) .nes. "")
+$then
+$report " Further file tuning has been disabled"
+$exit_control_file == 1
+$endif
+$if (f$trnlnm("SHUTDOWN$TIME") .nes. "")
+$then
+$report " File tuning stopping, system shutting down"
+$exit_control_file == 1
+$endif
+$if (exit_control_file) then goto end_read_loop
+$read/end=end_read_loop/error=cf_read_err cf text
+$text = f$edit(text, "COLLAPSE,UPCASE,UNCOMMENT")
+$if (text .eqs. "") then goto read_loop
+$if (f$extract(0, 1, text) .eqs. "$")
+$then
+$call process_directive "''text'"
+$else
+$report ""
+$filespec = f$element(0, "/", text)
+$options = text - filespec
+$filespec = f$element(0, ";", filespec)
+$len_filespec = f$length(filespec)
+$if ((f$locate("%", filespec) .ne. len_filespec) -
+.or. (f$locate("*", filespec) .ne. len_filespec))
+$then
+$report "Filespec ''filespec' ignored"
+$report "  ...wildcards not allowed"
+$else
+$call process_options "''options'"
+$auto_tune_input_file = auto_tune_device + filespec
+$report "Processing file ''filespec'"
+$if (f$length(options) .ne. 0) then report " Options ''options'"
+$define/system/nolog 'auto_tune_logical' "In Progress - ''filespec'"
+$call process_file
+$define/system/nolog 'auto_tune_logical' "In Progress"
+$report "Completed file ''filespec'"
+$endif
+$endif
+$goto read_loop
+$end_read_loop:
+$goto exit_process_control_file
+$cf_open_err:
+$error_text = f$message($status)
+$report "Error opening control file ''error_text'" yes
+$goto exit_process_control_file
+$lf_open_err:
+$error_text = f$message($status)
+$report "Error opening log file ''error_text'" yes
+$goto exit_process_control_file
+$cf_read_err:
+$error_text = f$message($status)
+$report "Error reading control file ''error_text'" yes
+$goto exit_process_control_file
+$exit_process_control_file:
+$close/nolog lf
+$close/nolog cf
+$exitt 1
+$endsubroutine
+$process_directive: subroutine
+$set noon
+$directive = f$edit(P1, "COLLAPSE,UPCASE")
+$if (f$length(directive) .eq. 1) then goto exit_process_directive
+$report " ''directive' directive encountered"
+$directive_name = f$element(0, "=", directive)
+$directive_len = f$length(directive_name)
+$directive_value = directive - directive_name - "="
+$if (f$extract(0, directive_len, "$EXIT") .eqs. directive_name)
+$then
+$exit_control_file == 1
+$else
+$if (f$extract(0, directive_len, "$RESET_MARGIN") -
+.eqs. directive_name)
+$then
+$call calculate_margin
+$else
+$if (f$extract(0, directive_len, "$MARGIN") .eqs. directive_name)
+$then
+$if (f$type(directive_value) .eqs. "INTEGER")
+$then
+$if ((directive_value .lt. 10) .or. (directive_value .gt. 70))
+$then
+$call calculate_margin
+$else
+$current_margin == directive_value
+$endif
+$else
+$call calculate_margin
+$endif
+$else
+$if (f$extract(0, directive_len, "$PARENT_OWNERSHIP") .eqs. directive_name)
+$then
+$file_ownership == "/by_owner=parent"
+$else
+$if (f$extract(0, directive_len, "$ORIGINAL_OWNERSHIP") .eqs. directive_name)
+$then
+$file_ownership == "/by_owner=original"
+$else
+$if (f$extract(0, directive_len, "$FDL_LOCATION") .eqs. directive_name)
+$then
+$directive_value = directive_value - "[" - "]" - "<" - ">"
+$if (directive_value .nes. "")
+$then
+$fdl_home == "[''directive_value']"
+$else
+$fdl_home == ""
+$endif
+$endif
+$endif
+$endif
+$endif
+$endif
+$endif
+$exit_process_directive:
+$exitt 1
+$endsubroutine
+$process_options: subroutine
+$set noon
+$options = f$edit(P1, "COLLAPSE,UPCASE")
+$optimize == 0
+$opt_add == "0"
+$opt_index == "No"
+$opt_data == "Yes"
+$opt_fill == "75"
+$count = 0
+$o_loop:
+$this_option = f$element(count, "/", options)
+$count = count + 1
+$if (this_option .eqs. "") then goto o_loop
+$if (this_option .eqs. "/") then goto end_o_loop
+$option_name = f$element(0, "=", this_option)
+$option_value = this_option - option_name - "="
+$if (f$length(option_name) .lt. 3) then goto o_loop
+$option_name = f$extract(0, 3, option_name)
+$if (option_name .eqs. "OPT")
+$then
+$optimize == 1
+$else
+$if (option_name .eqs. "ADD")
+$then
+$opt_add == option_value
+$else
+$if (option_name .eqs. "IND")
+$then
+$opt_index == option_value
+$else
+$if (option_name .eqs. "DAT")
+$then
+$opt_data == option_value
+$else
+$if (option_name .eqs. "NOI")
+$then
+$opt_index == "No"
+$else
+$if (option_name .eqs. "NOD")
+$then
+$opt_data == "No"
+$else
+$if (option_name .eqs. "FIL")
+$then
+$opt_fill == option_value
+$endif
+$endif
+$endif
+$endif
+$endif
+$endif
+$endif
+$goto o_loop
+$end_o_loop:
+$if (f$type(opt_add) .nes. "INTEGER") then opt_add == 0
+$if ((f$extract(0, 1, opt_index) .nes. "Y") -
+.and. (f$extract(0, 1, opt_index) .nes. "N")) then -
+$opt_index == "Yes"
+$if ((f$extract(0, 1, opt_data) .nes. "Y") -
+.and. (f$extract(0, 1, opt_data) .nes. "N")) then -
+$opt_data == "Yes"
+$if (f$type(opt_fill) .nes. "INTEGER") then opt_fill == 75
+$if ((opt_fill .lt. 50) .or. (opt_fill .gt. 100)) then opt_fill == 75
+$exit_process_options:
+$exitt 1
+$endsubroutine
+$process_file: subroutine
+$set noon
+$if (f$search(auto_tune_input_file) .eqs. "") then goto no_inputfile
+$if (f$file_attributes(auto_tune_input_file, "ORG") .nes. "IDX")
+$then
+$report "Filespec ''filespec' ignored"
+$report "  ...file is not indexed"
+$else
+$input_file_size = f$file_attributes(auto_tune_input_file,"ALQ")
+$report " Current file allocation ''input_file_size' blocks"
+$optimize_ok == 1
+$if (optimize) then call generate_fdl
+$if (.not. optimize_ok) then goto exit_process_file
+$if (fdl_home .eqs. "")
+$then
+$auto_tune_fdl_file = f$parse(auto_tune_input_file,,,"DEVICE") -
++ f$parse(auto_tune_input_file,,,"DIRECTORY") -
++ f$parse(auto_tune_input_file,,,"NAME") -
++ ".FDL"
+$else
+$auto_tune_fdl_file = f$parse(auto_tune_input_file,,,"DEVICE") -
++ fdl_home + f$parse(auto_tune_input_file,,,"NAME") -
++ ".FDL"
+$endif
+$if (f$search(auto_tune_fdl_file) .eqs. "") then goto no_fdlfile
+$call get_fdl_allocation
+$if (fdl_allocation .eq. -1) then goto bad_fdl
+$call calculate_space
+$if (insufficient_space) then goto exit_process_file
+$call convert_file
+$if (convert_failed) then goto exit_process_file
+$call restore_file
+$endif
+$goto exit_process_file
+$no_inputfile:
+$report " Input file not found"
+$goto exit_process_file
+$no_fdlfile:
+$report " No FDL file found"
+$goto exit_process_file
+$bad_fdl:
+$report " Problems reading FDL allocation quantities"
+$goto exit_process_file
+$exit_process_file:
+$exitt 1
+$endsubroutine
+$generate_fdl: subroutine
+$set noon
+$message = " Generating optimized FDL (additions=''opt_add'" -
++ ",index_cmp=''opt_index',data_cmp=''opt_data',fill=''opt_fill')"
+$report "''message'"
+$do_optimize 'auto_tune_input_file' -
+"''opt_add'" "''opt_index'" "''opt_data'" "''opt_fill'"
+$_status = $status
+$if (.not. _status)
+$then
+$optimize_ok == 0
+$report " Requested optimize failed"
+$else
+$optimize_ok == 1
+$if (fdl_home .nes. "")
+$then
+$optimize_fdl_file = f$parse(auto_tune_input_file,,,"DEVICE") -
++ f$parse(auto_tune_input_file,,,"DIRECTORY") -
++ f$parse(auto_tune_input_file,,,"NAME") -
++ ".FDL"
+$auto_tune_fdl_file = f$parse(auto_tune_input_file,,,"DEVICE") -
++ fdl_home + f$parse(auto_tune_input_file,,,"NAME") -
++ ".FDL"
+$report " Moving new FDL to ''fdl_home'"
+$copyy 'optimize_fdl_file';-1 'auto_tune_fdl_file';0
+$copyy 'optimize_fdl_file';0 'auto_tune_fdl_file';0
+$if ($status)
+$then
+$deletee 'optimize_fdl_file';*
+$else
+$report " Move of FDL failed... please do it yourself"
+$report " I will proceed using the new FDL and reset FDL_LOCATION"
+$fdl_home == ""
+$endif
+$endif
+$endif
+$exit_generate_fdl:
+$exitt 1
+$endsubroutine
+$get_fdl_allocation: subroutine
+$set noon
+$fdl_allocation == 0
+$open/read/error=fdl_problem fdl 'auto_tune_fdl_file'
+$fdl_loop:
+$read/end=end_fdl_loop/error=fdl_problem fdl fdl_line
+$fdl_line = f$edit(fdl_line, "COMPRESS,TRIM")
+$if (f$element(0, " ", fdl_line) .eqs. "ALLOCATION") then -
+$fdl_allocation == fdl_allocation + f$element(1, " ", fdl_line)
+$goto fdl_loop
+$end_fdl_loop:
+$if (fdl_allocation .eq. 0) then goto fdl_problem
+$report " FDL allocation is ''fdl_allocation' blocks"
+$goto exit_get_fdl_allocation
+$fdl_problem:
+$fdl_allocation == -1
+$exit_get_fdl_allocation:
+$close/nolog fdl
+$exitt 1
+$endsubroutine
+$calculate_space: subroutine
+$set noon
+$calc_free_blocks free_work_space 'auto_tune_work_device' total_work_space
+$calc_free_blocks free_input_space 'auto_tune_device' total_input_space
+$report " Free space on work disk ''free_work_space' (''total_work_space')"
+$report " Free space on input disk ''free_input_space' (''total_input_space')"
+$marginal_space == total_input_space/100*current_margin
+$report " Required free space on input disk ''marginal_space'"
+$if ((total_input_space - input_file_size + fdl_allocation) -
+.lt. marginal_space)
+$then
+$report " Insufficient space on input disk to reload file"
+$insufficient_space == 1
+$else
+$report " Sufficient space on input disk to reload file"
+$if (fdl_allocation .gt. (free_work_space - 2000))
+$then
+$report " Insufficient space on work disk to convert file"
+$insufficient_space == 1
+$else
+$report " Sufficient space on work disk to convert file"
+$insufficient_space == 0
+$endif
+$endif
+$exitt 1
+$endsubroutine
+$convert_file: subroutine
+$set noon
+$report " Converting..."
+$convertt/fdl='auto_tune_fdl_file' -
+'auto_tune_input_file' 'auto_tune_work_file'
+$_status = $status
+$if (_status)
+$then
+$report " Convert complete"
+$convert_failed == 0
+$else
+$report " Convert failed ''f$message(_status)'"
+$report " Work file deleted, input file intact"
+$convert_failed == 1
+$if (f$search(auto_tune_work_file) .nes. "") then -
+$deletee 'auto_tune_work_file';*
+$endif
+$exit_convert_file:
+$exitt 1
+$endsubroutine
+$restore_file: subroutine
+$set noon
+$new_file_size == f$file_attributes(auto_tune_work_file, "ALQ")
+$if ((total_input_space - input_file_size + new_file_size) -
+.lt. marginal_space)
+$then
+$report " Insufficient space to reload file"
+$report " Input file intact, work file deleted"
+$deletee 'auto_tune_work_file';*
+$else
+$deletee 'auto_tune_input_file';*
+$_status = $status
+$if (.not. _status)
+$then
+$report " Unable to delete original file"
+$report " ''f$message(_status)'"
+$report " Input file intact, work file deleted"
+$deletee 'auto_tune_work_file';*
+$else
+$backupp 'auto_tune_work_file' 'auto_tune_input_file''file_ownership'
+$_status = $status
+$if (_status)
+$then
+$report " File successfully reloaded, work file deleted"
+$deletee 'auto_tune_work_file';*
+$else
+$exit_control_file == 1
+$report " File reload failed, original file deleted, work file intact"
+$report " Aborting further tuning on this disk"
+$report " ''f$message(_status)'"
+$request "''facility' of ''device_label' FAILED - investigate..."
+$request "''facility' of ''device_label' FAILED - investigate..."
+$endif
+$endif
+$endif
+$exit_restore_file:
+$exitt 1
+$endsubroutine

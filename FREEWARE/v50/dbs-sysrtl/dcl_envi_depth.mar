@@ -1,0 +1,81 @@
+	.title	dcl_envi_depth
+	.ident	/X1-002/
+
+;+
+; Version:	X1-002
+;
+; Facility:	DCL routines.
+;
+; Abstract:	Returns the current command level depth.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	27-Sep-1990, DBS, Version X1-001
+; 001 -	Original version.
+;	21-Aug-1992, DBS; Version X1-002
+; 002 -	Added an optional parameter to receive the result.
+;-
+
+;++
+; Functional Description:
+;	Return the current command level depth as maintained by DCL.  It is
+;	equivalent to using f$environment("depth") within a procedure but
+;	makes the information available to non-DCL things.
+;
+; Calling Sequence:
+;	current_depth = dcl_envi_depth ()	! from high level languages
+;		-or-
+;	calls	#0, g^dcl_envi_depth		; from macro
+;	movl	r0, current_depth		; value returned in R0
+;
+; Formal Argument(s):
+;	depth.wl.r	Optional argument to receive the value.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	0 indicates top level, i.e. not in a procedure; any other value is
+;	the command level depth.
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+	.link		"SYS$SYSTEM:DCLDEF.STB" /selective_search
+
+	.disable global
+
+	.external ctl$ag_clidata
+	.external ppd$l_prc
+	.external prc_w_proclevel
+
+	$ssdef
+
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_code
+
+        .entry -
+dcl_envi_depth ,^m<r11>
+
+	movab	g^ctl$ag_clidata, r11	; get address of cli data area
+	movl	ppd$l_prc(r11), r11	; offset to prc area
+	movzwl	prc_w_proclevel(r11), r0; return the current depth value
+	cmpw	#1, (ap)		; any argument ?
+	bneq	90$			; no...
+	tstl	4(ap)			; yes, check what is there
+	beql	90$			; dummy argument, same as nothing
+	movl	r0, @4(ap)		; ok, return the number
+	movl	#ss$_normal, r0		; and say ok
+
+90$:	ret				; that's all folk's...
+
+	.end

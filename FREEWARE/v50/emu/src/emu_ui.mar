@@ -1,0 +1,288 @@
+	.TITLE	EMU_UI   
+	.IDENT	/V1-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	MAR-1997	PB	Creation
+;	
+;++
+;1 EMU_UI   
+; EMU user interface. This interface uses SMG.
+; Through this interface the user may (depending on privs):
+;	1. Stop and start the system (requires syspriv)
+;	2. Access system monitoring and debug tools (Oper, syspriv)
+;	3. Query the databases	(See EMU_UILIB for detail)
+;	4. Generate reports
+; Most of the functions under this umbrella routine are documented 
+; under EMU_UILIB. 
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+	.LIBRARY        /EMU5_LIB:MACROLIB.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$SMGDEF
+	$TRMDEF
+	$PRVDEF
+	EMUUIDEF
+	EMURLTDEF
+
+	.PSECT	EMU_UI_DATA,WRT,NOEXE,PIC,SHR,QUAD
+; SMG
+;Main display
+MAIN_DISP:	.LONG		; Virtual Display ID
+MAIN_ROWS: 	.LONG  0        ; Set by routine (page size-7)
+MAIN_COLS: 	.LONG  132
+MAINPB_BOARD:	.LONG 		; Pasteboard ID
+MAINPB_COL:	.LONG	1      
+MAINPB_ROW:	.LONG 	5
+OCSTATE:	.LONG	0
+; Hint display
+;
+HINTPB_BOARD:	.LONG 		; Pasteboard ID
+HINT_DISP:	.LONG		; Virtual Display2 ID
+HINT_ROWS: 	.LONG  3        ; Static
+HINT_COLS: 	.LONG  132
+HINT_PBCOLS:	.LONG	1      
+HINT_PBROWS:	.LONG 	1
+; Misc SMG ...
+BORDER:		.LONG	SMG$M_BORDER
+SAVE_DISP:	.LONG	0		; Saved char
+SCR_WID:	.LONG	132
+SCR_HEIGHT:	.LONG	48
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+TIMEOUT:	.LONG	15
+CURCOL:		.LONG   1
+CURROW:		.LONG   3
+ONEROW:		.LONG	1
+NOLINE:		.LONG	0
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+; Menu params
+;
+; Virtual Keyboard Parameters
+;
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+MENU_STRUCT:
+		.LONG			; Virtual display ID
+KB_BOARD:	.LONG           	; Virtual Keyboard ID
+MTYPE:		.LONG	SMG$K_VERTICAL	; Menu type   
+MCNT:		.LONG	2		; Number of items
+MSIZE:		.LONG	12		; Size of item
+MFLAG:		.LONG	SUI_MEN_C_CHECK ; Check for privs
+MPRIV:		.LONG	0               ; addr of priv list
+MITEMS:		.LONG	0               ; addr of display items
+
+MAIN_MENU:
+	.LONG	SMG$K_VERTICAL	; Menu type   
+	.LONG	3		; Number of items
+	.LONG	12		; Size of item
+	.LONG	SUI_MEN_C_CHECK ; Check for privs
+MAIN_PRIVS:
+	.QUAD	0		; Any priv
+	.QUAD	0		; Any priv
+	.QUAD	PRV$M_OPER 	; Must have oper priv
+MAIN_ITEMS:
+	.ASCII	/Device      /
+	.ASCII	/Network     /
+	.ASCII	/System      /
+;
+	.ALIGN	QUAD
+; Priv checks
+CHOICE:		.WORD
+BYTCNT:		.WORD		; Input Byte counter
+TCOL:		.LONG
+TROW:		.LONG
+TFLAG:		.LONG
+
+       .PSECT EMU_UI,EXE,NOWRT,LONG
+	.CALL_ENTRY	MAX_ARGS=0, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_UI 
+
+; Ensure death if control process dies
+	CALLS	#0, G^GET_CONTROL_LOCK	; 
+  	BSBW	ERROR_CHK		; 
+;
+	BSBW	CREATE_ENVIRONMENT
+START:
+	pushal	ocstate
+	pushal	MAINPB_BOARD
+	pushal	main_disp
+	CALLS	#3,G^SMG$CHECK_FOR_OCCLUSION	
+;
+	PUSHAL	TCOL
+	PUSHAL	TROW
+	PUSHAL	TFLAG
+	pushal	MAINPB_BOARD
+	pushal	main_disp
+	CALLS	#5,G^SMG$GET_PASTING_INFO
+;
+	PUSHAL	TCOL
+	PUSHAL	TROW
+	PUSHAL	TFLAG
+	pushal	MAINPB_BOARD
+	pushal	HINT_disp
+	CALLS	#5,G^SMG$GET_PASTING_INFO
+	
+	PUSHAL	MAINPB_COL		;Column
+	PUSHAL	MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	MAIN_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+
+	PUSHAL	HINT_PBCOLS		;Column
+	PUSHAL	HINT_PBROWS		;Row
+	PUSHAL	HINTPB_BOARD
+	PUSHAL	HINT_DISP
+	CALLS	#4,G^SMG$REPASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+
+
+
+	PUSHAL	MAIN_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	BSBW	ERROR_CHK            		; Error Check
+	PUSHAL	MAIN_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+; Make menu structure
+	MOVAL	MENU_STRUCT,R6
+	MOVAL	MAIN_DISP,SUI_MEN_L_DISPLAY(R6)
+	MOVQ	MAIN_MENU,SUI_MEN_L_MTYPE(R6)  		; Type,count
+	MOVQ	MAIN_MENU+8,SUI_MEN_L_ITEMSIZ(R6)       ; Size,check flag
+	MOVAL	MAIN_PRIVS,SUI_MEN_L_PRIVLST(R6)        ; privs
+	MOVAL	MAIN_ITEMS,SUI_MEN_L_MENU(R6)        	; Display items
+; Make menu
+	PUSHAL	CHOICE
+	PUSHAL	MENU_STRUCT
+	CALLS	#2,G^SUI_MAKE_MENU
+	BLBC	R0,100$  		; Any error exits
+	CASEW	CHOICE,#1,#2		; Select processing routine
+10$:                             
+	.WORD	11$-10$          	; Device
+	.WORD	12$-10$          	; Network
+	.WORD	13$-10$          	; Management
+	BRB	100$
+11$:
+	CALLS	#0,G^SUI_DEVICE_QUERY	
+	BRW	START
+12$:
+	CALLS	#0,G^SUI_NETWORK_QUERY	
+	BRW	START
+13$:
+	CALLS	#0,G^SUI_MANAGE_EMU	
+	BRW	START
+100$:
+	PUSHAL	MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	HINT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	RET					; EXIT
+
+
+
+;Subroutines
+
+ERROR_CHK:                                      ; 
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+ 
+	BLBC	R0,10$                          ; 
+	RSB
+10$:
+	$EXIT_S	R0
+
+CREATE_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+ 
+; Create Virtual Displays
+; 
+;
+; Create Pasteboard
+;
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+	PUSHAL	HINTPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BSBW	ERROR_CHK
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	MAIN_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BSBW	ERROR_CHK
+	SUBL	#7,MAIN_ROWS			; Set our page len
+;
+	PUSHAL	 BORDER
+	PUSHAL	MAIN_DISP
+	PUSHAL	MAIN_COLS
+        PUSHAL	MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+	PUSHAL	 BORDER
+	PUSHAL	HINT_DISP
+	PUSHAL	HINT_COLS
+        PUSHAL	HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	MAINPB_COL		;Column
+	PUSHAL	MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+
+	PUSHAL	HINT_PBCOLS		;Column
+	PUSHAL	HINT_PBROWS		;Row
+	PUSHAL	HINTPB_BOARD
+	PUSHAL	HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+
+;	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+;	PUSHAL	MAINPB_BOARD
+;	CALLS	#2, G^SMG$SET_CURSOR_MODE
+	RSB
+
+	.END	EMU_UI
+	
+
+
+

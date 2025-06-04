@@ -1,0 +1,657 @@
+/*
+ *                             COPYRIGHT (C) 1997, 2000 BY
+ *                      COMPAQ COMPUTER CORPORATION, HOUSTON
+ *                       TEXAS.  ALL RIGHTS RESERVED.
+ *
+ *    THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+ *    ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+ *    OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+ *    THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+ *    PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+ *
+ *    THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+ *    SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+ *    SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+ *
+ *    NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+ *    ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+ *    PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+ *    CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+ */
+#ifdef __VAXC
+#module DISK_DRIVER "V1.0-002"
+#endif
+#ifdef __DECC
+#pragma module DISK_DRIVER "V1.0-002"
+#endif
+/*
+ *  Modification history
+\*      V1.0-002, Philippe Vouters, 19, November 1997
+ *      - Compute the startlbn correctly according to ODS file struture
+ *      so that IO$_WRITELBLK writes to correct block.
+ *      - Suppress the NOSPAN record attribute which prevented a DUMP/RECORD
+ *      or a COPY when BYTE > 512 bytes.
+ */
+/*
+
+   This program requires the PSWAPM priviledge and PHY_IO if writing LOGICAL
+   blocks. Compile the program using the following commands:
+
+      $ CC[/DEFINE=(logical[,byte=n])] Direct_disk_qio +-
+        ALPHA$LIBRARY:SYS$LIB_C/LIBRARY
+
+      $ LINK Direct_disk_qio
+
+      $ iodisk :== $disk:[directory]Direct_disk_qio.exe
+      $! Activation:
+      $! iodisk <filename>
+      $ exit
+
+   Increase the compile time constant "nboucle" to avoid an arithmetic
+   exception on the computation of performances. For example; set it
+   up to 100. This will create a bigger file. Define the compilation
+   command "logical" with "byte=n" as 512 multiple if the output file
+   is to be contiguous. This will setup the RMS characteristics of the
+   sequential output file. Using "byte=512" and "nboucle = 1000" creates
+   a 40,000 blocks file. Use "iodisk :== $disk:[directory]" according
+   to the environment.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <errno.h>
+#include <string.h>
+#include time
+#include <unistd.h>
+
+#include <descrip.h>       /*  Descriptor Structure and Constant Definitions */
+#include <fibdef.h>        /*  File Information Block Definitions */
+#include <fiddef.h>        /*  File identification Definitions */
+#include <fatdef.h>
+#include <iodef.h>         /*  I/O function code Definitions */
+#include <lib$routines.h>  /*  Library (LIB$) routine definitions */
+#include <rms.h>           /*  All RMS Structure & Return Status Definitions */
+#include <ssdef.h>         /*  System Service Return Status Value Definitions
+*/
+#include <starlet.h>       /*  System routine definitions*/
+#include <psldef.h>
+#include <atrdef.h>
+#include <fh2def.h>
+#include <fm2def.h>
+#include <syidef.h>
+#include <secdef.h>
+#include <jpidef.h>
+
+
+#ifdef LOGICAL
+/*
+ * Write Logical Block requires PHY_IO priviledge.
+ */
+#define IOWRT IO$_WRITELBLK
+#else
+#define IOWRT IO$_WRITEVBLK
+#endif
+/*
+**
+**  MACRO DEFINITIONS
+**
+*/
+
+/*
+**  The following macro defines a status check which
+**  occurs numerous times throughout the program.
+*/
+
+#define check_s(status) \
+        if ( ! (status & 1) ) lib$signal (status)
+#define BLOCKSIZE 512
+
+#define nboucle         2
+#define nb              40
+#ifndef BYTE
+#define byte BLOCKSIZE
+#else
+#define byte (BYTE/BLOCKSIZE)*BLOCKSIZE
+#  if (byte > 32767)
+#      error "BYTE cannot have a value greater than 32,767 bytes"
+#  endif
+#endif
+#define sizbuf          nb*byte
+
+/*
+ * The allocation size is setup arbitrarily to the maximum size +
+ * 1,000 blocks. This is to show the effect of the truncate option
+ * used at the end of the file writing. For an actual data collection
+ * and file recording, without knowing either the number of Realtime
+ * I/O collection or the size of each I/O recording, do a $getdvi for
+ * this device, and setup the allocation_size to the number of free
+ * blocks. Note that for getting the maximum disk space, while doing
+ * logical blocks I/Os, initialize the disk with the /INDEX=BEGINNING
+ * qualifier option.
+ */
+#define allocation_size (nboucle * sizbuf)/BLOCKSIZE + 1000
+
+char *buffer;
+static int para1,i;
+/*
+**  Declare counters etc.
+*/
+
+unsigned int device_channel;        /*  Channel Number */
+#ifdef __DECC
+#pragma member_alignment save
+#pragma nomember_alignment word
+#endif
+struct {
+ unsigned short status;
+ unsigned int bytes_count;
+ unsigned short unused;
+} io_status;        /*  I/O status block */
+typedef struct {
+ unsigned short buflen;
+ unsigned short code;
+ void *buffer;
+ int *retlen;
+} item_t;
+#ifdef __DECC
+#pragma member_alignment restore
+#endif
+
+static FAT fatbuf;
+static FH2 file_hdr;
+static FM2 *fm1;
+static FM2 *map_area;
+static FM2_1 *retrieval_pointer;
+static struct atrdef *atr;
+struct tm datedeb;
+struct tm *datefin;
+
+unsigned long date_valdeb;
+unsigned long date_valfin;
+
+#ifdef __VAXC
+
+#define f_i_b_outerl f_i_b.fib$r_fid_overlay.fibSr_fid_fields
+#define f_i_b_outer2 f_i_b_outerl.fib$r_fid_rvn_overlay
+#define f_i_b$w_fid_num f_i_b_outerl.fib$w_fid_num
+#define f_i_bSw_fid_seq f_i_b_outerl.fib$w_fid_seq
+#define f_i_bSw_fid_rvn f_i_b_outer2.fib$w_fid_rvn
+#define f_i_b$l_acctl f_i_b.fib$r_acctl_overlay.fib$l_acctl
+#endif
+
+/*  Declare RMS control blocks */
+
+static struct FAB f_a_b;      /*  File Access Block */
+static struct fibdef f_i_b;   /*  File Information Block */
+static struct RAB r_a_b;      /*  Record Access BLock */
+static struct NAM n_b;        /*  Name Block */
+
+/*  Declare Bits and Pieces for File Access */
+
+unsigned long int status;                           /*  Status Return */
+unsigned long int record_match = SS$_NORMAL;        /*  Record Number Match */
+static unsigned long recnum = 0;                    /* size of written record
+*/
+static int startlbn;
+struct dsc$descriptor_s device_descr =
+{0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};                  /*  Device descriptor */
+
+struct {                                            /*  File Information Block
+Descriptor */
+       unsigned short intlength, pad;
+       struct fibdef    * addr;
+} fib_descr = { FIB$K_LENGTH,0,&f_i_b};
+
+int AST_PROC()
+
+{
+int status;
+
+check_s (io_status.status);
+
+para1++;
+
+for(i=0 ; i <sizbuf ; i++)
+    buffer[i] = (i + para1) % 256;
+
+
+recnum += sizbuf;
+
+if(para1 == nboucle)
+   {
+   if(((status = sys$wake(0, NULL)) & 1) != 1)
+        lib$stop(status);
+   }
+else
+   status = sys$qio (                 /*  Write new  record */
+                     0,               /*  no EFN */
+                     device_channel,  /*  Channel */
+                     IOWRT,           /*  func = write virtual block */
+                     &io_status,      /*  IOSB */
+                     AST_PROC,        /*  AST completion routine */
+                     0,               /*  parameters */
+                     buffer,          /*  P1 = address of buffer */
+                     sizbuf,          /*  P2 = length of buffer */
+                     startlbn+ (para1*sizbuf)/BLOCKSIZE,/*  P3 = Record number
+*/
+                     0,               /*  No P4-P6 */
+                     0,0);
+
+
+ return(status);
+}
+
+main(int argc, char **argv)
+{
+  double io;
+  int  j,i;
+  struct tm *date;
+  char esa[NAM$C_MAXRSS];
+  char rsa[NAM$C_MAXRSS];
+  char filename[NAM$C_MAXRSS];
+  unsigned int uic;
+  unsigned int item_code = JPI$_UIC;
+  char *inadr[2];
+  char *cp;
+  char *defaultspec = "*.BID;*";
+  struct dsc$descriptor_s dummydsc;
+
+  if(argc != 2){
+    printf("Usage $disq file_name\n");
+    exit(1);
+  }
+  /*
+   * Set swapping mode to no swap.
+   * Require PSWAPM priviledge.
+   */
+  status = sys$setswm(1);
+  check_s (status);
+  buffer = malloc(sizbuf);
+
+  /*
+   * Lock the buffer pages into working set to improve performances.
+   * Require PSWAPM priviledge.
+   */
+  inadr[0] = buffer;
+  inadr[1] = buffer + sizbuf;
+  status = sys$lckpag(inadr,NULL,PSL$C_USER);
+  check_s(status);
+  status = lib$getjpi (&item_code,0,NULL,&uic,NULL,NULL);
+  check_s(status);
+
+  printf("Stay tuned !!! Don't worry : it will work\n");
+
+  /*
+  **    In the first part of the program, we start off by building the file
+  **    using RMS functions.
+  */
+  /*
+  **  Begin by creating and opening the file using a FAB and NAM block.
+  */
+  /*
+  **  First, fill the necessary fields in the FAB.
+  */
+  f_a_b = cc$rms_fab;             /* Begin by using the initialized */
+                                  /* template provided by the system */
+  f_a_b.fab$l_fop = FAB$M_NAM | FAB$M_OFP;        /* Use NAM Block inputs */
+  f_a_b.fab$l_fna = argv[1];      /*  File name string address */
+  f_a_b.fab$b_fns = strlen(argv[1]);    /*  File name string size */
+  f_a_b.fab$l_dna = defaultspec;      /*  File name string address */
+  f_a_b.fab$b_dns = strlen(defaultspec);    /*  File name string size */
+
+  f_a_b.fab$l_nam = &n_b;           /*  File name block address */
+
+  /*
+  **  Initialize the name block using the initialized template
+  **  provided by the system.
+  */
+
+  n_b = cc$rms_nam;
+  n_b.nam$l_esa = esa;
+  n_b.nam$b_ess = NAM$C_MAXRSS;
+  n_b.nam$l_rsa = rsa;
+  n_b.nam$b_rss = NAM$C_MAXRSS;
+  n_b.nam$b_nop = NAM$M_NOCONCEAL;
+  n_b.nam$b_ess = NAM$C_MAXRSS;
+  status = sys$parse(&f_a_b,0,0);
+  check_s (status);
+
+  /*
+   * Get filename and type from the parse, appending a null version for
+   * which is necessary to refer to last file's version.
+   */
+  memset (filename,0,sizeof(filename));
+  strncpy(filename,n_b.nam$l_name,n_b.nam$b_name);
+  strncat(filename,n_b.nam$l_type,n_b.nam$b_type);
+  strcat (filename,";0");
+  /*
+  **  We begin by using $ASSIGN to assign a channel to the file
+  **  device.
+  */
+  device_descr.dsc$w_length  = n_b.nam$b_esl;
+  device_descr.dsc$a_pointer = esa;
+
+  status = sys$assign (&device_descr,   /*  Device descriptor */
+                       &device_channel, /*  Channel number */
+                       0,               /*  Default access mode */
+                       0);              /*  No mailbox */
+  check_s(status);               /*  Exit if error */
+
+  /*
+  **  To create the file, we use $QIO, specifying the IO$_CREATE
+  **  function, with modifier IO$M_CREATE to create a directory entry.
+  **  We pass the directory ID information from the sys$parse.
+  */
+  dummydsc.dsc$w_length = strlen(filename);
+  dummydsc.dsc$a_pointer = filename;
+  dummydsc.dsc$b_class = DSC$K_CLASS_S;
+  dummydsc.dsc$b_dtype = DSC$K_DTYPE_T;
+  /*
+  ** Because we parsed the device without specifying the nam$v_synchk bit
+  ** set to one, we have in the name block a valid nam$w_did that we can
+  ** use for further file creation in that directory. Also setup missing
+  ** fib fields and set RMS file attributes in fatbuf.
+  */
+  for (i=0;i<sizeof(f_i_b.fib$w_did)/sizeof (f_i_b.fib$w_did[0]);i++)
+                f_i_b.fib$w_did[i] = n_b.nam$w_did[i];
+  f_i_b.fib$v_newver = 1;
+  f_i_b.fib$v_writethru = 1;
+  f_i_b.fib$v_extend = 1;
+  f_i_b.fib$v_aldef = 1;
+  /*
+   * File allocation size.
+   */
+  f_i_b.fib$l_exsz = allocation_size;
+#ifdef LOGICAL
+  f_i_b.fib$v_alcon = 1;
+  f_i_b.fib$v_filcon = 1;
+#endif
+  /*
+   * To speed up file access when using Virtual Access, map the the entire
+   * window.
+   */
+  f_i_b.fib$b_wsize = -1;
+  fatbuf.fat$v_rtype = FAT$C_FIXED;
+  fatbuf.fat$v_fileorg = FAT$C_SEQUENTIAL;
+  fatbuf.fat$w_rsize = byte;
+  fatbuf.fat$w_maxrec = byte;
+  fatbuf.fat$w_efblkh = 0;
+  fatbuf.fat$w_efblkl = 1;
+  fatbuf.fat$w_ffbyte = 0;
+
+  atr = calloc(3,sizeof(struct atrdef));
+  /*
+   * Also Set Record Attributes and file's owner UIC.
+   */
+  atr[0].atr$w_size = ATR$S_RECATTR;
+  atr[0].atr$w_type = ATR$C_RECATTR;
+  atr[0].atr$l_addr = &fatbuf;
+  atr[1].atr$w_size = ATR$S_UIC;
+  atr[1].atr$w_type = ATR$C_UIC;
+  atr[1].atr$l_addr = &uic;
+  status = sys$qiow (0,                         /*  No event flag number  */
+                     device_channel,            /*  Channel */
+                     IO$_CREATE | IO$M_CREATE  ,/*  Create the file */
+                     &io_status,                /*  IO status block */
+                     0,                         /*  No AST completion routine
+*/
+                     0,                         /*  So no AST routine
+parameters */
+                     &fib_descr,                /*  P1 = address of FIB
+descriptor*/
+                     &dummydsc,                 /*  P2 = filename */
+                     0,                         /*  No P3  */
+                     0,                         /*  No P4 */
+                     atr,                       /*  P5 = ATR record */
+                     0);
+  check_s(status);      /*  Close and exit if error */
+  check_s(io_status.status);    /*  Close and exit if error */
+  f_i_b.fib$v_write = 1;
+  f_i_b.fib$v_noread = 1;
+  f_i_b.fib$v_nowrite = 1;
+  f_i_b.fib$v_seqonly = 1;
+  atr[1].atr$w_size = ATR$S_HEADER;
+  atr[1].atr$w_type = ATR$C_HEADER;
+  atr[1].atr$l_addr = &file_hdr;
+  status = sys$qiow (0,                         /*  No event flag number  */
+                     device_channel,            /*  Channel */
+                     IO$_ACCESS | IO$M_ACCESS ,/*  Create the file */
+                     &io_status,                /*  IO status block */
+                     0,                         /*  No AST completion routine
+*/
+                     0,                         /*  So no AST routine
+parameters */
+                     &fib_descr,                /*  P1 = address of FIB
+descriptor*/
+                     &dummydsc,
+                     0,                         /*  No P3  */
+                     0,                         /*  no P4 */
+                     atr,                       /*  P5 = ATR record */
+                     0);
+  check_s(status);      /*  Close and exit if error */
+  check_s(io_status.status);    /*  Close and exit if error */
+  fm1 = map_area = (FM2 *)((short *)&file_hdr + file_hdr.fh2$b_mpoffset);
+#ifdef LOGICAL
+  /*
+   * Get file's stating logical block number (LBN).
+   */
+  while (fm1<(FM2 *)((short *)map_area + file_hdr.fh2$b_map_inuse)){
+    if (fm1->fm2$v_format ==  FM2$C_PLACEMENT)
+        fm1 = (FM2 *)((char *)fm1 + 2);
+    else {
+        switch (fm1->fm2$v_format){
+          case FM2$C_FORMAT1:
+                startlbn = fm1->fm2$w_lowlbn;
+                startlbn += fm1->fm2$v_highlbn << 16;
+                fm1 =  (FM2 *)((char *)fm1 + 4);
+                break;
+          case FM2$C_FORMAT2:
+                startlbn = ((FM2_1 *)fm1)->fm2$l_lbn2;
+                fm1 = (FM2 *)((char *)fm1 + 6);
+                break;
+          case FM2$C_FORMAT3:
+                startlbn = ((FM2_2 *)fm1)->fm2$l_lbn3;
+                fm1 = (FM2 *)((char *)fm1 + 8);
+        }
+    }/* end else */
+  } /* end while */
+#else
+  /*
+   * For Virtual I/Os the startlbn is equal to the first file's VBN (1).
+   */
+  startlbn = 1;
+#endif
+  /*
+   * Get time of start of collection.
+   */
+  time(&date_valdeb);
+  date = localtime(&date_valdeb);
+  memcpy(&datedeb,date,sizeof(struct tm));
+
+  /*
+   * Initialize number of I/Os counter.
+   */
+  para1 = 0;
+  /*
+   * Setup the initial buffer content.
+   */
+  for(i=0 ; i <sizbuf ; i++)
+      buffer[i] = (i + para1) % 256;
+
+  /*
+   * Startup the first I/O with AST on the device channel.
+   * WRITELBLK requires PHY_IO priviledge.
+   */
+  status = sys$qio (                    /*  Write new  record */
+                       0,               /*  no EFN */
+                       device_channel,  /*  Channel */
+                       IOWRT,   /*  func = write virtual block */
+                       &io_status,      /*  IOSB */
+                       AST_PROC,        /*  AST completion routine */
+                       0,               /*  parameters */
+                       buffer,          /*  P1 = address of buffer */
+                       sizbuf,          /*  P2 = length of buffer */
+                       startlbn+(para1*sizbuf)/BLOCKSIZE,                /*  P3
+= Record number */
+                       0,               /*  No P4-P6 */
+                       0,
+                       0);
+  check_s(status);                              /*  make sure write OK */
+
+  /*
+   * Hibernate. We will be awakened by the AST at the end of the collection.
+   */
+  if(((status = sys$hiber()) &1) != 1)
+       lib$stop(status);
+
+  time(&date_valfin);
+  /*
+  **  All records have now been swapped pairwise.  Close file
+  **  using $QIO with IO$_DEACCESS and deassign the channel.
+  **  Note that in this case we don't save the status return
+  **  code.
+  */
+  /*
+   * Compute the number of BLOCKS that have been written.
+   * Set file's EOF marker at the beginning of next block.
+   * And, finally, truncate the file freeing used space.
+   */
+  recnum = (recnum + BLOCKSIZE-1)/BLOCKSIZE + 1;
+  /*
+   * Set file's last VBN in high and low worrd. These words are
+   * inverted for compatibilty reasons with PDP-11.
+   */
+  fatbuf.fat$w_efblkh = (recnum & ~0xFFFF) >> 16;
+  fatbuf.fat$w_efblkl = recnum & 0xFFFF;
+  f_i_b.fib$v_writethru = 1;
+  f_i_b.fib$v_extend = 0;
+  f_i_b.fib$v_trunc = 1;
+  f_i_b.fib$l_exsz = 0;
+  f_i_b.fib$l_exvbn = recnum;
+  atr[1].atr$w_size = 0;
+  atr[1].atr$w_type = 0;
+  atr[1].atr$l_addr = 0;
+  status = sys$qiow (0,             /*  No EFN */
+                     device_channel,
+                     IO$_DEACCESS,  /*  Function is deaccess file */
+                     0,             /*  No IOSB, AST, P2-P6 */
+                     0,
+                     0,
+                     &fib_descr,    /*  P1 = address of FIB descriptor*/
+                     0,0,0,
+                     atr,
+                     0);
+  check_s(status);
+  sys$dassgn (device_channel);   /*  Deassign the device channel */
+  /*
+   * Get end of collection time.
+   */
+  datefin = localtime(&date_valfin);
+
+  printf("end time    = %d h %d m %d s\n",datefin->tm_hour,datefin->tm_min,
+                  datefin->tm_sec);
+
+  printf("start time  = %d h %d m %d s\n",datedeb.tm_hour,datedeb.tm_min,
+                  datedeb.tm_sec);
+
+  /*
+   * Compute the disk performance (number of bytes/seconds).
+   */
+  io = (double) (sizbuf * nboucle)/
+       ((double)(((datefin->tm_hour*60)+datefin->tm_min)*60+datefin->tm_sec)-
+       (double)(((datedeb.tm_hour*60)+datedeb.tm_min)*60+datedeb.tm_sec));
+  printf("computed i/o rate = %.2lf bytes/sec with sizbuf = %d bytes\n",
+                                io,sizbuf);
+  /*
+  **  We begin by using $ASSIGN to assign a channel to the file
+  **  device to read the file using this time virtual blocks.
+  */
+  status = sys$assign (&device_descr,   /*  Device descriptor */
+                       &device_channel, /*  Channel number */
+                       0,               /*  Default access mode */
+                       0);              /*  No mailbox */
+  check_s(status);                      /*  Exit if error */
+
+  /*
+  **  To open the file, we use $QIO, specifying the io$access
+  **  function, with read & write access specified.  We use the
+  **  file ID information from the first part of the program to
+  **  get access to the file we want.
+  */
+
+  /*
+   * Reset the fib's access intention to READ.
+   */
+  f_i_b.fib$v_write = 0;
+
+  status = sys$qiow (0,                         /*  No event flag number  */
+                    device_channel,             /*  Channel */
+                    IO$_ACCESS|IO$M_ACCESS,     /*  Access the file */
+                    &io_status,                 /*  IO status block */
+                    0,                          /*  No AST completion routine
+*/
+                    0,                          /*  So no AST routine
+parameters */
+                    &fib_descr,                 /*  P1 = address of FIB
+descriptor*/
+                    &dummydsc,
+                    0,0,0,0);                   /*  No P3-P6 */
+  check_s(status);                      /*  Close and exit if error */
+  check_s(io_status.status);    /*  Close and exit if error */
+  /*
+   * Reread the file using read Virtual Block.
+   */
+  for(j = 0; j < nboucle; j++)
+   {
+   memset(buffer,0,sizbuf);
+   status = sys$qiow(                    /*  Read  record */
+                     0,                  /*  no EFN */
+                     device_channel,     /*  Channel */
+                     IO$_READVBLK,       /*  func = read virtual block */
+                     &io_status,         /*  IOSB */
+                     0,                  /*  No AST completion routine */
+                     0,                  /*  or parameters */
+                     &buffer[0],         /*  P1 = address of buffer */
+                     sizbuf,             /*  P2 = length of buffer */
+                     (j*sizbuf)/BLOCKSIZE+1,                /*  P3 = Record
+number */
+                     0,                  /*  No P4-P6 */
+                     0,0);
+    check_s(status);   /*  make sure write OK */
+    /*
+     * Check if records have been correctly written to the disk.
+     */
+    for(i=0 ; i <sizbuf ; i++)
+       if(buffer[i] != (char)((i + j) % 256)){
+          printf("\nUncorrect record #%d, buffer[%d] = %2x, expected = %2x\n",
+                        j,i,buffer[i],(i + j) % 256);
+          break;
+          }
+    if(i == sizbuf) printf("\nRecord #%d OK\n",j);
+    }
+
+   /*
+   **  All records have now been swapped pairwise.  Close file
+   **  using $QIO with IO$_DEACCESS and deassign the channel.
+   **  Note that in this case we don't save the status return
+   **  code.
+   */
+   sys$qiow (0,             /*  No EFN */
+             device_channel,
+             IO$_DEACCESS,   /*  Function is deaccess file */
+             0,             /*  No IOSB, AST, P1-P6 */
+             0,0,0,0,0,0,0,0);
+
+   sys$dassgn (device_channel);   /*  Deassign the device channel */
+   /*
+    * Set swapping mode to swap.
+    * Require PSWAPM priviledge.
+    */
+   status = sys$setswm(0);
+   check_s (status);
+}

@@ -1,0 +1,228 @@
+	.TITLE	TapeCopy
+	.IDENT	/GKF110990/
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; Program makes physical copies of tapes
+; including a verification pass.
+;
+; Input:
+;
+;	input tape must be mounted:
+;
+;		$ MOUNT/FOREIGN tapename: "" TAPECOPY$INPUT
+;
+;	output tape must be mounted:
+;
+;		$ MOUNT/FOREIGN tapename: "" TAPECOPY$OUTPUT
+;
+;
+	$IODEF					; get IO$... definitions
+
+	.MACRO	Check,?L1	; check status macro
+	BLBS	R0,L1
+	RET
+L1:
+	.ENDM	Check
+
+InputTapeNameDesc:		; logical name input tape
+	.ASCID	/TAPECOPY$INPUT/
+InputTapeChannel:
+	.BLKW	1
+InputTapeIOSB:
+	.BLKW	4
+	
+OutputTapeNameDesc:		; logical name output tape
+	.ASCID	/TAPECOPY$OUTPUT/
+OutputTapeChannel:
+	.BLKW	1
+OutputTapeIOSB:
+	.BLKW	4
+	
+TapeMarkCount:		; tape marks encountered
+	.BLKL	1
+
+BufferSize=64*1024-1;
+Buffer:	.BLKB	BufferSize
+VerifyBuffer:	
+	.BLKB	BufferSize
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;
+	.ENTRY	TapeCopy$Main,0
+
+;
+; assign channel to input tape
+;
+	$ASSIGN_S -
+		DEVNAM=InputTapeNameDesc,-
+		CHAN=InputTapeChannel
+	Check
+;
+; assign channel to output tape
+;
+	$ASSIGN_S -
+		DEVNAM=OutputTapeNameDesc,-
+		CHAN=OutputTapeChannel
+	Check
+	CLRL	TapeMarkCount		; init TM count
+;
+; rewind input tape
+;
+	$QIOW_S	CHAN=InputTapeChannel,-
+		FUNC=#IO$_REWIND,-
+		IOSB=InputTapeIOSB
+	Check
+	MOVZWL	InputTapeIOSB,R0
+	Check
+;
+; rewind output tape
+;
+	$QIOW_S	CHAN=OutputTapeChannel,-
+		FUNC=#IO$_REWIND,-
+		IOSB=OutputTapeIOSB
+	Check
+	MOVZWL	OutputTapeIOSB,R0
+	Check
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; read next block
+;
+ReadBlock:
+
+	$QIOW_S	CHAN=InputTapeChannel,-
+		FUNC=#IO$_READVBLK,-
+		IOSB=InputTapeIOSB,-
+		P1=Buffer,-
+		P2=#BufferSize
+	Check
+	MOVZWL	InputTapeIOSB,R0
+	BLBS	R0,WriteBlock		; ok...,write it
+	CMPL	R0,#SS$_ENDOFFILE	; tape mark?
+	BEQL	WriteTM			; yes...
+	RET
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; write tape mark
+;
+WriteTM:
+
+	INCL	TapeMarkCount		; count this TM
+	$QIOW_S	CHAN=OutputTapeChannel,-; write TM
+		FUNC=#IO$_WRITEOF,-
+		IOSB=OutputTapeIOSB
+	Check
+	MOVZWL	OutputTapeIOSB,R0
+	Check
+	CMPL	TapeMarkCount,#2	; end of volume?
+	BEQL	GotoVerification	; yes..., now start verification
+	BRW	ReadBlock		; no..., read next block
+;
+GotoVerification:
+	BRW	Verification
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; write next block
+;
+WriteBlock:
+
+	CLRL	TapeMarkCount		; reset TM count
+	MOVZWL	InputTapeIOSB+2,R1	; R1=blocksize block read
+	$QIOW_S	CHAN=OutputTapeChannel,-
+		FUNC=#IO$_WRITEVBLK,-
+		IOSB=OutputTapeIOSB,-
+		P1=Buffer,-
+		P2=R1
+	Check
+	MOVZWL	OutputTapeIOSB,R0
+	Check
+	BRW	ReadBlock		; start another copy
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; Tape verification
+;
+;
+Verification:
+;
+; rewind input tape
+;
+	$QIOW_S	CHAN=InputTapeChannel,-
+		FUNC=#IO$_REWIND,-
+		IOSB=InputTapeIOSB
+	Check
+	MOVZWL	InputTapeIOSB,R0
+	Check
+;
+; rewind output tape
+;
+	$QIOW_S	CHAN=OutputTapeChannel,-
+		FUNC=#IO$_REWIND,-
+		IOSB=OutputTapeIOSB
+	Check
+	MOVZWL	OutputTapeIOSB,R0
+	Check
+	CLRL	TapeMarkCount		; init TM count
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; read block from input tape
+;
+ReadInput:
+;
+	$QIOW_S	CHAN=InputTapeChannel,-
+		FUNC=#IO$_READVBLK,-
+		IOSB=InputTapeIOSB,-
+		P1=Buffer,-
+		P2=#BufferSize
+	Check
+	MOVZWL	InputTapeIOSB,R0
+	BLBS	R0,ReadOutput		; normal block
+	INCL	TapeMarkCount		; assume it's a TM
+	CMPL	R0,#SS$_ENDOFFILE	; tape mark?
+	BEQL	ReadTMOnly		; yes...
+	RET
+;
+ReadOutput:
+;
+	CLRL	TapeMarkCount		; no TM tracing anymore
+;
+ReadTMOnly:
+;
+	$QIOW_S	CHAN=OutputTapeChannel,-
+		FUNC=#IO$_READVBLK,-
+		IOSB=OutputTapeIOSB,-
+		P1=VerifyBuffer,-
+		P2=#BufferSize
+	Check
+	MOVZWL	OutputTapeIOSB,R0
+	BLBS	R0,CompareBlock
+	CMPL	R0,#SS$_ENDOFFILE	; tape mark?
+	BEQL	CompareTM		; yes...
+	RET
+;
+CompareTM:
+;
+	TSTL	TapeMarkCount		; any TM expected on output tape?
+	BEQL	CompareError		; no...
+	CMPL	TapeMarkCount,#2	; end of tape?
+	BEQL	Exit			; yes...
+	BRW	ReadInput		; continue
+;
+CompareBlock:
+;
+	TSTL	TapeMarkCount		; epected TM on output tape?
+	BNEQ	CompareError		; yes...
+	CMPW	InputTapeIOSB+2,OutputTapeIOSB+2 ; same length?
+	BNEQ	CompareError		; no...
+	CMPC3	InputTapeIOSB+2,Buffer,VerifyBuffer ; contents match?
+	BNEQ	CompareError		; no...
+	BRW	ReadInput
+;
+CompareError:
+;
+	MOVL	#4,R0			; end with FATAL nomessage
+	RET
+;
+Exit:
+	MOVL	#SS$_NORMAL,R0
+	RET				; successful exit
+	.END	TapeCopy$Main

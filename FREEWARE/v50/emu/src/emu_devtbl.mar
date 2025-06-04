@@ -1,0 +1,693 @@
+	.TITLE MOP_DEVTBL 
+	.IDENT /V02-002/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;
+; Modification:
+; 001	PB	1993		Creation
+; 002   PB      APR-1997	Converted for V5:
+;				Key 0 is now 1 byte
+;				Called as subr
+;++
+;1 MOP_DEVTBL
+; Utility programme to maintain Device translation table
+;
+;2 Inputs 	
+;		MOP_DEVXLT.TBL - Device translation table
+;
+;2 Outputs	
+;		Adds, lists and  deletes items in DEVXLT.TBL
+;
+;2 Returns
+;	SS$_NORMAL	Succesful Completion
+;	Any possible return from:
+;		$OPEN,$GET,$PUT or SORt routines
+;
+;2 Abstract:
+;		Menu Items:
+;			INSERT New Device Code:
+;				Validate it does not exist
+;				Get Details
+;				Validate input
+;				Add record
+; 				Exit to menu
+;		
+;			DELETE	Existing Device code:
+;				Display records as menu Items
+;				Selected Item overwritten with adj. rec
+;				Sort file  (duplicates removed)
+; 				Exit to menu
+;	
+;			LIST    Display all records sequentialy:
+; 				Exit to menu
+;			EXIT
+; 				Exit routine
+;
+;--
+; Definitions
+;
+	$TRMDEF		; Terminal Modifiers
+	$FSCNDEF	; Filescan defs
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+
+	.PSECT DEVTBL_DATA,WRT,NOEXE,LONG,pic
+
+;	
+; File Structure
+;
+;            
+DEVFAB:	$FAB	FAC = <DEL,UPD,GET,PUT>,-        ; Access
+		SHR = <DEL,UPD,GET,PUT>,-
+		MRN = 0,-		; No Max rec No.
+		MRS = DEVREC_SIZE,-	; FIXED
+		ORG = idx,-		; Indexed
+		RFM = FIX,-		; Fixed size
+		FNM = <MOP_DEVXLT>,-   	 ; Filename 
+		DNM = <EMU5_DAT:MOP_DEVXLT.TBL>,-   	 ; Filename 
+		XAB = MOPDEVXAB0
+
+DEVRAB: $RAB	FAB = DEVFAB,-            ; Record 
+		RAC = SEQ,-
+		RBF = DEVREC,-
+		RSZ = DEVREC_SIZE,-
+		UBF = DEVREC,-
+		USZ = DEVREC_SIZE
+
+DEVRAB2: $RAB	FAB = DEVFAB,-            ; Record 
+		RAC = KEY,-
+		KSZ = 1,-
+		KBF = DEVREC,-
+		KRF = 0,-
+		RBF = DEVREC,-
+		RSZ = DEVREC_SIZE,-
+		UBF = DEVREC,-
+		USZ = DEVREC_SIZE
+
+MOPDEVXAB0:	$XABKEY REF =0,-
+		DTP = STG,-             ; String
+		POS = 0,-               ; Key position
+		SIZ = 1                 ; Key len - Duplicates not allowed
+
+	.ALIGN	LONG
+DEVREC:
+DEVCODE:	.BYTE		; Binary Code
+DEVNAME:	.LONG		; DEC standard mneumonic  .ascic
+DEVDESC:	.BLKB	19	; .ascic Report string
+DEVREC_SIZE = .-DEVREC
+; Display Format		; Format as above
+DISPBUF:
+DISPCODE:	.LONG		; 2 char code followed by 2 spaces
+DISPNAME:	.QUAD		; 2 or 3 char name folLowed by  spaces
+DISPDESC:	.QUAD
+;
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 15
+VD_COLS: 	.LONG 80
+VD_DISP2:	.LONG		; Display 2
+VD_ROW2:	.LONG 	3
+VD_COL2:	.LONG	80      ;
+;
+; Optional Display Characteristics
+;
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	5
+PB_COL2:	.LONG	1      ; Position for DISP2
+PB_ROW2:	.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           	; Virtual Keyboard ID
+KB_BUF:		.BLKB	80		; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+; 
+; Menu parameters
+;
+; Menu Items
+; Main Menu
+M_LIST:		.ASCII	/Add New Device      /
+		.ASCII	/Remove Device       /
+		.ASCII	/List Devices        /
+		.ASCII	/EXIT                /
+MENU_END:	.LONG
+	.ALIGN	LONG
+
+M_DCS:		.WORD	20                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+		.ADDRESS M_LIST             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+		.LONG   MENU_END-M_LIST	    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 	2
+W3:    		.LONG 	3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+UPCASE:		.LONG	TRM$M_TM_CVTLOW     	;Convert lower to upper case
+CHOICE:		.WORD
+CURCOL:		.LONG   1
+CURROW:		.LONG   1
+
+;
+;Delete Menu
+DM_LIST:        .BLKB	8*255		   ; Allow max items
+		.ASCII	/EXIT  /
+DMENU_END:	.LONG
+	.ALIGN	LONG
+
+DM_DCS:		.WORD	8                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+		.ADDRESS DM_LIST             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+		.LONG   DMENU_END-DM_LIST	    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+
+; Prompts and Strings
+OUTAMT:		.LONG				; Conversion 
+OUTSTR:		.BLKL	4               	; 
+OUTSTR_D:	.LONG	.-OUTSTR
+		.ADDRESS  OUTSTR
+; FAO
+FAOBUF:		.BLKB	80
+FAODESC:
+FAOLEN: 	.LONG		.-FAOBUF
+        	.ADDRESS        FAOBUF
+; Messages. There are 4 types of message designated by the last 3 char of the
+; symbol name.
+;	MSG 	Prompt message		Main display
+;	TIT	Title 			Line 1 top disp
+;	ERR	Error Message		Line 2 top disp
+;	INF	Hint message		Line 3 top disp 
+MAINTIT:	.ASCII	/                 Device Translation Table/
+CODEMSG: 	.ASCII  /Device Code (0-255) : /
+NAMEMSG:	.ASCII  /Device Name (6 chr) : /
+DESCMSG:	.ASCII	/Description (17 chr): /
+EXITMSG:	.ASCII	/Press Return/
+CONFMSG:	.ASCII	/Delete this record [Y]?/
+DELEINF:	.ASCII	/Deleting rec .../
+DEVEXERR:	.ASCII	/Device code already exists/
+BYTCNT:		.WORD
+
+RECCTRSTR:	.ASCID	/!4<!UB!> !3<!AC!>/
+FRECCTRSTR:	.ASCID	/    !3<!UB!>      !3<!AC!>      !AC/
+;
+;
+; Misc data areas
+; Sort Params
+	.ALIGN	LONG
+SORTOPTIONS:	.LONG	SOR$M_NODUPS	; No Duplicates
+SORTCONTEXT:	.LONG	0
+NAMEDESC:	.LONG	6		; Desc for name param (FAO)
+		.LONG	DEVREC+1	; 
+DESCDESC:	.LONG	17		; Desc for Description param (FAO)
+		.LONG	DEVREC+7	; 
+RESULT:		.LONG
+SRECLEN:	.WORD	DEVREC_SIZE		
+SORTKEYBUF:	.WORD	1               ; 1 KEY
+		.WORD	DSC$K_DTYPE_BU  ; Unsigned Byte
+	       	.WORD	0		; Ascending
+		.WORD	0		; Rel Offset
+		.WORD	1		; Len
+SORTFILE:	.ASCID	/EMU_DIR:EMU_DEVXLT.TBL/
+;
+;	.End data definitions
+;
+		.PSECT DEVTBL_CODE,EXE,pic
+	.ENTRY	MOP_DEVTBL,^M<R6,R7,R8,R9,R10>
+
+	BSBW	CREATE_ENVIRONMENT
+START:
+	PUSHAL	VD_DISP2
+	CALLS	#1,G^SMG$HOME_CURSOR
+	MOVC3	#40,MAINTIT,FAOBUF
+	MOVL	#40,FAODESC	
+	BSBW	PRINT2
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BSBW	ERROR_CHK
+        CMPW	#1,CHOICE
+	BNEQU	5$
+	BSBW	INSERT
+	BRW	START
+5$:	
+        CMPW	#2,CHOICE
+	BNEQU	10$
+	BSBW	DELETE
+	BRW	START
+10$:
+        CMPW	#3,CHOICE
+	BNEQU	20$
+	BSBW	LIST
+	BRW	START
+20$:
+	BRW	EXIT	
+INSERT:
+	PUSHAL	VD_DISP
+       	CALLS	#1,G^SMG$HOME_CURSOR
+       	BSBW	ERROR_CHK            		; Error Check
+       	PUSHAL	VD_DISP
+       	CALLS	#1,G^SMG$ERASE_DISPLAY
+       	BSBW	ERROR_CHK            		; Error Check
+; Prompt for device code
+	MOVC3	#22,CODEMSG,FAOBUF
+	MOVL	#22,FAODESC
+	BSBW	READ_PROMPT
+	CMPW	#0,BYTCNT			; No Input?
+	BNEQU	10$				
+	RSB					; YES - No input - exit
+10$:
+	CMPW	#3,BYTCNT		; Input 1 - 3 Char?
+	BLSSU	INSERT			; No	
+	PUSHAL	RESULT			; Integer output
+	PUSHAL	KB_BUF                  ; Character input
+	CVTWL	BYTCNT,-(SP)		; No. of bytes
+	CALLS	#3,G^LIB$CVT_DTB	; Convert to number
+	BLBS	R0,20$                  ; Successful Conversion?
+	BRW	INSERT                  ; No
+20$:	
+	MOVB	RESULT,DEVCODE		; DEV Type Code 1st byte
+; Prompt for Device Name
+30$:	
+	MOVC3	#22,NAMEMSG,FAOBUF       ; Prompt for Action
+	MOVL	#22,FAODESC
+	MOVL	#TRM$M_TM_CVTLOW,UPCASE	; Make input upcase     
+	BSBW	READ_PROMPT
+	CMPW	#0,BYTCNT		; No Input?
+	BNEQU	40$
+	RSB
+40$:
+	CMPW	#3,BYTCNT		; 1 - 3 Char input?
+	BLSSU	30$                     ; No
+	CVTWB	BYTCNT,DEVNAME		; Put in count
+	MOVC3	BYTCNT,KB_BUF,DEVNAME+1
+50$:	
+	MOVC3	#22,DESCMSG,FAOBUF       ; Prompt for Action
+	MOVL	#22,FAODESC
+	CLRL	UPCASE			; Do not upcase inpt
+	BSBW	READ_PROMPT
+	CMPW	#0,BYTCNT		; No Input?
+	BNEQU	60$
+	RSB
+60$:
+	CMPW	#18,BYTCNT		; 1 - 18 Char input?
+	BLSSU	50$                     ; No
+	CVTWB	BYTCNT,DEVDESC		; Put in count
+	MOVC3	BYTCNT,KB_BUF,DEVDESC+1
+; Add it...
+	$OPEN	FAB = DEVFAB		;Open input file (CIF)
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = DEVRAB2		;Connect input stream
+	BSBW	ERROR_CHK
+70$:
+	$PUT	RAB=DEVRAB2              ; Write rec
+	BSBW	ERROR_CHK
+	$CLOSE 	FAB=DEVFAB               ; Close outp
+	RSB
+DELETE:
+; Format CODE and NAME and display all items as a menu
+; On menu select: 
+;	Lookup choice and convert string back to bin (key)
+;	Get this rec and $ERASE
+ 
+	PUSHAL	VD_DISP
+       	CALLS	#1,G^SMG$HOME_CURSOR
+       	BSBW	ERROR_CHK            		; Error Check
+       	PUSHAL	VD_DISP
+       	CALLS	#1,G^SMG$ERASE_DISPLAY
+       	BSBW	ERROR_CHK            		; Error Check
+; Create table to pass to menu
+	MOVC5	#0,#^A/ /,#^A/ /,#1000,DM_LIST	; Clear table
+	MOVW	#1,DMENU_END              	;One past last entry
+	MOVAL	DM_LIST,R9               	;Location MENU items
+        MOVL	#256,R10                		;Maximum entries
+    		$OPEN	FAB = DEVFAB		;Open input file
+       		BSBW	ERROR_CHK
+ 		$CONNECT RAB = DEVRAB		;Connect input stream
+       		BSBW	ERROR_CHK
+10$:   		
+		$GET	RAB=DEVRAB
+       		BLBS	R0,20$
+       		CMPL	R0,#RMS$_EOF
+       		BEQLU	30$
+       		BSBW	ERROR_CHK
+; Format each REC and place in table      
+20$:
+		INCL	DMENU_END   		; EXIT Choice		
+		PUSHAL	DEVREC+1
+		MOVZBL 	DEVREC,-(SP)
+		PUSHAL	OUTSTR_D
+		PUSHAL	BYTCNT
+		PUSHAL	RECCTRSTR
+		CALLS	#5,G^SYS$FAO
+		BSBW	ERROR_CHK
+		MOVQ	OUTSTR,(R9)+
+		BRB	10$
+30$:
+ 		$CLOSE	FAB = DEVFAB		;Close TABLE
+
+
+		pushal	cursor_flags                    ; Turn cursor off
+       		pushal	PB_BOARD
+       		calls	#2, g^smg$set_cursor_mode
+       		bsbw	error_chk
+       		PUSHAL	REVERSE                 	; Create menu
+       		PUSHAL	W3                              ; Menu options ...
+       		CLRL	-(SP)
+       		PUSHAL	SPACING
+       		PUSHAL	BLOCK
+		PUSHAL	DM_DCS
+		PUSHAL	VD_DISP
+       		CALLS  	#7,G^SMG$CREATE_MENU            ; 
+       		BSBW	ERROR_CHK
+       		PUSHAL	CHOICE
+       		PUSHAL	VD_DISP
+       		PUSHAL	KB_BOARD
+       		CALLS	#3,G^SMG$SELECT_FROM_MENU
+       		BLBS	R0,35$
+		RSB
+35$:
+       		CMPW	CHOICE,DMENU_END                 ; Exit Selected?
+       		BLSSU	40$                             ; No
+		RSB
+40$:    	
+		MOVZWL	CHOICE,R1
+		DECL	R1
+		MULL	#8,R1				; Offset
+		MOVAL	DM_LIST,R9               	;Location MENU items
+		ADDL	R1,R9				; Addr
+; Get len of number
+		LOCC	#^A/ /,#4,(R9)		; Always 4 bytes, >0 blanks
+		SUBL	R9,R1
+		PUSHAL	RESULT			; Integer output
+		PUSHL	R9                     ; Character input
+		PUSHL	R1		; No. of bytes
+		CALLS	#3,G^LIB$CVT_DTB	; Convert to number
+		BSBW	ERROR_CHK
+		$OPEN	FAB = DEVFAB		;Open input file
+       		BSBW	ERROR_CHK
+ 		$CONNECT RAB = DEVRAB2		;Connect input stream
+       		BSBW	ERROR_CHK
+		MOVB	RESULT,DEVCODE
+; Get this rec
+   		$GET	RAB=DEVRAB2              ; 
+		BSBW	ERROR_CHK
+; Format and disp rec to delete
+		MOVL	#80,FAOLEN		; Reset outp buf
+		PUSHAL	DEVDESC
+		PUSHAL	DEVNAME
+		MOVZBL 	DEVREC,-(SP)
+		PUSHAL	FAODESC
+		PUSHAL	FAOLEN
+		PUSHAL	FRECCTRSTR
+		CALLS	#6,G^SYS$FAO
+
+		BSBW	ERROR_CHK
+		PUSHAL	VD_DISP
+       		CALLS	#1,G^SMG$HOME_CURSOR
+       		BSBW	ERROR_CHK            		; Error Check
+       		PUSHAL	VD_DISP
+       		CALLS	#1,G^SMG$ERASE_DISPLAY
+       		BSBW	ERROR_CHK            		; Error Check
+                BSBW	PRINT
+; Confirm
+		MOVC3	#23,CONFMSG,FAOBUF       ; Confirm del Action
+       		MOVL	#23,FAODESC
+		MOVL	#TRM$M_TM_CVTLOW,UPCASE	; Upcase     
+       		BSBW	READ_PROMPT
+		CMPB	#^A/Y/,KB_BUF
+		BNEQU	50$
+		MOVC3	#16,DELEINF,FAOBUF       ; 'Deleting ...'  message
+       		MOVL	#16,FAODESC
+       		BSBW	PRINT22                    ; Disp 2
+		$DELETE	RAB=DEVRAB2               ; dele rec
+		BSBW	ERROR_CHK
+50$:
+		$CLOSE	FAB=DEVFAB
+		RSB
+
+LIST:
+; Display Items with description
+		$OPEN	FAB = DEVFAB		;Open input file
+       		BSBW	ERROR_CHK
+ 		$CONNECT RAB = DEVRAB		;Connect input stream
+       		BSBW	ERROR_CHK
+10$:
+   		$GET	RAB=DEVRAB
+       		BLBS	R0,20$
+       		CMPL	R0,#RMS$_EOF
+       		BEQLU	30$
+       		BSBW	ERROR_CHK
+20$:
+		MOVL	#80,FAOLEN		; Reset outp buf
+		PUSHAL	DEVREC+5
+		PUSHAL	DEVREC+1
+		MOVZBL 	DEVREC,-(SP)
+		PUSHAL	FAODESC
+		PUSHAL	FAOLEN
+		PUSHAL	FRECCTRSTR
+		CALLS	#6,G^SYS$FAO
+		BSBW	ERROR_CHK
+		BSBW	PRINT
+		BRB	10$
+30$:
+		$CLOSE	FAB=DEVFAB
+                BSBW	EXPRMPT
+		RSB
+;
+; Subroutines 
+;
+ERROR_CHK:
+		BLBS	R0,20$
+		CMPL	R0,#SMG$_EOF            ; CTRL/Z ?
+		BEQLU	EXIT			; Yes
+       		RET                    		; Other Error - EXIT
+20$:		RSB		                ; OK - Return        
+EXIT:	
+		MOVL	#1,R0			; Signal Success
+		PUSHAL	VD_DISP         	; Delete Environment
+		CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+		PUSHAL	VD_DISP2
+       		CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+		RET
+READ_PROMPT:
+		PUSHAL	VD_DISP                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	UPCASE                  ; Make input UPCASE 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	FAODESC                 ; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		BSBW	ERROR_CHK
+		RSB
+EXPRMPT:
+;
+; Display exit prompt
+;			
+		MOVC5	#12,EXITMSG,#^A/ /,#80,FAOBUF
+		MOVL	#12,FAOLEN
+		PUSHAL	VD_DISP                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes input
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	FAODESC                 ; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		BSBW	ERROR_CHK               ; RETURN
+	RSB
+;
+; Print subroutines
+;
+PRINT:		PUSHAL	FAODESC
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+PRINT2:		PUSHAL	FAODESC
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+PRINT21:
+		MOVL	#1,CURCOL
+		MOVL	#1,CURROW
+		PUSHAL	CURCOL			; Column (1)
+		PUSHAL	CURROW			; Row (1)
+		PUSHAL	VD_DISP2
+		CALLS	#3,G^SMG$SET_CURSOR_ABS
+		BSBW	ERROR_CHK
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+PRINT22:
+		MOVL	#1,CURCOL
+		MOVL	#2,CURROW
+		PUSHAL	CURCOL			; Column (1)
+		PUSHAL	CURROW			; Row (2)
+		PUSHAL	VD_DISP2
+		CALLS	#3,G^SMG$SET_CURSOR_ABS
+		BSBW	ERROR_CHK
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+PRINT23:
+		MOVL	#1,CURCOL
+		MOVL	#3,CURROW
+		PUSHAL	CURCOL			; Column (1)
+		PUSHAL	CURROW			; Row (3)
+		PUSHAL	VD_DISP2
+		CALLS	#3,G^SMG$SET_CURSOR_ABS
+		BSBW	ERROR_CHK
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+
+;
+CREATE_ENVIRONMENT:
+;
+; Create Virtual Display
+;
+CR_DISP:
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK            		; Error Check
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP2
+	PUSHAL	VD_COL2
+        PUSHAL	VD_ROW2
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL2		;Column
+	PUSHAL	PB_ROW2		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP2
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	RSB
+SORT_FILE:
+	CLRL	SORTCONTEXT		; MBZ
+	PUSHAL	SORTCONTEXT		;
+	CLRL	-(SP)			; FSZ
+	CLRL	-(SP)			; FOP
+	CLRL	-(SP)			; FSZ
+	CLRL	-(SP)			; MRS
+	CLRL	-(SP)			; BLS
+	CLRL	-(SP)			; BKS
+	CLRL	-(SP)			; Output rec fmt
+	CLRL	-(SP)			; Output File Fmt
+	PUSHAL	SORTFILE		; output file
+	PUSHAL	SORTFILE		; Input file
+	CALLS	#11,G^SOR$PASS_FILES
+	BSBW	ERROR_CHK
+;
+	PUSHAL	SORTCONTEXT		;
+	CLRL	-(SP)			; Number of work files
+	CLRL	-(SP)			; Sort Process (Record)
+	CLRL	-(SP)			; User Equal Routine
+	CLRL	-(SP)			; User Compare Routine
+	CLRL	-(SP)			; File Allocation
+	PUSHAL	SORTOPTIONS		; Sort Options   (No Duplicates)
+	PUSHAL	SRECLEN			; Longest Rec
+	PUSHAL	SORTKEYBUF		; KEY Spec
+	CALLS	#9,G^SOR$BEGIN_SORT
+	BSBW	ERROR_CHK
+;
+	PUSHAL	SORTCONTEXT		;
+	CALLS	#1,G^SOR$SORT_MERGE
+	BSBW	ERROR_CHK
+;
+	PUSHAL	SORTCONTEXT		;
+	CALLS	#1,G^SOR$END_SORT
+	BSBW	ERROR_CHK
+
+
+
+	RSB				; Return
+	.END  MOP_DEVTBL 

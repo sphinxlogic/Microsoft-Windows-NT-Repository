@@ -1,0 +1,243 @@
+%TITLE	'FREE'
+MODULE FREE (MAIN = main, IDENT = 'V2.1') = 
+BEGIN
+!++
+!
+!  Facility:	FREE
+!
+!  Author:	Hunter Goatley
+!
+!  Date:	July 17, 1991
+!
+!  Functional Description:
+!
+!	This program will display space utilization for all mounted disks.
+!	(To display information about all disks, compile with /VARIANT=1.)
+!
+!	To build:
+!
+!		$ BLISS FREE
+!		$ LINK/NOTRACE FREE
+!
+!  Modified by:
+!
+!	V2.1		Hunter Goatley		19-AUG-1999 20:30
+!		Pssshh.  A couple more minor mods to work in 64-bit mode.
+!
+!	02-000		Hunter Goatley		21-SEP-1995 13:53
+!		Modified to make it 64-bit (removed UNSIGNED LONG
+!		declarations).
+!
+!	01-002		Hunter Goatley		10-FEB-1992 06:41
+!		Modified "Totals" line to say "disk" or "disks" appropriately.
+!
+!	01-001		Hunter Goatley		18-DEC-1991 09:16
+!		Fixed arithmetic overflow on megabyte conversion by summing
+!		MB per disk inside the loop instead of at the end.
+!
+!	01-000		Hunter Goatley		17-JUL-1991 06:42
+!		Genesis.
+!
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';			!Pull stuff from STARLET
+SWITCHES ADDRESSING_MODE (EXTERNAL = GENERAL, NONEXTERNAL = WORD_RELATIVE);
+!
+!  TABLE OF CONTENTS
+!
+FORWARD ROUTINE
+	main					!Main entry point
+	;
+
+EXTERNAL ROUTINE
+	LIB$PUT_OUTPUT
+	;
+!
+! MACROS
+!
+MACRO					!Static and dynamic descriptor macros
+	$DYNDESC =			!Dynamic descriptor declaration
+		$BBLOCK[DSC$C_S_BLN]
+		PRESET	([DSC$W_LENGTH] = 0,
+			 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			 [DSC$B_CLASS]	= DSC$K_CLASS_D,
+			 [DSC$A_POINTER]= 0)
+	%,
+	$STATICDESC (len, addr) =	!Static descriptor declaration
+		$BBLOCK[DSC$C_S_BLN]
+		PRESET	([DSC$W_LENGTH] = len,
+			 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+			 [DSC$A_POINTER]= addr)
+	%;
+
+%IF NOT %DECLARED(DVS$_DEVCLASS)	!Not defined in STARLET.R64 on V7.2
+%THEN
+    LITERAL
+	DVS$_DEVCLASS = 1;
+%FI
+
+
+
+ROUTINE main =
+BEGIN
+
+BIND
+%IF (%VARIANT EQLU 1)
+%THEN
+	remote_mount	= %ASCID'(remote mount)',
+	not_mounted	= %ASCID'(not mounted)',
+	fao_unmounted_format	= %ASCID'!16AS !14AS !6AD',
+%FI
+	header	= %ASCID %STRING('Device Name      Volume Label   Type      ',
+				 'Used Blocks     Free Blocks      Total'),
+	header2	= %ASCID %STRING('---------------- -------------- ------ ',
+				 '--------------- --------------- ---------'),
+	fao_total_format	= %ASCID %STRING('Totals:!14* !3UL mounted ',
+						 'disk!%S !7ULMB (!2UL%) !7ULMB',
+						 ' (!2UL%) !7ULMB'),
+	fao_mounted_format	= %ASCID %STRING ('!16AS !14AD !6AD !9UL ',
+						  '(!2UL%) !9UL (!2UL%) !9UL');
+
+OWN
+	faoout_buffer	: $BBLOCK[256],
+	faoout		: $STATICDESC (256, faoout_buffer),
+	devnam_buffer	: $BBLOCK[64],
+	devnam		: $STATICDESC (64, devnam_buffer),
+	devnam_len,
+	devclass	: INITIAL (DC$_DISK),
+	getdvi_itmlst	: $ITMLST_DECL(ITEMS=6),
+	devchar		: $BBLOCK[4],
+	remote_device,
+	maxblocks,
+	freeblocks,
+	usedblocks,
+	total_freeblocks : INITIAL(0),
+	total_usedblocks : INITIAL(0),
+	total_disks	 : INITIAL(0),
+	free_percent,
+	used_percent,
+	media_name	: $BBLOCK[64],
+	media_name_len,
+	volume_name	: $BBLOCK[64],
+	volume_name_len,
+	devscan_itmlst	: $ITMLST_DECL(ITEMS=1),
+	iosb		: BLOCK[8,BYTE],
+	devscan_context	: VECTOR[2,LONG]
+	;
+
+REGISTER
+	status;
+
+  $ITMLST_INIT (ITMLST = devscan_itmlst,
+	(ITMCOD = DVS$_DEVCLASS, BUFSIZ = 4, BUFADR = devclass)
+	);
+
+  $ITMLST_INIT (ITMLST = getdvi_itmlst,
+	(ITMCOD = DVI$_FREEBLOCKS, BUFSIZ = 4, BUFADR = freeblocks),
+	(ITMCOD = DVI$_MAXBLOCK, BUFSIZ = 4, BUFADR = maxblocks),
+	(ITMCOD = DVI$_MEDIA_NAME, BUFSIZ = 64, BUFADR = media_name,
+	 RETLEN = media_name_len),
+	(ITMCOD = DVI$_VOLNAM, BUFSIZ = 64, BUFADR = volume_name,
+	 RETLEN = volume_name_len),
+	(ITMCOD	= DVI$_REMOTE_DEVICE, BUFSIZ = 4, BUFADR = remote_device),
+	(ITMCOD	= DVI$_DEVCHAR, BUFSIZ = 4, BUFADR = devchar)
+	);
+
+  status = LIB$PUT_OUTPUT (header);
+  status = LIB$PUT_OUTPUT (header2);
+
+  WHILE (status = $DEVICE_SCAN (RETURN_DEVNAM	= devnam,
+				RETLEN		= devnam_len,
+				ITMLST		= devscan_itmlst,
+				CONTXT		= devscan_context))
+  DO
+     BEGIN
+     devnam[DSC$W_LENGTH] = .devnam_len;
+     status = $GETDVIW (DEVNAM	= devnam,
+			ITMLST	= getdvi_itmlst,
+			IOSB	= iosb);
+     IF (.status)
+     THEN
+	status = .iosb[0,0,16,0];
+     IF NOT(.status)
+     THEN
+	RETURN (.status);
+
+     !
+     !  Skip over all leading "_"s in the device name
+     !
+     WHILE (CH$RCHAR(.devnam[DSC$A_POINTER]) EQLU '_') DO
+	BEGIN
+	devnam[DSC$W_LENGTH] = (.devnam[DSC$W_LENGTH]) - 1;
+	devnam[DSC$A_POINTER] = (.devnam[DSC$A_POINTER]) + 1;
+	END;
+
+     faoout[DSC$W_LENGTH] = 256;
+     IF (.devchar[DEV$V_MNT])
+     THEN
+	BEGIN
+	usedblocks = .maxblocks - .freeblocks;
+	total_freeblocks = .total_freeblocks + ((.freeblocks * 512) / 1000000);
+	total_usedblocks = .total_usedblocks + ((.usedblocks * 512) / 1000000);
+!	total_freeblocks = .total_freeblocks + .freeblocks;
+!	total_usedblocks = .total_usedblocks + .usedblocks;
+	total_disks	 = .total_disks + 1;
+
+	free_percent = ((.freeblocks) * 100) /(.maxblocks);
+	used_percent = 100 - .free_percent;
+
+	status = $FAO (fao_mounted_format, faoout, faoout, devnam,
+			.volume_name_len, volume_name,
+			.media_name_len, media_name,
+			.usedblocks, .used_percent,
+			.freeblocks, .free_percent, .maxblocks);
+%IF (%VARIANT EQLU 1)
+%THEN
+	END
+%ELSE
+	status = LIB$PUT_OUTPUT (faoout);
+	END;
+%FI
+%IF (%VARIANT EQLU 1)
+%THEN
+     ELSE
+	BEGIN
+	status = $FAO (fao_unmounted_format, faoout, faoout, devnam,
+			(IF (.remote_device)		!If it's remote, say so
+			 THEN
+			    remote_mount
+			 ELSE				!Otherwise, not mounted
+			    not_mounted),
+			.media_name_len, media_name);
+	END;
+     status = LIB$PUT_OUTPUT (faoout);
+%FI
+     !
+     !  Reset the devnam descriptor....
+     !
+     devnam[DSC$W_LENGTH] = 64;
+     devnam[DSC$A_POINTER] = devnam_buffer;
+     END;   						!Loop until no more
+
+     free_percent = ((.total_freeblocks) * 100) /
+		     (.total_freeblocks + .total_usedblocks);
+     used_percent = 100 - .free_percent;
+
+     freeblocks = .total_freeblocks;
+     usedblocks = .total_usedblocks;
+!     freeblocks = ((.total_freeblocks) * 512) / 1000000;
+!     usedblocks = ((.total_usedblocks) * 512) / 1000000;
+
+     faoout[DSC$W_LENGTH] = 256;
+     status = $FAO (fao_total_format, faoout, faoout, .total_disks,
+			.usedblocks, .used_percent,
+			.freeblocks, .free_percent,
+			(.freeblocks + .usedblocks));
+     status = LIB$PUT_OUTPUT (%ASCID'');
+     status = LIB$PUT_OUTPUT (faoout);
+
+RETURN (SS$_NORMAL);				!Set success status
+END;						!End of routine
+
+END						!End of module BEGIN
+ELUDOM						!End of module

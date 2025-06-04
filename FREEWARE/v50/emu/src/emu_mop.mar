@@ -1,0 +1,1086 @@
+	.TITLE	EMU_MOP   
+	.IDENT	/V5-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	APR-1997	PB	Creation
+;	
+;++
+;1 EMU_MOP   
+; Collection of routines used to process Digital MOP protocols. 
+; See individual routines for descriptions
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+	.LIBRARY        /EMU5_LIB:MACROLIB.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+        $NMADEF                         ;Define Network Management parameters
+	$SECDEF				; Global Section 
+	$SSDEF
+	$LCKDEF
+	EMUMOPDEF	
+        EMUSYSDEF
+        EMUPSRDEF
+	EMUDBDEF
+	EMUCTPDEF
+	EMUCNTDEF
+	EMUIPCDEF
+	;	
+
+	.PSECT	EMU_MOP_D,WRT,NOEXE,PIC,SHR,QUAD
+;Arg lists for $QIO
+COUNTERS_A:	.QUAD
+RETURN:		.BLKB	512
+RETURN_D:	.LONG	.-RETURN
+		.ADDRESS  RETURN
+WORK:		.BLKB	512
+WRITE_IT:
+       		.LONG	12			; No. of args
+       		.LONG	0			; Event
+ETHCHN:		.LONG	0			; Channel
+       		.LONG	IO$_WRITEVBLK		; Function
+       		.LONG	IOSB			; Pointer to IOSB
+       		.LONG   0                        ; AST Address
+       		.LONG	0			; AST Param
+	       	.LONG	XMTBUF			; P1
+       		.LONG	XMTBUFLEN		; P2
+       		.LONG	0			; P3
+       		.LONG	0			; P4
+		.ADDRESS E_ADDR			; Target Address Pointer
+       		.LONG	0			; P6
+READ_IT:
+		.LONG	12			; No. of args
+		.LONG	0			; Event
+WETHCHN:	.LONG	0			; Channel
+       		.LONG	IO$_READVBLK		; Function
+       		.LONG	IOSB			; Pointer to IOSB
+       		.LONG	0			; AST Param
+       		.LONG   0                        ; AST Address
+RCVBUF:       	.LONG	0			; P1
+RCVBUF_LEN:     .LONG	0			; P2
+       		.LONG	0			; P3
+       		.LONG	0			; P4
+       		.LONG	RCVP5			; RCVP5 Pointer
+       		.LONG	0			; P6
+;
+E_ADDR:		.BLKB  	6			; Target address here
+;
+;
+; Setmode param buff. 
+;
+SETPARM:
+        .WORD   NMA$C_PCLI_PTY          ; Protocol Type
+        .LONG   ^X0260
+	.WORD	NMA$C_PCLI_PAD
+	.LONG	NMA$C_STATE_ON
+	.WORD	NMA$C_PCLI_BFN
+	.LONG	2
+	.WORD	NMA$C_PCLI_BUS
+	.LONG	1498
+
+SETPARMLEN =	.-SETPARM
+SETPARMDSC:	.LONG		SETPARMLEN
+		.ADDRESS	SETPARM
+;
+; P2 transmit buffer
+;
+XMTBUF:	
+	.LONG	0
+XMTBUFLEN = .-XMTBUF
+SYSIDMSG:
+        .BYTE   05                      ; SYSTEM ID request code
+        .BYTE   00                      ; Reserved
+        .WORD   4242                    ; Receipt number (to be returned)
+CNTMSG:
+        .BYTE   09                      ; Counters request code
+        .BYTE   00                      ; Reserved
+        .WORD   4242                    ; Receipt number (to be returned)
+
+
+
+;
+; P5 receive buffer
+; Must be 20 bytes to share with prom user
+RCVP5:
+RVCDA:		.BLKB	6
+RVCSA:		.BLKB	6
+RVCPTY:		.BLKB	2
+RCVP5FILL:	.BLKB	6
+	.ALIGN LONG
+;
+; $ENQ call frame
+MOPLOCK:	
+		.LONG	12		; Arguments
+		.LONG	0		; EFN
+LKMODE:		.LONG	LCK$K_EXMODE	; Lock mode
+		.ADDRESS MOPLKSB	; Lock STAT BLOCK
+LKFLGS:         .LONG 	0		; No opts
+LKNAM:		.ADDRESS EMU_MOPLOCK		; Resourse name
+		.LONG	0		; Parent id 
+                .LONG	0               ; AST
+BLSPRM:		.LONG	0		; (BL)AST Param
+BLSRTN:		.ADDRESS MOP_UNLOCK	; BLAST
+		.LONG	0		; ACC Mode
+		.LONG	0		; RSDM_ID
+		.LONG	0		; Null
+; Misc
+;
+	.ALIGN	QUAD
+MOPLKSB:	.QUAD
+IOSB:		.QUAD	0			; 
+INTLTIM:	.QUAD	0
+INTLTIM2:	.QUAD	0
+TEMPDESC:	.QUAD	0
+LOCK_REQUESTED:	.LONG	0	
+INT:		.LONG	0
+RDTIME:		.LONG   0                       ; Time read starts
+WRTIME:		.LONG   0                       ; Time write completes
+RESTIME:	.LONG	0                       ; Time Difference
+INTIM:		.ASCID	/0000 00:00:01.50/      ; Max Wait for response
+INTIM2:		.ASCID	/0000 00:00:03.00/      ; Max Wait for response
+EMU_MOPLOCK:	.ASCID	/EMU_MOPLOCK/
+	.align	long
+DEVFAB:	$FAB	FAC = <GET>,-        ; Access
+		SHR = <DEL,UPD,GET,PUT>,-
+		MRN = 0,-		; No Max rec No.
+		MRS = DEVREC_SIZE,-	; FIXED
+		ORG = idx,-		; Indexed
+		RFM = FIX,-		; Fixed size
+		FNM = <MOP_DEVXLT>,-   	 ; Filename 
+		DNM = <EMU5_DAT:MOP_DEVXLT.TBL>   	 ; Filename 
+
+DEVRAB: $RAB	FAB = DEVFAB,-            ; Record 
+		RAC = SEQ,-
+		KBF = RECNO,-
+		RBF = DEVREC,-
+		RSZ = DEVREC_SIZE,-
+		UBF = DEVREC,-
+		USZ = DEVREC_SIZE
+DEVREC:
+DEVCODE:	.BYTE		; Code
+DEVNAME:	.LONG		; .ascic DEC code
+DEVDESC:	.BLKB	19	; .ascic descriptive str
+DEVREC_SIZE = .-DEVREC
+RECNO:	.LONG	0
+;
+;
+	.align	long
+XLTTBL_A:	.QUAD           ; Addr of table
+TBLCNT:		.LONG		; No of table entries
+DLTXLT_TBL:
+	.ASCII	/CSMA-CD /
+	.ASCII	/DDCMP   /
+	.ASCII	/LAPB    /
+	.ASCII	/HDLC    /
+	.ASCII	/FDDI    /
+	.ASCII  /802.5   /
+	.ASCII	/Invalid /
+	.ASCII	/Invalid /
+	.ASCII	/Invalid /
+	.ASCII	/Invalid /
+	.ASCII	/802.4   /
+	.ASCII	/Z-LAN   /
+MAX_DLTXLT = 12
+DLTXLT_SIZ = 8
+
+;
+; Return messages
+;
+NULDEV:		.ASCII	/NULDEV/	; DEVID = 0
+MOP_VERSTR:	.ASCID	/!UB.!UB.!UB/
+MOP_WINT:	.ASCID	/!UW/
+EFLAGS2:	.ASCID	/EFLAGS2/	; Event Flag Cluster (96-127)
+NOSOFTID:	.ASCID	/None/
+STSOFTID:	.ASCID	/Standard/
+MNSOFTID:	.ASCID	/Maintenance/
+MOPSTR:		.ASCID	/!AD/
+       .PSECT EMU_MOP_EXE,EXE,NOWRT,LONG
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MOP_GETDATA
+;++
+;2 MOP_GETDATA
+; Routine to manage the single MOP channel available between processes
+; attempting to use it. 
+;3 Input
+;	.long	function
+; 	.address of 6 byte Ethernet address in network format
+;	.address of desc pointing to output block
+;3 Output
+;	The output block is written with the response from the
+;	remote system.
+;3 Return
+;	SS$_NORMAL	Responce received and written
+;	SS$_UNREACHABLE	Failed to receive response from target
+;	SS$_ACCVIO	Can' read input params or can't write outp field
+;	SS$_TIMEOUT	Could not get channel 
+;	SS$_BADPARAM	Unrecognised function
+;	Any return from:
+;		$ASCEFC,$WFLOR,$QIO,$CLREF,ASSETHCHN
+;4 Functions
+;	1	SYSID	Gets MOP SYSID block
+;	2	Counts	Gets MOP Counter block 
+;
+;--
+; Get and Validate Params
+	PROBER	#0,#6,8(AP)  		; Read Ethernet address?
+	BEQL	10$			; No
+	MOVQ	@12(AP),R8		; Outp desc
+	PROBEW	#0,R8,(R9)		; Write?
+	BNEQ	20$			; Yes
+10$:
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+20$:
+; Set up counters, que
+30$:
+	TSTL	COUNTERS_A
+	BNEQ	100$
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	BLBS	R0,40$
+	RET
+40$:
+
+100$:
+	TSTL	ETHCHN			; Have channel?
+	BNEQ	220$
+        CALLS	#0,G^MOP_LOCK		; Get lock, channel
+	BLBS	R0,220$
+	RET
+220$:
+; We have the channel. Determine function and execute.
+	
+	CASEL	4(AP),#1,#1		; Select processing routine
+250$:	
+	.WORD	300$-250$               ; sysid
+	.WORD	400$-250$               ; counts
+	MOVL	#SS$_BADPARAM,R0
+	BRW	550$
+300$:
+	MOVL	SYSIDMSG,XMTBUF	
+	BRW	500$
+400$:
+	MOVL	CNTMSG,XMTBUF	
+	BRW	500$
+500$:
+; Set up params
+; Target addr
+	MOVL	COUNTERS_A,R11			; 
+	MOVL	8(AP),R6
+	MOVL	(R6),E_ADDR
+	MOVW	4(R6),E_ADDR+4
+; rcv buff
+	MOVL	R9,RCVBUF
+	MOVL	R8,RCVBUF_LEN
+
+; Transmit TEST
+	INCL	CNT_POL_L_MOPREQ(R11)
+
+	$QIOW_G	WRITE_IT	            ; Send Request
+	BLBS	R0,510$
+	BRW	550$
+510$:
+	MOVZWL	IOSB,R0			    ; Check IOSB return
+	BLBS	R0,520$
+	BRW	550$
+; Queue Read
+520$:
+	PUSHAL	INTIM                   ; Set timer
+	CALLS	#1,G^MOP_SETTIME
+	BLBS	R0,523$
+	BRW	550$
+523$:
+	$QIOW_G	READ_IT      		; Receive response
+	BLBS	R0,524$
+	BRW	550$
+524$:
+	BLBS	IOSB,530$                ; Br if good recv
+	MOVZWL	IOSB,R0                 ; 
+	CMPW	R0,#SS$_ABORT           ; If aborted...
+	BNEQU	525$                     ;  
+	MOVL	#SS$_UNREACHABLE,R0     ;  ... return unreachable 
+525$:
+	INCL	CNT_POL_L_MOPNORESP(R11) ; No responses
+        BRW	550$
+
+; Check that the response was from the target address
+530$:
+	CMPL	E_ADDR,RVCSA		;
+	BNEQ	520$			; Not our message
+	CMPW	E_ADDR+4,RVCSA+4 
+	BNEQ	520$			; Not our message
+; Message OK
+	INCL	CNT_POL_L_MOPRESP(R11)	; All responses
+	MOVZWL	IOSB+2,@12(AP)   	; Return len of frame
+	MOVL	#SS$_NORMAL,R0		; Signal Success
+
+
+550$:
+	RET
+
+
+
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MOP_UNLOCK
+;++
+;2 MOP_UNLOCK
+; Routine called by current owner of the MOP channel when it
+; is finished using it.  This routine:
+;	Deassigns the mop channel
+;	converts the lock to null
+;--
+
+	$DASSGN_S CHAN=ETHCHN   	; No error Check
+        CLRL	ETHCHN
+        CLRL	WETHCHN
+	CLRL	LKFLGS
+	BISL	#LCK$M_CONVERT,LKFLGS
+	MOVL	#LCK$K_NLMODE,LKMODE
+	$ENQW_G	MOPLOCK
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MOP_LOCK
+;++
+;2 MOP_LOCK
+; Routine called to acquire the MOP channel.  
+; This routine:
+;	Requests the lock in exclusive mode and when received...
+;	Assigns the mop channel
+;	Note: The lock request will wait until completion
+;--
+
+; Get lock
+	CLRL	LKFLGS
+	TSTL	MOPLKSB+4		; Have lock id?
+	BEQL	120$ 			; Br if not			
+	BISL	#LCK$M_CONVERT,LKFLGS   ; Else convert
+120$:
+	MOVL	#LCK$K_EXMODE,LKMODE
+	$ENQW_G	MOPLOCK
+	BLBS	R0,130$
+	RET
+130$:
+	PUSHAL	ETHCHN                
+	CALLS	#1,ASSETHCHN           ; Assign chan to Ethernet
+	BLBS	R0,150$
+	RET
+150$:
+        MOVL	ETHCHN,WETHCHN
+; Start up channel and set characteristics
+        $QIOW_S FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>,-
+                CHAN=ETHCHN,-
+                IOSB=IOSB,-
+                P2=#SETPARMDSC
+
+	BLBS	R0,200$
+	RET
+200$:
+	MOVZWL	IOSB,R0
+	RET
+	
+
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MOP_GETSYSID
+;++
+;2 MOP_GETSYSID
+; Routine to get MOP SYSID from cooperatingg station. It is used as
+; a LOOP type routine and provides the standard LOOP options.
+; NOTE: This routione enables MOP in shared destination mode to allow
+; the MOP counter processors to co-exist with it. This involves 
+; shutting down and restarting the controller on each call.
+;	Options:
+;	Reponse time to station. Time in 100th sec intervals representing
+;	round trip time to this station is returned
+;3 Inputs
+; 	.address of 6 byte Ethernet address in network format
+;	.address of desc pointing to output block
+;	.address of .long where response time is written (Optional)
+;3 Outputs 
+;   	The MOP SYSID block returned by the node
+;3 Returns
+; 	SS$_NORMAL	OK
+;	SS$_UNREACHABLE	Failed to receive loop response from target
+;	SS$_ACCVIO	Can' read input params or can't write outp field
+;--
+; Get and Validate Params
+	PROBER	#0,#6,4(AP)  		; Read Ethernet address?
+	BEQL	10$			; No
+	MOVQ	@8(AP),R8		; Outp desc
+	PROBEW	#0,R8,(R9)		; Write?
+	BEQL	10$
+	CMPL	#3,(AP)			; 2 params?
+	BNEQU	20$
+	PROBEW	#0,#4,12(AP)  		; Write response time?
+	BNEQ	20$			; Yes
+10$:
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+20$:
+; Set up counters
+	TSTL	COUNTERS_A
+	BNEQ	30$
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	BLBS	R0,30$
+	RET
+30$:
+ 	TSTL	ETHCHN		; Init?
+	BNEQ	START		; Done - Br
+
+START:
+; Set up params
+; Target addr
+	MOVL	COUNTERS_A,R11			; 
+	MOVL	4(AP),R6
+	MOVL	(R6),E_ADDR
+	MOVW	4(R6),E_ADDR+4
+; rcv buff
+	MOVL	R9,RCVBUF
+	MOVL	R8,RCVBUF_LEN
+; Function
+	MOVL	SYSIDMSG,XMTBUF	
+
+; Transmit TEST
+	INCL	CNT_POL_L_MOPREQ(R11)
+
+	$QIOW_G	WRITE_IT	         ; Send Loop Request
+	BSBW	ERROR_CHK                   ;
+	MOVZWL	IOSB,R0			    ; Check IOSB return
+	BSBW	ERROR_CHK
+; Queue Read
+20$:
+	PUSHAL	INTIM                   ; Set timer
+	CALLS	#1,G^MOP_SETTIME
+	BSBW	ERROR_CHK
+	$QIOW_G	READ_IT      		; Receive response
+	BSBW	ERROR_CHK               ; Check que op
+	BLBS	IOSB,30$                ; Br if good recv
+	MOVZWL	IOSB,R0                 ; 
+	CMPW	R0,#SS$_ABORT           ; If aborted...
+	BNEQU	25$                     ;  
+	MOVL	#SS$_UNREACHABLE,R0     ;  ... return unreachable 
+25$:
+	INCL	CNT_POL_L_MOPNORESP(R11) ; No responses
+
+	RET                             ; Done 
+
+; Check that the response was from the target address
+30$:
+	CMPL	E_ADDR,RVCSA		;
+	BNEQ	20$			; Not our message
+	CMPW	E_ADDR+4,RVCSA+4 
+	BNEQ	20$			; Not our message
+; Message OK
+	INCL	CNT_POL_L_MOPRESP(R11)	; All responses
+	MOVZWL	IOSB+2,@8(AP)   ; Return len of frame
+	MOVL	#SS$_NORMAL,R0	; Signal Success
+	RET                     ; Exit to caller
+
+; Here on Read Timout
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MOP_LOST_MSG
+
+
+
+;++
+;2 MOP_LOST_MSG
+; Routine called when read timer expires. Cancels outstanding IO and 
+; returns. Caller received SS$_ABORT in IOSB
+; No inputs, outputs or returns.
+;--
+	PUSHL	ETHCHN
+	CALLS	#1,G^SYS$CANCEL		; Cancel I/O - No error check
+	RET                             ; Exit to main
+
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_GETMOPCNT 
+;++
+;2 EMU_GETMOPCNT 
+; Get datalink counters from Device supporting counter function via MOP
+; and proccess into standard array.
+;
+;3 Inputs
+;		.ADDRESS of 6 byte array containing Ethernet address
+;		.ADDRESS of DESC pointing to 64 byte array to receive counter data
+;3 Outputs
+; The following array is written upon successful receipt of data:
+;
+;	  Bytes	   Counter Name
+;	    3  Mop header
+;           2  Seconds since last zeroed
+;           4  Bytes received
+;           4  Bytes sent
+;           4  Frames received
+;           4  Frames sent
+;           4  Multicast bytes received
+;           4  Multicast frames received
+;           4  Blocks sent, initially deferred
+;           4  Blocks sent, single collision
+;           4  Blocks sent, multiple collisions
+;           2  Send failure
+;           2  Send failure reason bitmap  
+;           2  Receive failure
+;           2  Receive failure reason bitmap  
+;           2  Unrecognized frame destination
+;           2  Data overrun
+;           2  System buffer unavailable
+;           2  User buffer unavailable
+; The counter data is always ordered thus	
+; 
+;3 Returns 
+;	SS$_NORMAL 	- Counter data recieved and processed
+;	SS$_UNREACHABLE	- No Response to counter request
+;	Any error from ASSETHCHN
+;--                               
+        
+	MOVL	4(AP),R6                ; Input Ethernet address
+	MOVQ	@8(AP),R8		; Output Array address
+
+	TSTW	ETHCHN			; Do we hav a channel?
+	BNEQ	ASSIGN_OK		; Br if yes
+; Assign channel to the first device found which is available
+;
+	PUSHAL	ETHCHN
+	CALLS	#1,G^ASSETHCHN
+	BLBS	R0,1$
+	RET
+1$:
+	MOVL	ETHCHN,WETHCHN		; Same channel for read/write
+; 
+; Start up the device enabled with MOP 
+;
+        $QIOW_S FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>,-
+                CHAN=ETHCHN,-
+                IOSB=IOSB,-
+                P2=#SETPARMDSC
+	BSBW	ERROR_CHK
+	MOVL	IOSB,R0                 ; Check IOSB status
+	BSBW	ERROR_CHK
+;
+; Transmit the COUNTER message to the Requested address.
+ASSIGN_OK:
+; Set up params
+; Target addr
+	MOVL	4(AP),R6
+	MOVL	(R6),E_ADDR
+	MOVW	4(R6),E_ADDR+4
+; rcv buff
+	MOVL	R9,RCVBUF
+	MOVL	R8,RCVBUF_LEN
+; Function
+	MOVL	CNTMSG,XMTBUF	
+
+; Transmit TEST
+
+	$QIOW_G	WRITE_IT	         ; Send Loop Request
+	BSBW	ERROR_CHK                   ;
+	MOVZWL	IOSB,R0			    ; Check IOSB return
+	BSBW	ERROR_CHK
+; Queue Read
+        CLRL    R9                  ; Clear the number of read attempts
+	PUSHAL	INTIM                   ; Set timer
+10$:
+	CALLS	#1,G^MOP_SETTIME
+	BSBW	ERROR_CHK
+	$QIOW_G	READ_IT      		; Receive response
+
+	BSBW	ERROR_CHK
+	BLBS	IOSB,20$
+	CMPW	IOSB,#SS$_CANCEL  	; Timeout?
+	BEQL	15$                     ; Br if yes
+	MOVZWL	IOSB,R0                 ; Other error
+	RET
+15$:
+	TSTL	R9                     ; Number of attempts
+	BEQL	18$                    ; br if 1ST
+	MOVL	#SS$_UNREACHABLE,R0    ; Signal No Response
+	RET
+18$:
+	PUSHAL	INTIM2			; Set longer timeout
+        INCL	R9			; Flag 2nd attempt
+	BRW	10$			; Once more
+
+20$:	
+	MOVZWL	IOSB+2,@8(AP)		; Return len
+	MOVL	#SS$_NORMAL,R0		; Signal Success
+	RET
+;
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBC	R0,10$
+	RSB
+10$:
+	RET				; Return With VMS Error
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MOP_SETTIME
+;++
+;2 MOP_SETTIME
+; Set timeout for read MOP. The input time in coverted to
+; binary and a timer is set. The Routine called by the timer
+; expiring is always LOST_MOP_MSG. This routine cancels the
+; QIO and returns SS$_ABORT of the caller.
+;
+;3 Input
+; Address of .ascid pointing to valid vms delta time string
+;
+;3 Output
+; None
+;3 Return
+; Any from  	$BINTIM, $SETIMR 
+;--
+	MOVL	4(AP),R6
+	PUSHAL	INTLTIM
+	PUSHL	R6
+	CALLS	#2,G^SYS$BINTIM
+	BLBS	R0,10$
+	RET
+10$:
+	$SETIMR_S-
+		DAYTIM=INTLTIM,-
+		ASTADR=MOP_LOST_MSG             ; AST address
+	RET
+
+; Subroutines
+;
+
+
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=MOP_PARSE_SYSID   
+;++
+;2 MOP_PARSE_SYSID   
+; Routine to parse the incoming sysid frame and return information
+; about each param found. Each call to this routine returns info 
+; about 1 paramater.
+;3 Inputs
+;   .address of MOP encoded paramater
+;   .address of 12 byte array to recive info
+;3 Outputs
+;  The return frame is encoded:
+;  .long	MOP param number
+;  .long	Len of value
+;  .long	addr of value
+;3 Returns
+;  SS$_NORMAL		Always
+;--
+	MOVL	4(AP),R8			; Input
+	MOVL	8(AP),R9
+	MOVZWL	(R8),MOP_PRS_L_PARAM(R9)	 ; Param
+	MOVZBL	2(R8),MOP_PRS_L_LEN(R9)         ; Len
+	ADDL3	#3,R8,MOP_PRS_L_VALUE(R9)	; Addr of value
+        MOVL	#SS$_NORMAL,R0
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MOP_XLATE
+;++
+;2 MOP_XLATE
+; Programme to translate MOP encloded paramaters into printable
+; strings.
+;
+;3 Inputs	
+;	.address of EMUDB record  			(read only)
+; 	.ADDRESS - Desc pointing to output area         (read/write)
+; 
+;3 Returns
+;	SS$_NORMAL  	successful completion Translation written.
+;	SS$_NOTRAN	Unrecognised MOP paramater
+;	SS$_BADPARAM	Not a MOP record
+; 	Any error return from $EXPREG, $OPEN, $GET
+;--
+	MOVQ	@4(AP),R6				; Input
+	CMPL	DB_REC_L_PROTO(R7),#SYS_PID_C_PSRMOP 	; MOP rec?
+	BEQLU	1000$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+
+
+1000$:
+	CASEL	DB_REC_L_PARAM(R7),#1,#6		; Select routine
+60$:
+	.WORD	1$-60$                   ; Group 1
+	.WORD	2$-60$
+	.WORD	3$-60$
+	.WORD	4$-60$
+	.WORD	5$-60$
+	.WORD	6$-60$
+	.WORD	7$-60$
+	CASEW	DB_REC_L_PARAM(R7),#100,#5		; Select routine
+70$:
+	.WORD	100$-70$                ; Group 2 
+	.WORD	101$-70$                
+	.WORD	102$-70$
+	.WORD	103$-70$
+	.WORD	104$-70$
+	.WORD	105$-70$
+	CMPW	#200,DB_REC_L_PARAM(R7)            ; Breakout for software ID
+	BNEQU	80$
+	BRW	200$
+80$:
+	CMPW	#DB_PRM_MOP_BOOTSOFT,DB_REC_L_PARAM(R7) ; Breakout for bootsoft
+	BNEQU	85$
+	BRW	200$
+85$:
+	CASEW	DB_REC_L_PARAM(R7),#400,#1		; Select routine
+90$:
+	.WORD	400$-90$
+	.WORD	401$-90$
+	MOVL	#SS$_NOTRAN,R0
+	RET	
+1$:		   		     		; Mop version
+	ADDL3	#DB_C_KSZ,R7,R8
+	MOVZBL	2(R8),-(SP)
+	MOVZBL	1(R8),-(SP)
+	MOVZBL	(R8),-(SP)
+        PUSHL	8(AP)
+        PUSHL	8(AP)
+	PUSHAL	MOP_VERSTR
+	CALLS	#6,G^SYS$FAO
+	RET
+
+2$:				       		; Function codes
+	MOVQ    @4(AP),R1    			; xlate rec desc
+	SUBL3	#DB_C_KSZ,R6,R3			; Len (Bytes)
+	MULL3	#8,R3,-(SP)			; Len (bits)
+	PUSHL	8(AP)	                        ; Outp str
+	ADDL3	#DB_C_KSZ,R7,-(SP)		; Addr
+	CALLS	#3,G^EMU_BITPTOASCIC   
+	RET
+3$:                       			; Console user
+	PUSHL   8(AP)	                        ; Outp str
+	ADDL3	#DB_C_KSZ,R7,-(SP)		; Input eaddr
+	CALLS	#2,G^EADRTOASCII   
+	RET
+4$:                                		; Reservation timer
+5$:                                		; Cons Command size
+6$:                                		; Cons resp size
+	ADDL3	#DB_C_KSZ,R7,R8
+	MOVZBL	(R8),-(SP)
+        PUSHL	8(AP)
+        PUSHL	8(AP)
+	PUSHAL	MOP_WINT
+	CALLS	#4,G^SYS$FAO
+	RET
+7$:                                		; Hardware addr
+	PUSHL   8(AP)	                        ; Outp str
+	ADDL3	#DB_C_KSZ,R7,-(SP)		; Input eaddr
+	CALLS	#2,G^EADRTOASCII   
+	RET
+100$:                                           ; Device ID
+	PUSHL	8(AP)                      ; Outp
+	ADDL3	#DB_C_KSZ,R7,-(SP)
+	CALLS	#2,G^MOP_DEVXLT    
+	RET
+101$:
+	MOVL	#SS$_NOTRAN,R0
+102$:
+103$:
+	SUBL3	#DB_C_KSZ,R6,TEMPDESC		; Len
+	ADDL3	#DB_C_KSZ,R7,TEMPDESC+4		; Addr
+	PUSHL	8(AP)	                        ; Outp
+	PUSHAL	TEMPDESC
+	CALLS	#2,G^ASCII_STRING    
+	RET
+104$:
+	MOVL	#SS$_NOTRAN,R0
+105$:					; Node name
+	SUBL3	#DB_C_KSZ,R6,TEMPDESC		; Len
+	ADDL3	#DB_C_KSZ,R7,TEMPDESC+4		; Addr
+	PUSHL	8(AP)	                        ; Outp
+	PUSHAL	TEMPDESC
+	CALLS	#2,G^ASCII_STRING    
+	RET
+200$:
+	ADDL3	#DB_C_KSZ,R7,R8
+;
+; From MOP doc:
+; 	@r8 = form (1 byte, id (.ascii field)
+;	If form =  0 then none
+;	   form = -1 then 'standard' (NO ID)  
+;	   form = -2 then 'maintenance' (NO ID)  
+;	   form = positive then this  is len of id
+	TSTB	(R8)
+	BNEQ	20010$
+        PUSHL	8(AP)
+        PUSHL	8(AP)
+	PUSHAL	NOSOFTID
+	CALLS	#3,G^SYS$FAO
+	RET
+20010$:
+	CLRL	R1
+	MULB3	#-1,(R8),R1
+	CASEB	R1,#1,#1
+20020$:
+	.WORD	20030$-20020$
+	.WORD	20040$-20020$
+; if here then we have a string
+	ADDL3	#1,R8,-(SP)		; String addr
+	MOVZBL	(R8),-(SP)			; String len
+	PUSHL	8(AP)                      ; Outp
+	PUSHL	8(AP)                      ; Outp
+	PUSHAL	MOPSTR
+	CALLS	#5,G^SYS$FAO
+	RET
+20030$:
+        PUSHL	8(AP)
+        PUSHL	8(AP)
+	PUSHAL	STSOFTID
+	CALLS	#3,G^SYS$FAO
+	RET
+20040$:
+        PUSHL	8(AP)
+        PUSHL	8(AP)
+	PUSHAL	MNSOFTID
+	CALLS	#3,G^SYS$FAO
+	RET
+	
+
+
+400$:					; Datalink type
+	PUSHL	8(AP)                      ; Outp
+	ADDL3	#DB_C_KSZ,R7,-(SP)
+	CALLS	#2,G^MOP_DLTXLT    
+	RET
+401$:
+	ADDL3	#DB_C_KSZ,R7,R8
+	MOVZWL	(R8),-(SP)
+        PUSHL	8(AP)
+        PUSHL	8(AP)
+	PUSHAL	MOP_WINT
+	CALLS	#4,G^SYS$FAO
+	RET
+
+
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MOP_DLTXLT
+;++
+;2 MOP_DLTXLT
+; Programme to translate the binary datalink type field to
+; printable string
+
+;
+;3 Inputs	
+;	.LONG address of .BYTE input pointing to datalink  (read only)
+; 	.ADDRESS - Desc pointing to output area         (read/write)
+;3 Outputs
+;	Translation of datalink code
+; Note: The returned len is always written in the input desc len field
+; 
+;3 Returns
+;	SS$_NORMAL  	successful completion Translation written.
+;	$SS_BADPARAM	Unrecognised code (must be 1-12)
+;3 Translation_table
+; 	Hardcoded ascii table. Each entry - 8 bytes
+;	This table is fixed by Digital and no new assigns
+;	are allowed.
+;--
+	MOVAL	DLTXLT_TBL,R11            ; Table Pointer
+	MOVZBL	@4(AP),R6		; Input
+	MOVQ	@8(AP),R7		; R7/R8 = Len/Addr outp
+;
+;
+	DECL	R6			; Start at 0
+	BGEQ	10$                     ; Br if OK
+	MOVL	#SS$_BADPARAM,R0
+	RET
+10$:
+	CMPL	#MAX_DLTXLT,R6
+	BGEQU	20$                     ; Br if OK
+	MOVL	#SS$_BADPARAM,R0
+	RET
+20$:
+	MULL	#DLTXLT_SIZ,R6		; Offset
+	MOVQ	(R11)[R6],(R8)
+	MOVL	#DLTXLT_SIZ,@8(AP)      ; Write back len we returned
+	MOVL	#SS$_NORMAL,R0		; Success
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MOP_DEVXLT
+;++
+;2 MOP_DEVXLT
+; Programme to translate the binary SYSID field to either:
+;	The DEC standard device mneumonic 
+; 	Descriptive string more suited for reports
+;
+;3 Inputs	
+;	.LONG address of .BYTE input pointing to SYSID  (read only)
+; 	.ADDRESS - Desc pointing to output area         (read/write)
+;3 Outputs
+;		1. If the len found in the outp descriptor  = 4:
+;		   It is a byte (val=3) followed by a 2 or 3 byte DEC code.
+;		   The 2 byte code is padded with 1 blank
+;		2. If the len found in the descriptor input is > 4:
+;		   The string translation (up to 18 bytes) is returned.
+;		   The string is truncated as necessary and the actual
+;		   len returned is written in the len field of the Desc.
+;		If the len < 4 an error is returned	
+; Note: The returned len is always written in the input desc len field
+; 
+;3 Returns
+;	SS$_NORMAL  	successful completion Translation written.
+;	SS$_ACCVIO	Can't write outp or can;t read inpt
+; 	Any error return from $EXPREG, $OPEN, $GET
+;
+;3 Translation_table
+;	1  byte  hex device ID 
+;	4  byte  ASCIC translation to DEC standard Mneumanic
+;	19 byte  ascic description string (Optional return)
+;
+;--
+;*****************************TEMP REDIRECT *****************
+; This routine now obsolete. Once new routine tested, remove code from
+; '****...' below to next call.
+;
+	PUSHL	8(AP)		; Output
+	PUSHL	4(AP)
+	CALLS	#2,G^XLTTBL_MOPDEV
+	RET
+;**************************************************************
+	TSTL	TBLCNT			; = Entry count
+	BNEQU	10$                     ; Br if table is present
+        BSBW	MAKE_DEV_TABLE              ; If count = 0, Make Table
+10$:
+	MOVL	XLTTBL_A,R11            ; Table Pointer
+	MOVL	4(AP),R6		; Input pointer
+	MOVQ	@8(AP),R7		; R7/R8 = Len/Addr outp
+;
+; Check if type = 0
+;
+
+	MOVL	#SS$_NORMAL,R0		; ASSUME success
+	CLRL	R9			; Loop control
+	TSTB	(R6)			; Type = 0 ?
+	BNEQ	50$			; No
+	movl	NULDEV, (R8)		; Error - Move the message
+	movw	NULDEV+4,4(R8)		; Error - Move the message
+	MOVW	#4,@8(AP)		; And len
+	RET				; Quit
+;
+; Search loop
+;
+50$:	CMPB	(R6),(R11)		; Find match
+	BEQLU	60$                     ; Yes
+	ADDL	#24,R11			; Increment pointer
+	AOBLSS	TBLCNT,R9,50$              ; No
+; Not in xlation tbl - return input as text
+	MOVL	#3,@8(AP)		; Write 3 bytes
+	PUSHL	#1			; Convert byte
+	PUSHL	#3			; Return 3 digit
+	PUSHL	8(AP)			; Outp desc
+	PUSHL	R6
+	CALLS	#4,g^OTS$CVT_L_TU		; Convert
+	RET				; Error check by caller
+60$:	
+; Determine which xlation to provide
+	ADDL	#1,R11                  ; Move pointer to message
+	CMPL	#4,R7			; Len = 4?
+	BEQLU	70$			; Yes
+	ADDL	#4,R11			; No - other string
+70$:
+	MOVZBL	(R11),R10		; Our len
+	MOVC5	R10,1(R11),#^A/ /,R7,(R8); Move Translation to output
+	MOVL	R10,@8(AP)              ; Write back len we returned
+	MOVL	#SS$_NORMAL,R0		; Success
+	RET
+
+
+MAKE_DEV_TABLE:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; Determine mem requirements:
+;	Table entries are 24 bytes long (21 per page of mem). Open file
+; and determine how many pages necessary to accomodate table.
+;
+	CLRL	R2                      ; Loop counter
+; Open table file
+;
+	$OPEN	FAB = DEVFAB		;Open input file
+	BLBS	R0,10$			;OK ?
+	RET				; Die
+10$: 	
+	$CONNECT RAB = DEVRAB		;Connect input stream
+ 	BLBS	R0,20$			;Branch if OK
+	RET				; Die
+20$:
+	INCL	R2                      ; Count number of loops
+	$GET	RAB=DEVRAB	        ; Get rec
+	BLBC	R0,30$                  ; Br on err
+	BRB	20$                     ; Got one - loop until error
+30$:
+	CMPL	#RMS$_EOF,R0		; Was err Rec not found
+	BEQLU	40$			; No - other error
+	RET				; Die
+40$:
+; Get memory required
+	DIVL	#21,R2		; Number of pages
+	INCL	R2		; Round up
+
+	CLRL	-(SP)		; P0 Space
+	CLRL	-(SP)		; Access mode
+	PUSHAL	XLTTBL_A	; Returned address
+	PUSHL	R2		; No. of pages
+	CALLS	#4,G^SYS$EXPREG
+	BLBS	R0,45$          ; Br no error
+	RET			; Die
+; Load Table
+45$:
+	MOVL	XLTTBL_A,R11            ; Pointer
+	CLRL	TBLCNT		        ; Record/entry count
+	$REWIND	RAB = DEVRAB		; Reset to first record
+	BLBC	R0, 55$			; die on error
+50$:	
+	$GET	RAB = DEVRAB		;Get a record
+	BLBS	R0,60$			;If no error goto load routine
+	CMPL	R0,#RMS$_EOF		;Was error end of file
+	BEQLU	70$			; Yes - OK
+55$:	RET				; No - Die
+60$:	
+	MOVQ	DEVREC,(R11)+        	; Move REC to table
+	MOVQ	DEVREC+8,(R11)+        	; Move REC to table
+	MOVQ	DEVREC+16,(R11)+        ; Move REC to table
+	INCL	TBLCNT                  ; Count entry
+	BRB	50$			; Next Rec
+70$:
+	$CLOSE	FAB=DEVFAB
+	RSB
+		.END								
+		
+

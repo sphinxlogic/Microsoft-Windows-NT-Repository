@@ -1,0 +1,119 @@
+	.title	dcl_envi_procedure
+	.ident	/X1-002/
+
+;+
+; Version:	X1-002
+;
+; Facility:	DCL routines.
+;
+; Abstract:	Returns the current command procedure name.
+;
+; Environment:	Executive mode.
+;
+; History:
+;
+;	27-Sep-1990, DBS, Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS, Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	Return the current command procedure name as maintained by DCL.  It is
+;	either the name of the procedure or the name of the terminal in use.
+;
+; Calling Sequence:
+;	call dcl_envi_procedure (procedure_name)
+;		-or-
+;	pushal	procedure_name
+;	calls	#1, g^dcl_envi_procedure
+;	blbc	r0, error
+;
+; Formal Argument(s):
+;	procedure_name.wt.ds  Address of a string descriptor into which the
+;			procedure name can be copied.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_insfarg	No arguments were passed
+;	ss$_normal	Normal completion
+;	ss$_nopriv	Caller did not have CMEXEC or CMKRNL privileges
+;	ss$_ovrmaxarg	More than one argument was passed
+;
+; Side Effects:
+;	None
+;--
+
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+	.link		"SYS$SYSTEM:DCLDEF.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	$ssdef
+
+	.external ctl$ag_clidata
+	.external idf_l_filename
+	.external ppd$l_prc
+	.external prc_l_idflnk
+
+arg_count=1				; we only want one argument
+p1=4					; offset to argument 1
+address=4				; offest to string address
+space=32				; ascii code for a space
+
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_code
+
+        .entry -
+dcl_envi_procedure, ^m<>
+
+	cmpw	(ap), #arg_count	; do we have one argument ?
+	bgtr	10$			; nope, too many
+	bneq	20$			; now it's not enough
+	tstl	p1(ap)			; got one, now check it's address
+	beql	20$			; it's 0, not a real one
+
+	$cmexec_s -			; we have to execute the real
+		routin=dcl___get_procedure, - ; routine in exec mode
+		arglst=(ap)		; just pass on the passed argument
+	brb	30$
+
+10$:	movl	#ss$_ovrmaxarg, r0	; say too many arguments
+	brb	30$
+20$:	movl	#ss$_insfarg, r0	; say not enough arguments
+
+30$:	ret
+
+	.entry -
+dcl___get_procedure ,^m<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+
+	movab	g^ctl$ag_clidata, r11	; get the address of cli data area
+	movl	ppd$l_prc(r11), r11	;  offset to prc area
+	movl	prc_l_idflnk(r11), r10	;  offset to idf area
+	beql	10$			; exit if nothing there
+	movl	idf_l_filename(r10), r9	; get the filename address
+	movzbl	(r9)+, r8		;  and length, update address
+	movl	p1(ap), r7		; grab the argument descriptor address
+	movl	address(r7), r7		; now get the string address
+	movzwl	@p1(ap), r6		; and grab the length of the string
+	movc5	r8, (r9), #space, r6, (r7) ; copy the filename to their string
+10$:	movl	#ss$_normal, r0		; return a success status
+
+	ret
+
+	.end

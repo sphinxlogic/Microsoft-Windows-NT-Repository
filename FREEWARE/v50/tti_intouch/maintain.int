@@ -1,0 +1,4376 @@
+10      !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program : Maintain 
+        ! Author  : Nimpa D. Villarin
+        ! Date    : April 14, 1987
+        ! Purpose : Maintain specified structure
+        ! Copyright (c) 1987, 1989 Touch Technologies, Inc.
+        !
+        !  History:
+        !       ?-?-?? - ljq - ???
+        !       8-2-89 - rpr - Improved/updated the comments
+        !               Made it handle numeric, dates, and using files
+        !               properly; moved the key field prompt.
+        !       8-21-89 - rpr - added help as an included file
+        !       8-24-89 - rpr - Worked on screen and display file usage
+        !       10-xx-89 - djs - added file relates
+        !       10-xx-89 - djs - added display attributes
+        !       10-17-89 - djs - allow syntax maintain using xxx
+        !       10-10-91 - djs - change key handling to eliminate
+        !                        duplicate key names if a key field has
+        !                        been redefined. Change select key display
+        !                        box to show the field description if avail.
+        !       11-01-93  ic   - "changeable and vrules " for a field are 
+        !                         handled now.
+        !       
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+100     !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T I A L I Z A T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize variables.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  initialize:
+
+120     option arithmetic integer
+        version$ = "4.1a"
+        ask margin old_margin
+        set autoexit 60  ! exit out after 60 minutes
+        frame off
+        all_valid_options$ = "ADD,CHA,DEL,INQ,SYS,MAI,WID,NAR"
+
+                                ! these variables affect screen width
+        edge_display = 15               ! Length it takes to display
+                                        !  "Screen X of Y"
+        wide_margin = 132
+        wide_wrap = wide_margin - 20
+        narrow_margin = 80
+        narrow_wrap = narrow_margin - 20
+        the_width = old_margin
+        right_edge = the_width - edge_display
+                                        ! Position where screen page is disp.
+        wrap_limit = the_width - 20     ! Point at which the field must be
+                                        ! entered with a wrap$ (it won't fit)
+        gosub check_setup       !  Setup for check_company
+                                    ! miscellaneous variables
+        gosub h_help_init       !  Setup for help
+        h_filename$ = "tti_run:maintain.help"
+        field_ch = 1            !  screen file channel
+        h_channel = 2           !  help channel
+        d_channel = 3           !  display file channel
+        u_required = true
+
+        new_screen$    = "new_screen"
+                                ! Text used to indicate that they want a new
+                                !   screen, but didn't specify a screen name.
+                                !   Note that it is lower case - screen names
+                                !   are all changed to upper case, so there
+                                !   won't be a conflict
+
+        floating_length= 18     ! Length limit for floating point number
+        integer_length = 10     ! Length limit for an integer number
+                                !  (Used for non-character datatypes)
+        standard_pr_len= 18     ! Maximum length of prompts on screen
+        background_pr_len = 0   ! Maximum len. of prompts when there is a
+                                !  background screen present.
+        key_display_len= 30     ! Maximum amount of a key to display
+        key_field$     = ""     ! Name of key field (none yet)
+        old_key_field$ = ""     !  Name of previously used key field (defaults)
+        error_char$    = "*"    ! If you can't display something, use these
+        in_delete      = false  ! By default, not deleting records.
+        option_len     = 15     ! Length when you ask for an option
+                                !  (add, cha, del, inq, wide, etc.)
+                                    ! these variables affect screen display
+        in_between_col = 5      ! Spaces between columns
+        background_start=2      ! First screen background line
+        display_start  = 3          ! first displayed line
+        background_end = 20     ! Last screen background line
+        display_end    = 19         ! last displayed line
+        display_items  = display_end-display_start - 1
+
+        not_requested = -1      ! Special row/column position not requested
+        not_displayed = 0       ! Row 0 was requested - don't display
+                                !   the field, just prompt for it.
+
+        max_fields     = 1024   ! Artificial limit to # fields
+        max_screens    = max_fields/display_items
+                                ! Boo.  This isn't right. +++ RPR
+        max_valid_elements = 20
+
+        dim str_prompt$(max_fields), &  !  Prompt for field
+            str_len(max_fields), &      !  Length of field
+            str_name$(max_fields), &    !  Name of field
+            str_row(max_fields), &      !  Row on screen
+            str_dlen(max_fields), &     !  Length displayed onscreen
+            str_scale%(max_fields), &
+            str_change(max_fields), &    !  info for changeable or unchangeable
+            str_vrules$(max_fields), &  !  validation rules for a field
+            req_col(max_fields), &      !  Requested column position
+            req_row(max_fields), &      !  Requested row position
+            str_disp_width(max_fields)  !  Length displayed onscreen (different
+                                        !   because of wrapped fields)
+                !  str_dlen is determined by the mask length, while
+                !       str_disp_width is screen-dependant.
+        dim dis_prompt$(max_fields), &  !  Displayed prompt
+            str_check_company(max_fields), & ! need to check the company name
+            keys$(max_fields), &        !  List of key fields
+            cur_recs$(display_items), & !  Used to recover the selected record
+            str_col(max_fields), &      !  Column location of field (1-width)
+            str_attribute$(max_fields), &!  video attributes for display
+            str_date(max_fields), &     !  True if date field
+            str_fulltime(max_fields), & !  True if fulltime field
+            prompt_loc(max_fields), &   !  Length of prompt in characters
+            screen_field(max_fields), & !  First field on this field's screen
+            str_help$(max_fields), &    !  Help text for field
+            str_desc$(max_fields), &    !  Description for field
+            str_display$(display_items), & !  Holds field when selecting a field
+            str_mask$(max_fields), &    !  Holds the mask
+            tot_fld_lines(max_fields), &!  # lines the field takes 
+            fld_option$(max_fields), &  !  Options for the display of fields
+            fld_uppercase(max_fields), &!  Field is stored upper case
+            fld_valid$(max_fields), &   !  Options for validation checking
+            valid_element$(max_fields, max_valid_elements), &
+            max_validation(max_fields),&!  # options stored in valid_element$
+            req_screen$(max_fields),&   !  Requested screen name for the field
+            fld_relate_key$(max_fields),& ! index to relate tables for field that causes a relate to occur
+            fld_relate_in(max_fields),& ! relate index that found the record that this field is in
+            fld_structure(max_fields)   !  number of the structure that the field
+                                        !  is in
+        dim screen_data(0 to max_screens, 3), &
+            screen_window$(max_screens)
+                        !  *,1 = starting field  *,2 = ending field
+                        !  for each screen.
+                        !  *,3 = true if screen paint saved
+        dim store_contents$(max_screens, background_end)
+                        !  For each screen IN A .DISPLAY FILE, store text lines
+                        !    representing the screen.
+        dim store_title$(max_screens)
+        screen_names$ = ""      ! List of screen names uppercase, separated
+                                !   by commas.
+
+        max_structures = 10
+        max_relates = 9
+        dim relate_fld$(max_relates, 2) ! field, field
+        dim relate_str(max_relates, 2)  ! str nbr, str nbr
+        dim relate_success(max_relates) ! 0 = relate not tried 1=tried 2=success
+        valid_structures$ = ""
+        dim str_id$(10)
+        declare structure str1, str2, str3, str4, str5, str6, str7, str8, str9, &
+                str10, struc
+        declare dynamic display_data ! needed for print routine
+
+1000    !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A I N   L O G I C   S E C T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! 
+        ! Allow user to maintain specified structure.  User has four
+        ! options to choose:  
+        !
+        !           ADD   - add a new record
+        !           DEL   - delete a record
+        !           INQ   - inquire information on record
+        !           CHA   - change information in record
+        !
+        ! User will be asked to enter the structure name and 
+        ! choose the key field.
+        !
+        ! A narrow and wide option is available.  The wide
+        ! option will allow two columns of fields to be displayed
+        ! if they can fit.  Its width is wide_width.  The narrow width
+        ! is the usual narrow_width.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  main_logic:
+
+1005    gosub get_parameters
+
+1020    do
+          gosub ask_structure   ! Tries to close the structure first.
+          if  _exit  then exit do
+          set structure struc : id str_id$(1)
+          gosub find_keyed_fields
+          gosub ask_key_field  !++ debug dme ++
+          if  _error  then
+            if  parameter_given  then
+              delay 3
+              exit do
+            else
+              repeat do
+            end if
+          end if
+          if  key_field$ = "" or _back or _exit  then  
+            if  parameter_given  then
+              delay 3
+              exit do
+            else
+              repeat do !++ debug dme ++
+            end if
+          end if
+          gosub ask_option
+          if  _exit  then exit do
+          gosub init_variables
+        loop
+
+        set margin old_margin
+        gosub close_struc
+        clear
+
+1099    stop
+
+
+
+9000    !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   P A R A M E T E R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Checks to see if any parameters were given.  If they were, use them.
+        !
+        ! Result  :
+        !       parameter_given = true if a parameter was given
+        !       parameter$ = the parameter in that case
+        !
+        !  Numbered less than 10000 because it is only called once, when
+        !    when checking for parameters.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine get_parameters
+
+9020    ask system: parameter parameter$
+        parameter_given = (parameter$ <> "")
+
+9099    end routine
+
+
+                               
+10000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   S T R U C T U R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask the name of the structure.
+        ! EXPECTED:
+        !       structure_given = true if a structure name was given
+        !       par_structure$ = the structure name in that case
+        !       datafile_given = true if a datafile name was given
+        !       par_datafile$ = the data file in that case
+        !
+        ! RESULT:
+        !       structure_given = true if a structure name was given
+        !       par_structure$ = the structure name in that case
+        !       datafile_given = true if a datafile name was given
+        !       par_datafile$ = the data file in that case
+        !       using_given = true if they said "maintain -- using --"
+        !       pas_usefile$ = the using file in that case
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  ask_structure:
+
+10020   key_value$ = ""
+        gosub init_struc_frame
+        u_prompt$  = "Structure name? "
+        u_default$ = parameter$    ! if one exists
+        u_len  = 0
+        do
+          gosub init_variables
+          error = false
+          if  not(parameter_given) then 
+            gosub ask
+            if  _exit  then  exit do
+            if  _back  then  repeat do
+            parameter$ = ucase$(trim$(u_reply$))
+            if  parameter$ = ""  then repeat do
+          end if
+          gosub find_parameters
+          if  not(_error)  then gosub open_struc
+          if  not(error or _error)  then
+            center_head$ = par_structure$
+            gosub setup_fields
+          end if
+          if  error or _error  then
+            if parameter_given then stop  ! maybe something else later on
+            repeat do
+          end if
+        end do
+        message "" ! remove previous message
+
+10099   return
+
+
+
+10300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T   S T R U C   F R A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Paint the screen with initial frame.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  init_struc_frame:
+                 
+10320   frame_head$ = ""
+        center_head$ = ""
+        gosub paint_top_frame
+        clear area 2,1,22,the_width
+        gosub paint_bottom_frame
+
+10399   return
+
+
+
+10600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O P E N   S T R U C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Open the structure.  Set error flag if an error was
+        ! found while opening the structure.
+        !
+        ! EXPECTED:
+        !       par_structure$ = structure name
+        !       par_filename$  = synonym name if any
+        !       par_datafile$  = datafile name if any
+        !
+        ! RESULT:
+        !       _error  = true if error was found
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine open_struc
+
+10620   if  not(structure_given)  then
+          if  using_given  then
+            exit routine
+          else
+            message error : "No structure given"
+            exit routine
+          end if
+        end if
+
+        message "Opening structure: " + par_structure$
+        set error off
+
+        ! set up the_rest$ so that I can just call the parse open 
+        ! routine from parse_using.inc
+        the_rest$ = par_structure$ 
+        if  datafile_given  then  the_rest$ = the_rest$ + ' datafile ' + &
+                par_datafile$
+        if  name_given then  the_rest$ = the_rest$ + ' name ' + par_filename$
+        the_rest$ = ucase$(the_rest$)
+        gosub parse_open
+
+10699   end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T   V A R I A B L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! initialize some variables that can be messed up if a second 
+        ! structure is opened
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !        open_structures = 0
+        !        nbr_relates     = 0
+        !        valid_structures$ = ""
+        !        relate_fld$(z, 1) = ""
+        !        relate_fld$(z, 2) = ""
+        !        relate_str(z, 1) = 0
+        !        relate_str(z, 2) = 0
+        !        relate_success(z) = 0
+        !        fld_relate_key$(z) = ""
+        !        fld_relate_in(z) = 0
+        !        screen_data(z, 3) = false
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init_variables
+
+        open_structures = 0
+        nbr_keys = 0
+        user_defined_keys = false
+        nbr_relates     = 0
+        valid_structures$ = ""
+        for z = 1 to max_relates
+          relate_fld$(z, 1) = ""
+          relate_fld$(z, 2) = ""
+          relate_str(z, 1) = 0
+          relate_str(z, 2) = 0
+          relate_success(z) = 0
+          fld_relate_key$(z) = ""
+          fld_relate_in(z) = 0
+        next z
+        nbr_stored_screens = 0
+        for z = 1 to max_screens
+          screen_data(z, 3) = false
+        next z
+        when exception in
+          close all
+        use
+        end when
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  F I N D   P A R A M E T E R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  See what they tried to tell Maintain to do.
+        !  Expects:
+        !       parameter$ = the parameter they entered
+        !       all_valid_options$ = a list of all possible valid option
+        !  Result:
+        !       valid_options$  = list of valid options
+        !       structure_given = true if a structure name was given
+        !       par_structure$ = the structure name in that case
+        !       datafile_given = true if a datafile name was given
+        !       par_datafile$ = the data file in that case
+        !       using_given = true if they said "maintain -- using --"
+        !       par_usefile$ = the using file in that case
+        !       name_given = true if the specified a synonym name for structure
+        !       par_filename$ = synonym name
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine find_parameters
+
+        valid_options$ = all_valid_options$
+        structure_given = false
+        datafile_given = false
+        using_given = false
+        name_given = false
+        t = 0
+        do
+          t = t + 1
+          select case element$(parameter$, t, ' ')
+            case 'DATAFILE'
+              if  datafile_given  then &
+                 message error : "Cannot use two data files"
+              datafile_given = true
+              t = t + 1
+              par_datafile$ = element$(parameter$, t, ' ')
+            case 'USING'
+              if  using_given  then &
+                 message error : "Cannot use two formatting files"
+              using_given = true
+              t = t + 1
+              par_usefile$ = element$(parameter$, t, ' ')
+            case '': exit do
+            case "STRUCTURE"
+            case "NAME"
+              if  name_given  then &
+                 message error : "Cannot use two names"
+              name_given = true
+              t = t + 1
+              par_filename$ = element$(parameter$, t, ' ')
+            case else
+              if  structure_given  then &
+                 message error : "Cannot use two structures"
+              structure_given = true
+              par_structure$ = element$(parameter$, t, ' ')
+          end select
+          if  _error  then exit do
+        loop        
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Routines to display the option, ask for selected option,
+        !    and do it.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+20000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   O P T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for a valid file maintenance option.
+        !
+        ! EXPECTS:
+        !       valid_option$ = list of valid options.  Only these can
+        !               be selected.
+        !
+        ! RESULT:
+        !      opt$ = first three characters of selected option.
+        !             ADD,CHA,DEL,INQ,WID, etc.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  
+ask_option:
+
+20020   do
+          gosub show_main_options
+          do
+            u_prompt$ = "Option? "
+            u_default$ = ""
+            u_len      = option_len
+            gosub ask
+            if  _back and parameter_given  then repeat do
+            if  _exit or _back  then return
+            gosub check_option
+            if  wrong_option  then repeat do          
+            gosub do_select_opt    ! execute ADD,DELETE,CHANGE,INQUIRE,etc.
+          end do
+        loop
+
+20099   return
+
+
+
+20200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   M A I N   O P T I O N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display the main options "ADD","CHA","DEL","INQ", 
+        ! and "EXIT".
+        !  
+        ! This routine exceed standard length limit because of
+        ! the number of options displayed.
+        ! Expects:
+        !       clear screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  show_main_options:
+
+20220   frame_head$ = "Main Menu"
+        if  store_title$(1) = ""  then
+          center_head$  = par_structure$
+        else
+          center_head$ = store_title$(1)
+        end if
+        gosub paint_top_frame
+        print reverse, at 3, 1 : "Available Selections";
+        z = 4
+        if  match(valid_options$, "ADD") > 0  then
+          print bold, at z, 3 : "ADD ";
+          print " - Add New Record"
+          z = z + 1
+        end if
+        if  match(valid_options$, "CHA") > 0  then
+          print bold, at z, 3 : "CHA ";
+          print " - Change Information"
+          z = z + 1
+        end if
+        if  match(valid_options$, "DEL") > 0  then
+          print bold, at z, 3 : "DEL ";
+          print " - Delete Records"
+          z = z + 1
+        end if
+        if  match(valid_options$, "INQ") > 0  then
+          print bold, at z, 3 : "INQ ";
+          print " - Inquire on Information"
+          z = z + 1
+        end if
+
+        z = z + 2
+        print reverse, at z, 1: "Miscellaneous";
+        z = z + 1
+        if  match(valid_options$, "MAI") > 0  then
+          print bold, at z, 3: "MAIL";
+          print " - VMS MAIL facility"
+          z = z + 1
+        end if
+        if  match(valid_options$, "SYS") > 0  then
+          print bold, at z, 3: "SYS ";
+          print " - VMS SYSTEM Commands"
+          z = z + 1
+        end if
+        print bold, at z, 3: "EXIT";
+        print " - Exit Program"
+
+        over = the_width/2%
+        z = 3
+        if  start_mode$ = "" then  
+          print reverse, at 3,over: "Screen Widths";
+          print bold, at 4,over + 2: "NAR ";
+          print " - Narrow Width"
+          print bold, at 5,over + 2: "WID ";
+          print " - Wide Width"
+          z = 6
+        end if 
+        if  match(valid_options$, "KEY") > 0  then
+          print bold, at z, over + 2: "KEY ";
+          print " - Change key of reference"
+          z = z + 1
+        end if
+
+20299   return
+
+
+
+20400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  C H E C K   O P T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check if user entered a valid option.  Check first
+        ! three characters of response.
+        !
+        ! EXPECTED:
+        !       opt$  = option chosen
+        !       valid_options$  = list of valid options
+        !
+        ! RESULT:
+        !       wrong_option = true if invalid option
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  check_option:
+
+20420   wrong_option = false
+        do
+          opt$ = ucase$(u_reply$[1:3])
+          z1 = match(valid_options$, opt$)
+          if  z1 = 0  then
+            message error : "Invalid option: " + u_reply$
+            wrong_option = true
+          end if
+        end do
+
+20499   return
+
+
+
+20600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   S E L E C T   O P T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Determine which option to execute.
+        !
+        ! EXPECTED:
+        !       opt$ = option user requests
+        !
+        ! RESULT:
+        !       ADD, CHANGE, DELETE or INQUIRE will be executed.
+        !       clear screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  do_select_opt:
+
+20620   ! if  match("NAR,WID", opt$) = 0  then  clear area 2,1,21,the_width
+        select case opt$
+          case "ADD"   : gosub do_add
+          case "CHA"   : gosub do_change
+          case "DEL"   : gosub do_delete
+          case "INQ"   : gosub do_inquire
+          case "MAI"   : gosub mail
+          case "SYS"   : gosub system
+          case "NAR"   : gosub make_narrow
+          case "WID"   : gosub make_wide
+          case "KEY"   : gosub ask_key_field
+        end select
+        
+20699   return
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Routines to do the actual selected options
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+21000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A I L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Pass to VMS MAIL facility.
+        !  Result:
+        !       clear screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  mail:
+
+21020   clear 
+        pass "mail"
+
+        clear area 2,1,23,the_width
+        gosub paint_bottom_frame
+
+21099   return
+
+
+
+
+21500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S Y S T E M
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Pass to VMS SYSTEM  commands.
+        ! Result:
+        !       clear screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  system:
+
+21520   clear 
+        pass "$"
+
+        clear area 2,1,23,the_width
+        gosub paint_bottom_frame
+
+21599   return
+
+
+
+
+22000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A K E   N A R R O W
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Set the screen width to 80 length and reassign each
+        ! field the column position to  display.
+        !
+        !            the_width    = width of the screen
+        !            wrap_limit   = test length for wrap limit.  If
+        !                           it exceeds, use wrap 
+        !            right_edge   = position where screen page is displayed
+        !  Result:
+        !    above variables are changed; screen-dependant data is
+        !       recalculated.
+        !    clear screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  make_narrow:
+
+22020   set margin narrow_margin
+        the_width = narrow_margin
+        right_edge = the_width - edge_display
+        wrap_limit = narrow_wrap
+        gosub paint_bottom_frame
+        gosub calculate_screen_data
+
+22099   return
+
+
+
+
+22500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A K E   W I D E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Set the screen width to 132 length and reassign each
+        ! field a new column position.
+        !
+        !            the_width    = width of the screen
+        !            wrap_limit   = test length for wrap limit.  If
+        !                           it exceeds, use wrap 
+        !            right_edge   = position where screen page is displayed
+        !  Result:
+        !    above variables are changed; screen-dependant data is
+        !       recalculated.
+        !    clear screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  make_wide:
+
+22520   set margin wide_margin
+        the_width = wide_margin
+        right_edge = the_width - edge_display
+        wrap_limit = wide_wrap
+        gosub paint_bottom_frame
+        gosub calculate_screen_data
+
+22599   return
+
+
+
+
+25000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   A D D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! User will be asked to enter a new key field and its
+        ! associated fields.
+        !
+        ! RESULT:
+        !       A new record will be added.
+        !       clear screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  do_add:
+
+25020   do
+          gosub init_add
+          gosub add_record
+          if  _exit or _back  then  exit do
+        loop
+
+25099   return
+
+
+
+25200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T   A D D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Change frame header to Add.
+        !
+        ! EXPECTED:
+        !       nbr_relates = number of relates established
+        !
+        ! RESULT:
+        !      frame_head$ = frame head
+        !      all relates set to not tried
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  init_add:
+
+25220   frame_head$ = "Add"
+        doing_add = true
+        gosub paint_top_frame
+        for z = 1 to nbr_relates
+          relate_success(z) = 0
+        next z
+
+25299   return
+
+
+
+25400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A D D   R E C O R D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Add new record to structure.
+        !
+        ! EXPECTED:
+        !       key_field$ = key field
+        !  RESULT:
+        !       clear screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  add_record:
+
+25420   do
+          when exception in
+            add structure str1
+              gosub change_fields
+              if  _exit or _back then
+                if  data_modified  then
+                  message "Record NOT added"
+                  data_modified = false
+                end if
+                cancel add
+              end if
+            end add
+            if  not (_exit)  and  not (_back)  then  message "Record added"
+            data_modified = false
+          use
+            message error: extext$
+          end when
+        end do
+
+25499   return
+
+
+
+
+26000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O    C H A N G E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Change information in specified record. 
+        ! RESULT:
+        !       Record is updated.
+        !       clear screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  do_change:
+
+26020   gosub init_change
+        do
+          gosub ask_key_value
+          if  _exit or _back  then  exit do
+          gosub change_fields
+          if  data_modified  then
+            if  not _error  then message "Record changed"
+            data_modified = false
+          end if
+        loop 
+
+26099   return
+
+
+
+26200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T   C H A N G E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display CHANGE header.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  init_change:
+
+26220   frame_head$ = "Change"
+        gosub paint_top_frame
+        doing_add = false
+        clear area 2,1,21,the_width
+
+26299   return
+
+
+
+
+27000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   D E L E T E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Extract the specified record and delete.
+        !
+        ! RESULT: Display one screen of prompts and field data to
+        !         allow the user to verify if current record 
+        !         is to be deleted.
+        !       clear screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  do_delete:
+
+27020   show_screens = 1     ! show only one screen
+        gosub init_delete
+        do
+          gosub ask_key_value
+          if  _exit or _back  then  exit do
+          in_delete = true
+          gosub show_info
+          gosub ask_delete
+          if  u_reply$ = "Y" and not(_back or _exit)  then  
+            gosub delete_record
+            key_value$ = ""
+          else
+            message key_field$ + "  " +  key_value$ + "  not deleted"
+          end if
+          clear area 2,1,21,the_width
+            center_head$ = hold_chead$
+          gosub paint_top_frame
+        loop
+
+27099   return
+
+
+
+27200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  I N I T   D E L E T E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display the DELETE frame.
+        !
+        ! RESULT:
+        !       frame_head$ = header frame
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  init_delete:
+
+27220   frame_head$ = "Delete"
+        gosub paint_top_frame
+        doing_add = false
+        clear area 2,1,21,the_width
+
+27299   return
+
+
+
+27400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   D E L E T E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Verify before deleting record.
+        !
+        ! RESULT:
+        !       u_reply$ = yes or no reply
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  ask_delete:
+
+27420   do
+          u_prompt$ = "Delete this record? "
+          u_len     = 4
+          u_default$  = "no"
+          gosub askyn
+          if  _exit or _back  then  exit do
+          u_reply$ = ucase$(u_reply$)
+        end do
+
+27499   return
+
+
+
+27600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D E L E T E   R E C O R D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Delete current record.
+        !
+        ! EXPECTED:
+        !       key_field$  = key field
+        !       key_value$  = primary key value
+        !       struc is current
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  delete_record:
+
+27620   when exception in
+          delete structure str1
+        use
+          set error on
+        end when
+        if  _error  then
+          message error: extext$
+        else
+          message key_field$ +"  " + trim$(key_value$) + "  deleted"
+        end if
+
+27699   return
+
+
+
+
+28000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   I N Q U I R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Extract the specified record to examine the field names
+        ! and data.
+        !
+        ! EXPECTED:
+        !       nbr_screens = number of screens
+        !
+        ! RESULT:
+        !       Field prompts and field values will be displayed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  do_inquire:
+
+28020   show_screens = nbr_screens 
+        gosub init_inquire
+        do
+          gosub ask_key_value
+          if  _exit or _back  then  exit do
+          gosub show_info
+        loop
+
+28099   return
+
+
+
+28200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  I N I T    I N Q U I R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Change the top frame to INIQUIRE.
+        !
+        ! RESULT:
+        !       frame_head$ = header frame
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+ init_inquire:
+
+28220   frame_head$ = "Inquire"
+        gosub paint_top_frame
+        doing_add = false
+        clear area 2,1,21,the_width
+
+28299   return
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Routines used to "ask for a key value", i.e. get a
+        !    current record in struc for viewing/modification
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+35000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   K E Y   V A L U E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for the key value.
+        !
+        ! EXPECTED:
+        !       key_field$  = key field
+        !       desc_fld$  = list of description field indices
+        !       Clear screen
+        !       mode is wide/narrow
+        !       nbr_relates = number of relates established
+        !
+        ! RESULT:
+        !       makes a structure record CURRENT
+        !       clear screen
+        !       set all relations to not tried
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  ask_key_value:
+
+35020   for z = 1 to nbr_relates
+          relate_success(z) = 0
+        next z
+        set structure struc : id str_id$(1) ! make main structure current
+        do
+          u_prompt$ = "Enter " + lcase$(trim$(key_field$)) + " value? "
+          u_help_key$ = "enter_key_value"
+          u_len   = key_field_length
+          u_default$ = key_value$
+          gosub ask
+          if  _exit or _back  then  exit do
+          key_value$ = rtrim$(u_reply$)
+          gosub match_key_value
+          if  sequence_nbr = 0  then repeat do  ! not found
+        end do
+
+35099   return
+
+
+
+35200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A T C H   K E Y   V A L U E 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Search the structure for matching key values.
+        !   Allow the user to select from a list of possible matches presented.
+        !   
+        !
+        ! EXPECTED:
+        !       num_key_field = true if numeric key field
+        !       key_value$    = key value
+        !       key_field$    = name of the key field
+        !
+        ! RESULT:
+        !       sequence_nbr = the sequence number of the selected key
+        !                      (0=no match selected)
+        !       selected record is CURRENT if something was selected.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  match_key_value:
+
+35220   records_found = 0
+        if  num_key_field  then
+          extract structure struc, field #key_field$: key  key_value$
+            ask structure struc : current cur_rec$
+            records_found = records_found + 1
+            if records_found >= display_items then exit extract
+          end extract
+        else
+          extract structure struc, field #key_field$: partial key  key_value$
+            ask structure struc : current cur_rec$
+            records_found = records_found + 1
+            if records_found >= display_items then exit extract
+          end extract
+        end if
+        gosub check_records_found
+
+35299   return
+
+
+
+35600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   R E C O R D S   F O U N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Check the number of records found.  IF
+        !                  records_found = 0  there is no match
+        !                  records_found = 1  there is one match
+        !                  records_found > 1  then there are many matches
+        !
+        ! EXPECTED:
+        !       records_found   = lookup counter
+        ! RESULT:
+        !       sequence_nbr = 0, 1, or selected #
+        !       Struc is set if selected something
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  check_records_found:
+
+35620   do
+          select case records_found
+          case is = 0
+            message error:  lcase$(trim$(key_field$)) + " " + &
+                            key_value$ + "  not found"
+            sequence_nbr = 0
+            exit do
+          case is = 1
+            set structure struc : current cur_rec$
+            key_value$ = struc(#key_field$)
+            sequence_nbr = 1                  ! get one and only one record
+          case is > 1
+            gosub select_key_value    ! show user key value
+            if  sequence_nbr = 0  then exit do
+            set structure struc : current cur_recs$(sequence_nbr)
+            key_value$ = struc(#key_field$)
+          end select
+        end do
+
+35699   return
+
+
+
+35800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E L E C T   K E Y   V A L U E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Show the user the possible key fields to choose from.
+        !  Allow the user to select one of them.
+        !       Used only when there are multiple choices.
+        !
+        ! EXPECTED:
+        !       num_key_field = true if numeric
+        !       key_field$    = key field
+        !       key_value$    = key value
+        !       key_display_len = the number of characters (maximum) to use
+        !          to display the key.
+        !
+        ! RESULT:
+        !       sequence_nbr = index to cur_recs$() to the record
+        !               selected.  Zero if no record selected
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  select_key_value:
+
+35820   gosub do_lookup_box
+        max_sequence = 0
+        if  num_key_field  then
+          extract structure struc, field #key_field$ : key  key_value$ 
+            gosub display_and_ask
+            if  finished_looking  then  exit extract
+          end extract
+        else
+          extract structure struc, field #key_field$ : partial key key_value$
+            gosub display_and_ask
+            if  finished_looking  then exit extract
+          end extract
+        end if
+        if  not(finished_looking) and (max_sequence <> display_items)  then &
+          gosub ask_sequence_number
+             ! finished_looking is true if they selected something
+             !   or hit _back or _exit, display_items = already given a chance
+
+        clear area 2,1,21, the_width
+
+35899    return
+
+
+
+36000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   L O O K U P   B O X
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display correct size box according to how many
+        ! key values exist.
+        !
+        ! EXPECTED:
+        !       records_found = # items to display
+        !       display_start = first line of display
+        !       the_width = the screen width
+        !       display_items = max. items which can be displayed onscreen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  do_lookup_box:
+
+36020   if  records_found < display_items  then
+          clear area box : display_start,1, &
+                       records_found + 1 + display_start, the_width
+        else
+          clear area box : display_start,1,display_end,the_width
+        end if
+
+36099   return
+
+
+
+36200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   A N D   A S K
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Display an item.  If the item is the last on the screen,
+        !    ask the user to select one of them (return for the next screen)
+        !    otherwise go on.  A separate call is used for when
+        !    the extract is finished.
+        ! Allow the user to select one.
+        !   Set sequence_nbr to the index into cur_recs$() (?) which
+        !       has the current record selected.
+        !    key_display_len = the number of characters (maximum) to use
+        !       to display the key.
+        ! Result:
+        !       sequence_nbr = the index into cur_recs$() which has
+        !         the current record (0 if none selected)
+        !       finished_looking = true if they've completed their selection
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  display_and_ask:
+  
+36220   finished_looking = false
+        do
+          gosub display_key_value
+          if  (max_sequence = display_items)  then
+            gosub ask_sequence_number
+            if  _exit or _back or sequence_nbr <> 0  then 
+              finished_looking = true
+              exit do
+            end if
+            clear area display_start + 1,2,display_end - 1,the_width - 1
+            max_sequence = 0
+          end if
+        end do
+
+36299   return
+
+
+
+36400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   K E Y   V A L U E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Set up the sequence numbers and key values for display.  If
+        ! the key value does not exceed the display format then 
+        ! display a description field.
+        !
+        ! EXPECTED:
+        !       key_field$ = key field
+        !       desc_fld$  = list of description field indices
+        !       max_sequence = number of lines (not counting this one)
+        !       key_display_len = the number of characters (maximum) to use
+        !           to display the key.
+        !
+        ! RESULT:
+        !       cur_recs$(max_sequence+1)       = current record pointers
+        !       max_sequence incremented
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine display_key_value
+
+36420   max_sequence = max_sequence + 1
+        ask structure struc: current cur_recs$(max_sequence)
+        print at max_sequence + 3,4:;
+        print using "###" : max_sequence;
+        print ")";
+        key_nbr = 0
+        gosub display_key_field
+        gosub display_description_fields
+
+36499   end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  D I S P L A Y   K E Y   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Display the current contents of the key field.
+        !    If necessary, cobble up a print mask.  Beware that the
+        !    information about the key field might never have been loaded.
+        !  Expects:
+        !    key_field$ = the name of the key field
+        !    str_name$()= the names of the loaded fields
+        !    str_mask$()= the associated print masks
+        !    key_display_len = the number of characters (maximum) to use
+        !       to display the key.
+        !  Result:
+        !    key_nbr is the index to the key field, or 0 if no information
+        !       about the key field has been loaded.
+        !    mask$ holds the mask:  if the field has been loaded, the loaded
+        !       mask is used.  If not, the printmask from the field is used.
+        !       If there is no such printmask (for instance, possibly for
+        !       numbers) it is loaded into a string and an appropriate
+        !       portion of the string is printed.  This is necessary to
+        !       get around the fact that printing directly from a structure
+        !       and printing a string are very different.
+        !    Across = how far across to display the next field.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine display_key_field
+
+        for t = 1 to nbr_fields
+          if  str_name$(t) = key_field$  then
+            key_nbr = t
+            mask$ = str_mask$(key_nbr)
+            exit for
+          end if
+        next t
+        if  key_nbr = 0  then & ! No information about the key is loaded.
+              ask structure struc, field #key_field$:printmask mask$
+        if  mask$ = ""  then    ! No printmask available.
+          z$ = struc(#key_field$)[1:key_display_len]
+          print at max_sequence + 3, 10: z$;
+          across = 12 + key_display_len
+        else
+          when exception in
+            print at max_sequence + 3, 10, using mask$[1:key_display_len]: &
+                   struc(#key_field$);
+          use
+            print at max_sequence + 3, 10: repeat$(error_char$,key_display_len);
+          end when
+          across = 12 + len(mask$[1:key_display_len])
+        end if
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  D I S P L A Y   D E S C R I P T I O N   F I E L D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  desc_fld$ has a list of field numbers (indices) to display,
+        !       in the order they are supposed to be displayed.  Display
+        !       as many as possible, as long as they fit onscreen and are
+        !       not the same as the key field.
+        !  Expects:
+        !       desc_fld$ = list of description fields to display
+        !       str_mask$ = the masks for those description fields
+        !       key_nbr = the index number of the key field (0 if no
+        !         such index)
+        !       across = how far over to display the first field
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine display_description_fields
+
+36520   ask structure struc, field #key_field$: position key_position
+        for display = 1 to elements(desc_fld$, ',')
+          disp_fld = val(element$(desc_fld$, display))
+          if  disp_fld = key_nbr  then iterate for
+          ask structure struc, field #str_name$(disp_fld): position z
+          if  z = key_position  then iterate for
+          d_len = min(25,the_width - 1 - across)
+          when exception in
+            print at max_sequence + 3, across, &
+                using str_mask$(disp_fld)[1:d_len]:struc(#str_name$(disp_fld));
+          use
+            print at max_sequence + 3, across: repeat$(error_char$, d_len);
+          end when
+          across = across + len(str_mask$(disp_fld)[1:d_len]) + 2
+          if  across >= the_width - 2  then exit for
+        next display
+
+36599   end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Routines which let you modify/display/ignore all the fields
+        !   on a specific record
+        ! Two entry points:  One is show_info (which only displays)
+        !       and the other is change_fields (which allows you to add/change
+        !       information in the fields).
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+40000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   I N F O
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Display the record, but don't allow any changes.
+        !    display_a_screen doesn't directly follow this routine because
+        !    they are also used by routines after change_fields.
+        !
+        ! EXPECTED:
+        !       show_screens = number of screens
+        !       any variables (except scr) used in display_a_screen
+        !       in_delete    = true if called from delete (doesn't put in
+        !                      pauses or let you back up)
+        ! Expects a clear screen.
+        ! RESULT:
+        !       in_delete = false       (default)
+        !       the screens are displayed
+        !       hold_chead$ = the previous center heading
+        !       
+        ! DOES NOT result in a clear screen if in_delete is true
+        !  The center heading can be changed if in_delete is true
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  show_info:
+
+40020   hold_chead$ = center_head$
+        for scr = 1 to show_screens
+          display_screen = scr
+          gosub display_a_screen
+          if  in_delete then exit for
+          delay
+          clear area background_start,1,background_end,the_width
+          if  _exit  then  exit for
+          if  _back  then
+            if  scr = 1  then exit for
+            scr = scr - 1
+            repeat for
+          end if
+        next scr
+        if  not(in_delete)  then
+          center_head$ = hold_chead$
+          gosub paint_top_frame
+        end if
+        in_delete = false
+
+40099   return
+
+
+
+41000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H A N G E   F I E L D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Allow the user to change the field data in a record.  
+        !   Display a screen of fields at a time.
+        !
+        !  The way it is structured, if a routine really messes up
+        !    the screen, it can simply set displayed_screen = 0
+        !    displayed_screen = -1 is treated like displayed_Scren = 0
+        !    except that the screen is not cleared.
+        !
+        ! EXPECTED:
+        !      nbr_fields  = number of fields
+        !      arrays set up by calls to setup_fields and
+        !                     calculate_screen_data.
+        !      doing_add   = true if they are adding.
+        !      clear screen
+        !
+        ! RESULT:
+        !      field_line = line of field data
+        !      start_scr  = may change if the user specifically
+        !                   asks for a field name or screen.
+        !      back_screen= true if the user backs up to the
+        !                   previous screen.
+        !      scr        = current screen
+        !      clear screen
+        !      data_modified if field data was actually changed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%      
+  change_fields:
+
+41020   display_screen = -1    ! No screen currently displayed, but
+                               !   the screen is clear
+        hold_chead$ = center_head$
+        for change_field = 1 to nbr_fields
+          if  display_screen <> screen_field(change_field)  then &
+                   gosub switch_screens
+          display_field = change_field
+          gosub set_correct_structure
+          gosub get_new_field_info
+          if  _exit  then exit for
+          if  _back  then
+            change_field = change_field - 1
+            if  change_field = 0  then exit for
+            repeat for
+          end if
+          if  asked_for_field  then
+            gosub ask_for_field
+            if  asked_for_done  then exit for
+            repeat for
+          end if
+          if  error  then repeat for
+          data_modified = true          
+        next change_field
+        center_head$ = hold_chead$
+        gosub paint_top_frame
+        clear area 2,1,21,the_width
+
+41099   return
+
+
+
+41200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  S W I T C H   S C R E E N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  The current screen is different from the one being
+        !    displayed.  Remedy that situation.
+        !  Expects:
+        !    display_screen = the screen currently being displayed
+        !       displayed_screen = -1 means the screen is already clear.
+        !    change_field = the field number trying to change
+        !    screen_field(change_field) = the screen number to display
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine switch_screens
+
+41220   display_screen = screen_field(change_field)
+        gosub display_a_screen
+
+41299   end routine
+
+
+
+41400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  G E T   N E W   F I E L D   I N F O
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Ask for the new information to store in the field.
+        !  Expects:
+        !    change_field = the field index to change
+        !  Result:
+        !    _exit = true if they exit from here
+        !    _error = true if there was a problem storing the data
+        !    _back = true if they tried to back up
+        !    asked_for_field = true if the first character is a ">"
+        !       (meaning they want to go to a specific field/screen #)
+        !    ans$ = their reply in that case.
+        !    error = true if there was a validation error.
+        !  If the field is display_only, the routine exits without altering
+        !    anything.
+        !    
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine get_new_field_info
+
+41420   asked_for_field = false
+        if  fld_option$(change_field) = 'DISPLAY' or &
+            (fld_option$(change_field) = 'NOCHANGES' and not(doing_add)) or  &
+            fld_option$(change_field) = 'HIDDEN'  then  
+          crd_display_relate_errors = true
+          display_field = change_field
+          gosub check_relate_display
+          gosub check_relate_for_more
+          exit routine
+        end if
+   
+        if opt$ = "CHA"  then   !++ IC 931027
+          if not str_change(change_field) then  exit routine
+        end if
+
+        gosub get_default
+        gosub ask_new_data
+        if  ans$[1:1] = ">"  then
+          asked_for_field = true
+        elseif not(took_default) or doing_add then
+          gosub store_new_data
+
+        end if
+
+        if  took_default and tot_fld_lines(change_field) = 1  then exit routine
+        clear area str_row(change_field), str_col(change_field), &
+                   str_row(change_field) + tot_fld_lines(change_field) - 1, &
+                   str_col(change_field) + str_disp_width(change_field) - 1
+        display_field = change_field
+        gosub display_field_data
+
+41499   end routine
+
+
+
+41600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  G E T   D E F A U L T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Get the default.  Convert from whatever strange datatype
+        !    to a readable string for the default.
+        !  Expects:
+        !       change_field = index to the field to change
+        !       error = true if there was a problem (so we can't
+        !         simply eliminate the current message)
+        !  result:
+        !       default$ = the default string to use.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine get_default
+
+41620   when exception in
+          default$ = struc(#str_name$(change_field))
+        use
+          message error:extext$
+          default$ = ""
+        end when
+        if  str_fulltime (change_field) then          
+          u_fulltime_ymd$ = default$
+          gosub fulltime_ymd_mdy
+          default$ = u_fulltime_mdy$
+          ! change date portion to mdy
+        end if
+        if  str_date(change_field)  then
+          u_yymmdd$ = default$
+          gosub ymd_to_mdy
+          default$ = u_mmddyy$
+        end if
+        if  str_scale%(change_field) > 0 then &
+          default$ = str$(round(val(default$), str_scale%(change_field)))
+41699   end routine
+
+
+
+41800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  S T O R E   N E W   D A T A
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  The user has entered data.  Check that it can be
+        !    stored; if so, store it (if not, give an appropriate
+        !    error message and set error = true)
+        !  Expects:
+        !    ans$ has the reply.
+        !    change_field is the index to the field being changed
+        !  result:
+        !    error = true if there is a problem
+        !    the data is stored if it was OK.
+        !
+        !  Note that check_company_for_store can ask the user for a new
+        !    company name, so you have to do that one first.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine store_new_data
+
+41820   if  str_check_company(change_field)  then gosub check_company_for_store
+        if  _back or _exit  then exit routine
+        fld = change_field
+        gosub check_valid_entry
+        if  error  then  exit routine
+        gosub check_relate_change
+        if  not(error)  then gosub store_field_change
+        gosub check_relate_for_more
+
+41899   end routine
+
+
+
+42000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  C H E C K   C O M P A N Y   F O R   S T O R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Check that the company is OK for storage, using the rules
+        !    provided by an included file.
+        !  Expects:
+        !    check_company has been initialized
+        !    ans$ is the company name to be checked
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine check_company_for_store
+
+42020   c_company$ = ans$
+        gosub check_company
+        if  not(c_violate)  then exit routine
+        message error : "Nonstandard company name:  " + c_rules$
+        error = true              ! To keep it from wiping out the message
+        default$ = c_company$
+        gosub ask_new_data
+        took_default = false      ! They didn't take the default, or they
+                                  !   wouldn't be here in the first place.
+        error = (_back or _exit)  ! Fixed the error unless you did one of these
+
+42099   end routine
+
+
+
+42200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  S T O R E   F I E L D   C H A N G E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Store the information in ans$ in the field.
+        !  Expects:
+        !    ans$ = the information to store, as entered by the user
+        !    change_field = the index of the field to change.
+        !  Result:
+        !    ans$ is stored.  If a MDY date needs to be changed to YMD,
+        !       it is.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine store_field_change
+
+42220   if  str_date(change_field)  then
+          ! Convert the date to YMD for storage
+          u_mmddyy$ = ans$
+          gosub mdy_to_ymd
+          ans$ = u_yymmdd$
+        end if
+        if str_fulltime(change_field) then
+          u_fulltime_mdy$ = ans$
+          gosub fulltime_mdy_ymd
+          ans$ = u_fulltime_ymd$
+        end if      
+        display_field = change_field
+        gosub set_correct_structure
+        ask structure struc, field #str_name$(change_field) : description z$
+        hashed = false
+        if  pos(ucase$(z$), '*HASHED*') > 0 then hashed = true
+
+        when exception in
+          if  hashed then
+            if  struc(#str_name$(change_field)) <> ans$ then 
+              ans$ = str$(convert(hash$(ans$)[1:4]))
+            end if
+          end if
+          ! only hash it if the answer is different from what is stored
+          struc(#str_name$(change_field)) = ans$
+        use
+          message error: extext$
+          error = true
+        end when
+
+42299   end routine
+
+
+
+42400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  A S K   N E W   D A T A
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Actually ask the use for the new data, not that we have
+        !    the default
+        !  Expects:
+        !       change_field is the field to change
+        !       default$ is the appropriate default for that field.
+        !  Result:
+        !       took_default = true if they took the default (or backed
+        !               up or exited)
+        !       ans$  = their answer
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine ask_new_data
+
+42420   do
+          if  tot_fld_lines(change_field) > 1  then
+            gosub ask_new_data_wrap
+          else
+            gosub ask_new_data_line
+          end if
+        end do
+
+        took_default = ((ans$ = default$) or _back or _exit)
+        if  took_default  then ans$ = default$
+        if  fld_uppercase(change_field)  then ans$ = ucase$(ans$)
+
+42499   end routine
+
+
+
+42600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  A S K   N E W   D A T A   W R A P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Do the actual input, using a wrapped line input area
+        !  Expects:
+        !    default$ = the default
+        !    change_field = the field to input for
+        !  Result:
+        !    ans$ = the user's response
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine ask_new_data_wrap
+42620   clear area str_row(change_field), str_col(change_field), &
+                   str_row(change_field) + tot_fld_lines(change_field) - 1, &
+                   str_col(change_field) + str_disp_width(change_field) - 1
+        do
+          if  not(error)  then message "Press  GOLD/F  when finished"
+          error = false
+          line input area str_row(change_field), str_col(change_field), &
+                  str_row(change_field) + tot_fld_lines(change_field) - 1, &
+                  str_col(change_field) + str_disp_width(change_field) - 1, &
+                  length str_len(change_field), &
+                  default default$, &
+                  prompt "": ans$
+          if  _help  then
+            h_key$ = "data_entry_wrap"
+            gosub h_help
+            error = h_msg_displayed
+            repeat do
+          end if
+        end do
+42699   end routine
+
+
+
+42800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  A S K   N E W   D A T A   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Ask the user for the new data.  This is NOT wrapped,
+        !    just a normal line input area, but it is separate to
+        !    be similar to the wrap routine
+        !  Expects:
+        !    default$ = the default
+        !    change_field = the field to input for
+        !  Result:
+        !    ans$ = the user's response
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine ask_new_data_line
+42820   do
+          if  str_help$(change_field) <> ""  and  not(error)  then &
+            message str_help$(change_field)
+
+          error = false
+
+          u_prompt$ = str_prompt$(change_field)
+          if  match(':,?', right$(rtrim$(u_prompt$), 1)) = 0  then &
+            u_prompt$ = u_prompt$ + "? "
+          if  right$(u_prompt$, 1) <> " "  then  u_prompt$ = u_prompt$ + " "
+          u_len = str_len(change_field)
+          u_default$ = default$
+          u_help_key$ = "data_entry"
+          u_required = false
+          u_vrules$ = str_vrules$(change_field)
+          u_change = str_change(change_field)
+          gosub ask
+          clear area 21,1,21,the_width
+          ans$ = u_reply$
+        end do
+
+42899   end routine
+
+
+
+43000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  A S K   F O R   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Ask them which field they want.  Give them a list to choose
+        !    from if they ask for help.  Allow them to put in a screen
+        !    number instead if they want.
+        !  Expects:
+        !    ans$ = what they put in at the last prompt, beginning
+        !      with a ">".  If they put in a field, that's it.  If they
+        !      put in a number, that is too.
+        !      Otherwise, ask them.
+        !  Result:
+        !    display_screen is set to 0 if they ask for help (to redraw)
+        !    current_field is set to whatever field is selected
+        !       if no field is selected, it isn't changed.
+        !    error = true IF you said ">fielf" and fielf is not a valid
+        !       screen or field.
+        !    asked_for_done = true if they selected field "done" and there
+        !       is no field "done".
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine ask_for_field
+43020   ans$[1:1] = ""  ! eliminate the ">"
+        if  len(ans$) > 0  then
+          gosub search_for_match
+          exit routine
+        end if
+        !  Now you need to ask them
+        clear area 21,1,21,the_width
+        do
+          line input prompt "Field name or screen number? ", &
+            length 15, at 21,1 : ans$
+          if  _help  then gosub field_name_help
+          if  _exit or _back  then exit do      ! even from help
+          if  ans$ = ""  then repeat do
+          gosub search_for_match
+          if  error  then repeat do
+        end do
+        clear area 21,1,21,the_width
+
+43099   end routine
+
+
+
+43200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+        !  S E A R C H   F O R   M A T C H
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+        !  Search for a match to ans$
+        !  Expects:
+        !    ans$ = what to match
+        !  Result:
+        !    error = true IF there is no match in either screen
+        !       number of field name.
+        !    change_field = the field index number IF the field is
+        !       found.
+        !    asked_for_done = true if they want field done and there is
+        !       no such field.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+  routine search_for_match
+43220   new_field = 0
+        ans$ = ucase$(trim$(ans$))
+        asked_for_done = false
+        gosub search_name
+        if  new_field = 0  then gosub search_screen
+        if  new_field = 0  then gosub search_done
+        if  new_field = 0  then gosub search_display
+        if  new_field = 0  then
+          error = true
+          message error : "No such field or screen number: " + ans$
+        else
+          error = false
+          change_field = new_field
+        end if
+
+43299   end routine
+
+
+
+43400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+        !  S E A R C H   N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+        !  Look for a field with the same name as ans$.
+        !  Expects:
+        !    ans$ = the name you are looking for
+        !  Result:
+        !    new_field is the field (if not found, new_field is not
+        !      altered)
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+  routine search_name
+
+43420   for t = 1 to nbr_fields
+          if  ucase$(str_name$(t)) = ans$  then new_field = t
+        next t
+
+43499   end routine
+
+
+
+43600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+        !  S E A R C H   S C R E E N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+        !  Look for a screen number ans$.
+        !  Expects:
+        !    ans$ = the screen you are looking for
+        !  Result:
+        !    new_field is the first field in the screen
+        !      (if not a screen, new_field is not altered)
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+  routine search_screen
+
+43620   when exception in
+          z = val(ans$)
+          if  z > 0  and z <= nbr_screens  then &
+            new_field = screen_data(z, 1)
+        use
+        end when
+
+43699   end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+        !  S E A R C H   D O N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+        !  See if they said ">DONE"
+        !  If so, they have completed whatever action this is and
+        !    should be allowed to get out AND SAVE CHANGES.
+        !  Result:
+        !       asked_for_done = true if they wanted field "done"
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+  routine search_done
+
+        if  ans$ = "DONE"  then
+          asked_for_done = true
+          new_field = nbr_fields
+        end if
+
+        end routine
+
+
+
+43700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+        !  S E A R C H   D I S P L A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+        !  Look for a field with the same displayed name as ans$.
+        !  Expects:
+        !    ans$ = the displayed name you are looking for
+        !  Result:
+        !    new_field is the field (if not found, new_field is not
+        !      altered)
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%       
+  routine search_display
+
+43720   if trim$(ans$) = ""  then exit routine
+        z = len(ans$)
+        for t = 1 to nbr_fields
+          if  ucase$(dis_prompt$(t)[1:z]) = ans$  then
+            new_field = t
+            exit for
+          end if
+        next t
+
+43799   end routine
+
+
+
+43800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I E L D   N A M E    H E L P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Show all field names and allow the user to select one.
+        !
+        ! EXPECTED:
+        !       nbr_fields = number of maintainable fields
+        !
+        ! RESULT:
+        !       ans$ = the name of the field finally selected
+        !       display_screen is set to 0 to clear and redraw the screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  field_name_help:
+
+43820   max_display = nbr_fields
+        display_screen = 0
+        clear area display_start,1, display_end, the_width
+        gosub do_box
+        gosub show_fields
+        if  seq_done  then &
+          ans$ = str_display$(sequence_nbr)
+
+43899   return
+
+
+
+44000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   F I E L D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Show display_items fields at a time then ask the user to enter
+        ! a number associated to the field they chose.
+        !
+        ! RESULT:
+        !       seq_done = true if a valid number was chosen.
+        !       sequence_nbr = the number chosen
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  show_fields:
+
+44020   max_sequence = 0
+        seq_done  = false
+        for s_fld = 1 to nbr_fields
+          gosub display_field
+          if  (max_sequence = display_items)  then
+            gosub ask_sequence_number
+            if  _exit or _back  then exit for
+            if  sequence_nbr <> 0  then
+              seq_done = true
+              exit for
+            end if
+            clear area box: display_start,1,display_end,the_width
+            max_sequence = 0
+          end if
+        next s_fld
+        if  (max_sequence <> 0) and not(seq_done or _back or _exit)  then
+          gosub ask_sequence_number
+          seq_done = (sequence_nbr <> 0)
+        end if
+
+44099   return
+
+
+
+44200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Display a field and its associated sequence number.
+        !    Also store the field name in str_display$() for recall
+        !    when the user selects a choice.
+        !
+        ! EXPECTED:
+        !        max_sequence = used also as the number associated with
+        !                   the field name.
+        !        str_name$= field name
+        !        s_fld    = field number to display
+        ! RESULT:
+        !        max_sequence is incremented
+        !        str_display$(max_sequence) = field name
+        !          (after max_sequence is incremented)
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  display_field:
+
+44220   max_sequence = max_sequence + 1
+        print at max_sequence + 3,4:;
+        print using "###" : max_sequence;
+        print ")";
+        print at max_sequence + 3,10: str_name$(s_fld);
+        print at max_sequence + 3,27: dis_prompt$(s_fld)[1:30];
+        if  89 < the_width  then &
+            print at max_sequence + 3, 59: str_desc$(s_fld)[1:30];
+        str_display$(max_sequence) = str_name$(s_fld)
+
+44299   return
+
+
+
+46200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  A S K   S E Q U E N C E   N U M B E R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask user to enter associated sequence number.
+        !
+        ! EXPECTS:
+        !       max_sequence  = largest permitted sequence number
+        ! RESULT:
+        !       sequence_nbr  = associated sequence number.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  ask_sequence_number:
+
+46220   clear area 21,1,21,the_width
+        do
+          if  (max_sequence = display_items)  then
+            message "Press the RETURN key for next screen"
+          end if 
+          sequence_nbr = 0
+          u_prompt$ = "Sequence Number? "
+          line input prompt u_prompt$, at 21,1: sequence_nbr$
+          if  _help  then
+            h_key$ = "sequence_number"
+            gosub h_help
+            clear area 21,1,21,the_width
+            if  h_msg_displayed then set error on
+            repeat do
+          end if
+          if  _exit or _back or sequence_nbr$ = ""  then exit do
+          gosub check_valid_seq
+          if  _error  then repeat do
+        end do
+
+46299   return
+
+
+
+46600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  D I S P L A Y   A   S C R E E N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Display one screen of information, with field contents,
+        !    on the screen
+        !  Expects:
+        !    Blank screen
+        !    display_screen = screen number
+        !    nbr_screens = # screens of data
+        !      Arrays from setup_fields and calculate_screen_data
+        !        (won't bother to list here)
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine display_a_screen
+
+46620   gosub display_screen_head
+        clear area background_start,1,background_end,the_width
+        background_screen = match(screen_names$, &
+          req_screen$(screen_data(display_screen, 1)))
+        if  background_screen > 0  then
+          gosub display_screen_background
+        else
+          gosub display_screen_prompt
+        end if
+        gosub display_screen_data
+
+46699   end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   S C R E E N   B A C K G R O U N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! paint the screen using the background text from the .display
+        ! file
+        !
+        ! Expected:
+        !       screen_data(x, 3) = true if the screen has already been saved
+        !       background_screen = screen index
+        !       screen_window$(x) = saved screen window
+        !
+        ! Result  :
+        !       screen_window$(x) = saved screen window
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine display_screen_background
+
+        do
+          if  screen_data(display_screen, 3)  then
+            set window : current screen_window$(display_screen)
+            center_head$ = "" ! force it to repaint
+            gosub display_screen_head
+            exit do
+          end if
+          for display_row = background_start to background_end
+            print at display_row, 1:;
+            background_line$ = store_contents$(background_screen, display_row)
+            gosub display_background_line
+          next display_row
+          ask window : current screen_window$(display_screen)
+          screen_data(display_screen, 3) = true
+        end do
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   S C R E E N   P R O M P T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! display a screen background using the prompt data
+        !
+        ! Expected:
+        !       screen_data(display_screen, 3) = true if screen has been saved
+        !       screen_data(display_screen, 1) = first field on this screen
+        !       screen_data(display_screen, 2) = last field on this screen
+        !       display_screen                 = screen to display
+        !       fld_option$(fld)               = options
+        !       req_row(fld)                   = requested row for the field
+        !       not_displayed                  = flag for field not displayed
+        !       str_row()                      = row field is on
+        !       prompt_loc()                   = column to start prompt
+        !       dis_prompt$()                  = prompt to print
+        !       str_col()                      = position of field
+        !
+        ! Result  :
+        !       screen_window$()               = saved window display
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine display_screen_prompt
+
+        do
+          if  screen_data(display_screen, 3)  then
+            set window : current screen_window$(display_screen)
+            center_head$ = "" ! force it to repaint
+            gosub display_screen_head
+            exit do
+          end if
+          for fld = screen_data(display_screen, 1) to &
+                  screen_data(display_screen, 2)
+            if  fld_option$(fld) = 'HIDDEN'  then  iterate for
+            if  req_row(fld) = not_displayed  then  iterate for
+            print at str_row(fld), prompt_loc(fld): &
+                dis_prompt$(fld); tab(str_col(fld) - 2); ":";
+          next fld
+          ask window : current screen_window$(display_screen)
+          screen_data(display_screen, 3) = true
+        end do
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   S C R E E N   D A T A
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! display the data for each field on the screen
+        !
+        ! Expected:
+        !       screen_data(display_screen, 1) = first field to display
+        !       screen_data(display_screen, 2) = last screen to display
+        !       display_screen                 = screen to display
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine display_screen_data
+
+        for fld = screen_data(display_screen, 1) to &
+                  screen_data(display_screen, 2)
+          display_field = fld
+          gosub set_correct_structure
+          gosub display_field_data
+          crd_display_relate_errors = false
+          gosub check_relate_display
+          gosub check_relate_for_more
+        next fld
+        
+        end routine
+
+
+
+46700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  D I S P L A Y   S C R E E N   H E A D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Display the screen heading.
+        !  Expects:
+        !       center_head$ is the current center heading
+        !       hold_chead$ is the default center heading
+        !       background_screen = the screen number
+        !       store_title$() contains the stored titles
+        !  Result:
+        !       center_head$ is the new center heading
+        !       The top frame is repainted if necessary
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine display_screen_head
+
+46720   if  background_screen = 0  then
+          z$ = hold_chead$
+        else
+          if  store_title$(background_screen) = ""  then
+            z$  = par_structure$
+          else
+            z$ = store_title$(background_screen)
+          end if
+        end if
+        if  z$ <> center_head$  then
+          center_head$ = z$
+          gosub paint_top_frame
+        end if
+        print reverse,at 1,right_edge: &
+           "Screen"; display_screen; "of" ; nbr_screens;
+
+46799   end routine
+
+
+
+46800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   B A C K G R O U N D   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! display a line of background text using correct video attributes
+        ! if background_line$[1:6] = $print then the user has control
+        ! this should be a valid intouch statement so I just execute it
+        ! otherwise, I will print the line with no attributes
+        !
+        ! Expected:
+        !       background_line$ = line of text to display with attributes
+        !                          imbedded
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine display_background_line
+
+46820   if  ucase$(background_line$[1:6]) = "$PRINT"  then
+          when exception in
+            execute background_line$[2:999]
+          use
+            message error : "Error printing background " + extext$ + " " + &
+              background_line$
+          end when
+        else
+          print background_line$;
+        end if
+
+46899   end routine
+
+
+
+47000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  D I S P L A Y   F I E L D   D A T A
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Print field data in response area.  If the field is a date
+        ! field, get the stored date in YYMMDD format and change it
+        ! to MMDDYY format for displaying.
+        !
+        ! EXPECTED:
+        !       display_field = the field to display
+        !       struc()     = data
+        !       str_row()   = row location
+        !       str_col()   = column location
+        !       str_name$() = structure field name
+        !       fld_structure() = structure field is from
+        !       fld_relate_in() = relate index that cause record to be found
+        !       relate_success() = 0 if relation never attempted
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine display_field_data
+
+47020   if  fld_structure(display_field) <> 1  then
+          if  relate_success(fld_relate_in(display_field)) = 0  then  exit routine
+        end if
+        ! if from related structure and relation never tried then don't print
+        if  fld_option$(display_field) = "HIDDEN"  then  exit routine
+        display_row = str_row(display_field)
+        display_col = str_col(display_field)
+        display_attribute$ = str_attribute$(display_field)
+        display_mask$ = str_mask$(display_field)
+        when exception in
+          display_data = struc(#str_name$(display_field))
+        use
+        end when
+        if  _error  then  
+          gosub print_error_char
+          set error off
+          exit routine
+        end if
+        if str_fulltime(display_field) then
+ 
+         u_fulltime_ymd$ = struc(#str_name$(display_field))
+          gosub fulltime_ymd_mdy
+          display_data = u_fulltime_mdy$          
+        end if
+
+        if  str_date(display_field)  then 
+          u_yymmdd$ = struc(#str_name$(display_field)) ! worek around for dynamic problem with ds types
+          gosub ymd_to_mdy
+          display_data = u_mmddyy$
+        end if
+        if  tot_fld_lines(display_field) > 1  then 
+          gosub print_answer_wrap
+        else
+          gosub print_answer
+        end if
+
+47099   end routine
+
+
+
+47100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   A N S W E R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! print the answer. Wrap is not needed
+        !
+        ! Expected:
+        !       display_data  = data to print
+        !       display_row   = row to print on
+        !       display_col   = column to print on
+        !       display_attribute$ = video attributes to use
+        !       display_mask  = print using mask
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine print_answer
+
+        print at display_row, display_col :;
+        when exception in
+          if  display_attribute$ = ""  then
+            print using display_mask$ : display_data
+          else
+            z$ = "print " + display_attribute$ + ", using '" + &
+              display_mask$ + "': " + "display_data;"
+            execute z$
+          end if
+        use
+        end when
+        if  _error  then
+          gosub print_error_char
+          set error off
+        end if
+
+        end routine
+
+
+
+47400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   A N S W E R   W R A P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Print this answer that uses up more than one line.
+        ! EXPECTED:
+        !       display_data  = data to print
+        !       display_row   = row to print on
+        !       display_col   = column to print on
+        !       display_attribute$ = video attributes to use
+        !       display_mask  = print using mask
+        !       wrap_limit = width for the wrap
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  print_answer_wrap:
+
+47420   !wrap_text$ = wrap$(display_data, 1, wrap_limit)
+        wrap_text$ = wrap$(display_data, 1, str_disp_width(display_field) - 1)
+        if  display_attribute$ = ""  then
+          for i = 1 to pieces(wrap_text$)
+            print at display_row + i - 1, display_col: &
+              piece$(wrap_text$, i);
+          next i
+        else
+          for i = 1 to pieces(wrap_text$)
+            z$ = "print at " + str$(display_row + i - 1) + ', ' + &
+              str$(display_col) + ", " + display_attribute$ + &
+                ": piece$(wrap_text$, i);"
+            when exception in
+              execute z$
+            use
+            end when
+          next i
+        end if
+
+47499   return
+
+
+
+47500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   E R R O R   C H A R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! an error happened trying to print the data, so print the error
+        ! char instead
+        !
+        ! Expected:
+        !       display_data  = data to print
+        !       display_row   = row to print on
+        !       display_col   = column to print on
+        !       display_attribute$ = video attributes to use
+        !       display_mask  = print using mask
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine print_error_char
+
+47520   display_data = repeat$(error_char$, str_disp_width(display_field))
+        print at display_row, display_col :;
+        if  display_attribute$ = ""  then
+          print display_data;
+        else
+          z$ = "print " + display_attribute$ + ": display_data;"
+          execute z$
+        end if
+
+47599   end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Routines which ask the user to specify a key field.
+        !  Entry point:  ask_key_field
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+50000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   K E Y   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Find the keyed field.  If there is more than one keyed 
+        ! field, all keyed fields will be displayed.
+        !
+        ! Expects and results in a clear screen.
+        ! RESULT:
+        !       key_field$ = key field
+        !                    ("" if there is no selected key field)
+        !       num_key_field = true if field is numeric
+        !       key_field_length = the length of the field
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  ask_key_field:
+
+50020   select case nbr_keys
+          case 0
+            key_field$ = ""
+            message error: par_structure$ + "  has no key field"
+            gosub remove_key_opt
+          case 1
+            key_field$ = element$(keys$(1), 1, '|')
+            key_desc$  = element$(keys$(1), 2, '|')
+            gosub get_key_field_data
+            gosub remove_key_opt
+          case else
+            clear area 2,1,22,the_width
+            gosub select_key_field
+            clear area 2,1,22,the_width
+            if  _exit or _back  then return
+            gosub get_key_field_data
+            gosub add_key_opt
+        end select
+     
+50099   return
+
+
+
+50200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N D   K E Y E D   F I E L D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Find all fields that are keys.  
+        !
+        ! RESULT:
+        !       keys$()  = all keyed fields
+        !       nbr_keys = # keys in the structure
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine find_keyed_fields
+
+50220   if  user_defined_keys then  exit routine ! done in using file
+        nbr_keys = 0
+        key_positions$ = ''
+        ask structure struc : fields fields
+        for  find_fld = 1 to fields
+          ask structure struc, field #find_fld : keyed is_key, &
+                name f_name$, position z, length z1, description f_desc$
+          if  is_key  then
+            z$ = str$(z) + ';' + str$(z1)
+            if  match(key_positions$, z$) > 0 then iterate for ! already have
+            key_positions$ = key_positions$ + ',' + z$
+            nbr_keys = nbr_keys + 1
+            if  f_desc$ = ''  then  f_desc$ = f_name$
+            keys$(nbr_keys) = f_name$ + '|' + f_desc$
+          end if
+        next find_fld
+
+50299   end routine
+
+
+
+50600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E L E C T   K E Y   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Select a key field.
+        !
+        ! EXPECTED:
+        !       nbr_keys = number of key fields
+        !       keys$()  = array of key field values
+        !       more than one key field
+        !       
+        ! RESULT:
+        !       sequence_nbr = sequence number of the key field selected
+        !       key_field$ = "" if no key selected
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  select_key_field:
+
+50620   max_display = nbr_keys
+        gosub do_box
+        default_key_field$ = ""
+        if  key_field$ <> ""  then old_key_field$ = key_field$
+        key_field$ = ""
+        max_sequence = 0
+        for value_fld = 1 to nbr_keys
+          gosub display_value_selection
+          if  max_sequence = display_items  then
+            allow_blank = (value_fld < nbr_keys)
+            gosub ask_key_sequence
+            if  _exit or _back or key_field$ <> ""  then return
+            clear area box: display_start,1,display_end,the_width
+            max_sequence = 0
+          end if
+        next value_fld
+                !  If you've gotten here, you're on the last screen of
+                !    keys and MUST make a response.
+        allow_blank = false
+        gosub ask_key_sequence
+
+50699   return
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E M O V E   K E Y   O P T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! remove the change key of reference from the list of valid menu
+        ! options since either the files is not keyed or else only on key
+        !
+        ! Expected:
+        !       valid_options$ = list of options
+        !
+        ! Result  :
+        !       valid_options$ = new list without key
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine remove_key_opt
+
+        z = pos(valid_options$, ",KEY")
+        if  z = 0  then  exit routine ! already gone
+        valid_options$[z:z+3] = ""
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A D D   K E Y   O P T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! add change key of reference to valid menu options
+        !
+        ! Expected:
+        ! valid_options$ = list of valid menu options
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine add_key_opt
+
+        z = pos(valid_options$, ",KEY")
+        if  z > 0  then  exit routine ! already there
+        valid_options$ = valid_options$ + ", KEY"
+
+        end routine
+
+
+
+50800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   V A L U E   S E L E C T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Display the name of the key indicated by max_sequence
+        !
+        ! EXPECTED:
+        !       value_fld :  value field number
+        !       keys$()   :  keyed fields
+        !       max_sequence  :  line in box (incremented before use
+        !       old_key_field$:  last key field used
+        ! RESULT:
+        !       max_sequence is incremented
+        !       the key is printed with a sequence number
+        !       default_key_field$ is set to str$(value_fld) IF this is
+        !               the same key as old_key_field$
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  display_value_selection:
+
+50820   max_sequence = max_sequence + 1
+        print at max_sequence + display_start,4:;
+        print using "###" : value_fld;
+        print ")";
+        print tab(10); element$(keys$(value_fld), 2, '|')
+!                tab(44); element$(keys$(value_fld), 2, '|') ++DJS++ 10-OCT-1991
+        if  element$(keys$(value_fld), 1, '|') = old_key_field$  then &
+          default_key_field$ = str$(value_fld)
+
+50899   return
+
+
+
+51000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   K E Y   S E Q U E N C E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask the user to enter the sequence number associated
+        ! with the key field they want.
+        !  
+        ! Expects:
+        !       keys$() holds the keys
+        !       allow_blank = true if you can press return for the
+        !               next screen
+        !       default_key_field$ = the last key field used, if displayed
+        ! RESULT:
+        !       sequence_nbr$ = lookup sequence number
+        !       key_field$    = the key field selected, if one is
+        !                       selected.
+        !       key_value$    = "" if a new key is selected.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  ask_key_sequence:
+
+51020   do
+          u_prompt$ = "Key field sequence number? "
+          u_len = 4
+          u_default$ = default_key_field$
+          sequence_nbr = 0
+          if  allow_blank  then message "Press RETURN for the next screen"
+          gosub ask
+          if  _exit or _back  then exit do
+          if  trim$(u_reply$) = ""  then
+            if  allow_blank  then
+              default_key_field$ = ""
+              exit do
+            end if
+            repeat do
+          end if
+          sequence_nbr$ = u_reply$
+          gosub check_valid_seq   !get sequence_nbr
+          if  _error  then repeat do
+          key_field$ = element$(keys$(sequence_nbr), 1, '|')
+          if  key_field$ <> old_key_field$  then  key_value$ = ""
+        end do
+
+51099   return
+
+
+
+51200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   K E Y   F I E L D   D A T A
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Get numeric information about the key field
+        !
+        ! EXPECTS:
+        !       key_field$ = the field to check
+        ! RESULT:
+        !       num_key_field = true if field is numeric
+        !       key_field_length = the length of the field
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  get_key_field_data:
+
+51220   ask structure struc, field #key_field$ : &
+             datatype key_data_type$, &
+             length key_field_length, &
+             attributes attrib$
+
+        if  pos(attrib$, "NUM") > 0  then  
+          num_key_field = true
+        else
+          num_key_field = false
+        end if
+        select case key_data_type$
+          case 'DS'     
+            key_field_length = 15
+          case 'RO'
+            num_key_field = true
+          case 'C3'
+            key_field_length = key_field_length * 2 + 1
+            num_key_field = true
+          case 'IN', 'IU'
+            key_field_length = integer_length
+            num_key_field = true
+          !case 'FL', 'ZN', 'EB', 'ZE' ++DJS++ 16-FEB-1993 remove zn 
+          case 'FL', 'EB', 'ZE'
+            key_field_length = floating_length
+            num_key_field = true
+          case else
+        end select
+
+51299   return
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Routines to get the field information from the structure
+        !  Entry point:  setup_fields
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+60000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   F I E L D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Store the field information.  It will be necessary to
+        ! know what column and screen each field is located on.  
+        ! Fields with no data type and no prompt text will be
+        ! ignored because they cannot be used.
+        !
+        ! EXPECTS:
+        !       using_given = true if they said "maintain -- using --"
+        !       pas_usefile$ = the using file in that case
+        !
+        ! RESULT:
+        !      nbr_fields    = number of maintainable fields
+        !      fields        = number of actual fields
+        !      data_type$    = data type
+        !      struc_prompt$ = prompt text
+        !  Also the field information is stored in the arrays.
+        !    These arrays contain the field information, independant
+        !      of screen considerations:
+        !  str_prompt$() has the prompt
+        !  str_len() has the length
+        !  str_name$()  has the name
+        !  str_help$()  has the help text
+        !  str_desc$()  has the description
+        !  str_check_company is true if you need to check the company name
+        !                       before storing the data
+        !  str_mask$()  has the mask
+        !  str_dlen()   has the screen length
+        !  str_date()   is true if this is a DS field with "DATE" attribute
+        !    These arrays contain the information used for the screen
+        !      dispay/manipulation:
+        !  tot_fld_lines() = the number of lines this will take
+        !       given that wrap_limit is the maximum lines for a field
+        !  nbr_screens     = number of screens taken up
+        !  screen_data(,1) = index of first field on this screen
+        !  screen_data(,2) = index of last field on this screen
+        !  str_row()       = row # for the field onscreen
+        !  str_col()       = column # for the 
+        !  str_prompt_loc()= column # for the prompt for this field
+        !  screen_field()  = screen number for this field
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  setup_fields:
+
+60020   message "Building screen..."
+        req_screen$(1) = ""
+        screen_names$ = ""
+        start_mode$ = ""
+        store_title$(1) = ""
+        if  using_given  then
+          gosub use_command_file
+          if  error  then return
+          if  open_structures = 0  then
+            message error : "No structure given"
+            return
+          end if
+          gosub finish_relate_setup
+          if  _error  then  return
+          gosub check_valid_background_names
+          if  _error  then  return
+          par_structure$ = main_structure$ !set for headings, etc.
+        else
+          nbr_fields = 0
+          set structure struc : id str_id$(1) ! make main structure current
+          ask structure struc: fields fields
+          for fld = 1 to fields
+            gosub get_def_info
+            if  (data_type$ = "UN") then iterate for
+                !(data_type$ = "DS" and struc_len = 15)  then iterate for
+                !  "UN" = unknown, "DS" w/ len. 8 = VMS Date Stamp (unsupported)
+
+            if  struc_prompt$ = ''  then iterate for ! No prompt - don't do
+            nbr_fields = nbr_fields + 1
+            gosub store_def_info      ! Store the definition info for the field
+            fld_structure(nbr_fields) = 1 ! from main structure always
+            str_attribute$(nbr_fields) = "" ! no special video attributes
+          next fld
+        end if
+        set structure struc : id str_id$(1) !make main str current
+        gosub change_mode
+        gosub find_desc_fld
+        gosub calculate_screen_data
+        message "" ! remove building message
+
+60099   return
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  C H A N G E   M O D E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Change to the mode indicated by start_mode$.
+        !    If not recognized, do nothing
+        !
+        !  Expects:
+        !       wide_margin = margin for WIDE mode
+        !       wide_wrap = wrap position for WIDE mode
+        !       narrow_margin = margin for NARROW mode
+        !       narrow_wrap = wrap position for NARROW mode
+        !       edge_display = number of characters used for "screen x of y"
+        !       start_mode$ = the starting mode, "NARROW" or "WIDE"
+        !  Result:
+        !       the_width, right_edge, and wrap_limit are set.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine change_mode
+
+        select case ucase$(trim$(start_mode$))
+          case "NARROW","80"
+            if  the_width = narrow_margin  then exit routine
+            the_width = narrow_margin
+            wrap_limit = narrow_wrap
+          case "WIDE","132"
+            if  the_width = wide_margin  then exit routine
+            the_width = wide_margin
+            wrap_limit = wide_wrap
+          case else
+            exit routine
+        end select
+        set margin the_width
+        right_edge = the_width - edge_display
+        gosub paint_bottom_frame
+
+        end routine
+
+
+
+60200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   D E F   I N F O
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Get the definition file information for the requested
+        ! structure and field.
+        !
+        ! EXPECTED:
+        !       struc  = name of structure
+        !       fld    = field#
+        !
+        ! RESULT:
+        !       struc_prompt$ = prompt text
+        !       struc_len     = field length
+        !       h_text$       = help text
+        !        d_text$       = description text
+        !       s_name$       = name of field
+        !       data_type$    = data type
+        !       attr$         = attributes
+        !       p_mask$       = print mask
+        !       chang_fld     = TRUE if field is changeable
+        !       vrules_str$   = validation rule for this field
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  get_def_info:
+
+60220   ask structure struc, field #fld : &
+             datatype data_type$,  &
+             prompt struc_prompt$, &
+             length struc_len, &
+             name s_name$, &
+             help h_text$, &
+             description d_text$, &
+             printmask p_mask$, &
+             attributes attr$, &
+             changeable chang_fld, &
+             vrules vrules_str$
+
+60299   return
+
+
+
+60400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+        ! S T O R E   D E F   I N F O
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Store the definition information.
+        !   SHOULD ONLY STORE STUFF WHICH IS COMPLETELY
+        !       SCREEN-INDEPENDANT; store_screen_data should do the rest.
+        ! EXPECTED:
+        !       nbr_fields    = index to use for storing the info
+        !       h_text$       = help text
+        !       d_text$       = description text
+        !       struc_prompt$ = prompt text
+        !       struc_len     = structure length
+        !       s_name$       = name of field
+        !       str_help$     = help text
+        !       d_text$       = description text
+        !       p_mask$       = print mask
+        !       clearing_len  = clearing length of field
+        !       attr$         = attributes
+        !       chang_fld     = changeable
+        !       vrules_str$   = validation rules
+        !
+        !  Result:  for index nbr_fields:
+        !  str_prompt$() has the prompt
+        !  str_len() has the length
+        !  str_name$()  has the name
+        !  str_help$()  has the help text
+        !  str_desc$()  has the description
+        !  str_check_company()  is true if you need to check the company
+        !               name before storing the data.
+        !  str_mask$()  has the mask
+        !  str_dlen()   has the display length
+        !  str_date()   is true if this is a DS field WITH "DATE" attribute
+        !  str_chang()  is TRUE if this is a changeable field
+        !  str_vrules$() has validation rules
+        !  fld_option$() is set to blank (no options; can be changed later)
+        !  fld_uppercase = true if the field is stored uppercase
+        !  max_validation() = however many automatic validation elements
+        !               there are.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  store_def_info:
+
+60420   str_prompt$(nbr_fields) = struc_prompt$
+        str_name$(nbr_fields)   = s_name$
+        str_help$(nbr_fields)   = h_text$
+        str_desc$(nbr_fields)   = d_text$
+        str_change(nbr_fields)   = chang_fld    !!++  IC - 931027
+        str_vrules$(nbr_fields) = vrules_str$  !! ++ IC - 931027  
+        fld_option$(nbr_fields) = ""
+        str_check_company(nbr_fields) = &
+            (pos(ucase$(d_text$), 'ORGANIZATION') > 0  or &
+             pos(ucase$(d_text$), 'COMPANY') > 0)
+                !  If there is "organization" or "company", you need to check
+                !       the company name to see if it is OK.
+        max_validation(nbr_fields) = 0
+        gosub check_data_type
+        gosub check_numeric_attribute
+        fld_uppercase(nbr_fields) = (pos(attr$,'UC') > 0)
+        if  p_mask$ = ""  then 
+          p_mask$ = repeat$('@',struc_len)
+          if  len(p_mask$) > 1  then p_mask$[1:1] = "<"
+        end if
+        str_mask$(nbr_fields)   = p_mask$
+        str_len(nbr_fields)     = struc_len
+        str_scale%(nbr_fields)  = scale
+        gosub get_clearing_len
+        str_dlen(nbr_fields)    = clearing_len
+        req_row(nbr_fields)     = not_requested
+        req_col(nbr_fields)     = not_requested
+        req_screen$(nbr_fields + 1) = ""
+
+60449   return
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  C H E C K   D A T A   T Y P E
+60450   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Check to see if the data type needs anything special.
+        !    str_len becomes the length limit for the input statement
+        !    
+        ! Characters:  nothing
+        ! C3:          See integer, but different range
+        ! Integers:    Check that they are integer; give them a
+        !               print mask if necessary; change the length
+        ! Floating point: Give them a print mask if necessary; change
+        !               the length
+        !
+        ! Too long because of the case statement
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine check_data_type
+
+        select case data_type$
+          case 'DS'     !  The length must be 6 or 8 or 13 or 15
+                        !  8-character datestamps are the VMS date stamp datatype
+                        !  6-character datestamps are automatically changed
+                        !    by intouch into date:YMD with length 8
+                        !  15- character datestamps 
+            if  match(attr$, 'FULLTIME') > 0 then
+              struc_len = 15
+              gosub check_fulltime_attribute
+            else
+              if  pos(attr$,'DATE') = 0  then attr$ = "DATE:MDY"
+              if  struc_len = 6 then struc_len = 8
+              gosub check_date_attribute
+            end if
+            if  attr$[1:1] = ","  then attr$[1:1] = ""
+          case 'C3'
+            struc_len = struc_len * 2 + 1
+          case 'IN', 'IU'
+            struc_len = integer_length
+            if  p_mask$ = ""  then p_mask$ = repeat$('#',struc_len)
+            z = max_validation(nbr_fields)
+            max_validation(nbr_fields) = z + 1
+            valid_element$(nbr_fields, z + 1) = "INTEGER"
+          !case 'FL', 'ZN', 'EB', 'ZE' ++DJS++ 16-FEB-1993 remove zn
+          case 'FL', 'EB', 'ZE', 'GF'
+            struc_len = floating_length
+            if  p_mask$ = ""  then &
+              p_mask$ = repeat$("#", floating_length - 3) + ".##"
+            z = max_validation(nbr_fields)
+            max_validation(nbr_fields) = z + 1
+            valid_element$(nbr_fields, z + 1) = "NUMBER"
+
+          !case 'CH','RO'     !  Do nothing ++DJS++ 16-FEB-1993
+          case 'CH','RO', 'ZN', 'RS'     !  Do nothing
+          case 'QS' 
+            struct_len = 18
+            if  p_mask$ = ""  then p_mask$ = repeat$('#',struc_len)
+            z = max_validation(nbr_fields)
+            max_validation(nbr_fields) = z + 1
+            valid_element$(nbr_fields, z + 1) = "DIGITS"
+          case else
+            message error: "Unrecognized data type in field " + &
+                            s_name$ + ":  " + data_type$
+                ! Treat it as "CH" 
+        end select
+          
+60479   end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  C H E C K   D A T E   A T T R I B U T E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Check the date attribute.  If it is there, set str_date()
+        !    and the validation accordingly
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine check_date_attribute
+60480     if  pos(attr$,"DATE") > 0  then
+          str_date(nbr_fields)  = true
+          z = max_validation(nbr_fields)
+          max_validation(nbr_fields) = z + 1
+          valid_element$(nbr_fields, z + 1) = "DATE"
+        else
+          str_date(nbr_fields)  = false
+        end if
+
+60489    end routine
+
+60500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   F U L L T I M E   A T T R I B U T E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine check_fulltime_attribute
+        if match(attr$, 'FULLTIME') = 1 then 
+          str_fulltime(nbr_fields) = true
+          z = max_validation(nbr_fields)
+          max_validation(nbr_fields) = z + 1
+          valid_element$(nbr_fields, z + 1) = "FULLTIME"
+        else
+          str_fulltime(nbr_fields) = false
+        end if
+
+
+        end routine
+
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  C H E C K   N U M E R I C   A T T R I B U T E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Check for the num and num:## attributes.
+        !    Alter the print mask accordingly, if necessary.
+        !    Also puts in "number" validation.
+        !  (p_mask$ holds the print mask)
+        !  Expects:
+        !       p_mask$ = the print mask, not yet stored in arrays
+        !       struc_len = the length in characters of the structure data,
+        !               not yet stored either
+        !       s_name$ = the field name, can be stored already.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine check_numeric_attribute
+
+        scale = 0
+        if  pos(attr$,"NUM") > 0  then
+          z = max_validation(nbr_fields)
+          max_validation(nbr_fields) = z + 1
+          valid_element$(nbr_fields, z + 1) = "NUMBER"
+        else
+          exit routine
+        end if
+        z = pos(attr$,"NUM:")
+        if  (z > 0)  then   ! Have a scale, so get it (instead of 0)
+          z1$ = element$(attr$[z+4:len(attr$)], 1)
+          when exception in
+            scale = val(z1$)
+          use
+            message error : "Non-numeric scale factor for the field " + &
+                            s_name$
+            stop
+          end when
+        end if
+
+        gosub handle_field_scale
+
+        end routine
+        
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  H A N D L E   F I E L D   S C A L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  A field is scaled.  Set the validation so that it checks
+        !    for digits before and after the decimal point.
+        !
+        !  DIGITS 3 2  =  3 digits before decimal, 2 digits after.
+        !       These are both maximums, and negative numbers
+        !       are handled as REQUIRING zeros on the OPPOSITE
+        !       side of the decimal.
+        !
+        !  Expects:
+        !    struc_len = length (in characters) of structure
+        !    scale = the scaling factor
+        !    s_name$ = the field name
+        !    valid_element$(), nbr_fields, and max_validation()
+        !    p_mask$ = printmask
+        !    struc_len = the structure length
+        !  Result:
+        !    struc_len is modified to represent the 
+        !    p_mask$ is modified.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine handle_field_scale
+
+        if  p_mask$ = ""  then
+          p_mask$ = repeat$('#', struc_len - scale - 1) + "#." + &
+                    repeat$('#', scale)
+          if  scale <= 0  then  p_mask$[len(p_mask$):len(p_mask$)] = ""
+        end if
+                !  No trailing period
+
+        z$ = change$(p_mask$, "><#%@", "#")
+        struc_len = (elements(z$, "#") - 1) + (elements(z$, ".") - 1)
+!++ debug djs +++        struc_len = len(p_mask$) - ((elements(p_mask$, '~') - 1) * 2)
+        if  scale = 0 and &
+            match('FL,EB,ZE', data_type$) > 0 then 
+            !match('FL,ZN,EB,ZE', data_type$) > 0 then  ++DJS++ 16-FEB-1993 &
+          if  p_mask$ = '' then exit routine
+          scale = elements(element$(z$, 2, '.'), '#') - 1
+        end if
+        ! no scale and floating type field then no validation
+
+        z = max_validation(nbr_fields)
+        max_validation(nbr_fields) = z + 3
+        valid_element$(nbr_fields, z + 1) = "DIGITS"
+        if  scale > 0 then
+          valid_element$(nbr_fields, z + 2) = str$(struc_len - scale - 1)
+        else
+          valid_element$(nbr_fields, z + 2) = str$(struc_len - scale)
+        end if
+        ! ++DJS++ 16-FEB-1993 subtract one for the decimal point
+        valid_element$(nbr_fields, z + 3) = str$(scale)
+
+        end routine
+
+
+
+60600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+        ! G E T   C L E A R I N G   L E N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Get the correct clearing length of each field.
+        !
+        ! EXPECTED:
+        !       p_mask$ = print mask of current field
+        !          Now that every field has a print mask, this is
+        !          fairly simple.
+        ! RESULT:
+        !       tildes = number of tildes
+        !       mask_len= length of the print mask
+        !       clearing_len = clearing length
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  get_clearing_len:
+
+60620   tildes = elements(p_mask$,"~")-1
+        z1 = len(p_mask$)
+        mask_len = z1 - tildes
+        clearing_len = mask_len
+
+60699   return
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Routines which create the SCREEN-DEPENDANT information
+        !    Entry point is calculate_screen_data
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+60800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C A L C U L A T E   S C R E E N   D A T A
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Calculate information such as how wide the screen display
+        !    of this field is, which screen it is on, what column,
+        !    and so forth.
+        !  THIS ROUTINE CALCULATES ALL THE DATA WHICH DEPENDS ON THE
+        !    CONFIGURATION OF THE SCREEN.
+        !
+        ! RESULT: 
+        !  tot_fld_lines() has the number of lines this will take
+        !       given that wrap_limit is the maximum lines for a field
+        !  nbr_screens     = number of screens taken up
+        !  screen_data(,1) = index of first field on this screen
+        !  screen_data(,2) = index of last field on this screen
+        !  str_row()       = row # for the field onscreen
+        !  str_col()       = column # for the 
+        !  str_prompt_loc()= column # for the prompt for this field
+        !  screen_field()  = screen number for this field
+        !       str_disp_width()  = the length, in columns, of
+        !               the displayed data (mask and wrap included,
+        !               so something wrapped has value wrap_lim here)
+        !  dis_prompt$()   = displayed prompt
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  calculate_screen_data:
+
+60820   gosub calc_field_lengths
+        gosub init_screen_data
+        for fld_num = 1 to nbr_fields
+          gosub add_to_screens
+        next fld_num
+
+60899   return
+
+
+
+61000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  C A L C   F I E L D   L I N E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Calculate the number of lines each field will take on the
+        !    present screen.
+        !  Expects:
+        !       str_len() = length of the field in characters
+        !       wrap_limit = maximum number of characters before the
+        !               field is printed with a wrap$ and no mask.
+        !  Result:
+        !       tot_fld_lines() = the number of lines it will take
+        !                               for each field.
+        !       str_disp_width()  = the length, in columns, of
+        !               the displayed data (mask and wrap included,
+        !               so something wrapped has value wrap_lim here)
+        !       dis_prompt$()   = tthe prompt to be displayed
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine calc_field_lengths
+
+61020   for t = 1 to nbr_fields
+          tot_fld_lines(t)= ceil(real(str_dlen(t))/wrap_limit)
+          str_disp_width(t) = str_dlen(t)
+          if  tot_fld_lines(t) > 1  then
+            tot_fld_lines(t) = tot_fld_lines(t) + 1     ! Extra room
+            str_disp_width(t) = wrap_limit
+          end if
+        next t
+
+61099   end routine
+
+
+61200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  I N I T   S C R E E N   D A T A
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Initialize the stuff necessary to divide the fields
+        !    into screens and columns.
+        !  Result:
+        !    cur_row = the last row of the previous field
+        !    cur_col = the column for the prompt location for the column
+        !               just used
+        !    pr_len = the maximum prompt length, including the colon.
+        !    longest_length = the longest length so far in this column
+        !    nbr_screens = the number of screens used so far
+        !       new_screen  = true if this field MUST go on another screen
+        !               (regardless of whether of not it fits)
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine init_screen_data
+
+61220   cur_row = display_start - 1
+        pr_len = standard_pr_len
+        cur_col = 1
+        longest_length = 0
+        nbr_screens = 0
+        new_screen = true
+
+61299   end routine
+
+
+
+61400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  A D D   T O   S C R E E N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Add the field (fld_num) to the one of the screens.  After
+        !    every call to this routine, the arrays are completely
+        !    ready to be used with the fields so far.
+        !  Expects:
+        !    cur_row = the last row of the previous field
+        !    cur_col = the column for the prompt location for the column
+        !               just used
+        !    pr_len = the maximum prompt length, including the colon.
+        !       nbr_screens = the number of screens used so far.
+        !       fld_num = the index for the field to add to the screen.
+        !       new_screen  = true if this field MUST go on another screen
+        !               (regardless of whether of not it fits)
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine add_to_screens
+
+61420   gosub check_requests
+
+        if  not(dont_display) and not_req  then gosub check_screen_counters
+        ! This sets cur_row, cur_col, pr_len, and nbr_screens
+        !   to represent the onscreen location of THIS field (fld_num)
+        if  new_screen  then gosub goto_new_screen
+        str_row(fld_num) = cur_row
+        str_col(fld_num) = cur_col + pr_len
+        prompt_loc(fld_num) = cur_col
+
+        dis_prompt$(fld_num) = str_prompt$(fld_num)
+        if  len(dis_prompt$(fld_num)) >= pr_len - 2  or &
+            dis_prompt$(fld_num) = ""  then &
+          dis_prompt$(fld_num) = change$(ucase$(str_name$(fld_num)[1:1]) + &
+              lcase$(str_name$(fld_num)[2:pr_len - 2]), "_"," ")
+                !  Mock up a prompt
+
+        screen_field(fld_num) =  nbr_screens
+        screen_data(nbr_screens,2) = fld_num
+        cur_row = cur_row + tot_fld_lines(fld_num) - 1
+        !  Update the current row to indicate the LAST row used
+        !    by this field.
+
+61499   end routine
+
+
+
+
+61500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  C H E C K   R E Q U E S T S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Check req_row and req_col.  If they are not_displayed
+        !    or not_requested, fine; otherwise set cur_row, cur_col,
+        !    and need_screen as needed.
+        !  If a screen is requested, set new_screen.
+        !  Expects:
+        !    cur_row = the last row of the previous field
+        !    cur_col = the column for the prompt location for the column
+        !               just used
+        !    pr_len = the maximum prompt length, including the colon.
+        !     req_row(fld_num) is the requested row position
+        !     req_col(fld_num) is the requested column position
+        !     req_screen$(fld_num) is the name of the screen
+        !  Result:
+        !     cur_row, cur_col are set to the new row and column
+        !       values
+        !     new_screen is true if you need a new screen.
+        !     dont_display = true if the field is not to be displayed.
+        !     not_req = true if they did not request a screen position.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine check_requests
+
+61520   dont_display = false
+        if  req_screen$(fld_num) <> ""  then
+          new_screen = true
+          cur_row = 0 !++ debug djs ++ 09-01-89
+          cur_col = 0 !++ debug djs ++ 09-01-89
+          if  match(screen_names$, req_screen$(fld_num)) > 0  then
+            background_screen = true !++ debug djs ++ 09-01-89
+            pr_len = background_pr_len  ! There is a background screen
+          else
+            background_screen = false !++ debug djs ++ 09-01-89
+            pr_len = standard_pr_len
+          end if
+        end if
+
+        if  req_row(fld_num) = not_displayed  then
+          dont_display = true
+          exit routine
+        end if
+
+        if  req_row(fld_num) = not_requested  and &
+            req_col(fld_num) = not_requested  then
+          not_req = true
+          exit routine
+        end if
+        not_req = false
+
+        next_row = cur_row + 1
+        !++ debug djs ++ 09-01-89 if  next_row > display_end  then next_row = display_start
+        if  next_row > background_end  then next_row = background_start
+        next_col = cur_col
+        if  req_row(fld_num) <> not_requested  then &
+          next_row = req_row(fld_num)
+        if  req_col(fld_num) <> not_requested  then &
+          next_col = req_col(fld_num)
+
+        !++ debug djs ++ 09-01-89 if  next_row > display_end  then next_row = display_start
+        if  next_row > background_end  then next_row = background_start
+        !++ debug djs ++ 09-01-89 if  next_row < display_start  then next_row = display_start
+        if  next_row < background_start  then next_row = background_start
+        !++ debug djs ++ 09-01-89 if  next_row > display_end - tot_fld_lines(fld_num) + 1  then &
+        if  next_row > background_end - tot_fld_lines(fld_num) + 1  then &
+              next_row = display_end - tot_fld_lines(fld_num) + 1
+        if  next_col < 1  then next_col = 1
+        if  next_col > the_width - pr_len - str_disp_width(fld_num)  then &
+              next_col = the_width - pr_len - str_disp_width(fld_num)
+                ! the IFs protect against wierd column and row locations.
+
+        if  (next_row <= cur_row)  and &
+            (next_col <= cur_col)  then
+          new_screen = true
+          pr_len = standard_pr_len
+        end if
+
+        ! Longest_length is the longest length in this column.
+        ! We are moving the column over, so
+        longest_length = longest_length + cur_col - next_col
+        longest_length = max(longest_length, &
+                             str_disp_width(fld_num) + pr_len)
+        cur_col = next_col
+        cur_row = next_row
+
+61599   end routine
+
+
+
+61600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  C H E C K   S C R E E N   C O U N T E R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Check to see if this field will fit in this column/screen.
+        !  If not, update the various counters so that it will fit.
+        !
+        !  Check if will fit in the column
+        !  If so, increase the row by one
+        !  If not, check if a new column will fit on the screen
+        !  If the col will fit, reset row and increase column
+        !  otherwise, go to the next screen, reset row, and reset column.
+        !  Expects:
+        !    cur_row = the last row of the previous field
+        !    cur_col = the column for the prompt location for the column
+        !               just used
+        !    pr_len = the maximum prompt length, including the colon.
+        !    longest_length = the longest length so far in this column
+        !    display_start = first line to display fields on
+        !    display_end = last line to display fields on
+        !    the_width = the width of the screen
+        !    standard_pr_len = the standardized prompt length
+        !    str_disp_width(fld_num) = the length, in columns, of
+        !               the displayed data (mask and wrap included,
+        !               so something wrapped has value wrap_lim here)
+        !    nbr_screens = the number of screens used so far
+        !    new_screen  = true if this field MUST go on another screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine check_screen_counters
+
+61620   cur_row = cur_row + 1
+        new_longest_length = max(longest_length, &
+                                 str_disp_width(fld_num) + pr_len)
+        if  (new_longest_length + cur_col <= the_width) and &
+            (cur_row + tot_fld_lines(fld_num) - 1 <= display_end) and &
+            not(new_screen)  then
+          longest_length = new_longest_length   ! Will fit in the column
+          exit routine
+        end if
+
+        cur_row = display_start
+        cur_col = cur_col + longest_length + in_between_col
+        longest_length = str_disp_width(fld_num) + pr_len
+        if  longest_length + cur_col <= the_width  and  not(new_screen)  then &
+          exit routine           ! It will fit on the screen
+
+        if  not(new_screen)  then pr_len = standard_pr_len
+
+        new_screen = true
+        cur_col = 1             ! cur_row is already display_start
+
+61699   end routine
+
+
+
+62100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  G O T O   N E W   S C R E E N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Go on to a new screen; clear it; if there is a requested
+        !    background screen, load it.
+        !  Expects:
+        !     fld_num = the field number which will be first on the
+        !       screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine goto_new_screen
+
+62120   new_screen = false
+        nbr_screens = nbr_screens + 1
+        screen_data(nbr_screens,1) = fld_num
+
+62199   end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Routines to find a suitable description field
+        !    Entry point:  find_desc_field
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+63000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N D   D E S C   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Find a description fields (not necessarly the field name
+        ! 'description' of the structure) which may help distinguish
+        ! between the records given a key value.
+        !
+        ! RESULT: 
+        !       f_desc$ = name of description field
+        !       desc_fld$ = list of description field indices, ones with
+        !               'DESCRIPTION' or 'NAME' in it first.  Doesn't
+        !               care about key fields.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  find_desc_fld:
+
+63020   desc_fld$ = ""
+        gosub get_desc_fld
+        gosub get_key_desc
+        gosub get_other_desc
+        desc_fld$[1:1] = ""
+
+63099   return
+
+
+
+63200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   D E S C   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Make a list of the 'DESCRIPTION' and 'NAME' fields
+        !
+        ! EXPECTED:
+        !       nbr_fields = number of fields
+        !       str_name$() = names of the fields
+        !       desc_fld$ = list of description field indices so far
+        !
+        ! RESULT:
+        !       found_desc = true is a DESCRIPTION or NAME field exists
+        !       desc_fld$  = list of established description field indices
+        !               WITH A LEADING COMMA, separated by commas
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  get_desc_fld:
+
+63220   for find_desc = 1 to nbr_fields
+          if  fld_structure(find_desc) <> 1  then  iterate for ! not from main structrue
+          f_desc$ = ucase$(str_name$(find_desc))
+          if  (f_desc$[1:4] = "DESC") or (f_desc$[1:4] = "NAME")  then 
+            z$ = str_name$(find_desc)
+            if  match(desc_fld$, z$) = 0  then &
+              desc_fld$ = desc_fld$ + "," + str$(find_desc)
+          end if
+        next find_desc
+
+63299   return
+
+
+
+63300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   K E Y   D E S C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Make a list of the KEY fields, in order, which are not already
+        !       on the list.
+        !
+        ! EXPECTED:
+        !       nbr_fields = number of fields
+        !       str_name$() = names of the fields
+        !       desc_fld$ = list of description field indices so far
+        !
+        ! RESULT:
+        !       found_desc = true is a DESCRIPTION or NAME field exists
+        !       desc_fld$  = list of established description field indices
+        !               WITH A LEADING COMMA, separated by commas
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  get_key_desc:
+
+63320   for find_desc = 1 to nbr_fields
+          if  fld_structure(find_desc) <> 1  then  iterate for ! not from main structrue
+          ask structure struc, field #str_name$(find_desc): keyed is_key
+          if  not(is_key)  then iterate for
+
+          z$ = str$(find_desc)
+          if  match(desc_fld$, z$) <> 0  then  iterate for
+          desc_fld$ = desc_fld$ + "," + z$
+
+        next find_desc
+
+63399   return
+
+
+
+63400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   O T H E R   D E S C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Add all the other fields to the list of description fields
+        ! 
+        ! EXPECTED:
+        !       nbr_fields = actual number of fields
+        !       desc_fld$ = list of description field indices so far
+        !  
+        ! RESULT:
+        !       desc_fld$  = list of established description field indices
+        !               WITH A LEADING COMMA, separated by commas
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  get_other_desc:
+
+63420   for find_desc = 1 to nbr_fields
+          if  fld_structure(find_desc) <> 1  then  iterate for ! not from main structrue
+          z$ = str$(find_desc)
+          if  match(desc_fld$, z$) = 0  then &
+            desc_fld$ = desc_fld$ + "," + z$
+        next find_desc
+
+63499   return
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Relate routines
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+64000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T   C O R R E C T   S T R U C T U R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! set the correct structure up for the current field
+        !
+        ! Expected:
+        !       fld_structure(display_field) = index to structure id array
+        !       display_field                = field to work with
+        !       str_id$()                    = id array for the structures
+        !
+        ! Result  :
+        !       structure struc is pointed to the correct structure
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine set_correct_structure
+
+64020   z = fld_structure(display_field)
+        set structure struc : id str_id$(z)
+
+64090   end routine
+
+
+
+64100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   R E L A T E   F O R   M O R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! check to see if a relate has caused another relate to trigger
+        ! if so then do that relate and display its fields
+        !
+        ! Expected:
+        !       nbr_relates = number of relates established
+        !       relate_success() = 0 if relate not tried yet
+        !       relate_str(, 1)  = structure number for key data
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_relate_for_more
+
+64120   do
+          if  not relate_made  then  exit routine ! no relate was made so leave
+          relate_found = false
+          save_display = display_field
+          for relate_index = 1 to nbr_relates
+            if  relate_success(relate_index) <> 0  then  iterate for  !already done
+            z = relate_str(relate_index, 1) ! driving structure
+            if  z = 1  then  iterate for ! from main structure - can't be done now
+            for z1 = 1 to nbr_relates
+              if  relate_str(z1, 2) <> z  then  iterate for ! not right relate
+              if  relate_success(z1) = 2  then  
+                rel_str_index = relate_index
+                crd_display_relate_errors = true
+                gosub do_relate_display
+                relate_found = true
+              end if
+            next z1
+          next relate_index
+        loop while relate_found
+        display_field = save_display
+        relate_made = false
+        set structure struc : id str_id$(1)
+            
+64199   end routine
+
+
+
+64200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   R E L A T E   C H A N G E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! check to see if a field is part of a relationship.
+        ! if so, process the relate and if successful, display any fields
+        ! that come from the related structure
+        ! This routine is called after a data field is changed
+        !
+        ! Expected:
+        !       change_field  = field number to check
+        !       fld_relate_key$() = the index to the relationship for this field
+        !                       if blank then no relate for this field
+        !       ans$          = data entered
+        !
+        ! Result  :
+        !       relate_success() is set by the subordinate routines
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_relate_change
+
+64220   display_field = change_field
+        rel_strs$ = fld_relate_key$(display_field)
+        if  rel_strs$ = ""  then  exit routine
+        for rel_nbr = 1 to elements(rel_strs$, ' ')
+          rel_str_index = val(element$(rel_strs$, rel_nbr, ' '))
+          rel_key_data$ = ans$
+          gosub do_relate
+          if  relate_success(rel_str_index) = 2  then
+            gosub display_related_fields
+          else
+            message error : ans$ + " wasn't found in the " + &
+                element$(valid_structures$, relate_str(rel_str_index, 2), ",") + &
+                " data structure"
+            error = true
+          end if
+        next rel_nbr
+        set structure struc : id str_id$(relate_str(rel_str_index, 1))
+
+64299   end routine
+
+
+
+64300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   R E L A T E   D I S P L A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! check to see if a field is part of a relationship.
+        ! if so, process the relate and if successful, display any fields
+        ! that come from the related structure
+        ! This routine is called from the field display routine
+        ! This will do the relate only if it hasn't been tried yet for this
+        ! record
+        !
+        ! Expected:
+        !       change_field  = field number to check
+        !       fld_relate_key$() = the index to the relationship for this field
+        !                       if blank then no relate for this field
+        !       relate_success() = 0=not tried 1=tried and failed 2=success
+        !       str_id$()     = array of structure ids
+        !
+        ! Result  :
+        !       relate_success() is set by the subordinate routines
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_relate_display
+
+64320   z = fld_relate_in(display_field)
+        if  z > 0  then &
+          if  relate_success(z) <> 2  then  exit routine
+        ! if the field i am checking comes from a relate
+        ! and that relate hasn't been tried or it failed
+        ! then don't try to do this relate because I don't have valid
+        ! data to relate with
+        rel_strs$ = fld_relate_key$(display_field)
+        if  rel_strs$ = ""  then  exit routine
+        for rel_nbr = 1 to elements(rel_strs$, ' ')
+          rel_str_index = val(element$(rel_strs$, rel_nbr, ' '))
+          if  relate_success(rel_str_index) <> 0  then  exit routine 
+          ! relate already done
+          gosub do_relate_display
+        next rel_nbr
+        set structure struc : id str_id$(relate_str(rel_str_index, 1))
+
+64390   end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   R E L A T E   D I S P L A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! set up the key for a relate and go do it
+        ! if they want display the display the fields
+        !
+        ! Expected:
+        !       rel_str_index = index to relate arrays
+        !       str_id$()     = ids for the various structures
+        !       relate_fld$() = field name for key
+        !       crd_display_relate_errors = true if fields should display
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_relate_display
+
+        set structure struc : id str_id$(relate_str(rel_str_index, 1))
+        z$ = relate_fld$(rel_str_index, 1)
+        rel_key_data$ = struc(#z$)
+        if  rel_key_data$ = ""  then  exit routine
+        gosub do_relate
+        if  crd_display_relate_errors = true  then
+          gosub display_related_fields
+          crd_display_relate_errors = false
+        end if
+
+        end routine
+
+
+
+64400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   R E L A T E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! try to establish the relationship
+        !
+        ! Expected:
+        !       relate_str(, 2) = structure to relate to
+        !       relate_fld$(, 2) = key field to use
+        !       rel_key_data$    = the data to look up
+        !       str_id$          = array of structure ids
+        !
+        ! Result  :
+        !       relate_success() = 1 if failed 2 is successful
+        !       relate_made      = true if relate was successful
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_relate
+
+64420   relate_success(rel_str_index) = 1 ! relate tried
+        set structure struc : id str_id$(relate_str(rel_str_index, 2))
+        set structure struc, field #relate_fld$(rel_str_index, 2) : &
+          key rel_key_data$
+        if  _extracted <> 0  then  
+          relate_success(rel_str_index) = 2
+          relate_made = true
+        end if
+
+64499   end routine
+
+
+
+64500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   R E L A T E D   F I E L D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! display any fields that come from the related structure
+        ! that are on the current screen
+        !
+        ! Expected:
+        !       fld_structure = structure number that a field comes from
+        !       relate_str(rel_str_index, 2) = structure just related to
+        !       rel_str_index = index to relate arrays
+        !       screen_field() = screen a field is on
+        !       display_screen = screen currently being displayed
+        !       nbr_fields     = number of fields defined
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine display_related_fields
+
+64520   for display_field = screen_data(display_screen, 1) to &
+                  screen_data(display_screen, 2)
+          if  fld_structure(display_field) <> relate_str(rel_str_index, 2) then
+            iterate for
+          end if
+          if  screen_field(display_field) <> display_screen  then  iterate for
+          gosub display_field_data
+        next display_field
+
+64590   end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  General routines
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+80000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K    V A L I D   S E Q
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check if the sequence number entered is valid.
+        !
+        ! EXPECTED:
+        !       sequence_nbr$= sequence number
+        !       max_sequence = maximum sequence number
+        ! RESULT:
+        !       sequence_nbr = actual sequence number
+        !       _error     = true if problem
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  check_valid_seq:
+
+80020   if  valid(sequence_nbr$, "integer")  then
+          sequence_nbr = val(sequence_nbr$)
+          if  (sequence_nbr < 1) or (sequence_nbr > max_sequence)  then &
+            message error: "Invalid sequence number: " + sequence_nbr$
+        else
+          message error: "Numeric response expected"
+        end if
+
+80099   return
+
+
+
+80200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   B O X
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Draw box according to how many items have been selected.
+        !
+        ! EXPECTS:
+        !       max_display = maximum number of lines to display
+        !         in the box
+        ! RESULT:
+        !       bottom_line = bottom line of box
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  do_box:
+
+80420   bottom_line = max_display + display_start + 1
+
+        if  bottom_line > display_items - 2  then
+           clear area box : 3, 1, display_end, the_width
+         else
+           clear area box : 3, 1, bottom_line ,the_width
+         end if
+
+80499   return
+
+
+
+80600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+        !  M D Y   T O   Y M D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Change a date in MMDDYY format to YYDDMM format
+        !
+        ! EXPECTED:
+        !       u_mmddyy$ = date in MMDDYY format
+        !
+        ! RESULT:
+        !       u_yymmdd$ = date in YYMMDD format
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  mdy_to_ymd:
+
+80620   u_yymmdd$ = u_mmddyy$[5:len(u_mmddyy$)] + u_mmddyy$[1:4]
+
+80699   return
+
+80700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+        !  M D Y   T O   Y M D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Change a date in MMDDYY format to YYDDMM format
+        !
+        ! EXPECTED:
+        !       u_fulltime_mdy$ = date in MMDDYY hhmmcc format
+        !
+        ! RESULT:
+        !       u_fulltime_ymd$ = date in YYMMDD hhmmcc format
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  fulltime_mdy_ymd:
+
+80720 if len(u_fulltime_mdy$) = 15 then   
+         u_fulltime_ymd$=u_fulltime_mdy$[5:8]+u_fulltime_mdy$[1:4]+u_fulltime_mdy$[9:15]
+      else    
+         u_fulltime_ymd$=u_fulltime_mdy$[3:6]+u_fulltime_mdy$[1:4]+u_fulltime_mdy$[7:13]
+      end if
+80725   return
+
+
+
+80800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+        !  Y M D   T O   M D Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Change a date in YYMMDD format MMDDYY format.
+        !
+        ! EXPECTED:
+        !       u_yymmdd$ = date in YYMMDD format
+        !
+        ! RESULT:
+        !       u_mmddyy$ = date in MMDDYY format
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  ymd_to_mdy:
+80820   if  len(u_yymmdd$) = 8  then
+          u_mmddyy$ = u_yymmdd$[5:8] + u_yymmdd$[1:4]
+        else
+          u_mmddyy$ = u_yymmdd$[3:6] + u_yymmdd$[1:2]
+        end if
+
+80899   return
+
+80900   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+        !  FULLTIME Y M D   M D Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Change a date in YYMMDD hhmmcc format MMDDYY hhmmccformat.
+        !
+        ! EXPECTED:
+        !       u_fulltime_ymd$ = date in YYMMDD hhmmcc format
+        !
+        ! RESULT:
+        !       u_fulltime_mdy$ = date in MMDDYY hhmmcc format
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  fulltime_ymd_mdy:
+
+80920   if  len(u_fulltime_ymd$) = 15  then
+          u_fulltime_mdy$ =u_fulltime_ymd$[5:8]+u_fulltime_ymd$[1:4]+u_fulltime_ymd$[9:15]
+        else
+          u_fulltime_mdy$ = u_fulltime_ymd$[3:6] + u_fulltime_ymd$[1:2]+u_fulltime_ymd$[7:13]
+        end if
+
+80999   return
+
+
+
+
+81000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A I N T   T O P    F R A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display which current option is being executed.
+        !
+        ! EXPECTED:
+        !       frame_head$  =  current option
+        !       center_head$ =  center of heading
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine paint_top_frame
+
+81020   z1$ = space$(the_width)
+        z1$[1:len(frame_head$)] = frame_head$
+        print reverse, at 1,1: z1$
+        if  center_head$ = ""  then exit routine
+
+        z = (the_width - len(center_head$)) / 2%
+        print bold, reverse, at 1,z - 1:" " + center_head$ + " "
+
+81099   end routine
+
+
+
+81200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+        !  P A I N T   B O T T O M   F R A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display bottom header .
+        ! Expected:  the_width = the width of the screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  paint_bottom_frame:
+
+81220   z1$ = space$(the_width)
+        cset z1$ = "Maintain V" + version$
+        z1$[1:11] = "EXIT = Exit"
+        z1$[the_width - 20:the_width] = "\ = Back  HELP = Help"
+        print reverse, at 24, 1 : z1$;
+
+81299   return
+
+
+
+81400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K Y N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask a yes or no question.
+        !
+        ! EXPECTED: 
+        !       u_prompt$ = current question
+        !
+        ! RESULT:
+        !       u_reply$ = y/n
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  askyn:
+
+81420   do
+          u_default$ = "No"
+          u_len = 3
+          gosub ask
+          if  _exit or _back  then exit do
+          if  valid(u_reply$,"yes/no")  then
+            u_reply$ = ucase$(u_reply$[1:1])
+          else
+            message error: "YES or NO"
+            repeat do
+          end if
+        end do
+                    
+81499   return
+
+
+
+81600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask the expected prompt.
+        !
+        ! EXPECTED:
+        !       u_prompt$ = question being asked
+        !       u_default$ = the default
+        !       u_len = the length.  Doesn't reset any of these.
+        !       u_help_key$ = the help key (optional; will use the prompt
+        !          with spaces changed to _ and "?:" removed)
+        !       u_required = true if a response is necessary
+        !
+        ! RESULT:
+        !       u_reply$  = user's reply
+        !       u_help+key$ is reset to ""
+  
+      !       u_required = true
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  ask:
+ 
+81620   init_ask_vars
+        clear area 21,1,21,the_width
+        do
+          ask_reply$ = ""
+          line input at 21,1, &
+                     prompt ask_prompt$, &
+                     default ask_default$, &
+                     length ask_len: u_reply$
+          if  _help  then
+            h_key$ = ask_help_key$
+            gosub h_help
+            if  ask_len = 0  then clear area 21,1,21,the_width
+            repeat do
+          end if
+
+          if  _exit or _back  then exit do
+          if  u_reply$ = "" and ask_required  then  repeat do
+
+          if u_reply$ = ">" then 
+            clear area 21,1,21,the_width     
+            iterate do
+          end if
+
+          if ask_vrules$ <> '' and not valid(u_reply$, ask_vrules$, true)  then 
+            repeat do
+          end if
+
+          clear area 21,1,21,the_width
+        end do
+
+81699   return
+
+
+
+81700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T   A S K   V A R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   setup ask variables
+        !   reset u_* vars for next time
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init_ask_vars
+          ask_help_key$ = u_help_key$
+          if ask_help_key$ = ""  then &
+            ask_help_key$ = change$(trim$(change$(ask_prompt$,'?:'))," ","_")
+          u_help_key$ = ''
+          ask_prompt$ = u_prompt$
+          u_prompt$ = ''
+          ask_default$ = u_default$
+          u_default$ = ''
+          ask_len = u_len
+          u_len = 0
+          ask_vrules$ = u_vrules$
+          u_vrules$ = ''
+          ask_required = u_required
+          u_required = true
+        end routine
+
+
+
+82000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C L O S E   S T R U C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Close structure.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  close_struc:
+
+82020    close all
+
+82099    return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !   Included files
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+90000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  P A R S E   U S I N G
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Parses the "using" file ("maintain structure using filename")
+        !    Calles by setup_fields.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+90020   %include 'parse_using.inc'
+
+
+91000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  V A L I D A T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Checks the rules in valid_elements$ to see if a reply is OK.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+91020   %include 'validation.inc'
+
+
+92000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  C H E C K   C O M P A N Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Check that a company name follows some given rules...
+        !    c_company$ is the company name to check
+        !  returns
+        !    c_company$ is the suggested replacement
+        !    c_violate is true if c_company$ violated any rules
+        !    c_rule$ conatains a summary of the broken rules
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+92020   %include "tti_run:CHECK_COMPANY.INC"
+
+
+
+93000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  H   H E L P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Supply help for prompts.  The first entry point is
+        !
+        !  Entry point:  h_help_init    (initializes)
+        !                h_help         (saves the screen, gives help,
+        !                                and restores the screen)
+        !   h_help expects 1) h_help_init has been called
+        !                  2) h_key$ = the help key to look up
+        !                     This key is NOT reset; however, if it is
+        !                     blank the routine will simple message
+        !                     "No help available"
+        !                  3) h_box_top = top of help box (reset to 3)
+        !                  4) h_box_bottom = bottom of help box
+        !                                       (reset to 20)
+        !                  5) h_filename$ = the help file
+        !                  6) h_channel = the channel to use.
+        !   h_help_init sets h_box_top, h_box_bottom, h_box_def_top,
+        !       and h_box_def_bottom.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+93020   %include 'maintain_help.inc'

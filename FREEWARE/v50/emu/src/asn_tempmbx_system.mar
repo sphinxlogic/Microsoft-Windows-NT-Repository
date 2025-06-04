@@ -1,0 +1,55 @@
+	.TITLE	ASN_TEMPMBX_SYSTEM 
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 ASN_TEMPMBX_SYSTEM 
+; Creates a logical name LNM$TEMPORARY_MAILBOX in the LNM$PROCESS_DIRECTORY
+; at supervisor level to redirect creation of temporary thingies to the system
+; logical name table rather than in the lnm$job table. Saves having permanent
+; thingies.
+;--
+; Modifications:
+; 001  KOB AUG 1993		CREATION 
+; Definitions
+
+	$LNMDEF
+	$PSLDEF
+	$SSDEF
+
+
+	.PSECT	RW_DATA, NOEXE, RD, WRT, LONG, PIC, NOSHR	;READ/WRITE DATA
+	.PSECT	RD_DATA, NOEXE, RD, NOWRT, LONG, PIC, SHR	;READ ONLY DATA
+
+LNM$PROCESS:		.ASCID	/LNM$PROCESS/
+LNM$PROCESS_DIRECTORY:	.ASCID	/LNM$PROCESS_DIRECTORY/
+LNM$SYSTEM:		.ASCII	/LNM$SYSTEM/
+LNM$SYSTEM_LEN = .-LNM$SYSTEM
+LNM$TEMPORARY_MAILBOX:	.ASCID	/LNM$TEMPORARY_MAILBOX/
+CRELNM_ACMODE:		.LONG	PSL$C_SUPER
+CRELNM_ITMLST:		.WORD	LNM$SYSTEM_LEN 
+			.WORD	LNM$_STRING
+			.ADDRESS LNM$SYSTEM
+			.QUAD	0
+			
+
+	.PSECT	PROG_CODE, RD, NOWRT, EXE, PIC, SHR, LONG
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ASN_TEMPMBX_SYSTEM
+
+	PUSHAL	CRELNM_ITMLST	; 
+	PUSHAL	CRELNM_ACMODE	; 
+	PUSHAL	LNM$TEMPORARY_MAILBOX
+	PUSHAL	LNM$PROCESS_DIRECTORY
+	CLRL	-(SP)		; ATTRIBUTES
+	CALLS	#5, G^SYS$CRELNM; 
+	RET
+	
+	.END

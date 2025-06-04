@@ -1,0 +1,293 @@
+
+Changes made between V1.93 FT1 and FT2:
+
+1) Implemented Unix-style "shlock" locking mechanism.
+Date:		10-Nov-1996
+Engineer:	Karol Zielonko
+
+Unix code called only three of the
+shlock routines - shlock (only called twice) and lopen and lclose (called all
+over).
+
+Originally wanted to rewrite shlock routines to use Perl 'C' extension which
+used the VMS lock manager. However I ran into so many road blocks in trying to
+code a Perl extension for VMS Perl that I gave up (temporarily at least). So, I
+coded the shlock routines in a similar fashion to the way the were done on Unix.
+To get a lock try to create a file. If we can create the file then we have
+the lock, otherwise we don't.
+
+The method used by the Unix version of the code to detect invalid locks was not
+valid for VMS. Invalid locks are detected differently in the VMS code. (An
+invalid lock occurs when the lock file is created and the process dies and
+forgets to delete the lock file.) Any process that has a shlock lock leaves the
+lock file open as long as it has the lock. Any process that is trying to get the
+lock tries to create the lock file first and then, if it cannot create the lock
+file, tries to unlink (ie. delete) the lock file. If the lock is "valid" then
+the unlink call will get "file locked by another user". If the unlink works then
+we know that no process had the file open so the lock was invalid. At this point
+we try to create the lock file again.
+
+********************************************************************************
+Changes made for V1.93 FT3:
+
+2) Perl scripts do SET FORWARD/USER commands referencing Majordomo logicals
+Date:		18-Nov-1996
+Engineer:	Karol Zielonko
+Files changed:	CREATE-LIST and CREATE-MAJORDOMO-FWD
+
+CREATE-LIST and CREATE-MAJORDOMO-FWD now use the logical name UCX$MAJORDOMO_HOME
+in the value for the SET FORWARD strings rather than the equivalence name of
+UCX$MAJORDOMO_HOME.
+
+3) Reference UCX$MAJORDOMO_HOME logical in *.COM
+Date:		18-Nov-1996
+Engineer:	Karol Zielonko
+Files changed:	MAJORDOMO.COM, RESEND.COM and REQUEST-ANSWER.COM
+
+The .COM files weren't looking for the Perl scripts in UCX$MAJORDOMO_HOME. Now
+they are.
+
+4) Send "list owner info" to list owner when creating new list + misc
+Date:		20-Nov-1996
+Engineer:	Karol Zielonko
+Files changed:	CHANGE-LIST, CREATE-LIST, MAJORDOMO-UTIL.PL, CONFIG_PARSE.PL
+Files added:	VMS-LIST-OWNER-INFO.TXT
+
+Each time a new list is created the list owner(s) will receive an email
+containing the list name and passwd, et. and some information on being a list
+owner.
+
+Took out some temporary debug stuff in config_parse.pl that made it into CMS by
+mistake
+
+5) Support for digests
+Date:		20-Nov-1996 - 3-Dec-1996
+Date into CMS:	4-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	MAJORDOMO, RESEND, CHANGE-LIST., CREATE-LIST.,
+                MAJORDOMO-UTIL.PL, MAJORDOMO.CF_TEMPLATE, MAJORDOMO.PL, RESEND.,
+                UCX$MAJORDOMO_SYSTARTUP.TEMPLATE, VMS-LIST-OWNER-INFO.TXT,
+Files added:	DIGEST, DIGEST.COM
+
+-  resend script
+   -  After sending mail to list we send to the digest if defined.
+   -  Hijacked command line "-d" option to hold name of digest if any. The Unix
+   style Majordomo debug option (which was formerly set by the command line "-d"
+   option) may still be set from the list's config file which is the prefered
+   method anyway.
+
+-  digest script
+   -  Initial port
+
+-  majordomo script
+   -  Initial port of the mkdigest routine.
+
+-  CHANGE-LIST., CREATE-LIST. ,MAJORDOMO-UTIL.PL, MAJORDOMO.PL
+   - Support for creation of list with digest
+
+-  VMS-LIST-OWNER-INFO.TXT
+   -  give example of mkdigest command
+
+6) Handle different requirements for SET FORWARD and double quotes
+Date:		26-Nov-1996
+Date into CMS:	4-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	MAJORDOMO-UTIL.PL, CREATE-MAJORDOMO-FWD
+
+Newer versions of VMS mail parse double quotes using a new method for allowing
+nested double quotes. This means that in order to get the correct forwards into
+VMS mail the triple double quotes that have been in use for years are not
+needed. The routines in MAJORDOMO-UTIL.PL that write the VMS mail SET FORWARD
+commands to the .COM file were updated to call a new routine that detects which
+address parsing scheme the installed version of VMS is using. This way the
+scripts can be used transparently on either version of VMS. The same is true for
+the routine in CREATE-MAJORDOMO-FWD that sets up *MAJOROMO* forwarding.
+
+7) Take out old diagnostic SHOW commands from *.com
+Date:		3-Dec-1996
+Date into CMS:	4-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	DIGEST.COM, MAJORDOMO.COM, REQUEST-ANSWER.COM, RESEND.COM
+
+Took out SHOW LOGICAL, etc. commands.
+
+8) Fix bug in shlock.pl that caused stray lock file.
+Date:		25-Nov-1996
+Date into CMS:	4-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	SHLOCK.PL
+
+If lock was attained but file couldn't be opened (say it wasn't there) then the
+lock file would never be deleted.
+
+9) Cleanup temporary .NEW file in do_unsubscribe
+  
+Date:		5-Dec-1996
+Date into CMS:	9-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	MAJORDOMO
+
+In majordomo's do_unsubscribe routine the .NEW file we were riting to wasn't
+getting cleaned up as well as it could. If an error occured a .NEW file would be
+left and subsequent threads wouldn't clean it up. Now a subsequent will clean
+up.
+
+10) Add new public routines to shlock code
+Date:		6-Dec-1996
+Date into CMS:	9-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	SHLOCK.PL
+
+Added new routines shlock_with_retry, shlock_release and shlock_lockfile
+   -  shlock_with_retry
+      Gets a lock on a resource with retry built in. (With regular shlock
+      the caller must implement the retry.)
+   -  shlock_release
+      Releases a lock attained with shlock_with_retry or shlock.
+   -  shlock_lockfile
+      Converts a filename to a "resource name" (ie a lockfile name) to pass to
+      shlock or shlock_with_retry routines.
+
+Made lopen and lclose call shlock_release and shlock_lockfile where appropriate.
+
+11) Fix bug where shlock called but status not checked.
+  
+Date:		6-Dec-1996
+Date into CMS:	9-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	MAJORDOMO and CONFIG_PARSE.PL
+
+In one spot each in the majordomo and the config_parse.pl scripts there was a
+call to shlock that didn't even check to see if the lock was granted and if not
+retry. I asked the Unix Majordomo workers if this was a bug and they confirmed
+that it was. I changed the code to call the new shlock_with_retry mechanism so
+the lock retry is done automatically.
+
+12) Remove some old diagnostics that are no longer needed from majordomo.pl
+  
+Date:		6-Dec-1996
+Date into CMS:	9-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	MAJORDOMO.PL
+
+********************************************************************************
+Changes made for V1.93 FT4:
+13) Fix bug in lists command handling of advertise/noadvertise
+  
+Date:		11-Dec-1996
+Date into CMS:	12-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	MAJORDOMO.
+
+The advertise and noadvertise configuration items are regexp's used by the LISTS
+command (majordomo scripts do_lists routine). The existing code didn't work on
+newer versions of Perl that expect '@' to be preceded with a \ inside a quoted
+string. Changed code to prefix the '@' with '\' in the address being matched
+against the advertise and noadvertise regexp's.
+
+14) Headers of messages bounced by Majordomo not right
+  
+Date:		11-Dec-1996
+Date into CMS:	12-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	RESEND.
+
+One problem was typo in file handle of print statement. The other was not
+calling ParseVMSMailHeader after seeking back to the beginning of the input
+file. 
+
+15) Port "approve" script
+  
+Date:		10-Dec-1996 - 12-Dec-1996
+Date into CMS:	12-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	MAJORDOMO.PL
+Files added:	APPROVE
+
+-  Change majordomo.pl's RetMailAddr routine to recognize Return-Path as a valid
+reply_to if the other headers it wants aren't there. Needed because the way the
+approve script works that's the only from header we get.
+
+-  Initial port of approve script
+
+16) Stray .out file left when Majordomo bounces message
+  
+Date:		12-Dec-1996
+Date into CMS:	12-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	RESEND.
+
+bounce routine was unlink temp files correctly but since we still had an open
+write channel to the .OUT file unlink wasn't working. Solution is to close OUT.
+
+17) shlock routine can't handle lock filename with version number 
+  
+Date:		13-Dec-1996
+Date into CMS:	13-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	SHLOCK.PL
+
+Fix it. Change ';' to '_'. Now a specific version of a file can be locked if
+need be.
+
+18) Support "get" and "index" command for archives
+
+Date:		13-Dec-1996
+Date into CMS:	13-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	majordomo., majordomo.pl, majordomo.cf_template
+
+Initial support. Too many changes to mention.
+
+19) Add vmshelp command
+
+Date:		16-Dec-1996
+Date into CMS:	18-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	majordomo
+Files added:	VMS-USER-INFO.TXT
+
+Added new majordomo command vmshelp to give supplementary help for VMS
+Majordomo. The help is contained in the new file VMS-USER-INFO.TXT which lives
+in UCX$MAJORDOMO_HOME. The majordomo script just opens it and reads it.
+
+20) Add pointer to DECnet majordomo server mail address in help.
+
+Date:		17-Dec-1996
+Date into CMS:	18-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	majordomo, majordomo.pl
+
+In help command text also give users who want to use DECnet mail to VMS
+Majordomo the DECnet address of the VMS Majordomo server.
+
+21) Make approve script tell you each file it's working on.
+
+Date:		17-Dec-1996
+Date into CMS:	18-Dec-1996
+Engineer:	Karol Zielonko
+Files changed:	approve
+
+Add trivial print statement.
+
+
+22) Approve script only work if set def'd to UCX$MAJORDOMO_HOME
+
+Date into CMS:	27-Jan-1997
+Engineer:	Karol Zielonko
+Files changed:	approve
+
+Re-arrange "require" statements so they're executed after we pull in
+majordomo.cf and add $homedir to @INC
+
+
+23) Don't die if VMS mail SET [NO]FORWARD .COM file incurs errors
+
+Date into CMS:	??-???-????
+Engineer:	Karol Zielonko
+Files changed:	majordomo-util.pl, delete-list.
+
+After we execute the .COM file to do the SET FORWARD or SET NOFORWARD for a list
+do not exit if we get an error. The most likely cause of the error will be that
+we hit the 32 character limit for VMS mail alias entries. Just continue since
+most of the time the list will work anyway.

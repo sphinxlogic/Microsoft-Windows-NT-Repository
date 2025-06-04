@@ -1,0 +1,124 @@
+	.Title  NDBG	Null Debugger
+        .IDENT  /V1.0/
+
+;****************************************************************************
+;*                                                                          *
+;*  COPYRIGHT (c) 1993 BY                                                   *
+;*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.                  *
+;*  ALL RIGHTS RESERVED.                                                    *
+;*                                                                          *
+;*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+;*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+;*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+;*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+;*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+;*  TRANSFERRED.                                                            *
+;*                                                                          *
+;*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+;*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+;*  CORPORATION.                                                            *
+;*                                                                          *
+;*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+;*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.                 *
+;*                                                                          *
+;****************************************************************************
+;
+;
+;
+;  ABSTRACT
+;
+;       This code is a null debugger and is intended to convert an
+;	image linked with /DEBUG into one that appears to have been
+;	linked /NODEBUG.   It is intended to be invoked via the debug
+;	bootstrap and the LIB$DEBUG logical name.
+;
+;  AUTHOR
+;	Steve Hoffman	30-Apr-1993
+;
+;	Based on some ideas from John Hildebrand and Kiyoshi Hirose,
+;	as well as some information gleaned from the DELTA debugger.
+;
+;  MODIFICATIONS
+;
+;  BUILD PROCEDURE
+;
+;	$
+;	$ Macro Sys$Scratch:NDBG
+;	$ Link	/NoTraceback/NoSysShr/Map -
+;		/Share=Sys$Scratch:NDBG.exe -
+;		Sys$Scratch:NDBG,Sys$Input/Option
+;	Ident="NDBG V1.0"
+;	GSMATCH=LEQUAL,5,1
+;	CLUSTER=NDBG_RW
+;	CLUSTER=NDBG_RO
+;	COLLECT=NDBG_RW,NDBG$$$$$
+;	COLLECT=NDBG_RO,NDBG$CODE
+;	DZRO_MIN=5
+;	UNSUPPORTED=1
+;	UNIVERSAL=NDBGSTART
+;	$
+;	$! Point all process /DEBUG requests at NDBG
+;	$
+;	$ DEFINE/NoLOG LIB$DEBUG Sys$Scratch:NDBG.EXE
+;	$
+;
+
+	.disable	global
+	.external	SYS$EXIT
+
+	$ihadef
+	$clidef
+	$ssdef
+
+	.Psect  NDBG$$$$$,NOEXE,RD,NOWRT,PIC,SHR,LONG
+NDBGBASE::
+	;
+	; Set up the header used by the debugger bootstrap:
+	;	+---------------------------------+
+	;	| Offset of Writable Storage Base |
+	;	+---------------------------------+
+	;	| Offset of Writable Storage End  |
+	;	+---------------------------------+
+	;	| Offset of Starting Address      |
+	;	+---------------------------------+
+	;
+	; This header must be at the front of the debugger image.
+
+	.Long	<NDBGBASE - NDBGBASE>
+	.Long	<<511 + NDBGCEIL - NDBGBASE > & ^C511>
+	.Long	<NDBGSTART-NDBGBASE>
+
+	.Psect  NDBG$CODE,EXE,RD,NOWRT,PIC,SHR,LONG
+NDBGSTART::
+
+	; We expect exactly six arguments.  No more.  No less.
+
+	CMPB	#6,CLI$L_INIARGCNT(AP)	;
+	BNEQ	100$			;
+
+50$:	; Turn off the debugging bits -- pretend /NODEBUG was
+	; specified.
+
+	BICL2	#CLI$M_DBGTRU,CLI$L_CLIFLAG(AP)
+	BISL2	#CLI$M_DEBUG,CLI$L_CLIFLAG(AP)
+
+	; Get the transfer vector address, go looking for the
+	; second transfer vector.  (We were started up by the
+	; debugger bootstrap -- the first vector.)  Then call
+	; it.
+
+	MOVL	CLI$A_PROGXFER(AP),R0	;
+	MOVL	IHA$L_TFRADR2(R0),R0	;
+	CALLG	(AP),(R0)		;
+	PUSHL	R0			;
+	CALLS	#1,G^SYS$EXIT		;
+	RET				;
+
+100$:	; Whoops... Some sort of error...
+
+	PUSHL	#SS$_BADAPARM		;
+	CALLS	#1,G^SYS$EXIT		;
+	RET				;
+
+NDBGCEIL:
+	.End

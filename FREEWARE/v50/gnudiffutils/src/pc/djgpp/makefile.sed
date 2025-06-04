@@ -1,0 +1,2 @@
+1i\
+env = djgpp

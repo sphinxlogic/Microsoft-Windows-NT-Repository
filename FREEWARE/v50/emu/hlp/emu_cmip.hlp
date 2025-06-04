@@ -1,0 +1,297 @@
+1 EMU_CMIP 
+ Various routines to process CMIP returns.
+ See individual routines for detail.
+2 PARSE_CMIP_HEADER
+ Strip CMIP header and return components
+3 Inputs
+	address of descriptor pointing to header 
+	address of descriptor pointing to output
+ 
+ 1st byte of header must be one of:
+	^xA1	- one of multiple returns
+	^xA2	- Last return
+	^xA3	- Error returned
+	^xA4	- Reject
+3 Output
+ .quad	- counted string of entity (less comon part)
+ .long	- total header len (distance to 1st param)
+ .var	- .ascic of entity name (if present)
+3 Returns
+	SS$_NORMAL	OK
+	SS$_ACCVIO	Could not write outp
+	SS$_FORMAT	Input in unexpected format
+2 DISPLAY_PRIMITIVES
+ Routine to log results from CMIP_XTRPRIMITIVES  (which see)
+ to file. Called when debug options set.
+3 Inputs
+  .addr of desc pointing to CMIP_XTRPRIMITIVES outp block
+3 Outputs
+  Formatted records written to EMU_CMIP.LOG in default directory.
+2 CMIP_XTRPRIMITIVES  
+ Extract primitive data types from DNA_CMIP encoded paramater
+
+3 Inputs
+ 	Address of DNA_CMIP paramater
+	Address of descriptor pointing to outp
+       (Optional) If present, address of .long where outp len is written
+
+ Input must always start with X'80,len,param
+3 Output 
+	.long	CMIP param number
+	.long	Number of primitives found
+	for each primitive found: 
+	unaligned sequence of tag,len,value 
+	tag = .WORD Class
+	      .WORD Tag value (stripped) 
+	len = .long
+	Value = ASN.1 encoded stripped of all protocol.
+
+3 Returns
+	SS$_NORMAL	all is well
+	SS$_BUFFEROVF	Outp buf too small . Any partial return not trusted.
+	SS$_DATACHECK	Could not parse input
+2 CMIP_XTRFULLNAME  
+ Extract CMIP encoded fullname to .ascii string
+3 Input
+ Addr of ASN1 tag at start of name field (5b)
+ Addr of desc pointing to area where .ascii string is written
+3 Output
+ .ascic string of assembled name in format SN:.sn.sn.sn
+ where SN is a simplename component
+3 Return
+	SS$_NOTRAN  	Unable to translate (not implemented)
+	SS$_DATACHECK 	Input format error or routine error.
+	SS$_BADPARAM	1. ASN1 tag is not fullname (5B) or simplename (5A)	
+2 DN5_MAKTBL 
+ Routine to extract and format params from CMIP encoded frame.
+3 Inputs
+	P1 	.address of desc pointing to CMIP frame
+	P2	.address of desc pointing to param selection table
+	P3	.address of .desc pointing to outp
+ 	P4	.adddress of .long where context is written
+3 Param selection table
+ field		offs		desc
+ param		0	Paramater number to extract
+ Size		4	Size of output field
+ Format	8	format routine to use
+ Location	12	offset into outp table where param is written
+
+
+3 Outputs
+       Block of fully parsed, partialy formated params as directed by
+	selection table. Fields requested are written as:
+	.long		CMIP param number
+	.long		len of field
+	.long		len of data
+	fixed size	value padded to size of outp field  
+
+ 	Context. In case of multiple instances, this .long is written with the
+ 	address of the next block and SS$_NORMAL is returned. At end of block
+	SS$_NOMOREITEMS is returned. 
+4 Output
+ Each param is written as a .long param number followed by the param value in 
+ a Field sized by the size param. If the param is shorter it is padded with 
+ null bytes.  If is is longer, it is not returned.
+
+ Multiple instances are detected when a param already written is discovered
+ in the input block (that is the 2nd instance of the same param). In this
+ case, SS$_NORMAL is returned and the context is written with the addr
+ of the param. This is used on the next call and the next block is returned.
+ 
+4 Formatting.
+ Each param is formatted according to the format paramater. It is a symbol
+ used to select a routine in this programme. Currently provided:
+ symbol	Format
+  0 		as is (input is copied to output)
+  1		.ascic returned 
+  2		.long  
+  3		.long byte reversed 
+  4		.quad ethernet address (net fmt)
+  5		.quad
+  6 		.quad byte reversed
+  7 		.ascic name (either simple or full)  
+3 Returns
+	SS$_NORMAL 	A single block parsed and written successfuly. There 
+			is more data in the raw return from CMIP.            
+	SS$_NOMOREITEMS A single block parsed and written successfuly. There 
+			is no more data in the raw return from CMIP. The caller
+			should always recursively call this routine until
+			Receiving this return.
+ 	SS$_BUFFEROVF	One (or more) params are larger than the size indicated
+			in select table. The param is not returned.
+2 DN5_XTRPARAM 
+ Routine to extract params from CMIP encoded frame.
+3 Inputs
+	P1 	.address of desc pointing to CMIP frame
+	P2	.address of .desc pointing to outp
+ 	P3	.adddress of .long where context is written
+
+3 Outputs
+       Block of fully parsed, unformated params. All params
+ 	for a single instance are returned with each param as follows:
+
+	 .long	 len of following:
+        .long   CMIP param number
+        .long   Number of primitives found
+      For each primitive found:
+        unaligned sequence of tag,len,value
+        tag = .WORD Class
+              .WORD Tag value (stripped)
+        len = .long
+        Value = ASN.1 encoded stripped of all protocol.
+
+ 	Context. In case of multiple instances, this .long is written with the
+ 	address of the next block and SS$_NORMAL is returned. At end of block
+	SS$_NOMOREITEMS is returned. 
+
+3 Returns
+	SS$_NORMAL 	A single block parsed and written successfuly. There 
+			is more data in the raw return from CMIP.            
+	SS$_NOMOREITEMS A single block parsed and written successfuly. There 
+			is no more data in the raw return from CMIP. The caller
+			should always recursively call this routine until
+			Receiving this return.
+ 	SS$_BUFFEROVF	The output field is too small to receive all params
+			Any partial return contains complete data. That is 
+			any paramter returned is not truncated.
+ Check params
+MOVAB	EMU_CMIP_HANDLER,(FP)	; Condition handler 
+
+MOVQ	@4(AP),R8			; Inpt desc
+PROBER	#0,R8,(R9)			; Check for read access
+BEQL	20$
+MOVQ	@8(AP),R6			; outp desc
+PROBEW	#0,R6,(R7)			; Check for write access
+BEQL	20$				; OK
+PROBEW	#0,#4,@12(AP)			; Check context for write access
+BNEQ	30$				; OK
+
+0$:
+MOVL	#SS$_ACCVIO,R0 			; Signal Error
+RET					; Die
+
+0$:
+MOVC5	#0,#0,#0,R6,(R7)		; Init output
+	ADDL3	R7,R6,R6			; Set end addr
+MOVQ	@4(AP),RETURN_D			; Input frame
+MOVL	RETURN_D+4,R8			; Start addr
+TSTL	@12(AP)				; Context present?
+BEQL	50$                             ; Br if = 0
+ We are processing part of a multiblock return:
+ Context (@AP)+16 is the start address of the next block to process.
+ Reset the start addr and the input descriptor.
+MOVL	@12(AP),R8			; Set to next block
+SUBL3	RETURN_D+4,R8,R1          	; Get len diff
+SUBL	R1,RETURN_D			; Reset desc len
+MOVL	R8,RETURN_D+4			; Reset origin
+0$:
+ Parse CMIP Header
+PUSHAL	MSGHDR_D
+PUSHAL	RETURN_D
+CALLS	#2,PARSE_CMIP_HEADER                                  
+BLBS	R0,60$
+MOVL	#SS$_NOMOREITEMS,R0		; Assume eod
+RET
+0$:
+PUSHAL	ASN1_RETURN             ; Get len of this block
+PUSHL	R8
+CALLS	#2,PROCESS_ASN1_TAG
+BLBS	R0,70$
+RET
+0$:
+MOVAL	ASN1_RETURN,R1
+ Calc distance to end of this block and set R9 to this addr:
+ Distance is Len of tag+len of Len +len of data
+
+ADDL3	ASN_PAT_C_LLEN(R1),ASN_PAT_C_TLEN(R1),R9  ;llen+tlen
+ADDL	ASN_PAT_C_LVAL(R1),R9 			  ; Len of data
+ADDL	R8,R9					  ; Set end addr
+ADDL	MSGHDR+8,R8              	; Start at end of hdr
+70$:
+ find each param 
+PUSHAL	ASN1_RETURN
+PUSHL	R8
+CALLS	#2,PROCESS_ASN1_TAG
+BLBS	R0,180$
+RET
+80$:
+MOVAL	ASN1_RETURN,R1
+CMPB	(R8),#CMIP_TAG_CTXSPC			; param ?
+BEQLU	200$
+
+90$:
+MOVAL	ASN1_RETURN,R1
+ADDL	ASN_PAT_C_NEXT(R1),R8			; Next tag
+CMPL	R8,R9                                   ; End of this block?
+BLSSU	170$                                    ; Br if no
+MOVL	R9,@12(AP)                              ; set context
+MOVQ	@8(AP),R8			; Original outp desc
+       SUBL3	R9,R7,@8(AP)			; Write len returned data
+MOVL	#SS$_NORMAL,R0                          ; More data
+RET
+00$:
+ Set CMIP param number and primatives found
+
+ADDL3	#4,R7,XTRETURN_D+4              ; Make desc - addr
+SUBL3	#4,R6,XTRETURN_D                  ;  - len 
+PUSHL	R7				;  ret len here
+PUSHAL	XTRETURN_D
+PUSHL	R8
+CALLS	#3,G^CMIP_XTRPRIMITIVES  
+BLBS	R0,210$
+RET
+10$:
+ Check outp space and store param (if space)
+MOVL	(R7),R1				; Written len
+BEQL	220$				; Br if no outp
+ADDL	#4,R1				; + tot len
+ADDL	R1,R7				; Move pointer
+SUBL	R1,R6  				; Deduct written
+20$:
+BRW	190$				; Next tag
+
+
+
+.CALL_ENTRY	MAX_ARGS=3, -
+		HOME_ARGS=TRUE, - 
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=PROCESS_ASN1_TAG   
+++
+2 PROCESS_ASN1_TAG  
+ This routine processes an ASN.1 tag and returns information about it's
+ contents.
+3 Inputs
+ P1 = addr of TAG To process
+ format = (T)ag, (L)ength, (V)alue
+4 Notes:
+ Tag is either 1 byte or constructed:
+ If bot 5 bits of 1st byte are all set then tag value is concatination
+ of the lower 7 bits of each subsequent octet until (and including) the 
+ top bit is set. examples:
+ tag 		Interpretation
+ 02		universal, simple, value = 2
+ 7F 2c		Private, constructed, value = 2C
+ Cf 81 01	Private, simple, value= 17 (not really valid)
+
+ Len is in 1 of 2 formats:
+ If hi bit of len field is 0 then len is in botton 7 bits
+ If hi bit = 1 then bottom 7 bits is number of bytes following which
+ contain len
+ The distance to the next tag is:
+ tag_len bytes for the current tag
+ + Number of len bytes
+ + the len of the field or, in the case of a constucted tag then 0
+
+3 Returns
+ R0 = ss$_normal    - tag processed and output written
+      ss$_datacheck - Could not parse input (input data in bad format)
+3 Outputs
+ array of:
+ Len of Tag		.long
+ Val of tag		.long
+ Len of len		.long
+ Val of len		.long
+ offset to next tag    .long
+ spare			.blkl	3
+

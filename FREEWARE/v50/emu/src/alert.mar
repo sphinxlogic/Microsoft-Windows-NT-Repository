@@ -1,0 +1,604 @@
+ 	.TITLE	ALERT  
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+;	Feb 1997	PB	Creation v1
+;++
+;1 ALERT   
+; This subsystem combines to allow alerts to be generated, passed to 
+; further processors, formated and displayed to various connected users.
+; There are 3 discrete stages any alert passes:
+; Generater.
+; 1. Any process wishing to alert a user or other process of unusual 
+;    conditions is known as a generator. The generator allocates an alert
+;    buffer, fills it it in and passes it to the alert process.
+; 2. Alert (this process)
+;    Recieves alerts from generaters, performs initial processing
+;    stores the alert in the alert database and then passes them onto the 
+;    alert formatter/sender.
+; 3. Formatter. 
+;    If there are any active recievers:
+;    Formats alerts according to format type requested and sends them to 
+;    the active display(s).
+;
+; NOTE THAT IN THIS VERSION FUNCTION 2 & 3 ARE COMBINED IN THIS PROCESS
+; This implementation simply reads the input MBX, logs and formats the 
+; message and writes it to the outp MBX. This does not allow for multiple
+; displays or multiple formats to be implemented. A future version will
+; correct this.
+; Filtering.
+; Filtering happens at 2 stages:
+; A global filter is built into ALERT that can disable:
+;	All alerts
+;	All alerts for specified class
+;	All alerts below specified priority.
+; Each connected user can individualy specify filters for all of the above
+; plus:
+;	All alerts for specifc device
+;	All alerts for specific protocol
+;       All Alerts for specified subclass
+;
+;2 Alert frame
+; This also the Alert log file format
+; For the log file keys are TIME, DBPID.ALTID, CLASS (20 Bytes) 
+;   Field	Ofs	Len		Desc
+;  Time		0	8	.quad system time when alert generated
+; *DBPID	8	4	DB this alert is for
+; *ALERT BOXID	12	4	Unique device ID (ALERT ONLY)
+; *Class	16	4	Alert Class
+;  Subclass	20	4	Alert subclass
+;  Expirey	24	4	.long seconds after which alert expires
+; *PID		28	4	EMU system PID of sending process
+;  Priority	32	4	Alert priority
+;  Param count	44	4	Count of params in paramater field
+;  Paramaters	48	464	Paramaters
+; 
+; Those params marked * MUST be set. All others are optional
+;3 Time
+;  This process sets this field with the current time when alert is 
+;  received. It does not change after that. 
+;3 Expirey
+;  If this field is not 0 then the alert is processed through the
+;  timed alert que. If an identical alert is present and not expired
+;  in the que, the alert is processed and sent. If not, it is simply
+;  placed in the que. This allows for events that when they occur occasionaly 
+;  are not problems but when occur frequently are.
+;3 PID
+; The EMU defined protocol identifier of the sender. In some cases 
+; an alert is generated on behalf of another process so the PID and the 
+; sender are not always synonomous.
+;3 DBPID
+;  This param along with the next one (ALTID) serve to uniquely identify
+;  the BOX this alert is for. This param is the PSRdb the ALTID exists in.
+;3 ALTID
+; This param identifies the BOX within the PSRdb specified by DBPID.
+; Together these params are use to locate the specific box in the DB
+; and:
+;	Generate a box name
+;	Get counts for recent/related
+;	Update the Alert section for this box
+;
+
+;3 Priority
+;  The generater initaly assigns a priority. This process may change that
+; depending on circumstances it discovers in processing. It is in the 
+; range 0-255 where 0 is lowest. The formatter uses this to filter,
+; set colours, sounds and such to denote important errors.
+;3 Class
+;  This is OSI standard:
+;  classes are:
+;   Accounting
+;    Performance
+;    Configuration
+;    Fault
+;    Security
+;    system	*
+; System is not part of the standard but is necessary to allow EMU to 
+; alert operators on internal problems that may require intervention.
+;3 Subclass
+;  Dictated by the class. If not valid, the field is ignored and processed
+;  as default.
+;  Class		Subclass		Value (0 = default)
+;  Accounting		None
+;  Performance		None
+;  Configuration	New component		0
+;			Modified		1
+;			Deleted			2
+;  Fault		None
+;  Security		None
+;  System		None 
+;3 Paramater_Count
+;	 The number of paramaters in the paramater field.
+;3 Paramater_format
+;  Each param is formatted as:
+;  	.long	Len of following param
+;	EMUDB rec. That is:
+;	Key of 24 bytes
+;	Data for len of len param - key len
+; eg: for MOP Version:
+;	.long	27	total len
+; Key
+;	.long	6	Mop protocol
+;	.long	x	boxid
+;	.long	65539	Mop table id
+;	.long	0	Instance (not used in MOP)
+;	.long	1	Param (version)
+;	.long	x	Key flags
+;	.blkb	3	3,0,0	(data)
+;
+; Followed by the next n-1 params in same format
+;
+;2 Alert database
+;  Each alert is recorded by this process after processing and 
+;  before sending to the formatter/ distributer.
+; 
+;2 Control_flags
+; Global filtering of alerts can be programmed at this level:
+; A .long pattern is set in the control section
+; Byte 0 :
+;	Bit		When set
+;	0	Do not foward Accounting alerts
+;	1	Do not foward Performance alerts
+;	2	Do not foward Configuration alerts
+;	3	Do not foward Fault alerts
+;	4	Do not foward Security alerts
+;	5	Do not foward system alerts
+; Byte 1:
+;  Any alert below priority set here is not forwarded
+; Byte 2:
+; Not used
+; Byte 3:
+;	7		Do not forward any alerts to formatter
+;--
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY        /EMU5_LIB:EMU5.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$NMADEF
+	$LCKDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUCNTDEF
+	EMUPSRDEF
+	EMUPSRDEF
+	EMUMSGDEF
+;
+
+	.psect	listen_sec,wrt,noexe,pic,shr,page
+;
+; Alert input MBX
+ALTIN_BUFF:	.BLKB	512
+ALTIN_SIZE = .-ALTIN_BUFF
+;
+; Alert output MBX
+ALTOUT_SIZE = 1024
+ALTOUT_BUFF:	.BLKB	ALTOUT_SIZE
+ALTOUT_DESC:    .LONG	.-ALTOUT_BUFF
+		.ADDRESS  ALTOUT_BUFF
+MAXNAMSIZ = 256
+NAME_BUFF:	.BLKB	MAXNAMSIZ
+NAME_DESC:	.LONG	.-NAME_BUFF
+		.ADDRESS  NAME_BUFF
+; 
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+PSRTBL_A:	.QUAD	0
+RELATER_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+COUNTERS_A:	.QUAD	0
+COMIPC_A:	.QUAD	0
+INADDR:		.QUAD	0
+PARAM_DESC:	.QUAD	0
+GBLSIZ:		.LONG	0
+LCNT:		.LONG	0
+; 
+; Name return
+;
+ALTIN_IOSB:	.QUAD	0
+ALTOUT_IOSB:	.QUAD	0
+
+
+READMBX:	.LONG	12				; Arg counter
+       		.LONG	0				; Event number
+ALTINCHAN:	.LONG	0				; Channel
+      		.LONG	IO$_READVBLK			; Function
+       		.LONG   ALTIN_IOSB			; IO Status block
+       		.LONG	0				; AST Routine
+		.LONG	0				; AST Param
+       		.LONG	ALTIN_BUFF			; P1
+       		.LONG	ALTIN_SIZE			; P2
+       		.LONG	0				; P3
+       		.LONG	0				; P4
+       		.LONG	0				; P5
+       		.LONG	0				; P6
+
+;
+WRITEMBX:	.LONG	12				; Arg counter
+       		.LONG	0				; Event number
+ALTOUTCHAN:	.LONG	0				; Channel
+      		.LONG	<IO$_WRITEVBLK!IO$M_NORSWAIT>	; Function
+       		.LONG   ALTOUT_IOSB			; IO Status block
+       		.LONG	0				; AST Routine
+		.LONG	0				; AST Param
+ALTOUTB:       	.LONG	ALTOUT_BUFF			; P1
+ALTOUTS:       	.LONG	ALTOUT_SIZE			; P2
+       		.LONG	0				; P3
+       		.LONG	0				; P4
+       		.LONG	0				; P5
+       		.LONG	0				; P6
+
+; Log file
+ALERTFAB:	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 512,-                     ; Largest rec
+		RFM = VAR,-			; Variable len
+		GBC = 10,-                      ; Use global buffers
+		DNM = <EMU5_DAT:ALERT.DAT>,-	; Default Filename 
+		FNM = <ALERT>,-			; Filename 
+		FOP = CIF,-			; Create if doesn't exist
+		XAB = ALERTXAB0                  ; Keys
+; Read RAB
+ALERTRAB:	$RAB	FAB = ALERTFAB,-		; pointer to FAB
+		RAC = KEY,-			; Keyed file
+		ROP = NXT
+
+ALERTXAB0:	$XABKEY	REF = 0,-  	; Time
+		DTP = BN8,-             ; Key = 8 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-               ; Key len
+                FLG = <DUP>,-		; Duplicates allowed
+		NXT = ALERTXAB1
+;
+ALERTXAB1:	$XABKEY	REF = 1,-  	; DB.ALTID
+		DTP = BN8,-             ; Key = 4 byte binary (ascending)
+		POS = 8,-               ; Key position
+		SIZ = 8,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = ALERTXAB2
+;
+ALERTXAB2:	$XABKEY	REF = 2,-  	; Class
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 16,-              ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>	        ; Duplicates, changes allowed
+
+
+
+; Alert class xlate table
+ALT_CLS_TBL:
+	.ADDRESS	ALTCLS_UNK
+	.ADDRESS	ALTCLS_ACCT
+	.ADDRESS	ALTCLS_PERF
+	.ADDRESS	ALTCLS_CONF
+	.ADDRESS	ALTCLS_FAUL
+	.ADDRESS	ALTCLS_SEC
+	.ADDRESS	ALTCLS_SYS
+MAXALTCLS = 6
+
+
+
+
+	.ALIGN	LONG
+;
+ALTINMBX:	.ASCID	/ALTINMBX/		; 
+ALTOUTMBX:	.ASCID	/ALTOUTMBX/	
+
+; Class names
+ALTCLS_UNK:	 .ASCIC	/Unknown        /
+ALTCLS_ACCT:     .ASCIC	/Accounting     /
+ALTCLS_PERF:     .ASCIC	/Performance    /
+ALTCLS_CONF:     .ASCIC	/Configuration  /
+ALTCLS_FAUL:     .ASCIC	/Fault          /
+ALTCLS_SEC:      .ASCIC	/Security       /
+ALTCLS_SYS:      .ASCIC	/System         /
+ALTNAMSIZ = 16
+
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/ALERT/
+
+; Messages:
+ALTFAO1:	.ASCID	\*** !AC Alert on !AS *** !/\
+ALTFAO2:	.ASCID	\Received at !%D on !AC, Priority = !UL !/\
+ALTFAO3:	.ASCID	\Other Recent events !UL !/\
+ALTFAO4:	.ASCID	\Additional Information: !/\
+SCLAS_NEW:	.ASCID	\Component Added !/\
+SCLAS_MOD:	.ASCID	\Component Modified. Old/New Values Follow !/\
+SCLAS_DEL:	.ASCID	\Component Deleted. !/\
+; Misc
+	.ALIGN	LONG
+CONTEXT:	.LONG
+CRLF:		.BYTE	10,13
+
+
+
+	.PSECT	ALERT_C,NOWRT,EXE,SHR,PIC,LONG
+	.sbttl	alert ()
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALERT
+
+; Errors between here and READ: are fatal
+;
+; Ensure death if control process dies
+	CALLS	#0, G^GET_CONTROL_LOCK	; 
+	BLBS	R0,10$
+	RET
+;
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+10$:
+
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BLBS	R0,20$
+	RET
+20$:
+;	
+; Create i/p MBX
+	PUSHAL	ALTINMBX       	; Logical Name
+	CLRL	-(SP)			; Access Mode
+	CLRL	-(SP)			; Protection Mask
+	PUSHL	#4160			; Buff Quota (8 MSGS)
+	PUSHL	#512			; Max Message Size
+	PUSHAL	ALTINCHAN		; I/O Channel
+	PUSHL	#0			; Temp Mailbox
+	CALLS	#7, g^SYS$CREMBX	; Create Mailbox
+	BLBC	R0,30$
+; Create o/p MBX
+	PUSHAL	ALTOUTMBX		; Logical Name
+	CLRL	-(SP)			; Access Mode
+	CLRL	-(SP)			; Protection Mask
+	PUSHL	#2064			; Buff Quota
+	PUSHL	#1024			; Max Message Size
+	PUSHAL	ALTOUTCHAN		; I/O Channel
+	PUSHL	#0			; Temp Mailbox
+	CALLS	#7, g^SYS$CREMBX	; Create Mailbox
+	BLBS	R0,40$
+	RET
+30$:
+        MOVL	#MSG_ALERT_NOMBX,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+40$:
+
+; Create and Map to sections 
+	PUSHAL	CONTROL_A		; Control section return addresses     
+	CALLS	#1, G^MAP_CONTROL	; Create and map control section       
+	BLBS	R0,50$
+
+        MOVL	#MSG_ALERT_NOCTRL,MSGCDE      ; No ipc map
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+50$:
+	PUSHAL	COUNTERS_A		; Counters                             
+	CALLS	#1,G^MAP_COUNTERS                                              
+	BLBS	R0,60$
+	MOVL	#MSG_ALERT_NOCNTR,MSGCDE     ; No counters
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+60$:
+
+70$:
+
+110$:
+; Set registers. 	
+	MOVL	COUNTERS_A,R11          ; Counters
+
+; Init counters
+;	MOVC5	#0,#0,#0,#CNT_ALT_C_SIZ,CNT_ALT_C_1ST(R11) ; Zero all  	
+
+120$:
+130$:
+
+READ:
+;++
+;2 ALERT_READ  
+; Routine run when an incoming alert complete waiting QIO.
+; The frame is read from the incoming MBX, validated, logged, formatted 
+; and send to the output MBX
+;-- 
+; R6  address of incoming frame
+; R11 address counters
+
+
+        $QIOW_S  CHAN = ALTINCHAN,-
+                IOSB =  ALTIN_IOSB,-
+                FUNC = #IO$_READVBLK,-
+                P1   = ALTIN_BUFF,-
+                P2   = #ALTIN_SIZE
+	BLBS	R0,10$
+
+	MOVL	#MSG_ALERT_READMBX,MSGCDE     ; No read
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	BRW	READ
+10$:
+	BLBS	ALTIN_IOSB,20$
+	MOVL	#MSG_ALERT_READMBXI,MSGCDE     ; No counters
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	ALTIN_IOSB,(R1)+             ; IOSB error
+	MOVL	ALTIN_IOSB+4,(R1)            ; IOSB error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	BRW	READ
+20$:
+	INCL	CNT_ALT_L_RCV(R11)           ; Count buffer received
+	MOVAL	ALTIN_BUFF,R6
+; Set time
+	MOVQ	EXE$GQ_SYSTIME,(R6)
+; Write unverified message to log file
+	MOVZWL	ALTIN_IOSB+2,-(SP)		; Message len
+	PUSHL	R6				; Message addr
+	CALLS	#2,G^ALERT_LOG			; Write it
+	BLBS	R0,30$
+;
+	MOVL	#MSG_ALERT_NOLOG,MSGCDE   ; No LOG
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+ 	             ; IOSB error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+; Attempt to continue
+30$:
+; Test for timed alert
+	TSTL	ALT_MSG_L_EXP(R6)	; Timed alert?
+	BNEQ	35$			; Br if not
+	PUSHL	R7                      ; Alert frame
+	PUSHL	R6			; Relater rec
+	CALLS	#2,G^ALERT_TIMED
+35$:	
+	MOVL	#ALTOUT_SIZE,ALTOUT_DESC
+	PUSHAL	COUNTERS_A		; Counter section
+	PUSHAL	ALTOUT_DESC		; Outp
+	PUSHL	R6			; Message
+	CALLS	#3,G^ALERT_FORMAT
+; Any errors are logged in routine
+	BLBS	R0,40$
+	BRW	READ
+40$:
+; Send alert to MBX. Ignore MBXFULL errors
+	MOVL	ALTOUT_DESC,ALTOUTS	; Set size
+	MOVL	ALTOUT_DESC+4,ALTOUTB	; Buffer
+	$QIO_G	WRITEMBX		; Write message
+	BLBS	R0,50$
+	CMPL	#SS$_MBFULL,R0
+	BEQLU	60$
+
+	MOVL	#MSG_ALERT_WRITEMBX,MSGCDE       ; MAP error
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)            	     ;  error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	INCL	CNT_ALT_L_ERR(R11)           ; Count error written
+	BRW	READ
+50$:
+	INCL	CNT_ALT_L_RET(R11)           ; Count Alert sent to disp
+60$:
+	BRW	READ
+	
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ALERT_LOG   
+;++
+;2 ALERT_LOG
+; Routine to write a binary alert message to the alert log
+;3 Input
+;	.address of binary alert message
+;	.long len of message
+;  ** It is assumed that the counters section is mapped and 
+;	the secion 1st and last addresses are in COUNTERS_A **
+;3 Output
+;  The message is written to the log file
+;3 Return
+;	SS$_NORMAL	OK
+;	Any from RMS
+;--
+; Assume file is open
+;
+        MOVL	4(AP),ALERTRAB+RAB$L_RBF
+	MOVW	8(AP),ALERTRAB+RAB$W_RSZ		; Set size
+	$PUT	RAB=ALERTRAB
+	BLBC	R0,100$
+        $FLUSH	RAB=ALERTRAB
+	MOVL	#SS$_NORMAL,R0
+	RET
+100$:
+; Assume any error is file not opened. Open file and repeat. If this 
+; fails the give up
+	MOVB	#RAB$C_KEY,ALERTRAB+RAB$B_RAC   	; Indexed write
+	CLRB	ALERTRAB+RAB$B_KRF			; Set key = Prim
+	CLRL	ALERTRAB+RAB$L_ROP			; No Options
+	MOVB    #20,ALERTRAB+RAB$B_KSZ    	; Set key size = 20
+	MOVL	4(AP),ALERTRAB+RAB$L_KBF	; Set key buffer
+	
+	$CREATE	FAB=ALERTFAB
+	BLBS	R0,110$
+	RET
+110$:
+	$CONNECT RAB=ALERTRAB
+	BLBS	R0,120$
+	RET	
+120$:
+	$PUT	RAB=ALERTRAB
+	BLBC	R0,130$
+        $FLUSH	RAB=ALERTRAB
+	MOVL	#SS$_NORMAL,R0
+130$:
+	RET
+
+
+        .CALL_ENTRY     MAX_ARGS=2, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+        		LABEL=ALERT_TIMED  
+;++
+;2 ALERT_TIMED  
+; If an alert is recieved with EXP .ne. 0 it is a timed alert. This 
+; means that occasional alert of this type do not consitute a problem.
+; The generator will determine how long (in seconds) between alerts
+; of this type are acceptable and put this number in the alert. This
+; routine scans the current que for a matching alert and if found and not
+; expired, generates the 'real' alert.
+;3 Matching
+; A matching alert in this context is when both of:
+;	PID
+;	NAME	(Boxid)
+; are identical.
+; If a match is found the alert is processed and sent. The priority is 
+; adjused by a constant to ensure a continious event is noticed.
+;
+; In all cases the alert is added to the que.
+;3 Adding_to_que
+;  The que is limited in len (16 by default). In the scan the 1st expired
+; entry is noted and the new alert is added there.
+; If all entries are current, lowest priority event is replaced and this
+; occurence is counted. This count is used to adjust the size of the
+; que on next startup.
+;-- 
+	RET
+
+
+
+
+	.END	ALERT

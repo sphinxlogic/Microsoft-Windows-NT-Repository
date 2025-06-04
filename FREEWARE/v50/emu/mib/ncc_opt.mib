@@ -1,0 +1,1617 @@
+          -- Version 1.2.1.2, modified 3/11/94
+
+          NCC-OPT-MIB DEFINITIONS ::= BEGIN
+
+          IMPORTS
+		  -- standard imports from SMI files
+
+                  mgmt, NetworkAddress, IpAddress, Counter, Gauge,
+                          TimeTicks
+                      FROM RFC1155-SMI
+                  OBJECT-TYPE
+                          FROM RFC-1212
+
+		  -- imports from cdx6500.smi specific to this module. 
+		  -- Includes Configuration, Statistics, and Control groups, as 
+		  -- applicable.
+
+                     Counter8,
+                     Counter16,
+                     cdx6500CfgGeneralGroup,
+                     cdx6500PSTLANConnectionGroup,
+                     cdx6500StatOtherStatsGroup,
+                     cdx6500ContWANAdaptor         
+
+                     FROM CDX6500-SMI;
+
+          --  This MIB module uses the extended OBJECT-TYPE macro as
+          --  defined in [14];
+
+
+          -- textual conventions
+
+          DisplayString ::=
+              OCTET STRING
+          -- This data type is used to model textual information taken
+          -- from the NVT ASCII character set.  By convention, objects
+          -- with this syntax are declared as having
+          --
+          --      SIZE (0..255)
+
+          PhysAddress ::=
+              OCTET STRING
+          -- This data type is used to model media addresses.  For many
+          -- types of media, this will be in a binary representation.
+          -- For example, an ethernet address would be represented as
+          -- a string of 6 octets.
+
+
+          -- ************************************************************
+
+          -- the Link Backup Unit(LBU) group
+
+          -- Implementation of the LBU group is not mandatory for Pegasus BN.
+
+          -- This group describes managed object used by the Pegasus BN 
+          -- Link Backup Unit(LBU).
+                   
+          -- the link backup configuration table
+
+          -- The link backup configuration table contains information 
+          -- on the restoral port. 
+
+          cdx6500GCTLBUTable OBJECT-TYPE
+              SYNTAX  SEQUENCE OF Cdx6500LBUCfgEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "A list of Configuration parameters that makeup the LBU Table."
+              ::= { cdx6500CfgGeneralGroup 14 }
+
+          cdx6500LBUCfgEntry OBJECT-TYPE
+              SYNTAX  Cdx6500LBUCfgEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "Each entry contains the Configuration parameters for
+                       each backup link."
+              INDEX   { cdx6500LBUEntryNumber }
+              ::= { cdx6500GCTLBUTable 1 }
+
+          Cdx6500LBUCfgEntry ::=
+              SEQUENCE {
+                  cdx6500LBUEntryNumber
+                      INTEGER,
+                  cdx6500LBUDestinationName
+                      DisplayString,
+                  cdx6500LBUCfgMonitoredPort    
+                      DisplayString,
+                  cdx6500LBUCfgRestoralPort
+                      DisplayString,
+                  cdx6500LBUDialSequence
+                      DisplayString,
+                  cdx6500LBUActivationMode
+                      INTEGER,
+                  cdx6500LBUDeactivationMode
+                      INTEGER,
+                  cdx6500LBULinkHoldTime 
+                      INTEGER
+              }
+
+          cdx6500LBUEntryNumber OBJECT-TYPE
+              SYNTAX  INTEGER (1..64)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is not a configurable parameter. 
+                       This identifies the particular LBU 
+                       Table entry being configured by the other 
+                       parameters in the record."
+              ::= { cdx6500LBUCfgEntry 1 }
+
+          cdx6500LBUDestinationName OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is a unique name that identifies this entry."
+              ::= { cdx6500LBUCfgEntry 2 }
+
+          cdx6500LBUCfgMonitoredPort OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The X.25 port to be monitored for link failure.
+                       This is the port whose calls are rerouted in 
+                       the event of port failure. The format must be 
+                        X25-n, where n is the X.25 port number."
+              ::= { cdx6500LBUCfgEntry 3 }
+
+          cdx6500LBUCfgRestoralPort OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is the port that acts as the backup 
+                       when there is a port failure on the port 
+                       specified by the parameter Monitored port.
+                       The format must be X25-n, where n is the 
+                       X.25 port number."
+              ::= { cdx6500LBUCfgEntry 4 }
+
+          cdx6500LBUDialSequence OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This specifies the telephone numbers that 
+                       will be dialed when the backup port is activated.
+                       To enter your own telephone number, use any 
+                       combination of the following characters:
+                       0-9     Decimal
+                       :       Wait Tone
+                       <       Pause
+                       =       Seperator 3
+                       >       Seperator 4
+                       P or p  Dialing to be continued in PULSE mode.
+                       T or t  Dialing to be continued in DTMF mode.
+                       &       Flash
+
+                       To have the modem dial one of its pre-programmed
+                       telephone numbers, enter:
+                       #n      where 'n' identifies the pre-programmed
+                               telephone number stored in the modem."
+              ::= { cdx6500LBUCfgEntry 5 }
+
+          cdx6500LBUActivationMode OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       fail(0),   -- Upon port failure.
+                       call(1),   -- Upon an incoming call request.
+                       either(2)  -- Upon a port failure or call request.
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This specifies how the backup port will be 
+                       activated.
+                       fail   - Activate the backup port upon link failure.
+                       call   - Activate the backup port upon a call request.
+                       either - Activate the backup port upon link 
+                                failure or a call request."
+              ::= { cdx6500LBUCfgEntry 6 }
+
+          cdx6500LBUDeactivationMode OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       none(0),     -- The backup link can only be 
+                                    -- deactivated by operator intervention.
+                       busyOut(1),  -- The link is deactivated after 
+                                    -- the calls have been cleared for the time 
+                                    -- specified by the Link Hold Time parameter.
+                       imm(2)       -- The link is deactivated when the 
+                                    --  monitored link is activated                      
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This specifies how the backup port is 
+                       deactivated after the original link is up.
+                       none     - Backup port can only be deactivated
+                                  by operator intervention.
+                       busyOut  - The backup port is deactivated after 
+                                  all the calls on that port are cleared
+                                  for a predetermined amount of time. 
+                                  This substitutes the value assigned 
+                                  to the parameter Link Hold Time with 
+                                  the value assigned to the parameter 
+                                  Idle Disconnect Time in the X.25 Port 
+                                  Record. The Idle Disconnect Time will
+                                  then work as described in the Operators 
+                                  Guide. 
+                                  When Deactivation Mode = BUSY OUT and
+                                  Link Hold Time = 0 (zero) the overall 
+                                  effect is the same as setting this 
+                                  entry to NONE.
+                       imm      - The backup link is terminated 
+                                  IMMediately when the monitored port is
+                                  restored regardless of how many calls
+                                  are present."
+              ::= { cdx6500LBUCfgEntry 7 }
+
+          cdx6500LBULinkHoldTime OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This replaces the value of the parameter Idle
+                       Disconnect Timer in the X.25 Port Record and 
+                       specifies how long (in seconds) the backup link 
+                       remains active after the original link is back up."
+              ::= { cdx6500LBUCfgEntry 8 }
+
+
+          -- the link backup statistics table for restoral port
+
+          cdx6500OSTLBUTable OBJECT-TYPE
+              SYNTAX  SEQUENCE OF Cdx6500LBUStatEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "A list of statistics parameters for the Link Backup port."
+              ::= { cdx6500StatOtherStatsGroup 3 }
+
+          cdx6500LBUStatEntry OBJECT-TYPE
+              SYNTAX  Cdx6500LBUStatEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "Each entry on this table pertains to the backup port
+                       and can be accessed using a single index, the backup
+                       port number."
+              INDEX   { cdx6500LBUStatRestoralPort }
+              ::= { cdx6500OSTLBUTable 1 }
+
+          Cdx6500LBUStatEntry ::=
+              SEQUENCE {
+                  cdx6500LBUStatRestoralPort
+                      INTEGER,
+                  cdx6500LBUPortType
+                      DisplayString,
+                  cdx6500LBUConnType     
+                      DisplayString,
+                  cdx6500LBUStatus
+                      INTEGER,
+                  cdx6500LBUReason
+                      INTEGER,
+                  cdx6500LBULastActivated
+                      DisplayString,
+                  cdx6500LBULastPhoneDialed
+                      DisplayString
+              }
+
+          cdx6500LBUStatRestoralPort OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is the backup port number, used as an index
+                       to access LBU statistics."
+              ::= { cdx6500LBUStatEntry 1 }
+
+          cdx6500LBUPortType OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The port type of the backup port."
+              ::= { cdx6500LBUStatEntry 2 }
+
+          cdx6500LBUConnType OBJECT-TYPE     
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The connection type of the backup port."
+              ::= { cdx6500LBUStatEntry 3 }
+
+          cdx6500LBUStatus OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       up(0),
+                       down(1),
+                       acting(2),
+                       active(3),
+                       redial(4),
+                       idle(5)
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The status of the backup port."
+              ::= { cdx6500LBUStatEntry 4 }
+
+          cdx6500LBUReason OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       none(0),
+                       call(1),
+                       fail(2),
+                       remote(3),
+                       ctp(4)
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION         
+                      "The reason that the backup port is active.
+                       none : Backup port is deactivated.
+                       call : A call request was made on the backup port.
+                       fail : Due to a link failure on the monitored port.
+                       remote : A call request was made to the backup port.
+                       ctp : Backup port was activated from the control terminal."
+              ::= { cdx6500LBUStatEntry 5 }
+
+          cdx6500LBULastActivated OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The last time the backup port was activated."
+              ::= { cdx6500LBUStatEntry 6 }
+
+          cdx6500LBULastPhoneDialed OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The phone number dialed the last time the 
+                       backup port was activated."
+              ::= { cdx6500LBUStatEntry 7 }
+
+          -- the link backup statistics table for monitored port
+
+          cdx6500OSTLBUMonTable OBJECT-TYPE
+              SYNTAX  SEQUENCE OF Cdx6500LBUMonStatEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "A list of statistics parameters for the Link Backup's
+                       monitored port"
+              ::= { cdx6500StatOtherStatsGroup 4 }
+
+          cdx6500LBUMonStatEntry OBJECT-TYPE
+              SYNTAX  Cdx6500LBUMonStatEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "Each entry on this table pertains to one of the monitored
+                       ports that is monitored by the backup port and should be 
+                       accessed using double index, the backup port number as
+                       the primary index and the monitored port as the secondary 
+                       index."
+              INDEX   { cdx6500LBUStatRestMonPort,
+                        cdx6500LBUStatMonitoredPort }
+              ::= { cdx6500OSTLBUMonTable 1 }
+
+          Cdx6500LBUMonStatEntry ::=
+              SEQUENCE {
+                  cdx6500LBUStatRestMonPort
+                      INTEGER,
+                  cdx6500LBUStatMonitoredPort
+                      INTEGER,
+                  cdx6500LBUMonPortState
+                      INTEGER,
+                  cdx6500LBURestPhoneNum
+                      DisplayString
+              }
+
+          cdx6500LBUStatRestMonPort OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is the backup port number, used as a
+                       primary index to access monitored port statistics."
+              ::= { cdx6500LBUMonStatEntry 1 }
+
+          cdx6500LBUStatMonitoredPort OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is the port being monitored by the backup port,
+                       used as a secondary index to access monitored port 
+                       statistics."
+              ::= { cdx6500LBUMonStatEntry 2 }
+
+          cdx6500LBUMonPortState OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       up(0),
+                       down(1),
+                       acting(2),
+                       active(3),
+                       redial(4),
+                       idle(5)
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "State of the monitored port."
+              ::= { cdx6500LBUMonStatEntry 3 }
+
+          cdx6500LBURestPhoneNum OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Phone number that the backup port will dial when a 
+                       monitored port has a link failure."
+              ::= { cdx6500LBUMonStatEntry 4 }
+
+
+
+
+
+          -- ************************************************************
+
+          -- the Wan Adaptor group
+
+          -- Implementation of the Wan Adaptor group is not(?) mandatory for Pegasus BN.
+          -- This group describes managed object used by the Pegasus BN 
+          -- Wan Adaptor.
+
+          -- The Wan Adaptor configuration table for LAN Connection.
+
+          cdx6500GCTLANConnectionTable OBJECT-TYPE
+              SYNTAX  SEQUENCE OF Cdx6500GCTLANConnectionEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "A list of parameters for configuring LAN Connections"
+              ::= { cdx6500CfgGeneralGroup 16 }
+
+          cdx6500GCTLANConnectionEntry OBJECT-TYPE
+              SYNTAX  Cdx6500GCTLANConnectionEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "Each entry contains the Configuration parameters 
+                       for each LAN Connection."
+              INDEX   { cdx6500WAEntryNumber }
+              ::= { cdx6500GCTLANConnectionTable 1 }
+
+          Cdx6500GCTLANConnectionEntry ::=
+              SEQUENCE {
+                  cdx6500WAEntryNumber
+                      INTEGER,
+                  cdx6500WALanForwarderType
+                      INTEGER,
+                  cdx6500WABridgeLinkNumber
+                      INTEGER,
+                  cdx6500WARouterInterfaceNum
+                      INTEGER,
+                  cdx6500WACfgEncapsulationType
+                      INTEGER,
+                  cdx6500WAAutocallMnemonic
+                      DisplayString,
+                  cdx6500WAAutocallTimeout
+                      INTEGER,
+                  cdx6500WAMaxAutocallAttempts
+                      INTEGER,
+                  cdx6500WARemoteConnectionId
+                      INTEGER,
+                  cdx6500WABillingRecords
+                      INTEGER,
+                  cdx6500WADataPassingPriority
+                      INTEGER
+              }               
+
+          cdx6500WAEntryNumber OBJECT-TYPE
+              SYNTAX  INTEGER (1..32)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is a standard table entry number. 
+                       It identifies a specific LAN Connection Record
+                       within the table."
+              ::= { cdx6500GCTLANConnectionEntry 1 }
+
+          cdx6500WALanForwarderType OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       brid(0),    -- Bridging Forwarders.
+                       rout(1),    -- Routing Forwarders.
+                       brout(2)    -- Bridging and Routing Forwarders.
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This parameter specifies the type of forwarders 
+                       communicating over this LAN Connection.
+                       brid - Bridging Forwarders.
+                       rout - Routing Forwarders.
+                       brout - Bridging and Routing Forwarders."
+              ::= { cdx6500GCTLANConnectionEntry 2 }
+
+          cdx6500WABridgeLinkNumber OBJECT-TYPE
+              SYNTAX  INTEGER (5..36)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This parameter specifies the Bridge-Link that is
+                       using this LAN Connection."
+              ::= { cdx6500GCTLANConnectionEntry 3 }
+
+          cdx6500WARouterInterfaceNum OBJECT-TYPE
+              SYNTAX  INTEGER (5..36)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This parameter specifies the Router Interface 
+                       that is using this LAN Connection."
+              ::= { cdx6500GCTLANConnectionEntry 4 }
+
+          cdx6500WACfgEncapsulationType OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       codex(0),   -- Codex Proprietary Encapsulation.
+                       rfc1294(1), -- RFC 1294 Multiprotocol Encapsulation.
+                       iptunnel(2) -- IP Protocol Tunneling.
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This parameter specifies the data encapsulation 
+                       type used over this LAN Connection.
+                       codex - Codex Proprietary Encapsulation.
+                       rfc1294 - RFC 1294 Multiprotocol Encapsulation.
+                       iptunnel - IP Protocol Tunneling."
+              ::= { cdx6500GCTLANConnectionEntry 5 }
+
+          cdx6500WAAutocallMnemonic OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "If configured, the Autocall Mnemonic references 
+                       a remote address which will be called by the 
+                       LAN Connection."
+              ::= { cdx6500GCTLANConnectionEntry 6 }
+
+          cdx6500WAAutocallTimeout OBJECT-TYPE
+              SYNTAX  INTEGER (5..255)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is the time interval in seconds between 
+                       call attempts when auto calling."
+              ::= { cdx6500GCTLANConnectionEntry 7 }
+
+          cdx6500WAMaxAutocallAttempts OBJECT-TYPE
+              SYNTAX  INTEGER (0..255)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This parameter is used to specify the number 
+                       of times that the LAN Connection will attempt 
+                       to autocall a remote destination. A value of 
+                       zero will allow unlimited attempts."
+              ::= { cdx6500GCTLANConnectionEntry 8 }
+
+          cdx6500WARemoteConnectionId OBJECT-TYPE
+              SYNTAX  INTEGER (1..32)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This parameter specifies the number of the remote
+                       LAN Connection or the FRA Station number that
+                       this LAN connection will attempt to connect to 
+                       if configured for autocall."
+              ::= { cdx6500GCTLANConnectionEntry 9 }
+
+          cdx6500WABillingRecords OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       off(0),    -- Billing disabled.
+                       on(1)      -- Billing enabled.
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This controls whether billing (accounting)
+                       records will be created for calls on this 
+                       LAN Connection."
+              ::= { cdx6500GCTLANConnectionEntry 10 }
+
+          cdx6500WADataPassingPriority OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       low(0),    -- Low Priority.
+                       med(1),    -- Medium Priority.
+                       high(2),   -- High Priority.
+                       exp(3)     -- Expedite Priority.
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This parameter specifies the Traffic Priority
+                       of this LAN Connection.
+                       low - Low Priority.
+                       med - Medium Priority.
+                       high - High Priority.
+                       exp - Expedite Priority."
+              ::= { cdx6500GCTLANConnectionEntry 11 }
+
+          -- ---------------------------------------------------------
+
+          -- The Wan Adaptor statistics tables for LAN Connection.
+
+          -- Data Summary Statistics.
+
+          cdx6500LCTDataSummaryStats OBJECT-TYPE
+              SYNTAX  SEQUENCE OF Cdx6500WADataStatEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "Data summary statstics provides the information on
+                       data packets transmitted, received, queued and
+                       discarded."
+              ::= { cdx6500PSTLANConnectionGroup 1 }
+
+          cdx6500WADataStatEntry OBJECT-TYPE
+              SYNTAX  Cdx6500WADataStatEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "LAN Connection Record number."
+              INDEX   { cdx6500WALanConnNumberData }
+              ::= { cdx6500LCTDataSummaryStats 1 }
+
+          Cdx6500WADataStatEntry ::=
+              SEQUENCE {
+                  cdx6500WALanConnNumberData
+                      INTEGER,
+                  cdx6500WALastStatResetTime
+                      DisplayString,
+                  cdx6500WAAvgPktSizeTx
+                      Counter16,
+                  cdx6500WACurTxQueueDepth
+                      Counter,
+                  cdx6500WAMaxTxQueueDepth
+                      Counter,
+                  cdx6500WAMaxTxQDepthTime
+                      DisplayString,
+                  cdx6500WAAvgPktSizeRcv
+                      Counter16,
+                  cdx6500WATxPktDiscardFrwdReq
+                      Counter,
+                  cdx6500WATxPktDiscardTransDelay
+                      Counter,
+                  cdx6500WATxPktDiscardCong
+                      Counter,
+                  cdx6500WATxPktDiscardMaxFrame
+                      Counter
+              }
+
+          cdx6500WALanConnNumberData OBJECT-TYPE
+              SYNTAX  INTEGER (1..32)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "It identifies a specific LAN Connection Record."
+              ::= { cdx6500WADataStatEntry 1 }
+
+          cdx6500WALastStatResetTime OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The date and time of the last statistics reset."
+              ::= { cdx6500WADataStatEntry 2 }
+
+          cdx6500WAAvgPktSizeTx OBJECT-TYPE
+              SYNTAX  Counter16
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the average size of the packets sent on 
+                       the WAN, in bytes."
+              ::= { cdx6500WADataStatEntry 3 }
+
+          cdx6500WACurTxQueueDepth OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the current number of packets queued 
+                       awaiting transmission on the WAN, in packets."
+              ::= { cdx6500WADataStatEntry 4 }
+
+          cdx6500WAMaxTxQueueDepth OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the maximum number of packets queued 
+                       awaiting transmission on the WAN, in packets."
+              ::= { cdx6500WADataStatEntry 5 }
+
+          cdx6500WAMaxTxQDepthTime OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The date and time when the number of packets queued 
+                       awaiting transmission on the WAN reached its maximum."
+              ::= { cdx6500WADataStatEntry 6 }
+
+          cdx6500WAAvgPktSizeRcv OBJECT-TYPE
+              SYNTAX  Counter16
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the average size of the packets received on 
+                       the WAN, in bytes."
+              ::= { cdx6500WADataStatEntry 7 }
+
+          cdx6500WATxPktDiscardFrwdReq OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  deprecated
+              DESCRIPTION
+                      "This is a non-supported object."
+              ::= { cdx6500WADataStatEntry 8 }
+
+          cdx6500WATxPktDiscardTransDelay OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the number of packets discarded due to 
+                       packets exceeding the maximum allowed delay through 
+                       the node."
+              ::= { cdx6500WADataStatEntry 9 }
+
+          cdx6500WATxPktDiscardCong OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the number of packets discarded due to 
+                       severe congestion."
+              ::= { cdx6500WADataStatEntry 10 }
+
+          cdx6500WATxPktDiscardMaxFrame OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the number of packets discarded due to 
+                       packets exceeding the maximum allowed frame size."
+              ::= { cdx6500WADataStatEntry 11 }
+
+          -- Call Summary Statistics.
+
+          cdx6500LCTCallSummaryStats OBJECT-TYPE
+              SYNTAX  SEQUENCE OF Cdx6500WACallStatEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "A list of Call Summary Statistics for LAN connection."
+              ::= { cdx6500PSTLANConnectionGroup 2 }
+
+          cdx6500WACallStatEntry OBJECT-TYPE
+              SYNTAX  Cdx6500WACallStatEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "LAN Connection Record number."
+              INDEX   { cdx6500WALanConnNumberCall }
+              ::= { cdx6500LCTCallSummaryStats 1 }
+
+          Cdx6500WACallStatEntry ::=
+              SEQUENCE {
+                  cdx6500WALanConnNumberCall
+                      INTEGER,
+                  cdx6500WAConnectionType
+                      DisplayString,
+                  cdx6500WAStatEncapsulationType
+                      INTEGER,
+                  cdx6500WAConnectionState
+                      INTEGER,
+                  cdx6500WAForwardersConnected
+                      DisplayString,
+                  cdx6500WARemoteAddress
+                      DisplayString,
+                  cdx6500WANumAutocallAttempts
+                      Counter8,
+                  cdx6500WALastClearCauseCode
+                      INTEGER,
+                  cdx6500WALastClearDiagCode
+                      INTEGER
+              }
+
+          cdx6500WALanConnNumberCall OBJECT-TYPE
+              SYNTAX  INTEGER (1..32)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "It identifies a specific LAN Connection Record."
+              ::= { cdx6500WACallStatEntry 1 }
+
+          cdx6500WAConnectionType OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies whether the connection is a Permanent Virtual 
+                       Circuit (PVC) or a Switched Virtual Circuit (SVC)."
+              ::= { cdx6500WACallStatEntry 2 }
+
+          cdx6500WAStatEncapsulationType OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       codex(0),   -- Codex Proprietary Encapsulation.
+                       rfc1294(1), -- RFC 1294 Multiprotocol Encapsulation.
+                       iptunnel(2) -- IP Protocol Tunneling.
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the type of data encapsulation."
+              ::= { cdx6500WACallStatEntry 3 }
+
+          cdx6500WAConnectionState OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       unconfigured(0),        -- Init state.                             
+                       notConnected(1),        -- Completed Init(), waiting for startup(), or 
+                                               -- failed autocall SVC                     
+                       calling(2),             -- Autocall SVC trying to complete call    
+                       waitForCall(3),         -- Non-autocall SVC waiting for call       
+                       handshaking(4),         -- PVC in reset handshake process          
+                       connected(5),           -- Connection is established               
+                       connectedCongested(6),  -- Connection has reached congestion thresh
+                       wfccRecall(7),          -- Wait for Clr Conf Re-Call(), autocall SVC 
+                       wfccWaitForCall(8),     -- Wait for Clr Conf Wait for Call non-auto
+                                               -- calling SVC                             
+                       wfccDisabled(9),        -- Wait for Clr Conf goto Disabled         
+                       disabled(10)            -- Connection is Disabled                  
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the current state of the Permanent Virtual 
+                       Circuit (PVC) or a Switched Virtual Circuit (SVC)."
+              ::= { cdx6500WACallStatEntry 4 }
+
+          cdx6500WAForwardersConnected OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies which forwarders are currently connected 
+                       to this LAN Connection ."
+              ::= { cdx6500WACallStatEntry 5 }
+
+          cdx6500WARemoteAddress OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the called address of the remote WAN Adaptor
+                       LAN Connection for connected SVCs."
+              ::= { cdx6500WACallStatEntry 6 }
+
+          cdx6500WANumAutocallAttempts OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the number of times attempted to autocall
+                       before either succeeded or failed in establishing the
+                       connection."
+              ::= { cdx6500WACallStatEntry 7 }
+
+          cdx6500WALastClearCauseCode OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is the cause code in the call clear packet last
+                       received by the LAN connection and explains why the 
+                       last call was cleared."
+              ::= { cdx6500WACallStatEntry 8 }
+
+          cdx6500WALastClearDiagCode OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is the diagnostic code in the call clear packet 
+                       last received by the LAN connection and explains why 
+                       the last call was cleared."
+              ::= { cdx6500WACallStatEntry 9 }
+
+
+          -- Packet Summary Statistics.
+
+          cdx6500LCTPacketSummaryStats OBJECT-TYPE
+              SYNTAX  SEQUENCE OF Cdx6500WAPktStatEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "A list of Packet Summary Statistics for LAN connection."
+              ::= { cdx6500PSTLANConnectionGroup 3 }
+
+          cdx6500WAPktStatEntry OBJECT-TYPE
+              SYNTAX  Cdx6500WAPktStatEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "LAN Connection Record number."
+              INDEX   { cdx6500WALanConnNumberPkt }
+              ::= { cdx6500LCTPacketSummaryStats 1 }
+
+          Cdx6500WAPktStatEntry ::=
+              SEQUENCE {
+                  cdx6500WALanConnNumberPkt
+                      INTEGER,
+                  cdx6500WADataPktTx
+                      Counter,
+                  cdx6500WADataPktRcv
+                      Counter,
+                  cdx6500WACallReqPktsTx
+                      Counter,
+                  cdx6500WACallReqPktsRcv
+                      Counter,
+                  cdx6500WACallAcceptPktsTx
+                      Counter,
+                  cdx6500WACallAcceptPktsRcv
+                      Counter,
+                  cdx6500WAClearReqPktsTx
+                      Counter,
+                  cdx6500WAClearReqPktsRcv
+                      Counter,
+                  cdx6500WAClearConfPktsTx
+                      Counter,
+                  cdx6500WAClearConfPktsRcv
+                      Counter,
+                  cdx6500WAResetReqPktsTx
+                      Counter,
+                  cdx6500WAResetReqPktsRcv
+                      Counter,
+                  cdx6500WAResetConfPktsTx
+                      Counter,
+                  cdx6500WAResetConfPktsRcv
+                      Counter
+              }
+
+          cdx6500WALanConnNumberPkt OBJECT-TYPE
+              SYNTAX  INTEGER (1..32)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "It identifies a specific LAN Connection Record."
+              ::= { cdx6500WAPktStatEntry 1 }
+
+          cdx6500WADataPktTx OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Data Packets sent 
+                       on the WAN."
+              ::= { cdx6500WAPktStatEntry 2 }
+
+          cdx6500WADataPktRcv OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Data Packets received
+                       from the WAN."
+              ::= { cdx6500WAPktStatEntry 3 }
+
+          cdx6500WACallReqPktsTx OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Call Request Packets 
+                       sent on the WAN."
+              ::= { cdx6500WAPktStatEntry 4 }
+
+          cdx6500WACallReqPktsRcv OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Call Request Packets 
+                       received from the WAN."
+              ::= { cdx6500WAPktStatEntry 5 }
+
+          cdx6500WACallAcceptPktsTx OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Call Accept Packets 
+                       sent on the WAN."
+              ::= { cdx6500WAPktStatEntry 6 }
+
+          cdx6500WACallAcceptPktsRcv OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Call Accept Packets 
+                       received from the WAN."
+              ::= { cdx6500WAPktStatEntry 7 }
+
+          cdx6500WAClearReqPktsTx OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Clear Request Packets  
+                       sent on the WAN."
+              ::= { cdx6500WAPktStatEntry 8 }
+
+          cdx6500WAClearReqPktsRcv OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Clear Request Packets  
+                       received from the WAN."
+              ::= { cdx6500WAPktStatEntry 9 }
+
+          cdx6500WAClearConfPktsTx OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Clear Confirm Packets
+                       sent on the WAN."
+              ::= { cdx6500WAPktStatEntry 10 }
+
+          cdx6500WAClearConfPktsRcv OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Clear Confirm Packets
+                       received from the WAN."
+              ::= { cdx6500WAPktStatEntry 11 }
+
+          cdx6500WAResetReqPktsTx OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Reset Request Packets 
+                       sent on the WAN."
+              ::= { cdx6500WAPktStatEntry 12 }
+
+          cdx6500WAResetReqPktsRcv OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Reset Request Packets 
+                       received from the WAN."
+              ::= { cdx6500WAPktStatEntry 13 }
+
+          cdx6500WAResetConfPktsTx OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Reset Confirm Packets 
+                       sent on the WAN."                                   
+              ::= { cdx6500WAPktStatEntry 14 }
+
+          cdx6500WAResetConfPktsRcv OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Specifies the total number of Reset Confirm Packets 
+                       received from the WAN."
+              ::= { cdx6500WAPktStatEntry 15 }
+
+          -- ---------------------------------------------------------
+
+          -- The Wan Adaptor control tables for LAN Connection.
+
+          cdx6500ContWANAdaptorTable OBJECT-TYPE                        
+              SYNTAX  SEQUENCE OF Cdx6500ContWANAdaptorEntry
+              ACCESS  not-accessible                                    
+              STATUS  mandatory                                         
+              DESCRIPTION                                               
+                      "Control parameters for the LAN Connection."                 
+              ::= { cdx6500ContWANAdaptor 1 }                           
+                                                                        
+          cdx6500ContWANAdaptorEntry OBJECT-TYPE                        
+              SYNTAX  Cdx6500ContWANAdaptorEntry
+              ACCESS  not-accessible                                    
+              STATUS  mandatory                                         
+              DESCRIPTION                                               
+                      "Each control applies to a single LAN Connection."                 
+              INDEX   { cdx6500WAControlLanConnNumber }                 
+              ::= { cdx6500ContWANAdaptorTable 1 }                      
+                                                                        
+          Cdx6500ContWANAdaptorEntry ::=
+              SEQUENCE {
+                  cdx6500WAControlLanConnNumber
+                      INTEGER,
+                  cdx6500WALanConnEnableDisable
+                      INTEGER,
+                  cdx6500WALanConnBoot
+                      INTEGER,
+                  cdx6500WALanConnResetStat
+                      INTEGER
+              }
+
+          cdx6500WAControlLanConnNumber OBJECT-TYPE
+              SYNTAX  INTEGER (1..32)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This identifies a specific LAN Connection Record."
+              ::= { cdx6500ContWANAdaptorEntry 1 }
+
+          cdx6500WALanConnEnableDisable OBJECT-TYPE
+              SYNTAX  INTEGER {
+                                enable(0),
+                                disable(1)
+                              }
+              ACCESS  read-write
+              STATUS  mandatory
+              DESCRIPTION
+                      "This command enables or disables a specified 
+                       LAN connection."
+              ::= { cdx6500ContWANAdaptorEntry 2 }
+
+          cdx6500WALanConnBoot OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  write-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This command causes the LAN connection record 
+                       to be booted."
+              ::= { cdx6500ContWANAdaptorEntry 3 }
+
+          cdx6500WALanConnResetStat OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  write-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "When this command is entered the resettable 
+                       statistics parameters are reset for the 
+                       specified LAN Connection Number."
+              ::= { cdx6500ContWANAdaptorEntry 4 }
+
+          -- ************************************************************
+
+          -- the DCP (Data Connection & Protection) group
+
+          -- Implementation of the DCP group is optional for Pegasus BN.
+          -- This group describes managed object used by the Pegasus BN DCP.
+
+          -- The DCP statistics table
+
+          cdx6500OSTDCPTable OBJECT-TYPE
+              SYNTAX  SEQUENCE OF Cdx6500DCPStatEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "A list of Data Connection & Protection(DCP)
+                       statistics parameters for the port with DCP."
+              ::= { cdx6500StatOtherStatsGroup 1 }
+
+          cdx6500DCPStatEntry OBJECT-TYPE
+              SYNTAX  Cdx6500DCPStatEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "Each DCP parameter entry should be accessed using the
+                       double index, the DCP port number as the primary index,
+                       and the channel number as the secondary index. For PAD
+                       ports the secondary index, channel number must be a zero."
+              INDEX   { cdx6500DCPPortNumber,
+                        cdx6500DCPChanNumber}
+              ::= { cdx6500OSTDCPTable 1 }  
+
+          Cdx6500DCPStatEntry ::=
+              SEQUENCE {
+                  cdx6500DCPPortNumber
+                      INTEGER,
+                  cdx6500DCPChanNumber
+                      INTEGER,
+                  cdx6500DCPNegProtLevel
+                      DisplayString,
+                  cdx6500DCPCurrConnState
+                      DisplayString,
+                  cdx6500DCPUnackDataTpdu
+                      Counter8,
+                  cdx6500DCPDataTpduQueued
+                      Counter8,
+                  cdx6500DCPInboundFlowSt
+                      INTEGER,
+                  cdx6500DCPOutboundFlowSt
+                      INTEGER,
+                  cdx6500DCPConnReqTx
+                      Counter8,
+                  cdx6500DCPConnConfTx
+                      Counter8,
+                  cdx6500DCPReconnReqTx
+                      Counter8,
+                  cdx6500DCPReconnConfTx
+                      Counter8,
+                  cdx6500DCPDiscReqTx
+                      Counter8,
+                  cdx6500DCPDiscConfTx
+                      Counter8,
+                  cdx6500DCPDataTx
+                      Counter,
+                  cdx6500DCPAckTx
+                      Counter,
+                  cdx6500DCPIntReqTx
+                      Counter8,
+                  cdx6500DCPIntConfTx
+                      Counter8,
+                  cdx6500DCPResetReqTx
+                      Counter8,
+                  cdx6500DCPResetConfTx
+                      Counter8,
+                  cdx6500DCPRejTx
+                      Counter8,
+                  cdx6500DCPConnReqRcv
+                      Counter8,
+                  cdx6500DCPConnConfRcv
+                      Counter8,
+                  cdx6500DCPReconnReqRcv
+                      Counter8,
+                  cdx6500DCPReconnConfRcv
+                      Counter8,
+                  cdx6500DCPDiscReqRcv
+                      Counter8,
+                  cdx6500DCPDiscConfRcv
+                      Counter8,
+                  cdx6500DCPDataRcv
+                      Counter,
+                  cdx6500DCPAckRcv
+                      Counter,
+                  cdx6500DCPIntReqRcv
+                      Counter8,
+                  cdx6500DCPIntConfRcv
+                      Counter8,
+                  cdx6500DCPResetReqRcv
+                      Counter8,
+                  cdx6500DCPResetConfRcv
+                      Counter8,
+                  cdx6500DCPRejRcv
+                      Counter8
+              }
+
+          cdx6500DCPPortNumber OBJECT-TYPE
+              SYNTAX  INTEGER (1..64)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is the port number with DCP enabled, which is 
+                       used as a primary index to access DCP statistics."
+              ::= { cdx6500DCPStatEntry 1 }
+
+          cdx6500DCPChanNumber OBJECT-TYPE
+              SYNTAX  INTEGER (0..512)
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is the channel number with DCP enabled, which is 
+                       used as a secondary index to access DCP statistics.
+                       For PAD ports the secondary index, channel number 
+                       must be a zero."
+              ::= { cdx6500DCPStatEntry 2 }
+
+          cdx6500DCPNegProtLevel OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This is the currently negotiated level of Data 
+                       Connection Protection for a call. It will differ 
+                       from the configured protection level if the peer 
+                       has negotiated to a lower protection level."
+              ::= { cdx6500DCPStatEntry 3 }
+
+          cdx6500DCPCurrConnState OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Indicates the state of the port with DCP.
+                       OPEN : There is a call.
+                       CLOSE: There is no call."
+              ::= { cdx6500DCPStatEntry 4 }
+
+          cdx6500DCPUnackDataTpdu OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of packets sent to the peer DCP layer but 
+                       awaiting an acknowledgment packet."
+              ::= { cdx6500DCPStatEntry 5 }
+
+          cdx6500DCPDataTpduQueued OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of data packets queued but not sent."
+              ::= { cdx6500DCPStatEntry 6 }
+
+          cdx6500DCPInboundFlowSt OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       disabled(0), 
+                       enabled(1)   
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Indicates whether flow control from the user equipment
+                       (Access Port) to the network is enabled or disabled."
+              ::= { cdx6500DCPStatEntry 7 }
+
+          cdx6500DCPOutboundFlowSt OBJECT-TYPE
+              SYNTAX  INTEGER {
+                       disabled(0), 
+                       enabled(1)   
+                      }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Indicates whether flow control from the 
+                       network is enabled or disabled."
+              ::= { cdx6500DCPStatEntry 8 }
+
+          cdx6500DCPConnReqTx OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Connect Request TPDUs(Transport layer 
+                       Protocol Data Unit) sent to the connection at the other
+                       end of this network connection."
+              ::= { cdx6500DCPStatEntry 9 }
+
+          cdx6500DCPConnConfTx OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Connect Confirmation TPDUs(Transport layer 
+                       Protocol Data Unit) sent to the connection at the other
+                       end of this network connection."
+              ::= { cdx6500DCPStatEntry 10 }
+
+          cdx6500DCPReconnReqTx OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Reconnect Request TPDUs(Transport layer 
+                       Protocol Data Unit) sent to the connection at the other
+                       end of this network connection."
+              ::= { cdx6500DCPStatEntry 11 }
+
+          cdx6500DCPReconnConfTx OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Reconnect Confirmation TPDUs(Transport layer
+                       Protocol Data Unit) sent to the connection at the other
+                       end of this network connection."
+              ::= { cdx6500DCPStatEntry 12 }
+
+          cdx6500DCPDiscReqTx OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Disconnect Request TPDUs(Transport layer 
+                       Protocol Data Unit) sent to the connection at the other
+                       end of this network connection."
+              ::= { cdx6500DCPStatEntry 13 }
+
+          cdx6500DCPDiscConfTx OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Disconnect Confirmation TPDUs(Transport layer
+                       Protocol Data Unit) sent to the connection at the other
+                       end of this network connection."
+              ::= { cdx6500DCPStatEntry 14 }
+
+          cdx6500DCPDataTx OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Data TPDUs(Transport layer Protocol Data Unit)
+                       sent to the connection at the other end of this network
+                       connection."
+              ::= { cdx6500DCPStatEntry 15 }
+
+          cdx6500DCPAckTx OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Acknowledgment TPDUs(Transport layer Protocol
+                       Data Unit) sent to the connection at the other end of 
+                       this network connection."
+              ::= { cdx6500DCPStatEntry 16 }
+
+          cdx6500DCPIntReqTx OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Interrupt Request TPDUs(Transport layer 
+                       Protocol Data Unit) sent to the connection at the other
+                       end of this network connection."
+              ::= { cdx6500DCPStatEntry 17 }
+
+          cdx6500DCPIntConfTx OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Interrupt Confirm TPDUs(Transport layer 
+                       Protocol Data Unit) sent to the connection at the other
+                       end of this network connection."
+              ::= { cdx6500DCPStatEntry 18 }
+
+          cdx6500DCPResetReqTx OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Reset Request TPDUs(Transport layer Protocol
+                       Data Unit) sent to the connection at the other end of
+                       this network connection."
+              ::= { cdx6500DCPStatEntry 19 }
+
+          cdx6500DCPResetConfTx OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Reset Confirm TPDUs(Transport layer Protocol 
+                       Data Unit) sent to the connection at the other end of
+                       this network connection."
+              ::= { cdx6500DCPStatEntry 20 }
+
+          cdx6500DCPRejTx OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Reject TPDUs(Transport layer Protocol Data
+                       Unit) sent to the connection at the other end of this
+                       network connection."
+              ::= { cdx6500DCPStatEntry 21 }
+
+          cdx6500DCPConnReqRcv OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Connect Request TPDUs(Transport layer
+                       Protocol Data Unit) received from the connection at
+                       the other end of this network connection."
+              ::= { cdx6500DCPStatEntry 22 }
+
+          cdx6500DCPConnConfRcv OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Connect Confirmation TPDUs(Transport layer
+                       Protocol Data Unit) received from the connection at 
+                       the other end of this network connection."
+              ::= { cdx6500DCPStatEntry 23 }
+
+          cdx6500DCPReconnReqRcv OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Reconnect Request TPDUs(Transport layer
+                       Protocol Data Unit) received from the connection at
+                       the other end of this network connection."
+              ::= { cdx6500DCPStatEntry 24 }
+
+          cdx6500DCPReconnConfRcv OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Reconnect Confirmation TPDUs(Transport layer
+                       Protocol Data Unit) received from the connection at
+                       the other end of this network connection."
+              ::= { cdx6500DCPStatEntry 25 }
+
+          cdx6500DCPDiscReqRcv OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Disconnect Request TPDUs(Transport layer
+                       Protocol Data Unit) received from the connection at
+                       the other end of this network connection."
+              ::= { cdx6500DCPStatEntry 26 }
+
+          cdx6500DCPDiscConfRcv OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Disconnect Confirmation TPDUs(Transport layer
+                       Protocol Data Unit) received from the connection at the
+                       other end of this network connection."
+              ::= { cdx6500DCPStatEntry 27 }
+
+          cdx6500DCPDataRcv OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Data TPDUs(Transport layer Protocol Data Unit)
+                       received from the connection at the other end of this 
+                       network connection."
+              ::= { cdx6500DCPStatEntry 28 }
+
+          cdx6500DCPAckRcv OBJECT-TYPE
+              SYNTAX  Counter
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Acknowledgment TPDUs(Transport layer Protocol
+                       Data Unit) received from the connection at the other 
+                       end of this network connection."
+              ::= { cdx6500DCPStatEntry 29 }
+
+          cdx6500DCPIntReqRcv OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Interrupt Request TPDUs(Transport layer
+                       Protocol Data Unit) received from the connection at
+                       the other end of this network connection."
+              ::= { cdx6500DCPStatEntry 30 }
+
+          cdx6500DCPIntConfRcv OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Interrupt Confirm TPDUs(Transport layer 
+                       Protocol Data Unit) received from the connection at
+                       the other end of this network connection."
+              ::= { cdx6500DCPStatEntry 31 }
+
+          cdx6500DCPResetReqRcv OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Reset Request TPDUs(Transport layer Protocol
+                       Data Unit) received from the connection at the other
+                       end of this network connection."
+              ::= { cdx6500DCPStatEntry 32 }
+
+          cdx6500DCPResetConfRcv OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Reset Confirm TPDUs(Transport layer Protocol
+                       Data Unit) received from the connection at the other 
+                       end of this network connection."
+              ::= { cdx6500DCPStatEntry 33 }
+
+          cdx6500DCPRejRcv OBJECT-TYPE
+              SYNTAX  Counter8
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "Number of Reject TPDUs(Transport layer Protocol Data 
+                       Unit) received from the connection at the other end of
+                       this network connection."
+              ::= { cdx6500DCPStatEntry 34 }
+
+
+          END
+
+          -- ************************************************************
+
+

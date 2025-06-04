@@ -1,0 +1,3171 @@
+/* query.c -- apply a boolean query to a keyword file */
+/* Bruce Tanner -- Cerritos College */
+
+/* Version history:
+
+   Modifications by Richard D. Piccard -- Ohio University
+
+	2000/07/07 Add home_page function immediately before sorting, to
+			change the ranking of the hits based on several
+			criteria.  The numerical values can be customized
+			readily, and two environment variables can be used
+			to suppress particular hosts or paths. 
+
+	2000/07/10 Use include files custom_head.c and custom_foot.c for
+			cosmetic and site-specific changes to the HTML at
+			the top and bottom of the generated page. 
+
+	2000/08/01 Add capability for REQUIRED_REALM to home_page. 
+
+	2000/08/24 Removed \n prior to > closing tags, and abolished <ISINDEX> 
+			in order to work around bug in Mac Internet Explorer V5. 
+
+   -------------------------------------
+
+   0.0 1993/06/18 Start the program
+   0.1 1993/07/03 Finish coding
+   0.8 1993/07/06 Squashed most of the bugs
+   1.0 1993/07/13 Released
+   1.1 1993/07/29 Changed grammar to allow Query inside Factor
+   1.2 1993/07/29 Invoke interactive mode if argc < 4
+   1.3 1993/08/04 Change name to query, calling it search is confusing
+   1.4 1993/08/06 Move wildcard processing from shell to inside program
+   1.5 1993/11/17 Include punctuation in query string to match build_index
+   1.6 1993/12/01 Handle multiple topic field sizes
+   1.7 1994/03/01 Fix bad reference to freed pointer
+   1.7a 1994/06/29 Added some include files and related stuff for DECC. - FM
+   1.8 1994/11/04 Handle host/port included in selector file
+   1.9 1994/12/31 Trim off host/port from file_name in select_result(),
+   		   and report any failure to access file_name. - FM
+   2.0 1995/06/14 Handle additional index file field
+   2.1 1995/11/03 Make near() use last result with word position
+   2.2 1995/11/06 Merge with Foteos Macrides' WWWquery.c
+   2.3 1995/12/30 Added check for a WWW_GATEWAY_INTERFACE environment
+		   variable which acts as a /www switch. - FM
+       1995/12/30 Added sort qualifier, as default, so that /nosort
+                   will block sorting based on the score. - FM
+       1995/12/30 Added check for a WWW_NOSORT environment variable
+		   which acts as a /nosort switch . - FM
+       1995/12/30 Added check for a WWW_SHOW_SCORE enviroment variable
+		   which acts as a /score switch. - FM
+       1995/12/31 Changed default to nosort, check for WWW_SORT. - BT
+   2.4 1996/01/04 Ignore words smaller than WWW_MINIMUM_WORD - BT
+       1996/01/05 Added WWW_ITEMS_FOUND environment variable for changing
+		   the string which indicates the total number of hits
+		   (must have exactly one %d in it).  - FM
+       1996/01/05 Added WWW_ITEMS_LISTED environment variable for changing
+		   the string which indicates the first and last hit in the
+		   list, if all of them are not listed (must have exactly
+		   two %d's in it).  - FM
+       1996/01/05 Added WWW_STARTING_HIT environment variable for specifying
+		   the value of the first hit to be listed.  This can be used
+		   together with WWW_MAXIMUM_HITS to specify a range of hits
+		   within the total, when using a FORM interface to the search
+		   engine.  The starting number is passed as an OL attribute
+		   for clients which support SEQNUM or START for OLs. - FM
+       1996/01/05 Added code in www_emit() to not act of WWW_SHOW_DATE or
+		   WWW_SHOW_SIZE if they depend on a stat() and it fails.
+		   This deals with the situation in which the indexing was
+		   done on temporary text files, e.g., from a Lynx traversal,
+		   which have been deleted after indexing. - FM
+       1996/01/07 Added WWW_ADD_CONTEXT environment variable for specifying
+		   whether to add First or Previous and Next or Last submit
+		   buttons, with NAMEs "ph" and "nh", respectively, as LH
+		   content following the OL start tag, and hidden INPUTs
+		   following the OL end tag, with NAMEs "os", "om", "ot",
+		   and "oq", indicating the current (which on resubmission
+		   will be the "old") starting, maximum and total hits, and
+		   query.  When using a FORM interface, their VALUEs can be
+		   used by the calling command file to do the same search
+		   (i.e., with the previous query) but with the starting hit
+		   shifted in relation to the previous starting and maximum
+		   hit values. - FM
+       1996/01/07 Added WWW_END_FORM environment variable for specifying
+                   whether to add a FORM end tag following the OL end tag,
+		   or following the hidden INPUTs if included. - FM
+       1996/01/09 Made use of WWW_END_FORM and WWW_ADD_CONTENT environment
+		   variables depended on WWW_VIA_FORM having been set, and
+		   the insertion of hidden inputs dependent on named submit
+		   buttons having been add, (if all the hits are listed,
+		   no named submit buttons are added, and so the hidden
+		   inputs aren't needed).  This makes it easier for the
+		   calling command file to regulate its behavior based on
+		   the WWW_KEY_COUNT. - FM
+       1996/01/10 Added WWW_SEND_CONTENTS environment variable for specifying
+		   that unique search results get displayed immediately. - BT
+       1996/01/11 Changed _tolower() Arne Vajhøj's international version. - BT
+       1996/01/30 Output the hidden INPUTs before the hit list, to be sure
+       		   they are included if the transmission is stopped during
+		   the listing. - FM
+		  If there are 10 or more items in the hit list, not all
+		   are being listed, and WWW_ADD_CONTEXT is set, append
+		   another pseudo toolbar, following the list, for getting
+		   a previous and/or next set of hits. - FM
+       1996/02/01 Added WWW_HITS_TARGET environment variable, which, if
+       		   non-NULL and a non-zero-length string, will cause the
+		   TARGET attribute to be included in anchors for the hit
+		   list with its value equated to the string. - FM
+       1996/02/21 Fixed WWW_SEND_CONTENT handling so that it returns a
+                   complete URL in the Location: header with the symbolic
+		   path substitutions, so that the client will replace its
+		   base URL for the document and any partial references
+		   within it will be resolved properly, and so that it
+		   will work properly with /~username databases. - FM
+       1996/02/23 Added TITLE attribute for anchors with gopher URLs
+		   in www_emit() hit lists. - FM
+       1996/03/12 Fixed near() processing of /noposition index - BT
+       1996/07/08 Fixed ww_emit not writing host:port when necessary - BT
+
+
+** Foteos Macrides -- Worcester Foundation for Experimental Biology
+** WWWquery.c Version History:
+
+   0.0 1994/04/08 Made mods for use with CERN v2.16betavms httpd.
+   		  Uses a query constructed from WWW_KEY fields by an htbin
+		  script.  Returns an HTML menu of hits with "escaped" URL's
+		  or the requested document/section. - FM
+   1.0 1994/04/24 Seems to working OK, so posted the Initial Release. - FM
+   1.1 1994/04/28 Added WWW_SEND_RAW_FILE and WWW_OMIT_PRE_TAG symbols, and
+   		  fixed up partial URL handling. - FM
+   1.2 1994/04/29 Added code for invoking the native CERN httpd and VMS
+   		  gopherd security measures / authorization checks for raw
+		  file requests. - FM
+		  Added requirement that the path to sectional documents begin
+		  with the string "www_root" or "gopher_root" for sections
+		  from them to be sent (versus a 403 error message).  This
+		  meets all the security measures for the VMS gopherd.  For
+		  sectional databases in the httpd data tree(s), you can
+		  implement additional authorization checks only for access to
+		  the htbin script.  The only subsequent security check is the
+		  requirement that the database reside in a secure path, based
+		  on it beginning with one of the above two strings.
+		  For raw file requests, if a lead "www_root" string is in a
+		  device field, a lead "000000." is inserted into the
+		  directory field (if it was not already present), and all
+		  paths passed back to the httpd for checking are first
+		  converted to a www symbolic hierarchy - FM
+   1.3 1994/04/30 Allow both "TEXT= R" and "TEXT=R" as flag for a file or
+   		  database section fetch. - FM
+		  Fix up misuse of argv[1], and return error messages if
+		  maximum argument lengths are exceeded. - FM
+   1.4 1994/05/06 Various fixes to path and filename handling. - FM
+   1.4a 1994/06/29 Added some include files and related stuff for DECC. - FM
+       1994/08/22 Modified to return direct URL's if WWW_SEND_RAW_FILE
+       		  was defined, avoiding the need for redirection via
+		  Location: on requests for the file. - FM
+       1994/10/03 Added WWW_MAXIMUM_HITS symbol for setting the maximum
+       		  number of hits to return to the client, if made non-NULL
+		  in the calling script. - FM
+       1994/10/13 Added code for handling both text and binary files in
+       		  searches, based on Bruce Tanner's modification of the
+		  indexer (build_index.c) for indexing of binary files. - FM
+       		  Added WWW_SHOW_FILETYPE symbol for inserting icons (or ALT
+       		  text) into hit lists to indicate the file types.  Use this
+		  if your indexes include binary file types. - FM
+       1994/10/14 Fixed select_result() to handle name and path fields of
+       		  of any size in the .SEL files. - FM
+       1994/10/16 Added code for WWW_SHOW_SIZE, WWW_SHOW_DATE, WWW_SHOW_TIME,
+       		  WWW_USE_MDATE symbols - FM.
+       1994/10/17 Efficiency tweeks for latest build_index.c. - FM
+   1.9 1994/12/31 Added code for handling host/path in selectors. - FM
+       1995/03/14 Omit <ISINDEX> tag in hit list if WWW_VIA_FORM is set. - FM
+                  Include "TEXT R" in the tests for a range request. - FM
+		  Check for WWW_DATADIRECTORY and WWW_FORBIDDEN in addition
+		  to "WWW_Root" and "Gopher_Root" as lead strings in the
+		  path fields for fetches via RANGE selectors.  Also check
+		  for WWW_FORCE_000000 when formatting such selectors. - FM
+       1995/04/13 Indicate MaxHits restriction if hit list is truncated. - FM
+		  Added WWW_OMIT_CONTENT_TYPE, WWW_OMIT_HEAD, WWW_OMIT_FOOT,
+		  and WWW_VMSINDEX_TITLE symbols. - FM
+       1995/04/26 Added WWW_IPATH_INFO, WWW_IPATH_TRANSLATED and
+       		  WWW_OMIT_IPATH_CONVERSION symbols. - FM
+       1995/04/30 Added support for searches of sectional databases in
+       		  /~userdir/ directories. - FM
+
+** WWWquery.c -- Apply a boolean query to (a) keyword file(s), and return a
+**		  hit list, a requested section with HTML "packaging", or a
+**		  "raw" HTML, text or binary file from an indexed file set.
+**		 The symbol WWW_SHOW_FILETYPE can be made non-NULL by the
+**		  calling script to have icons (or ALT text) indicating the
+**		  file types to be inserted into the hit lists returned from
+**		  searches.
+**		 The symbol WWW_SEND_RAW_FILE can be made non-NULL by the
+**		  calling script for requested files to be sent raw (i.e.,
+**		  without additional headers and PRE tags).  The hit lists
+**		  for such files have direct URL's.  If a ?TEXT=R... URL is
+**		  used to fetch them from gerry-rigged URL's, it will be
+**		  redirected via "Location:", so that the server will check
+**		  access authorization via it's native procedures.  Otherwise,
+**		  the path to the document must begin with "www_root" or
+**		  "gopher_root" (case-insensitive) or the client will be
+**		  sent a 403 error message.
+**		 The symbol WWW_OMIT_PRE_TAG can be made non-NULL by the
+**		  calling script to have document sections returned without
+**		  PRE tags bounding them, but with the other HTML "packaging"
+**		  retained.
+**		 The symbol WWW_MAXIMUM_HITS can be made non-NULL by the
+**		  calling script to set a maximum number of hits to be
+**		  returned to the client.
+**		 The symbol WWW_SHOW_SIZE can be made non-NULL by the calling
+**		  script to have the size of each file or database section
+**		  indicated in the hit lists.
+**		 The symbol WWW_SHOW_DATE can be made non-NULL by the calling
+**		  script to have the dates of files (or date of the database)
+**		  indicated in the hit lists (DD-MMM-YY).  If WWW_SHOW_TIME
+**		  also is made non-NULL, for the current year the hour and
+**		  minute will be indicated instead of the year (DD-MMM HH:MM).
+**		  If WWW_USE_MDATE is made non-NULL, the date of the last
+**		  modification (e.g., from an APPEND) will be used.  The
+**		  default is the file creation date (i.e., of the highest
+**		  version).
+**		The symbol WWW_OMIT_CONTENT_TYPE can be made non-NULL by the
+**		  calling script if it sends the Content-type header itself.
+**		  Otherwise "Content-type: text/html\n\n" will be sent by
+**		  WWWquery.
+**		The symbol WWW_OMIT_HEAD can be made non-NULL by the calling
+**		  script if it sends the <HTML>, <HEAD>...</HEAD> and <BODY>
+**		  tags itself.
+**		The symbol WWW_VMSINDEX_TITLE can be set to a string by the
+**		  calling script for use in the <TITLE> tag.  Otherwise,
+**		  WWWquery uses "VMS Indexed Database Search" (not used if
+**		  WWW_OMIT_HEAD is set).
+**		The symbol WWW_VIA_FORM can be made non-NULL by the calling
+**		  script if the query was submitted via a FORM and the
+**		  <ISINDEX> tag should be omitted from the hit lists (not
+**		  used if WWW_OMIT_HEAD is set).
+**		The symbol WWW_OMIT_FOOT can be made non-NULL by the calling
+**		  script if it sends the </BODY> and </HTML> end tags itself.
+**		The symbol WWW_FORCE_000000 can be made non-NULL by the
+**		  calling script to force insertion of "000000." into
+**		  RANGE selectors whose paths begin with "WWW_Rootxxx:["
+**		  before processing them for a fetch (for backward
+**		  compatibility; you don't need this if you've upgraded
+**		  all of your VMSIndex software to the latest versions).
+**		The symbols WWW_IPATH_INFO and WWW_IPATH_TRANSLATION can
+**		  be set to strings by the calling script for conversion
+**		  of device:[directory]file paths from the .SEL files which
+**		  have been cast to /device/directory/file further back to
+**		  the URL paths in the server's configuation file.  Defaults
+**		  for conversion of /WWW_Root/000000/ or /WWW_Root/documents/
+**		  to /www/ are set in WWWsearch.com.  In the example htbin
+**		  calling script, VMSIndex.com, the strings are modified on
+**		  the basis of the standard CGI variables WWW_PATH_INFO and 
+**		  and WWW_PATH_TRANSLATED, so you can append a path to the
+**		  URL, e.g., /htbin/vmsindex/foo/ to have WWW_IPATH_INFO
+**		  set to /foo/ and WWW_IPATH_TRANSLATION set to the
+**		  translation for it in the server's map/pass rules.  If
+**		  the path is /~username/ then its translated path from
+**		  the .SEL file will be converted in the hit list back to
+**		  a form which is acceptible to the server.  See the example
+**		  UserSearch.com htbin script for more information.  These
+**		  features also are implemented for searches of sectional
+**		  databases in server data trees and /~username/ directories.
+**		  VMSGopherServer.com and HTTP_IndexUserDoc.com for more
+**		  information.  The calling script can make the symbol
+**		  WWW_OMIT_IPATH_CONVERSION non-NULL to suppress these
+**		  conversions.
+**		The symbol WWW_DATADIRECTORY can be set by the calling script
+**		  to a string which will be checked (case insensitive) in
+**		  addition to the standard "WWW_Root" and "Gopher_Root"
+**		  strings for access to paths in RANGE selectors (all other
+**		  fetches are handled by the server and submitted to its own
+**		  access checks).  These checks are bypassed if IPATH
+**		  conversions are implemented.
+**		The symbol WWW_FORBIDDEN can be set by the calling script to
+**		  a string which will be checked like WWW_DATADIRECTORY, but
+**		  to block access.  This check is performed whether or not
+**		  IPATH conversions are implemented.
+**		The symbol WWW_SEND_CONTENTS can be made non-NULL to specify
+**		  that if the search results in a single item found, and that
+**		  the script has NOT set WWW_OMIT_CONTENT_TYPE, that item
+**		  will automaticlly be selected (actually, a redirect to the
+**		  URL of the item is done).
+**
+*/
+
+/*
+** Usage: 
+** query database query
+** query/www database query
+** query/gopher database out-file query host port
+*/
+
+/* Query:  expr {expr}             implicit 'near' between expressions */
+/* Expr:   term {or term}                                              */
+/* Term:   factor {and|not factor}                                     */
+/* Factor: (query) | token                                             */
+/* Token:  a-z{a-z}[*]                                                 */
+
+
+#include <ssdef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <rms.h>
+#include <descrip.h>
+#include <fscndef.h>
+#include <unixlib.h>
+#include <climsgdef.h>
+#include <lib$routines.h>
+#include <starlet.h>
+#include <stat.h>
+#include <time.h>
+#include "intctype.h"
+
+
+#define KEY_NAME 32    /* maximum size of key name */
+#define MAX_QUERY 500  /* maximum size of query */
+#define SPEC_SIZE 256  /* file specification size */
+#define DEBUG 0        /* perform debugging printfs */
+#define MOD_REALLOC 1  /* handle VAXC initial realloc() problem */
+
+typedef struct {
+    int index;        /* selector index */
+    int file;         /* file index */
+    int word;         /* word index */
+    int score;        /* result of near/and/or operator */
+    int pos;          /* position in source document */
+} Select;
+
+typedef struct {
+    int count;         /* number of members in result set */
+    Select *select;    /* set of selectors */
+} Result;
+
+typedef struct {
+    char *str;         /* token string */
+} Token;
+
+extern query_commands();
+extern int cli$dcl_parse();
+extern int cli$get_value();
+extern int cli$present();
+
+static struct FAB idxfab, selfab, posfab;
+static struct RAB idxrab, selrab, posrab;
+static struct XABSUM xabsum;
+static struct XABKEY xabkey;
+static FILE *outfile;
+static int index_offset, last_field = 0;
+static char *index_field;
+static char *index_type = ".IDX";
+static char *position_type = ".POS";
+static char *selector_type = ".SEL";
+static char orig_qstr[MAX_QUERY];
+static char orig_idx[SPEC_SIZE]; /* buffer for index filespec from argv[1]   */
+static char **selector_name;     /* array of selector file names	     */
+static int selector_index = 0;   /* selector file index			     */
+static int *index_size;          /* array of selector file index field sizes */
+static Result last_result;
+static char Host[SPEC_SIZE];    /* server_name, and port if not 80	    */
+static char *BAD_HOST_LENGTH   = "Deprecated host too long or too short.";
+static char *BAD_PATH_LENGTH   = "Deprecated path too long or too short.";
+static char *BAD_REALM_LENGTH   = "Required realm too long or too short.";
+static char *MISSING_ARGUMENTS = "Script invoked with missing arguments.";
+static char *QUERY_TOO_BIG     = "Query exceeds maximum length.";
+static char *SPEC_TOO_BIG      = "Path exceeds maximum length.";
+static char *IDX_NOT_INDEXED   = "Idx file must be indexed.";
+static char *SEL_NOT_INDEXED   = "Selector file must be indexed.";
+static char *POS_NOT_INDEXED   = "Position file must be indexed.";
+static char *CLI_ERROR         = "CLI processing error.";
+static char *TITLE = NULL;     
+static short omit_content_type = FALSE;
+static short omit_head = FALSE;
+static short omit_foot = FALSE;
+static short show_score = FALSE;
+
+static char *hex = "0123456789ABCDEF";	/* For escaping URL's */
+static unsigned char isAcceptable[96] =	/* For escaping URL's */
+    /*   0 1 2 3 4 5 6 7 8 9 A B C D E F */
+    {    0,0,0,0,0,0,0,0,0,0,7,6,0,7,7,4,	/* 2x   !"#$%&'()*+,-./	 */
+         7,7,7,7,7,7,7,7,7,7,0,0,0,0,0,0,	/* 3x  0123456789:;<=>?	 */
+	 7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,	/* 4x  @ABCDEFGHIJKLMNO  */
+	 7,7,7,7,7,7,7,7,7,7,7,0,0,0,0,7,	/* 5X  PQRSTUVWXYZ[\]^_	 */
+	 0,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,	/* 6x  `abcdefghijklmno	 */
+	 7,7,7,7,7,7,7,7,7,7,7,0,0,0,0,0 };	/* 7X  pqrstuvwxyz{\}~	DEL */
+
+
+/* Search functions */
+static int query(char *qstr, Result *result, Token *op);
+static void get_token(char *qstr, Token *token);
+static void *my_realloc(void *mem, int size);
+static void find(Token token, Result *rx);
+static int select_lt(Select s1, Select s2);
+static int select_eq(Select s1, Select s2);
+static void and(Result r1, Result r2, Result *r3);
+static void or(Result r1, Result r2, Result *r3);
+static void not(Result r1, Result r2, Result *r3);
+static int factor(char *qstr, Result *result, Token *op);
+static int term(char *qstr, Result *result, Token *op);
+static int expr(char *qstr, Result *result, Token *op);
+static int query(char *qstr, Result *result, Token *op);
+static void find_selector(Select sel); 
+static void gopher_emit(Select, char*, char*);
+static int compare(const void *, const void *);
+static int switch_present(char *sw);
+static char *switch_value(char *sw);
+
+/* Format and output a hit list. */
+static void select_result(Result result);
+static void www_emit(Result result);
+static void home_page(Result result);
+
+void parse_selector(char *str, int *new_style, char **title, char *gtype,
+                    char *ptype, char **file, char **host, char **port,
+                    char *method, char **path);
+
+/* Redirect or output a client's request for a RANGE fetch. */
+static void display_result(char *file_name);
+
+/* Utilities */
+static char *URLescape(char *str);
+static char *HTVMS_wwwName(char *vmsname);
+static char *FileType(char gtype);
+static void too_bad(char *reason);
+static int strcasecomp(char *a, char *b);
+static int strncasecomp(char *a, char *b, int n);         
+
+
+int main(int argc, char *argv[])
+{
+    int status, ind, size, RunQuery, context = 0;
+    short leng;
+    static char input_spec[SPEC_SIZE], idx_spec[SPEC_SIZE];
+    static char file_name[SPEC_SIZE], cli_input[SPEC_SIZE];
+    static char p1[SPEC_SIZE], p2[MAX_QUERY], p3[MAX_QUERY];
+    static char p4[100], p5[100];
+    char *cp, qstr[MAX_QUERY], *port;
+    Result file_result, result;
+    Token token;
+    struct fscndef scan_list[] = {{(short) 0, (short) FSCN$_NODE, (long) 0},
+                                  {(short) 0, (short) FSCN$_DEVICE, (long) 0},
+                                  {(short) 0, (short) FSCN$_DIRECTORY, (long) 0},
+                                  {(short) 0, (short) FSCN$_NAME, (long) 0},
+                                  {(short) 0, (short) FSCN$_VERSION, (long) 0},
+                                  {(short) 0, (short) 0, (long) 0}};
+
+    $DESCRIPTOR(cli_dsc, cli_input);
+    $DESCRIPTOR(input_dsc, input_spec);
+    $DESCRIPTOR(idx_dsc, idx_spec);
+    $DESCRIPTOR(file_name_dsc, file_name);
+    $DESCRIPTOR(p1_dsc, "p1");
+    $DESCRIPTOR(p1_value, p1);
+    $DESCRIPTOR(p2_dsc, "p2");
+    $DESCRIPTOR(p2_value, p2);
+    $DESCRIPTOR(p3_dsc, "p3");
+    $DESCRIPTOR(p3_value, p3);
+    $DESCRIPTOR(p4_dsc, "p4");
+    $DESCRIPTOR(p4_value, p4);
+    $DESCRIPTOR(p5_dsc, "p5");
+    $DESCRIPTOR(p5_value, p5);
+
+
+    /*
+    ** Get the host if present, and port if present and not 80.
+    */
+    strcpy(Host, (cp=getenv("WWW_SERVER_NAME")) ? cp : "");
+    for (cp=Host; *cp; cp++)
+        *cp = tolower(*cp);
+    if ((port=getenv("WWW_SERVER_PORT")) != NULL && strcmp(port, "80")) {
+        strcat(Host, ":");
+	strcat(Host, port);
+    }
+
+    /*
+    ** Should we send the Content-type header?
+    */
+    if (getenv("WWW_OMIT_CONTENT_TYPE") != NULL)
+         omit_content_type = TRUE;
+
+    /*
+    ** Should we send the <HTML>, <HEAD>, <TITLE>,
+    ** optional <ISINDEX>, </HEAD> and <BODY> tags?
+    */
+    if (getenv("WWW_OMIT_HEAD") != NULL)
+         omit_head = TRUE;
+
+    /*
+    ** Should we send the </BODY> and </HTML> tags?
+    */
+    if (getenv("WWW_OMIT_FOOT") != NULL)
+         omit_foot = TRUE;
+
+    /*
+    ** Get the TITLE if present.
+    */
+    TITLE = getenv("WWW_VMSINDEX_TITLE");
+
+    /*
+    ** Set up the CLI.
+    */
+    status = lib$get_foreign(&cli_dsc, 0, &leng, 0);
+
+    for (ind = leng; ind >= 0; ind--)
+        cli_input[ind+6] = cli_input[ind];
+    strncpy(cli_input, "query ", 6);            
+    cli_dsc.dsc$w_length = leng+6;
+
+    status = cli$dcl_parse(&cli_dsc, query_commands);
+
+    if (status != CLI$_NORMAL) {  /* error in parse, exit */
+        too_bad(CLI_ERROR);
+        exit(1);
+    }
+
+    /*
+    ** Should we include scores in titles?
+    */
+    if (switch_present("score") ||
+        getenv("WWW_SHOW_SCORE") != NULL)
+	show_score = TRUE;
+
+    RunQuery = (!switch_present("gopher") &&
+                !(switch_present("www") ||
+		  getenv("WWW_GATEWAY_INTERFACE") != NULL));
+
+    /* assume that the wrapper command file handles validation */
+    if (switch_present("gopher") && !switch_present("p5")) {
+        too_bad(MISSING_ARGUMENTS);
+        exit(1);
+    }
+
+    if ((switch_present("www") ||
+    	 getenv("WWW_GATEWAY_INTERFACE") != NULL) &&
+    	!switch_present("p2")) {
+        too_bad(MISSING_ARGUMENTS);
+        exit(1);
+    }
+
+    strcpy(p1, switch_value("p1"));
+    strcpy(p2, switch_value("p2"));
+    strcpy(p3, switch_value("p3"));
+    strcpy(p4, switch_value("p4"));
+    strcpy(p5, switch_value("p5"));
+
+    if (RunQuery && !switch_present("p1")) {
+        printf("Index file to search: ");
+        fgets(orig_idx, SPEC_SIZE, stdin);
+        orig_idx[strlen(orig_idx)-1] = '\0';  /* remove \n */
+    }
+    else
+        strcpy(orig_idx, p1);
+
+    /*
+    ** Get the index specification.
+    */
+    if (strlen(orig_idx) >= SPEC_SIZE) {
+        too_bad(SPEC_TOO_BIG);
+        exit(1);
+    }
+
+    if (RunQuery && !switch_present("p2")) {
+        printf("Enter query: ");
+        fgets(orig_qstr, MAX_QUERY, stdin);
+        orig_qstr[strlen(orig_qstr)-1] = '\0';  /* remove \n */
+    }
+
+    /* get the www and interactive query string */
+    if ((switch_present("www") ||
+    	 getenv("WWW_GATEWAY_INTERFACE") != NULL) ||
+        (RunQuery && switch_present("p2"))) {
+        /*
+        ** Get the query-string.
+        */
+        if (!strlen(p2)) {     /* passed an empty query? */
+            too_bad(MISSING_ARGUMENTS);
+            exit(1);
+        }
+        if (strlen(p2) >= MAX_QUERY) {
+            too_bad(QUERY_TOO_BIG);
+            exit(1);
+        }
+        strcpy(orig_qstr, p2); /* make our copy of the query */
+    }
+
+    /* get the gopher query */
+    if (switch_present("gopher")) {
+        if (!strlen(p3)) {
+            too_bad(MISSING_ARGUMENTS);
+            exit(1);
+        }
+        if (strlen(p3) >= MAX_QUERY) {
+            too_bad(QUERY_TOO_BIG);
+            exit(1);
+        }
+        strcpy(orig_qstr, p3); /* make our copy of the query */
+    }
+
+    /* If it's a WWW RANGE fetch, display_result() */
+    if ((switch_present("www") || 
+    	 getenv("WWW_GATEWAY_INTERFACE") != NULL) &&
+        ((strncasecomp(orig_qstr, "TEXT= R", 7) == 0) ||
+         (strncasecomp(orig_qstr, "TEXT=R",  6) == 0) ||
+	 (strncasecomp(orig_qstr, "TEXT R",  6) == 0))) {
+        display_result(orig_idx);
+	exit(1);
+    }
+    else {
+        for (cp = orig_qstr; *cp; cp++)
+            *cp = tolower(*cp);
+    }
+
+    strcat(orig_qstr, " ");          /* query ends with a space */
+
+    result.count = 0;           /* init result */
+    result.select = NULL;
+
+    strcpy(input_spec, orig_idx);  /* set up descriptor to wildcard input spec */
+    input_dsc.dsc$w_length = (short) strlen(input_spec);
+
+    if (((status = sys$filescan(&input_dsc, scan_list, 0)) & 1) != SS$_NORMAL)
+        lib$stop(status);
+
+    cp = NULL;
+    size = 0;
+    for (ind = 0; ind < 4; ind++) {
+        if (cp == NULL)
+            cp = (char *) scan_list[ind].fscn$l_addr;
+        size += scan_list[ind].fscn$w_length;
+    }
+
+    strncpy(idx_spec, cp, size);       /* copy node, dev, dir, name */
+    idx_spec[size] = '\0';
+    strcat(idx_spec, index_type);      /* add .idx */
+    idx_dsc.dsc$w_length = (short) strlen(idx_spec);
+
+    while (((status = lib$find_file(&idx_dsc, &file_name_dsc, &context,
+                                    0, 0, 0, 0))
+           & 1) == SS$_NORMAL) {       /* while lib$find_file finds file names */
+
+#if (DEBUG)
+        printf("Find_file returned %s\n", file_name);
+#endif
+        cp = strchr(file_name, ' ');
+        if (cp) *cp = '\0';            /* chop off trailing spaces */
+        
+        /* save the file names for when we need to get the selectors */
+        selector_name = (char **) my_realloc((char **) selector_name,
+                                  (++selector_index+1) * sizeof(char *));
+        selector_name[selector_index] = (char *) calloc(strlen(file_name)+1,
+                                                        sizeof(char));
+        cp = strrchr(file_name, '.');
+        if (cp) *cp = '\0';           /* once again throw out file type */
+
+        strcpy(selector_name[selector_index], file_name);
+#if (DEBUG)
+        printf("Saving selector index %d = %s\n", selector_index,
+               selector_name[selector_index]);
+#endif
+        
+        /* initialize index fab and rab */
+        idxfab = cc$rms_fab;
+        idxrab = cc$rms_rab;
+        xabsum = cc$rms_xabsum;
+        xabkey = cc$rms_xabkey;
+        
+        idxfab.fab$l_fna = file_name;
+        idxfab.fab$b_fns = strlen(file_name);
+        idxfab.fab$l_dna = index_type;
+        idxfab.fab$b_dns = strlen(index_type);
+        idxfab.fab$b_shr = FAB$M_SHRGET;       /* don't allow writers */
+        idxfab.fab$l_xab = (char *) &xabsum;
+        
+        idxrab.rab$l_fab = (struct FAB *) &idxfab;
+        idxrab.rab$b_rac = RAB$C_KEY;
+        
+        /* open index file */
+        if (((status = sys$open(&idxfab)) & 1) != SS$_NORMAL)
+            lib$stop(status);
+        
+        if (idxfab.fab$b_org != FAB$C_IDX) {
+            too_bad(IDX_NOT_INDEXED);
+            exit(1);
+        }
+        
+        idxfab.fab$l_xab = (char *) &xabkey;
+        
+        /* fill in the key XAB */
+        if (((status = sys$display(&idxfab)) & 1) != SS$_NORMAL)
+            lib$stop(status);
+        
+        /* add another index_size element for new idx file */
+        index_size = (int *) my_realloc((int *) index_size,
+                                        (selector_index+1) * sizeof(int));
+
+        /* index field size is (MRS - Key 0 size)/2 if 3 fields */
+        /* MRS = Keyword+topic+word+count (last 3 fields are equal size) */
+        /* Key 0 = Keyword+topic */
+        if ((idxfab.fab$w_mrs - xabkey.xab$b_siz0) < 10) /* 2 fields? */
+            index_size[selector_index] = (idxfab.fab$w_mrs - 
+                xabkey.xab$b_siz0);
+        else
+            index_size[selector_index] = (idxfab.fab$w_mrs - 
+                xabkey.xab$b_siz0)/2;
+        index_offset = xabkey.xab$w_pos0 + xabkey.xab$b_siz0 -
+                       index_size[selector_index];
+        index_field = (char *) my_realloc((char *) index_field,
+                               (index_size[selector_index]+1) * sizeof(char));
+        strncpy(index_field, "", index_size[selector_index]+1);
+
+#if (DEBUG)
+        printf("Selector %d index size = %d key_size = %d\n", selector_index,
+               index_size[selector_index],
+               xabkey.xab$b_siz0 - index_size[selector_index]);
+#endif
+        
+        /* make the index file record */
+        idxrab.rab$w_usz = idxfab.fab$w_mrs;
+        idxrab.rab$l_ubf = (char *) my_realloc((char *) idxrab.rab$l_ubf,
+                                    (idxrab.rab$w_usz+1) * sizeof(char));
+        strncpy(idxrab.rab$l_ubf, "", idxrab.rab$w_usz+1);
+        
+        /* connect record streams */
+        if (((status = sys$connect(&idxrab)) & 1) != SS$_NORMAL)
+            lib$stop(status);
+        
+        strcpy(qstr, orig_qstr);            /* query and friends mangle qstr */
+        query(qstr, &file_result, &token);  /* evaluate the query on this file */
+        or(result, file_result, &result);   /* accumulate results */
+        
+        status = sys$close(&idxfab);
+    }  /* while finding input files */
+    
+    if (switch_present("sort") || getenv("WWW_SORT") != NULL) {
+
+	/*
+	 *  Before sorting, elevate the ranking of any hit that is a "home"
+	 *  page or otherwise preferred.  -  RDP
+	 */
+
+	if (result.count >= 2) home_page(result);
+
+        for (ind = 0; ind < result.count; ind++)
+            result.select[ind].pos = ind;              /* remember position */
+        qsort(result.select,
+	      result.count, sizeof(Select), compare);  /* sort the results */
+	/*
+	 *  discard any results with zero score -- RDP
+	 */
+
+	for (ind = result.count - 1; ind >= 0; ind--) {
+
+	    if (result.select[ind].score == 0) result.count = ind;
+	}
+    }
+
+    if (RunQuery) {
+        select_result(result);
+    } else if (switch_present("www") ||
+    	       getenv("WWW_GATEWAY_INTERFACE") != NULL) {
+        orig_qstr[strlen(orig_qstr)-1] = '\0';	/* Trim trailing space */
+        www_emit(result);
+    } else if (switch_present("gopher")) {
+        /* open the output file and write the resulting selector set */
+        outfile = fopen(p2, "a");
+        if (outfile == NULL) {
+            perror("Output file could not be opened");
+            exit(1);
+        }
+        for (ind = 0; ind < result.count; ind++)
+            gopher_emit(result.select[ind], p4, p5);
+        fclose(outfile);
+    }
+    free(selrab.rab$l_ubf);
+    status = sys$close(&selfab);
+}
+
+
+/* qsort compare function */
+int compare(const void *s1, const void *s2)
+{
+    int result;
+
+    result = ((*(Select *) s2).score - (*(Select *) s1).score);
+    /* if the score is the same, sort on source file position */
+    if (result == 0)
+        result = ((*(Select *) s1).pos - (*(Select *) s2).pos);
+
+    return result;
+}
+
+
+void open_selector(char *file_name)
+{
+    int status;
+
+    /* initialize selector fab and rab */
+    selfab = cc$rms_fab;
+    selrab = cc$rms_rab;
+
+    selfab.fab$l_fna = file_name;
+    selfab.fab$b_fns = strlen(file_name);
+    selfab.fab$l_dna = selector_type;
+    selfab.fab$b_dns = strlen(selector_type);
+    selfab.fab$b_shr = FAB$M_SHRGET;
+
+    selrab.rab$l_fab = (struct FAB *) &selfab;
+    selrab.rab$b_rac = RAB$C_KEY;
+
+    /* open selector file */
+    if (((status = sys$open(&selfab)) & 1) != SS$_NORMAL)
+        lib$stop(status);
+
+    if (selfab.fab$b_org != FAB$C_IDX) {
+        too_bad(SEL_NOT_INDEXED);
+        exit(1);
+    }
+
+    /* make the selector file record */
+    selrab.rab$w_usz = selfab.fab$w_mrs;
+    selrab.rab$l_ubf = (char *) my_realloc((char *) selrab.rab$l_ubf,
+                                           (selrab.rab$w_usz+1) * sizeof(char));
+    strncpy(selrab.rab$l_ubf, "", selrab.rab$w_usz+1);
+
+    if (((status = sys$connect(&selrab)) & 1) != SS$_NORMAL)
+        lib$stop(status);
+}
+
+
+int open_position(char *file_name)
+{
+    int status;
+
+    /* initialize position fab and rab */
+    posfab = cc$rms_fab;
+    posrab = cc$rms_rab;
+
+    posfab.fab$l_fna = file_name;
+    posfab.fab$b_fns = strlen(file_name);
+    posfab.fab$l_dna = position_type;
+    posfab.fab$b_dns = strlen(position_type);
+    posfab.fab$b_shr = FAB$M_SHRGET;
+
+    posrab.rab$l_fab = (struct FAB *) &posfab;
+    posrab.rab$b_rac = RAB$C_KEY;
+
+    /* open position file */
+    if (((status = sys$open(&posfab)) & 1) != SS$_NORMAL)
+        return 1;
+
+    if (posfab.fab$b_org != FAB$C_IDX) {
+        too_bad(POS_NOT_INDEXED);
+        exit(1);
+    }
+
+    /* make the position file record */
+    posrab.rab$w_usz = posfab.fab$w_mrs;
+    posrab.rab$l_ubf = (char *) my_realloc((char *) posrab.rab$l_ubf,
+                                           (posrab.rab$w_usz+1) * sizeof(char));
+    strncpy(posrab.rab$l_ubf, "", posrab.rab$w_usz+1);
+
+    if (((status = sys$connect(&posrab)) & 1) != SS$_NORMAL)
+        return 1;
+
+    return 0;   /* 0 = success */
+}
+
+
+/* return the next token */
+void get_token(char *qstr, Token *token)
+{
+    char *str = NULL, *cp;
+
+#if (DEBUG)
+    printf("Token: '%s'  ", qstr);
+#endif
+    while (*qstr && (*qstr <= ' '))  /* remove leading spaces and junk */
+        strcpy(qstr, qstr+1);
+
+    /* if at a paren, strip and return it as the token */
+    if ((*qstr == '(') || (*qstr == ')')) {
+        str = (char *) calloc(2, sizeof(char));
+        strncpy(str, qstr, 1);
+        strcpy(qstr, qstr+1);
+    }
+    else {
+        /* point cp to the end of the token */
+        if (strchr(qstr, ' ') && strchr(qstr, ')'))
+            cp = strchr(qstr, ' ') < strchr(qstr, ')') ?
+                 strchr(qstr, ' ') : strchr(qstr, ')');
+        else if (strchr(qstr, ')') == NULL)
+            cp = strchr(qstr, ' ');
+        else if (strchr(qstr, ' ') == NULL)
+            cp = strchr(qstr, ')');
+        else
+            cp = NULL;
+        if (cp) {
+            str = (char *) calloc(xabkey.xab$b_siz0+1, sizeof(char));
+            strncpy(str, qstr, cp - qstr);
+            if (*cp == ')')
+                strcpy(qstr, cp);  /* save ending ')' */
+            else
+                strcpy(qstr, cp+1);  /* strip space */
+        }
+        else
+            str = (char *) calloc(1, sizeof(char));
+    }
+#if (DEBUG)
+    printf("Returns: '%s' Op: '%s'\n", qstr, str);
+#endif
+    token->str = str;
+}
+
+
+/*
+   Lance was right, realloc sometimes blows when initially allocating memory
+   MOD_REALLOC indicates whether to use malloc() on initial allocation
+ */
+void *my_realloc(void *mem, int size)
+{
+    void *mem_ptr;
+
+    if ((mem == (void *) 0) && (MOD_REALLOC))
+        return ((void *) malloc(size));
+    else {
+        mem_ptr = (void *) realloc(mem, size);
+        return mem_ptr;
+    }
+}
+
+
+/* create a set of selectors that are associated with the token */
+void find(Token token, Result *rx)
+{
+    int status, ind, value, word_id, count;
+
+    rx->count = 0;        /* assume no match */
+    rx->select = NULL;
+
+    idxrab.rab$b_rac = RAB$C_KEY;
+    idxrab.rab$b_krf = 0;
+    idxrab.rab$l_kbf = token.str;
+    idxrab.rab$l_rop = 0;            /* set up exact match */
+    idxrab.rab$b_ksz = xabkey.xab$b_siz0 -
+                                   index_size[selector_index];
+    if (token.str[strlen(token.str) - 1] == '*') {
+        idxrab.rab$b_ksz = strlen(token.str) - 1;
+        idxrab.rab$l_rop = RAB$M_KGE;  /* set up approximate generic match */
+    }
+    /* key can't be shorter than field size */
+    while (strlen(token.str) < idxrab.rab$b_ksz)
+        strcat(token.str, " ");
+
+    /* find the start record */
+    if (((status = sys$find(&idxrab)) & 1) != SS$_NORMAL) {
+#if (DEBUG)
+        printf("Find: %s no match\n", token.str);
+#endif
+        return;  /* no match */
+    }
+
+    idxrab.rab$b_rac = RAB$C_SEQ;
+    while (((status = sys$get(&idxrab)) & 1) == SS$_NORMAL) {
+        if (strncmp((char *) (idxrab.rab$l_ubf + xabkey.xab$w_pos0),
+                    token.str, idxrab.rab$b_ksz) != 0)
+            break;  /* no match */
+
+        /* get first field (selector ID) */
+        strncpy(index_field,
+                (char *) (idxrab.rab$l_ubf + index_offset),
+                index_size[selector_index]);
+        value = atoi(index_field);
+        /* get second field */
+        strncpy(index_field,
+                (char *) (idxrab.rab$l_ubf + index_offset +
+                          index_size[selector_index]),
+                index_size[selector_index]);
+        word_id = atoi(index_field);  /* assume that it's the word ID */
+        if (word_id == 0)            /* word_id = 0 means /noposition */
+            word_id = -1;            /* 
+        /* is there a third field? */
+        if (idxfab.fab$w_mrs <= (index_offset + index_size[selector_index] * 2)) {
+            count = word_id;  /* no, second field = count */
+            word_id = -1;     /* there is no word id */
+        }
+        else {
+            /* get third field (count) */
+            strncpy(index_field, (char *) (idxrab.rab$l_ubf +
+                          index_offset + index_size[selector_index] * 2),
+                    index_size[selector_index]);
+            count = atoi(index_field);
+        }
+
+        for (ind = 0; ind < rx->count; ind++)
+            if ((rx->select[ind].index == value) &&
+                (rx->select[ind].file == selector_index))  /* if the value already there */
+                break;                        /* don't add it */
+        /* unfortunately, you can't put a 'continue' in the previous line */
+        if ((ind < rx->count) && (rx->select[ind].index == value) &&
+            (rx->select[ind].file == selector_index))
+            continue;
+
+        rx->select = (Select *) my_realloc((Select *) rx->select,
+                                           (rx->count+1) * sizeof(Select));
+
+        /* keep the values in ascending order */
+        for (ind = rx->count; ind >= 0; ind--)
+            if ((ind == 0) ||
+                (rx->select[ind - 1].file < selector_index) ||
+                ((rx->select[ind - 1].file == selector_index) &&
+                 (rx->select[ind - 1].index < value))) {
+                rx->select[ind].file = selector_index;
+                rx->select[ind].index = value;
+                rx->select[ind].word = word_id;
+                rx->select[ind].score = count * 20;  /* fudge to scale up mult single word hits */
+                break;
+            }
+            else
+                rx->select[ind] = rx->select[ind - 1];
+
+        rx->count++;
+    }
+#if (DEBUG)
+    printf("Find: %s -> ", token.str);
+    for (ind = 0; ind < rx->count; ind++)
+        printf("%d-%d:%d:%d ", rx->select[ind].file, rx->select[ind].index,
+               rx->select[ind].word, rx->select[ind].score);
+    printf("\n");
+#endif
+}
+
+
+/* selector booleans */
+int select_lt(Select s1, Select s2)
+{
+    return ((s1.file < s2.file) ||
+            ((s1.file == s2.file) && (s1.index < s2.index)));
+}
+
+
+int select_eq(Select s1, Select s2)
+{
+    return ((s1.file == s2.file) && (s1.index == s2.index));
+}
+
+
+/* return the proximity of word1 to word2 */
+/* closer words get higher scores */
+int proximity(Select s1, Select s2)
+{
+    int siz1 = 0, siz2 = 0, ind1, ind2, *array1 = (int *)0, *array2 = (int *)0;
+    int status, score, prox = 999999;
+
+
+#if (DEBUG)
+    printf("Enter proximity()\n");
+    printf("S1: %d-%d %d %d\n", s1.file, s1.index, s1.word, s1.score);
+    printf("S2: %d-%d %d %d\n", s2.file, s2.index, s2.word, s2.score);
+#endif
+
+    if ((s1.word <= 0) || (s2.word <= 0))  /* s1 or s2 aren't words, but booleans */
+        return (s1.score > s2.score ? s1.score : s2.score);  /* quit now */
+
+    if (open_position(selector_name[s1.file]))
+      return 10;  /* position file not there, return a constant proximity */
+
+    sprintf(index_field, "%0*d", index_size[s1.file], s1.word);
+
+    posrab.rab$b_rac = RAB$C_KEY;
+    posrab.rab$b_krf = 0;
+    posrab.rab$l_kbf = index_field;
+    posrab.rab$l_rop = 0;            /* set up exact match */
+    posrab.rab$b_ksz = index_size[s1.file];
+
+    for (;;) {
+        /* find the word */
+        if (((status = sys$get(&posrab)) & 1) != SS$_NORMAL)
+            break;
+
+        * (char *) (posrab.rab$l_ubf + posrab.rab$w_rsz) = '\0'; /* terminate string */
+        posrab.rab$b_rac = RAB$C_SEQ;
+
+        if (strncmp(posrab.rab$l_ubf, index_field, index_size[s1.file]))
+            break;
+
+        array1 = (int *) my_realloc((int *) array1, (siz1+1) * sizeof(int));
+        array1[siz1++] = atoi(posrab.rab$l_ubf + index_size[s1.file]);
+    }
+
+    sprintf(index_field, "%0*d", index_size[s2.file], s2.word);
+    posrab.rab$b_rac = RAB$C_KEY;
+
+    for (;;) {
+        /* find the word */
+        if (((status = sys$get(&posrab)) & 1) != SS$_NORMAL)
+            break;
+
+        * (char *) (posrab.rab$l_ubf + posrab.rab$w_rsz) = '\0'; /* terminate string */
+        posrab.rab$b_rac = RAB$C_SEQ;
+
+        if (strncmp(posrab.rab$l_ubf, index_field, index_size[s2.file]))
+            break;
+
+        array2 = (int *) my_realloc((int *) array2, (siz2+1) * sizeof(int));
+        array2[siz2++] = atoi(posrab.rab$l_ubf + index_size[s2.file]);
+    }
+
+    free(posrab.rab$l_ubf);
+    status = sys$close(&posfab);
+
+    for (ind1 = 0; ind1 < siz1; ind1++) {
+        for (ind2 = 0; ind2 < siz2; ind2++) {
+            score = array2[ind2] - array1[ind1];
+            if (score < 0)  score = -(score*2);  /* penalize them if they are in the wrong order */
+            if (score < prox) prox = score;      /* record best score */
+        }
+    }
+
+    free(array1);
+    free(array2);
+
+    /* here, the best prox = 1; lets scale it to 100 */
+    if (prox > 100) prox = 1;  /* very bad scores become 1 */
+    else prox = 101 - prox;
+#if (DEBUG)
+    printf("Exit proximity with score %d\n", prox);
+#endif
+    return prox;
+}
+
+
+/* return selector where word1 is near word2 */
+void near(Result r1, Result r2, Result *r3)
+{
+    int ind1, ind2;
+    Result rx, temp_result;
+                  
+    rx.count = 0;
+    rx.select = NULL;
+    temp_result.count = 0;
+    temp_result.select = NULL;
+
+#if (DEBUG)
+    printf("Enter near()\nR1: ");
+    for (ind1 = 0; ind1 < r1.count; ind1++)
+        printf("%d-%d ", r1.select[ind1].file, r1.select[ind1].index);
+    printf("\n");
+    printf("R2: ");
+    for (ind2 = 0; ind2 < r2.count; ind2++)
+        printf("%d-%d ", r2.select[ind2].file, r2.select[ind2].index);
+    printf("\n");
+#endif
+
+    ind1 = ind2 = 0;
+    if (r1.count && (r1.select[0].word == 0)) {  /* r1 is a composite */
+        near(last_result, r2, &temp_result);  /* compare r2 with last token */
+        and(r1, temp_result, &rx);   /* intersect results */
+    }
+    else if (r1.count && (r1.select[0].word == -1)) {  /* r1 has no positions */
+        and(r1, r2, &rx);            /* just intersect results */
+    }
+    else {
+        for (;;) {
+            if ((ind1 == r1.count) || (ind2 == r2.count))
+                break;
+            else if (select_lt(r1.select[ind1], r2.select[ind2])) ind1++;
+            else if (select_lt(r2.select[ind2], r1.select[ind1])) ind2++;
+            else if (select_eq(r1.select[ind1], r2.select[ind2])) {
+                rx.select = (Select *) my_realloc((Select *) rx.select,
+                                                 (rx.count+1) * sizeof(Select));
+                rx.select[rx.count].file = r1.select[ind1].file;
+                rx.select[rx.count].index = r1.select[ind1].index;
+                rx.select[rx.count].word = 0;
+                rx.select[rx.count].score =
+                    proximity(r1.select[ind1], r2.select[ind2]);
+                rx.count++;
+                ind1++; ind2++;
+            }
+        }
+        /* make a copy of the result in last_result for use by near() */
+        last_result.select = (Select *) my_realloc((Select *) last_result.select,
+                                                   (r2.count) * sizeof(Select));
+        last_result.count = r2.count;
+        for (ind2 = 0; ind2 < r2.count; ind2++) {
+            last_result.select[ind2].file = r2.select[ind2].file;
+            last_result.select[ind2].index = r2.select[ind2].index;
+            last_result.select[ind2].word = r2.select[ind2].word;
+            last_result.select[ind2].score = r2.select[ind2].score;
+        }
+    }
+    if (r3->select) free(r3->select);
+    *r3 = rx;
+
+#if (DEBUG)
+    printf("NEAR: ");
+    for (ind1 = 0; ind1 < rx.count; ind1++)
+        printf("%d-%d:%d ", rx.select[ind1].file, rx.select[ind1].index,
+               rx.select[ind1].score);
+    printf("\n");
+#endif
+}
+
+
+/* perform set intersection */
+void and(Result r1, Result r2, Result *r3)
+{
+    int ind1, ind2;
+    Result rx;
+                  
+    rx.count = 0;
+    rx.select = NULL;
+
+#if (DEBUG)
+    printf("Enter and()\nR1: ");
+    for (ind1 = 0; ind1 < r1.count; ind1++)
+        printf("%d-%d:%d ", r1.select[ind1].file, r1.select[ind1].index, r1.select[ind1].score);
+    printf("\n");
+    printf("R2: ");
+    for (ind2 = 0; ind2 < r2.count; ind2++)
+        printf("%d-%d:%d ", r2.select[ind2].file, r2.select[ind2].index, r2.select[ind2].score);
+    printf("\n");
+#endif
+
+    ind1 = ind2 = 0;
+    for (;;) {
+        if ((ind1 == r1.count) || (ind2 == r2.count))
+            break;
+        else if (select_lt(r1.select[ind1], r2.select[ind2])) ind1++;
+        else if (select_lt(r2.select[ind2], r1.select[ind1])) ind2++;
+        else if (select_eq(r1.select[ind1], r2.select[ind2])) {
+            rx.select = (Select *) my_realloc((Select *) rx.select,
+                                              (rx.count+1) * sizeof(Select));
+            rx.select[rx.count].file = r1.select[ind1].file;
+            rx.select[rx.count].index = r1.select[ind1].index;
+            rx.select[rx.count].score = 
+                r1.select[ind1].score < r2.select[ind2].score ?
+                    r1.select[ind1].score : r2.select[ind2].score;
+            rx.count++;
+            ind1++; ind2++;
+        }
+    }
+    if (r3->select) free(r3->select);
+    *r3 = rx;
+
+#if (DEBUG)
+    printf("AND: ");
+    for (ind1 = 0; ind1 < rx.count; ind1++)
+        printf("%d-%d:%d ", rx.select[ind1].file, rx.select[ind1].index, rx.select[ind1].score);
+    printf("\n");
+#endif
+}
+
+
+/* perform set inclusion */
+void or(Result r1, Result r2, Result *r3)
+{
+    int ind1, ind2;
+    Result rx;
+                  
+    rx.count = 0;
+    rx.select = NULL;
+
+#if (DEBUG)
+    printf("Enter or()\nR1: ");
+    for (ind1 = 0; ind1 < r1.count; ind1++)
+        printf("%d-%d:%d ", r1.select[ind1].file, r1.select[ind1].index, r1.select[ind1].score);
+    printf("\n");
+    printf("R2: ");
+    for (ind2 = 0; ind2 < r2.count; ind2++)
+        printf("%d-%d:%d ", r2.select[ind2].file, r2.select[ind2].index, r2.select[ind2].score);
+    printf("\n");
+#endif
+
+    ind1 = ind2 = 0;
+    for (;;) {
+        if ((ind1 == r1.count) && (ind2 == r2.count))
+            break;
+        else if ((ind2 == r2.count) ||
+                 ((ind1 < r1.count) &&
+                  select_lt(r1.select[ind1], r2.select[ind2]))) {
+            rx.select = (Select *) my_realloc((Select *) rx.select,
+                                              (rx.count+1) * sizeof(Select));
+            rx.select[rx.count].file = r1.select[ind1].file;
+            rx.select[rx.count].index = r1.select[ind1].index;
+            rx.select[rx.count].score = r1.select[ind1].score;
+            rx.count++;
+            ind1++;
+        }
+        else if ((ind1 == r1.count) ||
+                 ((ind2 < r2.count) &&
+                  select_lt(r2.select[ind2], r1.select[ind1]))) {
+            rx.select = (Select *) my_realloc((Select *) rx.select,
+                                              (rx.count+1) * sizeof(Select));
+            rx.select[rx.count].file = r2.select[ind2].file;
+            rx.select[rx.count].index = r2.select[ind2].index;
+            rx.select[rx.count].score = r2.select[ind2].score;
+            rx.count++;
+            ind2++;
+        }
+        else if (select_eq(r1.select[ind1], r2.select[ind2])) {
+            rx.select = (Select *) my_realloc((Select *) rx.select,
+                                              (rx.count+1) * sizeof(Select));
+            rx.select[rx.count].file = r1.select[ind1].file;
+            rx.select[rx.count].index = r1.select[ind1].index;
+            rx.select[rx.count].score = 
+                r1.select[ind1].score > r2.select[ind2].score ?
+                    r1.select[ind1].score : r2.select[ind2].score;
+            rx.count++;
+            ind1++; ind2++;
+        }
+    }
+
+    if (r3->select) free(r3->select);
+    *r3 = rx;
+
+#if (DEBUG)
+    printf("OR: ");
+    for (ind1 = 0; ind1 < rx.count; ind1++)
+        printf("%d-%d:%d ", rx.select[ind1].file, rx.select[ind1].index, rx.select[ind1].score);
+    printf("\n");
+#endif
+}
+
+
+/* perform set exclusion */
+void not(Result r1, Result r2, Result *r3)
+{
+    int ind1, ind2;
+    Result rx;
+                  
+    rx.count = 0;
+    rx.select = NULL;
+
+#if (DEBUG)
+    printf("Enter not()\nR1: ");
+    for (ind1 = 0; ind1 < r1.count; ind1++)
+        printf("%d-%d:%d ", r1.select[ind1].file, r1.select[ind1].index, r1.select[ind1].score);
+    printf("\n");
+    printf("R2: ");
+    for (ind2 = 0; ind2 < r2.count; ind2++)
+        printf("%d-%d:%d ", r2.select[ind2].file, r2.select[ind2].index, r2.select[ind2].score);
+    printf("\n");
+#endif
+
+    ind1 = ind2 = 0;
+    for (;;) {
+        if (ind1 == r1.count)
+            break;
+        else if ((ind2 == r2.count) ||
+                 select_lt(r1.select[ind1], r2.select[ind2])) {
+            rx.select = (Select *) my_realloc((Select *) rx.select,
+                                              (rx.count+1) * sizeof(Select));
+            rx.select[rx.count].file = r1.select[ind1].file;
+            rx.select[rx.count].index = r1.select[ind1].index;
+            rx.select[rx.count].score = r1.select[ind1].score;
+            rx.count++;
+            ind1++;
+        }
+        else if (select_lt(r2.select[ind2], r1.select[ind1])) ind2++;
+        else if (select_eq(r1.select[ind1], r2.select[ind2])) {
+            ind1++; ind2++;
+        }
+    }
+    if (r3->select) free(r3->select);
+    *r3 = rx;
+
+#if (DEBUG)
+    printf("NOT: ");
+    for (ind1 = 0; ind1 < rx.count; ind1++)
+        printf("%d-%d:%d ", rx.select[ind1].file, rx.select[ind1].index, rx.select[ind1].score);
+    printf("\n");
+#endif
+}
+
+
+/* parse factor */
+int factor(char *qstr, Result *result, Token *op)
+{
+    Token token;
+
+#if (DEBUG)
+    printf("Enter factor()\n");
+#endif
+
+    get_token(qstr, &token);
+    if (strcmp(token.str, "(") == 0) {
+        if (!query(qstr, result, op)) {
+#if (DEBUG)
+            printf("Query failed; exit Factor with failure\n");
+#endif
+            return 0;
+        }
+        if (strcmp(op->str, ")") != 0) {
+#if (DEBUG)
+            printf("Query success, no rparen; exit Factor with failure\n");
+#endif
+            return 0;
+        }
+    }
+    else
+        find(token, result);
+
+    free(token.str);
+    get_token(qstr, op);
+#if (DEBUG)
+    printf("Exit factor()\n");
+#endif
+    return 1;
+}
+
+
+/* parse term */
+int term(char *qstr, Result *result, Token *op)
+{
+    Result temp;
+    Token token;
+
+#if (DEBUG)
+    printf("Enter term()\n");
+#endif
+
+    if (factor(qstr, result, op)) {
+        while ((strcmp(op->str, "and") == 0) ||
+               (strcmp(op->str, "not") == 0)) {
+            if (!factor(qstr, &temp, &token))
+                return 0;
+            if (strcmp(op->str, "and") == 0)
+                and(*result, temp, result);
+            else if (strcmp(op->str, "not") == 0)
+                not(*result, temp, result);
+            free(op->str);
+            *op = token;
+            free(temp.select);
+        }
+#if (DEBUG)
+        printf("Exit term()\n");
+#endif
+        return 1;
+    }
+#if (DEBUG)
+    printf("Exit Term with failure\n");
+#endif
+    return 0;
+}
+
+
+/* parse expression */
+int expr(char *qstr, Result *result, Token *op)
+{
+    Result temp;
+    Token token;
+
+#if (DEBUG)
+    printf("Enter expr()\n");
+#endif
+
+    if (term(qstr, result, op)) {
+        while (strcmp(op->str, "or") == 0) {
+            if (!term(qstr, &temp, &token))
+                return 0;
+            or(*result, temp, result);
+            free(op->str);
+            *op = token;
+            free(temp.select);
+        }
+#if (DEBUG)
+        printf("Exit expr()\n");
+#endif
+        return 1;
+    }
+#if (DEBUG)
+    printf("Exit Expr with failure\n");
+#endif
+    return 0;
+}
+
+/* parse query */
+int query(char *qstr, Result *result, Token *op)
+{
+    Result result2;
+    char temp_qstr[MAX_QUERY], *cp;
+    int status, too_small, min_word = 0;
+
+#if (DEBUG)
+    printf("Enter query()\n");
+#endif
+
+    status = expr(qstr, result, op);      /* evaluate the expr */
+    while ((strlen(op->str) > 0) &&       /* non-boolean at end of expression */
+           (strcmp(op->str, ")") != 0)) { /* and it isn't a ")" */
+#if (DEBUG)
+        printf("Found \"%s\" at end of expression; 'near' assumed\n", op->str);
+#endif
+        /* Check whether we've set a minimum word length. */
+        if ((cp=getenv("WWW_MINIMUM_WORD")) != NULL) {
+            min_word = atoi(cp);
+        }
+
+        too_small = (strlen(op->str) < min_word);
+        strcpy(temp_qstr, op->str);       /* put token */
+        strcat(temp_qstr, " ");           /* back on the */
+        strcat(temp_qstr, qstr);          /* front of the query */
+        strcpy(qstr, temp_qstr);
+        free(op->str);
+        status = expr(qstr, &result2, op);
+        if (!too_small)
+            near(*result, result2, result); /* how close are the expressions? */
+        free(result2.select);
+    }
+    free(op->str);
+#if (DEBUG)
+    printf("Exit query()\n");
+#endif
+
+    return status;
+}
+
+
+/* read selector record */
+void find_selector(Select sel)
+{
+    int status;
+    static int current_file = 0;
+
+    sprintf(index_field, "%0*d", index_size[sel.file], sel.index);
+
+    if (sel.file != current_file) {
+        current_file = sel.file;
+        status = sys$close(&selfab);
+        open_selector(selector_name[current_file]);
+    }
+    selrab.rab$b_rac = RAB$C_KEY;
+    selrab.rab$b_krf = 0;
+    selrab.rab$l_kbf = index_field;
+    selrab.rab$l_rop = 0;            /* set up exact match */
+    selrab.rab$b_ksz = index_size[sel.file];
+
+    /* find the selector record */
+    if (((status = sys$get(&selrab)) & 1) != SS$_NORMAL)
+        lib$stop(status);
+
+    *(char *) (selrab.rab$l_ubf + selrab.rab$w_rsz) = '\0'; /* terminate string */
+}
+
+
+/* parse the selector record into it's parts
+** this reads two different formats and returns which type in new_style
+** old style: <gtype>title<tab><ptype>file<tab>host<tab>port
+** new style: title<tab>|gtype|ptype|file|host:port|method|path
+** Note: gtype is a pointer to a single character
+**       ptype must already be allocated at least 22 bytes
+**       method must already be allocated at least 5 bytes
+**       The contents of '*str' will be riddled with nulls
+*/
+
+void parse_selector(char *str, int *new_style, char **title, char *gtype,
+                    char *ptype, char **file, char **host, char **port,
+                    char *method, char **path)
+{
+    char *ptr1, *ptr2;
+
+    ptr1 = strchr(str, '\t');             /* find end of topic title */
+    *ptr1++ = '\0';                       /* mark end of title */
+    *new_style = (*ptr1 == '|');          /* determine record type */
+
+    if (*new_style == 0) {                /* handle the old style record */
+        *gtype = *str;
+        *title = str+1;
+        if (*ptr1 == 'R') {               /* old style range */
+            ptr2 = strchr(ptr1, '-');     /* skip to second dash */
+            ptr2 = strchr(ptr2+1, '-');
+            *ptr2 = '\0';                 /* mark end of ptype */
+            strcpy(ptype, ptr1);          /* copy ptype Rnnnn-nnnn */
+        }
+        else {
+            *ptype = *ptr1;               /* copy single character ptype */
+            *(ptype+1) = '\0';
+            ptr2 = ptr1;                  /* ptr2 = last character of ptype */
+        }
+        *file = ptr2+1;                   /* start of file name */
+
+        ptr1 = strchr(*file, '\t');       /* find end of old style filename */
+        if (ptr1)
+           *ptr1++ = '\0';                /* mark end of file name */
+        else {                            /* record ends after file name */
+            method[0] = '\0';
+            *host = *port = *path = "";
+            return;                       /* other fields are empty; done */
+        }
+        *host = ptr1;                     /* start of host name */
+
+        ptr1 = strchr(*host, '\t');       /* find end of host name */
+        if (ptr1)
+           *ptr1++ = '\0';                /* mark end of host name */
+        else {                            /* record ends after file name */
+            method[0] = '\0';
+            *port = *path = "";
+            return;                       /* other fields are empty; done */
+        }
+        *port = ptr1;                     /* start of port number */
+        method[0] = '\0';
+        *path = "";
+        return;                           /* other fields are empty; done */
+    }
+
+    /* new style selector */
+    *title = str;                         /* record title location */
+    ptr1++;                               /* skip over first | */
+    ptr2 = strchr(ptr1, '|');             /* find end of gtype field */
+    if (ptr2)
+        *ptr2++ = '\0';                   /* mark end of gtype field */
+    else
+        ptr2 = "";                        /* else point to empty string */
+    *gtype = *(ptr1);                     /* copy gtype */
+    ptr1 = ptr2;                          /* ptr1 = start of next field */
+
+    ptr2 = strchr(ptr1, '|');             /* find end of ptype field */
+    if (ptr2)
+        *ptr2++ = '\0';                   /* mark end of ptype field */
+    else
+        ptr2 = "";                        /* else point to empty string */
+    strcpy(ptype, ptr1);                  /* copy ptype */
+    ptr1 = ptr2;                          /* ptr1 = start of next field */
+
+    ptr2 = strchr(ptr1, '|');             /* find end of filename field */
+    if (ptr2)
+        *ptr2++ = '\0';                   /* mark end of ptype field */
+    else
+        ptr2 = "";                        /* else point to empty string */
+    *file =  ptr1;                        /* record filename location */
+    ptr1 = ptr2;                          /* ptr1 = start of next field */
+
+    ptr2 = strchr(ptr1, '|');             /* find end of hostname field */
+    if (ptr2)
+        *ptr2++ = '\0';                   /* mark end of hostname field */
+    else
+        ptr2 = "";                        /* else point to empty string */
+    *host =  ptr1;                        /* record host location */
+    ptr1 = ptr2;                          /* ptr1 = start of next field */
+
+    ptr2 = strchr(ptr1, '|');             /* find end of method field */
+    if (ptr2)
+        *ptr2++ = '\0';                   /* mark end of method field */
+    else
+        ptr2 = "";                        /* else point to empty string */
+    strcpy(method, ptr1);                 /* record method */
+    ptr1 = ptr2;                          /* ptr1 = start of next field */
+
+    ptr2 = strchr(ptr1, '|');             /* find end of path field */
+    if (ptr2)
+        *ptr2++ = '\0';                   /* mark end of path field */
+    else
+        ptr2 = "";                        /* else point to empty string */
+    *path =  ptr1;                        /* record path location */
+    ptr1 = ptr2;                          /* ptr1 = start of next field */
+
+    ptr1 = strchr(*host, ':');            /* find start of port number field */
+    if (ptr1)
+        *ptr1++ = '\0';                   /* mark end of hostname field */
+    else
+        ptr1 = "";                        /* else point to empty string */
+    *port =  ptr1;                        /* record port location */
+}
+
+
+/* output gopher-style selector */
+/* lookup selector with key 'index'; print selector, host, port */
+void gopher_emit(Select sel, char *host, char *port)
+{
+    char *ptr, score[10], ptype[25], method[10];
+    char *title, gtype, *file, *host2, *port2, *path;
+    int new_style;
+
+#if (DEBUG)
+    printf("Selector %d\n", sel.index);
+#endif
+
+    find_selector(sel);
+
+    /*
+       this assumes that the first 'index_size' characters of the selector 
+       record is the selector index field and the rest is the selector itself
+    */
+
+    ptr = (char *) (selrab.rab$l_ubf + index_size[sel.file]);
+    parse_selector(ptr, &new_style, &title, &gtype, ptype,
+                   &file, &host2, &port2, method, &path);
+
+    if (show_score)  /* include scores in title? */
+        sprintf(score, "[%d] ", sel.score);
+    else
+        strcpy(score, "");
+
+    if (ptype[0] == 'R')          /* parse_selector() trims trailing dash */
+        strcat(ptype,"-");
+
+    fprintf(outfile, "%c%s%s\t%s%s\t%s\t%s\n",
+            gtype, title, score, ptype, file,
+            strlen(host2) ? host2 : host,
+            strlen(port2) ? port2 : port);
+}
+
+
+void select_result(Result result)
+{
+    int ind, start, end, new_style;
+    char *ptr1, *title, gtype, *file_name, *host, *port, *path;
+    char ptype[25], inputline[SPEC_SIZE], answer[20], score[10], method[10];
+    FILE *fp = NULL;
+
+    printf("There are %d topic(s) found:\n", result.count);
+
+    /* list all the selectors */
+    for (ind = 0; ind < result.count; ind++) {
+        find_selector(result.select[ind]);
+        ptr1 = (char *) (selrab.rab$l_ubf +
+                         index_size[result.select[ind].file]);
+        parse_selector(ptr1, &new_style, &title, &gtype, ptype,
+                       &file_name, &host, &port, method, &path);
+
+        if (show_score)  /* include scores in title? */
+            sprintf(score, "[%d]", result.select[ind].score);
+        else
+            strcpy(score, "");
+
+        printf("%d. %s (%c) %s\n", ind+1, score, ptype[0], title);
+    }
+
+    /* display the topics selected */
+    for (;;) {
+        do {
+            ind = 0;  /* if non-numeric, ind will stay 0 */
+            printf("\nSelect topic to view [0 to quit]: ");
+            fgets(answer, 10, stdin);
+            sscanf(answer, "%d", &ind);
+        } while ((ind < 0) || (ind > result.count));
+        if (ind == 0)
+            return;
+
+        find_selector(result.select[ind-1]);
+        ptr1 = (char *) (selrab.rab$l_ubf +
+                         index_size[result.select[ind-1].file]);
+        parse_selector(ptr1, &new_style, &title, &gtype, ptype,
+                       &file_name, &host, &port, method, &path);
+        if ((ptype[0] == 'R')) {
+            /* Section from a text database */
+            sscanf(ptype+1, "%d-%d", &start, &end);
+            if ((fp = fopen(file_name, "r", "shr=get", "mbc=32")) != NULL) {
+                fseek(fp, start, SEEK_SET);
+                printf("\n\nThis is from the document %s\n\n", file_name);
+                while (fgets(inputline, sizeof(inputline), fp) != NULL) {
+                    printf("%s", inputline);
+                    if (ftell(fp) >= end)
+                        break;
+                }
+            } else {
+                printf("\n\nCould not access the document %s\n", file_name);
+            }
+        } else if (ptype[0] == '0') {
+            /* Whole text file */
+            if ((fp = fopen(file_name, "r", "shr=get", "mbc=32")) != NULL) {
+                while (fgets(inputline, sizeof(inputline), fp) != NULL)
+                    printf("%s", inputline);
+            } else {
+                printf("\n\nCould not access the document %s\n", file_name);
+            }
+        }
+        else
+            printf("\n\nThis is not a text document\n");
+
+        if (fp)
+            fclose(fp);
+    }
+}
+
+
+
+/*
+** Format and output a hit list.
+*/
+static void www_emit(Result result)
+{
+    int ind, start, end, bytes, status;
+    struct stat buf;
+    char	*ThisYear;
+    time_t	elapsed;
+    struct tm	*local;
+    char	cdate[26];
+#define	MMM	cdate+4
+#define DD	cdate+8
+#define HHMM	cdate+11
+#define	YY	cdate+22
+    unsigned short send_raw = FALSE;
+    unsigned short show_date = FALSE, show_time = FALSE, use_mdate = FALSE;
+    unsigned short show_size = FALSE;
+    unsigned short max_hits = FALSE;
+    unsigned short use_ipath_info = FALSE;
+    int MaxHits = 0;
+    int StartingHit, EndingHit, TotalHits;
+    unsigned short via_form = FALSE;
+    unsigned short add_context = FALSE;
+    unsigned short HavePrevious = FALSE, HaveNext = FALSE;
+    char *cp, *cp1, *ptr1, *name, *path;
+    char score[10], ptype[25], method[10];
+    char *title, *file;
+    int new_style;
+    char *file_name, size[128], DateAndOrSize[256];
+    char items_found[256], items_listed[256];
+    char ipath_info[SPEC_SIZE],required_realm[250];
+    char ipath_translated[SPEC_SIZE], alt_ipath_translated[SPEC_SIZE];
+    char *alt_path=NULL;
+    char *hits_target=NULL;
+    char gtype;
+    char *host, *port;
+    char *gopher_title=NULL;
+    FILE *fp;
+
+
+    /*
+     * Check for required realm
+     */
+
+    if ((cp=getenv("WWW_REQUIRED_REALM")) == NULL) {
+
+	required_realm[0] = '\0';
+
+    } else {
+
+	if (strlen(cp) <= 2) {
+
+	    required_realm[0] ='\0';
+
+	} else {
+
+	    if (strlen(cp) <= 249) {
+
+		strcpy(required_realm, cp);
+
+	    } else {
+
+		too_bad(BAD_REALM_LENGTH); 
+		exit(1);
+	    }
+	}
+
+    }
+
+
+    /* Check whether we're using whole files. */
+    if (getenv("WWW_SEND_RAW_FILE") != NULL)
+        send_raw = TRUE;
+
+    /* Check whether we've set an items found string with a %d. */
+    if ((cp=getenv("WWW_ITEMS_FOUND")) != NULL && strstr(cp, "%d") != NULL) {
+        strcpy(items_found, cp);
+    } else {
+        strcpy(items_found, "There are <EM>%d</EM> item(s) found");
+    }
+
+    /* Check whether we've set an items listed string with two %d's. */
+    if ((cp=getenv("WWW_ITEMS_LISTED")) != NULL &&
+        (ptr1=strstr(cp, "%d")) != NULL && strstr((ptr1+2), "%d") != NULL) {
+        sprintf(items_listed, ".\n%s", cp);
+    } else {
+        strcpy(items_listed,
+	       ".\nListing <EM>%d</EM> to <EM>%d</EM>");
+    }
+
+    /* Check whether we've set a maximum number of hits. */
+    if ((cp=getenv("WWW_MAXIMUM_HITS")) != NULL) {
+        MaxHits = atoi(cp);
+	max_hits = TRUE;
+    }
+
+    /* Check whether we've set a starting number for hits. */
+    if ((cp=getenv("WWW_STARTING_HIT")) != NULL) {
+        StartingHit = atoi(cp);
+    } else {
+        StartingHit = 1;
+    }
+
+    /* Check whether we're showing the size. */
+    if ((cp=getenv("WWW_SHOW_SIZE")) != NULL)
+        show_size = TRUE;
+
+    /* Check whether we're showing the date. */
+    if ((cp=getenv("WWW_SHOW_DATE")) != NULL) {
+        show_date = TRUE;
+
+        /* Do we prefer the modification date? */
+        if ((cp=getenv("WWW_USE_MDATE")) != NULL)
+            use_mdate = TRUE;
+
+        /* Should we show the time in place of the current year? */
+        if ((cp=getenv("WWW_SHOW_TIME")) != NULL)
+            show_time = TRUE;
+    }
+
+    /* Check whether the query is from a form. */
+    if (getenv("WWW_VIA_FORM") != NULL)
+        via_form = TRUE;
+
+    /* Check whether the hit list should include TARGET attributes. */
+    if ((cp=getenv("WWW_HITS_TARGET")) != NULL && *cp) {
+        hits_target = (char *)malloc(strlen(cp) + 12);
+	sprintf(hits_target, " TARGET=\"%s\"", cp);
+    }
+
+    /*
+     * If via_form is set, check whether to add context via
+     * named submit buttons and hidden inputs.  If add_context
+     * is set, the hidden inputs will not be added if all the
+     * hits were reported and the named submit buttons were
+     * not added.
+     */
+    if (via_form && getenv("WWW_ADD_CONTEXT") != NULL)
+        add_context = TRUE;
+    /*
+     * Check whether to substitute ipath_info for ipath_translated
+     * in hit lists, and if so, set up the translation.
+     */
+    if (((cp=getenv("WWW_OMIT_IPATH_CONVERSION")) == NULL) &&
+        ( cp=getenv("WWW_IPATH_INFO") ) != NULL) {
+	if (strlen(cp) > SPEC_SIZE)
+	    cp[SPEC_SIZE] = '\0';
+	strcpy(ipath_info, cp);
+        if ((cp=getenv("WWW_IPATH_TRANSLATED")) != NULL) {
+	    if (strlen(cp) > SPEC_SIZE)
+	        cp[SPEC_SIZE] = '\0';
+	    strcpy(ipath_translated, cp);
+	    /*
+	     * Make sure we handle both root (device/000000/)
+	     * and subdirectory (device/foo/) paths.
+	     */
+	    if ((cp=strstr(ipath_translated, "000000/")) != NULL) {
+	        *cp = '\0';
+		strcpy(alt_ipath_translated, ipath_translated);
+		*cp = '0';
+		strcat(alt_ipath_translated, (cp+7));
+	    } else {
+	        alt_ipath_translated[0] = '\0';
+	    }
+	    use_ipath_info = TRUE;
+	}
+    } 
+
+    /* should we redirect to the only selector? */
+    if (!omit_content_type && (result.count == 1) &&
+        (getenv("WWW_SEND_CONTENTS") != NULL)) {
+        find_selector(result.select[0]);
+        ptr1 = (char *) (selrab.rab$l_ubf +
+                         index_size[result.select[0].file]);
+        parse_selector(ptr1, &new_style, &name, &gtype, ptype,
+                       &file_name, &host, &port, method, &path);
+
+        /* Get the path field for the URL. */
+	if (ptype[0] != 'R') {
+	    /* No range is indicated.  Use a direct URL. */
+            if (strlen(path) == 0)     /* no path given in selector */
+	        path = HTVMS_wwwName(file_name);   /* use file name */
+	} else {
+	    /* Get file_name and number of bytes from the Range selector. */
+            sscanf(ptype+1, "%d-%d", &start, &end);
+	    bytes = (end - start) + 1;
+
+	    if (send_raw == TRUE) {
+	        /* Ignore the Range and use a direct URL. */
+                ptype[0] = '\0';
+                if (strlen(path) == 0)         /* no path given in selector */
+                    path = HTVMS_wwwName(file_name);   /* use file name */
+	    } else if (use_ipath_info == TRUE) {
+	        /* Include the Range but convert the pathspec. */
+	        path = HTVMS_wwwName(file_name);
+
+	    } else {
+	        /* We're including a Range and VMS pathspecs so hex escape. */
+	        alt_path = URLescape(file_name);
+	        path = alt_path;
+	    }
+	}
+
+	/*
+	 * Check for ipath_translated or alt_ipath_translated
+	 * and substitute ipath_info (if set).
+	 */
+	if (use_ipath_info == TRUE) {
+	    alt_path = (char *)malloc(strlen(path) + strlen(ipath_info) + 1);
+	    if (strncasecomp(path,
+			     ipath_translated,
+			     strlen(ipath_translated)) == 0) {
+		strcpy(alt_path, ipath_info);
+		strcat(alt_path, (char*)&path[strlen(ipath_translated)]);
+		path = alt_path;
+	    } else if(alt_ipath_translated[0] != '\0' &&
+		      strncasecomp(path,
+				   alt_ipath_translated,
+				   strlen(alt_ipath_translated)) == 0) {
+		strcpy(alt_path, ipath_info);
+		strcat(alt_path, (char*)&path[strlen(alt_ipath_translated)]);
+		path = alt_path;
+	    }
+	}
+
+        /* Output the hit. */
+	if (ptype[0] != 'R' || send_raw == TRUE) {
+	    /* Direct URL. */
+            printf ("Location: %s://%s%s%s%s\n\n",
+                    strlen(method) ? method : "http",
+                    strlen(host) ? host : Host,
+                    !strlen(host) && strlen(port) ? ":" : "",
+                    !strlen(host) && strlen(port) ? port : "",
+                    strlen(path) ? path : HTVMS_wwwName(file_name));
+	} else {
+	    /* Hex escaped URL with range. */
+            printf ("Location: %s://%s%s%s%s%s?TEXT=%s-%s\n\n",
+                    strlen(method) ? method : "http",
+                    strlen(host) ? host : Host,
+                    !strlen(host) && strlen(port) ? ":" : "",
+                    !strlen(host) && strlen(port) ? port : "",
+                    (cp=getenv("WWW_SCRIPT_NAME")) ? cp : "/htbin/query",
+                    (use_ipath_info) ? ipath_info : "",
+                    ptype,
+                    strlen(path) ? path : HTVMS_wwwName(file_name));
+	}
+	if (alt_path != NULL) {
+	    free(alt_path);
+	    alt_path = NULL;
+	}
+        return;
+    }
+
+
+    /* Set up the HTML rendition. */
+    if (!omit_content_type)
+        printf("Content-Type: text/html\n\n");
+    if (!omit_head) {
+        printf("<HTML>\n<HEAD>\n");
+	if (TITLE != NULL)
+	    printf("<TITLE>%s</TITLE>\n", TITLE);
+	else
+	    printf("<TITLE>VMS Indexed Database Search</TITLE>\n");
+
+/*
+ *      You can leave the <ISINDEX> part active, if you don't care about
+ *      functioning with Mac Internet Explorer V5 -- none of the hit links
+ *      will be clickable if you do, though!  -- RDP 8/21/00
+ *
+ *      if (!via_form)
+ *          printf("<ISINDEX>\n");
+ */
+
+#include "custom_head.c"
+    }
+
+
+    printf("<H3>Searching for:</H3>\n<UL>\n<H1><EM>%s</EM></H1>\n</UL>\n", orig_qstr);
+    if (required_realm[0] != '\0') {
+	printf("<H3>in pages whose URLs contain:</H3>\n<UL>\n<H2><EM>%s</EM></H2>\n</UL>\n", required_realm);
+    }
+    EndingHit = TotalHits = result.count;
+    fprintf(stdout, items_found, TotalHits);
+    if (StartingHit > 1 && StartingHit > TotalHits) {
+        if (max_hits) {
+            StartingHit = TotalHits - MaxHits + 1;
+	    if (StartingHit < 1)
+	        StartingHit = 1;
+	} else {
+	    StartingHit = 1;
+	}
+    }
+    if (max_hits && EndingHit > (StartingHit + MaxHits - 1)) {
+	EndingHit = (StartingHit + MaxHits - 1);
+	fprintf(stdout, items_listed, StartingHit, EndingHit);
+    } else if (StartingHit > 1) {
+	fprintf(stdout, items_listed, StartingHit, EndingHit);
+    }
+    if (!max_hits)
+        MaxHits = TotalHits;
+    if (StartingHit > 1)
+        HavePrevious = TRUE;
+    if (EndingHit < TotalHits)
+        HaveNext = TRUE;
+    if (!(HavePrevious || HaveNext))
+        add_context = FALSE;
+    if (add_context) {
+        printf(":\n<INPUT TYPE=\"hidden\" NAME=\"os\" VALUE=\"%d\">\n",
+				       StartingHit);
+        printf("<INPUT TYPE=\"hidden\" NAME=\"om\" VALUE=\"%d\">\n",
+				       MaxHits);
+        printf("<INPUT TYPE=\"hidden\" NAME=\"ot\" VALUE=\"%d\">\n",
+				       TotalHits);
+        printf("<INPUT TYPE=\"hidden\" NAME=\"oq\" VALUE=\"%s\">\n",
+				       orig_qstr);
+	printf("<P>\n<OL SEQNUM=\"%d\" START=\"%d\">\n",
+				       StartingHit,  StartingHit);
+    } else {
+        printf(":\n<P>\n<OL SEQNUM=\"%d\" START=\"%d\">\n",
+				       StartingHit,  StartingHit);
+    }
+    if (add_context) {
+	if (HavePrevious) {
+	    if ((StartingHit - MaxHits) > 1) {
+	        printf(
+	  "<LH>[ <INPUT TYPE=\"submit\" NAME=\"ph\" VALUE=\"Previous %d\">",
+	    					    MaxHits);
+	    } else {
+	        printf(
+	  "<LH>[ <INPUT TYPE=\"submit\" NAME=\"ph\" VALUE=\"First %d\">",
+	    					    MaxHits);
+	    }
+	}
+	if (HaveNext) {
+	    int next = (((TotalHits - MaxHits) < EndingHit) ?
+	    			    (TotalHits - EndingHit) : MaxHits);
+	    if (!HavePrevious) {
+	        printf("<LH>[ ");
+	    } else {
+	        printf(" | ");
+	    }
+	    if ((EndingHit + next) >= TotalHits) {
+	        printf(
+		    "<INPUT TYPE=\"submit\" NAME=\"nh\" VALUE=\"Last %d\">",
+	    						next);
+	    } else {
+	        printf(
+		    "<INPUT TYPE=\"submit\" NAME=\"nh\" VALUE=\"Next %d\">",
+	    						next);
+	    }
+	}
+	if (HavePrevious || HaveNext) {
+	    printf(" ]</LH>\n");
+	}
+    }
+
+    /* List the selectors. */
+    for (ind = (StartingHit - 1); ind < EndingHit; ind++) {
+        find_selector(result.select[ind]);
+        ptr1 = (char *) (selrab.rab$l_ubf +
+			 index_size[result.select[ind].file]);
+        parse_selector(ptr1, &new_style, &name, &gtype, ptype,
+                       &file_name, &host, &port, method, &path);
+	status = -1;
+	bytes = 0;
+	DateAndOrSize[0] = '\0';
+
+        /* Get the path field for the URL. */
+	if (ptype[0] != 'R') {
+	    /* No range is indicated.  Use a direct URL. */
+            if (strlen(path) == 0)     /* no path given in selector */
+	        path = HTVMS_wwwName(file_name);   /* use file name */
+	} else {
+	    /* Get file_name and number of bytes from the Range selector. */
+            sscanf(ptype+1, "%d-%d", &start, &end);
+	    bytes = (end - start) + 1;
+
+	    if (send_raw == TRUE) {
+	        /* Ignore the Range and use a direct URL. */
+                ptype[0] = '\0';
+                if (strlen(path) == 0)         /* no path given in selector */
+                    path = HTVMS_wwwName(file_name);   /* use file name */
+	    } else if (use_ipath_info == TRUE) {
+	        /* Include the Range but convert the pathspec. */
+	        path = HTVMS_wwwName(file_name);
+
+	    } else {
+	        /* We're including a Range and VMS pathspecs so hex escape. */
+	        alt_path = URLescape(file_name);
+	        path = alt_path;
+	    }
+	}
+
+	/* Check whether to load the DateAndOrSize string. */
+	if (show_date || show_size) {
+
+	    /* Check whether we need to call stat(). */
+	    if (show_date || ptype[0] != 'R')
+	        status = stat(file_name, &buf);
+
+	    /* Check whether we need to load the size string. */
+	    if (show_size && (bytes || !status)) {
+	        if (!bytes)
+	            bytes = (int)buf.st_size;
+		sprintf(size, "%d%s",
+	    		(bytes >= 1000) ? (bytes+1023)/1024 : bytes,
+	    		(bytes >= 1000) ? "KB" : " Bytes");
+	    }
+
+	    /* Check whether we need to load the date fields. */
+	    if (show_date && !status) {
+	        if (use_mdate)
+		    /* Use the last modification date. */
+		    strcpy(cdate,ctime((unsigned long *) &buf.st_mtime));
+		else
+		    /* Default to the creation date. */
+		    strcpy(cdate,ctime((unsigned long *) &buf.st_ctime));
+
+		/* Terminate each date field. */
+		cdate[3] = cdate[7] = cdate[10] = cdate[16] = cdate[24]= '\0';
+		if (cdate[8]==' ')
+		    cdate[8] = '0';
+
+		/* Check whether we need to know ThisYear. */
+		if (show_time) {
+		    elapsed = time(&elapsed);
+		    local = localtime(&elapsed);
+		    ThisYear = asctime(local) + 22;
+		}
+	    }
+            /* Load the DateAndOrSize string. */
+	    if (show_date && !status) {
+	        if (show_time && show_size) {
+	            if (strncmp(YY,ThisYear,2)==0)
+	                sprintf(DateAndOrSize, " [%s-%s %s, %s]",
+						DD, MMM, HHMM, size);
+		    else
+	                sprintf(DateAndOrSize, " [%s-%s-%s, %s]",
+						DD, MMM, YY, size);
+
+		} else if (show_time) {
+	            if (strncmp(YY,ThisYear,2)==0)
+	                sprintf(DateAndOrSize, " [%s-%s %s]",
+						DD, MMM, HHMM);
+		    else
+	                sprintf(DateAndOrSize, " [%s-%s-%s]",
+						DD, MMM, YY);
+
+	        } else if (show_size) {
+	            sprintf(DateAndOrSize, " [%s-%s-%s, %s]",
+					    DD, MMM, YY, size);
+
+	        } else {
+	            sprintf(DateAndOrSize, " [%s-%s-%s]", DD, MMM, YY);
+		}
+	    } else if (show_size && bytes) {
+	        sprintf(DateAndOrSize, " [%s]", size);
+	    }
+	}
+
+	/*
+	 * Create the score string or dummy.
+	 */
+        if (show_score)
+            sprintf(score, " (%d)", result.select[ind].score);
+        else
+            strcpy(score, "");
+
+	/*
+	 * Check for ipath_translated or alt_ipath_translated
+	 * and substitute ipath_info (if set).
+	 */
+	if (use_ipath_info == TRUE) {
+	    alt_path = (char *)malloc(strlen(path) + strlen(ipath_info) + 1);
+	    if (strncasecomp(path,
+			     ipath_translated,
+			     strlen(ipath_translated)) == 0) {
+		strcpy(alt_path, ipath_info);
+		strcat(alt_path, (char*)&path[strlen(ipath_translated)]);
+		path = alt_path;
+	    } else if(alt_ipath_translated[0] != '\0' &&
+		      strncasecomp(path,
+				   alt_ipath_translated,
+				   strlen(alt_ipath_translated)) == 0) {
+		strcpy(alt_path, ipath_info);
+		strcat(alt_path, (char*)&path[strlen(alt_ipath_translated)]);
+		path = alt_path;
+	    }
+	}
+
+        /* provide http default if a host is given with no method */
+        if ((strlen(method) == 0) && strlen(host))
+            strcpy(method, "http");
+        if (strlen(method))
+            strcat(method, "://");
+
+	/* load gopher_title if it's a gopher URL */
+	if (strlen(method) && !strcmp(method, "gopher://")) {
+	    gopher_title = (char *)malloc(strlen(name) + 12);
+	    sprintf(gopher_title, " TITLE=\"%s\"", name);
+	}
+
+        /* Output the hit. */
+	if (ptype[0] != 'R' || send_raw == TRUE) {
+	    /* Direct URL. */
+	    printf ("<LI>%s<A HREF=\"%s%s%s%s%s\"%s%s>%s</A>%s%s\n",
+	    	    FileType(gtype),
+	    	    strlen(method) ? method : "",
+		    strlen(host) ? host : "",
+                    strlen(port) ? ":" : "",
+                    strlen(port) ? port : "",
+		    path,
+		    (gopher_title != NULL) ? gopher_title : "",
+		    (hits_target != NULL) ? hits_target : "",
+		    name,
+		    DateAndOrSize, score);
+	} else {
+	    /* Hex escaped URL with range. */
+            printf ("<LI>%s<A HREF=\"%s%s%s%s%s%s?TEXT=%s-%s\"%s%s>%s</A>%s%s\n",
+	    	    FileType(gtype),
+	    	    strlen(method) ? method : "",
+		    strlen(host) ? host : "",
+                    strlen(port) ? ":" : "",
+                    strlen(port) ? port : "",
+		    (cp=getenv("WWW_SCRIPT_NAME")) ? cp : "/htbin/query",
+		    (use_ipath_info) ? ipath_info : "",
+		    ptype, path,
+		    (gopher_title != NULL) ? gopher_title : "",
+		    (hits_target != NULL) ? hits_target : "",
+		    name,
+		    DateAndOrSize, score);
+	}
+	if (alt_path != NULL) {
+	    free(alt_path);
+	    alt_path = NULL;
+	}
+	if (gopher_title != NULL) {
+	    free(gopher_title);
+	    gopher_title = NULL;
+	}
+    }
+    if (hits_target != NULL)
+	free(hits_target);
+
+    /* Complete the HTML rendition. */
+    if (add_context &&
+        (EndingHit - StartingHit + 1) >= 10 &&
+	(HavePrevious || HaveNext)) {
+	if (HavePrevious) {
+	    if ((StartingHit - MaxHits) > 1) {
+	        printf(
+	  "<BR>[ <INPUT TYPE=\"submit\" NAME=\"ph\" VALUE=\"Previous %d\">",
+	    					    MaxHits);
+	    } else {
+	        printf(
+	  "<BR>[ <INPUT TYPE=\"submit\" NAME=\"ph\" VALUE=\"First %d\">",
+	    					    MaxHits);
+	    }
+	}
+	if (HaveNext) {
+	    int next = (((TotalHits - MaxHits) < EndingHit) ?
+	    			    (TotalHits - EndingHit) : MaxHits);
+	    if (!HavePrevious) {
+	        printf("<BR>[ ");
+	    } else {
+	        printf(" | ");
+	    }
+	    if ((EndingHit + next) >= TotalHits) {
+	        printf(
+		    "<INPUT TYPE=\"submit\" NAME=\"nh\" VALUE=\"Last %d\">",
+	    						next);
+	    } else {
+	        printf(
+		    "<INPUT TYPE=\"submit\" NAME=\"nh\" VALUE=\"Next %d\">",
+	    						next);
+	    }
+	}
+	printf(" ]\n");
+    }
+    printf("</OL>\n");
+check_if_end_form_wanted:
+    if (via_form && getenv("WWW_END_FORM") != NULL) {
+        printf("</FORM>\n");
+    }
+    if (!omit_foot) {
+	printf("<P>\n<BR>\n");
+#include "custom_research.c"
+
+#include "custom_foot.c"
+    }
+    return;
+}
+
+
+
+/*
+ * Modify the scores to elevate the ranking of home pages (using the path)
+ * and to elevate the ranking of pages where the hit was early enough on the
+ * page that it might have been from meta-tagged keywords or description.  
+ * Based on www_emit (there may be some relic lines of code that are not
+ * needed).  - RDP
+ */
+static void home_page (Result result)
+{
+    int ind, rawplace, rawscore, start, end, bytes, status;
+    int slashcheck, slashcount;
+    struct stat buf;
+    time_t	elapsed;
+    struct tm	*local;
+    char	cdate[26];
+#define	MMM	cdate+4
+#define DD	cdate+8
+#define HHMM	cdate+11
+#define	YY	cdate+22
+    unsigned short send_raw = FALSE;
+    unsigned short use_ipath_info = FALSE;
+    char *cp, *cp1, *ptr1, *name, *path;
+    char score[10], ptype[25], method[10], bad_host[250], bad_path[250];
+    char required_realm[250], this_url[250];
+    char *title, *file;
+    int new_style;
+    char *file_name, size[128];
+    char items_found[256], items_listed[256];
+    char ipath_info[SPEC_SIZE];
+    char ipath_translated[SPEC_SIZE], alt_ipath_translated[SPEC_SIZE];
+    char *alt_path=NULL;
+    char gtype;
+    char *host, *port;
+    FILE *fp;
+    int bad_path_cut, bad_host_cut, slash_max, slash_add;
+    int place_top, top_boost, place_early, place_scale, home_boost;
+
+    /*
+     * Initialize cut and boost parameters
+     */
+
+
+    if ((cp=getenv("WWW_BAD_PATH_CUT")) != NULL) {
+
+	bad_path_cut = atoi(cp);
+
+    } else {
+
+	bad_path_cut = 2;
+
+    }
+
+
+    if ((cp=getenv("WWW_BAD_HOST_CUT")) != NULL) {
+
+	bad_host_cut = atoi(cp);
+
+    } else {
+
+	bad_host_cut = 2;
+
+    }
+
+
+    if ((cp=getenv("WWW_SLASH_MAX")) != NULL) {
+
+	slash_max = atoi(cp);
+
+    } else {
+
+	slash_max = 4;
+
+    }
+
+
+    if ((cp=getenv("WWW_SLASH_ADD")) != NULL) {
+
+	slash_add = atoi(cp);
+
+    } else {
+
+	slash_add = 50;
+
+    }
+
+
+    if ((cp=getenv("WWW_PLACE_TOP")) != NULL) {
+
+	place_top = atoi(cp);
+
+    } else {
+
+	place_top = 50;
+
+    }
+
+
+    if ((cp=getenv("WWW_TOP_BOOST")) != NULL) {
+
+	top_boost = atoi(cp);
+
+    } else {
+
+	top_boost = 50;
+
+    }
+
+
+    if ((cp=getenv("WWW_PLACE_EARLY")) != NULL) {
+
+	place_early = atoi(cp);
+
+    } else {
+
+	place_early = 150;
+
+    }
+
+    if ((cp=getenv("WWW_PLACE_SCALE")) != NULL) {
+
+	place_scale = atoi(cp);
+
+    } else {
+
+	place_scale = 2;
+
+    }
+
+    if ((cp=getenv("WWW_HOME_BOOST")) != NULL) {
+
+	home_boost = atoi(cp);
+
+    } else {
+
+	home_boost = 400;
+
+    }
+
+    /*
+     * Check for deprecated path
+     */
+
+    if ((cp=getenv("WWW_DEPRECATED_PATH")) != NULL) {
+
+	if ((strlen(cp) <= 249) && (strlen(cp) >= 4)) {
+
+	    strcpy(bad_path, cp);
+
+	} else {
+
+	    too_bad(BAD_PATH_LENGTH);
+	    exit(1);
+	}
+
+    } else {
+
+	bad_path[0] = '\0';
+
+    }
+
+
+    /*
+     * Check for deprecated host
+     */
+
+    if ((cp=getenv("WWW_DEPRECATED_HOST")) != NULL) {
+
+	if ((strlen(cp) <= 249) && (strlen(cp) >= 4)) {
+
+	    strcpy(bad_host, cp);
+
+	} else {
+
+	    too_bad(BAD_HOST_LENGTH);
+	    exit(1);
+	}
+
+    } else {
+
+	bad_host[0] = '\0';
+
+    }
+
+
+    /*
+     * Check for required realm
+     */
+
+    if ((cp=getenv("WWW_REQUIRED_REALM")) == NULL) {
+
+	required_realm[0] = '\0';
+
+    } else {
+
+	if (strlen(cp) <= 2) {
+
+	    required_realm[0] ='\0';
+
+	} else {
+
+	    if (strlen(cp) <= 249) {
+
+		strcpy(required_realm, cp);
+
+	    } else {
+
+		too_bad(BAD_REALM_LENGTH); 
+		exit(1);
+	    }
+	}
+
+    }
+
+    /*
+     * Check whether to substitute ipath_info for ipath_translated
+     * in hit lists, and if so, set up the translation.
+     */
+    if (((cp=getenv("WWW_OMIT_IPATH_CONVERSION")) == NULL) &&
+        ( cp=getenv("WWW_IPATH_INFO") ) != NULL) {
+	if (strlen(cp) > SPEC_SIZE)
+	    cp[SPEC_SIZE] = '\0';
+	strcpy(ipath_info, cp);
+        if ((cp=getenv("WWW_IPATH_TRANSLATED")) != NULL) {
+	    if (strlen(cp) > SPEC_SIZE)
+	        cp[SPEC_SIZE] = '\0';
+	    strcpy(ipath_translated, cp);
+	    /*
+	     * Make sure we handle both root (device/000000/)
+	     * and subdirectory (device/foo/) paths.
+	     */
+	    if ((cp=strstr(ipath_translated, "000000/")) != NULL) {
+	        *cp = '\0';
+		strcpy(alt_ipath_translated, ipath_translated);
+		*cp = '0';
+		strcat(alt_ipath_translated, (cp+7));
+	    } else {
+	        alt_ipath_translated[0] = '\0';
+	    }
+	    use_ipath_info = TRUE;
+	}
+    } 
+
+
+    /* Go through the selectors one at a time. */
+    for (ind = 0; ind < result.count; ind++) {
+        find_selector(result.select[ind]);
+        ptr1 = (char *) (selrab.rab$l_ubf +
+			 index_size[result.select[ind].file]);
+        parse_selector(ptr1, &new_style, &name, &gtype, ptype,
+                       &file_name, &host, &port, method, &path);
+	status = -1;
+	bytes = 0;
+
+        /* Get the path field for the URL. */
+	if (ptype[0] != 'R') {
+	    /* No range is indicated.  Use a direct URL. */
+            if (strlen(path) == 0)     /* no path given in selector */
+	        path = HTVMS_wwwName(file_name);   /* use file name */
+	} else {
+	    /* Get file_name and number of bytes from the Range selector. */
+            sscanf(ptype+1, "%d-%d", &start, &end);
+	    bytes = (end - start) + 1;
+
+	    if (send_raw == TRUE) {
+	        /* Ignore the Range and use a direct URL. */
+                ptype[0] = '\0';
+                if (strlen(path) == 0)         /* no path given in selector */
+                    path = HTVMS_wwwName(file_name);   /* use file name */
+	    } else if (use_ipath_info == TRUE) {
+	        /* Include the Range but convert the pathspec. */
+	        path = HTVMS_wwwName(file_name);
+
+	    } else {
+	        /* We're including a Range and VMS pathspecs so hex escape. */
+	        alt_path = URLescape(file_name);
+	        path = alt_path;
+	    }
+	}
+
+
+	/*
+	 * Check for ipath_translated or alt_ipath_translated
+	 * and substitute ipath_info (if set).
+	 */
+	if (use_ipath_info == TRUE) {
+	    alt_path = (char *)malloc(strlen(path) + strlen(ipath_info) + 1);
+	    if (strncasecomp(path,
+			     ipath_translated,
+			     strlen(ipath_translated)) == 0) {
+		strcpy(alt_path, ipath_info);
+		strcat(alt_path, (char*)&path[strlen(ipath_translated)]);
+		path = alt_path;
+	    } else if(alt_ipath_translated[0] != '\0' &&
+		      strncasecomp(path,
+				   alt_ipath_translated,
+				   strlen(alt_ipath_translated)) == 0) {
+		strcpy(alt_path, ipath_info);
+		strcat(alt_path, (char*)&path[strlen(alt_ipath_translated)]);
+		path = alt_path;
+	    }
+	}
+
+
+        /* provide http default if a host is given with no method */
+
+        if ((strlen(method) == 0) && strlen(host))
+            strcpy(method, "http");
+        if (strlen(method))
+            strcat(method, "://");
+
+
+        /*
+	 *  At this point, method, host, port, and path are the obvious parts 
+	 *  of the HREF that will be created for the link.  -  RDP
+	 */
+
+        rawscore = result.select[ind].score;
+        rawplace = result.select[ind].pos;
+
+	if ((strlen(path) + strlen(host)) <= (250 - 7 - 6)) {
+
+	    sprintf(this_url, "%s%s%s%s",
+		strlen(method) ? method : "",
+		strlen(host) ? host : "",
+		strlen(port) ? port : "",
+		path);
+
+	} else {
+
+	    /* deal with pathologically long URL */
+
+	    sprintf(this_url, "%s",
+		strlen(method) ? method : "");
+
+	    strncat(this_url, host, (250 - strlen(this_url) - 3));
+	    strncat(this_url, port, (250 - strlen(this_url) - 2));
+	    strncat(this_url, path, (250 - strlen(this_url) - 1));
+	}
+
+	if (required_realm[0] == '\0' || (required_realm[0] != '\0' &&
+		(strstr(this_url,required_realm) != NULL)) ) {
+
+	    /*
+	     * either no required realm or it matches, so go ahead
+	     * with the boost and cut calculations
+	     *
+	     */
+
+            if (strstr(path,"index.") != NULL ||
+                strstr(path,"welcome.") != NULL ||
+                strstr(path,"default.") != NULL ||
+                path[strlen(path)-1] == '/')  {
+
+	        /*
+                 *  we have a home page, folks!
+                 */
+                rawscore = rawscore + home_boost;	/* home page boost */
+            }
+
+	    /*
+	     *  Apply boost for early location in page -- primary target
+	     *  is keywords and description text from META tags. 
+	     */
+
+            if (rawplace <= place_top) rawscore = rawscore + top_boost;
+	    if (rawplace <= place_early) rawscore = rawscore + (place_early - rawplace)/place_scale;
+
+	    /*
+	     *  Apply boost for high-level path (small number of slashes).
+	     */
+
+	    slashcount = 0;
+
+	    for (slashcheck=0; slashcheck < strlen(path); slashcheck++) {
+
+	        if (path[slashcheck] == '/') slashcount = slashcount + 1;
+	    }
+
+	    if (slashcount <= slash_max) rawscore = rawscore + slash_add*(slash_max - slashcount);
+
+
+	    /*
+	     *  Apply cut for pages on deprecated host.
+	     */
+
+	    if ((strlen(bad_host) >= 2) && (strstr(host, bad_host) != NULL)) {
+
+	        rawscore = rawscore/bad_host_cut;
+
+	    }
+
+
+	    /*
+	     *  Apply cut for pages on deprecated path.
+	     */
+
+	    if ((strlen(bad_path) >= 2) && (strstr(path, bad_path) != NULL)) {
+
+	        rawscore = rawscore/bad_path_cut;
+
+	    }
+
+	} else {
+
+	/*
+	 *
+	 * required realm and it did not match
+	 *
+	 */
+
+	    rawscore = 0;
+
+	}
+
+        result.select[ind].score = rawscore;
+
+	if (alt_path != NULL) {
+	    free(alt_path);
+	    alt_path = NULL;
+	}
+    }
+
+    return;
+}
+
+
+
+/*
+** Redirect or output a client's request for a RANGE fetch.
+*/
+static void display_result(char *file_name)
+{
+    int start, end, i;
+    unsigned short omit_pre = FALSE;
+    char *cp, inputline[SPEC_SIZE];
+    FILE *fp;
+
+    /* Get the range and VMS filename. */
+    if (orig_qstr[5] == ' ')	/** "TEXT= R..."		**/
+        i = 7;
+    else	   		/** "TEXT=R..." or "TEXT R..."	**/
+        i = 6; 
+    sscanf(orig_qstr+i, "%d-%d-%s", &start, &end, file_name);
+
+    /* Force any paths whose device begins with WWW_Root to begin at root? */
+    if (!strncasecomp(file_name, "WWW_Root", 8) &&
+        (cp=strstr(file_name, ":[")) != NULL &&
+	getenv("WWW_FORCE_000000") != NULL) {
+        cp += 2;
+        if (*cp && strncmp(cp, "000000", 6)) {
+	    strncpy(inputline, file_name, cp-file_name);
+	    inputline[cp-file_name] = '\0';
+	    strcat(inputline, "000000.");
+	    strcat(inputline, cp);
+	    strcpy(file_name, inputline);
+	}
+    }
+
+    /* Use Location: for raw files to implement httpd authorization checks. */
+    /* 		(still need this for old or gerry-rigged URL's)		    */
+    if (getenv("WWW_SEND_RAW_FILE") != NULL) {
+        printf("Location: %s%s%s\n\n",
+			  strlen(Host) ? "http://" : "",
+			  strlen(Host) ? Host : "",
+			  HTVMS_wwwName(file_name));
+	return;
+    }
+
+    /* Set up the HTML rendition for document sections. */
+    if (!omit_content_type)
+        printf("Content-Type: text/html\n\n");
+    if (!omit_head) {
+        printf("<HTML>\n<HEAD>\n");
+	if (TITLE != NULL)
+	    printf("<TITLE>%s</TITLE>\n", TITLE);
+	else
+	    printf("<TITLE>VMS Indexed Database Search</TITLE>\n");
+#include "custom_head.c"
+    }
+
+    /*
+     * If we are omitting the IPATH conversions, then
+     * require that the path to the document begin with
+     * WWW_Root, Gopher_Root, or a string optionally set by
+     * the calling script as the WWW_DATADIRECTORY symbol.
+     * 
+     * Always require that it not begin with the WWW_FORBIDDEN
+     * symbol if the calling script has set a string for it.
+     *
+     * These checks are done for files or database sections
+     * fetched with a RANGE specification because the path
+     * to them is not included in the server's access checks
+     * (the server only checks access for the script which
+     * invoked us).  We want to block spoofs like:
+     * 		R0-10000-SYS$COMMON:[SYSMGR]FOO.BLAH
+     */
+    if ( getenv("WWW_OMIT_CONVERSION") != NULL &&
+         ( strncasecomp(file_name, "WWW_Root", 8) &&
+           strncasecomp(file_name, "Gopher_Root", 11) &&
+	  !(((cp=getenv("WWW_DATADIRECTORY")) != NULL) &&
+	      strncasecomp(file_name, cp, strlen(cp))) ) ||
+	 ( ((cp=getenv("WWW_FORBIDDEN")) != NULL) &&
+	   0==strncasecomp(file_name, cp, strlen(cp)) ) ) {
+	printf("<H1>ERROR 403</H1>\nForbidden -- by rule");
+#include "custom_foot.c"
+	return;
+    }
+
+    /* Check whether we should omit PRE formatting. */
+    if (getenv("WWW_OMIT_PRE_TAG") != NULL) {
+	omit_pre = TRUE;
+    }
+    else
+        printf("<PRE>\n");
+
+    /* Get and send the section with appropriate further packaging. */ 
+    if ((cp=getenv("WWW_IPATH_TRANSLATED")) != NULL &&
+        getenv("WWW_OMIT_IPATH_CONVERSION") == NULL)
+        fp = fopen(cp, "r", "shr=get", "mbc=32");
+    else
+        fp = fopen(file_name, "r", "shr=get", "mbc=32");
+    if (fp == NULL) {
+	printf("<H1>ERROR 403</H1>\nUnable to fopen() database.");
+#include "custom_foot.c"
+	return;
+    }
+    fseek(fp, start, SEEK_SET);
+    if(omit_pre)
+        printf("This is from the document %s\n\n", file_name);
+    else
+	printf("<PRE>\nThis is from the document %s\n</PRE>\n", file_name);
+    while (fgets(inputline, sizeof(inputline), fp) != NULL) {
+        printf("%s", inputline);
+	if (ftell(fp) >= end)
+            break;
+    }
+    fclose(fp);
+    if (omit_pre)
+        printf("\n");
+    else
+        printf("\n</PRE>\n");
+    if (!omit_foot)
+#include "custom_foot.c"
+}
+
+static char *URLescape(char *str)
+{
+#define ACCEPTABLE(a)	( a>=32 && a<128 && ((isAcceptable[a-32]) & 1))
+    char *p;
+    char *q;
+    char *result;
+    int unacceptable = 0;
+    for(p=str; *p; p++)
+        if (!ACCEPTABLE((unsigned char)*p))
+		unacceptable++;
+    result = (char *) malloc(p-str + unacceptable+ unacceptable + 1);
+    for(q=result, p=str; *p; p++) {
+    	unsigned char a = *p;
+	if (!ACCEPTABLE(a)) {
+	    *q++ = '%';	/* Means hex commming */
+	    *q++ = hex[a >> 4];
+	    *q++ = hex[a & 15];
+	}
+	else *q++ = *p;
+    }
+    *q++ = '\0';			/* Terminate */
+    return(result);
+}
+
+static char *HTVMS_wwwName(char *vmsname)
+{
+static char wwwname[SPEC_SIZE];
+char *src, *dst;
+int dir;
+   dst = wwwname;
+   src = vmsname;
+   dir = 0;
+   if (strchr(src,':')) *(dst++) = '/';
+   for ( ; *src != '\0' ; src++)
+   {
+      switch(*src)
+      {
+         case ':':  *(dst++) = '/'; break;
+         case '-': if (dir)
+	 	   {
+	 	      if ((*(src-1)=='[' || *(src-1)=='.' || *(src-1)=='-') && 
+		          (*(src+1)=='.' || *(src+1)=='-'))
+		      {
+		          *(dst++) = '/';
+                          *(dst++) = '.'; 
+                          *(dst++) = '.';
+		      }
+		      else
+		          *(dst++) = '-';
+		   }
+		   else
+		   {
+		      if (*(src-1) == ']') *(dst++) = '/';
+		      *(dst++) = '-';
+		   }
+                   break;
+         case '.': if (dir)
+                   {
+                      if (*(src-1) != '[') *(dst++) = '/';
+                   }
+                   else
+		   {
+		      if (*(src-1) == ']') *(dst++) = '/';
+                      *(dst++) = '.';
+		   }
+                   break;
+         case '[': dir = 1; break;
+         case ']': dir = 0; break;
+         default:  if (*(src-1) == ']') *(dst++) = '/';
+                   *(dst++) = *src; 
+                   break;
+      }
+   }
+   *(dst++) = '\0';
+   return(wwwname);
+}
+
+static char *FileType(char gtype)
+{
+static char filetype[256];
+
+    if (getenv("WWW_SHOW_FILETYPE") == NULL) {
+        filetype[0] = '\0';
+	return(filetype);
+    }
+
+    switch(gtype)
+    {
+        case '0':
+	case 'R':
+	case 'h':
+	case 'M':
+	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"\"> ",
+	    	    strlen(Host) ? "http://" : "",
+		    strlen(Host) ? Host : "",
+		    "/httpd-internal-icons/text.xbm");
+	    break;
+
+	case '1':
+	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[DIR]\"> ",
+	    	    strlen(Host) ? "http://" : "",
+		    strlen(Host) ? Host : "",
+		    "/httpd-internal-icons/directory.xbm");
+	    break;
+
+	case '4':
+	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[HEX]\"> ",
+	    	    strlen(Host) ? "http://" : "",
+		    strlen(Host) ? Host : "",
+		    "/httpd-internal-icons/binhex.xbm");
+	    break;
+
+	case '5':
+	case '9':
+	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[BIN]\"> ",
+	    	    strlen(Host) ? "http://" : "",
+		    strlen(Host) ? Host : "",
+		    "/httpd-internal-icons/binary.xbm");
+	    break;
+
+	case '6':
+	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[UUE]\"> ",
+	    	    strlen(Host) ? "http://" : "",
+		    strlen(Host) ? Host : "",
+		    "/httpd-internal-icons/uu.xbm");
+	    break;
+
+	case '7':
+	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[IDX]\"> ",
+	    	    strlen(Host) ? "http://" : "",
+		    strlen(Host) ? Host : "",
+		    "/httpd-internal-icons/index.xbm");
+	    break;
+
+	case 'g':
+	case 'I':
+	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[IMG]\"> ",
+	    	    strlen(Host) ? "http://" : "",
+		    strlen(Host) ? Host : "",
+		    "/httpd-internal-icons/image.xbm");
+	    break;
+
+	case 's':
+	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[SND]\"> ",
+	    	    strlen(Host) ? "http://" : "",
+		    strlen(Host) ? Host : "",
+		    "/httpd-internal-icons/sound.xbm");
+	    break;
+
+	case ';':
+	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[MOV]\"> ",
+	    	    strlen(Host) ? "http://" : "",
+		    strlen(Host) ? Host : "",
+		    "/httpd-internal-icons/movie.xbm");
+	    break;
+
+	default:
+	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[UNK]\"> ",
+	    	    strlen(Host) ? "http://" : "",
+		    strlen(Host) ? Host : "",
+		    "/httpd-internal-icons/unknown.xbm");
+	    break;
+    }
+
+    return(filetype);
+}
+
+static void too_bad(char *reason)
+{
+    if (!(switch_present("www") ||
+    	  getenv("WWW_GATEWAY_INTERFACE") != NULL)) {
+        printf("%s\n", reason);      /* non HTML error */
+        return;
+    }
+
+    /* set up the HTML rendition */
+    if (!omit_content_type)
+        printf("Content-type: text/html\n\n");
+    if (!omit_head) {
+        printf("<HTML>\n<HEAD>\n");
+	if (TITLE != NULL)
+	    printf("<TITLE>%s</TITLE>\n", TITLE);
+	else
+	    printf("<TITLE>VMS Indexed Database Search</TITLE>\n");
+#include "custom_head.c"
+    }
+
+    /* display the error message */
+    printf("<H1>ERROR 403</H1>\n%s", reason);
+    if (!omit_foot)
+#include "custom_foot.c"
+
+    return;
+}
+
+static int strcasecomp(char *a, char *b)
+{
+	char *p = a;
+	char *q = b;
+	for(p=a, q=b; *p && *q; p++, q++) {
+	    int diff = tolower(*p) - tolower(*q);
+	    if (diff) return diff;
+	}
+	if (*p) return 1;	/* p was longer than q */
+	if (*q) return -1;	/* p was shorter than q */
+	return 0;		/* Exact match */
+}
+
+static int strncasecomp(char *a, char *b, int n)
+{
+	char *p = a;
+	char *q = b;
+	
+	for(p=a, q=b;; p++, q++) {
+	    int diff;
+	    if (p == a+n) return 0;	/*   Match up to n characters */
+	    if (!(*p && *q)) return *p - *q;
+	    diff = tolower(*p) - tolower(*q);
+	    if (diff) return diff;
+	}
+}
+
+
+static int switch_present(char *sw)
+{
+    struct dsc$descriptor_s dsc;
+
+    dsc.dsc$w_length=(short)strlen(sw);      
+    dsc.dsc$b_dtype=DSC$K_DTYPE_T;   
+    dsc.dsc$b_class=DSC$K_CLASS_S;  
+    dsc.dsc$a_pointer=sw;
+    return (cli$present(&dsc) & 1);
+}
+
+
+static char *switch_value(char *sw)
+{
+    static char value[100];
+    int status;
+    short leng;
+    struct dsc$descriptor_s dsc;
+    $DESCRIPTOR(value_dsc, value);
+
+    dsc.dsc$w_length=(short)strlen(sw);      
+    dsc.dsc$b_dtype=DSC$K_DTYPE_T;   
+    dsc.dsc$b_class=DSC$K_CLASS_S;  
+    dsc.dsc$a_pointer=sw;
+    status = cli$get_value(&dsc, &value_dsc, &leng);
+    if ((status & 1) == 0)  /* on error */
+        leng = 0;           /* return null string */
+    value[leng] = '\0';
+    return value;
+}

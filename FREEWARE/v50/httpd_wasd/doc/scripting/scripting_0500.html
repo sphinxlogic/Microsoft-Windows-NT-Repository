@@ -1,0 +1,175 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.SCRIPTING]SCRIPTING_CALLOUT.SDML">
+<META NAME="date" CONTENT="Fri, 26 Jan 2001 12:57:25">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>CGI Callouts</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Scripting Environment</H1>
+
+<A NAME="73">
+<H2>5 - CGI Callouts</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+5.1 - <A HREF="scripting_0500.html#74" TARGET="_self">Requests and Responses</A>
+<BR>5.2 - <A HREF="scripting_0500.html#75" TARGET="_self">Code Examples</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="scripting_0600.html" TARGET="_self">next</A>] [<A HREF="scripting_0400.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0500.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> During CGI or CGIplus processing (though not DECnet-based CGI) it is
+possible to suspend  normal script  output to the client and for the script to
+interact directly with the server, then resume output to the client.&nbsp;  This may
+done more than once during processing.&nbsp;  During the <I>callout</I> the
+script makes a request of the server and receives a response.&nbsp;  These requests
+are to perform some server function, such as the mapping of a path to a file
+specification, on behalf of the script.&nbsp;  Naturally, this makes the script no
+longer portable, but may be extrememly useful in some circumstances.&nbsp;
+
+<P> It is this general callout mechanism that allows specific authentication
+agents (see &quot;Technical Overview, Authorization&quot;) to be implemented as
+standard CGIplus scripts.&nbsp;
+
+<P> The mechanism is quite simple.&nbsp;
+<OL>
+
+<LI> The script suspends normal output by writing a record containing a
+unique <I>escape</I> sequence.&nbsp;
+<P>
+<LI> It then writes a record containing a formatted request.&nbsp;  The server
+interprets the request, performs the action and returns a success or error
+response.&nbsp;
+<P>
+<LI> The script concludes the callout by writing a record containing a
+unique <I>end-of-text</I> sequence.&nbsp;
+<P>
+<LI> The script reads the server's response and continues processing.&nbsp;  In
+reality the response read could occur immediately after the request write (i.e.
+before the concluding end-of-text sequence).&nbsp;
+</OL>
+
+
+<P> This is a basic callout.&nbsp;  Between the callout escape and end-of-text
+sequences multiple request/responses transactions may be undertaken.&nbsp;
+
+<A NAME="74">
+<H3><BR><U>5.1 - Requests and Responses</U></H3>
+</A>
+
+<P> The request record is plain text, comprising a request key-word
+(case-insensitive), full-colon, and following optional white-space and
+parameter(s).&nbsp;  It is designed not to be implementation language specific.&nbsp;
+
+<P> The response record is also plain-text.&nbsp;  It begins with a three-digit
+response code, with similar meanings and used for the same purpose as HTTP
+response codes.&nbsp;  That is 200 is a success status, 500 a server error, 400 a
+request error, etc.&nbsp;  Following the response code is white-space and the plain
+text result or error message.&nbsp;  A response to any given callout request may be
+suppressed by providing a request record with a leading &quot;!&quot; or
+&quot;#&quot;.
+<UL>
+
+<LI><B>AUTH-FILE:</B> <I>file specification</I>
+
+<P> If the specialized /PROFILE capability is enabled (see
+&quot;Technical Overview, Security Profile&quot;) this can determine whether the
+specified file name is allowed access by the request's username.&nbsp;
+<P>
+<LI><B>GATEWAY-BEGIN:</B> <I>integer</I>
+
+<P> When using the raw TCP/IP socket for output (see
+<A HREF="scripting_1000.html#113" TARGET="_self">10 - Raw TCP/IP Socket</A>) this callout is used to notify the server that
+the script will be using the gateway device and the HTTP status code (e.g. 200,
+302, 404, etc.)
+<P>
+<LI><B>GATEWAY-END:</B> <I>integer</I>
+
+<P> When using the raw TCP/IP socket for output (see
+<A HREF="scripting_1000.html#113" TARGET="_self">10 - Raw TCP/IP Socket</A>) this callout is used to notify the server of
+the quantity of data transfered directly to the client by the script.&nbsp;
+<P>
+<LI><B>LIFETIME:</B> <I>integer</I>
+
+<P> Sets/resets a script subprocess' lifetime (in minutes).&nbsp;  For instance, use
+to give frequently used  CGIplus scripts an extended lifetime before being
+rundown by the server (override the [DclCgiPlusLifeTime] configuration
+parameter).&nbsp;  Specifying &quot;none&quot; (or -1) gives it an <I>infinite</I>
+lifetime, zero resets to default.&nbsp;
+<P>
+<LI><B>MAP-FILE:</B> <I>file specification</I>
+
+<P> Map the supplied file specification to it's URL-style path equivalent, and
+against the server's mapping rule.&nbsp;  This does not check the file name is legal
+RMS syntax.&nbsp;
+<P>
+<LI><B>MAP-PATH:</B> <I>URL-style path</I>
+
+<P> Map the supplied URL-style path against the server's rule database into a
+VMS file specification.&nbsp;  Note that this does not verify the file name legaility
+or that the file actually exists.&nbsp;
+<P>
+<LI><B>NOOP:</B>
+
+<P> No operation.&nbsp;  Just return a success response.&nbsp;
+<P>
+<LI><B>TIMEOUT-OUTPUT:</B> <I>integer</I>
+
+<P> Sets/resets a script request lifetime (in minutes, overrides the
+[TimeoutOutput] configuration parameter).&nbsp;  Specifying &quot;none&quot; (or -1)
+gives it an <I>infinite</I> lifetime, zero resets to default.&nbsp;
+<P>
+<LI><B>TIMEOUT-NOPROGRESS:</B> <I>integer</I>
+
+<P> Sets/resets a script request no-progress (in minutes, overrides the
+[TimeoutNoProgress] configuration parameter).&nbsp;  The <I>no-progress</I>
+period is the maximum number of seconds that there may be no output from the
+script before it is aborted.&nbsp;  Specifying &quot;none&quot; (or -1) gives it an
+<I>infinite</I> lifetime, zero resets to default.&nbsp;
+</UL>
+
+
+<A NAME="75">
+<H3><BR><U>5.2 - Code Examples</U></H3>
+</A>
+
+<P> The record-oriented callout sequences and request/response makes
+implementation quite straight-forward.&nbsp;  The following C language and DCL
+procedure code fragments illustrate the basics.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  /* C language */
+  CgiPlusIn = fopen ("CGIPLUSIN:", "r");
+  printf ("%s\nMAP-FILE: %s\n%s\n",
+          getenv("CGIPLUSESC"), FileNamePtr, getenv("CGIPLUSEOT"));
+  fgets (CalloutResponse, sizeof(CalloutResponse), CgiPlusIn);
+ 
+  $! DCL procedure
+  $ open /read CgiPlusIn CGIPLUSIN
+  $ write sys$output f$trnlnm("CGIPLUSESC")
+  $ write sys$output "MAP-PATH: " + PathPtr
+  $ read CgiPlusIn Response
+  $!(no need to read a response for this next request, it's suppressed)
+  $ write sys$output "#TIMEOUT-OUTPUT:10"
+  $ write sys$output f$trnlnm("CGIPLUSEOT")
+</PRE></FONT>
+
+<P> Also see working examples in
+<A TARGET="_top" HREF="/ht_root/src/CGIplus/*callout*.*">HT_ROOT:[SRC.CGIPLUS]</A>.
+
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="scripting_0600.html" TARGET="_self">next</A>] [<A HREF="scripting_0400.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0500.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

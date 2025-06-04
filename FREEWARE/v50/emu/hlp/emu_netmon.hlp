@@ -1,0 +1,173 @@
+1 EMU_NETMON   
+ Collection of routines common to net monitor processes.
+ See individual routines for descriptions
+2 CONFIGMON_CHECK_POLFLG    
+ Routine to get the MAPPER entry for the input EMUDB rec and return either 
+ TRUE or FALSE if this param should be polled for. Each paramater in MAPPER
+ has a bit field that directs this poller whether or not to poll for the 
+ paramater and include in in the database. If the MAPPER entry is not
+ found, the routine returns TRUE.
+ NOTE:
+
+3 Input
+ .address of EMUBD record. Only the tbl and param valuse are accessed.
+
+3 Output
+  R1 = address of MAPPER record if found, else 0
+ 
+3 Returns
+	SS$_NORMAL	(TRUE) poller should get this param
+	0		(FALSE) poller should ignore this param
+	0 (FALSE) is returned on any error (No MAPPER rec)
+	SS$_BADPARAM	Invalid MIB entry
+	 Any error from RMS
+2 CONFIGMON_CHECK_TIME 
+ Routine to determine if it is time to update this box on this protocol
+3 Inputs
+ Record address
+3 Outputs
+ None
+3 Returns
+ from LIB$_SUB_TIMES. If success returned then time has not passed. Any error
+ is assumed to be INVTIME - a negative time was computed and this 
+ is to be interpreted as the time to update has passed.
+3 Description
+  The routine first checks the nopoll bit in the header. If it is set
+  it returns immediately with SS$_NORMAL (Don't poll). This bit is 
+  set whenever a return from a poll indicates the system is attempting
+  to violate security. In some future version this bit will be made
+  user controllable.
+
+  The routine next checks the update bit in the header. If it is 
+  set it returns immediately with LIB$_IVTIME. If it is not set it 
+  calculates the time to update as follows:
+   
+  The time between updates is stored in the record header at offset
+  NEXTUPD and is an integer number of minutes. If this field is 
+  0 the default (4320 min - 3 days) is applied. 
+ 
+ The number of responses is then checked. If it is 0 (no update yet)
+ and the number of polls is < 4 then the routine exits with LIB$_IVTIME.
+ Otherwise (Polls > 4) the time comparison (below) is on the last poll 
+ field. If it is not 0 the time comparison is on the last update field. 
+ This allows us to update immediately any node that has not been updated 
+ while not excessively polling nodes that won't respond.
+
+  NEXTUPD is converted to VMS delta time and added to the last update 
+  time. This is subtracted from one of last poll or last update (depending
+  on previous reponses) and if a negative time results, it is 
+  time to update. 
+  Note that NEXTUPD is intended to be user writtable in some future 
+  version. Some time after that we may make it clever by calculating the 
+  'best' time taking into account distance from us, recent changes, recent
+  alerts etc.
+
+2 CONFIGMON_UPDATE_HEADER
+ Subroutine to update the header for this record reflecting the results
+ of the last update. Optionaly, the call can specify the database and
+ all records with this boxid are updated. This prevents boxes with 
+ multiple entries being updated multiple times on a single pass.
+3 Inputs
+  .long	status
+  .address	record
+  .address	database structure	(optional)
+3 Outputs
+  For for the record(s) specified, the following fields are written:
+	LASSTA		Status given in p1
+	LASPOL		current time
+	RESP		Number of good responses
+	SYS_COM_V_UPDATE bit is cleared
+ 	If status is success then:
+	LASUPD		current time
+	Else LASUPD,UPDATE not written
+ If P3 is present, the database specified is scanned and the above
+ fields are written for each matching BOXID found
+ Returns
+ SS$_NORMAL		Have updated
+2 CONFIGMON_CHECK_FOR_DELETE    
+ Routine normally called after any update is completed for a device.
+ The update process sets a bit in the flag field indicating this param
+ still exists on the node. The routine is then called and scans the recs
+ performing following actions:
+	If update bit is set, it is cleared
+	If update bit is clear, an alert showing removal of this
+	component is sent and the rec is deleted.       
+
+3 Input
+	PSRdb record address
+3 Output
+	Every rec for this boxid on this protocol is read and either
+	has it's update bit cleared or the rec is deleted. Any rec deleted
+	causes an alert to be sent.
+ 	A summary rec is written to log file containing:
+	Boxid, protocol, recs deleted, total recs remaining.
+3 Return
+ 	SS$_NORMAL	OK 
+	
+ Any from: EMUDB_ACCESS routines
+2 CONFIGMON_SEND_ALERT 
+ Formats and sends an alert to the alert process
+3 Inputs
+
+  P1	.long	code
+	code is one of:
+	 WASSET (Modified) 
+	 CREATED (new)
+	 NOTALLCANCELED (deleted)
+
+  P2   .address of alert buffer (512 bytes long) with following fields 
+	filled in:
+	PID
+	SENDER
+	
+   P3  .address of PSRdb rec this alert relates to
+
+ - - - - dependant params - - - -
+  	New:
+  P4	.address of desc pointing to EMUDB rec containing new component
+	Modify:
+  P4	.address of desc pointing to EMUDB rec containing new component
+  P5	.address of desc pointing to EMUDB rec containing old component
+	Delete:
+  P4	.address of desc pointing to EMUDB rec containing deleted component
+
+3 Outputs
+   Alert buff is formatted and sent
+3 Returns
+ 	SS$_NORMAL		Success - aler sent
+	SS$_ACCVIO		; Could not read/write in/out
+2 CFG_SEND_ALERT
+ Constructs and alert frame and sends it to the alert process via MBX. 
+ Some sanity checking is applied before send
+3 Inputs
+   P1	.address of 512 byte alert buffer with the header filled
+	out and containing:
+		.long	SYS_PID_C_xxx of PSRdb this alert is for
+      		.long	ALTID of box this alert is for
+      		.long	Class
+      		.long	Subclass
+      		.long	expirey
+      		.long	Sender
+      		.long   Priority
+		.long	Param count (filled in by this routine)
+  P2 - P13 Paramaters:
+	Each param is 3 arguments:
+	.long len of data + key
+	.address of 24 byte EMUdb key
+	.address of data
+ Up to 4 param sets may be present (total 13 params)
+ All lens are calculated in this routine and applied. The total len cannot
+ exceed 512 bytes.
+ **NOTE** THIS ROUTINE MUST BE CALLED BY CALLG
+
+3 Outputs
+  After checks are passed, the alert is MBX'ed to the alert process.
+
+3 Returns
+ SS$_NORMAL		Any error is logged here. Possible errors:
+ SS$_INVARG		Number of args was not 1,4,7 or 10
+ SS$_BUFFEROVF		Total len exceeded 512
+ SS$_ACCVIO		Could not write outp
+ 
+			
+ Any error from $QIO  

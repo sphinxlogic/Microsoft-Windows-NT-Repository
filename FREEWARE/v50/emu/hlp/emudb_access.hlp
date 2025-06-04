@@ -1,0 +1,234 @@
+1 EMUDB_ACCESS 
+ Collection of routines which together provide the API to EMUDB
+2 Main database file.
+ Keys are:
+ Protocol, Boxid, table, instance, param
+ Protocol: (4)The EMU assigned PID this entry is assiciated with.
+ Boxid   : (4)system generated unique physical device id
+ Table   : (4)EMU defined table this param is in eg 
+              DN4.line, LAT.Service etc
+ Instance: (4)the specific instance of an entity. This is a 16 bit CRC
+ 	       of the entity identifier. 
+ Param   : (4)The paramater number of this particular instance
+
+ Primary key is concatination of all of the above and dups 
+ are not allowed. Any other key or combination may be duplicated
+ A 6th .long is provided in the key field for use as processing 
+ flags. This field is defined as part of the key but never used 
+ as such. 
+
+2 EMUDB_WRITE  
+ Routine to write to EMUDB. 
+3 Inputs
+ .address of 24 byte key (full key must be specified)
+ .address of descriptor pointing to buffer containing data to write
+ .address of .long option flags                     (opt)
+ .address of desc pointing to buffer to contain returned information (opt)
+4 Options:
+   Bit		When Set
+   0		Check current value of param before write. Return 
+		old value in P4 if .ne.
+   1		Always set update flag in header. If set, any record 
+		processed sets this flag in flags field of key. Used to 
+		locate any params deleted from target. After processing
+		complete entity and setting this flag for each param, any 
+		param with flag not set has been deleted from target.
+3 Returns
+ R1 = addr of desc popiting to rec just written (if success)
+ R0 = status:
+ The MAPPER rec corresponding to this 
+ param is fetched and if present, the return is affected as follows:
+  Check result		Flag 			Return
+  Rec Created		Alert On create		SS$_CREATED
+  Rec Created		NoAlert On create	SS$_NORMAL
+  Rec Modified		Alert On Modify		SS$_WASSET
+  Rec Modified		NoAlert On Modify	SS$_NORMAL
+  Rec Deleted		Alert On DElete		SS$_DELETED
+  Rec Deleted		NoAlert On Delete	SS$_NORMAL
+	                     
+	SS$_BADPARAM	 Param is incorrectly formatted
+	SS$_NODATA	 The len of data (not including key) was <= 0
+   Any error returned by RMS
+2 EMUDB_READ  
+ Routine to read from EMUDB. Records are scanned and returned 1 by 1 
+ in sort order as specified by the key of reference. Each record is 
+ checked against the report level and if >, the record is skipped.
+ Each record is also checked against the current privs of the caller
+ and if insufficient, the record is (silently) skipped.
+ NOTE: The record is unlocked as soon as it is written to the caller's 
+ buffer. 
+
+3 Inputs
+ 1. KEY OF REFERENCE. EMU symbol denoting the key elements present to 
+    find a particular record.
+ 2 .long	Output buffer
+   .address of descriptor pointing to buffer where record is written
+    The key elements specified by the KRF argument must be supplied 
+    in the record format:
+    Protocol	.long
+    Boxid	.long
+    Table	.long
+    Instance	.long
+    Param	.long
+    Flags	.long
+    the len of the returned record is written in the descriptor.
+
+ 3. .long	search direction 
+ 4. .long report level
+ 5. .address record count. Count of recs returned kept here. Used to 
+	determine ROP field.
+ 6. Flags. Optional. If present AND = 1  the record is NOT unlocked 
+    immediately after read. By default the record is unlocked.
+ 7. RFA. optional .address of .quad where RFA is written. 
+    Note only bottom 6 bytes are written
+
+4 Key of reference:
+        DB_REC_KEY_PROTO	0       ; Protocol            
+        DB_REC_KEY_BOXID	1       ; BOXID               
+        DB_REC_KEY_TABLE	2       ; Table               
+        DB_REC_KEY_INST	3       ; Instance            
+        DB_REC_KEY_PARAM	4       ; Paramater           
+        DB_REC_KEY_PRO_BOX	5	; Protocol, boxid     
+        DB_REC_KEY_FULL	6	; Primary             
+        DB_REC_KEY_BOX_TAB	7	; Boxid, Table             
+	 DB_REC_KEY_TAB_PAR     8       ; Table, Param
+	 DB_REC_KEY_BX_TAB_PAR  9       ; Boxid, Table, Param
+
+ Symbols are in EMUDBDEF                                     
+3 Returns
+ R0 = status:
+	SS$_NORMAL	 Record found, filters passed and written to outp
+	SS$_INSFMAP      Could not find map record
+	SS$_BADPARAM	 Unknown key
+   Any error returned by RMS
+2 EMUDB_READ_RFA  
+ Routine to read from EMUDB using record file address. Purpose here is to 
+ retrieve param and build record by row rather as RMS dictates, by column.
+ Notes:
+ The RFA file MUST be provided. To have this the caller must have previously
+ read using EMUDB_READ. This routine restores the location and retrieves
+ the next record on the specified key.
+
+3 Inputs
+	 SAME AS EMUDB_READ. This routine simply sets the last
+	 read record as given by the RFA and then calls EMUDB_READ
+
+3 Returns
+ R0 = status:
+	SS$_NORMAL	 Record found, filters passed and written to outp
+	SS$_BADPARAM	 The record count = 0 . Implies this is 1st read
+			 on this key. Not allowed for RFA access.
+   Any error returned by RMS, EMUDB_READ
+2 EMUDB_DELETE  
+ Routine to delete a record from EMUDB. It is assumed that the record
+ has been successfuly read by the caller using EMUDB_READ. This RAB is
+ used in the delete operation. 
+3 Inputs
+	None
+3 Returns
+	None
+ R0 = status:
+   Any return from RMS
+2 EMUDB_UNLOCK  
+ Routine to unlock a record in EMUDB. It is assumed that the record
+ has been successfuly read by the caller using EMUDB_READ. This RAB is
+ used in the delete operation. 
+3 Inputs
+	None
+3 Returns
+	None
+ R0 = status:
+   Any return from RMS
+2 EMUDB_DELETE_ALL  
+ Routine to delete all records from EMUDB on a particular key.
+3 Inputs
+ 1. KEY OF REFERENCE. EMU symbol denoting the key elements present to 
+    find a particular record.
+ 
+ 2. .address of descriptor pointing to buffer where record is written
+     The len must be 768 bytes long and contain the values of the keys
+     specified in P1. Key is made from one or more of the following fields:
+    Protocol	.long
+    Boxid	.long
+    Table	.long
+    Instance	.long
+    Param	.long
+    Flags	.long
+
+ 3. .address record count. Count of recs deleted returned here. 
+
+4 Key of reference:
+        DB_REC_KEY_PROTO	0       ; Protocol            
+        DB_REC_KEY_BOXID	1       ; BOXID               
+        DB_REC_KEY_TABLE	2       ; Table               
+        DB_REC_KEY_INST	3       ; Instance            
+        DB_REC_KEY_PARAM	4       ; Paramater           
+        DB_REC_KEY_PRO_BOX	5	; Protocol, boxid     
+        DB_REC_KEY_FULL	6	; Primary             
+        DB_REC_KEY_BOX_TAB	7	; Boxid, Table             
+	 DB_REC_KEY_TAB_PAR     8       ; Table, Param
+	 DB_REC_KEY_BX_TAB_PAR  9       ; Boxid, Table, Param
+3 Output
+ All records found using specifed key are deleted. The count of recs
+ deleted is returned in P3.
+
+3 Returns
+ R0 = status:
+	SS$_NORMAL	 Record found, filters passed and written to outp
+	SS$_BADPARAM	 Unknown key
+	SS$_BUFFEROVF	 Buffer len was < DB_REC_C_MRS 
+   Any error returned by RMS
+2 EMUDB_UPDATE  
+ Routine to modify a record in EMUDB. It is assumed that the record
+ has been successfuly read by the caller using EMUDB_READ. This RAB is
+ used in the update operation. 
+ Note. This procedure is supplied for updating KEY information. If DATA
+ information is intended to be modified, EMUDB_WRITE should be called as
+ it decides whether to create or update record data and has the alert 
+ hooks built in.
+  
+3 Inputs
+	None
+3 Returns
+	None
+ R0 = status:
+   Any return from RMS
+2 EMUDB_GETMAP
+ Routine to look up translation rec for this param.
+3 Inputs
+	Addr of DB rec
+3 Outputs
+	R1 = pointer to map rec if found, 0 if not
+3 Returns
+ 	SS$_NORMAL		rec found, pointer written
+	SS$_ACCVIO		Can't read DB rec (Header only)
+	ANY RMS ERROR		Rec not found, R1 = 0
+2 EMUDB_LOG
+ If logging is enabled, this routine is called on each transaction
+ and writes the record to the log file.
+3 Input
+  .long value of operation. May be:
+	read	0
+	write	1
+	update	3
+	delete	4
+  .address of RAB
+3 Output
+ The operation and record are written to the log file as 2 records:
+	.long	operation
+	.var	record
+ Note an update operation normally will send 2 records (in 2 calls)
+ the 1st being the old rec and the 2nd the new.
+3 Returns
+ none - if logging fails do not take any special action.
+2 EMUDB_OPEN
+ Open Main Database file
+ If file does not exist then it is created
+3 Input
+	None
+3 Output
+	None
+3 Return
+	Any RMS from $CREATE, $CONNECT
+2 EMUDB_OPEN_MAPPER
+ Open Mapper file

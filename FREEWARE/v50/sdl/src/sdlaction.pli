@@ -1,0 +1,5000 @@
+/*        
+ COPYRIGHT (c) 1978-1997 BY
+ DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+ ALL RIGHTS RESERVED.
+
+ THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+ ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH LICENSE AND WITH THE
+ INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER
+ COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+ OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY
+ TRANSFERRED.
+
+ THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE
+ AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT
+ CORPORATION.
+
+ DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS
+ SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+
+
+ FACILITY:	VAX-11 SDL (Structure Definition Language)
+
+ ABSTRACT:
+
+	This is the routine called by the PAT parser to handle
+	all semantic actions.  A semantic_id, giving the code for
+	the semantic action to be performed is passed to this routine
+	by value (note how we fake out PL/I on this).  This value is
+	then used as the index for a subscripted label array to get
+	the appropriate action.
+
+ ENVIRONMENT:	VAX/VMS user mode
+
+ AUTHOR:	C.T.Pacy		CREATION DATE:	?
+
+ MODIFIED BY:
+	revised 22-DEC-1980	ctp
+	revised 25-JUN-1982	ls - to do 1.5-1 fixes and enhancements
+
+			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   06-Jan-1982	!  PHH	! Change log added.  Ordered actions alphabetically by name.
+		!	! Added use of SDL$LIBRARY to all %INCLUDEs.
+		!	! Fixed bug in MAKECHILD that screwed up the symbol table if
+		!	! a data type was included in a structure declaration and
+		!	! taught AGGEND to call itself when closing such a structure.
+		!	! Replaced NOD$W_FLAGS with NOD$L_FLAGS.
+________________!_______!______________________________________________________
+   27-Apr-1983	!  PHH	! Taught COMMENTNOD about parameter and entry node comments
+________________!_______!______________________________________________________
+   29-Mar-1983	|  kd	| make fix to CHECKNAM to be case-insensitive
+		|	| make fix to AGGEND to check the byte_offset only after
+		|	| it has been adjusted for dimension aggregates.
+________________!_______!______________________________________________________
+   22-Mar-1984	|  kd	| Increase the value for max_symbol_table from 1500
+		|	| to 3000.  This is the result of a problem trying to
+		|	| translate STARDEF.SDL - incorrect constant values were
+		|	| being generated. 
+________________!_______!______________________________________________________
+   15-Nov-1984	|  kd	| 2-0  add IDENT field and add SETTYPNAM action for the
+		|	|      new TYPE keyword.
+________________!_______!______________________________________________________
+    2-Dec-1984	|  kd	| 2-1  Make fix in commentnod to stop comments following
+		|	|      structure and union declaration from being displaced.
+________________!_______!______________________________________________________
+   21-Jan-1985	|  kd	| 2-2  Zero out the BASED flag field in MAKECHILD after copying
+		|	|      the current node string to the first child.  This
+		|	|      was causing implicit union members to have the 
+		|	|      BASED attribute in PL/I.
+________________!_______!______________________________________________________
+   15-Feb-1985	|  kd	| 2-3  Add Generated flag to implicit union node in makechild.
+________________!_______!______________________________________________________
+   21-Mar-1985	|  kd	| 2-4  Modify MAKTYPNOD to put the necessary field size
+		|	|       and field name information in the item and typenode..
+________________|_______|______________________________________________________
+   27-Mar-1985	|  kd	| 2-5  Modify MAKECHILD to zero out the unsigned flag in
+		|	|      the implicit union node.
+________________|_______|______________________________________________________
+    2-Apr-1985	|  kd	| 2-6  Fix maktypnod to look for incompletey defined structures
+		|	|	for named types.
+________________|_______|______________________________________________________
+   15-Apr-1985	|  kd	| 2-7  Fix maktypnod to increment the field_bytes.
+________________|_______|______________________________________________________
+   21-Jun-1985	|  kd	| 2-8  Make fix to pushterm to check for undefined
+		|	|	radix code and put out syntax error.
+________________|_______|______________________________________________________
+    2-Aug-1985  |  wsm  | 2-9  Add Ada only support for TYPENAME on CONSTANT
+		|	|	definitions.
+----------------|-------|------------------------------------------------------
+    6-Sep-1985	|  kd	| 2-10 Change align_flag to be false at the start of a
+		|	|	union or structure.
+----------------|-------|------------------------------------------------------
+    4-Sept-1985	|  pc	| T2.9-11 Change the check for null structures so
+		|	|         that it checks to see if the field size
+		|	|	  is zero rather than look to see if it has a 
+		|	|	  child.
+________________|_______|______________________________________________________
+    22-Nov-1985	|  pc	| T2.9-12 Rewrote makechild and fixed numerous bugs 
+		|	|	  associated with implicit unions.  
+________________|_______|______________________________________________________
+    23-Mar-1986	|  pc	| V3.0-1 Adding stuff to implement LIST parameters. Also
+		|	|        made SETDEFAULT check for OPTIONAL attribute.
+________________|_______|______________________________________________________
+     3-Mar-1987	|  jgw	| T3.1-0 Modified pc's LIST stuff to accept
+		|	|        OPTIONAL LIST (meaning "0 or more").
+		|	|	 (Note:  Meaning of LIST in 23-Mar-1986
+		|	|	 change was "0 or more"; meaning of LIST
+		|	|	 today changed to "1 or more".)
+		|	|	 Also, changed SETOPTIONAL to flag duplicate
+		|	|	 OPTIONAL attribute and generate error message.
+________________|_______|______________________________________________________
+    17-Mar-1987	|  jgw	| T3.1-1 Change to allow FLOATING data types to be
+		|	|	 "DEFAULT n" parameters.  (DEFAULT here means
+		|	|	 that the specified value is passed by the
+		|	|	 immediate value mechanism rather than by
+		|	|	 the mechanism for the parameter.)
+________________|_______|______________________________________________________
+    20-Mar-1987	|  jgw	| T3.1-2 Added SETRTLSTRDESC routine to handle the new
+		|	|	 RTL_STR_DESC parameter attribute.
+		|	|	 Also:  Flagged REFERENCE as conflicting with
+		|	|	 DESCRIPTOR when specified after DESCRIPTOR
+		|	|	 (bug fix).
+________________|_______|______________________________________________________
+     2-Apr-1987	|  jgw	| X3.1-3 Bumped version and switched to using X instead
+		|	|	 of T, since X is used for development releases.
+________________|_______|______________________________________________________
+     7-Apr-1987	|  jgw	| X3.1-4 Added SETCOMPLEX routine to handle the new
+		|	|	 COMPLEX data type attribute.
+________________|_______|______________________________________________________
+    04-May-1987	|  jgw	| X3.1-5 Added SETUNKLENGTH routine to handle the new
+		|	|	 '*' ("unknown") LENGTH specification for
+		|	|	 CHARACTER strings; modified SETDESCRIP and
+		|	|	 SETRTLSTRDESC routines to pick up default
+		|	|	 CHARACTER length of sdl$k_unknown_length;
+		|	|	 added SETRETNAME routine to handle the new
+		|	|	 use of NAMED for specifying the name of a
+		|	|	 return parameter for an entry (implemented
+		|	|	 for VAX Ada).
+________________|_______|______________________________________________________
+    20-May-1987	|  jgw	| X3.1-6 Change embedded documentation to more
+		|	|	 accurately describe the use of the flag
+		|	|	 length_specified_for_parameter.  Also,
+		|	|	 initialize nod$t_return_name in MAKENTNOD.
+________________|_______|______________________________________________________
+    21-May-1987	|  jgw	| X3.1-7 Initialized nod$t_return_name in SETENTRY
+________________|_______|______________________________________________________
+    19-Jun-1987	|  jgw	| X3.1-8 Changed declaration of the `tags' array to
+		|	|	 accommodate the four new COMPLEX data types:
+		|	|	 changed first dimension from 20 to 22 (the
+		|	|	 total number of SDL data types); changed
+		|	|	 maximum character string allocation from 1
+		|	|	 [default] to 2 (to accommodate 2-character
+		|	|	 COMPLEX tags) - Bug fix:  SDL_BUGS Note 60.
+________________|_______|______________________________________________________
+    27-Jun-1987	|  jgw	| X3.1-9 Added SETDEFPRMATT routine to handle the
+		|	|	 setting of default parameter attributes;
+		|	|	 implemented the default REFERENCE setting in
+		|	|	 this action routine - SDL_BUGS Note 43.
+________________|_______|______________________________________________________
+    29-Jun-1987	|  jgw	| X3.1-10 Implemented the default parameter mode of IN
+		|	|	  in SETDEFPRMATT - SDL_BUGS Note 43.
+________________|_______|______________________________________________________
+    01-Jul-1987	|  jgw	| X3.1-11 Corrected default passing mechanism - changed
+		|	|	  to REFERENCE for *all* data types; also,
+		|	|	  modified SETREF to allow REFERENCE to be
+		|	|	  specified with parameters which are STRUCTUREs
+		|	|	  or UNIONs.
+________________|_______|______________________________________________________
+    03-Jul-1987	|  jgw	| X3.1-12 Changed `p' reference to `current_node' in
+		|	|	  routines SETDESCRIP and SETRTLSTRDESC.
+________________|_______|______________________________________________________
+    21-Jul-1987	|  pc	| X3.1-13 Add an action for the new non-terminal
+		|	|	  USER_DEFINED_TYPE and have MAKTYPNODE use the
+		|	|	  SAVED_NAME variable.
+________________|_______|______________________________________________________
+     4-Jan-1988	|  PG	| X3.2-0  Add STRING clause for CONSTANT
+		|	|	  CONST_STRING contains string to output
+		|	|	  CONST_STRING_PTR points to string
+		|	|	  CONST_STRING_OPT is a flag to say STRING
+		|	|           clause is present
+		|	|	  MAKCSTNOD has been modified to add string
+		|	|	  to node.
+		|	|	  New action routines:
+		|	|	  MAKSTRCONST sets flag for MAKCSTNOD
+		|	|	  SETCONSTR stores string value for use later
+		|	|	    in MAKCSTNOD
+________________|_______|______________________________________________________
+    14-Jan-1988	|  jg	| X3.2-1  Add action SETVOID (like SETBYTE etc.).
+		|	|	  Implement TYPEDEF:
+		|	|	    Add action SETTYPEDEF (like SETGLOBAL).
+		|	|	    Add actions SETUSER,  SAVEUSER.
+		|	|	    Add TYPEDEF to COMMON, GLOBAL, BASED mutual
+		|	|	  Implement SIZEOF:
+		|	|	    Add actions SETSIZDATA, SETSIZEOF,
+		|	|	    SETSIZUSER, SETSIZEXPR.
+________________|_______|______________________________________________________
+    22-Jan-1988	|  jg	| X3.2-2  Implement DECLARE statement
+________________|_______|______________________________________________________
+    25-Jan-1988	|  PG	| X3.2-3  Move MAKSTRCONST to correct alpha sorted
+		|	|	    place.
+		|	|	  Fix MAKCSTNODE:
+		|	|	    To fill in NOD$T_NAKED
+		|	|	    To stop constant being used as a number
+________________|_______|______________________________________________________
+    25-Jan-1988	|  jg	| X3.2-4  Increase size of tags array to cater for
+		|	|	   two new datatypes (USER and VOID)
+		|	|	  Fix bug in ENDDECL - was putting underscore
+		|	|	   on non-prefixed name.
+________________|_______|______________________________________________________
+    26-Jan-1988	|  jg	| X3.2-5  Initialize user_sym in MAKMODNOD.
+		|	|	  Modify MAKTYPNOD to look up user_sym as well
+		|	|	   as aggr_sym.  If user symbol, drop type
+		|	|	   node and point to definition instead.
+		|	|	  More fixes for DECLARE - do collapse before
+		|	|	   prefix/tag options by adding action
+		|	|	   COLLDECL.
+________________|_______|______________________________________________________
+    27-Jan-1988	|  jg	| X3.2-6  Allow SIZEOF clause in address object, unless
+		|	|	   it is an aggregate name, or nested within
+		|	|	   a containing SIZEOF clause.
+		|	|	  Add SIZEQUAL error if an aggregate name is
+		|	|	   qualified by SIZEOF.
+		|	|	  Add SIZENEST error if SIZEOF clauses are
+		|	|	   nested.
+		|	|	  Add flags is_aggregate and sizeof_relink.
+		|	|	  Add variables sizeof_name and sizeof_level.
+		|	|	  Delete action SAVEUSER - use SAVENAME instead.
+________________|_______|______________________________________________________
+    29-Jan-1988	|  PG	| X3.2-7  Extend symbol tables with a flag for
+		|	|	   for constant values indicating STRING
+		|	|	  Use this flag in MAKCSTNOD and PUSHCONST
+		|	|	   to trap error condition - when a string
+		|	|	   constant is used inside an expression.
+		|	|	  Flag is CONST_STR_FLAG
+		|	|	  Error is SDL$_STRINGCONST
+		|	|	  Change the way the string is stored
+		|	|	   Copy the string to virtual memory
+		|	|	   rather than a static storage
+		|	|	   CONST_STRING_PTR points to the string
+		|	|	   CONST_STRING is a description
+________________|_______|______________________________________________________
+    29-Jan-1988	|  jg	| X3.2-8  If a TYPEDEF'd item is an aggregate, don't
+		|	|	  also enter it as a user symbol.
+		|	|	  Modify MAKECHILD to enter the symbol in
+		|	|	  aggr_sym if TYPEDEF as well as BASED.
+________________|_______|______________________________________________________
+    15-Feb-1988	|  jg	| X3.2-9  New actions for conditional and literal
+		|	|	   statements: STARTCOND, CONDOBJ, POPCOND,
+		|	|	   MARKLANG, ENDCOND, STARTLIT, MAKLITNOD,
+		|	|	   ENDLIT.
+		|	|	  In several places, parent_stack is indexed
+		|	|	   by an absolute number (1 or 2), or
+		|	|	   parent_stack_index is compared with an absolute
+		|	|	   number.  These values must be increased by 1
+		|	|	   while inside a conditional.  To allow for
+		|	|	   this, a new variable condition_level is
+		|	|	   incremented before starting the child
+		|	|	   structure in POPCOND, and decremented at
+		|	|	   ENDCOND.  Its value is added to the
+		|	|	   absolute numbers.
+		|	|	  Add action CHECKNULL to give error on null
+		|	|	   token returned for NAME.
+________________|_______|______________________________________________________
+    22-Feb-1988	|  PG	| X3.2-10 Add suppression of tags and prefixes
+________________|_______|______________________________________________________
+    24-Feb-1988	|  jg	| X3.2-11 Set nod$v_typedef flag in nodes defining
+		|	|	   an external user type (using SIZEOF).  This
+		|	|	   is logically correct, and also required to
+		|	|	   prevent the Ada back end from appending
+		|	|	   '_TYPE' to the name.
+________________|_______|______________________________________________________
+    25-Feb-1988	|  PG	| X3.2-12 Suppress of prefix in CONSTANT drops the
+		|	|	  '_'
+________________|_______|______________________________________________________
+    26-Feb-1988	|  jg	| X3.2-13 Add action READFILE.  Make 'enter' an
+		|	|	   external procedure, renaming it
+		|	|	   'enter_symbol'.
+________________|_______|______________________________________________________
+    03-Mar-1988	|  jg	| X3.2-14 Fix MAKAGGTYP in same manner as MAKTYPNOD,
+		|	|	   so that user-defined types can be used as
+		|	|	   parameter types.
+________________|_______|______________________________________________________
+    23-Mar-1988	|  jg	| X3.2-15 Allow re-definition of user types, provided
+		|	|	   the size and type is the same (forward refs
+		|	|	   in same module).  Involves checking size and
+		|	|	   type for TYPEDEF'd objects, as well as
+		|	|	   SIZEOF'd objects.
+		|	|	  Fix problem with SIZEOF ADDRESS (user-type).
+________________|_______|______________________________________________________
+    28-Mar-1988	|  jg	| X3.2-16 Update pointer in user_sym when a previously
+		|	|	   DECLAREd item is re-defined with TYPEDEF.
+		|	|	   This is so forward references can be detected
+		|	|	   by the Pascal back end.
+________________|_______|______________________________________________________
+    30-Mar-1988	|  jg	| X3.2-17 Set TYPEDEF flag in a type node if original
+		|	|	   definition has TYPEDEF.  To fix bug in C
+		|	|	   output.
+________________|_______|______________________________________________________
+    03-May-1988	|  jg	| X3.2-18 Set DECLARED flag in SIZEOF object node.
+		|	|	  Set FORWARD flag when a previously-referenced
+		|	|	   item is defined with the TYPEDEF attribute,
+		|	|	   and the item has been referenced.  This
+		|	|	   requires a new flag in user_sym, which
+		|	|	   must also be added to the other tables
+		|	|	   (though not used) for consistency
+		|	|	  These changes are needed for (correct)
+		|	|	   resolution of forward references.
+________________|_______|______________________________________________________
+    13-May-1988	|  jg	| X3.2-19 Make symtable_string the right length. 
+		|	|	   Symbol tables were not being fully cleared
+		|	|	   at a new module.
+________________|_______|______________________________________________________
+    29-Jul-1988	|  jgw	| T3.2-20 Made SETDEFAULT allow DEFAULT n for parameters
+		|	|	  of an AGGREGATE type (STRUCTURE or UNION).
+________________|_______|______________________________________________________
+    16-Feb-1990 |  lww  | X3.2-21 add support for INTEGER data type and 
+		|	|	  IFSYMBOL/END_IFSYMBOL keywords
+________________|_______|______________________________________________________
+     6-Aug-1991 |  AWF  | X3.2-22 Fixed spurious alignment messages.  They
+		|	|	  do not happen now.
+________________|_______|______________________________________________________
+     1-Apr-1992 |  JAK  | EV1-3 Massive changes for ALIGN, NOALIGN, /MEMBER_ALIGNMENT.
+________________|_______|______________________________________________________
+    23-Apr-1992 |  JAK  | EV1-6 Bug fix in MAKE_PAD_NODE.
+________________|_______|______________________________________________________
+    27-Apr-1992 |  JAK  | EV1-7 Change readfile to call INTREE.
+________________|_______|______________________________________________________
+     1-May-1992 |  JAK  | EV1-8 Change TOKEN definition to match patlangsp.req.
+		|	|	Call READ_FILE for old format sdi files.
+		|	|	Remove ref to nod$w_size.
+________________|_______|______________________________________________________
+     8-May-1992 |  JAK  | EV1-9 Fill items need ALIGN and BOUNDARY set.
+________________|_______|______________________________________________________
+    20-May-1992 |  JAK  | EV1-10 Bug fix: looped on redeclare.
+		|	|	Allow "sizeof foo", where foo is aggr name.
+________________|_______|______________________________________________________
+     1-Jun-1992 |  JAK  | EV1-11 In SEMERR, ignore errors that occur within "false"
+		|	|	IFSYMBOL clauses.
+________________|_______|______________________________________________________
+     2-Jun-1992 |  JAK  | EV1-11 In DO_IMPLICIT_UNION, set DISPLACED pointer to 
+		|	|	point to item node rather than structure fill node.
+		|	|	Comments on implicit unions were not not being 
+		|	|	emitted.
+		|	|	Don't keep generated mask constants if they are 
+		|	|	associated with a bitfield item in a "false" IFSYMBOL 
+		|	|	section.  Names sometimes had wrong prefixes anyway 
+		|	|	due to inconsistency of "parent" in IFSYMBOL section.
+		|	|	Implement by inserting mask inside aggregate rather than 
+		|	|	outside.  Then will be discarded by free_children.
+________________|_______|______________________________________________________
+     4-Jun-1992 |  JAK  | EV1-12 Bug fix: set v_signed as default for integer types.
+________________|_______|______________________________________________________
+     5-Jun-1992 |  JAK  | EV1-13 Clear item_options in more contexts.
+		|	|	New dupconatt check for UNSIGNED flagging errors 
+		|	|	incorrectly in ENTRY RETURN and ENTRY PARAMETER.
+		|	|	Not reported, but same problem would have occurred 
+		|	|	in ADDRESS ( object type ).
+		|	|	Propagate Ssigned/unsigen when name is DECLARED 
+		|	|	using a user_type.
+________________|_______|______________________________________________________
+     8-Jun-1992 |  JAK  | EV1-14 Clean up ZEROLEN error diagnostics.
+		|	|	Allow zero element dimensions inside aggregates.
+________________|_______|______________________________________________________
+     9-Jun-1992 |  JAK  | EV1-14 Fix SET_NAME to use t_name rather than t_naked.
+		|	|	ALIAS name was overwriting external name for entries.
+________________|_______|______________________________________________________
+    10-Jun-1992 |  JAK  | EV1-14 Bug fix: don't call SET_NAME in /makechild for ENTRYNOD's.
+		|	|	Was wiping out t_prefix field holding "LINKAGE" info for entry.
+		|	|	Similar to ALIAS problem.  SET_NAME not needed for entries as 
+		|	|	MARKER, PREFIX, and TAG not defined for ENTRY names.
+________________|_______|______________________________________________________
+    11-Jun-1992 |  JAK  | EV1-14 Transfer sign info in more cases:
+		|	|	/makaggtyp, /maktypnode, /setaggobj.
+________________|_______|______________________________________________________
+     1-Jul-1992 |  JAK  | EV1-15 Change stack inside EVAL_LOC_EXPR to automatic:
+		|	|	recursive calls were stepping on eachother.
+		|	|	When a local symbol is seen after the origin, 
+		|	|	evaluate the symbol's value and make it a constant.
+________________|_______|______________________________________________________
+    27-Jul-1992 |  JAK  | EV1-18 Move setting of NOD$V_BOTTOM in AGGEND to 
+		|	|	after call to ASSIGN_OFFSETS and set BOTTOM ptr 
+		|	|	in ADD_END_PAD only if preceding member was previous 
+		|	|	bottom.  
+		|	|	Was incorrectly marking last member before pad node as "bottom" 
+		|	|	rather than the pad node when pad node should have become new bottom.
+________________|_______|______________________________________________________
+    29-Oct-1992 |  JAK  | EV1-19 QAR1067: set parent of constant nodes to parent$.
+________________|_______|______________________________________________________
+     8-Dec-1992 |  JAK  | EV1-20 Massive changes to the way offsets are set.
+		|	|	Needed to make "." and ":" operators work properly when 
+		|	|	alignment is enabled.
+		|	|	Bug fix: in ADD_END_PAD, set BOTTOM if padding a level 1 aggregate.
+		|	|	Was failing to set BOTTOM when last node in aggregate was a comment 
+		|	|	node.
+		|	|	Added extension to allow object option on POINTER_xxx types as 
+		|	|	well as ADDRESS.  Allow use of undefined name in object option.
+		|	|	Changed nod$b_boundary to mean a power of two rather than number of bits.
+		|	|	Implemented actions for BASEALIGN option.
+________________|_______|______________________________________________________
+    27-Jan-1993 |  JAK  | EV1-21 Pagination and format changes.
+    28-Jan-1993 |	|	Change BASEALIGN option to interpret expr as a 
+		|	|	power of 2 BYTES rather than BITS.  Diagnose out of range values.
+		|	|	Implement ELSE and ELSEIFSYMBOL for IFSYMBOL statement.
+    16-Feb-1993	|	|	Bug fix in DETERMINE_OFFSETS.
+		|	|	Bug fix at SETVIELD: don't make mask if name is null.
+    18-Feb-1993 |	|	Bug fix: change references to local and constant values to copy 
+		|	|	the expression rather than just record the reference.
+    26-Feb-1993	|	|	Bug fix: byte_size after a level 1 aggregate incorrectly set 
+		|	|	to number of BITS rather than BYTES.
+________________|_______|______________________________________________________
+    18-Mar-1993	|  JAK	| EV1-21A Two bug fixes.
+		|	|	1) When a "/*" comment preceded a CONSTANT def in a 
+		|	|	   union, DETERMINE_OFFSETS was reseting the bit_offset 
+		|	|	   to zero.  Change test to "is itemnode" rather than 
+		|	|	   "isn't dummynode".  Also fix so that offset after 
+		|	|	   a union member eval's to size of largest member seen 
+		|	|	   so far, rather than size of immediately preceding.
+		|	|	2) CONSTANT statments with multiple constant_phrases 
+		|	|	   incorrectly discarded dummynode in /makcstnod after 
+		|	|	   first phrase if that phrase did not need it. 
+		|	|	   If expressions in subsequent phrases contain offset 
+		|	|	   values, they incorrectly referenced the previous item 
+		|	|	   rather than a dummy node, thus evaluating to the 
+		|	|	   start of previous item rather than the end of item.
+		|	|	   fix is to add flag OFFSET_REF to nodes; set flag on 
+		|	|	   dot, colon, circ ops; test flag and free dummy in 
+		|	|	   new action /endconst rather than in /makcstnod.
+________________|_______|______________________________________________________
+    19-Mar-1993	|  JAK	| EV1-21A Correction -- back out the largest member change above.  
+		|	|	Apparently there is code that depends on old behavior.
+		|	|	Restore old behavior: "." in union is length of immediately 
+		|	|	preceding member. [yuck.]
+________________|_______|______________________________________________________
+    27-Apr-1993	|  JAK	| EV1-24 Bug fix: fix in EV1-18 (described above) to set BOTTOM ptr 
+		|	|	in ADD_END_PAD was insufficient.  The v_bottom node flag 
+		|	|	was set in AGGEND _before_ DETERMINE_OFFSETS was 
+		|	|	called.  Since ADD_END_PAD is called from DETERMINE_OFFSETS, 
+		|	|	setting the BOTTOM pointer had no effect on the setting 
+		|	|	of the v_bottom flag in the node.  Moved the line setting 
+		|	|	flag in AGGEND to after the DETERMINE_OFFSETS call.
+________________|_______|______________________________________________________
+    29-Apr-1993	|  JAK	| EV1-24 Bug fix: Above not quite sufficient.  Change to set BOTTOM 
+		|	|	unconditionally on ITEMs in DETERMINE_OFFSETS and ADD_END_PAD.
+________________|_______|______________________________________________________
+    17-Oct-1994	|  RC	| EV1-40  Replace   if last_comment ^= null() &  last_comment->...
+		|	|	       by   if last_comment ^= null() &: last_comment->...
+________________|_______|______________________________________________________
+    26-Jul-1995 |  aem  | EV1-46 Fix alignment for bitfields.  
+________________|_______|______________________________________________________
+    26-May-1996 |  aem  | EV1-53 Fix base alignment for items in an implicit
+		|	|   	 union.  If the parent aggregate has a base
+		|	|	 alignment, it should not be propagated down
+		|	|	 to it's children. 
+________________|_______|______________________________________________________
+    19-Nov-1996 |  aem  | EV1-55 When setting up the typeinfo2 stuff, check
+		|	|	 to make sure that link(i) ^=NULL.  This
+		|	|	 particular case happens when a user defings
+		|	|	 pointer(void) ..... which is illegal, but
+		|	|	 we weren't even getting to the point where 
+		|	|	 an error message occured.  We were getting an
+		|	|	 an accvio.
+________________|_______|______________________________________________________
+    15-Dec-1996 |  aem  | EV1-56 If DECLARE statement with SIZEOF(0) then
+		|	|        put out new error message INVDECL.
+________________|_______|______________________________________________________
+    27-Aug-1997 |  rab  | EV1-57 Allow user-defined ITEMs that reference
+		|	|	 AGGREGATEs to be treated as user symbols
+		|	|        rather than aggregate symbols.
+		|	|	 EVMS-RAVEN #1097
+________________|_______|______________________________________________________
+    03-Nov-1997 |  rab  | EV1-59 Prevent ACCVIO by clearing HAS_OBJECT when
+		|	|	 TYPEINFO2 is cleared in cloned node. Note
+		|	|	 that this isn't a complete fix for the case 
+		|	|	 that causes the ACCVIO, but only fixes the 
+		|	|	 tip of the iceberg.
+________________|_______|______________________________________________________
+*/
+%replace MODULE_IDENT by 'EV1-59';
+
+
+/*----------------------------------------------------------------------------*/
+PAR_ABST:
+	procedure(sdl$_shr_data, semantic_id, left_index, right_index, src_line, token_ptr)
+	options( ident(MODULE_IDENT) );
+
+declare /* parameters */
+	semantic_id	    fixed bin(31) value,
+	(left_index,
+	 right_index,
+	 src_line)	    fixed bin(31) value,
+	token_ptr	    pointer value;
+
+declare /* globals */
+	external_tree_root	pointer static external,
+	symbol_name(10)		char(32) var globalref,		/* lw */
+	symbol_value(10)	fixed bin(31) globalref,	/* lw */
+	symbol_count		fixed bin(31) globalref,	/* lw */
+	assumed_alignment	fixed bin(31) globalref,	/* lw */
+	ss$_normal		fixed bin(31) globalref value;
+
+%include 'sdl$library:sdlnodef.in';
+%include 'sdl$library:sdlsemdef.in';
+%include 'sdl$library:sdltypdef.in';
+%include 'sdl$library:sdlmsgdef.in';
+%include 'sdl$library:sdlshr.in';
+%include 'sdl$library:sdlsymtab.in';
+
+/* %include 'sdl$library:sdltokdef.in'; */
+/*** MODULE $tokdef IDENT EV1-8 ***/
+/* token structure                                                          */
+/* filled in by LEX                                                         */
+%replace maxtoksiz by 132;
+%replace token_size by 150;
+ 
+%replace s_token by 1500;
+dcl 1 token based(token_ptr),
+     2 token_id fixed binary(31),
+     2 fill_0 union,
+      3 token_locator fixed binary(31),
+      3 fill_1 ,
+       4 lineno fixed binary(15),
+       4 colno fixed binary(15),
+     2 token_text ,
+      3 token_length fixed binary(31),
+      3 token_address pointer,
+     2 start_line fixed binary(7),
+     2 synthetic fixed binary(7),
+     2 token_string character(132);
+dcl token_index fixed binary(31) static external;
+/*--------------------------------*/
+
+dcl token_value	    char(token_ptr->token_length) based(addr(token_ptr->token_string));
+dcl token_lineno    fixed bin(15) based(addr(token_ptr->token.lineno));
+
+%replace max_p_stack	    by 100;
+%replace max_expr_stack	    by 100;
+%replace max$boundary	    by 8;  /* initial/default value for MAX_BOUNDARY */
+%replace true	    by '1'b;
+%replace false	    by '0'b;
+%replace upper	    by 1;
+%replace lower	    by 2;
+ 
+declare /* external entries */
+	insque		    entry(ptr value, ptr value),
+	remque		    entry(ptr value, ptr),
+	hashf		    entry(char(34)var, fixed bin(31)) returns(fixed bin(31)),
+	open_incl_file	    entry(char(128)var, any) returns(bit(3)),
+	close_incl_file	    entry(any, any),
+	set_incl_text	    entry(),
+	reset_incl_text	    entry(),
+	str$upcase	    entry(any, any),
+	(ots$cvt_ti_l, 
+	 ots$cvt_to_l, 
+	 ots$cvt_tz_l)	    entry(char(*), fixed bin(31)) options(variable) returns(fixed bin(31)),
+	intree		    entry(file, pointer) returns(bit(1)),
+	read_file	    entry(ptr, char(128) var) returns(bit(3));
+
+declare
+        1 name_list_head	    static,
+	  2 flink	ptr,
+	  2 blink	ptr;
+
+declare
+        1 name_list_node	    based,
+          2 flink	ptr,
+          2 blink	ptr,
+          2 lineno	fixed bin(31),
+          2 comment	pointer,
+          2 name_string	char(32) var;
+
+declare
+	1 comment_list_node based,
+	  2 flink	ptr,
+	  2 lineno	fixed bin(31),
+	  2 comment	ptr;
+
+declare
+	lang_marked	    bit(1)		static init(false),	/* jg */
+	constant_line	    fixed bin(31)	static init(0),
+	const_increment	    fixed bin(31)	static,
+	const_value	    fixed bin(31)	static;
+
+declare
+	const_string_ptr    ptr,				/* PG */
+	lit_string_ptr	    ptr,				/* jg */
+	const_string	    char(128) var based,			/* PG */
+	lit_string	    char(256) var based;			/* jg */
+
+declare
+	1 const_options		static,
+	  2 const_expr_flag	bit(1),
+	  2 const_prefix_opt	bit(1),
+	  2 const_tag_opt	bit(1),
+	  2 increment_opt	bit(1),
+	  2 counter_opt		bit(1),
+	  2 const_type_opt	bit(1),
+	  2 const_string_opt	bit(1);			/* PG */
+
+declare
+	1 entry_options		static,
+	  2 parm_opt		bit(1),
+	  2 return_opt		bit(1);
+
+declare
+	1 item_options		static,
+	  2 item_prefix_opt	bit(1),
+	  2 item_tag_opt	bit(1),
+	  2 item_fill_opt	bit(1),
+	  2 item_marker_opt	bit(1),
+	  2 item_align_opt	bit(1),
+	  2 item_noalign_opt	bit(1),
+	  2 item_signed_opt	bit(1),
+	  2 item_unsigned_opt	bit(1);
+
+declare 
+	current_node		ptr		    static,
+	current_module		ptr		    static,
+	parent$			ptr		    static, /* copy of top of parent_stack */
+	top_parent$		ptr		    static, /* ptr to level 1 parent or null */
+	displaced		ptr		    static,
+	bottom			ptr		    static,
+	last_comment		ptr		    static,
+	parent_stack(0:max_p_stack) ptr		    static,
+	parent_stack_index	fixed bin(31)	    static,
+	saved_name		char(34) var	    static,
+	saved_prefix		char(32) var	    static,
+	saved_tag		char(32) var	    static,
+	saved_type_name		char(32) var	    static,
+	saved_counter		char(34) var	    static,
+	origin_name		char(128) var	    static init(''),
+	ifsym_level		fixed bin(31)	    static init(0),
+	ifsym_nest		fixed bin(31)	    static init(0),
+	ifsym_ptr		pointer		    static init(null()),
+	1 ifsym_stack		based(ifsym_ptr),
+	  2 ifsym_looking_for_true bit(1) aligned,
+	  2 ifsym_next		pointer;
+
+declare
+	expr_flag			bit(1) aligned static init(false),
+	expr_list			ptr	static,
+	expr_list_tail			ptr	static,
+	const_expr_list			ptr	static,
+	constant_expr_list		ptr	static,
+	local_expr_list			ptr	static;
+
+declare
+	expr_stack(0:max_expr_stack)	fixed bin(31)   static,
+	expr_stack_index		fixed bin(31)   static init(0),
+	expr_value			fixed bin(31)   static,
+	expr_stack_top			fixed bin(31) based(addr(expr_stack(expr_stack_index)));
+
+    /*---------------------------------*/
+    pop_expr_stack:
+	procedure  returns( fixed bin(31) );
+	    declare top	    fixed bin(31);
+	    top = expr_stack_top;
+	    if expr_stack_index > 0 then /* for safety! just in case */
+		expr_stack_index = expr_stack_index - 1;
+	    return(top);
+	end pop_expr_stack;
+    /*---------------------------------*/
+    push_expr_stack:
+	procedure( val );
+	dcl val fixed bin(31);
+	if expr_stack_index < hbound(expr_stack,1) then 
+	    expr_stack_index = expr_stack_index + 1;
+	expr_stack_top = val;
+	end push_expr_stack;
+    /*---------------------------------*/
+
+declare
+	based_string		char(token_ptr->token_length) var   based,
+	node_string(nod$k_nodesize)	    fixed bin(7)    based,
+	symtable_string(size(const_sym))    fixed bin(7)    based;
+ 
+declare 
+	(field_bytes,field_bits)	fixed bin(31)	    static,
+	byte_size			fixed bin(31)	    static init(0),
+	fillcnt				fixed bin(31)	    static init(0),
+	parmcnt				fixed bin(31)	    static,
+	zero_length			bit(1) aligned	    static init(false),
+	length_specified_for_parameter	bit(1) aligned	    static init(false);
+
+declare
+	tags(99,2)			char(2) var	    static,	/* lw */
+	tag$t_constant(2)		char(2) var	    static init('K','k'),
+	tag$t_mask(2)			char(2) var	    static init('M','m'),
+	list_opt_cnt			fixed bin(7)	    static init(0), 
+	max_boundary			fixed bin(7)	    static init(max$boundary); /* jak */
+
+declare
+	sdi_infile			file internal;
+
+declare /* local automatics */
+	(p,p1,p2)			ptr,
+	(q,q1,q2)			ptr,
+	(i,j)				fixed bin(31),
+	incr_ctr			fixed bin(31),
+	(first_const,last_const)	fixed bin(31),
+	b32				bit(32) aligned,
+	b64				bit(64) aligned,
+	i64				fixed bin(31)	    based(addr(b64)),
+	temp				char(128) var;
+
+/*-----------------------------------------------------------------------------*/
+/* Begin here: */
+
+	/* condition handlers  */
+	on fixedoverflow
+	    goto intovf_error;
+	on zerodivide
+	    goto zerodiv_error;
+
+	/* If inside a false IFSYMBOL section we only care about these actions */
+	if ifsym_level > 0 then 
+	    if semantic_id ^= IFSYMBOL_START & semantic_id ^= IFSYMBOL_END & 
+	       semantic_id ^= IFSYMBOL_ELSEIF & semantic_id ^= IFSYMBOL_ELSE then 
+		return;
+
+	/* Dispatch to semantic action denoted by parameter */
+	goto action(semantic_id);
+
+/*-----------------------------------------------*/
+error_exit:
+	return;
+
+intovf_error:
+	call semerr(sdl$_intovf,src_line,);
+	return;
+
+zerodiv_error:
+	call semerr(sdl$_zerodiv,src_line,);
+	return;
+
+
+action(ADDTERMS): /***********************************************************/
+/*
+ * Pop 2 values from the expression stack, add them, and push the result
+ */
+	if expr_flag then
+	    call push_expr_op(add_op);
+	else
+	    do;
+	    expr_value = pop_expr_stack();
+	    expr_stack_top = expr_stack_top + expr_value;
+	    end;
+	return;
+ 
+action(AGGEND): /*************************************************************/
+/*
+ * Pops the parent stack and handles all the cleanup when an aggregate 
+ * or sub-aggregate end is reached.
+ */
+	p = parent$;
+	call pop_parent;
+
+/*
+ * If this is a level 1 aggregate (i.e. it has no parents except the module)
+ * then:
+ *	Mark the current member node as its "bottom".
+ *
+ * 	If the origin name wasn't null to start with or cleared when
+ * 	the origin field was found, we have an error.
+ *
+ *	If the aggregate has the TYPEDEF attribute, check if it has an entry
+ *	in user_sym.  If so, it was declared as a forward reference in a
+ * 	DECLARE statement, and the sizes must match.  Also set the FORWARD
+ *	flag.
+ */
+	if p = top_parent$ then 
+	    do;		/* jg */
+	    byte_size = divide( determine_offsets((p),0,false)+7, 8, 31 );
+	    bottom->nod$v_bottom = true;    /* EV1-18, EV1-24 */
+	    if origin_name ^= '' then 
+		do;
+		call semerr(sdl$_undeforg,current_node->nod$l_srcline,(origin_name));
+		origin_name = '';
+		end;
+	    call eval_offset_lists;
+	    if p->nod$v_typedef then 
+		do;
+		i = lookup(user_sym,p->nod$t_naked);
+		if i >= 0 then 
+		    do;
+		    if user_sym.fwd_ref_flag(i) then 
+			p->nod$v_forward = true;
+		    if user_sym.value(i) = 0 then 
+			user_sym.value(i) = p->nod$l_fldsiz;
+		    else 
+		    if user_sym.value(i) ^= p->nod$l_fldsiz then 
+			call semerr(sdl$_sizeredef,src_line,(p->nod$t_naked));
+		    end;
+		end;
+	    top_parent$ = null();
+	    end;
+	else 
+	    /* Propagate boundary to parent */
+	    if ^parent$->nod$v_base_align then 
+	    if parent$->nod$b_boundary < p->nod$b_boundary then 
+		parent$->nod$b_boundary = p->nod$b_boundary;
+
+/*
+ * Pointer used to align "displaced" comments with their proper nodes
+ * is cleared -- any comments appearing here will be in nodes of their own
+ */
+	displaced = null();
+	current_node = p;
+
+/*
+ * If this is an aggregate created as a side effect of an implicit union
+ * (by including a data type in a STRUCTURE declaration), close the union.
+ */
+	if p->nod$v_generated then 
+	    goto action(aggend);
+
+	return;
+
+/*-----------------------------------------*/
+determine_offsets:
+	procedure(this,boff,aflag) returns( fixed bin(31) ) recursive;
+/*
+ * Called for aggregates and members to insert any alignment padding, 
+ * evaluate any variable size extents, set FLDSIZ and OFFSET, 
+ * and call self recursively for any members of this.
+ *
+ * this	    (in) is ptr to node
+ * boff	    (in) is bit offset up to this relative to start of immediate parent.
+ * aflag    (out, passed by reference) set if this is member of a union (not implicit) 
+ *	    and is largest member so far: TRUE if this is a bitfield, FALSE if not.
+ *
+ * returns  new bit offset reflecting any inserted alignment padding,
+ *	    the size of this, and any padding added at end of this.
+ */
+
+declare
+	this		pointer,
+	boff		fixed bin(31),
+	aflag		bit(1) aligned,
+	align_flag	bit(1) aligned,
+	bit_offset	fixed bin(31),
+	field_bytes	fixed bin(31),
+	field_bits	fixed bin(31),
+	elements	fixed bin(31),
+	this_offset	fixed bin(31),
+	parent		pointer,
+	p		pointer,	/* to item node */
+	q		pointer;	/* to head node */
+
+	current_node = this;
+	parent = this->nod$a_parent;
+
+	if parent->nod$w_datatype = typ$k_union & this->nod$b_type = nod$k_itemnode then 
+	    bit_offset = 0;
+	else 
+	    bit_offset = boff;
+
+	if this->nod$b_type = nod$k_itemnode then 
+	    do;
+	    call align_fill(this,bit_offset);
+	    bottom = this;
+	    end;
+
+	/* 
+	 * Check and see if this is specified as the origin.
+	 * If so, save offset in top node and clear the origin name string.
+	 */
+	if origin_name ^= '' then 
+	if this->nod$t_name = origin_name | this->nod$t_naked = origin_name then 
+	    do; /* this is the ORIGIN node */
+	    top_parent$->nod$l_typeinfo = - divide(bit_offset+7,8,31);
+	    origin_name = '';
+	    end;
+
+	if this->nod$b_type = nod$k_dummynode then 
+	    this->nod$l_typeinfo2 = bit_offset;
+
+	if this->nod$w_datatype = typ$k_vield then 
+	    do;
+	    this->nod$l_offset = parent->nod$l_offset;
+	    this->nod$l_typeinfo2 = bit_offset;
+	    end;
+	else 
+	    this->nod$l_offset = parent->nod$l_offset + divide(bit_offset+7,8,31);
+
+	this->nod$v_offset_fixed = true;
+
+	if this->nod$v_initial then 
+	    do;
+	    this->nod$l_initial = eval_loc_expr(this->nod$a_initial);
+	    this->nod$v_initial = false;
+	    end;
+
+	if this->nod$v_dimen then 
+	    do;
+	    if this->nod$v_lodim then 
+		do;
+		this->nod$l_lodim = eval_loc_expr(this->nod$a_lodim);
+		this->nod$v_lodim = false;
+		end;
+	    if this->nod$v_hidim then 
+		do;
+		this->nod$l_hidim = eval_loc_expr(this->nod$a_hidim);
+		this->nod$v_hidim = false;
+		end;
+	    /* Negative number of elements never allowed, */
+	    /* Zero elements allowed only if a member of an aggregate */
+	    elements = this->nod$l_hidim - this->nod$l_lodim + 1;
+	    if elements < 0 | (elements = 0 & this = top_parent$) then 
+		do;
+	        call semerr(sdl$_zerolen,src_line,(this->nod$t_naked));
+		elements = 0;
+		end;
+	    end;
+
+	if this->nod$v_length then 
+	    do;
+	    this->nod$l_typeinfo = eval_loc_expr(this->nod$a_typeinfo);
+	    this->nod$v_length = false;
+	    if this->nod$l_typeinfo <= 0 then 
+		if this->nod$b_type ^= nod$k_itemnode | this->nod$v_varying then 
+		    call semerr(sdl$_zerolen,src_line,(this->nod$t_naked));
+	    if this->nod$w_datatype = typ$k_char then 
+		if this->nod$v_varying then 
+		    this->nod$l_fldsiz = this->nod$l_typeinfo + 2;
+		else 
+		    this->nod$l_fldsiz = this->nod$l_typeinfo;
+	    end;
+
+	q = this->nod$a_child;
+	if q ^= null() then 
+	    do;
+	    align_flag = false;
+	    this_offset = 0;
+	    if this->nod$w_datatype = typ$k_union & ^this->nod$v_fixed_fldsiz then 
+	        this->nod$l_fldsiz = 0; /* initialize */
+
+	    /* recursively process members */
+	    do p = q->nod$a_flink repeat p->nod$a_flink while( p ^= q );
+		this_offset = determine_offsets(p,this_offset,align_flag);
+	    end;
+
+	    /* Determine/check aggregate size */
+	    if this->nod$v_fixed_fldsiz then 
+		do; /* This is an implicit union.  Get size from first member. */
+		p = this->nod$a_child->nod$a_flink;
+		if p->nod$w_datatype = typ$k_vield then 
+		    this->nod$l_fldsiz = divide(p->nod$l_fldsiz+7,8,31);
+		else 
+		    this->nod$l_fldsiz = p->nod$l_fldsiz;
+		if this_offset > this->nod$l_fldsiz*8 then /* too many fields in last alterative */
+		    call semerr(sdl$_toomanyfields,src_line,(this->nod$t_naked));
+		end;
+	    else 
+		do; /* Round size to multiple of boundary (at least byte aligned) */
+		if this->nod$w_datatype = typ$k_union then 
+		    this_offset = this->nod$l_fldsiz*8;
+		call add_end_pad(this,this_offset,align_flag);
+		this->nod$l_fldsiz = divide(this_offset+7,8,31);
+		end;
+
+	    if this->nod$l_fldsiz = 0 then 
+		/* If the aggregate has no size, it's an error */
+		call semerr(sdl$_nullstruc,src_line,(this->nod$t_naked));
+	    end;
+
+	if this->nod$w_datatype = typ$k_vield then 
+	    do;
+	    field_bits = this->nod$l_typeinfo;
+	    if field_bits < 1 |
+	       field_bits > 64 | 
+	       field_bits > 32 & ^sdl$v_alpha_opt then 
+		call semerr(sdl$_invfldsiz,src_line,(this->nod$t_naked));
+	    if this->nod$v_dimen then 
+		field_bits = field_bits * elements;
+	    this->nod$l_fldsiz = field_bits;
+	    field_bytes = divide(field_bits+7,8,31);
+	    end;
+	else 
+	    do;
+	    field_bytes = this->nod$l_fldsiz;
+	    if this->nod$v_dimen then 
+		field_bytes = field_bytes * elements;
+	    this->nod$l_fldsiz = field_bytes;
+	    field_bits = field_bytes*8;
+	    end;
+
+	/*
+	 * If the parent of this is a union, see if its field size needs adjusting.  
+	 * If the largest field is a bitfield, set flag for add_end_pad.
+	 */
+	if parent->nod$w_datatype = typ$k_union & ^parent->nod$v_fixed_fldsiz then 
+	if field_bytes >= parent->nod$l_fldsiz then 
+	    do;
+	    aflag = ( field_bytes > parent->nod$l_fldsiz & this->nod$w_datatype = typ$k_vield );
+	    parent->nod$l_fldsiz = field_bytes;
+	    end;
+
+	if this->nod$b_type = nod$k_dummynode then 
+	    do; /* remove from list */
+	    p = this;
+	    this = this->nod$a_blink;
+	    call remque(p,p);
+	    end;
+
+	return( bit_offset + field_bits );
+
+	end determine_offsets;
+
+/*----------------------------------------------*/
+
+/*----------------------------------------------*/
+align_fill:
+	procedure(this,bit_off);
+/*
+ * Insert a bit or byte filler in front of member THIS to 
+ * align it if required.
+ *
+ * Perform the /ALIGNMENT check (whatever that is?) and 
+ * the /CHECK_ALIGNMENT check if the qualifiers were present.
+ *
+ */
+
+dcl this	ptr; /* to item which must be aligned */
+dcl bit_off	fixed bin(31); /* bit offset from immediate parent (updated) */
+
+dcl p		ptr;  /* to new filler item */
+dcl bs		fixed bin(31);  /* bit size for boundary value */
+dcl b		fixed bin(31);  /* bit boundary */
+dcl gap		fixed bin(31);  /* bit size of filler needed */
+
+	if this->nod$b_boundary = 0 then 
+	    return;
+
+	bs = power2(this->nod$b_boundary);
+
+	if this->nod$v_align | this->nod$v_base_align then 
+	    b = bs;
+	else 
+	    do;
+	    b = 8;
+	    /* Do /ALIGNMENT check */
+	    if assumed_alignment ^= 0 then
+		/* Diagnose if the data item does not fall on its natural alignment. */
+		if mod( mod(bit_off,bs), assumed_alignment ) ^= 0 then 
+		    call semerr(sdl$_unaligned,this->nod$l_srcline,(this->nod$t_name));
+
+	    /* Do /CHECK_ALIGNMENT check */
+	    if sdl$v_check_align then
+		/* Diagnose if the data item does not fall on its natural alignment. */
+		if mod(bit_off,bs) ^= 0 then 
+		    call semerr(sdl$_unaligned,this->nod$l_srcline,(this->nod$t_name));
+	    end;
+
+	if mod(bit_off,b) = 0 then 
+	    return;
+
+	gap = b - mod(bit_off,b);
+
+	p = make_pad_node(this->nod$a_parent,this->nod$a_blink,bit_off,gap);
+
+	/* update bit_off for caller */
+	bit_off = bit_off + gap;
+
+end align_fill;
+/*----------------------------------------------*/
+
+/*----------------------------------------------*/
+add_end_pad:
+	procedure(this,bsize,bit_flag);
+/*
+ * Procedure to add filler member filler at end of aggregate 
+ * to pad to proper size if necessary.
+ */
+
+dcl this	ptr;		/* add pad as last member of this */
+dcl bsize	fixed bin(31);	/* bit size of this so far (updated for caller) */
+dcl bit_flag	bit(1) aligned; /* true means this is a union with a bitfield as largest member */
+
+dcl p ptr;
+dcl b fixed bin(15); /* boundary value */
+dcl new_bsize fixed bin(31);
+dcl pad fixed bin(31); /* bit size of pad */
+
+	/* Add pad filler to round size to multiple of alignment */
+
+	if this->nod$v_fixed_fldsiz then 
+	    return;
+
+	if this->nod$v_align | this->nod$v_base_align then 
+	    b = max(power2(this->nod$b_boundary),8);
+	else 
+	    b = 8;
+
+	/* Round size up to multiple of "b" bits */
+	new_bsize = divide(bsize+(b-1),b,31)*b;
+
+	if bit_flag then
+	    /* this is a union and largest member is a bitfield */
+	    if new_bsize > bsize then 
+		pad = new_bsize;
+	    else 
+		pad = 0;
+	else 
+	if this->nod$w_datatype ^= typ$k_union then 
+	    pad = new_bsize - bsize;
+	else 
+	    pad = 0;
+
+	if pad ^= 0 then 
+	    do;
+	    p = make_pad_node(this,this->nod$a_child->nod$a_blink,bsize,pad);
+	    bottom = p;
+	    end;
+
+	if this->nod$w_datatype ^= typ$k_union then 
+	    bsize = bsize + pad;
+
+end add_end_pad;
+/*----------------------------------------------*/
+
+/*----------------------------------------------*/
+make_pad_node:
+    procedure(sp,s,boff,bsize)	returns( pointer );
+/*
+ * Procedure to make a bitfield member fill item node 
+ * with a name of the form PREFIX||TAG_PAD_x.
+ * If the aggregate doesn't have a prefix, use up to the first 8 characters
+ * of the aggregate name || '$$' for a prefix.
+ *
+ * Insert new node after "s" as member of "sp" with bit size BSIZE.
+ */
+
+dcl (sp,s)  ptr; /* New node is member of SP after S */
+dcl boff    fixed bin(31); /* bit offset from SP */
+dcl bsize   fixed bin(31); /* bit size of filler */
+dcl i	    fixed bin(15);
+dcl p	    ptr;
+dcl (save_prefix_opt, save_tag_opt) bit(1) aligned;
+
+	p = alloc_node(nod$k_itemnode);
+	call insque(p,s);
+
+	p->nod$a_parent = sp;
+	p->nod$v_userfill = true;
+	p->nod$v_align = sp->nod$v_align;
+
+	/* Use BYTE or array of BYTE if multiple of 8, else BITFIELD */
+	if mod(bsize,8) = 0 then 
+	    do; /* Use a BYTE filler */
+	    p->nod$w_datatype = typ$k_byte;
+	    p->nod$l_fldsiz = divide(bsize,8,31);
+	    p->nod$l_offset = divide(boff+7,8,31) + sp->nod$l_offset;
+	    if p->nod$l_fldsiz > 1 then 
+		do; /* use an array of BYTE */
+		p->nod$v_dimen = true;
+		p->nod$l_hidim = p->nod$l_fldsiz - 1;
+		end;
+	    p->nod$b_boundary = 3; /* (8-bit) byte alignment */
+	    end;
+	else 
+	    do; /* Use a BITFIELD filler */
+	    p->nod$w_datatype = typ$k_vield;
+	    p->nod$l_fldsiz = bsize;
+	    p->nod$l_typeinfo = bsize;
+	    p->nod$l_typeinfo2 = boff;
+	    p->nod$l_offset = sp->nod$l_offset;
+	    p->nod$b_boundary = 0; /* bit alignment */
+	    end;
+
+	p->nod$t_prefix = sp->nod$t_prefix;
+	if p->nod$t_prefix = '' then 
+	    do;
+	    i = min( 8, length(sp->nod$t_naked) );
+	    p->nod$t_prefix = substr(sp->nod$t_naked,1,i)||'$$';
+	    end;
+
+	if substr(p->nod$t_prefix,1,1) < 'a' then 
+	    p->nod$t_naked = 'FILL_';
+	else 
+	    p->nod$t_naked = 'fill_';
+	p->nod$t_naked = p->nod$t_naked||trim(fillcnt) || '_';
+	p->nod$t_name = p->nod$t_naked;
+	fillcnt = fillcnt+1;
+
+	save_prefix_opt = item_prefix_opt;
+	save_tag_opt = item_tag_opt;
+	item_prefix_opt = true;
+	item_tag_opt = false;
+
+	call set_name(p);
+
+	item_prefix_opt = save_prefix_opt;
+	item_tag_opt = save_tag_opt;
+
+	return( p );
+
+end make_pad_node;
+/*----------------------------------------------*/
+
+action(ANDTERMS): /***********************************************************/
+/*
+ * pop 2 values from expression stack, AND them, and push the result
+ */
+	if expr_flag then
+	    call push_expr_op(and_op);
+	else
+	    do;
+	    expr_value = pop_expr_stack();
+	    unspec(expr_stack_top) = unspec(expr_stack_top) & unspec(expr_value);
+	    end;
+	return;
+
+
+action(BASEDPTR): /***********************************************************/
+/*
+ * if an aggregate has based(pointer-name), make up an ITEM node for the
+ * pointer.  Makes its object node point to the current aggregate.
+ */
+	if current_node->nod$v_common | current_node->nod$v_global | 
+	   current_node->nod$v_typedef | current_node->nod$v_bound then 
+	    do;
+	    call att_error();
+	    return;
+	    end;
+
+	p2 = alloc_node(nod$k_itemnode);
+	p2->nod$t_name = token_value;
+	p2->nod$t_naked = token_value;
+	p2->nod$a_parent = parent$;
+	p2->nod$w_datatype = typ$k_address;
+	p2->nod$l_srcline = token_lineno;
+
+	current_node->nod$v_bound = true;
+	current_node->nod$v_based = true;
+	current_node->nod$a_typeinfo2 = p2;
+
+	p = alloc_head_node(p2);
+	p2->nod$a_typeinfo2 = p;
+
+	q = alloc_node(nod$k_objnode);
+	q->nod$a_parent	    = p2;
+	q->nod$l_srcline    = token_lineno;
+	q->nod$t_name	    = current_node->nod$t_name;
+	q->nod$w_datatype   = current_node->nod$w_datatype;
+	q->nod$a_typeinfo2  = current_node;
+	call insque(q,p);
+	return;
+
+action(CHECKNAME): /**********************************************************/
+/*
+ * make sure the END aggregate and END_MODULE names match the parent aggregate
+ * or module they're associated with
+ */
+	if parent$->nod$b_type = nod$k_modulnode then 
+	    do;
+	    if token_value ^= parent$->nod$t_name then 
+		/* first try the upper case of the module name and the ending module name*/
+		/* if they still do not match...put out an error */
+		if uppercase((parent$->nod$t_name)) ^= uppercase(token_value) then 
+		    call semerr(sdl$_matchend,src_line,(parent$->nod$t_naked));
+	    return;
+	    end;
+
+	if token_value ^= parent$->nod$t_naked & ^parent$->nod$v_userfill then 
+	    /* if they still do not match...put out an error */
+	    if uppercase((parent$->nod$t_naked)) ^= uppercase(token_value) then 
+		call semerr(sdl$_matchend,src_line,(parent$->nod$t_naked));
+
+	return;
+
+
+action(CHECKNULL): /**********************************************************/
+/*
+ * JG
+ * Check for a null token returned for a NAME, as a result of a syntax error.
+ * If so, put out an error.  Note that for a synthesized token, neither the
+ * name nor the line number is available for use in the message.
+ */
+	if length(token_value) = 0 then 
+	    call semerr(sdl$_invname,,);
+	return;
+
+action(COMMENTNOD): /*********************************************************/
+/*
+ * If we have a displaced comment pointer, use that instead of the current
+ * node.  If this comment is on the same line (as the displaced or the
+ * current node) then attach it to that node.  Otherwise, build a comment
+ * node and put it in the tree
+ */
+	p = current_node;
+	if displaced ^= null() then 
+	if displaced->nod$l_srcline = token_lineno | displaced->nod$b_type = nod$k_constnode then 
+	    p = displaced;
+/*
+ * the following situation means we have a comment immediately following a 
+ * constant declaration, and the last constant name (which may be on another 
+ * line) does not have an associated comment.  in this case, attach the 
+ * comment to the constant node
+ */
+	if constant_line = token_lineno & p->nod$a_comment = null() then 
+	    goto cont_comment;
+/*
+ * make a similar check for a parameter node
+ */
+	if p->nod$b_type = nod$k_parmnode & p->nod$a_comment = null() then 
+	    goto cont_comment;
+/*
+ * make a comment node
+ */
+	if token_lineno ^= p->nod$l_srcline | p->nod$b_type = nod$k_dummynode then 
+	    do;
+	    q = alloc_node(nod$k_commnode);
+	    q->nod$a_parent = parent$;
+	    q->nod$a_child = null();
+	    q->nod$l_srcline = token_lineno;
+	    /*
+	     * if the comment is immediately following a constant declaration,
+	     * we want the comment node moved outside any aggregates, and inserted
+	     * after the displaced constant node.
+	     */
+	    call insque(q,p);
+	    if displaced = null() then 
+		current_node = q;
+	    else
+	    if displaced->nod$b_type = nod$k_constnode then 
+		displaced = q;
+	    else 
+		current_node = q;
+	    p = q;
+	    end;
+
+cont_comment:
+	allocate based_string set(p->nod$a_comment);
+	p->nod$a_comment->based_string = token_value;
+	constant_line = 0;
+	return;
+ 
+action(CONDOBJ): /***********************************************************/
+/*
+ * Process a language name on an IFLANGUAGE statement.
+ * Upcase the name, and check it is not already in the list.  If it is,
+ * issue a dupconatt error.  If not, make a language name object node and
+ * link it in.
+ */
+	/* scan through current language name list */
+	saved_name = uppercase(token_value);
+	do p = parent$->nod$a_typeinfo2->nod$a_flink repeat p->nod$a_flink 
+	    while( p->nod$b_type = nod$k_objnode );
+	    if p->nod$t_name = saved_name then 
+		do;
+		call semerr(sdl$_langdup,src_line,(saved_name));
+		return;
+		end;
+	end;
+	    
+	p = alloc_node(nod$k_objnode);
+	p->nod$a_parent = parent$;
+	p->nod$t_name = saved_name;
+	p->nod$t_naked = 'CONDITIONAL_OBJECT';
+	p->nod$l_srcline = token_lineno;
+	call insque (p,current_node);
+	current_node = p;
+	return;
+
+
+action(DIVTERMS): /***********************************************************/
+/*
+ * Pop 2 values from the expression stack, divide them, and push the result
+ */
+	if expr_flag then
+	    call push_expr_op(div_op);
+	else
+	    do;
+	    expr_value = pop_expr_stack();
+	    expr_stack_top = divide(expr_stack_top, expr_value, 31);
+	    end;
+	return;
+
+action(ENDCOND): /*************************************************************/
+/*
+ * End IFLANGUAGE.  Pop the parent stack.
+ * Check the language objects, that all or none are marked by optional list
+ * after END_IFLANGUAGE.  
+ */
+	current_node = parent$;
+	call pop_parent;
+	displaced = null();
+
+	if ^lang_marked then 
+	    return;
+
+	lang_marked = false;
+	do p = current_node->nod$a_typeinfo2->nod$a_flink repeat p->nod$a_flink 
+	    while( p->nod$b_type = nod$k_objnode );
+	    if p->nod$v_ref then 
+		p->nod$v_ref = false;
+	    else
+	        call semerr(sdl$_langmiss,src_line,(p->nod$t_name));
+	end;
+	return;
+
+action(ENDCONST): /*************************************************************/
+/*
+ * End CONSTANT statement.
+ * Free dummy node created in STARTCONST if not actually needed.
+ */
+	if ^current_node->nod$v_offset_ref then 
+	    call free_dummy;
+	return;
+  
+action(ENDITEM): /************************************************************/
+/*
+ * Assorted cleanup to be done at the end of an ITEM declaration.
+ * Set the source line field, compose the complete name from the prefix,
+ * tag, and naked name, and set the field size.
+ */
+	current_node->nod$l_srcline = token_lineno;
+	call set_name(current_node);
+	call set_boundary;
+
+	if current_node->nod$v_dimen then
+	    current_node->nod$l_fldsiz = 
+		current_node->nod$l_fldsiz * (current_node->nod$l_hidim - current_node->nod$l_lodim + 1);
+
+	if current_node->nod$w_datatype ^= typ$k_vield then 
+	    byte_size = current_node->nod$l_fldsiz;
+	else 
+	    byte_size = 0;
+
+	return;
+
+
+action(ENDLIT): /*************************************************************/
+/*
+ * Reset the literal active flag
+ */
+	sdl$v_literal_active = false;
+	return;
+
+
+action(ENDMEMBER): /*********************************************************/
+/*
+ * This is the end of an aggregate member, but is not itself an aggregate [see AGGEND].
+ * Set the current source line and build the complete node name
+ */
+	current_node->nod$l_srcline = token_lineno;
+	call set_name(current_node);
+	call set_boundary;
+	return;
+
+
+action(ENDMOD): /*************************************************************/
+/*
+ * Pops the parent stack at the end of module.
+ */
+	current_node = parent$;
+	call pop_parent;
+	return;
+ 
+action(ENDSIZEOF): /**********************************************************/
+/*
+ * Complete the SIZEOF option.
+ */
+	p = current_node;
+	current_node = parent$;
+	call pop_parent;
+
+	saved_name = p->nod$t_naked;
+
+	i = lookup(user_sym,saved_name);
+	if i < 0 then 
+	    do;
+	    /* Not found: add new entry to table */
+	    p->nod$t_name = saved_name;
+	    p->nod$v_typedef = true;
+	    p->nod$v_declared = true;
+	    i = enter_symbol(user_sym,saved_name,p->nod$l_fldsiz);
+	    user_sym.link(i) = p;
+	    return;
+	    end;
+
+	/* Already in table: check match */
+	if user_sym.value(i) ^= p->nod$l_fldsiz then
+	    call semerr(sdl$_sizeredef,src_line,(saved_name));
+
+	free p->nod$_node;
+	return;
+ 
+action(IFSYMBOL_START): /*********************************************************/
+/*
+ * This action is taken for an IFSYMBOL statement after the symbol name has
+ * been parsed.  
+ *
+ *	IFSYMBOL_NEST is the number of unmatched IFSYMBOL statements parsed so far.
+ *	IFSYMBOL_LEVEL > 0 iff we are inside a "false" IFSYMBOL section.
+ *	That is, a region beginning with IFSYMBOL xyz, where xyz=0.
+ *	If we are inside a false section, then IFSYMBOL_LEVEL is set to the value 
+ *	of IFSYMBOL_NEST at which the state went false.  Everything inside a "false" 
+ *	section should be essentially ignored (have no effect).
+ */
+
+	p = ifsym_ptr;
+	allocate ifsym_stack set(ifsym_ptr);
+	ifsym_next = p;
+
+	ifsym_nest = ifsym_nest + 1;
+
+	if ifsym_level > 0 then 
+	    return; /* we're in a false section, just need to keep track of END at same level */
+
+	saved_name = uppercase(token_value);
+	do i = 1 to symbol_count 
+	    while( symbol_name(i) ^= saved_name );
+	end;
+
+	if i > symbol_count then 
+	    call semerr(sdl$_symnotdef,src_line,(saved_name));
+	else 
+	if symbol_value(i) ^= 0 then 
+	    return;
+
+	ifsym_level = ifsym_nest;
+	ifsym_looking_for_true = true;
+	return;
+
+
+action(IFSYMBOL_ELSEIF): /*************************************************************/
+/*
+ * This action is taken for an ELSE_IFSYMBOL statement after the symbol name has
+ * been parsed.  
+ */
+	if ifsym_level = 0 then 
+	    do;
+	    ifsym_level = ifsym_nest;
+	    ifsym_looking_for_true = false;
+	    end;
+	else 	
+	if ifsym_level = ifsym_nest & ifsym_looking_for_true then 
+	    do;
+	    saved_name = uppercase(token_value);
+	    do i = 1 to symbol_count 
+		while( symbol_name(i) ^= saved_name );
+	    end;
+	    if i > symbol_count then 
+		call semerr(sdl$_symnotdef,src_line,(saved_name));
+	    else 
+	    if symbol_value(i) ^= 0 then 
+		ifsym_level = 0;
+	    end;
+	return;
+
+action(IFSYMBOL_ELSE): /*************************************************************/
+/*
+ * This action is taken for an ELSE statement of and IFSYMBOL statement has been parsed.
+ */
+	if ifsym_level = 0 then 
+	    do;
+	    ifsym_level = ifsym_nest;
+	    ifsym_looking_for_true = false;
+	    end;
+	else 	
+	if ifsym_level = ifsym_nest & ifsym_looking_for_true then 
+	    ifsym_level = 0;
+	return;
+
+action(IFSYMBOL_END): /********************************************************/
+/*
+ * Complete the IFSYMBOL action.
+ */
+	if ifsym_nest = ifsym_level then 
+	    ifsym_level = 0;
+
+	ifsym_nest = ifsym_nest - 1;
+
+	p = ifsym_next;
+	free ifsym_stack;
+	ifsym_ptr = p;
+	return;
+
+action(INCLUDETEXT): /*********************************************************/
+/*
+ * Open include file by calling special routine
+ * and stack lex state by calling special routine in lex
+ */
+	if open_incl_file((token_value), sdl$_shr_data) then 
+	    call semerr(sdl$_undeffil,current_node->nod$l_srcline,(token_value));
+	else 
+	    call set_incl_text();
+
+	return;
+ 
+action(INITIALIZE): /*********************************************************/
+/*
+ * Initialization. Set up the tree root, the parent and expression stacks,
+ * and initialize the tags array for building names (done here instead of
+ * statically so we can use symbolic names for the indices and not worry
+ * about keeping them parallel)
+ */
+	external_tree_root = alloc_node(nod$k_rootnode);
+	external_tree_root->nod$a_flink = external_tree_root;
+	external_tree_root->nod$a_blink = external_tree_root;
+	current_node = external_tree_root;
+	external_tree_root = external_tree_root;	/* set the external pointer */
+	call init_parent_stack();
+	ifsym_nest = 0;
+	ifsym_level = 0;
+	expr_stack_index = 0;
+	tags( typ$k_address,upper) = 'A';
+	tags( typ$k_byte,upper) = 'B';
+	tags( typ$k_char,upper) = 'T';
+	tags( typ$k_boolean,upper) = 'B';
+	tags( typ$k_decimal,upper) = 'P';
+	tags( typ$k_double,upper) = 'D';
+	tags( typ$k_float,upper) = 'F';
+	tags( typ$k_grand,upper) = 'G';
+	tags( typ$k_huge,upper) = 'H';
+	tags( typ$k_double_complex,upper) = 'DC';
+	tags( typ$k_float_complex,upper) = 'FC';
+	tags( typ$k_grand_complex,upper) = 'GC';
+	tags( typ$k_huge_complex,upper) = 'HC';
+	tags( typ$k_longword,upper) = 'L';
+	tags( typ$k_octaword,upper) = 'O';
+	tags( typ$k_quadword,upper) = 'Q';
+	tags( typ$k_vield,upper) = 'V';
+	tags( typ$k_void,upper) = 'Z';				/* JG */
+	tags( typ$k_word,upper) = 'W';
+	tags( typ$k_structure,upper) = 'R';
+	tags( typ$k_union,upper) = 'R';
+	tags( typ$k_integer,upper) = 'IS';			/* lw */
+        tags( typ$k_integer_byte,upper) = 'IB';
+        tags( typ$k_integer_word,upper) = 'IW';
+        tags( typ$k_integer_long,upper) = 'IL';
+        tags( typ$k_integer_quad,upper) = 'IQ';
+        tags( typ$k_integer_hw,upper) = 'IH';
+        tags( typ$k_pointer_hw,upper) = 'PH';
+        tags( typ$k_pointer_long,upper) = 'PL';
+        tags( typ$k_pointer,upper) = 'PS';
+        tags( typ$k_pointer_quad,upper) = 'PQ';
+        tags( typ$k_hardware_address,upper) = 'HA';		/* lw */
+	tags( typ$k_hardware_integer,upper) = 'HI';		/* lw */
+	tags( typ$k_any,upper) = '';
+	tags( typ$k_address,lower) = 'a';
+	tags( typ$k_byte,lower) = 'b';
+	tags( typ$k_char,lower) = 't';
+	tags( typ$k_boolean,lower) = 'b';
+	tags( typ$k_decimal,lower) = 'p';
+	tags( typ$k_double,lower) = 'd';
+	tags( typ$k_float,lower) = 'f';
+	tags( typ$k_grand,lower) = 'g';
+	tags( typ$k_huge,lower) = 'h';
+	tags( typ$k_double_complex,lower) = 'dc';
+	tags( typ$k_float_complex,lower) = 'fc';
+	tags( typ$k_grand_complex,lower) = 'gc';
+	tags( typ$k_huge_complex,lower) = 'hc';
+	tags( typ$k_longword,lower) = 'l';
+	tags( typ$k_octaword,lower) = 'o';
+	tags( typ$k_quadword,lower) = 'q';
+	tags( typ$k_vield,lower) = 'v';
+	tags( typ$k_void,lower) = 'z';				/* JG */
+	tags( typ$k_word,lower) = 'w';
+	tags( typ$k_structure,lower) = 'r';
+	tags( typ$k_union,lower) = 'r';
+	tags( typ$k_integer,lower) = 'is';			/* lw */
+        tags( typ$k_integer_byte,lower) = 'ib';
+        tags( typ$k_integer_word,lower) = 'iw';
+        tags( typ$k_integer_long,lower) = 'il';
+        tags( typ$k_integer_quad,lower) = 'iq';
+        tags( typ$k_integer_hw,lower) = 'ih';
+        tags( typ$k_pointer_hw,lower) = 'ph';
+        tags( typ$k_pointer_long,lower) = 'pl';
+        tags( typ$k_pointer,lower) = 'ps';
+        tags( typ$k_pointer_quad,lower) = 'pq';
+
+	tags( typ$k_hardware_address,lower) = 'ha';		/* lw */
+	tags( typ$k_hardware_integer,lower) = 'hi';		/* lw */
+	tags( typ$k_any,lower) = '';
+	return;
+
+/*-----------------------------------------*/
+set_boundary:						/* jak */
+	procedure;
+
+/*
+ * Determine natural alignment boundary for node's type 
+ * and set nod$b_boundary to (log2 of) number of bits corresponding
+ * to alignment.
+ */
+
+declare
+	p   pointer,
+	t   fixed bin(15),  /* data type */
+	ib  fixed bin(15),  /* boundary in bytes */
+	b   fixed bin(7);   /* boundary value (bits) */
+
+	/* Follow typedef chain for user types */
+	do p = current_node while( t = typ$k_user );
+	    p = p->nod$a_typeinfo2->nod$a_flink;
+	    t = p->nod$w_datatype;
+	end;
+
+	t = p->nod$w_datatype;
+
+	/* Set b = boundary bits */
+	if current_node->nod$v_base_align then 
+	    b = current_node->nod$b_boundary; /* already been set */
+	else 
+	if t = typ$k_vield then
+	    b = 0; /* BIT */
+	else
+	if t = typ$k_char & p->nod$v_varying then 
+	    b = 4; /* WORD */
+	else 
+	if t = typ$k_char | t = typ$k_decimal | t = typ$k_boolean then
+	    b = 3; /* BYTE */
+	else 
+	if t = typ$k_structure | t = typ$k_union then 
+	    b = max(p->nod$b_boundary,3); /* at least BYTE */
+	else
+	if p->nod$v_complex then
+	    b = min(max_boundary,log2(p->nod$l_fldsiz)+2);  /* times 8 divided by 2 */
+	else
+	    b = min(max_boundary,log2(p->nod$l_fldsiz)+3);
+
+	current_node->nod$b_boundary = b;
+
+	/* If we have bitfields, the boundary should be aligned on a longword */
+	/* Each bit, however shouldn't be aligned on a longword which is      */
+	/* why it has been placed here					      */
+
+	if t = typ$k_vield then 
+	    b = 5; /* LONGWORD */
+	/*
+	 * If this is a member of an aggregate, make sure 
+	 * immediate parent has at least as great a boundary.
+	 */
+	p = current_node->nod$a_parent;
+	if p->nod$b_type = nod$k_itemnode then 
+	if ^p->nod$v_base_align then 
+	if p->nod$b_boundary < b then 
+	    p->nod$b_boundary = b;
+
+	end set_boundary;
+
+/*-----------------------------------------*/
+power2:
+    procedure(n)    returns(fixed bin(31));
+
+dcl n	fixed bin(7);
+dcl i	fixed bin(31);
+dcl x	fixed bin(31);
+
+    x = 1; i = n;
+    do while( i > 0 );
+	x = x * 2;
+	i = i - 1;
+    end;
+    return(x);
+
+    end power2;
+/*-----------------------------------------*/
+log2:
+    procedure(x)    returns(fixed bin(31));
+
+dcl (x,z)   fixed bin(31);
+dcl n	    fixed bin(31);
+
+    z = 1; n = 0;
+    do while( z < x );
+	z = z * 2;
+	n = n + 1;
+    end;
+    return(n);
+
+    end log2;
+/*-----------------------------------------*/
+ 
+action(LOCALASN): /***********************************************************/
+/*
+ * Assign a value to a local variable.  If already in the local symbol
+ * table then just reset its value, else add it to the table
+ */
+	i = lookup(local_sym,saved_name);
+	if i < 0 then 
+	    i = enter_symbol(local_sym,saved_name,0);
+	else 
+	if local_sym(i).expr_flag then 
+	    call free_expr_list(local_sym(i).expr_list);
+
+	if expr_flag then 
+	    do;
+	    local_sym(i).expr_list = expr_list;
+	    local_sym(i).expr_flag = true;
+	    p = make_expr_node(0,0,i,null());
+	    p->exp$a_next = local_expr_list;
+	    local_expr_list = p;	
+	    expr_flag = false;
+	    end;
+	else 
+	    do;
+	    local_sym(i).value = pop_expr_stack();
+	    local_sym(i).expr_flag = false;
+	    call free_dummy;
+	    end;
+
+	displaced = null();
+	return;
+ 
+action(MAKCSTNOD): /**********************************************************/
+/*
+ * We've parsed the whole CONSTANT declaration, so start building the constant
+ * nodes.  This is a little tricky, because if we are inside an aggregate
+ * (i.e. not at level 1) then we have to link the constant nodes into the
+ * tree in front of the topmost aggregate node, so that the constants will
+ * be at level 1
+ *
+ * The data type can be long or char.
+ */
+	p1 = current_node;
+	if top_parent$ ^= null() then 
+	    p1 = top_parent$->nod$a_blink;
+/*
+ * Go through the list of names and build a constant node for each one
+ */
+	if ^increment_opt then 
+	    const_increment = 0;
+	incr_ctr = const_value - const_increment;
+	last_const = -1;
+	do p = name_list_head.flink repeat p->name_list_node.flink 
+	    while(p ^= addr(name_list_head));
+
+	    incr_ctr = incr_ctr + const_increment;
+
+	    last_comment = p->name_list_node.comment;
+	    if p->name_list_node.name_string ^= '' then 
+		do;
+		q = alloc_node(nod$k_constnode);
+		q->nod$a_parent = parent$;	/* EV1-19 */
+		q->nod$a_child = null();
+		q->nod$l_flags = '0'b;
+		q->nod$l_srcline = p->name_list_node.lineno;
+		if const_type_opt then 
+		    q->nod$t_typename = saved_type_name;
+
+		if last_comment ^= null() &:
+		   last_comment->comment_list_node.lineno = q->nod$l_srcline then 
+		    do;
+		    q->nod$a_comment = last_comment->comment_list_node.comment;
+		    last_comment = last_comment->comment_list_node.flink;
+		    end;
+
+		/*
+		 * build name, prefix and tag
+		 */
+		q->nod$t_naked = p->name_list_node.name_string;	/* PG */
+		q->nod$t_name = q->nod$t_naked;
+		if const_prefix_opt then 
+		    q->nod$t_prefix = saved_prefix;
+		else 
+		    q->nod$t_prefix = parent$->nod$t_prefix;
+
+		if const_tag_opt then 
+		    q->nod$t_tag = saved_tag;
+		else 
+		if q->nod$t_prefix ^= '' then
+		if substr(q->nod$t_naked,1,1) < 'a' then 
+		    q->nod$t_tag = tag$t_constant(upper);
+		else 
+		    q->nod$t_tag = tag$t_constant(lower);
+
+		item_prefix_opt = true;
+		item_tag_opt = true;
+		call set_name(q);
+		item_tag_opt = false;
+		item_prefix_opt = false;
+
+		/*
+		 * set the value according to type
+		 */
+		if const_string_opt then 
+		    do;
+		    q->nod$w_datatype = typ$k_char;
+		    q->nod$l_typeinfo = length(const_string_ptr->const_string);
+		    q->nod$v_varying = true;
+		    q->nod$a_typeinfo2 = const_string_ptr;
+		    end;
+		else 
+		    q->nod$l_typeinfo = incr_ctr;
+
+		/*
+		 * insert this node in the tree where it belongs and
+		 * enter this name and its value in the constant symbol tab
+		 */
+		call insque(q,p1);
+		i = lookup(const_sym,q->nod$t_name);
+		if i < 0 then 
+		    i = enter_symbol(const_sym,q->nod$t_name,0);
+		else 
+		if const_sym(i).expr_flag then 
+		    call free_expr_list(const_sym(i).expr_list);
+
+		const_sym(i).value = q->nod$l_typeinfo;
+		const_sym(i).str_const_flag = const_string_opt;
+		const_sym(i).expr_flag = const_expr_flag;
+		last_const = i;
+
+		/*
+		 * Check for location expression and if so, 
+		 * put it on list for eval at end of containing aggregate 
+		 */
+		if const_expr_flag then 
+		    do;
+		    if const_expr_list ^= null() then 
+			do; /* first or only name in list */
+			first_const = last_const; /* save index of first (this) named constant */
+			const_sym(i).expr_list = const_expr_list;
+			const_expr_list = null(); /* don't reuse expression list! */
+			end;
+		    else /* subsequent names defined in terms of first name + incr_ctr in const_sym(i).value */
+			/* This special context does not require copying the expression. */
+			const_sym(i).expr_list = make_expr_node(constant_val,0,first_const,null());
+		    q1 = make_expr_node(0,0,i,q);
+		    q1->exp$a_next = constant_expr_list;
+		    constant_expr_list = q1;	
+		    end;
+
+		p1 = q;
+		end;
+
+	    /*
+	     * go through the comment list and add comment nodes for any
+	     * extra lines of comments we may have here
+	     */
+	    do q1 = last_comment repeat q1->comment_list_node.flink 
+		while(q1 ^= null());
+		q2 = alloc_node(nod$k_commnode);
+		q2->nod$a_parent = parent$;
+		q2->nod$l_srcline = p->name_list_node.lineno;
+		q2->nod$a_comment = q1->comment_list_node.comment;
+		q2->nod$a_child = null();
+		call insque (q2,p1);
+		p1 = q2;
+	    end;		
+
+	end;	/* end of name list loop */
+
+	/*
+	 * all done, free the name list
+	 */
+    	do p = name_list_head.flink repeat p2 
+	    while (p ^= addr(name_list_head));
+	    p2 = p->name_list_node.flink;
+	    free p->name_list_node;
+	end;
+
+	/*
+	 * If we have the COUNTER option, save the last constant value in
+	 * the specified local variable
+	 */
+	if counter_opt then 
+	    do;
+	    i = lookup(local_sym,saved_counter);
+	    if i < 0 then
+		i = enter_symbol(local_sym,saved_counter,0);
+	    else 
+	    if local_sym(i).expr_flag then 
+		call free_expr_list(local_sym(i).expr_list);
+
+	    if const_expr_flag then 
+		do;
+		local_sym(i).expr_list = make_expr_node(constant_val,0,last_const,null());
+		local_sym(i).expr_flag = true;
+		q1 = make_expr_node(0,0,i,null());
+		q1->exp$a_next = local_expr_list;
+		local_expr_list = q1;	
+		end;
+	    else
+		do;
+		local_sym(i).value = incr_ctr;
+		local_sym(i).expr_flag = false;
+		end;
+	    end;
+
+	/*
+	 * If we're at level 1, make the last constant node the current node
+	 * and clear the displaced comment pointer. If we're inside an aggregate
+	 * set the displaced comment pointer to the last constant node, so any
+	 * comments on this line will be associated with it, and not left inside
+	 * the aggregate.
+	 */
+	if top_parent$ = null() then 
+	    do;
+	    current_node = p1;
+	    displaced = null();
+	    end;
+	else 
+	    displaced = p1;
+
+	name_list_head.flink = addr(name_list_head);
+	name_list_head.blink = addr(name_list_head);
+	string(const_options) = false;
+	constant_line = token_lineno;
+	return;
+
+action(MAKECHILD): /**********************************************************/
+/*
+ * Begins a list of child nodes by pushing the current node on the parent
+ * stack, making a head node and linking it to the parent via the parent/child pointers. 
+ * This is the last thing done by an aggregate declaration (current token is ';').
+ * Also used by entry nodes with the parameter option, module nodes, IFLANGUAGE, ...
+ */
+	p = current_node;
+	p->NOD$L_Srcline = token_lineno;
+
+	/* If this is new level 1 aggregate, make it the top parent */
+	if top_parent$ = null() & p->nod$b_type = nod$k_itemnode then
+	    top_parent$ = p;
+
+	/* Aggregates must start on at least a byte boundary */
+	if p->NOD$B_Type = NOD$K_Itemnode then 
+	    p->nod$b_boundary = max(p->nod$b_boundary,3);
+
+	/*
+	 * Check for item data type on structure decl, 
+	 * indicating an implicit union.
+	 */
+	if p->NOD$B_Type = NOD$K_Itemnode & 
+	   p->NOD$W_Datatype ^= 0 & 
+	   p->NOD$W_Datatype ^= TYP$K_Structure & 
+	   p->NOD$W_Datatype ^= TYP$K_Union then 
+	    do;
+	    call do_implicit_union;
+	    return;
+	    end;
+
+	/*
+	 * If not a module node or an entry node, compose the complete node name
+	 */
+	if p->nod$a_parent ^= null() then 
+	if p->nod$b_type ^= nod$k_modulnode &
+	   p->nod$b_type ^= nod$k_entrynode then    /* EV1-14 */
+	    call set_name(p);
+
+	/*
+	 * If a based aggregate (only level 1 will have a storage class flag)
+	 * enter current node in the aggregate symbol table
+	 */
+	if p->nod$v_based | p->nod$v_typedef then 
+	    do;
+	    i = enter_symbol(aggr_sym,p->nod$t_name,0);
+	    aggr_sym.link(i) = p;
+	    end;
+
+	/* Add this node to the parent stack */
+	call push_parent(p);
+
+	/* 
+	 * Create a head node and link it as a child of the current node
+	 */
+	current_node = alloc_head_node(p);
+	p->NOD$A_Child = current_node;
+	current_node->NOD$L_Srcline = token_lineno;
+
+	/*
+	 * Set the displaced comment pointer, so that any comments appearing
+	 * on this source line will be associated with the new parent node, and not
+	 * with the head node (an "invisible" node) that is now the current node.
+	 */
+	Displaced = p;
+	return;
+
+
+action(MAKENTNOD): /**********************************************************/
+/*
+ * Make an entry node.  Clear the entry options and any displaced comment
+ * pointer, since we now have a real node for comments to be attached to.
+ * Also, initialize nod$t_return_name.
+ */
+	p = alloc_node(nod$k_entrynode);
+	p->nod$t_name = token_value;
+	p->nod$t_naked = token_value;
+	p->nod$t_return_name = '';
+	p->nod$a_parent = parent$;
+	call insque(p,current_node);
+	current_node = p;
+	string(entry_options) = false;
+	string(item_options) = false;	/* EV1-13 */
+	displaced = null();
+	return;
+ 
+action(MAKITMNOD): /**********************************************************/
+/*
+ * Make an item node.
+ */
+	p = alloc_node(nod$k_itemnode);
+	p->nod$t_name = token_value;
+	p->nod$t_naked = token_value;
+	p->nod$t_prefix = parent$->nod$t_prefix;
+	p->nod$a_parent = parent$;
+	p->nod$l_srcline = token_lineno;
+	p->nod$l_typeinfo = 0;
+	p->nod$l_offset = 0;
+	call insque(p,current_node);
+
+	string(item_options) = false;
+
+/*
+ * If a level 1 item, clear all the offsets and give it a default class
+ * of BASED.  Set to align if MEMBER_ALIGN qualifier used.
+ */
+	if top_parent$ = null() then 
+	    do;
+	    constant_expr_list = null();
+	    local_expr_list = null();
+	    p->nod$v_based = true;
+	    p->nod$v_align = sdl$v_member_align;		/* jak */
+	    end;
+	else 
+	    /* Is an aggregate member, inherit align from parent */
+	    p->nod$v_align = parent$->nod$v_align;		/* jak */
+
+/*
+ * Clear the displaced comment pointer, since this is a real node and
+ * any comments on this line will be associated with it
+ */
+	current_node = p;
+	displaced = null();
+	return;
+ 
+action(MAKLITNOD): /**********************************************************/
+/*
+ * JG
+ * Make a literal node.
+ */
+	allocate lit_string set(lit_string_ptr);
+	lit_string_ptr->lit_string = token_value;
+	p = alloc_node(nod$k_litnode);
+	p->nod$t_name = '';
+	p->nod$t_naked = 'LITERAL';
+	p->nod$t_prefix = parent$->nod$t_prefix;
+	p->nod$a_parent = parent$;
+	p->nod$l_typeinfo = length(token_value);
+	p->nod$a_typeinfo2 = lit_string_ptr;
+	call insque(p,current_node);
+	current_node = p;
+	current_node->nod$l_srcline = token_lineno;
+	string(item_options) = false;
+	return;
+
+
+action(MAKMODNOD): /**********************************************************/
+/*
+ * Make a module node.  Initialize the aggregate, constant, and user symbol
+ * tables ("local" symbol table is known throughout the source)
+ */
+	p = alloc_node(nod$k_modulnode);
+	p->nod$t_name = token_value;
+	p->nod$a_parent = parent$;  /* ASSERT: parent$ is null() */
+	call insque(p,current_node);
+	current_node = p;
+	current_module = p;
+	addr(aggr_sym)->symtable_string = 0;
+	addr(const_sym)->symtable_string = 0;
+	addr(user_sym)->symtable_string = 0;
+	displaced = null();
+	return;
+
+
+action(MAKNAMLIS): /**********************************************************/
+/*
+ * Make a name list node.  This is used to store the names specified
+ * in a CONSTANT declaration name list.  After parsing the whole statement
+ * we will use this to build the constant nodes
+ */
+	allocate name_list_node set(p);
+	p->name_list_node.name_string = token_value;
+	p->name_list_node.lineno = token_lineno;
+	p->name_list_node.comment = null();
+	call insque(p,name_list_head.blink);
+	last_comment = null();
+	return;
+ 
+action(MAKOBJNOD): /**********************************************************/
+/*
+ * Make a head/object node pair for a pointer type item.  
+ * Point to it with TYPEINFO2.
+ */
+	call push_parent(current_node);
+	parent$->nod$v_has_object = true;
+
+	p = alloc_head_node(current_node);
+	current_node->nod$a_typeinfo2 = p;
+	current_node = p;
+
+	p = alloc_node(nod$k_objnode);
+	p->nod$a_parent = parent$;
+	p->nod$t_naked = 'ADDRESS_OBJECT';
+	p->nod$l_srcline = token_lineno;
+
+	call insque (p,current_node);
+	current_node = p;
+	string(item_options) = false;	/* EV1-13 */
+	return;
+
+
+action(MAKPARNOD): /**********************************************************/
+/*
+ * Make a parameter node.  
+ *
+ *	  LENGTH_SPECIFIED_FOR_PARAMETER indicates
+ *	  whether or not (at any given time) a LENGTH
+ *	  has been specified for a CHARACTER or BITFIELD
+ *	  data type.  This flag is used only for parameter
+ *	  processing, however (so the BITFIELD data type
+ *	  excludes the flag's utility) -- specifically,
+ *	  its value is checked in action routines which
+ *	  need to set a default CHARACTER LENGTH of sdl$k_unknown_length
+ */
+	parmcnt = parmcnt+1;
+
+	p = alloc_node(nod$k_parmnode);
+	p->nod$a_parent = parent$;
+	p->nod$t_naked = 'PARAMETER_'||trim(parmcnt);
+	p->nod$l_srcline = token_lineno;
+	call insque(p,current_node);
+	current_node = p;
+
+	length_specified_for_parameter = false;
+	string(item_options) = false;	/* EV1-13 */
+	return;
+ 
+action(MARKLANG): /***********************************************************/
+/*
+ * Mark conditional language object node as listed in END_IFLANGUAGE.
+ * If any are marked, ENDCOND will check that all are marked.  If object node
+ * not found, issue error message (if first time).
+ */
+	lang_marked = true;	/* set flag for endcond */
+
+	/* scan through language name list */
+	saved_name = uppercase(token_value);
+	do p = parent$->nod$a_typeinfo2->nod$a_flink repeat p->nod$a_flink 
+	    while( p->nod$b_type = nod$k_objnode );
+	    if p->nod$t_name = saved_name then 
+		do;
+		if p->nod$v_ref then 
+		    call semerr(sdl$_langdup,src_line,(saved_name));
+		else 
+		    p->nod$v_ref = true;
+		return;
+		end;
+	end;
+	call semerr(sdl$_langmatch,src_line,(saved_name));
+	return;
+ 
+action(MINUSTERM): /**********************************************************/
+/*
+ * Apply unary minus the the value on the epression stack
+ */
+	if expr_flag then
+	    call push_expr_op(minus_op);
+	else
+	    expr_stack_top = - expr_stack_top;
+	return;
+
+
+action(MULTERMS): /***********************************************************/
+/*
+ * Pop 2 values from the expression stack, multiply them, and push the result
+ */
+	if expr_flag then
+	    call push_expr_op(mul_op);
+	else
+	    do;
+	    expr_value = pop_expr_stack();
+	    expr_stack_top = expr_stack_top * expr_value;
+	    end;
+	return;
+
+
+action(NULLNAME): /***********************************************************/
+/*
+ * if a constant declaration has a name list with a null name, make
+ * a name list node for it anyway to reserve the value it would have
+ */
+	allocate name_list_node set(p);
+	p->name_list_node.name_string = '';
+	p->name_list_node.comment = null();
+	call insque(p,name_list_head.blink);
+	last_comment = null();
+	return;
+
+
+action(ORTERMS): /************************************************************/
+/*
+ * Pop 2 values from the expression stack, OR them, and push the result
+ */
+	if expr_flag then
+	    call push_expr_op(or_op);
+	else
+	    do;
+	    expr_value = pop_expr_stack();
+	    unspec(expr_stack_top) = unspec(expr_stack_top) | unspec(expr_value);
+	    end;
+	return;
+ 
+action(PLUSTERM): /***********************************************************/
+
+	return;
+
+
+action(POPCOND): /*********************************************************/
+/*
+ * Pop the parent conditional node, increment the condition level,  and go
+ * to action MAKECHILD to start a child node structure.
+ */
+	current_node = parent$;
+	call pop_parent;
+	goto action(MAKECHILD); /* pushes it back again */
+
+
+action(POPPARENT): /*********************************************************/
+/*
+ * Pop the parent stack
+ */
+	current_node = parent$;
+	call pop_parent;
+	return;
+
+
+action(PUSHCIRC): /***********************************************************/
+/*
+ * Push a node on the expression stack to denote a bit offset value.
+ */
+	if top_parent$ = null() then 
+	    do;
+	    expr_value = 0;
+	    goto push_value;
+	    end;
+
+	call push_expr_node(bitoff_val,0,0,current_node);
+	current_node->nod$v_offset_ref = true;
+	return;
+
+
+action(PUSHCOLON): /**********************************************************/
+/*
+ * Push a node on the expression stack to denote a byte offset value.
+ */
+	if top_parent$ = null() then 
+	    do;
+	    expr_value = byte_size;
+	    goto push_value;
+	    end;
+
+	call push_expr_node(byteoff_val,0,0,current_node);
+	current_node->nod$v_offset_ref = true;
+	return;
+
+action(PUSHCONST): /**********************************************************/
+/*
+ * Push the value of an output CONSTANT on the expression stack
+ */
+	i = lookup(const_sym,(token_value));
+
+	if i < 0 then 
+	    do; /* Not a known constant.  Must be a string lit. 4 chars or less */
+	    if token_ptr->token_id ^= t_string_literal | token_ptr->token_length > 4 then 
+		do;
+		call semerr(sdl$_undefcon,src_line,(token_value));
+		token_ptr->token_length = min(token_ptr->token_length,4);
+		end;
+	    i = 1;
+	    b32 = '0'b;
+	    do while (i <= token_ptr->token_length );
+		substr(b32,i*8-7,8) = unspec(substr(token_ptr->token_string,i,1));
+		i = i+1;
+	    end;
+	    unspec(expr_value) = b32;
+	    goto push_value;
+	    end;
+
+	if const_sym(i).str_const_flag then 
+	    do; /* Value is a string constant */
+	    call semerr(sdl$_stringconst,src_line,(token_value));
+	    expr_value = 0;
+	    goto push_value;
+	    end;
+
+	if ^const_sym(i).expr_flag then 
+	    do; /* Symbol is simple value */
+	    expr_value = const_sym(i).value;
+	    goto push_value;
+	    end;
+
+	/* Symbol is loc expression */
+	call push_expr_node(expr_val,0,0,copy_expr(const_sym(i).expr_list));
+	return;
+
+action(PUSHDOT): /********************************************************/
+/*
+ * Push a node on the expression stack to denote an origin relative byte offset value.
+ */
+	if top_parent$ = null() then 
+	    do;
+	    expr_value = byte_size;
+	    goto push_value;
+	    end;
+
+	call push_expr_node(origin_val,0,0,current_node);
+	current_node->nod$v_offset_ref = true;
+	return;
+
+
+PUSH_VALUE: /********************************************************/
+/*
+ * Push integer value on expression stack.
+ */
+	if expr_flag then 
+	    call push_expr_node(integer_val,0,expr_value,null());
+	else 
+	    call push_expr_stack( expr_value );
+	return;
+
+
+action(PUSHLOCAL): /**********************************************************/
+/*
+ * Push the value of a local variable on the expression stack
+ */
+	i = lookup(local_sym,(token_value));
+
+	if i < 0 then
+	    do; /* symbol is undefined */
+	    call semerr(sdl$_undefsym,src_line,(token_value));
+	    expr_value = 0;
+	    goto push_value;
+	    end;
+
+	if ^local_sym(i).expr_flag then 
+	    do; /* Symbol is simple value */
+	    expr_value = local_sym(i).value;
+	    goto push_value;
+	    end;
+
+	/* Symbol is loc expression */
+	call push_expr_node(expr_val,0,0,copy_expr(local_sym(i).expr_list));
+	return;
+
+/*----------------------------------------------*/
+push_expr_node: 
+	procedure(kind,op,value,parent);
+
+    dcl (kind,op) fixed bin(15),
+	value	fixed bin(31),
+	parent	pointer;
+
+    dcl (this,p,q) pointer;
+
+	this = make_expr_node(kind,op,value,parent);
+
+	if expr_flag then
+	    do; /* add to existing expr list */
+	    expr_list_tail->exp$a_next = this;
+	    expr_list_tail = this;
+	    return;
+	    end;
+
+	/* start expr list by copying current expr stack */
+	expr_list_tail = this;
+	p = this;
+	do while ( expr_stack_index > 0 );
+	    q = make_expr_node(integer_val,0,pop_expr_stack(),null());
+	    q->exp$a_next = p;
+	    p = q;
+	end;
+	expr_list = p;
+	expr_flag = true;
+
+	end push_expr_node;
+
+/*----------------------------------------------*/
+make_expr_node:
+	procedure(kind,op,value,ref_node) returns(ptr);
+
+    declare (kind,op)	fixed bin(15),
+	    value	fixed bin(31),
+	    ref_node	pointer,
+	    p		pointer;
+
+	allocate exp$node set(p);
+	p->exp$w_kind = kind;
+	p->exp$w_op = op;
+	p->exp$l_value = value;
+	p->exp$a_ref_node = ref_node;
+	p->exp$a_next = null();
+	return(p);
+
+	end make_expr_node;
+
+/*----------------------------------------------*/
+check_expression:
+	procedure;
+/* 
+   An expression has been used in a context which requires a constant.
+   Compute expression as best as can be done, and diagnose.
+*/
+	if expr_flag then
+	    do; /* Expression is an offset expression */
+	    call semerr(sdl$_invexpr,current_node->nod$l_srcline,(current_node->nod$t_name));
+	    call push_expr_stack(0);
+	    call free_expr_list(expr_list);
+	    expr_flag = false;
+	    end;
+
+	end check_expression;
+/*----------------------------------------------*/
+ 
+action(PUSHTERM): /***********************************************************/
+/*
+ * Push a constant term on the expression stack.  Check for radix specifiers
+ * and do the conversions from ascii to integer.
+ */
+	if substr(token_value,1,1) = '%' then 
+	    do;
+	    i = index('DXOBAdxoba',substr(token_value,2,1));
+	    if i = 0 then 
+		do;
+		expr_value = 0;
+		call semerr(sdl$_syntaxerr,src_line,);
+		goto push_value;
+		end;
+	    if i > 5 then 
+		i = i - 5;
+	    j = 3;
+	    end;
+	else 
+	    do;
+	    i = 1;
+	    j = 1;
+	    end;
+	temp = substr(token_value,j,length(token_value)-j+1);
+	goto conv_label(i);
+
+conv_label(1):			/* decimal integer conversion */
+	if ots$cvt_ti_l((temp), expr_value) ^= ss$_normal then 
+	    call semerr(sdl$_intovf,src_line,);
+	goto push_value;
+
+conv_label(2):			/* hex conversion */
+	if ots$cvt_tz_l((temp), expr_value) ^= ss$_normal then 
+	    call semerr(sdl$_intovf,src_line,);
+	goto push_value;
+
+conv_label(3):			/* octal conversion */
+	if ots$cvt_to_l((temp), expr_value) ^= ss$_normal then 
+	    call semerr(sdl$_intovf,src_line,);
+	goto push_value;
+
+conv_label(4):			/* binary conversion */
+	b64 = '0'b;
+	begin;
+        on fixedoverflow ;
+	    do j = 1 to length(temp);
+		i64 = i64 * 2;
+		i64 = i64 + (rank(substr(temp,j,1))-rank('0'));
+	    end;
+	end;
+	if substr(b64,33) ^= '0'b then
+	    call semerr(sdl$_intovf,src_line,);
+	else
+	    expr_value = i64;
+	goto push_value;
+
+conv_label(5):			/* single ascii code conversion */
+	expr_value = rank(substr(temp,1,1));
+	goto push_value;	
+ 
+action(READFILE):  /**********************************************************/
+/*
+ * JG
+ * Read intermediate (.SDI) file of declarations.  Object names are read from
+ * the file.  Constants are just entered into const_sym.  Aggregate names and
+ * user-defined types are entered into aggr_sym or user_sym, and entered into
+ * the output tree as DECLARED items.
+ */
+	/*  Open the intermediate file */
+
+	on undefinedfile(sdi_infile) 
+	    begin;
+	    goto readfile_error;
+	    end;
+
+	open file(sdi_infile) sequential input 
+		title(token_value) env(default_file_name('.sdi'));
+
+	/* Read the tree from the file */
+
+	if intree(sdi_infile,current_node) then 
+	    do; /* Close, reopen, try again old format */
+	    close file(sdi_infile);
+	    open file(sdi_infile) sequential input 
+		    title(token_value) env(default_file_name('.sdi'));
+	    if read_file(current_node,(token_value)) then 
+		call semerr(sdl$_infilsdi,,(token_value));
+	    end;
+
+	close file(sdi_infile);
+	return;
+
+readfile_error:
+	call errmsg(sdl$_shr_data, sdl$_infilopn,,(token_value));
+	return;
+
+
+action(RESETTEXT): /**********************************************************/
+/*
+ * Close include file by calling special routine
+ * and unstack lex state by calling special routine in lex
+ */
+	call close_incl_file (incl_file, sdl$_shr_data);
+	call reset_incl_text ();
+	return;
+ 
+action(SAVECOUNTER): /********************************************************/
+/*
+ * Set the COUNTER option for a CONSTANT declaration and save the
+ * name of the local variable to be used
+ */
+	if counter_opt then
+	    call semerr(sdl$_dupconatt,src_line,'CONSTANT');
+	else 
+	    do;
+	    counter_opt = true;
+	    saved_counter = token_value;
+	    end;
+	return;
+
+
+action(SAVELOCALNAME): /***********************************************************/
+/*
+ * Save the current token.
+ */
+	call make_dummy;
+	saved_name = token_value;
+	return;
+
+
+action(SAVEPREFIX): /*********************************************************/
+/*
+ * Save the prefix specified in a CONSTANT declaration, for later use
+ * when we build the constant nodes
+ */
+	if const_prefix_opt then 
+	    call semerr(sdl$_dupconatt,src_line,'CONSTANT');
+	else 
+	    do;
+	    const_prefix_opt = true;
+	    saved_prefix = token_value;
+	    end;
+	return;
+
+
+action(SAVETAG): /************************************************************/
+/*
+ * Save the tag for a CONSTANT declaraction (we will need it when we get
+ * around to building the constant nodes), and make sure there are
+ * no duplicates
+ */
+	if const_tag_opt then
+	    call semerr(sdl$_dupconatt,src_line,'CONSTANT');
+	else 
+	    do;
+	    const_tag_opt = true;
+	    saved_tag = token_value;
+	    end;
+	return;
+
+action(SAVETYPENAM): /************************************************************/
+/*
+ * Save the TYPENAME for a CONSTANT declaraction (we will need it when we get
+ * around to building the constant nodes).
+ */
+	const_type_opt = true;
+	saved_type_name = token_value;
+	return;
+
+
+action(SAVEUSERNAME): /***********************************************************/
+/*
+ * Save the current token.
+ */
+	saved_name = token_value;
+	return;
+
+
+action(SETADDR): /************************************************************/
+/*
+ * Set the ADDRESS datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_address;
+	current_node->nod$l_fldsiz = 4;
+	return;
+
+
+action(SETALIAS): /***********************************************************/
+/*
+ * Set the alias name, using the naked name field since not used for entries.
+ */
+	if current_node->nod$v_alias then 
+	    call att_error();
+	else 
+	    do;
+	    current_node->nod$v_alias = true;
+	    current_node->nod$t_naked = token_value;
+	    end;
+	return;
+
+action(SETALIGN): /***********************************************************/
+/*
+ * Set the ALIGN flag.
+ */
+	if item_align_opt | item_noalign_opt then
+	    call att_error();
+	else 
+	    do;
+	    item_align_opt = true;
+	    current_node->nod$v_align = true;
+	    end;
+	return;
+
+
+action(SETNOALIGN): /***********************************************************/
+/*
+ * Clear the ALIGN flag.
+ */
+	if item_align_opt | item_noalign_opt then
+	    call att_error();
+	else 
+	    do;
+	    item_noalign_opt = true;
+	    current_node->nod$v_align = false;
+	    end;
+	return;
+
+
+action(SETANY): /*************************************************************/
+/*
+ * Set the ANY datatype for a parameter.
+ */
+	current_node->nod$w_datatype = typ$k_any;
+	return;
+
+action(SETBASEALIGN): /***********************************************************/
+/*
+ * Start the BASEALIGN option.
+ *
+ * Push current node and create a dummy node to hold the parse datatype or expression.
+ */
+	if current_node->nod$v_base_align then
+	    call att_error();
+
+	p = alloc_node(nod$k_typnode);
+	p->nod$a_parent = current_node;
+	p->nod$t_naked  = current_node->nod$t_naked;
+	p->nod$l_srcline= token_lineno;
+
+	call push_parent(current_node);
+	current_node = p;
+	return;
+
+
+action(SETBASEEXPR): /***********************************************************/
+/*
+ * BASEALIGN ( expression ) was seen.  Expression is a power of two.
+ */
+	call check_expression; /* must eval to a constant! */
+	i = pop_expr_stack();
+	if i < 0 | i > 124 then 
+	    call semerr(sdl$_basealign,src_line,(current_node->nod$t_naked));
+	parent$->nod$b_boundary = max(0,min(127,i+3));
+	goto finish_basealign;
+
+
+action(SETBASETYPE): /***********************************************************/
+/*
+ * BASEALIGN datatype was seen.
+ */
+	call set_boundary;
+	parent$->nod$b_boundary = current_node->nod$b_boundary;
+
+FINISH_BASEALIGN:
+	p = current_node;
+	current_node = parent$;
+	call pop_parent;
+	free p->nod$_node;
+
+	current_node->nod$v_base_align = true;
+	return;
+
+action(SETBOOL): /************************************************************/
+/*
+ * Set the BOOLEAN datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_boolean;
+	current_node->nod$l_typeinfo = 1;
+	current_node->nod$l_fldsiz = 1;
+	return;
+
+
+action(SETBYTE): /************************************************************/
+/*
+ * Set the BYTE datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_byte;
+	current_node->nod$l_fldsiz = 1;
+
+	if ^item_signed_opt & ^item_unsigned_opt then
+	    do;
+	    current_node->nod$v_signed = true; /* the default EV1-12 */
+	    current_node->nod$v_unsigned = false;
+	    end;
+	return;
+
+action(SETCHAR): /************************************************************/
+/*
+ * Set the CHARACTER datatype for an item.  Set a default length of 1 if
+ * none given.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_char;
+
+	if current_node->nod$v_length then 
+	    return;
+
+	if current_node->nod$l_typeinfo = 0 then
+	    if ^zero_length then
+		current_node->nod$l_typeinfo = 1;
+	    else 
+	    if top_parent$ = null() |
+	       current_node->nod$b_type ^= nod$k_itemnode | 
+	       current_node->nod$v_varying then 
+		call semerr(sdl$_zerolen,src_line,(current_node->nod$t_naked));
+
+	zero_length = false;
+
+	if current_node->nod$v_varying then
+	    current_node->nod$l_fldsiz = current_node->nod$l_typeinfo + 2;
+	else 
+	    current_node->nod$l_fldsiz = current_node->nod$l_typeinfo;
+	return;
+
+
+action(SETCHRVAR): /**********************************************************/
+/*
+ * Set the VARYING option in a CHARACTER datatype item
+ */
+	if current_node->nod$v_varying then
+	    call att_error();
+	else 
+	    current_node->nod$v_varying = true;
+	return;
+ 
+action(SETCOMMON): /**********************************************************/
+/*
+ * Set the COMMON attribute.  Clear the default BASED storage class first,
+ * unless explicitly stated by a BASED ptr-name option.  Check for
+ * duplicate or conflicting attributes
+ */
+	if ^current_node->nod$v_bound then
+	    current_node->nod$v_based = false;
+
+	if current_node->nod$v_common | current_node->nod$v_global | 
+	   current_node->nod$v_based | current_node->nod$v_typedef then
+	    call att_error();
+	else
+	    current_node->nod$v_common = true;
+	return;
+
+
+action(SETCOMPLEX): /**********************************************************/
+/*
+ * Set the COMPLEX flag.  This flag is checked by each of the action routines
+ * for setting floating-point data types.
+ */
+	current_node->nod$v_complex = true;
+	return;
+
+
+action(SETCONSTR): /**********************************************************/
+/*
+ * Save the string into a CONSTANT declaration
+ */
+	allocate const_string set(const_string_ptr);
+	const_string_ptr->const_string = token_value;
+	const_string_opt = true;
+	return;
+
+
+action(SETCONVAL): /**********************************************************/
+/*
+ * Save the initial value of a CONSTANT declaration
+ */
+	if expr_flag then 
+	    do;
+	    const_value = 0;
+	    const_expr_list = expr_list;
+	    const_expr_flag = true;
+	    expr_flag = false;
+	    end;
+	else 
+	    do;
+	    const_value = pop_expr_stack();
+	    const_expr_flag = false;
+	    end;
+	return;
+ 
+action(SETDEC): /*************************************************************/
+/*
+ * Set the DECIMAL datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_decimal;
+	current_node->nod$l_fldsiz = divide(mod(current_node->nod$l_typeinfo,256),2,31)+1;
+	return;
+
+
+action(SETDECL): /************************************************************/
+/*
+ * Complete the DECLARE statement.
+ *
+ * Make the full name, and set the DECLARED and TYPEDEF flags.
+ */
+	/* Set the default tag if none specified and build the full name */
+	call set_name(current_node);
+
+	/* Copy full name to typenode if not previously declared */
+	p = current_node->nod$a_typeinfo2->nod$a_flink;
+	if p->nod$a_parent = current_node then 
+	    p->nod$t_name = current_node->nod$t_name;
+
+	current_node->nod$v_declared = true;
+	current_node->nod$v_typedef = true;			/* X3.2-11 */
+	return;
+
+action(SETDEFAULT): /***********************************************************/
+/*
+ * Set the default attribute.  Check for duplicate or conflicting attributes
+ * Set default literal value.
+ */
+	if current_node->nod$v_default |
+	   current_node->nod$v_optional |
+	   current_node->nod$v_list |
+	   current_node->nod$w_datatype = typ$k_decimal |
+	   ^current_node->nod$v_value & ^expr_flag & expr_stack_top ^= 0 then
+	    call att_error();
+
+	current_node->nod$v_default = true;
+
+	if expr_flag then 
+	    do;
+	    current_node->nod$v_initial = true;
+	    current_node->nod$a_initial = expr_list;
+	    expr_flag = false;
+	    return;
+	    end;
+
+	current_node->nod$v_initial = false;
+	current_node->nod$l_initial = pop_expr_stack();
+	return;
+
+
+action(SETDEFPRMATT): /*********************************************************/
+/*
+ * Set default attributes for parameter declarations.
+ *
+ *	Default parameter mode:  IN
+ *
+ *	Default parameter passing mechanism:  REFERENCE
+ */
+       /*
+        * Set default parameter mode.
+	*/
+	if (current_node->nod$l_flags & (nod$m_in|nod$m_out)) = '0'b then
+	    current_node->nod$v_in = true;
+
+       /*
+        * Set default parameter passing mechanism.
+	*/
+	if (current_node->nod$l_flags & (nod$m_value|nod$m_desc|nod$m_ref|nod$m_rtl_str_desc)) = '0'b then
+	    current_node->nod$v_ref = true;
+	return;
+ 
+action(SETDESCRIP): /*********************************************************/
+/*
+ * Set the DESCRIPTOR option for a parameter
+ */
+/* +++++++ jak +++++++ */
+	if ((current_node->nod$l_flags & (nod$m_value|nod$m_desc|nod$m_ref|nod$m_rtl_str_desc)) ^= '0'b) |
+	   current_node->nod$w_datatype = typ$k_any then
+		call att_error();
+	else do;
+		current_node->nod$v_desc = true;
+		if (current_node->nod$w_datatype = typ$k_char) &
+		   (^length_specified_for_parameter) then
+		    current_node->nod$l_typeinfo = sdl$k_unknown_length;
+		end;
+	return;
+
+action(SETDIMEN): /***********************************************************/
+/*
+ * Set the dimension attribute.  Check for duplicate or conflicting attributes
+ * Pop the high bound for the dimension off the expression stack.  If not
+ * specified, use a low bound default of 1.  Check for invalid ranges.
+ */
+	if ((current_node->nod$l_flags & (nod$m_value|nod$m_dimen|nod$m_rtl_str_desc)) ^= '0'b) |
+	   (current_node->nod$w_datatype = typ$k_any) then
+	    call att_error();
+
+	current_node->nod$v_dimen = true;
+	current_node->nod$v_lodim = false;
+	current_node->nod$l_lodim = 1;
+
+	if expr_flag then 
+	    do;
+	    current_node->nod$a_hidim = expr_list;
+	    current_node->nod$v_hidim = true;
+	    expr_flag = false;
+	    return;
+	    end;
+
+	current_node->nod$v_hidim = false;
+	current_node->nod$l_hidim = pop_expr_stack();
+	if current_node->nod$l_hidim < 0 | 
+	    (current_node->nod$l_hidim = 0 & top_parent$ = null()) then 
+	    call semerr(sdl$_zerolen,src_line,(current_node->nod$t_naked));
+
+	return;
+
+
+action(SETDOUBLE): /**********************************************************/
+/*
+ * Set the D_FLOATING or D_FLOATING COMPLEX datatype for an item.
+ * Assign the appropriate field byte size.  Field bits are 0, since this
+ * is an integrally byte-sized datatype.
+ */
+	if current_node->nod$v_complex then 
+	    do;
+	    current_node->nod$w_datatype = typ$k_double_complex;
+	    current_node->nod$l_fldsiz = 16;
+	    end;
+	else 
+	    do;
+	    current_node->nod$w_datatype = typ$k_double;
+	    current_node->nod$l_fldsiz = 8;
+	    end;
+	return;
+
+action(SETENTRY): /***********************************************************/
+/*
+ * Used when a pointer item has an ENTRY type object.  
+ * Make a HEAD/ENTRY node pair and point to it with TYPEINFO2 of the 
+ * OBJECT node.  Put the object node on the parent stack, make the entry node 
+ * the current one, and let processing proceed as if for a regular entry node.
+ * Also, initialize nod$t_return_name for the entry node.
+ */
+	current_node->nod$w_datatype = typ$k_entry;
+	string(entry_options) = false;
+	call push_parent(current_node);
+
+	p = alloc_head_node(current_node);
+	current_node->nod$a_typeinfo2 = p;
+	current_node = p;
+
+	p = alloc_node(nod$k_entrynode);
+	p->nod$t_return_name = '';
+	p->nod$a_parent = parent$;
+	p->nod$l_srcline = token_lineno;
+	call insque (p,current_node);
+	current_node = p;
+	return;
+
+
+action(SETFILL): /***********************************************************/
+/*
+ * Set the fill bit for a node.
+ */
+	if item_fill_opt then
+		call att_error();
+	else do;
+		item_fill_opt = true;
+		current_node->nod$v_userfill = true;
+		end;
+	return;
+
+action(SETFLOAT): /***********************************************************/
+/*
+ * Set the F_FLOATING or F_FLOATING COMPLEX datatype for an item.
+ * Assign the appropriate field byte size.  Field bits are 0, since this
+ * is an integrally byte-sized datatype.
+ */
+	if current_node->nod$v_complex then 
+	    do;
+	    current_node->nod$w_datatype = typ$k_float_complex;
+	    current_node->nod$l_fldsiz = 8;
+	    end;
+	else 
+	    do;
+	    current_node->nod$w_datatype = typ$k_float;
+	    current_node->nod$l_fldsiz = 4;
+	    end;
+	return;
+
+
+action(SETGLOBAL): /**********************************************************/
+/*
+ * Set the GLOBAL attribute.  Clear the default based attribute unless
+ * it was explicitly stated in a BASED ptr-name option.  Check for conflicting
+ * or duplicate attributes
+ */
+	if ^current_node->nod$v_bound then
+		current_node->nod$v_based = false;
+	if (current_node->nod$l_flags & (nod$m_common|nod$m_global|nod$m_based|nod$m_typedef)) ^= '0'b then
+		call att_error();
+	else
+		current_node->nod$v_global = true;
+	return;
+
+
+action(SETGRAND): /***********************************************************/
+/*
+ * Set the G_FLOATING or G_FLOATING COMPLEX datatype for an item.
+ * Assign the appropriate field byte size.  Field bits are 0, since this
+ * is an integrally byte-sized datatype.
+ */
+	if current_node->nod$v_complex then 
+	    do;
+	    current_node->nod$w_datatype = typ$k_grand_complex;
+	    current_node->nod$l_fldsiz = 16;
+	    end;
+	else 
+	    do;
+	    current_node->nod$w_datatype = typ$k_grand;
+	    current_node->nod$l_fldsiz = 8;
+	    end;
+	return;
+ 
+action(SETHIDIM): /***********************************************************/
+/*
+ * set the high bound of a dimensioned item.  If a dimension already
+ * given, or if high bound is less than low bound, it's an error
+ */
+	if current_node->nod$v_dimen then
+	    call att_error();
+
+	current_node->nod$v_dimen = true;
+
+	if expr_flag then 
+	    do; /* High bound is an expression which can't be evaluated yet */
+	    current_node->nod$a_hidim = expr_list;
+	    current_node->nod$v_hidim = true;
+	    expr_flag = false;
+	    return;
+	    end;
+
+	current_node->nod$v_hidim = false;
+	current_node->nod$l_hidim = pop_expr_stack();
+
+	if current_node->nod$v_lodim then 
+	    return; /* Low bound is an expression */
+
+	/* both bounds are constants, check if valid */
+	/* Negative number of elements never allowed, */
+	/* Zero elements allowed only if a member of an aggregate */
+	i = current_node->nod$l_hidim - current_node->nod$l_lodim + 1; /* EV1-14 */
+	if i < 0 | (i = 0 & top_parent$ = null()) then 
+	    call semerr(sdl$_zerolen,src_line,(current_node->nod$t_naked));
+
+	return;
+ 
+action(SETHUGE): /************************************************************/
+/*
+ * Set the H_FLOATING or H_FLOATING COMPLEX datatype for an item.
+ * Assign the appropriate field byte size.  Field bits are 0, since this
+ * is an integrally byte-sized datatype.
+ */
+	if current_node->nod$v_complex then 
+	    do;
+	    current_node->nod$w_datatype = typ$k_huge_complex;
+	    current_node->nod$l_fldsiz = 32;
+	    end;
+	else 
+	    do;
+	    current_node->nod$w_datatype = typ$k_huge;
+	    current_node->nod$l_fldsiz = 16;
+	    end;
+	return;
+
+
+action(SETHWADR): /************************************************************/
+/*
+ * Set the HARDWARE_ADDRESS datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_hardware_address;
+        current_node->nod$v_signed = true;
+	if sdl$v_alpha_opt then 
+	    current_node->nod$l_fldsiz = 8;
+	else 
+	    current_node->nod$l_fldsiz = 4;
+	return;
+
+
+action(SETIB): /*************************************************************/
+/*
+ * Set the INTEGER_BYTE datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_integer_byte;
+	current_node->nod$l_fldsiz = 1;
+
+	if ^item_signed_opt & ^item_unsigned_opt then
+	    do;
+	    current_node->nod$v_signed = true; /* the default EV1-12 */
+	    current_node->nod$v_unsigned = false;
+	    end;
+	return;
+ 
+action(SETIDENT): /***********************************************************/
+/*
+ * Set the module IDENT string
+ */
+	current_node->nod$t_naked = token_value;
+	return;
+
+
+action(SETIN): /**************************************************************/
+/*
+ * Sets the input attribute for parameters.  Checks for duplicates
+ * since the parser does not do this
+ */
+	if current_node->nod$v_in then
+		call att_error();
+	else
+		current_node->nod$v_in = true;
+	return;
+
+
+action(SETINCR): /************************************************************/
+/*
+ * Set a flag for the INCREMENT option in a constant declaration
+ * and save its value for later use
+ */
+	if increment_opt then
+	    call semerr(sdl$_dupconatt,src_line,'CONSTANT');
+
+	increment_opt = true;
+	call check_expression; /* must eval to a constant! */
+	const_increment = pop_expr_stack();
+	return;
+
+action(SETINT): /*************************************************************/
+/*
+ * Set the INTEGER datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_integer;
+	current_node->nod$l_fldsiz = 4;
+
+	if ^item_signed_opt & ^item_unsigned_opt then
+	    do;
+	    current_node->nod$v_signed = true; /* the default EV1-12 */
+	    current_node->nod$v_unsigned = false;
+	    end;
+	return;
+
+
+action(SETIW): /*************************************************************/
+/*
+ * Set the INTEGER_WORD datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_integer_word;
+	current_node->nod$l_fldsiz = 2;
+
+	if ^item_signed_opt & ^item_unsigned_opt then
+	    do;
+	    current_node->nod$v_signed = true; /* the default EV1-12 */
+	    current_node->nod$v_unsigned = false;
+	    end;
+	return;
+
+action(SETIL): /*************************************************************/
+/*
+ * Set the INTEGER_LONG datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_integer_long;
+	current_node->nod$l_fldsiz = 4;
+
+	if ^item_signed_opt & ^item_unsigned_opt then
+	    do;
+	    current_node->nod$v_signed = true; /* the default EV1-12 */
+	    current_node->nod$v_unsigned = false;
+	    end;
+	return;
+
+action(SETIQ): /*************************************************************/
+/*
+ * Set the INTEGER_QUAD datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_integer_quad;
+	current_node->nod$l_fldsiz = 8;
+
+	if ^item_signed_opt & ^item_unsigned_opt then
+	    do;
+	    current_node->nod$v_signed = true; /* the default EV1-12 */
+	    current_node->nod$v_unsigned = false;
+	    end;
+	return;
+
+action(SETIH): /************************************************************/
+
+	current_node->nod$w_datatype = typ$k_integer_hw;
+	if sdl$v_alpha_opt then
+	    current_node->nod$l_fldsiz = 8;
+	else
+	    current_node->nod$l_fldsiz = 4;
+
+	if ^item_signed_opt & ^item_unsigned_opt then
+	    do;
+	    current_node->nod$v_signed = true; /* the default EV1-12 */
+	    current_node->nod$v_unsigned = false;
+	    end;
+	return;
+
+action(SETHWINT): /************************************************************/
+
+	current_node->nod$w_datatype = typ$k_hardware_integer;
+	if sdl$v_alpha_opt then
+	    current_node->nod$l_fldsiz = 8;
+	else
+	    current_node->nod$l_fldsiz = 4;
+
+	if ^item_signed_opt & ^item_unsigned_opt then
+	    do;
+	    current_node->nod$v_signed = true; /* the default EV1-12 */
+	    current_node->nod$v_unsigned = false;
+	    end;
+	return;
+ 
+action(SETLENGTH): /**********************************************************/
+/*
+ * Set the length of a character or bitfield type item
+ */
+	/*
+	 * Indicate that LENGTH was specified in case this is a parameter
+	 */
+	length_specified_for_parameter = true;
+
+	if current_node->nod$v_length | current_node->nod$l_typeinfo ^= 0 | zero_length then
+	    call att_error();
+
+	if expr_flag then 
+	    do; /* LENGTH is an offset expression which cannot be evaluated yet */
+	    current_node->nod$a_typeinfo = expr_list;
+	    current_node->nod$v_length = true;
+	    expr_flag = false;
+	    return;
+	    end;
+
+	current_node->nod$l_typeinfo = pop_expr_stack();
+
+	if current_node->nod$l_typeinfo = 0 then
+	    zero_length = true;
+	else 
+	if current_node->nod$l_typeinfo<0 then 
+	    call semerr(sdl$_zerolen,src_line,(current_node->nod$t_naked));
+
+	return;
+
+
+action(SETLINENO_CHECKLIST): /**********************************************************/
+/*
+ * Set the line number of the current node 
+ */
+	current_node->nod$l_srcline = token_lineno;
+/*
+ * Now that we are done with the entry declaration check to see if the LIST
+ * attribute was specified. If it was, make sure it was on the last parameter
+ * and make sure it did not appear on multiple parameters. Also, reset the
+ * LIST_opt_cnt counter.
+ */
+	if LIST_opt_cnt > 0 then /* if LIST has been specified */
+	    if current_node->nod$a_child ^= null() then /* make sure it has parameters */
+		if ^current_node->nod$a_child->nod$a_blink->nod$v_list | LIST_opt_cnt > 1 then 
+		    call semerr(sdl$_invlistopt,src_line,(current_node->nod$t_naked));
+
+	LIST_opt_cnt = 0; /* reset the counter */
+	return;
+ 
+action(SETLINK): /***********************************************************/
+/*
+ * Set the linkage name, using the prefix name field since not used for entries.
+ */
+	if current_node->nod$v_link then
+		call att_error();
+	else do;
+		current_node->nod$v_link = true;
+		current_node->nod$t_prefix = token_value;
+		end;
+	return;
+
+
+action(SETLIST): /***********************************************************/
+/*
+ * Set the LIST attribute flag
+ */
+
+	if current_node->nod$v_list | current_node->nod$v_default then
+	    do;
+	    call att_error();
+	    return;
+	    end;
+
+	if LIST_opt_cnt = 0 then /* can only have LIST on one parameter; the last one */
+	    current_node->nod$v_list = true;
+
+	/* keep track of how many parameters LIST appears on */
+	LIST_opt_cnt = LIST_opt_cnt + 1; 
+	
+	return;
+
+
+action(SETLODIM): /***********************************************************/
+/*
+ * Set the lower boundary of a dimension
+ */
+	if expr_flag then 
+	    do;
+	    current_node->nod$v_lodim = true;
+	    current_node->nod$a_lodim = expr_list;
+	    expr_flag = false;
+	    end;
+	else 
+	    do;
+	    current_node->nod$v_lodim = false;
+	    current_node->nod$l_lodim = pop_expr_stack();
+	    end;
+
+	return;
+ 
+action(SETLONG): /************************************************************/
+
+	current_node->nod$w_datatype = typ$k_longword;
+	current_node->nod$l_fldsiz = 4;
+
+	if ^item_signed_opt & ^item_unsigned_opt then
+	    do;
+	    current_node->nod$v_signed = true; /* the default EV1-12 */
+	    current_node->nod$v_unsigned = false;
+	    end;
+	return;
+
+
+action(SETMARK): /**********************************************************/
+/*
+ * Set the marker option for an item.
+ */
+	if item_marker_opt then
+	    call att_error();
+	else 
+	    do;
+	    item_marker_opt = true;
+	    current_node->nod$t_marker = token_value;
+	    end;
+	return;
+
+
+action(SETMASK): /************************************************************/
+/*
+ * Set the mask attribute for a bitfield item.  check for duplicates
+ */
+	if current_node->nod$v_mask then
+		call att_error();
+	else 
+		current_node->nod$v_mask = true;
+	return;
+
+action(SETNAMCOM): /**********************************************************/
+/*
+ * Makes a comment list node and links it into a list of comments
+ * associated with a constant name, in the constant name list
+ */
+	allocate based_string set(p);
+	p->based_string = token_value;
+	allocate comment_list_node set(q);
+	q->comment_list_node.comment = p;
+	q->comment_list_node.lineno = token_lineno;
+	if last_comment = null() then
+	    name_list_head.blink->name_list_node.comment = q;
+	else
+	    last_comment->comment_list_node.flink = q;
+	q->comment_list_node.flink = null();
+	last_comment = q;
+	return;
+
+
+action(SETOCTA): /************************************************************/
+
+	current_node->nod$w_datatype = typ$k_octaword;
+	current_node->nod$l_fldsiz = 16;
+
+	if ^item_signed_opt & ^item_unsigned_opt then
+	    do;
+	    current_node->nod$v_signed = true; /* the default EV1-12 */
+	    current_node->nod$v_unsigned = false;
+	    end;
+	return;
+
+
+action(SETOPTIONAL): /***********************************************************/
+/*
+ * Set the optional attribute.  Check for duplicate or conflicting attributes.
+ */
+	if current_node->nod$v_default | current_node->nod$v_optional then
+	    call att_error();
+	else 
+	    current_node->nod$v_optional = true;
+	return;
+
+
+action(SETORIGIN): /**********************************************************/
+/*
+ * Save the name of the field specified as the origin of a level 1 aggregate
+ */
+	origin_name = token_value;
+	return;
+
+action(SETOUT): /*************************************************************/
+/*
+ * Set the OUTPUT attribute for a parameter.  If already specified
+ * or a value parameter, output an error
+ */
+	if current_node->nod$v_out | current_node->nod$v_value then
+		call att_error();
+	else
+		current_node->nod$v_out = true;
+	return;
+
+
+action(SETPARM): /************************************************************/
+/*
+ * Flag the parameter option for an entry node, and go start a list of
+ * child nodes for the parameters
+ * The parameter count (parmcnt) is used to make parameter names
+ */
+	if parm_opt then
+		call att_error();
+	else do;
+		parm_opt = true;
+		parmcnt = 0;
+		goto action(makechild);
+		end;
+	return;
+
+action(SETPH): /************************************************************/
+/*
+ * Set the POINTER_HW datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_pointer_hw;
+	if sdl$v_alpha_opt then 
+	    current_node->nod$l_fldsiz = 8;
+	else 
+	    current_node->nod$l_fldsiz = 4;
+
+        current_node->nod$v_signed = true;
+	return;
+
+action(SETPL): /************************************************************/
+/*
+ * Set the POINTER_LONG datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_pointer_long;
+	current_node->nod$l_fldsiz = 4;
+
+        current_node->nod$v_signed = true;
+	return;
+
+action(SETPS): /************************************************************/
+/*
+ * Set the POINTER (software) datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_pointer;
+	current_node->nod$l_fldsiz = 4;
+
+        current_node->nod$v_signed = true;
+	return;
+
+action(SETPQ): /************************************************************/
+/*
+ * Set the POINTER_QUAD datatype for an item.  Assign the field byte size.  Field bits are 0,
+ * since this is an integrally byte-sized datatype.
+ */
+	current_node->nod$w_datatype = typ$k_pointer_quad;
+	current_node->nod$l_fldsiz = 8;
+
+        current_node->nod$v_signed = true;
+	return;
+ 
+action(SETPNAME): /***********************************************************/
+/*
+ * set a parameter name.  check for duplicates
+ */
+	if current_node->nod$t_name ^= '' then
+		call att_error();
+	else
+		current_node->nod$t_name = token_value;
+	return;
+
+
+action(SETPREC): /************************************************************/
+/*
+ * Set the precision for a DECIMAL item.  If leq 0, its an error
+ */
+	call check_expression; /* must eval to a constant! */
+	current_node->nod$l_typeinfo = pop_expr_stack();
+	if current_node->nod$l_typeinfo <=  0 then
+	    call semerr(sdl$_zerolen,src_line,(current_node->nod$t_naked));
+	return;
+
+
+action(SETPREFIX): /**********************************************************/
+/*
+ * Set the prefix option for an item.
+ */
+	if item_prefix_opt then
+		call att_error();
+	else do;
+	    item_prefix_opt = true;
+	    current_node->nod$t_prefix = token_value;
+	    end;
+	return;
+
+
+action(SETQUAD): /************************************************************/
+
+	current_node->nod$w_datatype = typ$k_quadword;
+	current_node->nod$l_fldsiz = 8;
+
+	if ^item_signed_opt & ^item_unsigned_opt then
+	    do;
+	    current_node->nod$v_signed = true; /* the default EV1-12 */
+	    current_node->nod$v_unsigned = false;
+	    end;
+	return;
+
+action(SETREF): /**********************************************************/
+/*
+ * Set the REF option for a parameter.  Check for the usual duplicate
+ * or conflicting attributes
+ */
+	if (current_node->nod$l_flags & (nod$m_value|nod$m_desc|nod$m_ref|nod$m_rtl_str_desc)) ^= '0'b then
+	    call att_error();
+	else
+	    current_node->nod$v_ref = true;
+	return;
+
+
+action(SETRETNAME): /*********************************************************/
+/*
+ * Set the NAMED return item for an ENTRY node
+ */
+	current_node->nod$t_return_name = token_value;
+	return;
+
+
+action(SETRETURN): /**********************************************************/
+/*
+ * Set the RETURN option for an ENTRY node
+ */
+	if return_opt & current_node->nod$w_datatype ^= 0 then
+		call att_error();
+	else 
+		return_opt = true;
+
+	string(item_options) = false;	/* EV1-13 */
+	return;
+
+
+action(SETRTLSTRDESC): /******************************************************/
+/*
+ * Set the RTL_STR_DESC flag for the parameter
+ */
+	if ((current_node->nod$l_flags & 
+		(nod$m_value|nod$m_desc|nod$m_ref|nod$m_rtl_str_desc|nod$m_varying|nod$m_dimen)) ^= '0'b) |
+	   (current_node->nod$w_datatype ^= typ$k_char) then
+		call att_error();
+	else do;
+		current_node->nod$v_rtl_str_desc = true;
+		if ^length_specified_for_parameter then
+		    current_node->nod$l_typeinfo = sdl$k_unknown_length;
+		end;
+    
+	return;
+ 
+action(SETSCALE): /***********************************************************/
+/*
+ * Set the scale for a DECIMAL item.  A value > the precision or <= 0 is
+ * an error.
+ */
+	call check_expression; /* must eval to a constant! */
+	current_node->nod$l_typeinfo2 = pop_expr_stack();
+	if current_node->nod$l_typeinfo2<0 |
+	   current_node->nod$l_typeinfo2 > current_node->nod$l_typeinfo then
+	    call semerr(sdl$_zerolen,src_line,(current_node->nod$t_naked));
+	return;
+
+
+action(SETSIGNED): /**********************************************************/
+/*
+ * Set the signed attribute for bits
+ */
+
+	if item_signed_opt | item_unsigned_opt then
+	    call att_error();
+	else 
+	    do;
+	    item_signed_opt = true;
+	    current_node->nod$v_signed = true;
+	    current_node->nod$v_unsigned = false;
+	    end;
+
+	return;
+ 
+action(SETSIZEOF): /**********************************************************/
+/*
+ * Make a type node to record SIZEOF data type.  Set name to saved_name.  
+ * Push the current node on the parent stack and make the type node the current node.
+ */
+	/* Restriction: must not be an aggregate name */
+	if lookup(aggr_sym,saved_name) >= 0 then 
+	    call semerr(sdl$_sizequal,token_locator,(saved_name));
+
+	p = alloc_node(nod$k_typnode);
+	p->nod$a_flink  = p;
+	p->nod$a_blink  = p;
+	p->nod$a_parent = current_node;
+	p->nod$t_naked  = saved_name;
+	p->nod$l_srcline= token_lineno;
+
+	call push_parent(current_node);
+	current_node = p;
+	return;
+
+action(SETSIZEXPR): /*********************************************************/
+/*
+ * A user type has been defined as SIZEOF (expression).
+ * Since all we know about the object is its size in bytes, 
+ * it is given the character data type for want of anything better.
+ */
+	current_node->nod$w_datatype = typ$k_char;
+
+	if expr_flag then 
+	    do; /* LENGTH is an offset expression which cannot be evaluated yet */
+	    current_node->nod$a_typeinfo = expr_list;
+	    current_node->nod$v_length = true;
+	    expr_flag = false;
+	    return;
+	    end;
+
+	current_node->nod$l_typeinfo = pop_expr_stack();
+	if current_node->nod$l_typeinfo >= 0 then 
+	    current_node->nod$l_fldsiz = current_node->nod$l_typeinfo;
+	else 
+	    call semerr(sdl$_zerolen,src_line,(current_node->nod$t_naked));
+	return;
+
+action(SETSTRUC): /***********************************************************/
+/*
+ * Set the STRUCTURE datatype.  Reset the bit offset at the beginning of
+ * a new aggregate.
+ */
+	current_node->nod$w_datatype = typ$k_structure;
+	return;
+
+
+action(SETTAG): /*************************************************************/
+/*
+ * Set the tag for a node.  If already given, output an error
+ */
+	if item_tag_opt then
+		call att_error();
+	else do;
+		item_tag_opt = true;
+		current_node->nod$t_tag = token_value;
+		end;
+	return;
+ 
+action(SETTYPEDEF): /**********************************************************/
+/*
+ * JG
+ * Set the TYPEDEF attribute.  Clear the default based attribute unless
+ * it was explicitly stated in a BASED ptr-name option.  Check for conflicting
+ * or duplicate attributes.  Unless item is an aggregate, make user symbol
+ * table entry if not already existing.  An existing item entry is checked to
+ * ensure that it has the same size and type.  If not, a size/type
+ * redefinition error is given.  On a redefinition, the entry is updated, and
+ * if a forward reference is indicated, the FORWARD flag is set in the item
+ * node,  so that the back ends can distinguish a forward reference where
+ * necessary.
+ *
+ * Aggregates are not checked here (as the size is not yet known), but at
+ * AGGEND, and then only for size.  
+ */
+	p = current_node;
+
+	if ^p->nod$v_bound then
+	    p->nod$v_based = false;
+
+	if (p->nod$l_flags & (nod$m_common|nod$m_global|nod$m_based|nod$m_typedef)) ^= '0'b then
+	    do;
+	    call att_error();
+	    return;
+	    end;
+
+	p->nod$v_typedef = true;
+
+	i = lookup(user_sym,p->nod$t_naked);
+	if i < 0 then 
+	    do;
+	    if (p->nod$w_datatype = typ$k_structure | 
+	       p->nod$w_datatype = typ$k_union) &
+	       p->nod$l_typeinfo2 = 0 then
+		return;
+	    i = enter_symbol(user_sym,p->nod$t_naked,p->nod$l_fldsiz);
+	    user_sym.link(i) = p->nod$a_blink;
+	    return;
+	    end;
+
+	/* If a forward reference is indicated, set the FORWARD flag */
+	if user_sym.fwd_ref_flag(i) then
+	    p->nod$v_forward = true;
+
+	/*
+	 * Set the pointer in user_sym to the current node, even if the
+	 * item has been previously declared.  This is to end forward
+	 * reference marking.
+	 */
+	q = user_sym.link(i)->nod$a_flink;
+	user_sym.link(i) = p->nod$a_blink;
+
+	if p->nod$w_datatype = typ$k_structure | 
+	   p->nod$w_datatype = typ$k_union then 
+	    return;
+
+	/* Check sizes are the same */
+	if user_sym.value(i) ^= p->nod$l_fldsiz then 
+	    do;
+	    call semerr(sdl$_sizeredef,src_line,(p->nod$t_naked));
+	    return;
+	    end;
+
+	/* Check base types */
+	do while(p->nod$w_datatype = typ$k_user);
+	    p = p->nod$a_typeinfo2->nod$a_flink;
+	end;
+	do while (q->nod$w_datatype = typ$k_user);
+	    q = q->nod$a_typeinfo2->nod$a_flink;
+	end;
+	if p->nod$w_datatype ^= q->nod$w_datatype then
+	    call semerr(sdl$_sizeredef,src_line,(current_node->nod$t_naked));
+
+	return;
+ 
+action(SETTYPNAME): /**********************************************************/
+
+/* put the typename in the current node */
+
+	current_node->nod$t_typename = token_value;
+	return;
+
+
+action(SETUNION): /***********************************************************/
+/*
+ * Set the UNION datatype.  The beginning of a new aggregate resets
+ * the bit offset.  Set the align flag to true, assuming that bit filler
+ * will be needed.  As soon as an integrally byte-sized field is declared
+ * that is large enough to "cover" any bit fields, it will be cleared
+ */
+	current_node->nod$w_datatype = typ$k_union;
+	return;
+
+
+action(SETUNKLENGTH): /*******************************************************/
+/*
+ * Set "unknown" LENGTH for a CHARACTER item.
+ */
+	if current_node->nod$v_length | current_node->nod$l_typeinfo ^= 0 | zero_length then
+	    call att_error();
+	else
+	    if current_node->nod$b_type ^= nod$k_parmnode then
+		call semerr(sdl$_invunklen,src_line,);
+	    else
+		current_node->nod$l_typeinfo = sdl$k_unknown_length;
+
+/*
+ * Indicate that LENGTH was specified in case this is a parameter
+ */
+	length_specified_for_parameter = true;
+	return;
+
+
+action(SETUNSIGN): /**********************************************************/
+/*
+ * Set the unsigned attribute for integers
+ */
+	if item_signed_opt | item_unsigned_opt then
+	    call att_error();
+	else 
+	    do;
+	    item_unsigned_opt = true;
+	    current_node->nod$v_unsigned = true;
+	    current_node->nod$v_signed = false;
+	    end;
+	return;
+ 
+action(SETUSER): /********************************************************/
+/*
+ * Set the USER datatype for an item.
+ *
+ * This is a reference to a user_type that should have been defined, either
+ * previously, or in an immediately preceding SIZEOF clause.
+ * Look it up in user_sym.  If not found there, try aggr_sym.  If still not
+ * found, give an undefined symbol error.
+ *
+ * Set TYPEINFO2 to point to the TYPNODE reference node.  
+ *
+ * If the reference node has the DECLARED flag set, this is a forward
+ * reference.  Set the forward reference flag in the symbol table entry.
+ */
+
+	i = lookup(user_sym,saved_name);
+	if i >= 0 & (user_sym(i).link ^= NULL)then 
+	    do;
+	    p = user_sym.link(i)->nod$a_flink;
+	    current_node->nod$w_datatype    = typ$k_user;
+	    current_node->nod$a_typeinfo2   = user_sym.link(i);
+	    current_node->nod$v_signed	    = p->nod$v_signed; /* EV1-14 */
+	    current_node->nod$v_unsigned    = p->nod$v_unsigned; /* EV1-14 */
+	    current_node->nod$l_fldsiz	    = user_sym.value(i); /* EV1-14 */
+	    if p->nod$v_declared then
+		user_sym.fwd_ref_flag(i) = true;
+	    if user_sym.value(i) = 0 & 
+	       p->nod$v_declared then 
+		do;
+		if current_node->nod$b_type ^= nod$k_objnode then 
+		    call semerr(sdl$_invdecl,src_line,(saved_name));
+		end;
+	    else if user_sym.value(i) = 0 then 
+	        do;
+		if current_node->nod$b_type ^= nod$k_objnode then 
+		    call semerr(sdl$_undefuser,src_line,(saved_name));
+		end;
+	    return;
+	    end;
+
+	i = lookup(aggr_sym,saved_name);
+	if i >= 0 & (aggr_sym.link(i) ^= NULL) then
+	    do;
+	    p = aggr_sym.link(i);
+	    /* Check for invalid recursive use of aggregate name */
+	    if p->nod$l_fldsiz = 0 then /* not yet defined */
+		if current_node->nod$b_type ^= nod$k_objnode then 
+		    call semerr(sdl$_incdefstruc,src_line,(saved_name));
+	    if aggr_sym.value(i) = 0 then 
+	        aggr_sym.value(i) = p->nod$l_fldsiz;
+	    current_node->nod$w_datatype    = p->nod$w_datatype;
+	    current_node->nod$a_typeinfo2   = p;
+	    current_node->nod$l_fldsiz	    = aggr_sym.value(i);
+	    return;
+	    end;
+
+	/* Declare name by default */
+	p = alloc_node(nod$k_typnode);
+	p->nod$a_flink  = p;
+	p->nod$a_blink  = p;
+	p->nod$a_parent = current_node;
+	p->nod$t_name   = saved_name;
+	p->nod$t_naked  = saved_name;
+	p->nod$l_srcline= token_lineno;
+	p->nod$v_typedef  = true;
+	p->nod$v_declared = true;
+	/* Note: no datatype or size information */
+
+	/* set type of OBJECT */
+	current_node->nod$w_datatype    = typ$k_user;
+	current_node->nod$a_typeinfo2   = p;
+	if current_node->nod$b_type ^= nod$k_objnode then 
+	    call semerr(sdl$_undefuser,src_line,(saved_name));
+
+/*	/* add new entry to table */
+/*	i = enter_symbol(user_sym,saved_name,0);
+/*	user_sym.link(i) = p;
+/*	user_sym.fwd_ref_flag(i) = true;
+*/
+	return;
+ 
+action(SETVALOPT): /**********************************************************/
+/*
+ * Set the VALUE option for a parameter.  Check for the usual duplicate
+ * or conflicting attributes
+ */
+	if (current_node->nod$l_flags & (nod$m_value|nod$m_desc|nod$m_ref|nod$m_out|nod$m_rtl_str_desc)) ^= '0'b | 
+	   current_node->nod$w_datatype = typ$k_structure |
+	   current_node->nod$w_datatype = typ$k_union then
+		call att_error();
+	else
+		current_node->nod$v_value = true;
+	return;
+
+action(SETVARDIM): /***********************************************************/
+/*
+ * Set the dimension attribute.  Check for duplicate or conflicting attributes
+ * Set variable dimension flag.
+ */
+	if current_node->nod$v_dimen | current_node->nod$v_value |
+	   current_node->nod$w_datatype = typ$k_any then
+	    call att_error();
+	else 
+	    do;
+	    current_node->nod$v_dimen = true;
+	    current_node->nod$v_vardim = true;
+	    current_node->nod$v_hidim = false;
+	    current_node->nod$v_lodim = false;
+	    current_node->nod$l_hidim = 0;
+	    current_node->nod$l_lodim = 0;
+	    end;
+
+	return;
+
+action(SETVAROPT): /**********************************************************/
+/*
+ * Set the VARIABLE option for an ENTRY node
+ */
+	if current_node->nod$v_variable then
+		call att_error();
+	else
+		current_node->nod$v_variable = true;
+	return;
+ 
+action(SETVIELD): /***********************************************************/
+/*
+ * Set the BITFIELD datatype.  
+ * If this is an ITEM or the OBJECT of a pointer, then it's invalid.  
+ */
+	p = current_node;
+	p->nod$w_datatype = typ$k_vield;
+
+	if top_parent$ = null() | 
+	   p->nod$b_type = nod$k_objnode | p->nod$b_type = nod$k_parmnode then
+	    do;
+	    call semerr(sdl$_invbitfld,src_line,(p->nod$t_naked));
+	    return;
+	    end;
+/*
+ * 0 length means default to 1, unless explicitly specified
+ * (in which case it will be an error)
+ */
+	if p->nod$l_typeinfo = 0 & ^zero_length & ^p->nod$v_length then
+	    p->nod$l_typeinfo = 1;
+	zero_length = false;
+
+	if ^p->nod$v_mask | p->nod$t_naked = '' then 
+	    return;
+
+	/* Create a CONSTANT for the bit mask [fill in value later in eval_mask] */
+
+	q = alloc_node(nod$k_constnode);
+	q->nod$a_parent = parent$;
+	q->nod$a_child = null();
+	q->nod$l_flags = '0'b;
+	q->nod$l_srcline = token_lineno;
+
+	/*
+	 * build name, prefix and tag
+	 */
+	q->nod$t_naked  = p->nod$t_naked;
+	q->nod$t_name   = p->nod$t_naked;
+	q->nod$t_prefix = p->nod$t_prefix;
+	if substr(p->nod$t_naked,1,1) < 'a' then
+	    q->nod$t_tag = tag$t_mask(upper);
+	else
+	    q->nod$t_tag = tag$t_mask(lower);
+	item_prefix_opt = true;
+	item_tag_opt = true;
+	call set_name(q);
+	item_tag_opt = false;
+	item_prefix_opt = false;
+
+	/*
+	 * insert this node just before the top parent and
+	 * enter this name and its value in the constant symbol tab
+	 */
+	call insque(q,top_parent$->nod$a_blink);
+	q->nod$a_typeinfo2 = p;  /* for EVAL_MASK */
+
+	i = lookup(const_sym,q->nod$t_name);
+	if i < 0 then 
+	    i = enter_symbol(const_sym,q->nod$t_name,0);
+	else 
+	if const_sym(i).expr_flag then 
+	    call free_expr_list(const_sym(i).expr_list);
+	const_sym(i).value = 0;
+	const_sym(i).expr_list = make_expr_node(bitmask_val,0,i,q);
+	const_sym(i).expr_flag = true;  /* value not set yet */
+	const_sym(i).str_const_flag = false;
+
+	/*
+	 * put it on list for eval at end of containing aggregate 
+	 */
+	q1 = make_expr_node(0,0,i,q);
+	q1->exp$a_next = constant_expr_list;
+	constant_expr_list = q1;	
+
+	return;
+ 
+action(SETVOID): /************************************************************/
+/*
+ * Set the VOID [return] datatype for an item.  Field byte size and field bits are 0.
+ */
+	current_node->nod$w_datatype = typ$k_void;
+	current_node->nod$l_fldsiz = 0;
+	return;
+
+action(SETWORD): /************************************************************/
+
+	current_node->nod$w_datatype = typ$k_word;
+	current_node->nod$l_fldsiz = 2;
+
+	if ^item_signed_opt & ^item_unsigned_opt then
+	    do;
+	    current_node->nod$v_signed = true; /* the default EV1-12 */
+	    current_node->nod$v_unsigned = false;
+	    end;
+	return;
+ 
+action(SHIFTERMS): /**********************************************************/
+/*
+ * Pop 2 values off the expression stack, shift them and push the result
+ */
+	if expr_flag then
+	    call push_expr_op(shift_op);
+	else
+	    do;
+	    expr_value = pop_expr_stack();
+	    b64 = '0'b;
+	    if abs(expr_value) > 32 then
+		call semerr(sdl$_intovf,src_line,);
+	    else
+		substr(b64,expr_value+33) = unspec(expr_stack_top);
+	    unspec(expr_stack_top) = substr(b64,33);
+	    end;
+	return;
+ 
+action(STARTCOND): /*********************************************************/
+/*
+ * Make a conditional statement node and link it in.  Push this node, and
+ * make a head node for the language list.  Link the head node to typeinfo2
+ * of the conditional node
+ */
+	p = alloc_node(nod$k_condnode);
+	p->nod$a_parent = parent$;
+	p->nod$l_typeinfo = 0;
+	p->nod$l_srcline = token_lineno;
+	call insque(p,current_node);
+	current_node = p;
+	string(item_options) = false;
+	call push_parent(current_node);
+
+	p = alloc_head_node(current_node);
+	current_node->nod$a_typeinfo2 = p;
+	current_node = p;
+	return;
+
+action(STARTCONST): /*********************************************************/
+/*
+ * initialize the name list and constant options at the beginning of
+ * a CONSTANT declaration
+ */
+	string(const_options) = false;
+	name_list_head.flink = addr(name_list_head);
+	name_list_head.blink = addr(name_list_head);
+	call make_dummy;
+	return;
+
+/*-------------------------------------------*/
+make_dummy:
+	procedure;
+
+declare p ptr;
+
+	if top_parent$ ^= null() then 
+	    do;
+	    /* Insert a dummy node to hold offset information for DOT, COLON, etc. operators. */
+	    p = alloc_node(nod$k_dummynode);
+	    p->nod$a_parent = parent$;
+	    p->nod$l_srcline = token_lineno;
+	    call insque(p,current_node);
+	    current_node = p;
+	    end;
+
+	end make_dummy;
+
+/*-------------------------------------------*/
+free_dummy:
+	procedure;
+
+declare p ptr;
+
+	p = current_node;
+
+	if p->nod$b_type = nod$k_dummynode then 
+	    do;
+	    current_node = p->nod$a_blink;
+	    call remque(p,p);
+	    free p->nod$_node;
+	    end;
+
+	end free_dummy;
+
+/*-------------------------------------------*/
+ 
+action(STARTLIT): /*********************************************************/
+/*
+ * Set the literal active flag
+ */
+	sdl$v_literal_active = true;
+	return;
+
+action(SUBTERMS): /***********************************************************/
+/*
+ * Pop the top 2 values from the expression stack, subtract them, and
+ * push the result
+ */
+	if expr_flag then
+	    call push_expr_op(sub_op);
+	else
+	    do;
+	    expr_value = pop_expr_stack();
+	    expr_stack_top = expr_stack_top - expr_value;
+	    end;
+	return;
+ 
+action(SYNERROR): /**********************************************************/
+/*
+ * syntax error action
+ */
+	 /* call semerr(sdl$_syntaxerr,src_line,); */
+	errorcount = errorcount+1;
+	return;
+
+/*--------------------------------------------------------------------------*/
+push_expr_op:
+	procedure(op);
+	dcl op fixed bin(15);
+	call push_expr_node(op_val,op,0,null());
+	end;
+/*--------------------------------------------------------------------------*/
+lookup:
+	procedure(symtable,symbolname)	returns(fixed bin(31));
+	dcl symbolname char(34) var;
+
+	dcl 1 symtable(0:max_symtable),
+		2 value fixed bin(31),
+		2 expr_list pointer,
+		2 name char(32) var,
+		2 flags,
+		    3 expr_flag bit,
+		    3 str_const_flag bit,
+		    3 fwd_ref_flag bit;
+
+	dcl (i,j) fixed bin(31);
+	i = hashf(symbolname,max_symtable);
+	do j = i to max_symtable while (symtable.name(j) ^= 
+		symbolname);
+		if symtable.name(j) = '' then
+			return(-1);
+		end;
+	return(j);
+end lookup;
+
+/*--------------------------------------------------------------------------*/
+copy_expr:
+	procedure(expr_head)	recursive	returns(pointer);
+
+	dcl expr_head pointer;
+	dcl (expr,last,p,q) pointer;
+
+	expr = null();
+	do p = expr_head  repeat p->exp$a_next   while( p ^= null() );
+	    allocate exp$node set(q);
+	    q->exp$node = p->exp$node;
+	    if p->exp$w_kind = expr_val then 
+		q->exp$a_expr_list = copy_expr(p->exp$a_expr_list);
+	    if expr = null() then 
+		expr = q;
+	    else 
+		last->exp$a_next = q;
+	    last = q;
+	end;
+	return(expr);
+
+	end copy_expr;
+
+/*--------------------------------------------------------------------------*/
+free_expr_list:
+	procedure(expr_head)	recursive;
+
+	dcl expr_head pointer;
+	dcl (p,q) pointer;
+
+	do p = expr_head  repeat q   while( p ^= null() );
+	    if p->exp$w_kind = expr_val then 
+		call free_expr_list(p->exp$a_expr_list);
+	    q = p->exp$a_next;
+	    free p->exp$node;
+	end;
+	expr_head = null();
+
+	end free_expr_list;
+
+
+/*--------------------------------------------------------------------------*/
+eval_loc_expr:
+	procedure(expr_head)    returns(fixed bin(31)) recursive;
+
+	dcl (expr_head, exp) pointer;
+	dcl b64 bit(64) aligned;
+
+	%replace max_expr_stack by 100;
+	dcl estack(0:max_expr_stack) fixed bin(31); /* EV1-15 */
+	dcl eindex fixed bin(31);
+	dcl term_value fixed bin(31);
+	dcl i fixed bin(15);
+	dcl (p,q) pointer;
+ 
+	exp = expr_head;
+
+	/* evaluate expression */
+	eindex = 0;
+	/*-------------------------------------------------------------------*/
+	do while(exp ^= null());
+
+	    goto eval_term(exp->exp$w_kind);
+
+	    eval_term(integer_val):	/* integer constant */
+		term_value = exp->exp$l_value;
+		goto push_term;
+
+	    eval_term(origin_val):	/* origin relative byte offset value */
+		if origin_name ^= '' then 
+		    call semerr(sdl$_offsetexpr,current_node->nod$l_srcline,(current_node->nod$t_name));
+		term_value = eval_offset(exp->exp$a_ref_node) + top_parent$->nod$l_typeinfo;
+		goto push_term;
+
+	    eval_term(byteoff_val):	/* byte offset relative value */
+		term_value = eval_offset(exp->exp$a_ref_node);
+		goto push_term;
+
+	    eval_term(bitoff_val):	/* bit offset relative value */
+		term_value = eval_bit_offset(exp->exp$a_ref_node);
+		goto push_term;
+
+	    eval_term(constant_val):	/* value of constant symbol */
+		i = exp->exp$l_value;
+		if const_sym(i).expr_flag then 
+		    do;
+		    const_sym(i).value = eval_loc_expr(const_sym(i).expr_list) + const_sym(i).value;
+		    const_sym(i).expr_flag = false;
+		    end;
+		term_value = const_sym(i).value;
+		goto push_term;
+
+	    eval_term(expr_val):	/* subexpression value */
+		term_value = eval_loc_expr(exp->exp$a_expr_list);
+		goto push_term;
+
+	    eval_term(bitmask_val):	/* value of bitfield mask constant symbol */
+		term_value = eval_mask(exp->exp$a_ref_node);
+		goto push_term;
+
+	    eval_term(op_val):		/* opcode */
+		/* Pop value from stack */
+		term_value = estack(eindex);
+		if eindex > 0 then 
+		    eindex = eindex - 1;
+		goto perform(exp->exp$w_op);
+
+		perform(add_op):
+		    estack(eindex) = estack(eindex) + term_value;
+		    goto next_term;
+
+		perform(sub_op):
+		    estack(eindex) = estack(eindex) - term_value;
+		    goto next_term;
+
+		perform(mul_op):
+		    estack(eindex) = estack(eindex) * term_value;
+		    goto next_term;
+
+		perform(div_op):
+		    estack(eindex) = divide(estack(eindex), term_value, 31);
+		    goto next_term;
+
+		perform(and_op):
+		    unspec(estack(eindex)) = unspec(estack(eindex)) & unspec(term_value);
+		    goto next_term;
+
+		perform(or_op):
+		    unspec(estack(eindex)) = unspec(estack(eindex)) | unspec(term_value);
+		    goto next_term;
+
+		perform(shift_op):
+		    b64 = '0'b;
+		    if abs(term_value) > 32 then 
+			call semerr(sdl$_intovf,p->nod$l_srcline,);
+		    else
+			substr(b64,term_value+33) = unspec(estack(eindex));
+		    unspec(estack(eindex)) = substr(b64,33);
+		    goto next_term;
+
+		perform(minus_op):
+		    term_value = -term_value;
+		    goto push_term; /* put it back on stack */
+
+	/*-----------------------------*/
+	push_term:
+	    if eindex < hbound(estack,1) then 
+		eindex = eindex + 1;
+	    estack(eindex) = term_value;
+
+	next_term:
+	    p = exp->exp$a_next;
+	    free exp->exp$node;
+	    exp = p;
+
+	end; /* expr loop */
+	/*-------------------------------------------------------------------*/
+
+	return (estack(eindex));
+
+end eval_loc_expr;
+
+/*---------------------------------------------------*/
+eval_offset:
+    procedure(p)  returns( fixed bin(31) );
+
+dcl p pointer;
+
+	if ^p->nod$v_offset_fixed then 
+	    call semerr(sdl$_offsetexpr,current_node->nod$l_srcline,(current_node->nod$t_name));
+
+	if p->nod$w_datatype = typ$k_vield then 
+	    return( p->nod$l_offset + divide(p->nod$l_typeinfo2+7,8,31) );
+
+	return( p->nod$l_offset );
+
+    end eval_offset;
+/*---------------------------------------------------*/
+eval_bit_offset:
+    procedure(p)  returns( fixed bin(31) );
+
+dcl p pointer;
+
+	if ^p->nod$v_offset_fixed then 
+	    call semerr(sdl$_offsetexpr,current_node->nod$l_srcline,(current_node->nod$t_name));
+
+	if p->nod$w_datatype = typ$k_vield | p->nod$b_type = nod$k_dummynode then 
+	    return( p->nod$l_typeinfo2 );
+
+	return( (p->nod$l_offset - p->nod$a_parent->nod$l_offset)*8 );
+
+    end eval_bit_offset;
+
+/*---------------------------------------------------*/
+eval_mask:
+	procedure(this) returns(fixed bin(31));
+
+Declare this	ptr; /* CONSTANT node for the mask */
+
+Declare 
+	bit_offset  fixed bin(31),
+	field_bits  fixed bin(31),
+	b64	    bit(64) aligned,
+	value	    fixed bin(31),
+        (i,k)	    fixed bin(15),
+        hex_string  char(66) var;
+
+	/* this->nod$a_typeinfo2 points to the CONSTANT node for which this constant is a mask */
+
+	if this->nod$a_typeinfo2 = null() then 
+	    return(this->nod$l_typeinfo); /* already done.  just return value of mask constant */
+
+	bit_offset = this->nod$a_typeinfo2->nod$l_typeinfo2;
+	field_bits = this->nod$a_typeinfo2->nod$l_typeinfo;
+
+	if ^this->nod$a_typeinfo2->nod$v_offset_fixed then 
+	    call semerr(sdl$_offsetexpr,current_node->nod$l_srcline,(current_node->nod$t_name));
+
+	b64 = '0'b;
+	substr(b64,bit_offset+1,field_bits) = copy('1'b,field_bits);
+
+	hex_string = '';
+	if sdl$v_alpha_opt 
+	    then i = 61;
+	    else i = 29;
+	do while(i > 0);
+	    k = binary( substr(b64,i,4) );
+            if hex_string ^= '' | k ^= 0 then 
+		hex_string = hex_string || substr('084C2A6E195D3B7F',k+1,1);
+	    i = i - 4;
+	end;
+	if hex_string = '' then 
+	    hex_string = '0';
+
+	if bit_offset+field_bits <= 32 then
+	    unspec(value) = substr(b64,1,32);
+	else 
+	    value = 0;
+
+	/*
+	 * mark bit mask constants, so output languages can have the option
+	 * of outputting them in binary (necessary for PL/I)
+	 */
+	this->nod$v_mask = true;
+	this->nod$t_maskstr = hex_string;
+	this->nod$l_typeinfo = value;
+	this->nod$l_typeinfo2 = 0; /* mark as already done */
+	return(value);
+
+	end eval_mask;
+
+/*---------------------------------------------------*/
+do_implicit_union:
+	procedure;
+/*
+ *  Makes 5 nodes from the implicit union declaration : creates 1) a filler 
+ *  union node and links it to the previous node's flink pointer 2) a head node
+ *  that is linked to the union node via the child  pointer, 3) an item node of
+ *  the declared data type that is linked to the head node via the flink pointer,
+ *  4) A filler structure node linked in via the item nodes flink pointer and 
+ *  5) a head node linked to the structure nodes child pointer. 
+ *
+ *  The corresponding grammer reductions are as follows :
+ *
+ *  filler union:
+ *	    	   Act as if the current node were a filler union, i.e., as if the reductions
+ *			aggregate_clause	 = AGGREGATE 'fill_n'
+ *			aggregate_type		 = UNION
+ *		   had taken place.
+ *
+ *  Item node:
+ *	    	Act as if the reduction
+ *			member_name	 = <original structure name>
+ *		had taken place.
+ *
+ *
+ *  filler structure :
+ *	    	Act as if the reductions
+ *			member_name	 = 'fill_n'
+ *			aggregate_type	 = STRUCTURE
+ *			sub_agg_dcl	 = aggregate_type member_options ';'
+ *		had been done.
+ */
+dcl (p,p1,q) ptr;
+dcl item_tag	bit(1) aligned;
+dcl i fixed bin(31);
+dcl save_boundary fixed bin(7);
+
+	call set_boundary;
+
+	p = current_node;
+
+	/* Make a copy of the current node */
+	p1 = alloc_node(0);
+	p1->node_string = p->node_string;
+
+	/*
+	 * Change current node to be a fill union node 
+	 * and get rid of information not associated with an aggregate.
+	 */
+	p->nod$w_datatype = TYP$K_Union;
+	p->nod$b_boundary = max(p->nod$b_boundary,3);
+	p->nod$l_lodim    = 0;
+	p->nod$l_hidim    = 0;
+	p->nod$l_typeinfo = 0;
+
+	/* do the flags */
+	p->nod$v_mask = false;
+	p->nod$v_varying = false;
+	p->nod$v_userfill = true;   /* make it a userfill node */
+	p->nod$v_vardim = false;
+	p->nod$v_dimen  = false;
+	p->nod$v_signed = false;
+	p->nod$v_unsigned = false;
+	p->nod$v_fixed_fldsiz = true;	/* make it fixed field size */
+
+	if substr(p1->nod$t_naked,1,1) < 'a' then 
+	    p->nod$t_naked = 'FILL_';
+	else 
+	    p->nod$t_naked = 'fill_';
+	p->nod$t_naked = p->nod$t_naked || Trim(Fillcnt) || '_';
+	p->nod$t_name = p->nod$t_naked;
+	Fillcnt	 = Fillcnt + 1;
+
+	item_tag = item_tag_opt;
+	item_tag_opt = false;
+	call set_name(p);
+
+	/*
+	 * If a based aggregate (only level 1 will have a storage class flag)
+	 * enter current node in the aggregate symbol table
+	 */
+	if p->NOD$V_Based | p->nod$v_typedef then 
+	    do;
+	    i = enter_symbol(aggr_sym,p->NOD$T_Name,0);
+	    aggr_sym.link(i) = p;
+	    end;
+
+	/* Add this node to the parent stack */
+	call push_parent(p);
+
+	/* 
+	 * Create a head node and link it as a child of the current node
+	 */
+	current_node = alloc_head_node(p);
+	p->NOD$A_Child = current_node;
+	current_node->NOD$L_Srcline = token_lineno;
+
+
+/*
+  Create item node to match implicit type
+
+    Act as if the reduction
+	member_name	 = 'p1->NOD$T_Naked'
+	had taken place.
+*/
+
+	/*
+	 * Make a copy of the original item
+	 * and get rid of information not associated with a member
+	 */
+	p = alloc_node(0);
+	p->node_string = p1->node_string;
+
+	p->nod$a_parent	 = parent$;
+	p->nod$a_child	 = null();
+	p->nod$a_blink   = null();
+	p->nod$a_flink   = null();
+	p->nod$t_marker	 = '';
+	p->NOD$L_Fldsiz  = parent$->nod$l_fldsiz;   
+
+	/* do the flags */
+	p->nod$v_common = false;
+	p->nod$v_global = false;
+	p->nod$v_typedef = false;				/* jg */
+	p->nod$v_based	 = false;
+	p->nod$v_bound	 = false;
+	p->nod$v_base_align = false;
+
+	/*
+	 * Compose the complete node name.
+	 */
+	item_tag_opt = item_tag;
+	call set_name(p);
+
+	call insque(p,current_node);
+	current_node = p;
+
+	call set_boundary();
+	save_boundary = current_node->nod$b_boundary;
+	/*
+	 * Set the displaced comment pointer, so that any comments appearing
+	 * on this source line will be associated with this item node, and not
+	 * with the head node (an "invisible" node) that will be the current node 
+	 * at end of this routine.
+	 */
+	Displaced = p;
+
+/*	Act as if the current node were a filler structure, 
+ *	    	i.e as if the reductions
+ *			member_name	 = 'fill_n'
+ *			aggregate_type	 = STRUCTURE
+ *			sub_agg_dcl	 = aggregate_type member_options ';'
+ *		had been done.
+ */
+
+	/* Make the filler structure node */
+	p = alloc_node(0);
+
+	/*
+	 * Copy the information from the original item 
+	 * and get rid of information not associated with an aggragate.
+	 */
+	p->node_string = p1->node_string;
+
+	p->nod$w_datatype   = TYP$K_structure;
+	p->nod$a_parent	    = parent$;
+	p->nod$a_blink	    = null();
+	p->nod$a_flink	    = null();
+	p->NOD$L_Hidim	    = 0;
+	p->NOD$L_Lodim	    = 0;
+	p->nod$l_typeinfo   = 0;
+	p->nod$a_typeinfo2  = null();
+	p->nod$b_boundary = save_boundary;
+
+	p->nod$t_marker	    = '';
+
+	/* do the flags */
+	p->nod$v_mask = false;
+	p->nod$v_common = false;
+	p->nod$v_global = false;
+	p->nod$v_typedef = false;				/* jg */
+	p->nod$v_based	 = false;
+	p->nod$v_varying = false;
+	p->nod$v_dimen = false;
+	p->nod$v_userfill = true;
+	p->nod$v_vardim = false;
+	p->nod$v_signed = false;
+	p->nod$v_unsigned = false;
+	p->nod$v_fixed_fldsiz = false;
+	p->nod$v_generated = true;
+	p->nod$v_base_align = false;
+	p->nod$v_has_object = false;
+
+	call insque(p,current_node);
+
+	if substr(p1->nod$t_naked,1,1) < 'a' then 
+	    p->nod$t_naked = 'FILL_';
+	else 
+	    p->nod$t_naked = 'fill_';
+	p->nod$t_naked = p->nod$t_naked || Trim(Fillcnt) || '_';
+	p->nod$t_name = p->nod$t_naked;
+	Fillcnt	 = Fillcnt + 1;
+
+	item_tag_opt = false;
+	call set_name(p);
+
+	/* Add this node to the parent stack */
+	call push_parent(p);
+
+	/* 
+	 * Create a head node and link it as a child of the current node
+	 */
+	current_node = alloc_head_node(p);
+	p->NOD$A_Child = current_node;
+	current_node->NOD$L_Srcline = token_lineno;
+
+	/* No longer need saved copy of original node */
+	free p1->nod$_node;
+
+	return;
+
+end do_implicit_union;
+
+/*----------------------------------*/
+set_name:
+	procedure(p);
+/*
+ * Build full name from marker, prefix, tag, and naked name.
+ *
+ * If the type is typ$k_user, the default tag comes from the data type of
+ * the referenced object, instead of the current node.  If the referenced
+ * object is itself a user-defined type, continue through the chain until
+ * the real datatype is reached.  typeinfo2 of the current node points to
+ * the predecessor (head node) of the object node.
+ */
+dcl p	    pointer;
+dcl t	    fixed bin(15);
+dcl prefix  char(128) var;
+
+	t = p->nod$w_datatype;
+
+	prefix = p->nod$t_marker;
+
+	if sdl$v_suppress_prefix then 
+	    p->nod$t_prefix = '';
+	else 
+	    do;
+	    if ^item_prefix_opt & p->nod$a_parent ^= null() then 
+		p->nod$t_prefix = p->nod$a_parent->nod$t_prefix;
+
+	    if t = typ$k_structure | t = typ$k_union then 
+		prefix = prefix || p->nod$a_parent->nod$t_prefix;
+	    else 
+		prefix = prefix || p->nod$t_prefix;
+	    end;
+
+	if sdl$v_suppress_tag then 
+	    p->nod$t_tag = '';
+	else 
+	if ^item_tag_opt & prefix ^= '' then 
+	    do;
+	    q = p;
+	    do while( t = typ$k_user );
+		q = q->nod$a_typeinfo2->nod$a_flink;
+		t = q->nod$w_datatype;
+	    end;
+	    if substr(p->nod$t_naked,1,1) < 'a' then 
+		p->nod$t_tag = tags(t,upper);
+	    else 
+		p->nod$t_tag = tags(t,lower);
+	    end;
+
+	if p->nod$t_tag = '_' then 
+	    p->nod$t_tag = '';
+	else 
+	if p->nod$t_tag ^= '' then 
+	    prefix = prefix || p->nod$t_tag;
+
+	if prefix ^= '' then 
+	    prefix = prefix || '_';
+
+	p->nod$t_name = prefix || p->nod$t_name;
+
+	end set_name;
+
+/*----------------------------------*/
+alloc_head_node:
+	procedure(parent)   returns(pointer);
+
+dcl	parent	    pointer,
+	P	    pointer;
+
+	p = alloc_node(nod$k_headnode);
+	p->nod$a_blink	 = p;
+	p->nod$a_flink	 = p;
+	p->nod$a_parent	 = parent;
+
+        return(p);
+
+end alloc_head_node;
+
+/*----------------------------------*/
+alloc_node:
+	procedure(node_type)	returns(pointer);
+
+dcl	node_type	fixed bin(7),
+	p		pointer;
+
+	allocate nod$_node set(p);
+	p->node_string	 = 0;
+	p->nod$b_type	 = node_type;
+
+        return(p);
+
+end alloc_node;
+
+
+/*----------------------------------*/
+eval_offset_lists:
+	procedure;
+
+dcl p	pointer;
+dcl i	fixed bin(31);
+
+	/*
+	 * Walk list of CONSTANTs whose definitions were offset expressions 
+	 * and evaluate them now.
+	 */
+	do p = constant_expr_list repeat p->exp$a_next 
+	    while(p ^= null());
+	    i = p->exp$l_value;
+	    if const_sym(i).expr_flag then 
+		do;
+		current_node = p->exp$a_ref_node;
+		const_sym(i).value = eval_loc_expr(const_sym(i).expr_list) + const_sym(i).value;
+		const_sym(i).expr_flag = false;
+		end;
+	    p->exp$a_ref_node->nod$l_typeinfo = const_sym(i).value;
+	end;
+	constant_expr_list = null();
+
+	/*
+	 * Walk list of local syms whose definitions were offset expressions 
+	 * and evaluate them now.
+	 */
+	do p = local_expr_list repeat p->exp$a_next 
+	    while(p ^= null());
+	    i = p->exp$l_value;
+	    if local_sym(i).expr_flag then 
+		do;
+		local_sym(i).value = eval_loc_expr(local_sym(i).expr_list);
+		local_sym(i).expr_flag = false;
+		end;
+	end;
+	local_expr_list = null();
+
+	end eval_offset_lists;
+
+/*----------------------------------*/
+
+/*----------------------------------*/
+uppercase:
+    procedure( s )  returns( char(34) var );
+dcl s char(*);
+    return( translate(s,'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+			'abcdefghijklmnopqrstuvwxyz') );
+    end uppercase;
+/*----------------------------------*/
+
+/*----------------------------------*/
+init_parent_stack:
+    procedure;
+	parent_stack_index = 0;
+	parent_stack(parent_stack_index) = null();
+	parent$ = null();
+	top_parent$ = null();
+    end init_parent_stack;
+/*----------------------------------*/
+push_parent:
+    procedure(p);
+declare p ptr;
+	parent_stack_index = parent_stack_index+1;
+	parent_stack(parent_stack_index) = p;
+	parent$ = p;
+    end push_parent;
+/*----------------------------------*/
+pop_parent:
+    procedure;
+	parent_stack_index = parent_stack_index-1;
+	parent$ = parent_stack(parent_stack_index);
+    end pop_parent;
+/*----------------------------------*/
+att_error:
+    procedure;
+	call semerr(sdl$_dupconatt,src_line,(current_node->nod$t_naked));
+    end att_error;
+/*----------------------------------*/
+semerr:
+    procedure(errno,lineno,text);
+dcl errno   fixed bin(31);
+dcl lineno  fixed bin(31) optional;
+dcl text    char(132) var optional;
+	if ifsym_level = 0 then /* ignore errors inside false section */
+	    call errmsg(sdl$_shr_data,errno,lineno,text);
+    end semerr;
+/*----------------------------------*/
+end par_abst;
+
+/*--------------------------------------------------------------------------*/
+par_abst_no_act:
+    procedure;	/* required, non-functional routine */
+    end;
+
+
+
+/*--------------------------------------------------------------------------*/
+enter_symbol:
+	procedure(symtable,symbolname,symbolvalue)  returns(fixed bin(31));
+/* 
+ * Procedure to enter a symbol in one of the symbol tables.  This has now
+ * been made global for use by read_file.
+ */
+	dcl 1 symtable(0:max_symtable),
+	      2 value	    fixed bin(31),
+	      2 link	    pointer,
+	      2 name	    char(32) var,
+	      2 flags,
+	        3 expr_flag	    bit,
+	        3 str_const_flag    bit,
+	        3 fwd_ref_flag	    bit;
+
+	dcl symbolname	    char(34) var;
+	dcl symbolvalue	    fixed bin(31);
+
+	dcl (i,j) fixed bin(31);
+	dcl hashf entry(char(34)var,fixed bin(31)) returns(fixed bin(31));
+ 
+	i = hashf(symbolname,max_symtable);
+	do j = i to max_symtable;
+	    if symtable.name(j) = '' then
+		do;
+		symtable.name(j) = symbolname;
+		symtable.value(j) = symbolvalue;
+		return(j);
+		end;
+	end;
+	/** if we drop thru, symbol table full error **/
+	return(-1);
+
+	end enter_symbol;

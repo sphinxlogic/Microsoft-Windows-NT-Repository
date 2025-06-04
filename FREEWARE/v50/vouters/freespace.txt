@@ -1,0 +1,194 @@
+/*
+ *                            COPYRIGHT (C) 1999 BY
+ *                      COMPAQ COMPUTER CORPORATION, HOUSTON
+ *                       TEXAS.  ALL RIGHTS RESERVED.
+ *
+ *    THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+ *    ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+ *    OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+ *    THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+ *    PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+ *
+ *    THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+ *    SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+ *    SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+ *
+ *    NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+ *    ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+ *    PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+ *    CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+ */
+/*
+ * freespace.c - Display free space on ODS-2 disk - main program
+ * For VAX/ELN or VAX/VMS, depending if you use the include the $vaxelnc
+ * definitions or not.
+ *
+ * This is an example of a program which invokes freesub() to obtain
+ * a count of free blocks on a disk from the storage bitmap.
+ *
+ * Unsupported hack written 21-Feb-1989
+ *
+ * Extract this source to a file named freespace.c.
+ *
+ *     $ CC[/DECC] FREESPACE
+ *     $ LINK FREESPACE
+ *     $ RUN FREESPACE
+ *
+ * The computation of the free blocks, contiguous free blocks and cluster
+ * factor is done in a self-running subroutine named freesub. This latter
+ * may be extracted and inserted into your program without any change.
+ *
+ */
+/*
+ * Include $vaxelnc for VAXEln systems.
+ */
+#ifndef __VMS
+#include <$vaxelnc.h>
+#endif
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#pragma extern_prefix save
+#pragma extern_prefix "decc$"
+#include <unixio.h>
+#pragma extern_prefix restore
+
+int freesub(char *devptr,long int *freptr,long int *totptr,
+                        short int *clsfac,long int *contig);
+
+main()  {
+
+        long int freespace,totalspace;
+        short int clsfac;               /* 16 bit signed integers */
+        int n;
+        char namestring[40];
+        long int contig;
+
+        while (TRUE) {
+                printf("\nEnter device name, or ^Z to exit: ");
+                if (scanf("%s",&namestring) == -1)
+                        exit(1);  /* ^Z, go home */
+                n = strlen(namestring);
+
+/* Ensure the device spec ends in a colon */
+                if (n>0)                        /* Just in case... */
+                        if (namestring[n-1] != ':') {
+                                namestring[n]= ':';     /* append ':' */
+                                namestring[n+1]= '\0';  /* terminate string */
+                                }
+
+/* Look for free space.  The subroutine will return a failure flag on a
+ * bogus device spec or I/O error.  Priv violations are especially easy
+ * to get on VMS.
+ */
+                n = freesub(namestring,&freespace,&totalspace,&clsfac,&contig);
+
+                if (n >= 0)
+                        printf("Volume %s %d blocks free, of %d blocks total,\
+ cluster factor %d\n contiguous blocks %d\n",
+                        namestring,freespace,totalspace,clsfac,contig);
+                else
+                        printf("Failed to find free space on volume %s\n",namestring);
+                }
+        }
+
+/* freesub() - Obtain free space on ODS-2 disk by reading BITMAP.SYS
+ * For VAX/ELN or VAX/VMS.
+ *
+ * The result will be reasonably accurate.  Since the file system may
+ * have work in progress, you cannot be absolutely certain.  On top of that,
+ * note that VMS extent caching optimizes performance by preallocating
+ * disk space, so that this routine will likely report something less that
+ * the actual free space on VMS.
+ *
+ * Unsupported hack written 21-Feb-1989
+ */
+
+/* Storage control block offsets, in *WORDS* */
+
+#define CLEVOFF 0                       /* Offset to structure level */
+#define CLSFOFF 1                       /* Offset to cluster factor */
+#define CVSZOFF 2                       /* Offset to volume size longword */
+#define BITS    8                       /* Number of bits per byte  */
+int freesub(devptr,freptr,totptr,clsfac,contig)
+/* Output: 0 == success, <0 == error */
+char *devptr;                   /* Input: device name, including colon */
+long int *freptr;               /* Output: free block count */
+long int *totptr;               /* Output: total block count */
+short int *clsfac;              /* Output: cluster factor */
+long int *contig; {
+
+
+        long int frecnt;                /* 32 bit integers */
+        long int contigfrecnt=0;
+        char previousfree = 0;
+        unsigned short int n;           /* 16 bit unsigned, for logical shift */
+        int i, j, k, ifil;                      /* Assorted integers */
+        short int buf[256];             /* bitmap data buffer */
+        char filspec[100];              /* temp buffer for creating filespec */
+
+        strcpy (filspec,devptr);        /* Copy device spec into name buffer */
+        strcat (filspec,"[000000]BITMAP.SYS;1"); /* Append dir, filename */
+        *contig = 0;
+        if ((ifil=open(filspec,0)) < 0) /* Open bitmap file */
+                return(ifil);           /* Open failed, return error */
+
+/* The first block of the bitmap file is a control block containing general
+ * information about the volume.  The remaining blocks are the actual bitmap,
+ * one bit set for each cluster of blocks allocated.
+ */
+
+        i= read(ifil,buf,512);          /* Read the storage control block */
+        if (i < 1)
+                return(i);              /* Read failed, return error */
+
+/* The storage bitmap level word should have a 2 in the high byte, and
+ * a 1 in the low byte.  That is the only structure level we understand,
+ * so return an error if something else is there.
+ */
+        if (buf[CLEVOFF] != 0x201)      /* Verify ODS-2, bitmap format 1 */
+                return(-1);
+
+/* Allocation of blocks on an ODS-2 volume is done in bunches called
+ * clusters.  The cluster factor (number of 512 byte blocks in a cluster)
+ * is needed to calculate the number of free blocks.
+ */
+        *clsfac = buf[CLSFOFF];         /* Stash the cluster factor */
+
+/* "Buf" is an array of 16-bit integers.  The volume's total block size
+ * is a longword, present in words CVSZOFF and CVSZOFF+1. Take the longword
+ * starting at buf[CVSZOFF] and move it to the address in totptr.
+ */
+        *totptr = *((long int *) &buf[CVSZOFF]); /* Invoke compiler magic */
+
+/* Read the remaining bitmap blocks, counting bits by shifting each bit off. */
+
+        frecnt = 0;                     /* Nothing counted yet */
+        i= read(ifil,buf,512);          /* Read first bitmap block */
+        while (i > 0) {                 /* While not EOF... */
+                for (j=0;j<256;j++) {   /* Examine each word in the block */
+                        n = buf[j];             /* Get unsigned data word */
+                        for (k=0;k>= 1;        /* Shift off low bit of n */
+                                }
+                        }
+                i= read(ifil,buf,512);  /* Read next block */
+                }
+
+/* The read failed: was it an error (i<0) or end-of-file (i==0)? */
+
+        if (i < 0)
+                return(i);              /* Read failed, return error */
+
+/* Multiply the count of bits set in the bitmap by the cluster factor,
+ * yielding the count of free blocks on the volume.
+ */
+        *freptr = frecnt * *clsfac;     /* Consider custer factor */
+        *contig = *contig * *clsfac;    /* Compute contiguous free blocks */
+        return(close(ifil));            /* All done */
+        }
+

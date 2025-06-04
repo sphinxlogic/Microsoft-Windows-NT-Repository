@@ -1,0 +1,1833 @@
+  	.TITLE	MONLAT
+	.IDENT	/V2.0/
+
+; This program will listen for LAT multicast messages and display information
+; from the messages it finds.
+
+; Author = David Gagne
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+
+	$IODEF				;Define I/O functions and modifiers
+	$NMADEF				;Define Network Management parameters
+	$LNMDEF				;Define logical name parameters
+
+	.EXTERNAL	SYS$FAO
+
+; Modification history
+;
+;	2.0	David Gagne				06-May-1991
+;		09 Tell people that they should run this for 2 minutes.
+;		08 Include the node name and service name in option 1 and 2.
+;		07 Print a device summary for option 1.
+;		06 Add more SYSID device names.
+;		05 Add more driver names.
+;		04 Display the group codes as numbers, not as a bit mask.
+;		03 Print a better message when the protocol is being used.
+;		02 Display the hardware address from the SYSID response.
+;		01 Make the output tablized for option 1 and 2.
+;	1.2	David Gagne
+;		01 Fix a bug where we were printing duplicate entries
+;	1.1	David Gagne
+;		01 Modify the specific node display
+
+; QIO data structures for the LAT channel.
+
+; Setmode parameter buffer
+
+SETPARM:
+	.WORD	NMA$C_PCLI_PTY		; Protocol type
+		.LONG	^X0460
+	.WORD	NMA$C_PCLI_BFN		; Number of buffers to save
+		.LONG	4
+	.WORD	NMA$C_PCLI_BUS		; Max. receivable buffer size
+		.LONG	1500
+	.WORD	NMA$C_PCLI_PAD		; Padding
+		.LONG	NMA$C_STATE_OFF
+	.WORD	NMA$C_PCLI_MCA		; Multicast address
+		.WORD	8
+		.WORD	NMA$C_LINMC_SET
+		.BYTE	09,00,^X2B,00,00,^X0F
+
+SETPARMLEN = .-SETPARM
+
+SETPARMDSC:
+	.LONG		SETPARMLEN
+	.ADDRESS	SETPARM
+
+; Read buffer for LAT multicast messages
+
+RCVBUF:
+	.BLKB	1504
+
+RCVBUFLEN = .-RCVBUF
+
+; Place to store incoming P5 buffer
+
+RCVP5:
+RCVDA:	.BLKB	6
+RCVSA:	.BLKB	6
+RCVPTY:	.BLKB	2
+
+; QIO data structures for the MOP (SYSTEM ID) channel.
+
+; P2 parameter buffer for finding devices of other nodes.
+
+SIDPARM:
+	.WORD	NMA$C_PCLI_PTY		; Protocol Type
+		.LONG	^X0260
+
+SIDPARMLEN = .-SIDPARM
+
+SIDPARMDSC:
+	.LONG		SIDPARMLEN
+	.ADDRESS	SIDPARM
+
+; P2 transmit data buffer for sending request SYSID messages.
+
+XMTP2BUF:
+	.BYTE	05			; SYSTEM ID request code
+	.BYTE	00			; Reserved
+XMTP2RCT:
+	.WORD	4242			; Receipt number (to be returned)
+
+XMTP2LEN = .-XMTP2BUF
+
+; Address of the node whose Device ID we would like to find.
+
+SIDADDR:
+	.BLKB	6
+
+; Read buffer for receiving System IDs
+
+RCVBUF2:
+	.BLKB	1504
+
+RCVBUFLEN2 = .-RCVBUF2
+
+; Place to store incoming P5 buffer
+
+RCVP52:
+RCVDA2:	.BLKB	6
+RCVSA2:	.BLKB	6
+RCVPT2:	.BLKB	2
+
+; Message structures
+
+; General message buffer
+
+FAODESC:
+FAOLEN:	.LONG		80
+	.ADDRESS	FAOBUF
+FAOBUF:
+	.BLKB		80
+
+HDRMSG1:
+	.ASCID	"MONLAT - Ethernet LAT monitoring program. Version 2.0"
+INPMSG1:
+	.ASCID	"Monitor requests available:"
+INPMSG2:
+	.ASCID	"    1) Monitor service announcements from all nodes"
+INPMSG3:
+	.ASCID	"    2) Monitor service announcements for a specific group code"
+INPMSG4:
+	.ASCID	"    3) Monitor service announcement  from a specific node"
+INPMSG5:
+	.ASCID	"    any other input will stop the program"
+TIMMSG:
+	.ASCID	"The normal length of time to run this program is two minutes."
+IOMSG:
+	.ASCID	"!/The contents of the 2nd longword in the IOSB is !XL"
+NDMSG:
+	.ASCID	"No device found.  Please define ETH appropriately."
+PT1MSG:
+	.ASCID	"Another user is using the LAT protocol (60-04)"
+PT2MSG:
+	.ASCID	"Another user is using the remote console protocol (60-02)"
+DNEMSG:
+	.ASCID	"MONLAT complete.  Thank you for your continued support."
+BLNKMSG:
+	.ASCID	""
+
+; Output strings for monitoring service announcements from all nodes
+
+M1HDR1:	.ASCID	" Current Address    Controller   Hardware Address    DECnet     Node/Service"
+M1HDR2:	.ASCID	"-----------------   ----------   -----------------   -------  --------------"
+M1DAT1:	.ASCID	"!XB-!XB-!XB-!XB-!XB-!XB   !3UB=!AS                                   "
+M1DAT2:	.ASCID	"!XB-!XB-!XB-!XB-!XB-!XB   !2UB.!UW    "
+M1DAT3:	.ASCID	"!AD/!AD"
+M1CODE:	.ASCID	"                     Group codes: !3UB !3UB !3UB !3UB !3UB !3UB !3UB"
+M1SEP1:	.ASCID	"----------------------------------------------------------------------------"
+M1NONE:	.ASCID	"No service announcement messages were found"
+M1SUM1:	.ASCID	"  Device usage summary"
+M1SUM2:	.ASCID	"    Device    Amount"
+M1SUM3:	.ASCID	"    ------    ------"
+M1SUMM:	.ASCID	"    !5AS     !5UW"
+M1TOTL:	.ASCID	"    TOTAL =   !5UW"
+
+; Output strings for monitoring service announcements for a specific group
+
+M2HDR0:	.ASCID	"Nodes using group code #!3UB"
+M2NONE:	.ASCID	"No service announcement messages were found using Group Code #!3UB"
+
+; Output strings for monitoring service announcements from a specific node
+
+M3ADDR:	.ASCID	"Address: !XB-!XB-!XB-!XB-!XB-!XB"
+M3NODE:	.ASCID	"   DECnet node:  !2UB.!UW"
+M3CONT:	.ASCID	"   Controller:   !UB = !AS"
+M3IDN1:	.ASCID	"   Node name:    !AD"
+M3IDN2:	.ASCID	"   Node desc:    !AD"
+M3IDN3:	.ASCID	"   Service name: !AD"
+M3IDN4:	.ASCID	"   Service desc: !AD"
+M3HDR1:	.ASCID	"   Group Codes Set:"
+M3GCOD:	.ASCID	"       !3UW"
+M3NONE:	.ASCID	"No service announcement message found from !XB-!XB-!XB-!XB-!XB-!XB"
+
+; Strings for various device names
+
+DEV001:	.ASCID	"DEUNA"
+DEV003:	.ASCID	"DECNA"
+DEV005:	.ASCID	"DEQNA"
+DEV011:	.ASCID	"DELUA"
+DEV013:	.ASCID	"MSLAN"
+DEV017:	.ASCID	"DS100"
+DEV021:	.ASCID	"DEBET"
+DEV023:	.ASCID	"DEBNA"
+DEV025:	.ASCID	"PCLAN"
+DEV027:	.ASCID	"3C501"
+DEV033:	.ASCID	"DS200"
+DEV035:	.ASCID	"DS500"
+DEV037:	.ASCID	"DELQA"
+DEV039:	.ASCID	"DESVA"
+DEV041:	.ASCID	"MX100"
+DEV043:	.ASCID	"DEPCA"
+DEV045:	.ASCID	"LTM  "
+DEV047:	.ASCID	"DESNC"
+DEV049:	.ASCID	"MX300"
+DEV053:	.ASCID	"LB200"
+DEV060:	.ASCID	"DS300"
+DEV063:	.ASCID	"VLIII"
+DEV064:	.ASCID	"VL350"
+DEV065:	.ASCID	"DEBNI"
+DEV066:	.ASCID	"DEMNA"
+DEV067:	.ASCID	"PMX  "
+DEV072:	.ASCID	"DP250"
+DEV073:	.ASCID	"SGEC "
+DEV075:	.ASCID	"DEQTA"
+DEV076:	.ASCID	"LB150"
+DEV086:	.ASCID	"DR250"
+DEV090:	.ASCID	"DB500"
+DEV091:	.ASCID	"DB500"
+DEV092:	.ASCID	"WC500"
+DEV093:	.ASCID	"DEMFA"
+DEV094:	.ASCID	"PMAD "
+DEV104:	.ASCID	"KFE52"
+DEV105:	.ASCID	"RT300"
+DEV112:	.ASCID	"LPS20"
+DEV114:	.ASCID	"DWT-1"
+DEV119:	.ASCID	"DEFZA"
+DEVUNK:	.ASCID	"Unkwn"
+DEVMIS:	.ASCID	"Misng"
+DEVNAN:	.ASCID	"Noans"
+
+CTRMIS:	.WORD	0
+CTRNAN:	.WORD	0
+
+DEVTBL:	.BYTE	1
+	.WORD	0
+	.ADDRESS	DEV001
+	.BYTE	3
+	.WORD	0
+	.ADDRESS	DEV003
+	.BYTE	5
+	.WORD	0
+	.ADDRESS	DEV005
+	.BYTE	11
+	.WORD	0
+	.ADDRESS	DEV011
+	.BYTE	13
+	.WORD	0
+	.ADDRESS	DEV013
+	.BYTE	17
+	.WORD	0
+	.ADDRESS	DEV017
+	.BYTE	21
+	.WORD	0
+	.ADDRESS	DEV021
+	.BYTE	23
+	.WORD	0
+	.ADDRESS	DEV023
+	.BYTE	25
+	.WORD	0
+	.ADDRESS	DEV025
+	.BYTE	27
+	.WORD	0
+	.ADDRESS	DEV027
+	.BYTE	33
+	.WORD	0
+	.ADDRESS	DEV033
+	.BYTE	35
+	.WORD	0
+	.ADDRESS	DEV035
+	.BYTE	37
+	.WORD	0
+	.ADDRESS	DEV037
+	.BYTE	39
+	.WORD	0
+	.ADDRESS	DEV039
+	.BYTE	41
+	.WORD	0
+	.ADDRESS	DEV041
+	.BYTE	43
+	.WORD	0
+	.ADDRESS	DEV043
+	.BYTE	45
+	.WORD	0
+	.ADDRESS	DEV045
+	.BYTE	47
+	.WORD	0
+	.ADDRESS	DEV047
+	.BYTE	49
+	.WORD	0
+	.ADDRESS	DEV049
+	.BYTE	53
+	.WORD	0
+	.ADDRESS	DEV053
+	.BYTE	60
+	.WORD	0
+	.ADDRESS	DEV060
+	.BYTE	63
+	.WORD	0
+	.ADDRESS	DEV063
+	.BYTE	64
+	.WORD	0
+	.ADDRESS	DEV064
+	.BYTE	65
+	.WORD	0
+	.ADDRESS	DEV065
+	.BYTE	66
+	.WORD	0
+	.ADDRESS	DEV066
+	.BYTE	67
+	.WORD	0
+	.ADDRESS	DEV067
+	.BYTE	72
+	.WORD	0
+	.ADDRESS	DEV072
+	.BYTE	73
+	.WORD	0
+	.ADDRESS	DEV073
+	.BYTE	75
+	.WORD	0
+	.ADDRESS	DEV075
+	.BYTE	76
+	.WORD	0
+	.ADDRESS	DEV076
+	.BYTE	86
+	.WORD	0
+	.ADDRESS	DEV086
+	.BYTE	90
+	.WORD	0
+	.ADDRESS	DEV090
+	.BYTE	91
+	.WORD	0
+	.ADDRESS	DEV091
+	.BYTE	92
+	.WORD	0
+	.ADDRESS	DEV092
+	.BYTE	93
+	.WORD	0
+	.ADDRESS	DEV093
+	.BYTE	94
+	.WORD	0
+	.ADDRESS	DEV094
+	.BYTE	104
+	.WORD	0
+	.ADDRESS	DEV104
+	.BYTE	105
+	.WORD	0
+	.ADDRESS	DEV105
+	.BYTE	112
+	.WORD	0
+	.ADDRESS	DEV112
+	.BYTE	114
+	.WORD	0
+	.ADDRESS	DEV114
+	.BYTE	119
+	.WORD	0
+	.ADDRESS	DEV119
+	.BYTE	0
+	.WORD	0
+
+; Variables to find numerical values for the group codes enabled.
+
+GCMAX = 7
+GCODES:	.BLKB	GCMAX			; Where to store the numerical codes
+GCMASK:	.LONG	0			; Mask to look at
+NUMGC:	.LONG	0			; Number of Group codes found
+NODNAM:	.BLKB	6			; Temp storage for node name
+SERNAM:	.BLKB	6			; Temp storage for service name
+
+; Information from the SYSID response.
+
+DEVDSC:	.BLKQ				; General device name descriptor
+DEVID:	.BLKB				; Device ID from SYSID response
+DEVHWA:	.BLKB	6			; Device HWA from SYSID response
+
+; Buffers, variables, and strings for the time control of the program
+
+HOURS:	.BLKB	1			; Storage of requested input
+MINUTES:.BLKB	1
+SECONDS:.BLKB	1
+
+; The following variables are for reading input from the user after prompting.
+
+INPSTRDSC:				; Input buffer descriptor
+	.LONG		0
+	.ADDRESS	INPSTR
+
+INPSTR:	.BLKB		18		; Input buffer
+
+INPSIZ:	.BLKL	1			
+
+; The prompts are defined next.
+
+RPRMT:	.ASCID	"Which monitor request would you like to make: "
+HPRMT:	.ASCID	"How many hours   would you like to monitor: "
+MPRMT:	.ASCID	"How many minutes would you like to monitor: "
+SPRMT:	.ASCID	"How many seconds would you like to monitor: "
+GPRMT:	.ASCID	"Which group code would you like to monitor: "
+APRMT:	.ASCID	"Enter the address of the node (ex: AA-00-04-00-75-4C): "
+
+; Input variables from prompts
+
+REQ:	.LONG	0			; Request number
+DSTADR:	.BLKB	6			; Address to look for
+GCODE:	.BYTE	1			; Group code to look for
+
+ENDTIM:	.BLKQ	1			; Time to end test
+TIME:	.BLKQ	1			; Temporary time buffer
+DTIME:	.ASCID	/0 !2ZB:!2ZB:!2ZB.00/	; String for calculating delta time
+
+; Miscellaneous variables
+
+GCBITS: .BLKB	32			; Used for examining group codes
+RCVTRY:	.BLKL	1			; Counter for receive attempts
+IOSB:	.BLKQ	1			; I/O status block
+
+; Device names
+
+DEVDSC1:.ASCID	'ETH'			; Units to use for test
+DEVDSC2:.ASCID	'ESA0'
+DEVDSC3:.ASCID	'XQA0'
+DEVDSC4:.ASCID	'ETA0'
+DEVDSC5:.ASCID	'XEA0'
+DEVDSC6:.ASCID	'EXA0'
+DEVDSC7:.ASCID	'EZA0'
+DEVDSC8:.ASCID	'FXA0'
+DEVDSC9:.ASCID	'FGA0'
+
+; Table of pointers to device names
+
+DEVADR:	.ADDRESS	DEVDSC1
+	.ADDRESS	DEVDSC2
+	.ADDRESS	DEVDSC3
+	.ADDRESS	DEVDSC4
+	.ADDRESS	DEVDSC5
+	.ADDRESS	DEVDSC6
+	.ADDRESS	DEVDSC7
+	.ADDRESS	DEVDSC8
+	.ADDRESS	DEVDSC9
+	.LONG	0
+
+; Channels - one for LAT and one for Remote Console
+
+CHNLAT:	.BLKL	1
+CHNRMC:	.BLKL	1
+
+	.ENTRY	START,^M<>
+
+; Assign both channels to the first device found which is available
+
+	CLRL	R5			; Check each channel name to see if one
+10$:	TSTL	DEVADR(R5)		; is available until one is found: the
+	BEQL	30$			; first name checked is "ETH", a dummy
+	MOVL	DEVADR(R5),R4		; name which can be defined to the
+	$ASSIGN_S-			; device desired if either:
+		DEVNAM=(R4),-		;      1) An unregistered device is used
+		CHAN=CHNLAT		;  or  2) One device is prefered
+	BLBS	R0,20$			; If success, assign the 2nd channel
+	ADDL	#4,R5			; Skip to next device name
+	CMPW	R0,#SS$_NOSUCHDEV	; Was the error "no such device"?
+	BEQL	10$			; If yes, try next device name
+	BRW	ERROR			; Else, exit with error
+20$:	$ASSIGN_S-			; Assign the 2nd channel to the same
+		DEVNAM=(R4),-		; device name
+		CHAN=CHNRMC
+	BLBS	R0,ASSIGN_OK		; If success, continue
+	BRW	ERROR			; Else, exit with an error
+
+; No device was found.
+
+30$:	BSBW	BLANK			; No device was found, so say so and
+	PUSHAB	NDMSG			; then exit.
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BRW	EXIT
+
+ASSIGN_OK:
+
+; Start up the first channel for examining LAV packets.
+
+	$QIOW_S	FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>,-
+		CHAN=CHNLAT,-
+		IOSB=IOSB,-
+		P2=#SETPARMDSC
+
+	BLBS	R0,START_REQ_OK1
+	BRW	ERROR
+
+START_REQ_OK1:
+	MOVZWL	IOSB,R0
+	BLBS	R0,START_IO_OK1
+	CMPW	#SS$_BADPARAM,R0	; Was this a bad parameter?
+	BNEQ	10$			; If not, use general error path
+	CMPW	#NMA$C_PCLI_PTY,IOSB+4	; Was protocol type the bad parameter?
+	BNEQ	10$			; If not, use general error path
+	BSBW	BLANK
+	PUSHAB	PT1MSG			; Print the protocol type error
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BRW	EXIT
+10$:	BRW	ERROR
+
+START_IO_OK1:
+
+; Start up the second channel for getting the device ID and name.
+
+	$QIOW_S	FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>,-
+		CHAN=CHNRMC,-
+		IOSB=IOSB,-
+		P2=#SIDPARMDSC
+
+	BLBS	R0,START_REQ_OK2
+	BRW	ERROR
+
+START_REQ_OK2:
+
+	MOVL	IOSB,R0
+	BLBS	R0,START_IO_OK2
+	CMPW	#SS$_BADPARAM,R0	; Was this a bad parameter?
+	BNEQ	10$			; If not, use general error path
+	CMPW	#NMA$C_PCLI_PTY,IOSB+4	; Was protocol type the bad parameter?
+	BNEQ	10$			; If not, use general error path
+	BSBW	BLANK
+	PUSHAB	PT2MSG			; Print the protocol type error
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BRW	EXIT
+10$:	BRW	ERROR
+
+START_IO_OK2:
+
+; Print program header
+
+	BSBW	BLANK
+	PUSHAB	HDRMSG1
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+GET_TEST:
+
+; Print the prompt that requests which monitor request the user wants.  This
+; is also the top of the loop that allows the user to make multiple monitor
+; requests.
+
+	BSBW	BLANK
+	PUSHAB	INPMSG1
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	INPMSG2
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	INPMSG3
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	INPMSG4
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	INPMSG5
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	BLANK
+
+; Read the user's input to our prompt for the number of the test to run.
+
+	MOVL	#2,INPSTRDSC		; Set number of bytes to read
+	PUSHAB	INPSIZ			; Push input size parameter
+	PUSHAB	RPRMT			; Push prompt string parameter
+	PUSHAB	INPSTRDSC		; Push String descriptor parameter
+	CALLS	#3,G^LIB$GET_INPUT	; Read the user's input
+
+; Convert the input to a test number.
+
+	CLRL	R1			; Start with zero in test number
+	CLRL	R2			; Clear # of input characters done
+10$:	CMPW	R2,INPSIZ		; Have we processed all the input?
+	BGEQU	20$			; If EQL, yes
+	MOVZBL	INPSTR(R2),R0		; Get an input character
+	SUBL2	#^A/0/,R0		; Convert to a digit
+	MULL2	#^D10,R1		; Shift current decimal digits
+	ADDL2	R0,R1			; Add new digit
+	INCL	R2			; Bump # of input characters done
+	BRB	10$			; Check next character
+
+; Clear the per-test global variables.
+
+20$:	CLRL	NODCNT
+	CLRB	HOURS
+	CLRB	MINUTES
+	CLRB	SECONDS
+	MOVL	R1,REQ
+; Now perform the appropriate test based on the test number.
+
+	CMPL	R1,#1			; Check if test #1
+	BNEQ	30$			; If NEQ, no
+	BSBW	TEST_1			; Do test
+	BRW	GET_TEST		; Check for another test to run
+30$:	CMPL	R1,#2			; Check if test #2
+	BNEQ	40$			; If NEQ, no
+	BSBW	TEST_2			; Do test
+	BRW	GET_TEST		; Check for another test to run
+40$:	CMPL	R1,#3			; Check if test #3
+	BNEQ	50$			; If NEQ, no
+	BSBW	TEST_3			; Do test
+	BRW	GET_TEST		; Check for another test to run
+
+; Not a supported test, so exit.
+
+50$:	BRW	EXIT			; Not any of above, so exit
+
+; Request #1
+;
+; This code receives all LAT packets coming into the node where the program
+; is run for a length of time requested by the user. The packets are
+; examined, and if the address is the first occurance thereof, the packet
+; is stored.  After the set time is over, all packets stored (along with
+; other information) are displayed.
+
+TEST_1:
+
+	BSBW	GET_TIME
+	BSBW	SET_TIME
+
+; We need to zero the device totals before we start receiving packets.
+
+	MOVAB	DEVTBL,R5		; Start at beginning of table
+10$:	CLRW	1(R5)			; Clear this counter
+	TSTB	(R5)			; End of table?
+	BEQL	20$			; If EQL, yes
+	ADDL	#7,R5			; Skip to next entry
+	BRB	10$			; Loop for more devices
+20$:	CLRW	CTRMIS
+	CLRW	CTRNAN
+
+; Loop receiving and storing packets until time runs out.
+
+RCV_T1:	BSBW	RCV_LAT			; Get a message
+	BLBC	R0,PRINT_T1		; If time ran out, print results
+	BSBW	STORE_NODE		; Store this node
+	BRB	RCV_T1			; Loop for more
+
+PRINT_T1:
+
+; If we have no data, then print appropriate message.
+
+	TSTL	NODCNT			; Anything in node table?
+	BNEQ	PRINT_TBL_T1		; If NEQ, yes, so print them
+
+; Print "no messages found" message.
+
+	BSBW	BLANK
+	PUSHAB	M1NONE
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	RSB
+
+PRINT_TBL_T1:
+
+; Print the header
+
+	BSBW	BLANK
+	PUSHAB	M1HDR1
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	M1HDR2
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Now print all the nodes in the node table.
+
+	DECL	NODCNT
+10$:	BSBW	NEXT_R1			; Get address of next entry to print
+	BLBS	R0,20$			; If LBS, there's an entry
+	BRW	PRINT_SUM_R1
+
+; Print the node found
+
+20$:	BSBW	PRINT_NODE
+
+; Now print the group codes enabled.
+
+30$:	BSBW	GET_GCODES
+	TSTL	NUMGC			; Any group codes found?
+	BEQL	50$			; If EQL, no
+
+; Put the Group codes on the stack for FAO arguments.
+
+	MOVL	#^D33,M1CODE		; Set initial FAO string size
+	MOVL	NUMGC,R1
+40$:	MOVZBL	GCODES-1(R1),-(SP)	; R1 was one based offset
+	ADDL	#5,M1CODE		; Add to size of FAO string
+	SOBGTR	R1,40$			; Loop if more to store
+
+	MOVL	#80,FAOLEN
+	PUSHAL	FAOLEN			; Put length argument
+	PUSHAL	FAODESC			; Push descriptor argument
+	PUSHAL	M1CODE			; Push input string argument
+	ADDL3	NUMGC,#3,R1		; Get number of arguments
+	CALLS	R1,G^SYS$FAO		; Format the string
+
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BRB	30$			; Get more codes
+
+50$:	MOVL	#1,(R2)			; Set low order bit so it's skipped
+	PUSHAB	M1SEP1
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BRW	10$			; Get next node
+
+PRINT_SUM_R1:
+
+; Print the device totals.
+
+;==========================================================================
+; Print the header
+
+	PUSHAB	M1SUM1
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	BLANK
+	PUSHAB	M1SUM2
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	M1SUM3
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+;==========================================================================
+; Print the device totals
+
+	MOVAB	DEVTBL,R5		; Start at beginning of table
+	CLRL	R7			; Start running total at zero
+
+; Loop printing each device in the device table.
+
+10$:	TSTB	(R5)			; End of table?
+	BEQL	20$			; If EQL, yes
+
+	TSTW	1(R5)			; Were any found?
+	BEQL	15$			; If EQL, no, so don't print it
+	ADDW	1(R5),R7		; Add to running total
+	MOVL	3(R5),R6		; Get the address of the descriptor
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M1SUMM,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=R6,-
+		P2=1(R5)
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+15$:	ADDL	#7,R5			; Skip this entry
+	BRB	10$			; Loop for more devices
+
+; Now print the number of unknown devices if any were found.
+
+20$:	TSTW	1(R5)
+	BEQL	30$
+	ADDW	1(R5),R7		; Add to running total
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M1SUMM,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=#DEVUNK,-
+		P2=1(R5)
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Now print the number of missing devices if any were found.
+
+30$:	TSTW	CTRMIS
+	BEQL	40$
+	ADDW	CTRMIS,R7		; Add to running total
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M1SUMM,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=#DEVMIS,-
+		P2=CTRMIS
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Now print the number of devices that didn't answer.
+
+40$:	TSTW	CTRNAN
+	BEQL	50$
+	ADDW	CTRNAN,R7		; Add to running total
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M1SUMM,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=#DEVNAN,-
+		P2=CTRNAN
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Now print the total.
+
+50$:	PUSHAB	M1SUM3
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	$FAO_S	CTRSTR=M1TOTL,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=R7
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	RSB
+
+; Test #2
+;
+; This test asks the user for both a length of time to run the test for and
+; a group code to watch for. Once the end time has been reached, the addresses
+; of all nodes received with the specific group code enabled are printed.
+
+TEST_2:
+
+	BSBW	GET_TIME
+	BSBW	BLANK
+	BSBW	GET_GCODE
+	BSBW	SET_TIME
+
+; Loop receiving and storing nodes with a matching group code.
+
+RCV_T2:	BSBW	RCV_LAT			; Get a message
+	BLBC	R0,PRINT_T2		; If time ran out, print results
+
+; First check if the appropriate group code is set in this message.
+
+	MOVZBL	RCVBUF+12,R1		; Get group code length
+	MOVC5	R1,RCVBUF+13,#0,-	; Copy (with zero extend) into
+		#^X20,GCBITS		; a fixed place
+	MOVZBL	GCODE,R1		; Get requested group code
+	CLRL	R0			; To calc group code bit number,
+	CLRL	R2			; start with 0 in R0 and R2
+	EDIV	#8,R1,R0,R2		; R0=byte to check in the bit mask
+					; R2=bit to check in that byte
+	BBC	R2,GCBITS(R0),RCV_T2	; If group code not enabled, discard
+	BSBW	STORE_NODE		; Store this node
+	BRW	RCV_T2			; Loop for more nodes
+
+PRINT_T2:
+
+; If we have no data, then print appropriate message.
+
+	TSTL	NODCNT			; Anything in DECNET table?
+	BNEQ	PRINT_TBL_T2		; If NEQ, yes, so print them
+
+; Print "no messages found" message.
+
+	BSBW	BLANK
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M2NONE,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=GCODE
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	RSB
+
+PRINT_TBL_T2:
+
+; Print the header
+
+	BSBW	BLANK
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M2HDR0,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=GCODE
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	M1HDR1
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	PUSHAB	M1HDR2
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Now print all the nodes in the node table.
+
+	DECL	NODCNT
+10$:	BSBW	NEXT_R1			; Get address of next entry to print
+	BLBS	R0,20$			; If LBS, there's an entry
+	RSB
+
+; Print the node found
+
+20$:	BSBW	PRINT_NODE
+	MOVL	#1,(R2)			; Set low order bit so it's skipped
+	BRW	10$			; Get next node
+
+; Test #3
+;
+; This test asks the user for one address, and waits for a message from that
+; address. Once a message from that address is found, a listing of all group
+; codes enabled is given.
+
+TEST_3:
+
+; Start the test; continue until the end time is reached.
+
+	BSBW	GET_TIME
+	BSBW	BLANK
+	BSBW	GET_ADDR
+	BSBW	SET_TIME
+
+RCV_T3:
+
+	BSBW	RCV_LAT			; Get a message
+	BLBS	R0,10$			; If we have a message, process it
+
+; Print "no messages found" message.
+
+	BSBW	BLANK
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M3NONE,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=DSTADR,-
+		P2=DSTADR+1,-
+		P3=DSTADR+2,-
+		P4=DSTADR+3,-
+		P5=DSTADR+4,-
+		P6=DSTADR+5
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	RSB
+
+; Check if the source address is the desired one.
+
+10$:	MOVZBL	RCVBUF+12,R1
+	MOVC5	R1,RCVBUF+13,#0,#^X20,GCBITS
+	CMPC3	#6,RCVSA,DSTADR
+	BNEQ	RCV_T3
+
+; The address was the desired one, so print the results
+
+PRINT_T3:
+
+; Print the address.
+
+	BSBW	BLANK
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M3ADDR,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=RCVSA,-
+		P2=RCVSA+1,-
+		P3=RCVSA+2,-
+		P4=RCVSA+3,-
+		P5=RCVSA+4,-
+		P6=RCVSA+5
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Print the DECnet node if this is a DECnet address
+
+	CMPL	#^X000400AA,RCVSA	; Is this a DECnet address?
+	BNEQ	1$			; If NEQ, no
+	MOVW	RCVSA+4,R0
+	BICW	#^XFC00,R0
+	MOVZBL	RCVSA+5,R3
+	ASHL	#-2,R3,R3
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M3NODE,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=R3,-
+		P2=R0
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+
+; Print the device ID and device name.
+
+1$:	MOVL	DSTADR,SIDADDR
+	MOVW	DSTADR+4,SIDADDR+4
+	BSBW	GET_DEVID
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M3CONT,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=DEVID,-
+		P2=#DEVDSC
+	PUSHAB	FAODESC	
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Print the node name if there is one.
+
+	MOVZBL	RCVBUF+12,R1		; Get size of group code bits
+	ADDL3	#^D13,R1,R4		; Offset to node name size
+	MOVAL	RCVBUF+1,R5		; Calc address of string
+	ADDL	R4,R5			; Address of string
+	MOVZBL	RCVBUF(R4),R3		; Get size
+	BEQL	10$			; If EQL, none to print
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M3IDN1,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=R3,-
+		P2=R5
+	PUSHAB	FAODESC	
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Print the node descriptor if there is one.
+
+10$:	ADDL	R3,R5			; Address of size
+	MOVZBL	(R5)+,R3		; Get size
+	BEQL	20$			; If EQL, none to print
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M3IDN2,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=R3,-
+		P2=R5
+	PUSHAB	FAODESC	
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Print each service set.
+
+20$:	ADDL	R3,R5			; Address of number of sets
+	MOVZBL	(R5)+,R6		; Get number of sets
+	BEQL	60$			; Branch if none
+	CLRL	R3			; Nothing to skip right now
+
+; Print the service name if there is one.
+
+30$:	INCL	R5			; Skip service rating
+	ADDL	R3,R5			; Address of size
+	MOVZBL	(R5)+,R3		; Get size
+	BEQL	40$			; If EQL, none to print
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M3IDN3,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=R3,-
+		P2=R5
+	PUSHAB	FAODESC	
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Print the service descriptor if there is one.
+
+40$:	ADDL	R3,R5			; Address of size
+	MOVZBL	(R5)+,R3		; Get size
+	BEQL	50$			; If EQL, none to print
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M3IDN4,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=R3,-
+		P2=R5
+	PUSHAB	FAODESC	
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; If more service sets, print them.
+
+50$:
+	SOBGTR	R6,30$
+
+; Print the group code header.
+
+60$:	PUSHAB	M3HDR1
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Print all the enabled group code's.
+
+	CLRL	R1
+70$:	CLRL	R0
+	CLRL	R2
+	EDIV	#8,R1,R0,R2
+	BBC	R2,GCBITS(R0),80$
+	PUSHL	R1
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M3GCOD,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=R1
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	POPL	R1
+80$:	INCL	R1
+	CMPL	R1,#^D256
+	BLSS	70$
+	RSB
+
+RCV_LAT:
+
+; Read a LAT multicast service announcement frame.  Return if time has run
+; out (R0=0) or if a frame was received successfully (R0=1).
+
+; First check if time has run out.
+
+	$GETTIM_S-			; Get current time
+		TIMADR=TIME
+	CMPL	TIME+4,ENDTIM+4		; Did we look long enough?
+	BEQL	10$			; If equal, need to check low longword
+	BLSSU	30$			; If LSSU, continue
+	BRB	20$			; Else end search for the node
+10$:	CMPL	TIME,ENDTIM		; Check low longword
+	BLSSU	30$			; If LSSU, continue
+
+20$:	CLRL	R0			; Say that time ran out
+	RSB
+
+30$:	$QIOW_S	FUNC=#IO$_READVBLK!IO$M_NOW,-
+		CHAN=CHNLAT,-
+		IOSB=IOSB,-
+		P1=RCVBUF,-
+		P2=#RCVBUFLEN,-
+		P5=#RCVP5
+
+	BLBS	R0,RCV_REQ_OK
+	BRW	ERROR
+
+RCV_REQ_OK:
+	MOVZWL	IOSB,R0
+	BLBS	R0,RCV_IO_OK
+	CMPW	R0,#SS$_ENDOFFILE
+	BEQL	RCV_LAT
+	BRW	ERROR
+
+RCV_IO_OK:
+
+; Check if this is a multicast message.  If not, throw it away and look for
+; another message.
+
+	BLBC	RCVDA,RCV_LAT		; Ignore packet if sent to physical
+
+; Make sure this is a service announcement message.  If not, throw it away
+; and look for another message.
+
+	CMPB	#^X28,RCVBUF		; Is this a service announcement?
+	BNEQ	RCV_LAT			; If NEQ, no, try again
+
+; The message is good, return success
+
+	MOVZBL	#1,R0
+	RSB
+
+STORE_NODE:
+; RCVSA  = Source address
+; RCVBUF = Received LAT message
+
+; Check if this is a new node.  If so, store it.  However, if the source
+; address is multicast, then we will throw the packet away because we use
+; a multicast source address to show that the node has already been printed.
+
+	BLBC	RCVSA,10$		; If not multicast source, store it
+	RSB
+10$:	CMPL	#2,REQ			; Is this test 2?
+	BEQL	20$			; If EQL, yes, don't need GCBITS
+	MOVZBL	RCVBUF+12,R1		; Get size of mask in message
+	MOVC5	R1,RCVBUF+13,#0,-	; Store the group codes in GCBITS
+		#^X20,GCBITS
+
+; Check to see if the source address is already in the node table.  If so,
+; throw this message away and read another one.
+
+20$:	MOVAL	NODTBL,R2		; Start at beginning of table
+	SUBL	#NODSIZ,R2		; Get to negative one entry
+	MOVL	NODCNT,R1		; Get number of entries
+	BEQL	50$			; If none, just add this one
+30$:	ADDL	#NODSIZ,R2		; Get to next entry
+	CMPL	RCVSA,(R2)		; Source address match?
+	BNEQ	40$			; If NEQ, no, so check next entry
+	CMPW	RCVSA+4,4(R2)		; Source address match?
+	BEQL	60$			; If EQL, yes, so ignore message
+40$:	SOBGTR	R1,30$			; Check next entry in table
+
+; The node was not in the table, so add it if there's room.
+
+50$:	CMPL	NODCNT,#NODMAX		; Is there room?
+	BEQL	60$			; If EQL, no, so ignore message
+	ADDL	#NODSIZ,R2		; Get to next entry
+	MOVL	RCVSA,(R2)		; Store SA
+	MOVW	RCVSA+4,4(R2)		; Store SA
+	MOVQ	GCBITS+00,06(R2)	; Store group code mask
+	MOVQ	GCBITS+08,14(R2)	; Store group code mask
+	MOVQ	GCBITS+16,22(R2)	; Store group code mask
+	MOVQ	GCBITS+24,30(R2)	; Store group code mask
+	BSBB	STORE_NAME
+	INCL	NODCNT			; Bump number of used entries
+60$:	RSB
+
+STORE_NAME:
+; R2 = Address of node entry
+; 
+; Now get the node name and service name (if they exist).  First fill the
+; node name section of the entry with spaces.  If the first service name is
+; the same as the node name, then store the second service name (if there
+; is one).
+
+	MOVL	#^X20202020,38(R2)	; Start with spaces for the node name
+	MOVW	#^X2020,42(R2)
+	MOVZBL	RCVBUF+12,R1		; Get size of group code bits
+	ADDL3	#^D13,R1,R4		; Offset to node name size
+	MOVAL	RCVBUF+1,R5		; Calc address of string
+	ADDL	R4,R5			; Address of string
+	MOVZBL	RCVBUF(R4),R3		; Get size
+	BEQL	20$			; If EQL, none to print
+	PUSHR	#^M<R1,R2,R3,R4,R5>	; Save registers
+	CMPL	R3,#6			; String too big?
+	BLEQU	10$			; If LEQU, no
+	MOVL	#6,R3			; Only copy what fits
+10$:	SUBL3	R3,#6,R0		; Number of bytes to skip in dest
+	MOVAL	38(R2),R1		; Node name storage area
+	ADDL	R1,R0			; Where to store this node name
+	PUSHR	#^M<R1,R2,R3,R4,R5>	; Save registers
+	MOVC3	R3,(R5),(R0)		; Store the name
+	POPR	#^M<R1,R2,R3,R4,R5>	; Restore registers
+	MOVC3	R3,(R5),NODNAM		; Store here for comparison
+	POPR	#^M<R1,R2,R3,R4,R5>	; Restore registers
+
+; Skip over the node descriptor.
+
+20$:	ADDL	R3,R5			; Address of size
+	MOVZBL	(R5)+,R3		; Get size
+	ADDL	R3,R5			; Skip over node descriptor
+
+; See if there are any service sets.
+
+	MOVL	#^X20202020,SERNAM	; Start with spaces in service name
+	MOVW	#^X2020,SERNAM+4
+	MOVZBL	(R5)+,R6		; Get number of sets
+	BEQL	40$			; Branch if none
+
+; Save the first service name if there is one.
+
+25$:	INCL	R5			; Skip service rating
+	MOVZBL	(R5)+,R3		; Get size
+	BEQL	40$			; Exit if none
+	PUSHL	R3			; Save the size
+	CMPL	R3,#6			; String too big?
+	BLEQU	30$			; If LEQU, no
+	MOVL	#6,R3			; Only copy what fits
+30$:	MOVL	#^X20202020,SERNAM	; Put spaces in service name again
+	MOVW	#^X2020,SERNAM+4	; because there may be junk there
+	PUSHR	#^M<R1,R2,R3,R4,R5>	; Save registers
+	MOVC3	R3,(R5),SERNAM		; Store the name
+	POPR	#^M<R1,R2,R3,R4,R5>	; Restore registers
+	PUSHR	#^M<R1,R2,R3,R4,R5>	; Save registers
+	CMPC3	R3,SERNAM,NODNAM	; Are the names the same?
+	BNEQ	35$			; If NEQ, no, so use this name
+	POPR	#^M<R1,R2,R3,R4,R5>	; Restore registers
+	POPL	R3			; Get original size back
+	ADDL	R3,R5			; Get to service description
+	MOVZBL	(R5)+,R3		; Get size of service description
+	ADDL	R3,R5			; Get to next service name
+	SOBGTR	R6,25$			; Loop if more entries
+	BRB	40$			; Else use what we have
+
+35$:	POPR	#^M<R1,R2,R3,R4,R5>	; Restore registers
+	POPL	R3			; Clean up the stack
+40$:	PUSHR	#^M<R1,R2,R3,R4,R5>	; Save registers
+	MOVC3	#6,SERNAM,44(R2)	; Store the service name we found
+	POPR	#^M<R1,R2,R3,R4,R5>	; Restore registers
+	RSB
+
+PRINT_NODE:
+; R2 is pointing to the entry we want to print.
+
+	MOVL	(R2),SIDADDR		; Get the source address so we can ...
+	MOVW	4(R2),SIDADDR+4
+	BSBW	GET_DEVID		; Get the device information
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=M1DAT1,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=0(R2),-
+		P2=1(R2),-
+		P3=2(R2),-
+		P4=3(R2),-
+		P5=4(R2),-
+		P6=5(R2),-
+		P7=DEVID,-
+		P8=#DEVDSC
+	CMPL	(R2),#^X000400AA	; Is this a DECnet address?
+	BNEQ	10$			; If NEQ, no
+	MOVW	4(R2),R0
+	BICW	#^XFC00,R0
+	MOVZBL	5(R2),R1
+	ASHL	#-2,R1,R3
+	MOVL	#80-33,FAOLEN
+	MOVAL	33+FAOBUF,FAODESC+4
+	$FAO_S	CTRSTR=M1DAT2,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=DEVHWA,-
+		P2=DEVHWA+1,-
+		P3=DEVHWA+2,-
+		P4=DEVHWA+3,-
+		P5=DEVHWA+4,-
+		P6=DEVHWA+5,-
+		P7=R3,-
+		P8=R0
+10$:	MOVL	#80-62,FAOLEN
+	MOVAL	62+FAOBUF,FAODESC+4
+	MOVAL	38(R2),R3
+	MOVAL	44(R2),R0
+	$FAO_S	CTRSTR=M1DAT3,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=#6,-
+		P2=R3,-
+		P3=#6,-
+		P4=R0
+	ADDL	#62,FAOLEN
+	MOVAL	FAOBUF,FAODESC+4
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	RSB
+
+GET_DEVID:
+
+; Get the node's device ID and device name.  This is done by requesting a
+; SYSID message from the node.  The response (if any) contains the device
+; ID.  From the device ID, we will select the correct device name.  Upon
+; completion of this routine, DEVID (a byte) will have the device ID,
+; DEVDSC will point to the device name, and DEVHWA will have the device's
+; hardware address.
+
+; Transmit the request ID message to the node we want to find out about.
+
+	$QIOW_S	FUNC=#IO$_WRITEVBLK,-
+		CHAN=CHNRMC,-
+		IOSB=IOSB,-
+		P1=XMTP2BUF,-
+		P2=#XMTP2LEN,-
+		P5=#SIDADDR
+
+	BLBS	R0,DXMT_REQ_OK
+	BRW	ERROR
+
+DXMT_REQ_OK:
+
+	MOVL	IOSB,R0
+	BLBS	R0,DXMT_IO_OK
+	BRW	ERROR
+
+DXMT_IO_OK:
+
+; Receive the SYSID response.  If there is no data ready to receive, then the
+; Ethernet driver will return immediately with SS$_ENDOFFILE.
+
+	CLRL	RCVTRY			; Clear the number of read attempts
+
+DRCV:
+
+	$QIOW_S	FUNC=#IO$_READVBLK!IO$M_NOW,-
+		CHAN=CHNRMC,-
+		IOSB=IOSB,-
+		P1=RCVBUF2,-
+		P2=#RCVBUFLEN2,-
+		P5=#RCVP52
+
+	BLBS	R0,DRCV_REQ_OK
+	BRW	ERROR
+
+DRCV_REQ_OK:
+
+	MOVL	IOSB,R0
+	BLBS	R0,DRCV_IO_OK
+	CMPW	IOSB,#SS$_ENDOFFILE
+	BEQL	DRCV_TRY
+	BRW	ERROR
+
+DRCV_TRY:
+	CMPL	RCVTRY,#4000		; Have we tried enough times?
+	BGTR	20$			; If GTR, yes, so message is lost
+	INCL	RCVTRY			; Count this attempt
+	BRB	DRCV			; Try again
+20$:	CLRB	DEVID			; Clear the Device ID number
+	MOVQ	DEVNAN,DEVDSC		; Set the device name to no response
+	INCW	CTRNAN			; Count this no answer case
+	CLRL	DEVHWA			; No Hardware address
+	CLRW	DEVHWA+4
+	RSB				; Return to caller
+
+DRCV_IO_OK:
+
+; Check that this is a SYSTEM ID message from the correct node.
+
+	CMPB	RCVBUF2,#7		; Is this a SYSTEM ID message?
+	BNEQ	DRCV_TRY		; If NEQ, no, try again
+	CMPL	RCVSA2,SIDADDR		; Correct node?
+	BNEQ	DRCV_TRY		; If NEQ, no
+	CMPW	RCVSA2+4,SIDADDR+4	; Correct node?
+	BNEQ	DRCV_TRY		; If NEQ, no
+
+; We received a message from the remote node.  Look for the Device ID entry
+; in this SYSID message.
+
+	MOVL	#4,R3			; Skip over SYSID header
+
+; Loop through the entries in the SYSID looking for the Device ID entry.
+
+10$:	CMPW	R3,IOSB+2		; Any buffer left to look at?
+	BLSSU	20$			; If LSSU, yes, so look for more
+	BRW	70$			; Else report Device ID missing
+20$:	CMPW	RCVBUF2(R3),#^D100	; Is this the device ID entry?
+	BEQL	30$			; If EQL, yes
+	MOVZBL	RCVBUF2+2(R3),R1	; Get size of this entry
+	ADDL	#3,R3			; Skip over entry type and size
+	ADDL	R1,R3			; Skip over entry value
+	BRW	10$			; Check next entry
+
+; The Device ID was found.  Store the Device ID.
+
+30$:	ADDL	#3,R3			; Skip over Device ID header
+	MOVB	RCVBUF2(R3),DEVID	; Store the Device ID
+
+; See if the device ID is one we know about.  If so, store the address of
+; the text descriptor in DEVDSC.
+
+	MOVAB	DEVTBL,R5		; Start at beginning of table
+40$:	TSTB	(R5)			; End of table?
+	BEQL	60$			; If EQL, yes
+	CMPB	DEVID,(R5)+		; Device number match?
+	BEQL	50$			; If EQL, yes
+	ADDL	#6,R5			; Skip to next entry
+	BRB	40$			; Check next entry
+
+; We found a match in the table.
+
+50$:	INCW	(R5)+			; Count one more of these devices
+	MOVQ	@(R5),DEVDSC		; Save descriptor
+	BRB	140$
+
+; There was no match for the DEVICE entry in the SYSID response.
+
+60$:	INCW	1(R5)			; One more of these devices found
+	MOVQ	DEVUNK,DEVDSC		; This is an unknown device
+	BRB	140$
+
+; There was no DEVICE entry in the SYSID response.
+
+70$:	INCW	CTRMIS			; Count this missing device ID
+	CLRB	DEVID			; No Device ID was found
+	MOVQ	DEVMIS,DEVDSC		; Device ID is missing
+
+; Now look for the Hardware address entry in this SYSID message.
+
+140$:	MOVL	#4,R3			; Skip over SYSID header
+
+; Loop through the entries in the SYSID looking for the hardware address
+; entry.
+
+150$:	CMPW	R3,IOSB+2		; Any buffer left to look at?
+	BGEQU	160$			; If GEQU, no, so clear DEVHWA
+	CMPW	RCVBUF2(R3),#7		; Is this the HWA entry?
+	BEQL	170$			; If EQL, yes
+	MOVZBL	RCVBUF2+2(R3),R1	; Get size of this entry
+	ADDL	#3,R3			; Skip over entry type and size
+	ADDL	R1,R3			; Skip over entry value
+	BRW	150$			; Check next entry
+
+; There was no HWA field in the SYSID; so just return a value of all zeros.
+
+160$:	CLRL	DEVHWA			; Zero first longword
+	CLRW	DEVHWA+4		; Zero last word
+	BRB	180$			; Skip over "found HWA" code
+
+; The Hardware address was found; so store it in DEVHWA.
+
+170$:	ADDL	#3,R3			; Skip over Device ID header
+	MOVL	RCVBUF2(R3),DEVHWA	; Store first longword
+	MOVW	RCVBUF2+4(R3),DEVHWA+4	; Store last word
+
+180$:	RSB
+
+GET_GCODES:
+; R2 = address where the entry is stored.
+
+; Convert the group code bit mask into the actual group codes enabled.  We
+; will only convert as many as we have space for.
+
+	CLRL	NUMGC			; Start with no group codes found
+	CLRL	R0			; Group code number starts at 0
+	MOVL	06(R2),GCMASK		; Convert the 1st longword
+	BEQL	1$
+	BSBW	20$
+	MOVL	GCMASK,06(R2)		; Save the longword
+1$:	ADDL	#32,R0			; Add 32 to group code base number
+	MOVL	10(R2),GCMASK		; Convert the 2nd longword
+	BEQL	2$
+	BSBW	20$
+	MOVL	GCMASK,10(R2)		; Save the longword
+2$:	ADDL	#32,R0			; Add 32 to group code base number
+	MOVL	14(R2),GCMASK		; Convert the 3rd longword
+	BEQL	3$
+	BSBB	20$
+	MOVL	GCMASK,14(R2)		; Save the longword
+3$:	ADDL	#32,R0			; Add 32 to group code base number
+	MOVL	18(R2),GCMASK		; Convert the 4th longword
+	BEQL	4$
+	BSBB	20$
+	MOVL	GCMASK,18(R2)		; Save the longword
+4$:	ADDL	#32,R0			; Add 32 to group code base number
+	MOVL	22(R2),GCMASK		; Convert the 5th longword
+	BEQL	5$
+	BSBB	20$
+	MOVL	GCMASK,22(R2)		; Save the longword
+5$:	ADDL	#32,R0			; Add 32 to group code base number
+	MOVL	26(R2),GCMASK		; Convert the 6th longword
+	BEQL	6$
+	BSBB	20$
+	MOVL	GCMASK,26(R2)		; Save the longword
+6$:	ADDL	#32,R0			; Add 32 to group code base number
+	MOVL	30(R2),GCMASK		; Convert the 7th longword
+	BEQL	7$
+	BSBB	20$
+	MOVL	GCMASK,30(R2)		; Save the longword
+7$:	ADDL	#32,R0			; Add 32 to group code base number
+	MOVL	34(R2),GCMASK		; Convert the 8th longword
+	BEQL	8$
+	BSBB	20$
+	MOVL	GCMASK,34(R2)		; Save the longword
+8$:	RSB
+
+; This routine will store the Group code number of all the bits set in
+; GCMASK.
+
+20$:	PUSHL	R3			; Save R3
+	PUSHL	R1			; Save R1
+	MOVL	NUMGC,R1		; Get number already stored
+30$:	CMPL	R1,#GCMAX		; Any more room?
+	BGEQU	40$			; If GEQU, no more room
+	FFS	#0,#32,GCMASK,R3	; Look for a set bit
+	BEQL	40$			; If EQL, none found
+	BBCC	R3,GCMASK,35$		; Clear the bit
+35$:	ADDB3	R0,R3,GCODES(R1)	; Save group code number
+	INCL	R1			; Count group code number
+	BRB	30$			; Look for more
+40$:	MOVL	R1,NUMGC		; Save new number of Group codes
+	POPL	R1			; Restore R1
+	POPL	R3			; Restore R3
+	RSB				; Done with this longword
+
+GET_GCODE:
+
+; Get group code to watch for
+
+	MOVL	#18,INPSTRDSC
+	PUSHAB	INPSIZ
+	PUSHAB	GPRMT
+	PUSHAB	INPSTRDSC
+	CALLS	#3,G^LIB$GET_INPUT
+
+; Convert group code
+
+	CLRL	R1
+	CLRW	R2
+10$:	MOVZBL	INPSTR(R2),R0
+	SUBL2	#^A/0/,R0
+	MULL2	#^D10,R1
+	ADDL2	R0,R1
+	INCW	R2
+	CMPW	R2,INPSIZ
+	BLSS	10$
+	MOVB	R1,GCODE
+	RSB
+
+GET_ADDR:
+
+; Get the address to look for from the user.
+
+	MOVL	#18,INPSTRDSC		; Maximum input size is 18 bytes
+	PUSHAB	INPSIZ			; Place to store # of bytes entered
+	PUSHAB	APRMT			; Prompt to display
+	PUSHAB	INPSTRDSC		; Place to store input string
+	CALLS	#3,G^LIB$GET_INPUT
+
+	CLRL	R1			; Index to next input character
+	CLRL	R3			; Index to next address byte
+
+; Get the first digit of the next address byte.
+
+10$:	MOVZBL	INPSTR(R1),R0		; Get next input character
+	INCL	R1			; Bump input character index
+	CMPB	R0,#^A/A/		; Is this a letter or greater?
+	BGEQU	20$			; If GEQU, yes, so branch
+	SUBL3	#^A/0/,R0,R2		; Convert digit character to digit
+	BRB	30$			; Get the next input character
+20$:	SUBL2	#^A/A/,R0		; Convert letter character to digit
+	ADDL3	#^D10,R0,R2		; Add ten to have correct digit
+
+; Get the second digit of the next address byte.
+
+30$:	MULL2	#^D16,R2		; Put the first digit into its place
+	MOVZBL	INPSTR(R1),R0		; Get next input character
+	INCL	R1			; Bump input character index
+	CMPB	R0,#^A/A/		; Is this a letter or greater?
+	BGEQU	40$			; If GEQU, yes, so branch
+	SUBL2	#^A/0/,R0		; Convert digit character to digit
+	BRB	50$			; Go to add the second digit
+40$:	SUBL2	#^A/A/,R0		; Convert letter character to digit
+	ADDL2	#^D10,R0		; Add ten to have correct digit
+50$:	ADDL	R0,R2			; Add lower digit to address
+
+; Store this address byte and see if we need to do more.
+
+	MOVB	R2,DSTADR(R3)		; Store this address byte
+	INCL	R3			; Bump to next address byte
+	CMPL	R3,#^D06		; Have we processed 6 bytes?
+	BLSS	60$			; Branch if not, more to do
+	RSB				; Else return to caller
+60$:	INCL	R1			; Skip over "-" in input string
+	BRW	10$			; Do next address byte
+
+GET_TIME:
+
+; Tell them what the normal run time is.
+
+	BSBW	BLANK
+	PUSHAB	TIMMSG			; Print the protocol type error
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+; Get number of hours to run test for
+
+GET_HOUR:
+	BSBW	BLANK
+	MOVL	#6,INPSTRDSC
+	PUSHAB	INPSIZ
+	PUSHAB	HPRMT
+	PUSHAB	INPSTRDSC
+	CALLS	#3,G^LIB$GET_INPUT
+
+; Convert number of hours
+
+	CLRL	R1
+	CLRW	R2
+NUM_LOOP2:
+	MOVZBL	INPSTR(R2),R0
+	SUBL2	#^A/0/,R0
+	MULL2	#^D10,R1
+	ADDL2	R0,R1
+	INCW	R2
+	CMPW	R2,INPSIZ
+	BLSS	NUM_LOOP2
+	CMPL	R1,#^D23
+	BGTR	GET_HOUR
+	MOVL	R1,HOURS
+
+; Get number of minutes to run test for
+
+GET_MINUTE:
+	MOVL	#6,INPSTRDSC
+	PUSHAB	INPSIZ
+	PUSHAB	MPRMT
+	PUSHAB	INPSTRDSC
+	CALLS	#3,G^LIB$GET_INPUT
+
+; Convert number of minutes
+
+	CLRL	R1
+	CLRW	R2
+NUM_LOOP3:
+	MOVZBL	INPSTR(R2),R0
+	SUBL2	#^A/0/,R0
+	MULL2	#^D10,R1
+	ADDL2	R0,R1
+	INCW	R2
+	CMPW	R2,INPSIZ
+	BLSS	NUM_LOOP3
+	CMPL	R1,#^D59
+	BGTR	GET_MINUTE
+	MOVL	R1,MINUTES
+
+; Get number of seconds to run test for
+
+GET_SECOND:
+	MOVL	#6,INPSTRDSC
+	PUSHAB	INPSIZ
+	PUSHAB	SPRMT
+	PUSHAB	INPSTRDSC
+	CALLS	#3,G^LIB$GET_INPUT
+
+; Convert number of seconds
+
+	CLRL	R1
+	CLRW	R2
+NUM_LOOP4:
+	MOVZBL	INPSTR(R2),R0
+	SUBL2	#^A/0/,R0
+	MULL2	#^D10,R1
+	ADDL2	R0,R1
+	INCW	R2
+	CMPW	R2,INPSIZ
+	BLSS	NUM_LOOP4
+	CMPL	R1,#^D59
+	BGTR	GET_SECOND
+	MOVL	R1,SECONDS
+	RSB
+
+SET_TIME:
+
+; Determine the time to stop the test
+
+; Now put the total time into one string
+
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=DTIME,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=HOURS,-
+		P2=MINUTES,-
+		P3=SECONDS
+
+; Change the ASCII string for the time to a quadword value.
+
+	$BINTIM_S-
+		TIMBUF=FAODESC,-
+		TIMADR=TIME
+	MNEGL	TIME+4,TIME+4
+	MNEGL	TIME,TIME
+	SBWC	#0,TIME+4
+
+; Now get the present time and add the test time to get the end time.
+
+	$GETTIM_S-
+		TIMADR=ENDTIM
+	ADDL	TIME,ENDTIM
+	ADWC	TIME+4,ENDTIM+4
+	RSB
+
+NEXT_R1:
+
+; Get the next node entry to print.  We do this based on a scan of the
+; nodes in the node table.  Any node that has LBS in the first entry has
+; already been printed.  Note that the caller has to set the low order
+; bit when it's done with the entry.
+;
+; Output:
+;	R0 = LBS if a node was found, else LBC
+;	R2 = address of entry if R0=LBS
+
+	MOVL	NODCNT,R0
+	MOVAL	NODTBL,R2
+10$:	BLBC	(R2),20$		; If LBC, this is a real entry
+	ADDL	#NODSIZ,R2		; Get to next entry
+	SOBGTR	R0,10$			; Loop if more to check
+	CLRL	R0			; No more
+	RSB
+
+20$:	MOVL	R2,R1			; Save current lowest as current
+
+30$:	ADDL	#NODSIZ,R1		; Get to next entry
+	BLBS	(R1),50$		; If LBS, this is not a real entry
+	CMPL	(R1),(R2)		; Is the new entry lower?
+	BGTRU	50$			; If GTR, no
+	BLSSU	40$			; If LSS, yes
+	CMPW	4(R1),4(R2)		; Is the new entry lower?
+	BGEQU	50$			; If GEQ, no
+40$:	MOVL	R1,R2			; Save new lowest
+50$:	SOBGTR	R0,30$			; Loop if more to check
+	MOVL	#1,R0			; Found one
+	RSB	
+
+EXIT:
+	BSBW	BLANK
+	PUSHAB	DNEMSG
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	BSBW	BLANK
+
+	$DASSGN_S-
+		CHAN=CHNLAT
+	$DASSGN_S-
+		CHAN=CHNRMC
+
+	$EXIT_S
+
+BLANK:
+
+; Print blank line
+
+	PUSHAB	BLNKMSG
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	RSB
+
+; An error has occured, so print R0 value and 2nd longword of IOSB.
+
+ERROR:	PUSHL	R0			; Pass R0 error code
+	CALLS	#1,RBL$ERCODE		; Print error code
+
+; Print IOSB 2nd longword value in hex
+
+	MOVL	#80,FAOLEN
+	$FAO_S	CTRSTR=IOMSG,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=IOSB+4
+
+	PUSHAB	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+	BRW	EXIT			; Now exit normally
+
+	.PAGE
+
+; RBL$ERCODE
+;
+; This subroutine accepts a VMS error code in binary
+; and print the message on the terminal.
+;
+; INPUT:	4(AP) = Error Code
+;
+; OUTPUT:	all registers saved except R0 and R1
+;
+; CALLING SEQ:	PUSHx	error code
+;		CALL_S	#1,RBL$ERCODE
+;
+
+	.ENTRY	RBL$ERCODE,^M<R3,R4>
+
+	MOVL	4(AP),R3		; Get error code
+
+	$GETMSG_S-			; Convert error code to message
+		MSGID=R3,-
+		MSGLEN=ERRMSG_LEN,-
+		BUFADR=ERRMSG_BUF_DESC
+
+	PUSHAB	ERRMSG_BUF_DESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+
+	RET				; Return to caller
+
+; Structures used to build error message from error code
+
+ERRMSG_BUF_DESC:
+ERRMSG_LEN:
+	.LONG	256
+	.ADDRESS-
+		ERRMSG_BUF
+ERRMSG_BUF:
+	.BLKB	256
+
+; Node table for node addresses already found
+;
+; The node table contains:
+;
+; 06 bytes for the current address
+; 32 bytes for the mask
+; 06 bytes for the node name
+; 06 bytes for the service name
+
+NODSIZ = 50
+NODMAX = 1000
+NODCNT:	.LONG	0			; Number currently in the table
+NODTBL:	.BLKB	NODMAX*NODSIZ		; Node entries
+
+	.END	START

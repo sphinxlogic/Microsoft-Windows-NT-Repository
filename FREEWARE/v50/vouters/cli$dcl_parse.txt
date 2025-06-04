@@ -1,0 +1,154 @@
+$!
+$!                             COPYRIGHT (C) 1999 BY
+$!                       COMPAQ COMPUTER CORPORATION, HOUSTON
+$!                        TEXAS.  ALL RIGHTS RESERVED.
+$!
+$!     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+$!     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+$!     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+$!     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+$!     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+$!
+$!     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+$!     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+$!
+$!     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+$!
+$!     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+$!     ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+$!     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+$!     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+$!
+$!
+$!
+$! This command procedure enables the effect of cli$dcl_parse and 
+$! cli$dispatch. The only 2 commands available are HELP and CTRL-Z. 
+$! Other commands can be entered to see how this program behaves. The 
+$! /NOTRACEBACK option of the link command avoids a traceback output 
+$! on unrecognized commands.
+$!
+$!
+$!
+$!
+$!
+$! Procedure parameter P1 can have three options : not specified, DECC or VAXC
+$ compiler_switch = "/"+ P1
+$ c_include = f$trnlnm("VAXC$INCLUDE")
+$ decc = f$search ("sys$system:decc$compiler.exe")
+$ vaxc_compiler = f$search ("sys$system:vaxc.exe")
+$ if vaxc_compiler .eqs. "" .and. decc .eqs. "" then goto end
+$ if vaxc_compiler .eqs. "" .and. decc .nes. ""
+$ then
+$     compiler_switch = ""
+$     compiler = "DECC"
+$ endif
+$ if vaxc_compiler .nes. "" .and. decc .eqs. ""
+$ then
+$     compiler_switch = ""
+$     compiler = "VAXC"
+$ endif
+$ if vaxc_compiler .nes. "" .and. decc .nes. ""  .and. P1 .eqs. ""
+$ then
+$     compiler_switch = "/VAXC"
+$     compiler = "VAXC"
+$ else
+$ if P1 .nes. ""
+$ then
+$     compiler_switch = "/"+ P1
+$     compiler = P1
+$ endif
+$ endif
+$ create thisprog.c
+#ifdef __DECC
+#pragma module thisprog "V1.0-00"
+#else
+#module thisprog "V1.0-00"
+#endif
+#include <descrip.h>
+#include <stdio.h>
+#include <starlet.h>
+#include <cli$routines.h>
+#include <lib$routines.h>
+
+#ifdef __DECC
+
+#pragma extern_model strict_refdef
+/*
+ * Declare as external link time value the table which holds the valid
+ * commands. The name of the table is the cld module name. Refer
+ * to cld file content.
+ */
+extern unsigned long Test;
+
+#pragma extern_model globalvalue
+extern const int CLI$_NORMAL,CLI$_NOCOMD,RMS$_EOF,SS$_NORMAL;
+
+#else /* VAX C compiler*/
+
+globalvalue int CLI$_NORMAL,CLI$_NOCOMD,RMS$_EOF,SS$_NORMAL;
+globalref unsigned long Test;
+
+#endif
+
+int help()
+{
+
+printf ("The command contains help\n");
+return (SS$_NORMAL);
+}
+int main (argc,argv)
+int argc;
+char *argv[];
+{
+   unsigned long istat;
+   $DESCRIPTOR (prompt_descr,"Prompt>");
+
+   /* Leave program execution if CTRL-Z has been typed in */
+   do {
+      istat = cli$dcl_parse (NULL,&Test,&lib$get_input,&lib$get_input,
+                                &prompt_descr);
+      /*
+       * dispatch only the lines that contain characters (i.e.: do not
+       * dispatch if a return or a CRTL-Z has been entered). If the
+       * command does not exist in the Tables, cli$dispatch will output
+       * a warning error message. If the program has not been linked with
+       * NOTRACEBACK option, the traceback information will follow.
+       */
+      if (istat == CLI$_NORMAL)
+         istat = cli$dispatch();
+   } while (istat != RMS$_EOF);
+}
+$ create cldfile.cld
+MODULE TEST
+DEFINE VERB HELP
+ROUTINE HELP
+$ set command/object cldfile
+$ if c_include .eqs. "" then goto compile
+$ deassign vaxc$include
+$compile:
+$ cc'compiler_switch' thisprog
+$ if compiler .eqs. "VAXC"
+$ then
+$     link/notraceback thisprog,cldfile,sys$library:vaxcrtl/lib
+$ endif
+$ if compiler .eqs. "DECC"
+$ then
+$     link/notraceback thisprog,cldfile
+$ endif
+$ run thisprog
+help
+exit
+$ if c_include .nes. "" then define vaxc$include 'c_include'
+$ delete thisprog.exe;*
+$ delete thisprog.obj;*
+$ delete cldfile.obj;*
+$ delete thisprog.c;*
+$ delete cldfile.cld;*
+$ exit
+$end:
+$ WRITE SYS$OUTPUT "Fatal- No C compiler present in this system"
+$ exit

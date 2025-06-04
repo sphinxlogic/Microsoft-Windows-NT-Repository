@@ -1,0 +1,479 @@
+$!
+$! The command procedure below executes one PASCAL/C code with various form of
+$! string passing including arrays of strings, and the other, FORTRAN/C code,
+$! shows how an array of string can be passed to C code. It should be noted
+$! that when executed on a VAX, the arrays of strings are passed as a CLASS A
+$! descriptor, whereas, when executed on an AXP, they are passed as a CLASS
+$! NCA descriptor.
+$! 
+$! The command procedure accepts one parameter being either DECC or VAXC if 
+$! both compilers are present in your system. If you have one of the two 
+$! compilers, the command procedure will use the installed one. If you have
+$! the 2 compilers and do not specify the parameter, the default will be the 
+$! VAXC compiler.
+$! 
+$!
+$! Procedure parameter P1 can have three options : not specified, DECC or VAXC
+$ compiler_switch = "/"+ P1
+$ c_include = f$trnlnm("VAXC$INCLUDE")
+$ decc = f$search ("sys$system:decc$compiler.exe")
+$ vaxc_compiler = f$search ("sys$system:vaxc.exe")
+$ if vaxc_compiler .eqs. "" .and. decc .eqs. "" then goto end
+$ if vaxc_compiler .eqs. "" .and. decc .nes. ""
+$ then
+$     compiler_switch = ""
+$     compiler = "DECC"
+$ endif
+$ if vaxc_compiler .nes. "" .and. decc .eqs. ""
+$ then
+$     compiler_switch = ""
+$     compiler = "VAXC"
+$ endif
+$ if vaxc_compiler .nes. "" .and. decc .nes. ""  .and. P1 .eqs. ""
+$ then
+$     compiler_switch = "/VAXC"
+$     compiler = "VAXC"
+$ else
+$ if P1 .nes. ""
+$ then
+$     compiler_switch = "/"+ P1
+$     compiler = P1
+$ endif
+$ endif
+$ create c_varstring.c
+#if defined (__DECC)
+#pragma module c_varstring "V1.0-00"
+#endif
+#if defined (__VAXC)
+#module c_varstring "V1.0-00"
+#endif
+/*                                                                            */
+/*              COPYRIGHT 1995 DIGITAL EQUIPMENT CORPORATION                  */
+/*                                                                            */
+/*   THIS SOFTWARE MAY BE COPIED WITHOUT FEE PROVIDED THAT THE  COPIES  ARE   */
+/*   NOT  MADE OR DISTRIBUTED FOR DIRECT COMMERCIAL ADVANTAGE,  THAT CREDIT   */
+/*   TO THE SOURCE IS GIVEN AND THAT THIS ENTIRE COPYRIGHT NOTICE IS INCLUDED.*/
+/*                                                                            */
+/*   THE  INFORMATION  IN  THIS  SOFTWARE  SHOULD  NOT  BE  CONSTRUED  AS A   */
+/*   COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.                             */
+/*                                                                            */
+/*   DIGITAL EQUIPMENT CORPORATION ASSUMES NO RESPONSIBILITY FOR THE USE,     */
+/*   SUPPORT, OR RELIABILITY OF THIS SOFTWARE.  THIS SOFTWARE IS              */
+/*   DISTRIBUTED "AS IS."                                                     */
+/*                                                                            */
+/*  Author : Philippe Vouters
+/*  Creation Date : 15-Nov-1994
+/*  Version : V1.0-00
+/**/
+#include <descrip.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+void c_varstring (string_descr)
+struct dsc$descriptor *string_descr;
+{
+    int i,k;
+    struct descr$bounds {long dsc$l_l; long dsc$l_u;};
+    struct dimension { struct dimension *flink; struct dimension *blink;
+             int j;int k;int l;};
+
+    switch (string_descr->dsc$b_class)
+       {
+        case DSC$K_CLASS_VS :
+                printf ("Descriptor class VS:\n\t%.*s\n",string_descr->dsc$w_length,
+                                 string_descr->dsc$a_pointer+2);
+                break;
+        case DSC$K_CLASS_S :
+                if (string_descr->dsc$b_dtype == DSC$K_DTYPE_T)
+                        printf ("Descriptor class S:\n\t%.*s\n",string_descr->dsc$w_length,
+                                         string_descr->dsc$a_pointer);
+                if (string_descr->dsc$b_dtype == DSC$K_DTYPE_VT)
+                        printf ("Descriptor class S:\n\t%.*s\n",string_descr->dsc$w_length,
+                                         string_descr->dsc$a_pointer+2);
+                break;
+        case DSC$K_CLASS_A :
+                {
+                struct dsc$descriptor_a *array_descr;
+                struct dimension *tmp_ptr;
+                struct dimension *dim;
+                struct dimension *start_queue;
+                struct dimension *end_queue;
+                int flag;
+                int length;
+                int *integer_array;
+                int *mults;
+                char **dsc$a_a0;
+                struct descr$bounds *dsc$bounds;
+                int *dsc$l_m;
+                printf ("Descriptor class A:\n");
+                array_descr = (struct dsc$descriptor_a *) string_descr;
+                dsc$a_a0 = (char **) &array_descr->dsc$l_arsize ; dsc$a_a0++;
+                dsc$l_m = (int *) dsc$a_a0; dsc$l_m++;
+                dsc$bounds = (struct descr$bounds *)((int *)&dsc$l_m[array_descr->dsc$b_dimct]);
+                dim = malloc (sizeof (struct dimension));
+                start_queue = dim;
+                integer_array = malloc (array_descr->dsc$b_dimct*sizeof(int));
+                mults = malloc (array_descr->dsc$b_dimct*sizeof(int));
+                dim->flink = dim->blink = 0;
+                dim->j = dim->l = dsc$bounds->dsc$l_l;
+                dim->k = dsc$bounds->dsc$l_u;
+                for (i=1;i<array_descr->dsc$b_dimct;i++) {
+                        dsc$bounds++;
+                        tmp_ptr = malloc (sizeof(struct dimension));
+                        tmp_ptr->blink = dim;
+                        dim->flink = tmp_ptr;
+                        dim = tmp_ptr;
+                        dim->j = dim->l = dsc$bounds->dsc$l_l;
+                        dim->k = dsc$bounds->dsc$l_u;
+                }
+                end_queue = dim;
+                if (array_descr->dsc$b_aflags.dsc$v_fl_coeff != 0)
+                   {
+                   if (array_descr->dsc$b_aflags.dsc$v_fl_column == 1)
+                      {
+                      mults[0] = 1;
+                      for (i=1;i<array_descr->dsc$b_dimct;i++)
+                        mults[i] = mults[i-1]*dsc$l_m[i-1];
+                      }
+                   else
+                      {
+                      mults[array_descr->dsc$b_dimct-1] = 1;
+                      for (i=array_descr->dsc$b_dimct-2;i>=0;i--)
+                        mults[i] = mults[i+1]*dsc$l_m[i+1];
+                      }
+                   }
+                dim = start_queue;
+
+                do {
+                   length = 0;
+                   tmp_ptr = dim;
+                   k = 0;
+                   length= length + (tmp_ptr->j-tmp_ptr->l)* mults[k];
+                   while (tmp_ptr != end_queue) {
+                         k++;
+                         tmp_ptr = tmp_ptr->flink;
+                         length = length + (tmp_ptr->j-tmp_ptr->l)*mults[k];
+                      }
+                   k = 0;
+                   tmp_ptr = dim;
+                   integer_array[k] = tmp_ptr->j;
+                   while (tmp_ptr != end_queue) {
+                         tmp_ptr = tmp_ptr->flink;
+                         k++;
+                         integer_array[k] = tmp_ptr->j;
+                         }
+                   printf ("\telt");
+                   for (i=0;i<array_descr->dsc$b_dimct;i++)
+                       printf ("[%1d]",integer_array[i]);
+                   printf(":%.*s\n",array_descr->dsc$w_length,
+                                   array_descr->dsc$a_pointer+
+                                   (length*array_descr->dsc$w_length));
+
+                   if (array_descr->dsc$b_aflags.dsc$v_fl_column ==0)
+                      {
+                      tmp_ptr = end_queue;
+                      do {
+                         flag = 0;
+                         if (tmp_ptr->j < tmp_ptr-> k)
+                            {
+                            tmp_ptr->j++;
+                            flag++;
+                            }
+                         else
+                            tmp_ptr->j = tmp_ptr->l;
+                         tmp_ptr = tmp_ptr->blink;
+                         }while ((tmp_ptr != 0)  && (flag == 0));
+                      }
+                   else
+                      {
+                      tmp_ptr = start_queue;
+                      do {
+                         flag = 0;
+                         if (tmp_ptr->j < tmp_ptr-> k)
+                            {
+                            tmp_ptr->j++;
+                            flag++;
+                            }
+                         else
+                            tmp_ptr->j = tmp_ptr->l;
+                         tmp_ptr = tmp_ptr->flink;
+                         }while ((tmp_ptr != 0) && (flag == 0));
+                      }
+                   }while (flag!=0);
+                }
+                break;
+        case DSC$K_CLASS_VSA :
+                {
+                struct dsc$descriptor_vsa *array_descr;
+                struct dimension *tmp_ptr;
+                struct dimension *dim;
+                struct dimension *start_queue;
+                struct dimension *end_queue;
+                int flag;
+                int length;
+                int *integer_array;
+                char **dsc$a_a0;
+                struct descr$bounds *dsc$bounds;
+                int *dsc$l_m;
+                char *cp;
+
+                printf("Descriptor class VSA:\n");
+                array_descr = (struct dsc$descriptor_vsa *) string_descr;
+                dsc$a_a0 = (char **) &array_descr->dsc$l_arsize ; dsc$a_a0++;
+                dsc$l_m = (int *) dsc$a_a0; dsc$l_m++;
+                dsc$bounds = (struct descr$bounds *)((int *)&dsc$l_m[array_descr->dsc$b_dimct]);
+                dim = malloc (sizeof (struct dimension));
+                start_queue = dim;
+                integer_array = malloc (array_descr->dsc$b_dimct*sizeof(int));
+                dim->flink = dim->blink = 0;
+                dim->j = dim->l = dsc$bounds->dsc$l_l;
+                dim->k = dsc$bounds->dsc$l_u;
+                for (i=1;i<array_descr->dsc$b_dimct;i++) {
+                        dsc$bounds++;
+                        tmp_ptr = malloc (sizeof(struct dimension));
+                        tmp_ptr->blink = dim;
+                        dim->flink = tmp_ptr;
+                        dim = tmp_ptr;
+                        dim->j = dim->l = dsc$bounds->dsc$l_l;
+                        dim->k = dsc$bounds->dsc$l_u;
+                }
+                end_queue = dim;
+                dim = start_queue;
+
+                do {
+                   length = 0;
+                   tmp_ptr = dim;
+                   k = 0;
+                   length= length + (tmp_ptr->j-tmp_ptr->l)*dsc$l_m[k];
+                   while (tmp_ptr != end_queue) {
+                       k++;
+                       tmp_ptr = tmp_ptr->flink;
+                       length = length + (tmp_ptr->j-tmp_ptr->l)*dsc$l_m[k];
+                       }
+                   k = 0;
+                   tmp_ptr = dim;
+                   integer_array[k] = tmp_ptr->j;
+                   while (tmp_ptr != end_queue) {
+                         tmp_ptr = tmp_ptr->flink;
+                         k++;
+                         integer_array[k] = tmp_ptr->j;
+                   }
+                   printf ("\telt");
+                   for (i=0;i<array_descr->dsc$b_dimct;i++)
+                       printf ("[%1d]",integer_array[i]);
+                   cp = array_descr->dsc$a_pointer + length ;
+                   printf(":%.*s\n",(unsigned short)*cp,cp+2);
+
+                   tmp_ptr = end_queue;
+                   do {
+                      flag = 0;
+                      if (tmp_ptr->j < tmp_ptr-> k)
+                            {
+                            tmp_ptr->j++;
+                            flag++;
+                            }
+                      else
+                            tmp_ptr->j = tmp_ptr->l;
+                      tmp_ptr = tmp_ptr->blink;
+                      }while ((tmp_ptr != 0)  && (flag == 0));
+                   }while (flag!=0);
+                }
+                break;
+        case DSC$K_CLASS_NCA :
+                {
+                struct dsc$descriptor_nca *array_descr;
+                struct dimension *tmp_ptr;
+                struct dimension *dim;
+                struct dimension *start_queue;
+                struct dimension *end_queue;
+                int flag;
+                int length;
+                int *integer_array;
+                char **dsc$a_a0;
+                struct descr$bounds *dsc$bounds;
+                int *dsc$l_m;
+                char *cp;
+
+                printf ("Descriptor class NCA:\n");
+                array_descr = (struct dsc$descriptor_nca *) string_descr;
+                dsc$a_a0 = (char **) &array_descr->dsc$l_arsize ; dsc$a_a0++;
+                dsc$l_m = (int *) dsc$a_a0; dsc$l_m++;
+                dsc$bounds = (struct descr$bounds *)((int *)&dsc$l_m[array_descr->dsc$b_dimct]);
+                dim = malloc (sizeof (struct dimension));
+                start_queue = dim;
+                integer_array = malloc (array_descr->dsc$b_dimct*sizeof(int));
+                dim->flink = dim->blink = 0;
+                dim->j = dim->l = dsc$bounds->dsc$l_l;
+                dim->k = dsc$bounds->dsc$l_u;
+                for (i=1;i<array_descr->dsc$b_dimct;i++) {
+                        dsc$bounds++;
+                        tmp_ptr = malloc (sizeof(struct dimension));
+                        tmp_ptr->blink = dim;
+                        dim->flink = tmp_ptr;
+                        dim = tmp_ptr;
+                        dim->j = dim->l = dsc$bounds->dsc$l_l;
+                        dim->k = dsc$bounds->dsc$l_u;
+                }
+                end_queue = dim;
+                dim = start_queue;
+
+                do {
+                   length = 0;
+                   tmp_ptr = dim;
+                   k = 0;
+                   length= length + (tmp_ptr->j-tmp_ptr->l)*dsc$l_m[k];
+                   while (tmp_ptr != end_queue) {
+                       k++;
+                       tmp_ptr = tmp_ptr->flink;
+                       length = length + (tmp_ptr->j-tmp_ptr->l)*dsc$l_m[k];
+                       }
+                   k = 0;
+                   tmp_ptr = dim;
+                   integer_array[k] = tmp_ptr->j;
+                   while (tmp_ptr != end_queue) {
+                         tmp_ptr = tmp_ptr->flink;
+                         k++;
+                         integer_array[k] = tmp_ptr->j;
+                   }
+                   printf ("\telt");
+                   for (i=0;i<array_descr->dsc$b_dimct;i++)
+                       printf ("[%1d]",integer_array[i]);
+                   cp = array_descr->dsc$a_pointer + length ;
+                   printf(":%.*s\n",array_descr->dsc$w_length,cp);
+
+                   tmp_ptr = end_queue;
+                   do {
+                      flag = 0;
+                      if (tmp_ptr->j < tmp_ptr-> k)
+                            {
+                            tmp_ptr->j++;
+                            flag++;
+                            }
+                      else
+                            tmp_ptr->j = tmp_ptr->l;
+                      tmp_ptr = tmp_ptr->blink;
+                      }while ((tmp_ptr != 0)  && (flag == 0));
+                   }while (flag!=0);
+                }
+                break;
+       }
+}
+$ if c_include .eqs. "" then goto compile
+$ deassign vaxc$include
+$compile:
+$ cc'compiler_switch' c_varstring
+$ create varstring.pas
+program varstring ;
+{
+{               COPYRIGHT ©1995 DIGITAL EQUIPMENT CORPORATION
+{
+{    THIS SOFTWARE MAY BE COPIED WITHOUT FEE PROVIDED THAT THE  COPIES  ARE
+{    NOT  MADE OR DISTRIBUTED FOR DIRECT COMMERCIAL ADVANTAGE,  THAT CREDIT
+{    TO THE SOURCE IS GIVEN AND THAT THIS ENTIRE COPYRIGHT NOTICE IS INCLUDED.
+{
+{    THE  INFORMATION  IN  THIS  SOFTWARE  SHOULD  NOT  BE  CONSTRUED  AS A
+{    COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.
+{
+{    DIGITAL EQUIPMENT CORPORATION ASSUMES NO RESPONSIBILITY FOR THE USE,
+{    SUPPORT, OR RELIABILITY OF THIS SOFTWARE.  THIS SOFTWARE IS
+{    DISTRIBUTED "AS IS."
+{
+{}
+TYPE    My_packed_array_of_char = PACKED ARRAY [1..10] OF CHAR;
+
+{ Declare the same external C routine to which is passed the different
+parameter types }
+[EXTERNAL (C_VARSTRING)] procedure c_varstring
+        (the_string : VARYING [N] OF CHAR); EXTERNAL;
+[EXTERNAL (C_VARSTRING)] procedure C_string
+        (the_string : string); EXTERNAL;
+[EXTERNAL (C_VARSTRING)] procedure string_display
+        (the_string : [CLASS_S] PACKED ARRAY [L1..U1:INTEGER] OF CHAR);EXTERNAL;
+[EXTERNAL (C_VARSTRING)] procedure array_display
+        (the_string_array : ARRAY [L1..U1:INTEGER;l2..u2:INTEGER]
+                            OF VARYING [N] OF CHAR); EXTERNAL;
+[EXTERNAL (C_VARSTRING)] procedure packed_array_display
+        (the_string_array : ARRAY [L1..U1:INTEGER;l2..u2:INTEGER;L3..U3:INTEGER]
+                                OF My_packed_array_of_char); EXTERNAL;
+[EXTERNAL (C_VARSTRING)] procedure one_dim_array_display
+        (the_string_array : ARRAY [L1..U1:INTEGER] OF VARYING [N] OF CHAR);
+                                EXTERNAL;
+[EXTERNAL (C_VARSTRING)] procedure one_dim_packed_array_display
+        (the_string_array : ARRAY [L1..U1:INTEGER] OF My_packed_array_of_char);
+                                EXTERNAL;
+
+var     my_string_array : ARRAY [1..2,2..3] OF VARYING [20] OF CHAR;
+        my_string : STRING(20);
+        array_string : PACKED ARRAY [1..7] OF CHAR;
+        My_char_array : ARRAY [1..2,0..1,10..11] OF My_packed_array_of_char;
+
+begin
+my_string := 'Bonjour';
+my_string_array [1,2] := my_string;
+my_string_array [1,3] := 'Benvenudo';
+my_string_array [2,2] := 'hello';
+my_string_array [2,3] := 'Willkommen';
+My_char_array [1,0,10] := My_string;
+My_char_array [1,1,10] := My_string_array [2,2];
+My_char_array [2,0,10] := 'Benvenudo';
+My_char_array [2,1,10] := 'Gracias';
+My_char_array [1,0,11] := My_string;
+My_char_array [2,0,11] := My_string_Array [2,2];
+My_char_array [1,1,11] := 'Benvenudo';
+My_char_array [2,1,11] := 'Gracias';
+array_string := my_string;
+c_varstring (my_string_array[2,2]);
+C_string (my_string);
+string_display (array_string);
+one_dim_array_display (my_string_array[1]);
+one_dim_packed_array_display(My_char_array[1,0]);
+packed_array_display (my_char_array);
+array_display (my_string_array);
+end.
+$ create char.for
+        PROGRAM CHAR_ARRAY
+C
+C               COPYRIGHT ©1995 DIGITAL EQUIPMENT CORPORATION
+C
+C    THIS SOFTWARE MAY BE COPIED WITHOUT FEE PROVIDED THAT THE  COPIES  ARE
+C    NOT  MADE OR DISTRIBUTED FOR DIRECT COMMERCIAL ADVANTAGE,  THAT CREDIT
+C    TO THE SOURCE IS GIVEN AND THAT THIS ENTIRE COPYRIGHT NOTICE IS INCLUDED.
+C
+C    THE  INFORMATION  IN  THIS  SOFTWARE  SHOULD  NOT  BE  CONSTRUED  AS A
+C    COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.
+C
+C    DIGITAL EQUIPMENT CORPORATION ASSUMES NO RESPONSIBILITY FOR THE USE,
+C    SUPPORT, OR RELIABILITY OF THIS SOFTWARE.  THIS SOFTWARE IS
+C    DISTRIBUTED "AS IS."
+C
+C
+        CHARACTER*10 MY_CHAR_ARRAY (1:2,0:1,10:11)
+
+        MY_CHAR_ARRAY (1,0,10) = 'Bonjour'
+        MY_CHAR_ARRAY (2,0,10) = 'Benvenudo'
+        MY_CHAR_ARRAY (1,1,10) = 'Hello'
+        MY_CHAR_ARRAY (2,1,10) = 'Willkommen'
+        MY_CHAR_ARRAY (1,0,11) = 'Bonjour'
+        MY_CHAR_ARRAY (2,0,11) = 'Benvenudo'
+        MY_CHAR_ARRAY (1,1,11) = 'Hello'
+        MY_CHAR_ARRAY (2,1,11) = 'Willkommen'
+        CALL C_VARSTRING(MY_CHAR_ARRAY)
+        END
+$ fortran char
+$ pascal varstring
+$ if compiler .eqs. "VAXC" then link varstring,c_varstring,sys$library:vaxcrtl/lib
+$ if compiler .eqs. "DECC" then link varstring,c_varstring
+$ if compiler .eqs. "VAXC" then link char,c_varstring,sys$library:vaxcrtl/lib
+$ if compiler .eqs. "DECC" then link char,c_varstring
+$ run varstring
+$ run char
+$ if c_include .nes. "" then define vaxc$include 'c_include'
+$ delete varstring.exe;*
+$ delete char.exe;*
+$ delete c_varstring.obj;*
+$ delete varstring.obj;*
+$ delete char.obj;*
+$ exit
+$end:
+$ WRITE SYS$OUTPUT "Fatal- No C compiler present in this system"
+$ exit

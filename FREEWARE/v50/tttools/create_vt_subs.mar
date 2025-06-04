@@ -1,0 +1,371 @@
+	.TITLE	CREATE_VT_SUBS - Routines to create and link a Virtual Terminal
+	.IDENT	/V1.0-000/
+	.LIBRARY /SYS$LIBRARY:LIB.MLB/
+
+;
+;****************************************************************************
+;*									    *
+;*  COPYRIGHT (c) 1989 BY						    *
+;*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+;*  ALL RIGHTS RESERVED.						    *
+;* 									    *
+;*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+;*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+;*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+;*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+;*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+;*  TRANSFERRED.							    *
+;* 									    *
+;*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+;*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+;*  CORPORATION.							    *
+;* 									    *
+;*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+;*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+;* 									    *
+;*									    *
+;****************************************************************************
+;
+;++
+;
+;	This is set of routines to create and link a Virtual Terminal (VT) to an
+; already allocated physical terminal.  It requires that the caller have change
+; mode to KERNEL, and PSWAPM privileges.  The target physical terminal must be
+; disconnectable, and the Virtual Terminal must be loaded.
+;
+; AUTHOR:
+;
+;	Forrest A. Kenney	24-Nov-1989
+;
+; Revision History:
+;
+;	X.X	XXXNNN	XX-XXX-XXXX
+;		Reason
+;
+;--
+
+	.SBTTL	External and local symbol definitions
+
+;
+; External symbols
+;
+
+	$CCBDEF				; Define CCB
+	$DVIDEF				; Device information
+	$IOCDEF				; Define IOC$SEARCH flags
+	$IPLDEF				; Define various CPU IPL levels
+	$PSLDEF				; Define PSL offsets
+	$ORBDEF				; Define Object Rights Block offsets
+	$SPLCODDEF			; SMP code definitions
+	$SSDEF				; System status codes
+	$UCBDEF				; Unit control block
+	$TTYDEFS			; TTY specific definitions
+	$TTYMACS			; Define terminal macros
+	$TTYUCBDEF			; TTY UCB definitions
+
+	.SBTTL	Local Storage
+
+
+	.PSECT	$$DATA	PAGE,RD,WRT,NOEXE
+
+LOCK_ADDR:
+	.ADDRESS	BEGIN_KERNEL_CODE
+	.ADDRESS	END_KERNEL_CODE
+
+
+	.PSECT	$$CODE	PAGE,PIC,NOWRT,RD,EXE
+	.SBTTL	CREATE_VT and link a Virtual Terminal
+;++
+; CREATE_VT and link a Virtual Terminal
+;
+; Functional Description:
+;
+;	This routine will create and link a virtual terminal.
+; 
+; Calling Sequence:
+;
+;	ret_stat = CREATE_VT(channel, unit_number)
+;
+;	channel		-	VMS channel number pointing to terinal to have
+;				VT associated to it.
+;	unit_number	-	Address of a longword to hold the unit number of
+;				newly created VT.
+;
+;	ret_stat	-	Status values indicating success or failure of
+;				call.  The following values are possible:
+;
+;				SS$_NORMAL - Device disconnect or hungup depending upon entry point
+;				SS$_ACCVIO - name string is not readable
+;				SS$_NONLOCAL - nonlocal device
+;				SS$_IVDEVNAM - Is not disconnectable
+;				SS$_IVLOGNAM - invalid logical name (e.g., too long)
+;				SS$_TOOMANYLNAM - max. logical name recursion exceeded
+;				SS$_NOSUCHDEV - device not found
+;				SS$_NODEVAVL - device exists but not available according to rules
+;				SS$_DEVALLOC - device allocated to other user
+;				SS$_NOPRIV - failed device protection
+;				SS$_TEMPLATEDEV - can't allocate template device
+;				SS$_DEVMOUNT - device already mounted
+;				SS$_DEVOFFLINE - device marked offline
+;
+;--
+
+	.ENTRY	CREATE_VT,^M<R2,R3,R4,R5,R6>
+;+
+; Lock down the KERNEL code
+;-
+	$LCKPAG_S			-	; Lock KERNEL mode routines into memory
+		INADR=LOCK_ADDR			;
+	BLBC	R0,10$				; LBC failed
+
+;+
+; Call the KERNEL mode routines
+;-
+	MOVL	AP,-(SP)			; Store argument list on stack
+	MOVAL	KRNL_CODE,-(SP)			; Store routine address
+	CALLS	#2,G^SYS$CMKRNL			; Invoke KERNEL mode routine
+
+;+
+; Unlock pages
+;-
+	PUSHL	R0				; Save return status
+	$ULKPAG_S			-	; Unlock KERNEL mode routines
+		INADR=LOCK_ADDR			;
+	POPL	R0				; Restore exit reason ignore
+						;  unlock error
+
+10$:
+	RET					; Return to caller
+
+
+	.SBTTL	KRNL_CODE - Kernel mode routines 
+;++
+;KRNL_CODE - Kernel mode routines 
+;
+; Functional Description:
+;
+;	This routine performs all the KERNEL mode work.
+;
+; Calling Sequence:
+;
+;	ret_stat = KRNL_CODE(channel, unit_number)
+;
+;	channel		-	VMS channel number pointing to terinal to have
+;				VT associated to it.
+;	unit_number	-	Address of a longword to hold the unit number of
+;				newly created VT.
+;
+;	ret_stat	-	Status values indicating success or failure of
+;				call.  The following values are possible:
+;
+;				SS$_NORMAL - Device disconnect or hungup depending upon entry point
+;				SS$_ACCVIO - name string is not readable
+;				SS$_NONLOCAL - nonlocal device
+;				SS$_IVDEVNAM - Is not disconnectable
+;				SS$_IVLOGNAM - invalid logical name (e.g., too long)
+;				SS$_TOOMANYLNAM - max. logical name recursion exceeded
+;				SS$_NOSUCHDEV - device not found
+;				SS$_NODEVAVL - device exists but not available according to rules
+;				SS$_DEVALLOC - device allocated to other user
+;				SS$_NOPRIV - failed device protection
+;				SS$_TEMPLATEDEV - can't allocate template device
+;				SS$_DEVMOUNT - device already mounted
+;				SS$_DEVOFFLINE - device marked offline
+;
+;--
+
+	.ALIGN	PAGE				; Force page boundary
+BEGIN_KERNEL_CODE::
+
+DEVNAM:	.ASCID	/VTA0:/
+
+	.ENTRY	KRNL_CODE,^M<>
+	JSB	G^INI$BRK
+	MOVL	4(AP),R0			; Get channel number
+	BSBW	VALIDATE_CHAN			; Validate have terminal channel
+	MOVL	R5,R6				; Put PHYUCB address in correct place
+	JSB	G^SCH$IOLOCKW			; Lock I/O databse for write access
+	IFWRT	#4,@8(AP),10$			; Make sure can write unit number
+	MOVL	#SS$_ACCVIO,R0			; No access
+	BRW	20$				; Exit
+10$:
+	MOVAL	DEVNAM,R1			; Get VT device name
+	CLRL	R3				; No lock value block
+	MOVL	#<IOC$M_ANY!IOC$M_LOCAL>,R2	; Match local device
+	JSB	G^IOC$SEARCH			; Search for VT
+	JSB	G^INI$BRK
+	BLBC	R0,20$				; LBC error exit
+	MOVL	R1,R5				; Copy UCB address
+	FORKLOCK			-	; Acquire forklock
+		LOCK=UCB$B_FIPL(R6),	-	;
+		SAVIPL=-(SP),		-	;
+		PRESERVE=NO			;
+	DEVICELOCK			-	; Take device lock
+		LOCKADDR=UCB$L_DLCK(R6),-	;
+		LOCKIPL=UCB$B_DIPL(R6),	-	;
+		SAVIPL=-(SP),		-	;
+		PRESERVE=NO			;
+		
+	BSBB	CLONE_UCB			; Clone and link VT if possible
+	DEVICEUNLOCK			-	; Release device lock
+		LOCKADDR=UCB$L_DLCK(R6),-	;
+		NEWIPL=(SP)+,		-	;
+    		CONDITION=RESTORE,	-	;
+		PRESERVE=YES			;
+	FORKUNLOCK			-	; Release fork lock
+		LOCK=UCB$B_FLCK(R6),	-	;
+		NEWIPL=(SP)+,		-	;
+		PRESERVE=YES			;
+	BLBC	R0,20$				; LBC error exit
+	MOVZWL	UCB$W_UNIT(R5),@8(AP)		; Return VT unit number
+	
+20$:
+	PUSHL	R0				; Save reason
+	JSB	G^SCH$IOUNLOCK			; Unlock I/O database
+	POPL	R0				; Restore reason
+	RET					; Retrun to caller
+
+
+	.SBTTL	CLONE NEW LOGICAL UCB 
+;++
+; CLONE_UCB
+;
+; Description:
+;	This routine will clone a logical ucb and cross link it to the
+;	specified physical ucb. The logical ucb fields are initialized 
+;	as appropriate.
+;
+; Inputs:
+;
+;	R4 = PCB
+;	R5 = Logical UCB address
+;	R6 = Physical UCB address
+;
+; Outputs:
+;
+;	R0 = SS$_NORMAL -   Device disconnect or hungup depending upon entry point
+;	   = SS$_INSFMEM -  Insufficient non-paged pool to copy UCB
+;          = SS$_IVDEVNAM - Is not disconnectable
+;	R5 = Logical UCB address
+;	R6 = Physical UCB address
+;	
+;	R0-R3 DESTROYED
+; Note:
+;	1) The I/O database MUTEX must be held for write access
+;	2) FORKLOCK must be held
+;	3) DEVICELOCK must be held
+;
+;--
+
+CLONE_UCB:
+	MOVL	#SS$_IVDEVNAM,R0			; Assume illegal device
+	BBC	#TT2$V_DISCONNECT,-			; Skip if unit not able to disconnect
+		UCB$L_DEVDEPND2(R6),10$			;
+	JSB	G^IOC$CLONE_UCB				; Go create a detached ucb
+ 	BLBC	R0,10$					; Error, so skip its use
+     	MOVL	R2,R5					; Get new LUCB address
+ 	CLRW	UCB$W_REFC(R5)				; Init reference count
+	BISL	#UCB$M_DELETEUCB,-			; Mark this lucb to be deleted on last deassign
+		UCB$L_STS(R5)				;
+	BICL	#DEV$M_AVL,-				; Show PUCB not avalable for use
+		UCB$L_DEVCHAR(R6)			;
+	BISL	#DEV$M_RED,UCB$L_DEVCHAR2(R6) 		; Show PUCB redirected
+
+;	INIT LUCB FIELDS
+
+	MOVB	UCB$B_DEVTYPE(R6),UCB$B_DEVTYPE(R5)	; Terminal type
+	MOVB	UCB$B_FLCK(R6),UCB$B_FLCK(R5)		; Fork IPL
+	MOVB	UCB$B_DIPL(R6),UCB$B_DIPL(R5)		; Device IPL
+	MOVL	UCB$L_DLCK(R6),UCB$L_DLCK(R5)		; Device spinlock
+	MOVL	UCB$L_AFFINITY(R6),UCB$L_AFFINITY(R5)	; Device AFFINITY
+	MOVW	UCB$W_DEVBUFSIZ(R6),UCB$W_DEVBUFSIZ(R5)	; Buffer size
+	MOVL	UCB$L_DEVDEPEND(R6),UCB$L_DEVDEPEND(R5)	; Device characteristics
+	MOVL	UCB$L_DEVDEPND2(R6),UCB$L_DEVDEPND2(R5)	; 
+	MOVB	UCB$B_AMOD(R6),UCB$B_AMOD(R5)		; Device protection
+	MOVL	R6,UCB$L_TL_PHYUCB(R5)			; Link LUCB to pucb
+	MOVL	R5,UCB$L_TT_LOGUCB(R6)			; Link PUCB to lucb
+	MOVL	UCB$L_ORB(R5),R0			; Get address of ORB
+	BISB	#ORB$M_PROT_16,	-			; Indicate using SOGW protection 
+		ORB$B_FLAGS(R0)				; for this device
+	MOVW	G^TTY$GW_PROT,	-			; Set device protection 
+		ORB$W_PROT(R0)	       			; to the system default
+	MOVL	#SS$_NORMAL,R0				; Signal success
+10$:
+	RSB						; Exit
+
+	.SBTTL	VALIDATE_CHAN - Validate channel is legal
+;+
+; VALIDATE_CHAN - Validate channel is legal
+;
+; Functional Description:
+;
+;	This routine is called by the system services to verify that the I/O
+; channel supplied for the request is valid.  It performs the same checks that
+; EXE$QIO does when validating a channel.  Additionally it adds checks to make
+; sure it is talking to the correct device and only using the control connection
+; channel.
+;
+; INPUTS:
+;
+;	R0	-	Channel number
+;
+; OUTPUTS:
+;
+;	R0	-	SS$_NORMAL - Successful completion
+;			SS$_DEVOFFLINE - Device is offline and request cannot proceed
+;			SS$_IVCHAN - Illegal channel
+;			SS$_NOPRIV - Insufficient privilege to perform request
+;	R1	-	DDB 
+;	R3	-	PSL
+;	R5	-	PHYUCB
+;	R6	-	CCB
+;	R11	-	Current mode
+;
+; NOTES:
+;
+;	If an error occurs this routine returns directly to the calling
+; application.
+;
+;-
+VALIDATE_CHAN:
+	BICL	#<^XFFFF0000!<CCB$C_LENGTH-1>>,- ; Fetch channel number and
+		R0				; extraneous bits
+	BEQL	INVCHAN				; EQL bad channel
+	CMPW	R0,G^CTL$GW_CHINDX		; Legal channel index
+	BGTRU	INVCHAN				; GTRU bad channel
+	MNEGL	R0,R0				; Convert to channel index
+	MOVL	G^CTL$GL_CCBBASE,R6		; Get CCB base address
+	MOVAB	(R6)[R0],R6			; Get CCB address
+	MOVPSL	R3				; Get current PSL
+	MOVZBL	CCB$B_AMOD(R6),R5		; Get channel access mode
+	BEQL	INVCHAN				; EQL Illegal channel
+	EXTZV	#PSL$V_PRVMOD,#PSL$S_PRVMOD,-	; Get previous mode from PSL
+		R3,R11				;
+	CMPB	R11,R5				; Caller have priv to use this channel
+	BGEQ	PRIVERR				; GEQ no priv error exit
+	MOVL	CCB$L_UCB(R6),R5		; Get UCB address
+	CMPW	#UCB$K_TT_LENGTH,UCB$W_SIZE(R5) ; See if UCB large enough
+	BGTRU	INVCHAN				; GTR UCB too small to be TTUCB
+	MOVL	G^TTY$GL_DPT,R1			; Get TTDRIVER DPT
+	CVTWL	DPT$W_VECTOR(R1),R0		; Get vector size
+	ADDL	R0,R1				; Compute TTDRIVER vector address
+	CMPL	R1,UCB$L_TT_CLASS(R5)		; See if VECTOR address agree
+	BNEQU	INVCHAN				; NEQ error not terminal channel
+	BBC	#UCB$V_ONLINE,UCB$W_STS(R5), -	; Is device online if not error
+		OFFLINE				; exit
+	RSB
+
+INVCHAN:
+	MOVZWL	#SS$_IVCHAN,R0			; Illegal channel
+	RET
+OFFLINE:
+	MOVL	#SS$_DEVOFFLINE,R0		; Device offline
+	RET
+PRIVERR:
+	MOVL	#SS$_NOPRIV,R0			; No privilege
+	RET
+
+
+END_KERNEL_CODE::
+
+	.END

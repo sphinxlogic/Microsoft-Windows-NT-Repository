@@ -1,0 +1,781 @@
+	.TITLE	EMU_NETMON   
+	.IDENT	/V1-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	JUN-1997	PB	Creation
+;	
+;++
+;1 EMU_NETMON   
+; Collection of routines common to net monitor processes.
+; See individual routines for descriptions
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+	.LIBRARY        /EMU5_LIB:MACROLIB.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$SSDEF
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUIPCDEF
+	EMUDBDEF
+	EMUCNTDEF
+	EMUMSGDEF	
+
+	.PSECT	EMU_NETMON_DATA,WRT,NOEXE,PIC,SHR,QUAD
+
+RESTIME:	.QUAD	0
+INTIME:         .QUAD	0
+CRCDESC:	.QUAD	0
+ALTIN_IOSB:	.QUAD	0
+ALERT_BUFF:	.BLKB	512
+ALT_PARAMS:	.BLKL	14
+OLDP_BUFF:	.BLKB	DB_REC_C_MRS
+OLDP_DESC:	.LONG	.-OLDP_BUFF
+		.ADDRESS  OLDP_BUFF
+RECCNT:		.LONG	0
+PCNT:		.LONG	0
+
+; ALERT MBX
+ALERTMBX:	.LONG	12				; Arg counter
+       		.LONG	0				; Event number
+ALTINCHAN:	.LONG	0				; Channel
+      		.LONG	<IO$_WRITEVBLK!IO$M_NORSWAIT>	; Function
+       		.LONG   ALTIN_IOSB			; IO Status block
+       		.LONG	0				; AST Routine
+		.LONG	0				; AST Param
+ALTINB:       	.LONG	0 				; P1
+ALTINS:       	.LONG	0				; P2
+       		.LONG	0				; P3
+       		.LONG	0				; P4
+       		.LONG	0				; P5
+       		.LONG	0				; P6
+
+
+; Error Log
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+	.ALIGN	LONG
+MAPPERFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		FOP = CIF,-			; Create if doesn't exist
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <EMU5_DAT:MAPPER.DAT>,-	; Default Filename 
+		FNM = <MAPPER>,-			; Filename 
+		XAB = MAPPERXAB0                  ; Keys
+
+MAPPERRAB:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = MAPPERREC_BUF,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = MAPPERREC_BUF,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		KBF = MAPPER_KEY,-			; Key location
+		KSZ = 8
+
+MAPPERXAB0:	$XABKEY	REF = 0,-  		; TBL,PARAM
+		DTP = BN8,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+		NXT = MAPPERXAB1
+
+MAPPERXAB1:	$XABKEY	REF = 1,-  	; TBL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+;
+MAPPERREC_BUF:	
+MAPPER_KEY:
+MAPPER_TBL:		.LONG	0	; Table 
+MAPPER_PARAM:		.LONG	0	; Paramater
+			.BLKB	120	; Rest
+MAPPERREC_SIZE = .-MAPPERREC_BUF        ; = 128
+
+
+
+RTNNAM:		.ASCID	/NETMON/
+ALTINMBX:	.ASCID	/ALTINMBX/		; Alert log name
+
+
+       .PSECT NETMON_PARSE,EXE,NOWRT,LONG
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_CHECK_POLFLG    
+;++
+;2 CONFIGMON_CHECK_POLFLG    
+; Routine to get the MAPPER entry for the input EMUDB rec and return either 
+; TRUE or FALSE if this param should be polled for. Each paramater in MAPPER
+; has a bit field that directs this poller whether or not to poll for the 
+; paramater and include in in the database. If the MAPPER entry is not
+; found, the routine returns TRUE.
+; NOTE:
+;
+;3 Input
+; .address of EMUBD record. Only the tbl and param valuse are accessed.
+;
+;3 Output
+;  R1 = address of MAPPER record if found, else 0
+; 
+;3 Returns
+;	SS$_NORMAL	(TRUE) poller should get this param
+;	0		(FALSE) poller should ignore this param
+;	0 (FALSE) is returned on any error (No MAPPER rec)
+;	SS$_BADPARAM	Invalid MIB entry
+;	 Any error from RMS
+;--
+
+        TSTW	MAPPERFAB+FAB$W_IFI	; File open?
+	BNEQ	100$
+	$OPEN	FAB = MAPPERFAB		;Open input file
+	BLBS	R0,10$
+	RET
+10$:
+ 	$CONNECT RAB = MAPPERRAB	;Connect input stream
+	BLBS	R0,20$
+	RET
+20$:
+100$:
+	MOVL	4(AP),R6
+	MOVL	DB_REC_L_TABLE(R6),MAPPER_KEY   
+	MOVL	DB_REC_L_PARAM(R6),MAPPER_KEY+4   
+
+; At this point we have both param and table.
+; Get MAPPER rec corresponding to this entry
+
+        MOVW	#MAPPERREC_SIZE,MAPPERRAB+RAB$W_RSZ
+        MOVW	#MAPPERREC_SIZE,MAPPERRAB+RAB$W_USZ
+
+	$GET	RAB=MAPPERRAB
+	CLRL	R1				; Default return
+	BLBC	R0,130$                     	; If no map then write
+	MOVAL	MAPPERREC_BUF,R1
+	BBS	#DB_MAP_FLG_V_EXCLDB,DB_MAP_L_POLFLG(R1),140$
+130$:
+        MOVL	#SS$_NORMAL,R0
+	RET
+140$:
+	CLRL	R0
+	RET
+
+
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_CHECK_TIME 
+;++
+;2 CONFIGMON_CHECK_TIME 
+; Routine to determine if it is time to update this box on this protocol
+;3 Inputs
+; Record address
+;3 Outputs
+; None
+;3 Returns
+; from LIB$_SUB_TIMES. If success returned then time has not passed. Any error
+; is assumed to be INVTIME - a negative time was computed and this 
+; is to be interpreted as the time to update has passed.
+;3 Description
+;  The routine first checks the nopoll bit in the header. If it is set
+;  it returns immediately with SS$_NORMAL (Don't poll). This bit is 
+;  set whenever a return from a poll indicates the system is attempting
+;  to violate security. In some future version this bit will be made
+;  user controllable.
+;
+;  The routine next checks the update bit in the header. If it is 
+;  set it returns immediately with LIB$_IVTIME. If it is not set it 
+;  calculates the time to update as follows:
+;   
+;  The time between updates is stored in the record header at offset
+;  NEXTUPD and is an integer number of minutes. If this field is 
+;  0 the default (4320 min - 3 days) is applied. 
+; 
+; The number of responses is then checked. If it is 0 (no update yet)
+; and the number of polls is < 4 then the routine exits with LIB$_IVTIME.
+; Otherwise (Polls > 4) the time comparison (below) is on the last poll 
+; field. If it is not 0 the time comparison is on the last update field. 
+; This allows us to update immediately any node that has not been updated 
+; while not excessively polling nodes that won't respond.
+;
+;  NEXTUPD is converted to VMS delta time and added to the last update 
+;  time. This is subtracted from one of last poll or last update (depending
+;  on previous reponses) and if a negative time results, it is 
+;  time to update. 
+;  Note that NEXTUPD is intended to be user writtable in some future 
+;  version. Some time after that we may make it clever by calculating the 
+;  'best' time taking into account distance from us, recent changes, recent
+;  alerts etc.
+;
+;--
+	MOVL	4(AP),R6
+
+	BBC	#SYS_COM_V_NOPOL,COM_HDR_L_SYSCTL(R6),10$	; Br Update OK
+	MOVL	#SS$_NORMAL,R0
+	RET
+10$:
+	BBC	#SYS_COM_V_UPDATE,COM_HDR_L_SYSCTL(R6),20$ ; Br no update
+;	TSTL	COM_CFG_L_RESP(R6)			   ; Any prev reponses?
+;	BEQL	20$                                        ; Br if none
+        MOVL	#LIB$_IVTIME,R0        			   ; Signal Update
+	RET
+20$:
+	MOVL	COM_CFG_L_UPDINT(R6),R7		; Interval
+	BNEQ	30$				; Br if set
+	MOVL	#COM_CFG_C_DEFINT,R7		; Set default
+	MOVL	R7,COM_CFG_L_UPDINT(R6)		; SET Interval
+30$:
+	MOVL	#COM_CFG_Q_LASUPD,R2		; Assume previous reponses
+	TSTL	COM_CFG_L_RESP(R6)		; Any reponses?
+	BNEQU	40$
+	MOVL	#COM_CFG_Q_LASPOL,R2		; No previous reponses
+	CMPL	#4,COM_CFG_L_POLLS(R6)		; Tried > 4 x?
+	BLSSU	40$                             ; Br if so
+        MOVL	#LIB$_IVTIME,R0        		; Signal Update
+	RET
+
+
+40$:
+	EMUL	#-600000000,R7,#0,INTIME		; Make delta time
+	PUSHAL	RESTIME
+	PUSHAL	INTIME
+	ADDL3	R2,R6,-(SP)
+        CALLS	#3,G^LIB$ADD_TIMES
+	BLBS	R0,50$
+	MOVL	#SS$_NORMAL,R0			; Ensure error does not cause
+	RET					; update 
+50$:
+	PUSHAL	INTIME			; Result
+	PUSHAL	EXE$GQ_SYSTIME		; Now
+	PUSHAL	RESTIME			; Update time
+	CALLS	#3,G^LIB$SUB_TIMES
+	RET
+
+
+        .CALL_ENTRY     MAX_ARGS=3, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_UPDATE_HEADER
+;++
+;2 CONFIGMON_UPDATE_HEADER
+; Subroutine to update the header for this record reflecting the results
+; of the last update. Optionaly, the call can specify the database and
+; all records with this boxid are updated. This prevents boxes with 
+; multiple entries being updated multiple times on a single pass.
+;3 Inputs
+;  .long	status
+;  .address	record
+;  .address	database structure	(optional)
+;3 Outputs
+;  For for the record(s) specified, the following fields are written:
+;	LASSTA		Status given in p1
+;	LASPOL		current time
+;	RESP		Number of good responses
+;	SYS_COM_V_UPDATE bit is cleared
+; 	If status is success then:
+;	LASUPD		current time
+;	Else LASUPD,UPDATE not written
+; If P3 is present, the database specified is scanned and the above
+; fields are written for each matching BOXID found
+; Returns
+; SS$_NORMAL		Have updated
+;-- 
+	MOVL	8(AP),R6
+	MOVL	4(AP),COM_CFG_L_LASSTA(R6) 		; Write status
+	MOVQ	EXE$GQ_SYSTIME,COM_CFG_Q_LASPOL(R6)     ; Polled now
+	BICL	#SYS_COM_M_UPDATE,COM_HDR_L_SYSCTL(R6)  ; CLear upd
+	BLBC	4(AP),10$				; Br if bad status
+	MOVQ	EXE$GQ_SYSTIME,COM_CFG_Q_LASUPD(R6)     ; Updated now
+	MOVL	#COM_CFG_C_DEFINT,COM_CFG_L_UPDINT(R6)	; Set default
+	BRW	100$
+10$:
+; Check(s) to see if we are trying to violate security. If so set
+; nopoll bit to prevent further polling.
+ 
+	CMPL	4(AP),#SS$_INVLOGIN		
+	BNEQ	11$
+	BISL	#SYS_COM_M_NOPOL,COM_HDR_L_SYSCTL(R6)	; Set bit
+		
+11$:
+50$:
+; If there have been > 4 polls and no responses, Increase the time 
+; by 50% up to maxint (10 days)
+	CMPL	COM_CFG_L_POLLS(R6),#4		;
+	BLSS	100$                            ; Br if < 4 polls
+	TSTL	COM_CFG_L_UPDINT(R6)		; Interval set?
+	BNEQ	60$
+	MOVL	#COM_CFG_C_DEFINT,COM_CFG_L_UPDINT(R6)	; Set default
+60$:
+	TSTL	COM_CFG_L_RESP(R6)			;
+	BNEQ	100$                            	; Br if .ne. 0 responses
+        DIVL3	#2,COM_CFG_L_UPDINT(R6),R1      	; get 50%
+	ADDL	R1,COM_CFG_L_UPDINT(R6)         	; Add in
+	CMPL	COM_CFG_L_UPDINT(R6),#COM_CFG_C_MAXINT  ; < Max?
+	BLEQ	100$                                    ; Br if not
+	MOVL	#COM_CFG_C_MAXINT,COM_CFG_L_UPDINT(R6)  ; Set max
+
+
+100$:
+; If P3 is present, propogate fields to all identical BOXIDs.
+
+	CMPL	#3,(AP)
+	BEQL	110$
+	MOVL	#SS$_NORMAL,R0
+	RET
+110$:
+	MOVL	@12(AP),R11				; Top of DB
+	MOVL	COM_DBHDR_L_RECSIZE(R11),R8		; rec size
+	ADDL3	R11,R8,R7				; 1st entry
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	120$					
+	MOVL	#SS$_NORMAL,R0
+	RET
+120$:
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),200$	; Br if deleted
+	CMPL	COM_HDR_L_BOXID(R7),COM_HDR_L_BOXID(R6)		; Match
+	BNEQU	200$
+; Copy all fields from original to this Box
+	MOVL	COM_CFG_L_LASSTA(R6),COM_CFG_L_LASSTA(R7)     ; Write status
+	MOVL	COM_CFG_L_RESP(R6),COM_CFG_L_RESP(R7)         ; Write Responses
+	MOVQ	COM_CFG_Q_LASPOL(R6),COM_CFG_Q_LASPOL(R7)     ; Polled now
+	MOVQ	COM_CFG_Q_LASUPD(R6),COM_CFG_Q_LASUPD(R7)     ; Updated now
+	MOVL	COM_CFG_L_UPDINT(R6),COM_CFG_L_UPDINT(R7)     ; Update int
+	BICL	#SYS_COM_M_UPDATE,COM_HDR_L_SYSCTL(R7)        ; CLear upd
+
+200$:
+	ADDL	R8,R7		; Next entry
+	SOBGTR	R11,120$
+        MOVL	#SS$_NORMAL,R0
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_CHECK_FOR_DELETE    
+;++
+;2 CONFIGMON_CHECK_FOR_DELETE    
+; Routine normally called after any update is completed for a device.
+; The update process sets a bit in the flag field indicating this param
+; still exists on the node. The routine is then called and scans the recs
+; performing following actions:
+;	If update bit is set, it is cleared
+;	If update bit is clear, an alert showing removal of this
+;	component is sent and the rec is deleted.       
+;
+;3 Input
+;	PSRdb record address
+;3 Output
+;	Every rec for this boxid on this protocol is read and either
+;	has it's update bit cleared or the rec is deleted. Any rec deleted
+;	causes an alert to be sent.
+; 	A summary rec is written to log file containing:
+;	Boxid, protocol, recs deleted, total recs remaining.
+;3 Return
+; 	SS$_NORMAL	OK 
+;	
+; Any from: EMUDB_ACCESS routines
+;--
+	MOVL	4(AP),R6
+	MOVAL	OLDP_BUFF,R8
+	MOVL	COM_HDR_L_FLAGS(R6),DB_REC_L_PROTO(R8) 	; Protocol
+	MOVL	COM_HDR_L_BOXID(R6),DB_REC_L_BOXID(R8) 	; Boxid 
+	CLRL	RECCNT
+
+100$:
+	MOVAL	OLDP_BUFF,R8
+	MOVL	#DB_REC_C_MRS,OLDP_DESC
+	PUSHL	#1			; Lock record
+	PUSHAL	RECCNT			; Record count
+	PUSHL	#5			; Report level
+	CLRL	-(SP)			; Search direction
+	PUSHAL	OLDP_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_PRO_BOX 	; Key of ref
+	CALLS	#6,G^EMUDB_READ
+; Check if wanted rec before error check
+	CMPL	COM_HDR_L_FLAGS(R6),DB_REC_L_PROTO(R8) 	; Protocol
+	BNEQU	150$                       ; Br if not
+	CMPL	COM_HDR_L_BOXID(R6),DB_REC_L_BOXID(R8) 	; Boxid 
+	BNEQU	150$                       ; Br if not
+	BLBS	R0,200$			   ; Br if read OK
+	CMPL	#SS$_INSFMAP,R0		   ; Ignore no map err
+	BEQLU	200$			   ; Process as normal
+	CMPL	#RMS$_RNF,R0               ; Rec not found?
+	BEQLU	150$                       ; OK
+	CMPL	#RMS$_EOF,R0               ; End of file?
+	BEQLU	150$                       ; OK
+; Log emudb access error
+	RET
+150$:
+; Good end - Log summary record
+	MOVL	#SS$_NORMAL,R0
+	RET
+200$:
+; If flag is clear then delete this rec. If set then clear flag and
+; update.
+	BBCC	#DB_FLG_V_UPDAT,DB_REC_L_FLAGS(R8),220$	 ; Br if clear 
+	CALLS	#0,G^EMUDB_UNLOCK			; Unlock
+
+	SUBL3	#DB_C_KSZ,OLDP_DESC,CRCDESC		; Len of data
+	ADDL3	#DB_C_KSZ,OLDP_DESC+4,CRCDESC+4		; Len of data
+	PUSHAL	CRCDESC
+	PUSHAL	OLDP_BUFF
+	CALLS	#2,G^EMUDB_WRITE
+	BLBS	R0,210$
+210$:
+	BRW	100$	
+220$:
+; This rec has no longer any corresponding component on the node.
+; Alert this fact and delete the record.
+
+	MOVAL	ALERT_BUFF,R1
+	MOVL	COM_HDR_L_FLAGS(R6),ALT_MSG_L_DBPID(R1)
+	MOVL	COM_HDR_L_FLAGS(R6),ALT_MSG_L_PID(R1)	; Sender 
+	MOVL	#ALT_CLS_C_CONF,ALT_MSG_L_CLASS(R1)
+	MOVL	#ALT_SCLS_C_DEL,ALT_MSG_L_SCLAS(R1)
+	MOVL	#ALT_PRI_C_NORM,ALT_MSG_L_PRIO(R1)
+	MOVL	COM_HDR_L_ALTID(R6),ALT_MSG_L_ALTID(R1)
+	CLRL	ALT_MSG_L_EXP(R1) 
+
+        PUSHAL	OLDP_DESC                       ; EMUdb rec
+	PUSHL	R6                              ; PSRdb rec
+	PUSHAL 	ALERT_BUFF			; 
+	PUSHL	#SS$_NOTALLCANCELED
+	CALLS	#4,G^CONFIGMON_SEND_ALERT 
+; Delete record
+	CALLS	#0,G^EMUDB_DELETE
+	BLBS	R0,250$
+; Write error to log
+250$:
+	BRW	100$
+ 	
+
+        .CALL_ENTRY     MAX_ARGS=5, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CONFIGMON_SEND_ALERT 
+;++
+;2 CONFIGMON_SEND_ALERT 
+; Formats and sends an alert to the alert process
+;3 Inputs
+;
+;  P1	.long	code
+;	code is one of:
+;	 WASSET (Modified) 
+;	 CREATED (new)
+;	 NOTALLCANCELED (deleted)
+;
+;  P2   .address of alert buffer (512 bytes long) with following fields 
+;	filled in:
+;	PID
+;	SENDER
+;	
+;   P3  .address of PSRdb rec this alert relates to
+;
+; - - - - dependant params - - - -
+;  	New:
+;  P4	.address of desc pointing to EMUDB rec containing new component
+;	Modify:
+;  P4	.address of desc pointing to EMUDB rec containing new component
+;  P5	.address of desc pointing to EMUDB rec containing old component
+;	Delete:
+;  P4	.address of desc pointing to EMUDB rec containing deleted component
+;
+;3 Outputs
+;   Alert buff is formatted and sent
+;3 Returns
+; 	SS$_NORMAL		Success - aler sent
+;	SS$_ACCVIO		; Could not read/write in/out
+;-- 
+	
+	BLBS	4(AP),10$ 				; Must not be error!
+	RET
+10$:
+	MOVL	8(AP),R11				; Alt buf
+        MOVL	12(AP),R6                               ; PSRdb rec
+; Check params
+        PROBEW  #0,#512,(R11)            ; Check for write access
+        BEQL	20$                      ; Br no access
+        PROBER  #0,#COM_HDR_C_SIZE,(R6)  ; Check for write access
+        BNEQ	30$                      ; BR OK
+20$:
+	MOVL	#SS$_ACCVIO,R0
+	RET
+30$:
+
+	CMPL	#SS$_CREATED,4(AP)			;New rec?
+	BNEQU	200$
+; Send alert - new component. 
+	MOVL	#ALT_CLS_C_CONF,ALT_MSG_L_CLASS(R11)
+	MOVL	#ALT_SCLS_C_NEW,ALT_MSG_L_SCLAS(R11)
+	MOVL	#ALT_PRI_C_NORM,ALT_MSG_L_PRIO(R11)
+	MOVL	COM_HDR_L_ALTID(R6),ALT_MSG_L_ALTID(R11)
+	CLRL	ALT_MSG_L_EXP(R11) 
+
+	MOVAL	ALT_PARAMS,R1
+	MOVL	#4,(R1)+			  ; Param Count
+	MOVL	R11,(R1)+			  ; Alert buff
+
+; New value
+	MOVQ	@16(AP),R10
+; Check param
+        PROBER  #0,#COM_HDR_C_SIZE,(R10)  ; Check for read access
+        BNEQ	40$                      ; BR OK
+	MOVL	#SS$_ACCVIO,R0
+	RET
+40$:
+	ADDL3	R10,#DB_C_KSZ,(R1)+		  ; Len p1
+	MOVL	R11,(R1)+			  ; key addr
+	ADDL3	R11,#DB_C_KSZ,(R1)+	  	  ; Data addr
+	CALLG	ALT_PARAMS,G^CFG_SEND_ALERT
+	RET
+200$:
+	CMPL	4(AP),#SS$_WASSET 			  ; Modified?
+	BEQLU	210$				  ; Br if so
+	BRW	300$
+210$:
+; Send alert - Modified component. 
+	MOVL	#ALT_CLS_C_CONF,ALT_MSG_L_CLASS(R11)
+	MOVL	#ALT_SCLS_C_MOD,ALT_MSG_L_SCLAS(R11)
+	MOVL	#ALT_PRI_C_NORM,ALT_MSG_L_PRIO(R11)
+	MOVL	COM_HDR_L_ALTID(R6),ALT_MSG_L_ALTID(R11)
+	CLRL	ALT_MSG_L_EXP(R11) 
+
+	MOVAL	ALT_PARAMS,R1
+	MOVL	#7,(R1)+			  ; Param Count
+	MOVL	R11,(R1)+			  ; Alert buff
+	
+; Old value
+	MOVQ	@20(AP),R10
+; Check param
+        PROBER  #0,#COM_HDR_C_SIZE,(R10)  ; Check for read access
+        BNEQ	220$                      ; BR OK
+	MOVL	#SS$_ACCVIO,R0
+	RET
+220$:
+	MOVL	R10,(R1)+			; Len p1
+	MOVL	R11,(R1)+			; Key addr
+	ADDL3	#DB_C_KSZ,R11,(R1)+ 		; Data addr
+; New value
+
+	MOVQ	@16(AP),R10
+; Check param
+        PROBER  #0,#COM_HDR_C_SIZE,(R10)  ; Check for read access
+        BNEQ	230$                      ; BR OK
+	MOVL	#SS$_ACCVIO,R0
+	RET
+230$:
+	MOVL	R10,(R1)+			; Len p1
+	MOVL	R11,(R1)+			; Key addr
+	ADDL3	#DB_C_KSZ,R11,(R1)+ 		; Data addr
+	CALLG	ALT_PARAMS,G^CFG_SEND_ALERT
+	RET
+300$:
+	CMPL	4(AP),#SS$_NOTALLCANCELED 		  ; Deleted?
+	BEQLU	310$				  ; Br if so
+	RET					  ; Unknown code
+310$:
+; Send alert - deleted component. 
+	MOVL	#ALT_CLS_C_CONF,ALT_MSG_L_CLASS(R11)
+	MOVL	#ALT_SCLS_C_DEL,ALT_MSG_L_SCLAS(R11)
+	MOVL	#ALT_PRI_C_NORM,ALT_MSG_L_PRIO(R11)
+	MOVL	COM_HDR_L_ALTID(R6),ALT_MSG_L_ALTID(R11)
+	CLRL	ALT_MSG_L_EXP(R11) 
+
+	MOVAL	ALT_PARAMS,R1
+	MOVL	#4,(R1)+			  ; Param Count
+	MOVL	R11,(R1)+			  ; Alert buff
+
+
+; Deleted value
+
+	MOVQ	@16(AP),R10
+; Check param
+        PROBER  #0,#COM_HDR_C_SIZE,(R10)  ; Check for read access
+        BNEQ	320$                      ; BR OK
+	MOVL	#SS$_ACCVIO,R0
+	RET
+320$:
+	MOVL	R10,(R1)+			; Len p1
+	MOVL	R11,(R1)+			; Key addr
+	ADDL3	#DB_C_KSZ,R11,(R1)+ 		; Data addr
+	CALLG	ALT_PARAMS,G^CFG_SEND_ALERT
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=13, -
+	                HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=CFG_SEND_ALERT 
+;++
+;2 CFG_SEND_ALERT
+; Constructs and alert frame and sends it to the alert process via MBX. 
+; Some sanity checking is applied before send
+;3 Inputs
+;   P1	.address of 512 byte alert buffer with the header filled
+;	out and containing:
+;		.long	SYS_PID_C_xxx of PSRdb this alert is for
+;      		.long	ALTID of box this alert is for
+;      		.long	Class
+;      		.long	Subclass
+;      		.long	expirey
+;      		.long	Sender
+;      		.long   Priority
+;		.long	Param count (filled in by this routine)
+;  P2 - P13 Paramaters:
+;	Each param is 3 arguments:
+;	.long len of data + key
+;	.address of 24 byte EMUdb key
+;	.address of data
+; Up to 4 param sets may be present (total 13 params)
+; All lens are calculated in this routine and applied. The total len cannot
+; exceed 512 bytes.
+; **NOTE** THIS ROUTINE MUST BE CALLED BY CALLG
+;
+;3 Outputs
+;  After checks are passed, the alert is MBX'ed to the alert process.
+;
+;3 Returns
+; SS$_NORMAL		Any error is logged here. Possible errors:
+; SS$_INVARG		Number of args was not 1,4,7 or 10
+; SS$_BUFFEROVF		Total len exceeded 512
+; SS$_ACCVIO		Could not write outp
+; 
+;			
+; Any error from $QIO  
+;-- 
+	MOVL	AP,R7                  ; Param list
+        MOVL	4(R7),R6               ; Alert buff
+        PROBEW  #0,#512,(R6)            ; Check for write access
+        BNEQ    10$                       ; Br if OK
+	MOVL	#SS$_ACCVIO,R0		  ; Error
+	BRW	1000$			  ; Write message and exit
+10$:
+	CLRL	PCNT			; Paramater count
+	MOVL	#ALT_MSG_C_PARAMS,R9	; Min message size
+	MOVL	(R7),R10		; Arg cnt
+	DECL	R10
+	BEQL	100$			; Br if no params
+	CMPL	R10,#12    		; Max args
+	BLEQ	20$                     ; OK
+	MOVL	#SS$_INVARG,R0		; Error
+	BRW	1000$			; Write message and exit
+20$:	
+; Set up loop to calc params
+	ADDL	#ALT_MSG_C_PARAMS,R6	; Write params here
+	MOVL	#2,R8			; 1st param
+
+50$:
+	CMPL	R10,#3                  ; 3 or more left?
+	BGEQU	60$                     ; OK
+	MOVL	#SS$_INVARG,R0		; Error
+	BRW	1000$			; Write message and exit
+60$:
+; next 3 args:
+; .addr 24 byte key
+; len of data
+; data
+; 
+; Check if enough room
+	ADDL	(R7)[R8],R9         	; Len of data 
+	ADDL	#4,R9			; + len param
+	CMPL	R9,#512
+	BLSS	70$
+	MOVL	#SS$_BUFFEROVF,R0		; Error
+	BRW	1000$			; Write message and exit
+70$:
+	INCL	PCNT			; 1 more param
+; The len of data = len supplied - key len; Store this
+	SUBL3	#DB_C_KSZ,(R7)[R8],R11	      ; Len of data
+	MOVL	(R7)[R8],(R6)+                ; Move len
+	INCL	R8			      ; Next param (key)
+
+	MOVL	(R7)[R8],R1       	      ; Get addr
+	MOVC3	#DB_C_KSZ,(R1),(R6)           ; Move key
+	ADDL	#DB_C_KSZ,R6                  ; Move pointer
+	INCL	R8			      ; Next param (data)
+; data
+	MOVL	(R7)[R8],R1       	      ; Get addr
+	MOVC3	R11,(R1),(R6)	              ; Move data
+	ADDL	R11,R6	                      ; Move pointer
+	INCL	R8			      ; Next param
+	SUBL	#3,R10                        ; Used params
+	BGTR	50$			      ; Br if more
+
+
+100$:	    
+	TSTL	ALTINCHAN
+	BNEQ	110$
+
+; Create i/p MBX
+	PUSHAL	ALTINMBX       	; Logical Name
+	CLRL	-(SP)			; Access Mode
+	CLRL	-(SP)			; Protection Mask
+	PUSHL	#4160			; Buff Quota (8 MSGS)
+	PUSHL	#512			; Max Message Size
+	PUSHAL	ALTINCHAN		; I/O Channel
+	PUSHL	#0			; Temp Mailbox
+	CALLS	#7, g^SYS$CREMBX	; Create Mailbox
+	BLBS	R0,110$
+        RET
+110$:
+
+
+
+; Set param count
+	MOVL	4(R7),R6
+        MOVL	PCNT,ALT_MSG_L_PARAMC(R6)
+        $QIO_S  CHAN = ALTINCHAN,-
+                IOSB =  ALTIN_IOSB,-
+                FUNC = #<IO$_WRITEVBLK!IO$M_NOW!IO$M_NORSWAIT>,-
+                P1   = (R6),-
+                P2   = R9
+	BLBC	R0,1000$                  ; Br on error
+	BLBS	ALTIN_IOSB,130$          ; Br no err
+	MOVZWL	ALTIN_IOSB,R0           ; error
+	BRB	1000$
+130$:
+	MOVL	#SS$_NORMAL,R0
+        RET
+
+1000$:
+	CMPL	R0,#SS$_MBFULL			; Ignore MBX full
+	BEQLU	130$
+
+	MOVL	R0,R6				; Save
+        MOVL	#MSG_CFGMON_SNDALT,MSGCDE   ; No SEND
+	MOVL	#1,PARCNT                    ; 1 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)		             ;  error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0			    	; Restore
+        RET
+
+	.END
+	
+
+
+

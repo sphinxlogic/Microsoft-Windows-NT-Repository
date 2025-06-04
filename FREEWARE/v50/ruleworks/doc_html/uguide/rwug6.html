@@ -1,0 +1,994 @@
+<HTML>
+<HEAD>
+<TITLE>RuleWorks</TITLE>
+</HEAD>
+<BODY>
+
+<FONT FACE="Arial" SIZE=6 color="navy"><P ALIGN="RIGHT">RuleWorks</P></FONT>
+
+<B><I><FONT FACE="HELVETICA" SIZE=6 color="RED"><P ALIGN="RIGHT">
+Using RuleWorks with Other Languages</P></B></I></FONT>
+
+<P>Programming tasks such as computing mathematical expressions, manipulating strings, and editing large quantities of data are often easier and more efficient to develop in languages other than RuleWorks.  If you are developing a RuleWorks program that needs to perform these types of tasks, you should consider using external routines. An <B>external routine</B> is a function or subroutine written in a language other than RuleWorks.  External routines include prewritten routines such as system services and run-time library (RTL) routines. </P>
+
+<P>RuleWorks allows external routines that accept arguments and return results according to the hardware platform's calling standard.  This means that you can call external routines that are not written specifically for RuleWorks.  Example 6-1 shows a simple RuleWorks program calling the C RTL routine, sqrt.</P>
+<B><P>Example 6-1 Calling an External Routine from RuleWorks</P></B>
+<UL>
+<FONT FACE="Courier" SIZE=1><P>(declaration-block decls)</P>
+<UL>
+<P>(object-class start)</P>
+</UL>
+<P>(end-block decls)</P>
+<P>(entry-block main</P>
+<UL>
+<P>   (uses decls)</P>
+</UL>
+<P>   (on-entry</P>
+<UL>
+<P>       (make start)))</P>
+</UL>
+<P>(external-routine sqrt</P>
+<UL>
+<P>                  (accepts double-float)</P>
+<P>                  (returns double-float))</P>
+</UL>
+<P>(rule square-root</P>
+<UL>
+<P>     (start)</P>
+<P>  --&gt;</P>
+<P>     (write |Enter a number&gt; |)</P>
+<P>     (bind &lt;input&gt; (accept-atom))</P>
+<P>     (write |The square root is| (sqrt &lt;input&gt;)))</P>
+</UL>
+<P>(end-block main)</P>
+</UL>
+</FONT>
+
+<P>RuleWorks also allows entry blocks to be called from other languages.  Entry blocks can accept arguments and return a value.  Entry blocks can call other entry blocks, but the callers must declare the other entry blocks with EXTERNAL-ROUTINE declarations.  Entry blocks can even call themselves recursively.</P>
+<B><FONT FACE="Helvetica" SIZE=5>Calling External Routines from RuleWorks</B></FONT>
+<P>You must declare external routines before you call them in your RuleWorks program.  External routines are scoped to the block in which they are declared.</P>
+<P>The easiest way to ensure that the correct declarations have been made is to place the EXTERNAL-ROUTINE declarations in a separate declaration block and have each module acquire the compiled declarations via a USES clause. See Chapter 5 for details on data partitioning and declaration sharing. </P>
+<P>The complete syntax for the EXTERNAL-ROUTINE declaration is shown below: </P>
+
+<B><P>Figure 6-1. External Routine Declaration Syntax</B></FONT>
+<P>(<B>EXTERNAL-ROUTINE</B> <I>routine-name</I></P>
+<UL>
+<P>[(<B>ALIAS-FOR</B> <I>actual-routine-name</I>)]
+<UL>
+<P>[ &lt;<I>formal-parameter-name</I>&gt; [<I> [size]</I> ] ]
+</UL>
+<P>[ (<B>ACCEPTS</B> {<I>external-type</I> } . . . ) ]
+<UL><P>[<I>passing-mechanism]</I></P></UL>
+<UL><P>[ &lt;<I>formal-parameter-name</I>&gt; [<I> [size]</I> ] ]</UL>
+<P>[ (<B>ACCEPT</B>S {<I>external-type</I>}  ) ] }
+<UL><P>[<I>passing-mechanism]</I></UL>
+</UL>
+
+<P>The <I>routine-name</I> is required; the ALIAS-FOR, ACCEPTS and RETURNS clauses are optional.  The syntax for calling an external routine is shown below:</P>
+<UL><FONT FACE="Courier" SIZE=1><P> (routine-name [ {value-expression} ... ])</P>
+</FONT></UL>
+<P>EXTERNAL-ROUTINE declarations may appear inside any type of block, but they must appear inside of some kind of block, and they must appear before they are used.  Duplicate declarations of the same external routine will generate a warning and be ignored so long as the declarations are identical.</P>
+
+<P>External routines that return a value can be used on the RHS (as shown in Example 6-1) or on the LHS. External routines that do not return a value must be used on the RHS as if they were RuleWorks actions.   You can also call an external routine that does return a value as if it were an RHS action, but in this case RuleWorks ignores the return value.</P>
+<P><B>Writing Portable Code</P></B>
+<P>The ALIAS-FOR clause allows you to declare that the routine name used inside RuleWorks is not the actual name that will be linked.  This is useful for mapping a case-sensitive external routine name onto a case-insensitive RuleWorks symbol.  </P>
+<P>The actual function name must be quoted to preserve case. For example:</P>
+<UL><FONT FACE="Courier" SIZE=1><P>(external-routine  xt_parent    ; routine name used inside TINpan</P>
+<UL><P>    (alias-for |XtParent|)      ; actual function name</P>
+<P>    (accepts pointer)</P>
+<P>    (returns pointer))</P>
+</UL></UL>
+<P>You can use at most one ALIAS-FOR clause in an EXTERNAL-ROUTINE declaration.  You must provide exactly one function name in an ALIAS-FOR clause.</P>
+
+<P><B>Passing Parameters</P></B>
+<P>Use the ACCEPTS clause to declare one or more parameters for an external routine. The &lt;<I>formal-parameter-name</I>&gt; is optional; use it to help make your code more self-documenting. The <I>external-type-name</I> is required. The <I>passing-mechanism</I> for each argument is also optional; the default mechanism for each external type is shown in Table 6-1.  Arrays of each type are also allowed, passed BY REFERENCE only. </P>
+
+<B><P>Table 6-1. External Data Types and Argument-Passing Mechanisms</P></B>
+<TABLE border=1>
+<TR><TD></TD><TD align=center colspan=3><B>Argument Passing Mechanisms</B></TD></TR>
+<TR><TD><B>External<BR>Data Type</B></TD><TD><B>BY VALUE</B></TD><TD><B>BY REFERENCE<BR>READ-ONLY</B></TD><TD><B>BY REFERENCE<BR>READ-WRITE</B></TD></TR>
+<TR><TD>BYTE</TD><TD>Default</TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD></TR>
+<TR><TD>SHORT</TD><TD>Default</TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD></TR>
+<TR><TD>LONG</TD><TD>Default</TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD></TR>
+<TR><TD>UNSIGNED-BYTE</TD><TD>Default</TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD></TR>
+<TR><TD>UNSIGNED-SHORT</TD><TD>Default</TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD></TR>
+<TR><TD>UNSIGNED-LONG</TD><TD>Default</TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD></TR>
+<TR><TD>SINGLE-FLOAT(1)</TD><TD>Default</TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD></TR>
+<TR><TD>DOUBLE-FLOAT(2)</TD><TD>Default</TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD></TR>
+<TR><TD>ASCIZ</TD><TD>N/S</TD><TD align=center>Default</TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD></TR>
+<TR><TD>ASCID</TD><TD>N/S</TD><TD align=center>Default</TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD></TR>
+<TR><TD>POINTER(3)</TD><TD>Default</TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD></TR>
+<TR><TD>ATOM(4)</TD><TD>Default</TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD><TD align=center><FONT FACE="Symbol">&#214;</FONT></TD></TR>
+</TABLE>
+
+<P>(1) On VMS systems, SINGLE-FLOAT refers to F_float_data</P>
+<P>(2) On VAX VMS systems, DOUBLE-FLOAT refers to D_float data; on OpenVMS for Alpha AXP systems, DOUBLE-FLOAT refers to G_float data.</P>
+<P>(3) Opaque virtual address</P>
+<P>(4) Opaque atom</P>
+<P><FONT FACE="Symbol">&#214;</FONT>Supported, but not the default</P>
+<P>N/S Not supported</P>
+
+<P>Numeric and pointer external types default to zeros. ASCIZ and ASCID externals default to the zero-length string. The ATOM external defaults to NIL.</P>
+
+<P>RuleWorks's compound values correspond to an array of atoms in external routines. You declare a parameter as an array by putting brackets  ( [ ] ) between the formal parameter name and the external data type.  If you do not declare the size of the array by putting an integer between the brackets, then the array received by the external routine has as many elements as the compound value had when it was passed out, and the external routine cannot change the size of the array.  An array returned by an external routine must be the declared size.</P>
+
+<P>Since the size of the array is not automatically passed, applications using empty brackets must define a convention such as a specific value to signal the end of the array, or pass the length as a separate parameter. Example 6-2 shows a C program that passes a compound value.  </P>
+
+<P><B>Example 6-2 Passing a Compound Value: C Function</P></B>
+<UL><FONT FACE="Courier" SIZE=1><P>#include &lt;stdio.h&gt;</P>
+<P>#include &lt;rul_rtl.h&gt;</P>
+<P>/*   Function:&#9;concat_compound</P>
+<P> *</P>
+<P> *   Accepts:</P>
+<P> *      The length of the array passed as the second argument</P>
+<P> *      An array of asciz strings</P>
+<P> *   Function:</P>
+<P> *      Constructs a string containing the values in a compound.</P>
+<P> *   Example:</P>
+<P> *      Given arguments:   3  and  ("A","B","C")</P>
+<P> *      it returns the string "A-B-C"</P>
+<P> *   Side Effect:</P>
+<P> *      Prints out all the input strings in the second argument,</P>
+<P> *      assuming that they all fit into one symbol.  </P>
+<P> *   Returns</P>
+<P> *      The string formed by concatenating all the elements of the</P>
+<P> *      compound, assuming that they will all fit into a symbol.</P>
+<P> *      If they do not fit into a symbol, the result is truncated</P>
+<P> *      at the maximum symbol size.</P>
+<P> */</P>
+<P>char *concat_compound (long num_elements, char *az_array[])</P>
+<P>{</P>
+<UL>
+<P>    int&#9;        i, index, len;</P>
+<P>    static char result[RUL_C_MAX_SYMBOL_SIZE+1] ;</P>
+<P>&nbsp;</P>
+<P>    index = 0;</P>
+<P>    printf ("\n Elements found in compound:");</P>
+<P>&nbsp;</P>
+<P>    for ( i=0; i&lt;num_elements; i++) {</P>
+<UL>
+<P>        len = strlen (az_array[i]);</P>
+<P>        if (len &gt; RUL_C_MAX_SYMBOL_SIZE - index)</P>
+<P>            len = RUL_C_MAX_SYMBOL_SIZE - index;</P>
+<P>        strncpy (&amp;result[index], az_array[i], len);</P>
+<P>        index = index + len;</P>
+<P>        if (index &gt;= RUL_C_MAX_SYMBOL_SIZE) {</P>
+<UL>
+<P>    /* not enough space in a symbol for all the compound values */</P>
+<P>            result[RUL_C_MAX_SYMBOL_SIZE] = '\0';</P>
+<P>            return (&amp;result);</P>
+</UL>
+<P>        }</P>
+<P>        if ((i + 1) &lt; num_elements) {</P>
+<UL><P>            /* insert a dash between compound values */</P>
+<P>            result[index] = '-';</P>
+<P>            index = index + 1;</P>
+</UL><P>        }</P>
+<P>        printf ("\n   %s", az_array[i]);</P>
+</UL><P>    }</P>
+<P>    if (index &lt; RUL_C_MAX_SYMBOL_SIZE+1) {</P>
+<UL><P>        result[index] = '\0';</P>
+</UL><P>    }</P>
+<P>    return (&amp;result);</P>
+</UL>
+<P>}</P>
+</UL>
+</FONT>
+
+<P>Example 6-3 shows the RuleWorks program that calls the C function in Example 6-2.</P>
+
+<B><P>Example 6-3 Passing a Compound Value: RuleWorks Program</P></B>
+<UL><FONT FACE="Courier" SIZE=1><P>(entry-block main</P>
+<UL><P>   (object-class classname  ^comp-attr compound  ^length  ^atom)</P></UL>
+<P>&nbsp;</P>
+<P>(external-routine concat_compound</P>
+<UL><P>                 (accepts &lt;comp_len&gt; long     by value</P>
+<UL><P>                          &lt;az_array&gt; [] asciz by reference read-only)</P></UL>
+<P>                 (returns &lt;ret_asciz&gt;  asciz))</P>
+</UL>
+<P>&nbsp;</P>
+<P>(external-routine strlen</P>
+<UL><P>                 (accepts &lt;az_string&gt;  asciz)</P>
+<P>                 (returns &lt;length&gt;     long))</P>
+</UL>
+<P>&nbsp;</P>
+<P>(on-entry</P>
+<UL><P>        (make classname ^comp-attr (compound a b c))))</P></UL>
+<P>&nbsp;</P>
+<P>(rule call-C-function</P>
+<UL><P>     (classname  ^$id &lt;obj&gt;  ^atom &lt;sym&gt;  ^length &lt;&gt; (strlen &lt;sym&gt;)</P>
+<P>                 ^comp-attr &lt;comp&gt;)</P>
+<P>   --&gt;</P>
+<P>     (bind &lt;result&gt; (concat_compound (length &lt;comp&gt;) &lt;comp&gt;))</P>
+<P>     (write (crlf) |   | &lt;comp&gt; |==&gt;| &lt;result&gt;)</P>
+<P>     (remove &lt;obj&gt;))</P></UL>
+<P>&nbsp;</P>
+<P>(end-block main)</P>
+</FONT>
+
+<P>The dialog in Example 6-4 illustrates compiling, linking, and running Example 6-2 and Example 6-3 on a VMS system. </P>
+<B><P>Example 6-4 Passing a Compound Value: Results</P></B>
+<UL><FONT FACE="Courier" SIZE=1><P>$<B>rulework concat</P>
+</B><P>...</P>
+<P>$<B>cc concat_comp</P>
+</B><P>$<B>link concat,concat_comp,rul$library:rul_rtl/lib</P>
+</B><P>$<B>run concat</P>
+</B><P>&nbsp;</P>
+<P> Elements found in compound:</P>
+<P>   A</P>
+<P>   B</P>
+<P>   C</P>
+<P>&nbsp;</P>
+<P>   A B C ==&gt; A-B-C </P>
+</FONT>
+
+<P>&nbsp;</P>
+<P><B>Passing Non-Atomic RuleWorks Objects</P></B>
+<P>In RuleWorks, there are several kinds of objects with no corresponding entity in external routines.  These objects cannot be passed directly, but they can be passed indirectly.  They are listed below with the indirect mechanism by which they can be passed.</P>
+
+<B><P>Table 6-2 Passing Non-Atomic Objects</P></B>
+<TABLE border=1>
+<TR><TD><B>Object</B></TD><TD><B>Indirect Passing Mechanism</B></TD></TR>
+<TR><TD>WMO</TD><TD>By object identifier, using the external type POINTER or ATOM</TD></TR>
+<TR><TD>Compound value</TD><TD>By converting it into an array.</TD></TR>
+</TABLE>
+
+<P>&nbsp;</P>
+<P><B>External Data Types</P></B>
+<P>Values in RuleWorks are converted into external data types whenever they are passed to any external routine. These conversions are done automatically based on the EXTERNAL-ROUTINE declarations. The type specifications are checked at compile time for constants and at run time for expressions. Table 6-3 shows which RuleWorks types can be passed for each external type. </P>
+
+<B><P>Table 6-3 Type Conversions of External Routine Parameters</P></B>
+<TABLE BORDER=1>
+<TR><TD WIDTH="23%" VALIGN="TOP">&nbsp;</TD>
+<TD WIDTH="77%" VALIGN="TOP" COLSPAN=5>
+<B><FONT SIZE=2><P ALIGN="CENTER">RuleWorks Type</B></FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<B><FONT SIZE=2><P>External Type</B></FONT></TD>
+<TD WIDTH="14%" VALIGN="TOP">
+<B><FONT SIZE=2><P>INTEGER</B></FONT></TD>
+<TD WIDTH="13%" VALIGN="TOP">
+<B><FONT SIZE=2><P>FLOAT</B></FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<B><FONT SIZE=2><P>SYMBOL</B></FONT></TD>
+<TD WIDTH="19%" VALIGN="TOP">
+<B><FONT SIZE=2><P>INSTANCE-ID</B></FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<B><FONT SIZE=2><P>OPAQUE</B></FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<FONT SIZE=2><P>BYTE</FONT></TD>
+<TD WIDTH="14%" VALIGN="TOP">
+<FONT SIZE=2><P>Natural</FONT></TD>
+<TD WIDTH="13%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="19%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<FONT SIZE=2><P>SHORT</FONT></TD>
+<TD WIDTH="14%" VALIGN="TOP">
+<FONT SIZE=2><P>Natural</FONT></TD>
+<TD WIDTH="13%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="19%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<FONT SIZE=2><P>LONG</FONT></TD>
+<TD WIDTH="14%" VALIGN="TOP">
+<FONT SIZE=2><P>Equivalent</FONT></TD>
+<TD WIDTH="13%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="19%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<FONT SIZE=2><P>UNSIGNED-BYTE</FONT></TD>
+<TD WIDTH="14%" VALIGN="TOP">
+<FONT SIZE=2><P>Natural</FONT></TD>
+<TD WIDTH="13%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="19%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<FONT SIZE=2><P>UNSIGNED-SHORT</FONT></TD>
+<TD WIDTH="14%" VALIGN="TOP">
+<FONT SIZE=2><P>Natural</FONT></TD>
+<TD WIDTH="13%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="19%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<FONT SIZE=2><P>UNSIGNED-LONG</FONT></TD>
+<TD WIDTH="14%" VALIGN="TOP">
+<FONT SIZE=2><P>Natural</FONT></TD>
+<TD WIDTH="13%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="19%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<FONT SIZE=2><P>SINGLE-FLOAT(1)</FONT></TD>
+<TD WIDTH="14%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit</FONT></TD>
+<TD WIDTH="13%" VALIGN="TOP">
+<FONT SIZE=2><P>Natural</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="19%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<FONT SIZE=2><P>DOUBLE-FLOAT(2)</FONT></TD>
+<TD WIDTH="14%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit</FONT></TD>
+<TD WIDTH="13%" VALIGN="TOP">
+<FONT SIZE=2><P>Equivalent</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="19%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<FONT SIZE=2><P>ASCID</FONT></TD>
+<TD WIDTH="14%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit†</FONT></TD>
+<TD WIDTH="13%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit†</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Equivalent</FONT></TD>
+<TD WIDTH="19%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit†</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<FONT SIZE=2><P>ASCIZ</FONT></TD>
+<TD WIDTH="14%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit†</FONT></TD>
+<TD WIDTH="13%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit†</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Equivalent</FONT></TD>
+<TD WIDTH="19%" VALIGN="TOP">
+<FONT SIZE=2><P>Implicit†</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<FONT SIZE=2><P>POINTER</FONT></TD>
+<TD WIDTH="14%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="13%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="19%" VALIGN="TOP">
+<FONT SIZE=2><P>Error</FONT></TD>
+<TD WIDTH="15%" VALIGN="TOP">
+<FONT SIZE=2><P>Natural</FONT></TD>
+</TR>
+<TR><TD WIDTH="23%" VALIGN="TOP">
+<FONT SIZE=2><P>ATOM</FONT></TD>
+<TD WIDTH="77%" VALIGN="TOP" COLSPAN=5>
+<FONT SIZE=2><P ALIGN="CENTER">No conversion required for ATOMs</FONT></TD>
+</TR>
+</TABLE>
+
+<P>(1) On VMS systems, the external type SINGLE-FLOAT refers to F_float data</P>
+<P>(2) On VAX VMS systems, the external type DOUBLE-FLOAT refers to D_float data; on OpenVMS for Alpha AXP systems, to G_float.</P>
+<P>† ASCID and ASCIZ values are coerced outbound only.  All other entries in this table apply both to calling out from and calling in to RuleWorks
+
+<HR>
+
+<P>The &quot;natural&quot; type conversion referred to in Table 6-3 is the one used when external data is returned to RuleWorks in a READ-WRITE parameter. The &quot;equivalent&quot; RuleWorks type/external type pairs have no loss of precision when passed either way as a READ-WRITE parameter. The &quot;implicit&quot; type conversions are handled automatically by RuleWorks according to the declarations. For example, you can pass an INTEGER atom as a SINGLE-FLOAT, DOUBLE-FLOAT, ASCIZ, or ASCID parameter without using the FLOAT or SYMBOL conversion functions. However, passing a SYMBOL or INSTANCE-ID as any numeric external type causes an error. </P>
+
+<P>&quot;Outbound only&quot; means that when an INTEGER, FLOAT, or INSTANCE-ID atom is passed from RuleWorks to an external routine that expects a string, the value is coerced.  However, if that string is returned (as a READ-WRITE parameter), it becomes an atom of type SYMBOL.</P>
+
+<P>A compound value can be passed only as an array, and only a compound can be passed as an array.  Each atom within the compound must be compatible (according to Table 6-3) with the external type. </P>
+
+<P>If the external type is not large enough to represent the value being passed out, a warning is signaled.  For example, 300 should not be passed out to an external routine that expects a byte.</P>
+
+<P>Example 6-5 and Example 6-6 show how to return a compound value, and how to use a READ-WRITE parameter.</P>
+<P>&nbsp;</P>
+<B><P>Example 6-5 External Function That Returns an Array</P></B>
+<UL><FONT FACE="Courier" SIZE=1><P>#include &lt;stdio.h&gt;</P>
+<P>#include &lt;rul_rtl.h&gt;</P>
+<P>&nbsp;</P>
+<P>/* Example function explode</P>
+<P> *</P>
+<P> *   Accepts:</P>
+<P> *      An asciz string</P>
+<P> *   Function:</P>
+<P> *      Turns a symbol into an array of characters.</P>
+<P> *   Example:</P>
+<P> *      Given the argument "HELLO"</P>
+<P> *      Writes 5 into the second argument and</P>
+<P> *      Returns "H", "E", "L", "L", "O", "", "", ...</P>
+<P> *   Side Effect:</P>
+<P> *      Modifies the write-only argument, num_returned.</P>
+<P> *   Returns</P>
+<P> *     An array (rul_c_max_symbol_size in length)</P>
+<P> *     of very short ASCIZ strings</P>
+<P> *     (at most one character each).</P>
+<P> */</P>
+<P>char **explode (char *in_string, long *num_returned)</P>
+<P>{</P>
+<UL><P>    /* The actual string space */</P>
+<P>    static char short_strings[RUL_C_MAX_SYMBOL_SIZE][2] ;</P>
+<P>&nbsp;</P>
+<P>    /* The array of string pointers to be returned */</P>
+<P>    static char *exploded[RUL_C_MAX_SYMBOL_SIZE] ;</P>
+<P>    static long called_before = FALSE ;</P>
+<P>    long i ;</P>
+<P>&nbsp;</P>
+<P>        if (! called_before) {</P>
+<UL><P>        /* </P>
+<P>        ** On the first invocation of this function, set up</P>
+<P>        ** the array of string pointers.</P>
+<P>        */</P>
+<P>        for (i=0; i&lt;RUL_C_MAX_SYMBOL_SIZE; i++) {</P>
+<UL><P>            short_strings[i][1] = '\0' ;</P>
+<P>            exploded[i] = &amp;(short_strings[i][0]) ;</P>
+</UL><P>        }</P>
+<P>        called_before = TRUE ;</P>
+</UL><P>    }</P>
+<P>&nbsp;</P>
+<P>    /*</P>
+<P>    **  For each character in the input string, create an</P>
+<P>    **  entry in the array of strings to be returned.</P>
+<P>    */</P>
+<P>    *num_returned = strlen(in_string) ;</P>
+<P>    for (i=0; i&lt;RUL_C_MAX_SYMBOL_SIZE; i++) {</P>
+<UL><P>        if (i &lt; *num_returned) {</P>
+<UL><P>            short_strings[i][0] = in_string[i] ;</P>
+</UL><P>        } else {</P>
+<UL><P>            short_strings[i][0] = '\0' ;</P>
+</UL><P>        }</P>
+</UL><P>    }</P>
+<P>    return (exploded) ;</P>
+</UL><P>}</P>
+<P>&nbsp;</P>
+</FONT>
+</UL>
+
+<P><B>Example 6-6 RuleWorks Program That Passes a READ-WRITE Parameter</P></B>
+<UL><FONT FACE="Courier" SIZE=1><P>(entry-block main)</P>
+<P>      (external-routine explode</P>
+<UL><P>                 (alias-for |explode|)</P>
+<P>                       (accepts &lt;string&gt; asciz</P>
+<UL><P>                                &lt;count&gt;  long by reference read-write)</P></UL>
+<P>                       (returns &lt;strings&gt;[256] asciz))</P>
+</UL><P>&nbsp;</P>
+<P>      (object-class name ^as-word ^as-compound compound)</P>
+<P>&nbsp;</P>
+<P>      (on-entry</P>
+<UL><P>         (make name ^as-word abc)</P>
+<P>         (make name ^as-word |hello|)))</P>
+</UL><P>&nbsp;</P>
+<P> (rule explode-it</P>
+<UL><P>   (name ^$id &lt;n-id&gt; ^as-word { &lt;&gt; NIL  &lt;word&gt; } ^as-compound [=] 0)</P>
+<P>  --&gt;</P>
+<P>   (bind &lt;ret-len&gt; 0)</P>
+<P>   (bind &lt;ret-list&gt; (explode &lt;word&gt; &lt;ret-len&gt;))</P>
+<P>   (modify &lt;n-id&gt; ^as-compound (subcompound &lt;ret-list&gt; 1 &lt;ret-len&gt;)))</P>
+</UL><P>&nbsp;</P>
+<P>(end-block main)</P>
+<P>&nbsp;</P>
+</UL></FONT>
+
+<P>The dialog in Example 6-7 shows what happens when you run the RuleWorks program in Example 6-6.</P>
+<P>&nbsp;</P>
+
+<B><P>Example 6-7 Passing a READ-WRITE Parameter</P></B>
+<UL><P>RuleWorks&gt;<B> trace on wm</P>
+</B><P>RuleWorks&gt;<B> run 2</P>
+</B><P>&lt;=WM:  #2 2 [NIL] (NAME  ^AS-WORD hello)</P>
+<P>=&gt;WM:  #2 3 [EXPLODE-IT] (NAME  ^AS-WORD hello  ^AS-COMPOUND (COMPOUND h e l l o))</P>
+<P>&lt;=WM:  #1 1 [NIL] (NAME  ^AS-WORD ABC)</P>
+<P>=&gt;WM:  #1 4 [EXPLODE-IT] (NAME  ^AS-WORD ABC  ^AS-COMPOUND (COMPOUND A B C))</P>
+<P>    </P>
+<P>%RUL-I-PAUSE, Pausing after running requested number of rules</P>
+<P>RuleWorks&gt;</P>
+</FONT></UL>
+
+<P><B>Note</B>: that whenever a SYMBOL is converted to a string to be passed to an external routine, the string passed contains the print form of the symbol.  Thus, in Example 6-6, the quoted symbol, |hello|, is returned as lowercase letters but the unquoted symbol, abc, is returned as uppercase letters.</P>
+<P>&nbsp;</P>
+
+<P><B>Passing Mechanisms</B></P>
+<P>Declaring the passing mechanism for each parameter is optional.  If you do not declare a passing mechanism, RuleWorks uses the default appropriate to the external data type of the parameter: BY VALUE for all types exceptstrings, whose default is BY REFERENCE READ-ONLY.  The last three columns in Table 6-1 shows the default, supported, and unsupported passing mechanisms for each external data type.</P>
+<P>For ACCEPTS arguments, RuleWorks provides three passing mechanisms:</P>
+<UL>
+<LI>BY VALUE</LI>
+<P>Passes a copy of the value of the argument.  Any changes to the argument by the external routine are ignored when the external routine returns.</P>
+</UL>
+<UL>
+<LI>BY REFERENCE READ-ONLY</LI>
+<P>Passes a pointer to a copy of the argument. Any changes to the argument by the external routine are ignored when the external routine returns.</P>
+</UL>
+<UL>
+<LI>BY REFERENCE READ-WRITE</LI>
+<P>Passes a pointer to a copy of the argument. In the typical case, where the argument passed BY REFERENCE READ-WRITE is a bound variable, then after the external routine returns the variable is bound to the value written by the external routine.</P>
+<P>Normally, external routines with READ-WRITE passing mechanisms are used on the RHS of rules, and each READ-WRITE argument passed is a bound variable.  Passing an unbound variable on the RHS, or passing any variable on the LHS, or passing the result of an expression, causes the value set by the external routine to be ignored and generates a compiler warning.</P>
+<P>A symbol that you pass out BY REFERENCE READ-WRITE as external type ASCIZ is passed in a buffer of RUL_C_MAX_SYMBOL_SIZE characters. The external routine is free to fill the buffer with a string of up to RUL_C_MAX_SYMBOL_SIZE characters.  (Symbols that you pass as ASCID or ASCIZ BY REFERENCE READ-ONLY are only as long as needed to hold the value being passed.)</P>
+<P>If the actual parameter is a compound bound to a variable passed BY REFERENCE READ-WRITE, changes made to elements of the array by the external routine will be reflected in the values of the compound variable. The number of elements in the compound value cannot be changed by the external routine.</P>
+<P>If the number of atoms in the actual compound value being passed is greater than the number of elements in the array, the excess atoms are not passed and a warning is given. If there are fewer atoms than array elements, the array is padded with a default value for that external type. Numeric external types default to zeros. ASCIZ and ASCID externals default to the zero-length string. The POINTER external type defaults to NULL. The ATOM external type defaults to NIL.</P>
+
+<P>For example, the RuleWorks program in Example 6-6 calls an external function to provide a value for a BIND action.  The external function, shown in Example 6-5, takes a symbol and returns an array that contains the characters in that symbol. The external function also returns the number of characters in the array in the READ-WRITE argument &lt;COUNT&gt;.</P>
+<P>Some system services require that you omit some BY REFERENCE parameters.  An empty pair of parentheses () at the calling site causes 0 to be passed by value, for BY REFERENCE parameters.   </P>
+</UL>
+
+
+<B><I>Order of Argument Evaluation
+</B></I><P>You should not depend on the order of evaluation or of side effects that result from evaluation of functions in calls to external routines, or anywhere else.  For instance, if Example 6-6 used the following rule, the program would not work:  </P>
+
+<UL><FONT FACE="Courier" SIZE=1><P> (rule does-not-explode-it</P>
+<UL><P>     (name ^$id &lt;n-id&gt; ^as-word { &lt;&gt; NIL  &lt;word&gt; } ^as-compound [=] 0)</P>
+<P>    --&gt;</P>
+<P>     (bind &lt;ret-len&gt; 0)</P>
+<P>     (modify &lt;n-id&gt;</P>
+<UL><P>           ^as-compound</P>
+<P>              (subcompound (explode &lt;word&gt; &lt;ret-len&gt;) 1 &lt;ret-len&gt;)))</P>
+</UL></UL></UL></FONT>
+
+<P>To avoid dependence on the order of evaluation of arguments, bind all the argument expressions that include function calls, except the last, before you call the external routine. </P>
+<B><I>Type Changes to Arguments</B></I>
+<P>When variables are passed BY REFERENCE READ-WRITE, two data type conversions are performed.   The first conversion is from the RuleWorks atom to the specified external type.  The second is from the specified external type to the natural RuleWorks type (see Table 6-3), which may or may not be the original type.  </P>
+
+<P>For example, if the variable being passed BY REFERENCE READ-WRITE is bound to an INTEGER atom, and the external type is DOUBLE-FLOAT, the variable is rebound to a FLOAT atom after the routine returns.   If the variable being passed BY REFERENCE READ-WRITE is bound to an INSTANCE-ID atom, and the external type is ASCIZ, the variable is rebound to a SYMBOL atom after the routine returns.</P>
+
+<P>If the variable is bound to a compound containing some float atoms and some integer atoms, and the external type is DOUBLE-FLOAT, the variable is bound to a compound containing only float atoms after the routine returns.  If the variable is bound to a compound containing some float atoms, some symbol atoms, and some integer atoms, and the external type is ASCID, the variable is bound to a compound containing only symbol atoms after the routine returns.</P>
+<B><I>Visibility of Changes to Arguments</B></I>
+<P>When variables bound on the LHS are passed out BY REFERENCE READ-WRITE on the RHS, the called routine can modify them.  However, when the called routine returns, the changes are reflected into the bound variables, but not in the WMO attributes from which those variables were originally set. If the new values need to be reflected back into changes in the object, you must explicitly modify the object.</P>
+<P>&nbsp;</P>
+
+<P><B>Returning a Value to RuleWorks</B></P>
+<P>Use the RETURNS clause to declare an external routine as a function that returns a value.  The &lt;<I>formal-parameter-name</I>&gt; and the <I>passing-mechanism</I> for the return value are optional; the <I>external-type-name</I> is required.</P>
+
+<P>For the RETURNS clause, only two <I>passing-mechanisms</I> are defined: <B>BY VALUE</B> <B>and BY REFERENCE</B>. No access mechanisms are defined for return values.</P>
+
+<P>RuleWorks automatically converts return values from their external data types to the appropriate RuleWorks data types. The following example shows an EXTERNAL-ROUTINE declaration for the C language library function that finds the length of a string: </P>
+
+<UL><FONT FACE="Courier" SIZE=1><P> (EXTERNAL-ROUTINE  strlen </P>
+<UL><P>    (ACCEPTS &lt;string&gt; ASCIZ)</P>
+<P>    (RETURNS &lt;length&gt; LONG))</P>
+</UL></UL></FONT>
+
+<P>Given this declaration, the following RHS action first converts the symbol CHARLIE into an ASCIZ string by using the symbol's print form, calls the &quot;strlen&quot; function passing the new ASCIZ string, and then converts the LONG return value into a RuleWorks INTEGER:</P>
+<UL><FONT FACE="Courier" SIZE=1><P> (modify &lt;the-wmo&gt; ^length (strlen charlie))</P>
+</FONT></UL>
+
+<P>Empty brackets are not valid in the RETURNS clause.  You must explicitly declare the size of an array that is returned to RuleWorks, as shown in Example 6-6.</P>
+
+<P>When returning a value for which memory must be allocated to store the actual value(s) (that is, a string or an array), the external routine is responsible for both the allocation and deallocation of that memory. In Example 6-5 the external routine declares the memory for the return values as STATIC, thereby allocating once and reusing the same memory each time the routine is invoked.</P>
+<P>&nbsp;</P>
+<B><FONT FACE="Helvetica" SIZE=5>Using RuleWorks Run-Time Library Routines</B></FONT>
+<P>RuleWorks provides a library of callable run-time routines that allow you to access working memory from your external routines. Table 6-5 through Table 6-10 list all the RTL routines; detailed descriptions of each routine are provided in Chapter 11.</P>
+
+<P>The RTL actually includes multiple implementations of each routine, one for each NAS binding.</P>
+<P>&nbsp;</P>
+<p><b>Choosing Bindings</</P></B>
+<P>The RuleWorks RTL follows the Network Application Support (NAS) guidelines for a portable programming interface: RuleWorks supplies the VMS calling standard bindings for VMS systems, the C bindings for all platforms, and the f77 bindings for UNIX systems.  The following three sections summarize the different bindings.</P>
+<B><P>Note</B>: that all the name changes are done automatically by the compilers involved.</P>
+<P>&nbsp;</P>
+
+<P><B><I><LI>Using the VAX Bindings</LI></B></I>
+<P>The VMS calling standard bindings are supplied on VMS systems to support the VMS high-level languages (such as VAX FORTRAN and VAX Pascal). These bindings use the VMS Procedure Calling Standard, as follows:</P>
+<UL>
+<LI>Actual routine names are as shown in this guide, except that they are all uppercase letters.</LI>
+<LI>String arguments are received by VMS descriptor.</LI>
+<LI>All other scalar data types are received by reference.</LI>
+<LI>Arrays of any type are received by reference.</LI></UL>
+<P>&nbsp;</P>
+<B><I><LI>Using the C Bindings</LI></B></I>
+<P>The C bindings are supplied on all platforms to support languages such as C and C++.  The C bindings on UNIX systems also support Pascal.  The routines in this binding follow C conventions, as listed below:</P>
+
+<UL>
+<LI>Actual routine names are exactly as shown in this guide, including case.</LI>
+<LI>String arguments are received as pointers to null-terminated strings (ASCIZ). </LI>
+<LI>All other scalar data types are received by value.</LI>
+<LI>Arrays of any type are received by reference.</LI></UL>
+
+<P>&nbsp;</P>
+<B><I><LI>Using the f77 Bindings</LI></B></I>
+<P>The f77 bindings are supplied on UNIX systems to support the current f77 calling conventions, as follows:</P>
+<UL>
+<LI>Actual routine names are entirely in lowercase letters and as shown in this guide.  (The f77 compiler automatically adds a trailing underscore.)</LI>
+<LI>String arguments are received by reference and additional hidden arguments, specifying the length of each string (received by value), are automatically appended to the argument list.</LI>
+<LI>All other scalar data types are received by reference.</LI>
+<LI>Arrays of any type are received by reference.</LI></UL>
+
+<P>&nbsp;</P>
+
+<B><P>Declaring RTL Routines</P></B>
+<P>You must declare the RuleWorks RTL routines in the language you are using. On VMS and UNIX platforms, RuleWorks provides a number of include files that contain the necessary declarations (see Table 6-4).  On other platforms, the only include file is rul_rtl.h for use with C and C++.</P>
+<B><P>Table 6-4 Include Files Provided by RuleWorks</P></B>
+<TABLE border=1>
+<TR><TD><B>Language</B></TD><TD><B>VMS File</B></TD><TD><B>UNIX File</B></TD></TR>
+<TR><TD>Ada</TD><TD>RUL$LIBRARY:RUL_RTL.ADA</TD><TD>/usr/lib/cmplrs/rulework/rul_rtl.ada</TD></TR>
+<TR><TD>BASIC</TD><TD>RUL$LIBRARY:RUL_RTL.BAS</TD><TD>/usr/lib/cmplrs/rulework/rul_rtl.bas</TD></TR>
+<TR><TD>C</TD><TD>RUL$LIBRARY:RUL_RTL.H</TD><TD>/usr/include/rul_rtl.h</TD></TR>
+<TR><TD>FORTRAN</TD><TD>RUL$LIBRARY:RUL_RTL</TD><TD>/usr/lib/cmplrs/rulework/rul_rtl.for</TD></TR>
+<TR><TD>Pascal</TD><TD>RUL$LIBRARY:RUL_RTL.PAS</TD><TD>/usr/include/pascal/rul_rtl.h</TD></TR>
+<TR><TD>PL/I</TD><TD>RUL$LIBRARY:RUL_RTL.PLI</TD><TD>/usr/lib/cmplrs/rulework/rul_rtl.pli</TD></TR>
+<TR><TD>BLISS—32</TD><TD>RUL$LIBRARY:RUL_RTL.R32</TD><TD>/usr/lib/cmplrs/rulework/rul_rtl.r32</TD></TR>
+</TABLE>
+
+<P>For example, if you are interfacing a VAX Pascal program to RuleWorks, you 
+use a %INCLUDE directive to place the RUL_RTL.PAS file in your program as follows: </P>
+<UL><FONT FACE="Courier" SIZE=1><P>{ Include RuleWorks routine declarations }</P>
+<P>%INCLUDE 'RUL$LIBRARY:RUL_RTL.PAS'</P>
+</FONT></UL>
+<P>For a VAX BASIC external routine to access the RUL_RTL.BAS declarations, place the following %INCLUDE statement in the routine: </P>
+<UL><FONT FACE="Courier" SIZE=1><P>%INCLUDE "RUL_RTL.BAS"</P>
+</FONT></UL>
+
+<P>&nbsp;</p>
+<B><P>Table 6-5 RTL Routines for Accessing Working Memory</P></B>
+<TABLE border=1>
+<TR><TD><B>RTL Routine</B></TD><TD><B>Description</B></TD></TR>
+<TR><TD>rul_get_attr_atom</TD><TD>Returns the value of a scalar attribute.</TD><TR>
+<TR><TD>rul_get_class_string</TD><TD>Returns the class name of an object.</TD><TR>
+<TR><TD>rul_get_class_string_length</TD><TD>Returns the number of characters in a class name.</TD><TR>
+<TR><TD>rul_get_comp_attr_length</TD><TD>Returns the number of elements in a compound attribute value.</TD><TR>
+<TR><TD>rul_get_comp_attr_string</TD><TD>Returns the read forms of all the values in a compound attribute.</TD><TR>
+<TR><TD>rul_get_comp_attr_string_len</TD><TD>Returns the number of characters in the read form of a compound attribute value.</TD><TR>
+<TR><TD>rul_get_comp_elem_atom</TD><TD>Returns the value of a single element of a compound attribute.</TD><TR>
+<TR><TD>rul_get_instance</TD><TD>Returns the read form of an object.</TD><TR>
+<TR><TD>rul_get_instance_length</TD><TD>Returns the number of characters in the read form of an object.</TD><TR>
+<TR><TD>rul_get_next_instance</TD><TD>Allows iteration over working memory.</TD><TR>
+</TABLE>
+
+<P>Example 6-8 and Example 6-9 accept an INSTANCE-ID and prints that object; makes a new object with rul_make_instance, modifies an attribute with rul_set_attr_string, and prints the result; another new object with rul_copy_instance, modifies it, and prints it; and finally removes the object created with rul_make_instance.</P>
+<B><P>Example 6-8 Changing Working Memory: RuleWorks Program</P></B>
+<UL><FONT FACE="Courier" SIZE=1><P>(entry-block main)</P>
+<UL><P>      (external-routine mess_with (accepts atom))</P>
+<P>      (object-class person ^name ^called)</P>
+<P>      (on-entry</P>
+<UL><P>         (bind &lt;obj&gt; (make person ^name |George| ^called friend))</P>
+<P>         (mess_with &lt;obj&gt;) )</P>
+</UL></UL><P>(end-block)</P>
+<P>&nbsp;</P>
+</FONT></UL>
+
+<P>Running Example 6-8 produces the following output:</P>
+<UL>
+<FONT FACE="Courier" SIZE=1><P>Step 1:    (PERSON ^$ID #1 ^NAME |George| ^CALLED FRIEND) </P>
+<P>Step 2:    (PERSON ^$ID #2 ^NAME |George| ^CALLED |Neighbor|) </P>
+<P>Step 3:    (PERSON ^$ID #3 ^NAME |George| ^CALLED TROUBLE) </P>
+<P>Removed Instance:  #2 </P>
+</UL></FONT>
+
+<P>&nbsp;</P>
+<B><P>Example 6-9 Changing Working Memory: C Routine</P></B>
+<UL><FONT FACE="Courier" SIZE=1><P>#include &lt;stdio.h&gt;</P>
+<P>#include &lt;rul_rtl.h&gt;</P>
+<P>&nbsp;</P>
+<P>/*  Set BUFF_SIZE big enough to store the printform </P>
+<P>**  of any of our working-memory objects</P>
+<P>*/</P>
+<P>#define BUFF_SIZE 1000</P>
+<P>&nbsp;</P>
+<P>/*  Set ID_BUFF_SIZE big enough for any symbol's printform</P>
+<P>*/</P>
+<P>#define ID_BUFF_SIZE RUL_C_MAX_SYMBOL_SIZE*2</P>
+<P>void MESS_WITH (rul_atom wme_id)</P>
+<P>{</P>
+<UL><P>char     obj_string_buffer[BUFF_SIZE];</P>
+<P>char     id_string_buffer[ID_BUFF_SIZE];</P>
+<P>long     b_len;</P>
+<P>rul_atom new_wme_id, a_wme_id;</P>
+<P>&nbsp;</P>
+<P>/* Verify that the argument is an instance id */</P>
+<P>if (rul_atom_is_instance_id (wme_id)) {</P>
+<UL><P>&nbsp;</P>
+<P>/* Verify that there exists a working memory element </P>
+<P>* with the given instance id</P>
+<P>*/</P>
+<P>if (rul_is_instance (wme_id)) {</P>
+<UL><P>/* Print the read form of the working memory object */</P>
+<P>b_len = rul_get_instance (obj_string_buffer, BUFF_SIZE, wme_id);</P>
+<P>printf ("\n  Step 1:    %s",obj_string_buffer);</P>
+<P>&nbsp;</P>
+<P>/* Use the object's printform to make a copy */</P>
+<P>a_wme_id = rul_make_instance (obj_string_buffer, "");</P>
+<P>&nbsp;</P>
+<P>/* Modify the ^called attribute of the "made" copy */</P>
+<P>rul_set_attr_string (a_wme_id, "CALLED", "Neighbor");</P>
+<P>&nbsp;</P>
+<P>/* Print the read form of the "made" copy */</P>
+<P>b_len = rul_get_instance (obj_string_buffer, BUFF_SIZE, a_wme_id);</P>
+<P>printf ("\n  Step 2:    %s",obj_string_buffer);</P>
+<P>/* Copy the object made above... */</P>
+<P>new_wme_id = rul_copy_instance (a_wme_id);</P>
+<P>&nbsp;</P>
+<P>/* Modify the ^called attribute of the copy */</P>
+<P>rul_set_attr_string (new_wme_id, "CALLED", "TROUBLE");</P>
+<P>&nbsp;</P>
+<P>/* Print the read form of the "copied" copy */</P>
+<P>b_len = rul_get_instance (obj_string_buffer, BUFF_SIZE,</P>
+<P>                          new_wme_id);</P>
+<P>printf ("\n  Step 3:    %s",obj_string_buffer);</P>
+<P>&nbsp;</P>
+<P>/* remove the "made" copy */</P>
+<P>&nbsp;</P>
+<P>   rul_atom_to_string (id_string_buffer, ID_BUFF_SIZE, a_wme_id);</P>
+<P>   if (rul_remove_instance (a_wme_id))</P>
+<UL><P>       printf ("\n  Removed Instance:  %s\n", id_string_buffer);</P>
+</UL><P>   else            </P>
+<UL><P>        printf ("\n  Removal FAILED\n");</P>
+</UL><P>   }</P>
+</UL><P>  else</P>
+<UL><P>  printf ("\n    INSTANCE-ID not a valid OBJECT\n");</P>
+</UL><P>  }</P>
+</UL><P> else</P>
+<UL><P>  printf ("\n    Atom not an INSTANCE-ID\n");</P>
+</UL><P> fflush (stdout);</P>
+</UL><P>}</P>
+
+<P>&nbsp;</P>
+<B><P>Table 6-6 RTL Routines for Changing Working Memory</P></B>
+<TABLE border=1>
+<TR><TD><B>RTL Routine</B></TD><TD><B>Description</B></TD></TR>
+<TR><TD>rul_copy_instance</TD><TD>Creates a new object with the same contents as an existing object.</TD></TR>
+<TR><TD>rul_end_id_translation</TD><TD>Signals the end of an INSTANCE-ID translation table.</TD></TR>
+<TR><TD>rul_make_instance</TD><TD>Creates a new object from a string.</TD></TR>
+<TR><TD>rul_remove_instance</TD><TD>Deletes an object from working memory.</TD></TR>
+<TR><TD>rul_set_attr_atom</TD><TD>Changes the value of a scalar attribute to an atom.</TD></TR>
+<TR><TD>rul_set_attr_double</TD><TD>Changes the value of a scalar attribute to a double float.</TD></TR>
+<TR><TD>rul_set_attr_float</TD><TD>Changes the value of a scalar attribute to a single float.</TD></TR>
+<TR><TD>rul_set_attr_integer</TD><TD>Changes the value of a scalar attribute to an integer.</TD></TR>
+<TR><TD>rul_set_attr_string</TD><TD>Changes the value of a scalar attribute to a string.</TD></TR>
+<TR><TD>rul_set_comp_attr_string</TD><TD>Changes the value of an entire compound attribute to the values extracted from a single string.</TD></TR>
+<TR><TD>rul_set_comp_elem_atom</TD><TD>Changes the value of a single element of a compound attribute to an atom.</TD></TR>
+<TR><TD>rul_set_comp_elem_double</TD><TD>Changes the value of a single element of a compound attribute to a double-precision floating-point number.</TD></TR>
+<TR><TD>rul_set_comp_elem_float</TD><TD>Changes the value of a single element of a compound attribute to a single-precision floating-point number.</TD></TR>
+<TR><TD>rul_set_comp_elem_integer</TD><TD>Changes the value of a single element of a compound attribute to an integer.</TD></TR>
+<TR><TD>rul_set_comp_elem_string</TD><TD>Changes the value of a single element of a compound attribute to a string.</TD></TR>
+<TR><TD>rul_specialize_instance</TD><TD>Changes an instance of a parent class to an instance of a subclass.</TD></TR>
+<TR><TD>rul_start_id_translation</TD><TD>Signals the creation of an INSTANCE-ID translation table.</TD></TR>
+</TABLE>
+
+<B><P>Note</B>: It may be necessary to call the appropriate declaration block before calling RTL routines that test declarations or that create WMOs, to ensure that the object classes have been initialized.</P>
+
+<P>&nbsp;</P>
+<P><B>Table 6-7 RTL Routines for Testing Declarations</P></B>
+<TABLE border=1>
+<TR><TD><B>RTL Routine</B></TD><TD><B>Description</B></TD></TR>
+<TR><TD>rul_attr_is_compound</TD><TD>Indicates whether an attribute is compound or scalar.</TD></TR>
+<TR><TD>rul_is_attribute</TD><TD>Indicates whether an attribute is declared in the specified object class.</TD></TR>
+<TR><TD>rul_is_class</TD><TD>Indicates whether an object class with the specified name has been declared.</TD></TR>
+<TR><TD>rul_is_subclass</TD><TD>Indicates whether one object class inherits from another.</TD></TR>
+</TABLE>
+
+<P>&nbsp;</P>
+<P><B>Table 6-8 RTL Routines for Testing Values</P></B>
+<TABLE border=1>
+<TR><TD><B>RTL Routine</b></td><TD><B>Description</B></TD></TR>
+<TR><TD>rul_atom_is_compound</TD><TD>Indicates whether a value is compound or scalar.</TD></TR>
+<TR><TD>rul_atom_is_fatom</TD><TD>Indicates whether a value is a FLOAT atom.</TD></TR>
+<TR><TD>rul_atom_is_iatom</TD><TD>Indicates whether a value is an INTEGER atom.</TD></TR>
+<TR><TD>rul_atom_is_instance_id</TD><TD>Indicates whether a value is an INSTANCE-ID atom.</TD></TR>
+<TR><TD>rul_atom_is_symbol</TD><TD>Indicates whether a value is a SYMBOL atom.</TD></TR>
+<TR><TD>rul_is_instance</TD><TD>Indicates whether an object that corresponds to the specified INSTANCE-ID exists in working memory.</TD></TR>
+</TABLE>
+
+<P>Example 6-11 is a C routine that displays the read form, print form, and type of arbitrary atoms created by the RuleWorks program in Example 6-10.</P>
+<P>&nbsp;</P>
+<B><P>Example 6-10 Testing and Converting Values: RuleWorks Program</P></B>
+<UL><FONT FACE="Courier" SIZE=1><P>(entry-block main)</P>
+<P>(object-class foo ^bar)</P>
+<P>(external-routine which_type_is_this (accepts atom))</P>
+<P>(on-entry</P>
+<UL><P>        (make foo ^bar 1234)</P>
+<P>        (make foo ^bar 43.21)</P>
+<P>        (make foo ^bar |a symbol|)</P>
+<P>        (run))</P>
+</UL><P>&nbsp;</P>
+<P>(rule any-atom</P>
+<UL><P>      (foo ^bar &lt;x&gt;)</P>
+<P>   --&gt;</P>
+<P>      (which_type_is_this &lt;x&gt;))</P>
+</UL><P>&nbsp;</P>
+<P>(rule instance-id-atom</P>
+<UL><P>      (foo ^$id &lt;x&gt; ^bar 1234)</P>
+<P>   --&gt;</P>
+<P>      (which_type_is_this &lt;x&gt;))</P>
+<P>&nbsp;</P>
+</UL><P>(end-block main)</P>
+</FONT></UL>
+
+<P>&nbsp;</P>
+<P><B>Example 6-11 Testing and Converting Values: C Routine</P>
+</B>
+<FONT FACE="Courier" SIZE=1><P>#include &lt;stdio.h&gt;</P>
+<P>#include &lt;rul_rtl.h&gt;</P>
+<P>&nbsp;</P>
+<P>void WHICH_TYPE_IS_THIS (rul_atom atom_value)</P>
+<P>{</P>
+<UL><P>        char    tmp[RUL_C_MAX_SYMBOL_SIZE+1];</P>
+<P>        long    len;</P>
+<P>&nbsp;</P>
+<P>        /* Get the read form of the given atom */</P>
+<P>        rul_atom_to_string (tmp, RUL_C_MAX_SYMBOL_SIZE+1, atom_value);</P>
+<P>        printf ("\n\n    Atom  has read form = '%s'", tmp);</P>
+<P>&nbsp;</P>
+<P>        /* Print out type and value */</P>
+<P>        if (rul_atom_is_iatom(atom_value)) {</P>
+<UL><P>                printf ("\n    Atom is of type INTEGER");</P>
+<P>                printf ("\n    Atom has value = %12d",</P>
+<P>                        rul_iatom_to_integer (atom_value));</P>
+</UL><P>        }</P>
+<P>        else if (rul_atom_is_fatom(atom_value)) {</P>
+<UL><P>                printf ("\n    Atom is of type FLOAT");</P>
+<P>                printf ("\n    Atom has value = %12.4f", rul_fatom_to_float (atom_value));</P>
+</UL><P>        }</P>
+<P>        else if (rul_atom_is_symbol(atom_value)) {</P>
+<UL><P>                printf ("\n    Atom is of type SYMBOL");</P>
+<P>                len = rul_symbol_to_string (tmp,</P>
+<UL><P>                                            RUL_C_MAX_SYMBOL_SIZE+1,</P>
+<P>                                            atom_value) ;</P>
+</UL><P>                printf ("\n    Atom has print form = '%s'", tmp);</P>
+</UL><P>        }</P>
+<P>        else if (rul_atom_is_instance_id(atom_value)) {</P>
+<UL><P>                printf ("\n    Atom is of type INSTANCE_ID");</P>
+</UL><P>        }</P>
+<P>        else {</P>
+<UL><P>                printf ("\n    Atom is of unknown type");</P>
+</UL><P>        }</P>
+<P>        fflush (stdout);</P>
+</UL><P>}</P>
+</FONT>
+
+<P>&nbsp;</P>
+<P>Running Example 6-10 produces the following output: </P>
+<FONT FACE="Courier" SIZE=1><P>Atom has read form = '|a symbol|'</P>
+<P>    Atom is of type SYMBOL</P>
+<P>    Atom has print form = 'a symbol'</P>
+<P>&nbsp;</P>
+<P>    Atom has read form = '43.21'</P>
+<P>    Atom is of type FLOAT</P>
+<P>    Atom has value =      43.2100</P>
+<P>&nbsp;</P>
+<P>    Atom has read form = '#1'</P>
+<P>    Atom is of type INSTANCE_ID</P>
+<P>&nbsp;</P>
+<P>    Atom has read form = '1234'</P>
+<P>    Atom is of type INTEGER</P>
+<P>    Atom has value =  1234</P>
+</FONT>
+
+<B><P>&nbsp;</P>
+<P>Table 6-9 RTL Routines for Converting Values</P></B>
+<TABLE border=1>
+<TR><TD><B>RTL Routine</B></TD><TD><B>Description</B></TD></TR>
+<TR><TD>rul_atom_to_string</TD><TD>Converts an atom to a string.</TD></TR>
+<TR><TD>rul_atom_to_string_length</TD><TD>Returns the number of characters in the string representation of an atom.</TD></TR>
+<TR><TD>rul_double_to_fatom</TD><TD>Converts a double-precision floating-point number into a FLOAT atom.</TD></TR>
+<TR><TD>rul_fatom_to_double</TD><TD>Converts a FLOAT atom into a double-precision floating-point number.</TD></TR>
+<TR><TD>rul_fatom_to_float</TD><TD>Converts a FLOAT atom into a single-precision floating-point number.</TD></TR>
+<TR><TD>rul_float_to_fatom</TD><TD>Converts a single-precision floating-point number into a FLOAT atom.</TD></TR>
+<TR><TD>rul_genint</TD><TD>Generates a new INTEGER atom.</TD></TR>
+<TR><TD>rul_gensym</TD><TD>Generates a new SYMBOL atom with the prefix G:.</TD></TR>
+<TR><TD>rul_gensymp</TD><TD>Generates a new SYMBOL atom, with an optional prefix.</TD></TR>
+<TR><TD>rul_iatom_to_integer</TD><TD>Converts an INTEGER atom into an integer.</TD></TR>
+<TR><TD>rul_integer_to_iatom</TD><TD>Converts an integer into an INTEGER atom.</TD></TR>
+<TR><TD>rul_string_to_atom</TD><TD>Converts the first token of a string into an atom.</TD></TR>
+<TR><TD>rul_string_to_symbol</TD><TD>Converts a character string into a SYMBOL atom.</TD></TR>
+<TR><TD>rul_symbol_to_string</TD><TD>Converts a SYMBOL atom into a character string.</TD></TR>
+</TABLE>
+
+<P>&nbsp;</P>
+<P><B>Table 6-10 RTL Routines for Controlling RuleWorks Execution</P></B>
+<TABLE border=1>
+<TR><TD><B>RTL Routine</B></TD><TD><B>Description</B></TD></TR>
+<TR><TD>rul_debug</TD><TD>Invokes the RuleWorks command interpreter.</TD></TR>
+<TR><TD>rul_get_firing_rule</TD><TD>Identifies the rule that the RuleWorks run-time system is currently executing.</TD></TR>
+</TABLE>
+
+<P>&nbsp;</P>
+<P><B>Strings, Read Forms, and Print Forms</P></B>
+<P>The RTL routines listed in the first column of Table 6-11 parse strings passed to them using the same semantics as the RuleWorks reader. That is, their input should be a read form not a print form.  In general, any RTL routine that accepts or returns more than one atom in a string uses read forms.  RTL routines that use strings to pass a single atom use a print form if the type of the atom is known; if the type of the atom is not known the routines use a read form.</P>
+<P>&nbsp;</P>
+<B><P>Table 6-11 RTL Routines That Accept or Return Read Forms</P></B>
+<TABLE border=1>
+<TR><TD><B>Accept</B></TD><TD><B>Return</B></TD></TR>
+<TR><TD>rul_make_instance</TD><TD>rul_get_instance</TD></TR>
+<TR><TD>rul_set_comp_attr_string</TD><TD>rul_get_comp_attr_string</TD></TR>
+<TR><TD>rul_string_to_atom</TD><TD>rul_atom_to_string</TD></TR>
+</TABLE>
+
+<P>Because the print form of a symbol can be different from its read form, passing a print form to a routine that expects a read form can cause unexpected results.  The following C code creates two different RuleWorks atoms, one whose print form is abc and one whose print form is ABC.  That is, my_atom is not equal to an_atom. </P>
+<P>&nbsp;</P>
+
+<UL><FONT FACE="Courier" SIZE=1><P>#include &lt;rul_rtl.h&gt;</P>
+<P>...</P>
+<P>rul_atom  my_atom, an_atom;</P>
+<P>long      len;</P>
+<P>char      buffer[RUL_C_MAX_SYMBOL_SIZE+1];</P>
+<P>&nbsp;</P>
+<P>my_atom = rul_string_to_atom ("|abc|");</P>
+<P>len = rul_symbol_to_string (&amp;buffer, RUL_C_MAX_SYMBOL_SIZE+1, my_atom);</P>
+<P>an_atom = rul_string_to_atom (&amp;buffer);</P>
+</FONT></UL>
+
+<P>The RTL routines listed in the second column of Table 6-11 return read forms, not print forms.  This allows your external routine to use the string representations of RuleWorks objects.</P>
+<P>&nbsp;</P>
+
+
+<B><FONT FACE="Helvetica" SIZE=5>Handling an Interrupt</B></FONT>
+<P>RuleWorks programs can get information from external sources, such as timers and I/O devices, by calling system routines that let the programs request that they be interrupted when particular events occur. An interrupt is called an asynchronous system trap (AST) on VMS systems and a signal on UNIX systems.  The system routine provides a transfer of control to a user-specified procedure that handles the event.</P>
+
+<P>When a program calls a system routine, it typically specifies the event handler as one of the arguments. The calling program then continues to run until an event of the appropriate type occurs.  When the event occurs, the operating system interrupts the calling program by immediately passing control to the event handler. When the event handler finishes, the program continues from the point where it was interrupted. </P>
+
+<P>Normally, the event handler examines the event received, possibly updates the program's data, and then returns control to the program at the point the interruption occurred.</P>
+
+<B><P>CAUTION</B>: In a RuleWorks program the data (working memory) can be updated at any point in the recognize-act cycle, but not from interrupt level.  Therefore, interrupts have to be &quot;synchronized&quot;.  An event handler cannot call RuleWorks to alter working memory. Instead the event handler should modify some external reentrant data structure.  Another external routine that protects itself from interrupts and knows how to poll that external data structure should be called periodically, for example, from inside an ON-EVERY construct. </P>
+
+<P>In summary, you must take the following steps for your RuleWorks program to communicate with asynchronous or interrupt level external sources: </P>
+
+
+<UL>
+<LI>Create an external routine, called the polling routine, that passes information from the external reentrant data structure to the program by creating objects. </LI>
+<LI>Call the polling routine periodically from your RuleWorks program.</LI>
+<LI>Create another external routine, called the event handler, to receive the interrupts.   This event handler routine executes at interrupt level and adds information to the reentrant external data structure.   </LI>
+<LI>Register the event handler routine with the operating system by calling the appropriate system routine.</LI></UL>
+
+<P>&nbsp;</P>
+<B><FONT FACE="Helvetica" SIZE=5>Summary of Restrictions</B></FONT>
+<P>This section lists the restrictions on using RuleWorks with other languages.</P>
+
+<B><P>On the Left-Hand Side:</P>
+
+<UL>
+</B><LI>Do not call functions with hidden state, even ones as simple as fetching the value of an environment variable or logical name, or returning the number of times the function has been called.  All functions used on the LHS should return a value whose computation depends directly and exclusively on the arguments passed.</LI>
+<LI>Do not call any function that uses the RuleWorks RTL routines to read or change working memory in any way.  These routines all depend on hidden state.</LI></UL>
+
+
+<B><P>Anywhere in a Rule:</P>
+
+<UL>
+</B><LI>Do not depend on the order of evaluation of argument expressions to any built-in action or function or to any external routine.</LI>
+<LI>External routines that return allocated memory are responsible for deallocation of that memory (array or string, ASCIZ or ASCID).</LI>
+<LI>Strings and arrays passed as return values from entry blocks are never deallocated, so when possible use read-write arguments instead.</LI></UL>
+
+
+<B><P>In General:</P>
+
+<UL>
+</B><LI>The caller of any RuleWorks RTL routine is responsible for the allocation and deallocation of any memory required for the arguments to or from that routine. </LI>
+<LI>Never call any RuleWorks RTL routine from interrupt level. </LI></UL>
+
+</FONT></BODY>
+</HTML>

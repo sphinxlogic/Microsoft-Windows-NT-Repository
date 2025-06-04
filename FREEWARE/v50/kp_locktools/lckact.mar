@@ -1,0 +1,291 @@
+        .title  LCKACT
+;;
+;; List all the active lock trees on this node
+;;
+;;  We define "active" lock trees as ones where the "Old activity" field
+;;  in the root RSB (which contains the average lock count per 8-second
+;;  interval) is non-zero.
+;                        K.Parris 11/98
+;; Author: Keith Parris  parris@encompasserve.org or keithparris@yahoo.com
+;; http://www.geocities.com/keithparris/ or http://encompasserve.org/~parris/
+;
+; Comment out the following line to compile for 7.1-2 and previous versions
+; Uncomment the following line to compile for 7.2 and following versions
+;;;V72_OR_LATER = 1			; KP May 2000
+
+	.library	'sys$library:lib.mlb'
+	.library	'sys$library:starlet.mlb'
+	$rsbdef		;Includ Resource Block definitions
+	$syidef		;Include definitions used for $GETSYI
+
+;;
+;; Status-check macro
+;;
+	.MACRO	CHECK_STATUS, LOC=R0, ?NO_ERROR1$
+        BLBS	LOC, NO_ERROR1$	;Branch if no error
+	.IF DIFFERENT LOC, R0
+        MOVZWL	LOC, R0		;Move error into R0
+	.ENDC
+        $EXIT_S	R0		;Exit with error
+NO_ERROR1$:			;Return to program flow
+	.ENDM	CHECK_STATUS
+
+;------------------------------------------------------------------------------
+	.PSECT	RO_DATA	QUAD,RD,noWRT,noEXE
+;;
+;; Read-only data area
+;;
+
+;
+; Item List for the $GETSYI call.
+;
+	.ALIGN	LONG
+SYI_ITMLST:
+	.WORD		4		;buffer length (1 longword)
+	.WORD		SYI$_NODE_CSID	;Return CSID of node
+	.ADDRESS	NODE_CSID	;buffer address
+	.LONG		0		;returned length address [null,
+;					;since it will always be 4...]
+	.LONG		0		;end of item list.
+
+; Output format strings
+FAOCTL1:	;CSID of this node
+	.ASCID	/CSID: !8XL/
+FAOCTL2:	;OACT CSID ResLen ResNam
+	.ASCID	/!5ZW !8XL !2ZB !8XL!8XL!8XL!8XL!8XL!8XL!8XL!8XL/
+
+DONEMSG:	;Completion confirmation
+	.ASCID	/Done./
+;------------------------------------------------------------------------------
+	.PSECT	RW_DATA	QUAD,RD,WRT,noEXE
+;;
+;; Read-write data area
+;;
+	.ALIGN	QUAD
+IOSB:	.BLKL	2	;IOSB for $GETSYI
+
+;
+; Buffer referenced in the $GETSYI item list
+;
+	.ALIGN	LONG
+NODE_CSID:	.BLKL	;CSID of the node we're running on
+
+; Data items about each active root resource
+	.ALIGN	LONG
+OACT:	.BLKL		; "Old activity" field -- average req's per 8 seconds
+	.ALIGN	LONG
+CSID:	.BLKL		; Master node CSID
+	.ALIGN	LONG
+RSNLEN: .BLKL		; Resource name length in bytes
+	.ALIGN	LONG
+RESNAM: .BLKB	32	; Resource name itself
+
+;
+; Stuff for $FAO call.
+;
+MAXFAO = 132			;Maximum $FAO buffer length
+	.ALIGN	QUAD
+FAODESC:			;$FAO descriptor
+FAOLEN:	.BLKL			;$FAO output buffer length
+	.ADDRESS	FAOBUF	;address of buffer
+FAOBUF:	.BLKB	MAXFAO		;132-character buffer
+
+;------------------------------------------------------------------------------
+	.PSECT	CODE	QUAD,RD,noWRT,EXE
+;;
+;;  Begin code
+;;
+
+;;;;===========================================================================
+;;;;
+;;;; Main program
+;;;;
+;;;;===========================================================================
+        .ENTRY  START,^M<>
+
+; Lock manager data structures were moved into S2 space for V7.2.  This means
+; several field widths had to be changed for 64-bit addressing.
+;
+; Check to ensure the version of code we're running matches the running system,
+; and exit with an error if not:
+;        %SYSTEM-F-SYSVERDIF, system version mismatch; please relink
+; They need to actually edit this (for the V72_OR_LATER symbol), recompile, and
+; relink, but hopefully the error message will be enough of a clue to get the
+; job done.
+;
+; Check for a matching version of lock manager code
+	.IIF	NDF,SS$_SYSVERDIF,    $SSDEF
+	.IIF	NDF,SYS$K_BASE_IMAGE, $SYSVERSIONDEF
+	MOVAL	G^SYS$VERSION_BEGIN,R0
+        MOVZBL	#SYS$K_CLUSTERS_LOCKMGR,R1
+    .IF NDF 	V72_OR_LATER
+	lckmgr_version = ^x00010080	;V7.1-2
+    .IFF        ;NDF V72_OR_LATER
+	lckmgr_version = ^x00010100	;V7.2
+    .ENDC       ;NDF V72_OR_LATER
+	CMPL	#lckmgr_version,4(R0)[R1]
+        BEQL    1$
+        MOVL    #SS$_SYSVERDIF,R0	; Must recompile/relink
+	$EXIT_S	R0
+1$:	
+
+;
+; Find out the CSID of the node we're running on
+;
+	$GETSYIW_S	-
+			ITMLST=SYI_ITMLST,-	;item list
+			IOSB=IOSB		;IOSB
+	CHECK_STATUS				;Check status in R0
+	CHECK_STATUS IOSB			;Check status in IOSB
+
+; Output this node's CSID in hexadecimal
+	MOVZBL  #MAXFAO,FAOLEN
+	$FAO_S	-
+		CTRSTR=FAOCTL1,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=NODE_CSID
+	CHECK_STATUS			;Check status in R0
+; Output the message to SYS$OUTPUT
+	PUSHAL 	FAODESC
+	CALLS	#1, G^LIB$PUT_OUTPUT	;Output the message
+	CHECK_STATUS			;Check status in R0
+
+; Because the RSBs are protected from user-mode access (and are readable only
+; from Kernel mode), gather data from Root RSB chain while in Kernel mode
+    .IF NDF 	V72_OR_LATER
+		;V7.1-2
+	$CMEXEC_S ROUTIN=WORK	; Call serious-work routine in Exec mode
+    .IFF        ;NDF V72_OR_LATER
+		;V7.2
+	$CMKRNL_S ROUTIN=WORK	; Call serious-work routine in Kernel mode
+    .ENDC       ;NDF V72_OR_LATER
+
+; Indicate that we've successfully completed (and the process hasn't been
+; blown away by an ACCVIO in Kernel mode) by putting out a 'Done' message
+	PUSHAL	DONEMSG
+	CALLS	#1, G^LIB$PUT_OUTPUT	;Output the message
+;;	CHECK_STATUS			;Check status in R0
+
+	$EXIT_S	R0
+;
+	RET	; So Alpha macro compiler knows this routine has ended
+;
+; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+;
+	.ENTRY	WORK,^M<R2,R3,R4,R5,R6,R7,R8,R9,R10>
+
+; Look through the chain of root RSBs, grabbing info about each one that
+; has a non-zero "old activity" accumulator.
+;
+; (For simplicity here, we dump them in arbitrary order and use $SORT/MERGE
+; later for the work of sorting by resource name and identifying the busiest
+; ones.)
+;
+; We can only read the data we need from Kernel mode under V7.2 and later,
+; since it's no longer readable from Exec mode.  (We are able to read it
+; from Exec mode in 7.1-2 and earlier versions.)
+;
+; We don't bother to synchronize with spinlocks because we're only reading,
+; and don't want to add to MP_Synch time.
+; But that implies that we might end up off in the weeds sometime if the data
+; structures change underneath us.  While the odds of a root RSB going away
+; isn't high, it is still possible, so we put in place an exception handler
+; to catch an ACCVIO should this occur sometime, and prevent the system from
+; crashing.  This way, worst case, we may blow away our own process.
+; Worst case, we'd temporarily be off in our rate calculations by not having
+; data for a node in the cluster.  Perhaps we can evem re-try up at the DCL
+; level if this process dies (???)@@@@@@
+;
+; Establish an exception handler to catch inadvertent ACCVIOs and prevent a
+; system crash.  It will simply return to the caller, signalling the error.
+    .IF DF V72_OR_LATER		;V7.2 or later
+	MOVAB	G^EXE$SIGTORET,(FP)	; Establish exception handler
+    .ENDC	;DF V72_OR_LATER
+
+    .IF NDF V72_OR_LATER		;V7.1-2 or earlier
+	MOVAL	g^LCK$GL_RRSFL,R7	; Address of Root RSB listhead
+	MOVL	R7,R8			; Make a note of listhead address
+    .IFF	;NDF V72_OR_LATER	;V7.2 or later
+	MOVAQ	g^LCK$GQ_RRSFL,R7	; Address of Root RSB listhead
+	evax_or	r31,R7,R8		; Make a note of listhead address
+    .ENDC	;NDF V72_OR_LATER
+10$:
+    .IF NDF V72_OR_LATER		;V7.1-2 or earlier
+	MOVL	(R7),R7			; Next RSB in Root RSB list
+	CMPL	R7,R8			; Back to starting point? (circular queue)
+	.branch_unlikely
+	BEQL	20$			; Yes --> done
+	MOVAB	<-RSB$L_RRSFL>(R7),R9	; Address of base of RSB
+    .IFF	;NDF V72_OR_LATER	;V7.2 or later
+	evax_ldq   R7,(R7)		; Next RSB in Root RSB list
+	evax_cmpeq R7,R8,r24		; Back to starting point? (circular queue)
+	.branch_unlikely
+	blbs       r24,20$		; Yes --> done
+	evax_ldaq  R9,<-rsb$q_rrsfl>(R7); Address of base of RSB
+    .ENDC	;NDF V72_OR_LATER
+	MOVZWL	<RSB$W_OACT>(R9),OACT	; Old Activity field
+	BEQL	10$			; No activity --> try next RSB
+	MOVL	<RSB$L_CSID>(R9),CSID	; Master node CSID
+	BNEQ	15$			; Non-zero --> another node is master
+;					; Zero: (that means this node)
+	MOVL	NODE_CSID,CSID		; Plug in this node's own CSID
+15$:	MOVZBL	<RSB$B_RSNLEN>(R9),R10	; Resource name length
+	MOVL	R10,RSNLEN		; Resource name length
+	MOVC3	R10,<RSB$T_RESNAM>(R9),RESNAM ; Resource name text
+; Output the info about this resource
+	MOVZBL  #MAXFAO,FAOLEN
+	$FAO_S	-
+		CTRSTR=FAOCTL2,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=OACT,-
+		P2=CSID,-
+		P3=RSNLEN,-
+		P4=RESNAM+28,-
+		P5=RESNAM+24,-
+		P6=RESNAM+20,-
+		P7=RESNAM+16,-
+		P8=RESNAM+12,-
+		P9=RESNAM+8,-
+		P10=RESNAM+4,-
+		P11=RESNAM
+	CHECK_STATUS			;Check status in R0
+; Output the message to SYS$OUTPUT
+	PUSHAL 	FAODESC
+	CALLS	#1, G^LIB$PUT_OUTPUT	;Output the message
+	CHECK_STATUS			;Check status in R0
+
+	BRW	10$	; Get next entry in Root RSB list -->
+20$:
+;
+	MOVZWL	#SS$_NORMAL,R0	; Return normal status
+	RET		; Return to user mode
+
+        .end start
+;Possible screen layouts for a MONITOR MLOCK display:
+;
+;                                         Total  Remote  Master  Busiest  and
+;                                 Master  Lock   Lock    Lock    Remote   its
+;Resource name                     Node   Rate   Rate    Rate     Node    rate
+;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx xxxxxx  xxxx   xxxx    xxxx    xxxxxx   xxxx
+;   <filespec, if we can determine that from the resource name>  2nd-busiest?x
+;
+;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx xxxxxx  xxxx   xxxx    xxxx    xxxxxx   xxxx
+;   <filespec, if we can determine that from the resource name>  2nd-busiest?x
+;
+;and display the top 7 to 10 of these in descending order by total lock rate
+;
+;or, for the /ALL option:
+;                                            CUR        AVE       MIN        MAX
+;Resource name                     Node      Rate       Rate      Rate      Rate
+;xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx Total:   xxxx.xx   xxxx.xx   xxxx.xx   xxxx.xx
+;   <filespec>                    xxxxxx   xxxx.xx   xxxx.xx   xxxx.xx   xxxx.xx
+;                                 xxxxxx*  xxxx.xx   xxxx.xx   xxxx.xx   xxxx.xx
+;                                 xxxxxx   xxxx.xx   xxxx.xx   xxxx.xx   xxxx.xx
+;                                       * indicates master node
+;
+;Sort resources vertically by descending average total lock rate, (displaying
+;the top 3-6 on a screen); and within each resource, list the total and all
+;nodes with over some percentage of the total (i.e. more than their "share") of
+;lock requests, based on their average rate

@@ -1,0 +1,294 @@
+1 ETAPE
+
+ETAPE is a general-purpose program for handling EBCDIC tapes. It allows
+the user to move around at will within the tape, send output to different
+files, specify different blocksizes and record lengths for different files
+on the tape, and combine multiple tape files into a single output file.
+The capability of writing an EBCDIC tape from an ASCII file is also
+included.
+
+ETAPE removes all trailing blanks from tape records after reading them.
+On output, records will be blank padded and blocked to create fixed length
+tape blocks. A switch can be set to turn off the EBCDIC translation and
+allow the translation (or writing) of ASCII tapes. ETAPE assumes that the
+user has already allocated a tape drive and mounted the tape, giving it
+the logical name "TAPE:". An example might be - 
+
+$ALLOCATE MU TAPE:
+$MOUNT/FOREIGN TAPE
+$ETAPE
+
+If you wish to use a drive other than TAPE:, specify it on the command line
+  e.g. $ETAPE MUA5.
+The program in command mode prompts for input with the message "ETAPE>" and
+expects a 2 letter command followed by a (sometimes optional) parameter.
+The parameter must be separated from the command by exactly one space.
+Some commands take numeric parameters and others take alphameric text. A
+description of the commands can be obtained by asking for help on any
+particular command. A brief listing of the commands is given below:
+
+AS          - force tape mode to ASCII
+AT nnn      - automatically translate based on tape label
+BB nnn      - backspace nnn blocks
+BF nnn      - backspace nnn files
+BL nnn      - set blocksize for subsequent operations
+DE nnnn     - set density
+DS dataset  - specifies dataset name used for next file written
+EB          - force tape mode to EBCDIC 
+EX          - Exit
+FI filespec - send translated output to specified file
+GT          - set to translate Honeywell GCOS BCD
+HE CC       - request help on a particular command
+LR nnn      - set logical record length (for deblocking records)
+OL          - output labels when writing (toggle)
+QU          - dismount tape and exit
+RE          - Reset EOF indicator
+RF recfm    - Set record format
+RW          - rewind tape (and continue operations)
+SB nnn      - skip nnn blocks in a forward direction
+SD dirspec  - set default (device and directory) for file locations
+SF nnn      - skip nnn files in a forward direction
+ST filespec - Enable/disable special translation
+TB nnn      - translate next nnn blocks
+TF nnn      - translate next nnn files
+TM          - write a tape mark at the current position of the tape
+UT          - toggles translation mode (between EBCDIC and ASCII)
+VL volname  - specifes volume label(s) for output, up to 8, comma separated
+WH          - print detailed statistics
+WR filename - write the contents of filename to the tape
+
+After each command that results in some tape movement, the program will
+print a message like "nnn:mmmm ==> file	(rrrr)" which means the tape is
+at file nnn, block mmmm, and output is currently going to "file" (TTY means
+to the terminal) and rrrr records have been written to that file so far.
+
+The execution of any command may be interrupted by pressing Control-F.
+
+2 /COMMAND_MODE
+
+The /COMMAND_MODE qualifier forces ETAPE to use only line-oriented input
+and output.  This allows running ETAPE from terminals which do not support
+SMG sequences and placing ETAPE commands in command files.
+
+2 Keypad
+
+ETAPE is now keypad driven as well as command driven.  The keypad keys
+emulate the 2-character commands.  The keypad description may be obtained
+by pressing PF2 (Help).
+
+2 AS
+
+Force tape mode to ASCII.
+     See also EB, UT, and GT commands.
+
+2 AT
+
+Automatically translate EBCDIC or ASCII standard labelled tapes to VMS
+disk files in the current default directory.
+
+2 BB
+
+Backspaces the tape the specified number of physical blocks (default=1).
+This command will not back up before the beginning of the current file.
+
+2 BF
+
+Backspaces the tape the specified number of files. A file is counted for
+each tape mark sensed (or until beginning of tape is reached). The tape
+is then positioned just past the last tape mark sensed (unless at BOT). 
+Therefore, the command "BF 1" (or just "BF") will position the tape at the 
+beginning of the current file, not at the previous file. To go back to the 
+beginning of the previous file, you have to give it the command "BF 2".
+
+2 BL
+
+Sets the physical blocksize of records read on the tape to the size 
+specified. The maximum blocksize is currently set at 65534 bytes (this 
+can be changed by modifying and recompiling the program). If a block of
+less than the specified size is read, then a warning message is printed.
+If a block larger than the specified size is read, then the block is
+truncated and  a warning message is printed.
+
+2 DE
+
+Specify the density at which to write a tape.  This command is only applicable
+when writing and at BOT.  It will be ignored otherwise.
+
+2 DS
+
+Specifies the 17 character dataset name for an output tape.  This value is
+only used if WR is issued and label writing is enabled. (see OL)
+The DSN will be used for the next file only.  If not specified, the dataset
+name will be the input file name.
+
+2 EB
+
+Force tape mode to EBCDIC.
+     See also AS, UT, and GT commands.
+
+2 EX
+
+Rewinds the tape and exits the program. All open files are closed.
+
+2 FI
+
+Allows the user to send the output to another file rather than to the 
+terminal. The filename may be up to 80 characters in length, and can be 
+a logical name, which will be properly translated. If the command "FI" is
+given without a parameter, output reverts to the terminal.  This command will
+close any output file that was opened by a previous FI command.  The output
+file is given the defaults ORGANIZATION='SEQUENTIAL', CARRIAGECONTROL='LIST',
+and STATUS='NEW'.
+
+2 GT
+
+Set to translate Honeywell GCOS BCD tapes.
+     See also AS, EB, and UT commands.
+
+2 HE
+
+Prints this text.
+
+2 LR
+
+Use this command to set the logical record size of the blocks on the 
+tape. LR must be less than or equal to BL, and if not specified, defaults 
+to the previous value given by an LR command, or the value of the last BL
+command, if LR is greater then the current blocksize. When ETAPE reads a 
+physical block on the tape, it will break the block into records equal in 
+length to the value specified as the parameter of this command. It is not 
+required that the blocksize be an even multiple of LR; if that is not the 
+case, then the last record will be shorter than the others.
+
+2 OL
+
+Toggles the writing of standard IBM labels to an output tape.
+When labels are enabled, all files written with the WR command will be
+packaged with HDR1/HDR2 and EOF1/EOF2 records when written to the tape.
+Label writing is ENABLED by default.
+
+2 QU
+
+Rewinds the tape and exits the program. All open files are closed.
+
+2 RE
+
+Reset EOF indicator.  This is an experimental method to sometimes allow
+reading past EOF marks.
+
+2 RF
+
+Set record format.  Supported formats are F (fixed), FB (fixed blocked),
+D (ANSI variable), S (ANSI segmented), V (IBM variable), VB (IBM variable
+blocked), VS (IBM variable spanned), VR (IBM variable blocked spanned) and
+U (IBM undefined).  Writing is supported only for FB and VB record types.
+
+2 RW
+
+Rewinds the tape. All else remains unchanged.
+
+2 SB
+
+Use this command to skip forward a specified number of blocks on the 
+tape. This command will not skip past the end of a file, or past the 
+end of the tape. Default is to skip 1 block.
+
+2 SD
+
+This command alters the device and/or directory for output files.  The
+initial setting is your current default disk and directory.
+
+2 SF
+
+Use this command to skip forward a specified number of files on the 
+tape. The default is 1 file, which will position you at the beginning 
+of the next file on the tape. Will not go past end of tape. A file on 
+tape is delimited by tape marks (this program knows nothing about labels; 
+labels are treated just as regular files on the tape).
+
+2 ST
+
+Enables/disable special translation.  To enable special translation,
+specify a valid special-translation filename.  Special translation will
+be disabled if no filename is specified or the file is not valid.
+
+A special translation file consists of a series of directives, 1 per line
+describing the desired output record.  The format of a line is:
+
+tttt bbbbb lllll        where:
+
+    tttt  - the type of the data in the input record.
+            Possible values are:
+            CHAR - Character (8-bit) data subject to translation.
+            PACK - Packed decimal numbers
+            BIN2 - 16 bit binary integers
+            BIN4 - 32 bit binary integers
+            IBF4 - IBM single precision floating point (translated to VAX float)
+    bbbbb - Beginning position in the input record (in characters)
+    lllll - Length of field.  For PACK fields this value is in number
+            of packed decimal digits, for all other data types, it is
+            specified in number of characters.
+
+A example translation file would be:
+
+ !typ beg   len	     Comments may be specified with ! in column 1
+ char 00001 00001      or after the length field.
+ pack 00002 00002    Begin position is always in characters
+ pack 00004 00006    Length of packed field is in packed digits
+ char 00037 00002
+ pack 00016 00005 ** Note that output field order is independent of input.
+
+2 TB
+
+Translated the next nnn blocks and displays them at the terminal, or 
+writes them to a file, as the user has requested previously. This command 
+stops when it encounters the end of a file (but the output file is not 
+closed, so you can reposition the tape and send another file to the same 
+output file). The form of the command "TB *" translates all remaining 
+blocks in the file currently positioned at.
+
+2 TF
+
+Translates the next nnn files, sending output to the terminal or to a 
+file, as the user has previously specified. The form "TF *" translates 
+all remaining files on the tape, concatenating them and merging them to 
+the output file. Stops upon reaching the end of the tape.
+
+2 TM
+
+Writes a tapemark on the tape at that point. Read access beyond the
+tapemark is then prohibited. Note that the WR command already writes
+its own tapemark at the end of every file written to the tape.
+
+2 UT
+
+Causes translation to be toggled between ASCII and EBCDIC. Initially, the
+switch is set to do translation from EBCDIC. A UT command turns off the
+translation and a subsequent UT command will turn it back on. The WH
+command will tell you what mode you are in.  The GT command will force
+translation from Honeywell GCOS BCD.
+
+2 VL
+
+Specifies the volume labels for output tapes.  This value is only used
+if a WR command is executed at the beginning of the tape and label writing
+is enabled (see OL).  Up to 8 volume labels may be specified and will be used
+in the order given.  Specify labels separated by commas.
+
+2 WH
+
+Prints detailed tape statistics (tape position, output file and 
+# blocks  written, blocksize and record length, etc).
+
+2 WR
+
+Writes the contents of the file specified to the tape, in whatever
+format (ASCII or EBCDIC) is currently in use. The current values of
+lrecl and blocksize are used to block the records for output. This will
+also write a tapemark after the end of file. Short records are padded
+with blanks, long records are truncated (with a warning message), and
+the last block written may be shorter than the other blocks (but an
+integral multiple of lrecl).  If label mode is on (the default), standard
+labels will be added before and after the file is written.
+
+Writing of GBCD tapes is not supported at this time.

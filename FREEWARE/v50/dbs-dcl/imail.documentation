@@ -1,0 +1,491 @@
+							   imail.documentation
+    --------------------------------------------------------------------------
+
+	The following discussion applies to:
+
+	    o	the undocumented/unsupported SMTP interface used by TCPIP
+
+	    o	minimum software versions; VMS V7.2, TCPIP 5.0A
+
+	    o	the DCL procedure IMAIL_ENGINE.COM
+
+    --------------------------------------------------------------------------
+
+	There are two methods of using IMAIL_ENGINE;
+
+	    o	the first is to create a message file containing ALL the
+		necessary headers and use IMAIL_ENGINE to DELIVER it,
+
+	    o	the second is to use IMAIL_ENGINE to SEND a file to a
+		specified recipient.  This method is similar to using the
+		standard VMS mail utility.
+	
+    --------------------------------------------------------------------------
+
+	Building a file with all the required headers is possible and quite
+	easy if you follow the guidelines...
+
+	Single part messages have the following general format:
+
+		<SMTP-headers>
+		<MIME-headers>
+		<blank-line>
+		<message-text>
+
+	Each of these is discussed in more detail later.  Please note that
+	the syntax (particularly the "case" of the examples) is specific; if
+	you follow the notes and examples (which follow that defined by the
+	appropriate RFC), things will probably work.  If you do things
+	differently to what is explained and it works, good luck.  If you do
+	things differently and it breaks - you are on your own.
+
+	The information described here and in the following sections is NOT
+	to be considered a complete guide; it covers only those aspects of the
+	RFCs that were thought to be relevant at the time this document was
+	put together.  Further details can be obtained by perusing the
+	relevant RFCs at your leisure.
+
+	The <SMTP-headers> are used by the SMTP server to determine where to
+	send the message.  These headers are only used by the SMTP server and
+	should never be seen by the mail clients.
+
+	The <MIME-headers> are used by the mail client to determine how the
+	message should be handled at the other end i.e. they are relevant ONLY
+	to the mail client, NOT the SMTP server.
+
+	The <blank-line> is REQUIRED to separate the headers from the content.
+	There should be NO blank lines in either the SMTP or MIME header
+	sections.
+
+	The <message-text> is the actual content that you want to send and
+	should at least be consistent with what the MIME headers say is in the
+	message... that is up to you.
+
+    --------------------------------------------------------------------------
+
+							   imail.documentation
+    --------------------------------------------------------------------------
+
+	The following has been extracted from IMAIL_ENGINE.COM; this is the
+	DCL procedure that carries out the sending of files via SMTP.
+
+	The procedure is located in OLGA$SYS and can be invoked by using
+
+		$ @olga$sys:imail_engine
+
+
+$ !+==========================================================================
+$ !
+$ ! Procedure:	IMAIL_ENGINE.COM
+$ !
+$ ! Purpose:	To use the undocumented/unsupported SFF utility to send
+$ !		internet mail.
+$ !
+$ ! Parameters:
+$ !	P1	This defines the action to be taken.  The remaining parameters
+$ !		are dependent on the action - read on.
+$ !		For those options that allow multiple filenames, P2 though P8
+$ !		can contain either a single filename or a comma separated list
+$ !		of filenames; always bearing in mind the DCL command line
+$ !		requirements.
+$ !
+$ !	DELIVER filename[,filename...] [filename[,filename...]]
+$ !
+$ !		The deliver option will simply pass the specified file(s) to
+$ !		SFF on the assumption that each file is in the correct format
+$ !		and that all required headers are in place.  Each file is
+$ !		first checked to ensure a minimum of valid SMTP headers exist.
+$ !
+$ !	SEND <filename>[/<mimetype>] <recipient> [<sender>]
+$ !
+$ !		The send option will send a single file to the specified
+$ !		recipient.  It is assumed that the file to send does NOT have
+$ !		any MIME headers and a basic set will be generated based on
+$ !		the command line parameters and the logicals described below.
+$ !		The <mimetype> qualifier allows selection of either plain text
+$ !		of HTML content.  Use "/PLAIN" or "/TEXT" for plain text or
+$ !		"/HTML" for HTML (that wasn't hard now was it).  The default
+$ !		is to use plain text unless the IMAIL_MIME_TYPE logical is
+$ !		defined or the command line qualifier is used.
+$ !		The <filename> specified in the command is NOT modified.
+$ !		A unique filename is generated to contain the required headers
+$ !		and the specified file is appended to this new file.
+$ !		A symbol IMAIL_SFF_FILE will contain the name of the file.
+$ !
+$ !	ENCODE filename[,filename...] [filename[,filename...]]
+$ !
+$ !		The encode option will take the specified file(s) and encode
+$ !		them using UUENCODE, which produces a BASE64 file suitable for
+$ !		sending via SMTP.  The output filename is that of the input
+$ !		file specification with a filetype of ".UUE".  This cannot be
+$ !		changed.
+$ !
+
+
+    --------------------------------------------------------------------------
+
+							   imail.documentation
+    --------------------------------------------------------------------------
+
+$ ! Logicals:
+$ !
+$ !	IMAIL_MIME_TYPE  is used to define the default MIME type for files.
+$ !		If not defined, the default is for plain text.  If defined,
+$ !		the value must be "PLAIN", "TEXT" or "HTML".  Any other values
+$ !		are invalid and will be ignored, the type will become "PLAIN".
+$ !	IMAIL_SENDER  will be used as the <sender> if one is not specified
+$ !		in the command line.  DO NOT include angle brackets, they will
+$ !		be added automatically.
+$ !	IMAIL_ORGANIZATION  will be used as the "Organization:" value in the
+$ !		MIME headers if it is defined.  The logical can also be
+$ !		spelled with an "S" rather than a "Z" for those that find this
+$ !		necessary.
+$ !
+$ !		$ define imail_sender "dbsneddon@bigpond.com"
+$ !		$ define imail_organization "Sneddo's all night bar & grille"
+$ !
+$ ! Unsupported options:
+$ !
+$ !	VALIDATE filename[,filename...] [filename[,filename...]]
+$ !
+$ ! Unsupported logicals:
+$ !
+$ !	IMAIL_RETAIN_SFF  This logical determines whether generated SFF files
+$ !		are retained.  The default is to NOT retain these files.
+$ !	IMAIL_TEST  If this logical is defined as "true", the initial checks
+$ !		for VMS version and utility availablity are ignored.  Useful
+$ !		for testing.
+$ !	IMAIL_VERBOSE  If this logical is defined as "true", information
+$ !		messages are displayed for various successful operations
+$ !		rather than messages only being generated for errors.
+$ !
+$ ! History:
+$ !		23-Oct-2000, DBS; Version X1-001
+$ !	001 -	Original version.
+$ !		24-Oct-2000, DBS; Version X1-002
+$ !	002 -	Added IMAIL_RETAIN_SFF logical to control retention of
+$ !		generated files.  The default is to delete them.
+$ !-==========================================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    --------------------------------------------------------------------------
+
+							   imail.documentation
+    --------------------------------------------------------------------------
+	The following headers are used to tell the SMTP server where to send
+	the message and where to send any reply messages if there is a
+	problem.
+
+	The syntax and message structure is strict and MUST be adhered to.
+
+	The general format is as follows:
+
+		identify yourself (or at least a return address)
+		identify the recipient(s)
+		end the SMTP headers
+    --------------------------------------------------------------------------
+	The first header line MUST be the "mail from" line which is used to
+	identify you (or an address to be used for replies).
+
+	MAIL<sp>FROM:<return_address>
+	MAIL<tab>FROM:<return_address>
+
+	Between the words "MAIL" and "FROM" there can be either a SINGLE
+	space or a SINGLE tab character.
+	There must be NO white space between the "M" of "FROM" and the colon.
+	The "return address" is a valid e-mail address enclosed in angle
+	brackets e.g. <me@my.house>.
+    --------------------------------------------------------------------------
+	There must be AT LEAST ONE recipient specified.
+
+	RCPT<sp>TO:<recipient>
+	RCPT<tab>TO:<recipient>
+
+	Between the words "RCPT" and "TO" there can be either a SINGLE space
+	or a SINGLE tab character.
+	There must be NO white space between the "O" of "TO" and the colon.
+	The "recipient" is a valid e-mail address enclosed in angle brackets
+	e.g. <you@your.house>
+	If multiple recipients need to be specified, include one "RCPT TO"
+	line for each recipient.
+	There can be only ONE recipient specified per line.
+    --------------------------------------------------------------------------
+	There must be a "DATA" line to tell the SMTP server that there are no
+	more SMTP headers.
+
+	This consists of a single line containing the word "DATA".
+
+	NO other text should appear on the line.
+    --------------------------------------------------------------------------
+	Example:
+
+		MAIL FROM:<dave@somewhere.com>
+		RCPT TO:<fred@anywhere.com>
+		RCPT TO:<tom@nowhere.com>
+		DATA
+		...rest of message contents...
+
+	The contents of the message AFTER the DATA line are passed on.  The
+	SMTP server does no further processing of the message.  The above
+	message will be sent to two recipients as specified.  Any problems
+	will be reported back to "dave@somewhere.com".
+    --------------------------------------------------------------------------
+
+							   imail.documentation
+    --------------------------------------------------------------------------
+	MIME Headers:
+
+	When writing a MIME encoded meassage the following headers must be
+	attached to the message, using exactly the same syntax and case.  The
+	charset option contained in the "[]" is required only when the
+	"Content-Type" is specified as being "text".
+
+	MIME-Version: 1.0
+	Content-Type: type/subtype; [charset="charset_id"]
+	Content-Transfer-Encoding: encoding
+
+	Example:
+
+		MIME-Version: 1.0
+		Content-Type: text/plain; charset="US-ASCII"
+		Content-Transfer-Encoding: 7BIT
+
+    --------------------------------------------------------------------------
+
+	The following details are supplied should you decide to send
+	multi-part messages.
+
+	When writing multipart messages there are a few extra headers that
+	are required.  These are specified below:
+
+	MIME-Version: mime_version
+	Content-Type: multipart/mixed; boundary="unique_boundary"
+
+	--unique_boundary
+	Content-Type: type/subtype; [charset="charset_id"]
+	Content-Transfer-Encoding: encoding
+
+	--unique_boundary
+	Content-Type: type/subtype; [charset="charset_id"]
+	Content-Transfer-Encoding: encoding
+
+	The headers specified above must be applied to the message using the
+	exact syntax and case that is shown.  For multipart messages the
+	boundary is required and is case sensitive.  When dividing up the
+	parts of the message it is necessary to place two hyphens before the
+	text that specifies the boundary.
+
+	The written message must be specified as:
+
+ 	Content-Type: message/rfc822
+
+	Encoding for audio and image is normaly specified as BASE64.  Text is
+	normaly specified as 7BIT or 8BIT.  QUOTED-PRINTABLE is used to
+	specify the text inside the part of the message that has been marked
+	as "message/rfc822".
+
+	Enriched text has a format on it's own that includes the ability to
+	add fonts, styles, colours, etc.  For information on the format of
+	enriched text refer to RFC1896.
+
+
+
+    --------------------------------------------------------------------------
+
+							   imail.documentation
+    --------------------------------------------------------------------------
+
+	The following is an example of a multipart message:
+
+	MIME-Version: 1.0
+	Content-Type: multipart/mixed; boundary="begin-here"
+
+	--begin-here
+	Content-Type: image/jpeg;
+	Content-Transfer-Encofing: BASE64
+
+	[Insert BASE64 encoded jpeg image here]
+
+	--begin-here
+	Content-Type: text/html; charset="US-ASCII"
+	Content-Transfer-Encoding: 7BIT
+
+	[Insert html here]
+
+	--begin-here
+	Content-Type: message/rfc822;
+
+	From: someone@there.com
+	To: someone@here.com
+	Subject: none
+	Content-Type: text/plain; charset="US-ASCII"
+	Content-Transfer-Enconding: QUOTED-PRINTABLE
+
+	The Content-Type, "message/rfc822", is only used in multipart messages
+	so that the user agent knows that this part is the written text and is
+	not an attachment.
+
+    --------------------------------------------------------------------------
+
+	Valid Type/Subtype combinations:
+
+		Type		Subtype			Reference
+		----		-------			---------
+
+		text		plain		[RFC2646,RFC2046]
+				html			[RFC2845]
+				enriched		[RFC1896]
+
+		multipart	mixed		[RFC2646,RFC2046]
+
+		message		rfc822		[RFC2646,RFC2046]
+
+		application	octet-stream	[RFC2646,RFC2046]
+				pdf		    [Paul Linder]
+
+		image		jpeg		[RFC2646,RFC2046]
+				gif		[RFC2646,RFC2046]
+
+		audio		basic		[RFC2646,RFC2046]
+
+		video		mpeg		[RFC2646,RFC2046]
+				quicktime	    [Paul Linder]
+
+    --------------------------------------------------------------------------
+
+							   imail.documentation
+    --------------------------------------------------------------------------
+
+	Valid character set values:
+
+		Charset_id				Reference
+		----------				---------
+
+		US-ASCII			   ANSI X3.4-1968
+		ISO8859-1			 ISO 8859-1; 1987
+		ISO8859-2			 ISO 8859-2; 1987
+		ISO8859-3			 ISO 8859-3; 1988
+		ISO8859-4			 ISO 8859-4; 1988
+		ISO8859-5			 ISO 8859-5; 1988
+		ISO8859-6			 ISO 8859-6; 1987
+		ISO8859-7			 ISO 8859-7; 1987
+		ISO8859-8			 ISO 8859-8; 1988
+		ISO8859-9			 ISO 8859-9; 1989
+
+    --------------------------------------------------------------------------
+
+	Valid encoding values:
+
+		Encoding				Reference
+		--------				---------
+
+		7BIT				[RFC2646,RFC2046]
+		8BIT				[RFC2646,RFC2046]
+		BASE64				[RFC2646,RFC2046]
+		BINARY				[RFC2646,RFC2046]
+		QUOTED-PRINTABLE		[RFC2646,RFC2046]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    --------------------------------------------------------------------------
+
+							   imail.documentation
+    --------------------------------------------------------------------------
+
+	RFC822 Message Headers:
+	-----------------------
+
+	To:
+
+	This field contains the recipient of the message.  The contents of
+	this header can be in a number of differnet formats.
+
+		Examples:
+
+		To: (Mr. Macphisto) mr_macphisto@zoostation.com
+		To: mr_macphisto@zoostation.com
+		To: Mr. Macphisto <mr_macphisto@zoostation.com>
+
+	From:
+
+	This field contains the address of the sender.  This can be of the
+	same form as the "To:" field.
+
+	Subject:
+
+	This field can contain any text.  The text must be decipherable by
+	the user agent that is reading it.
+
+		Example:
+
+		Subject: Watch more TV!
+
+	Sender:
+
+	This field contains the address of whoever sent the message.  This
+	field is included for times when the sender of the messages is not
+	who wrote it.  It follows the same syntax as the "From:" field.
+
+	Organization:
+
+	This field can contain any text.  The text must be decipherable by
+	the user agent that is reading it.
+
+		Example:
+
+		Organization: My Company Name...
+
+	Reply-To:
+
+	This field contains the reply address.  This doesn't have to be
+	included if the "From:" address is the same as the reply address.
+
+
+	The minimum requirements for a RFC822 message are shown below:
+
+		From: Mr. Macphisto <mr_macphsito@zoostation.com>
+		To: The Fly <the.fly@zootv.com>
+		Subject: Watch more TV!
+
+
+    --------------------------------------------------------------------------

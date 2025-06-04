@@ -1,0 +1,240 @@
+$! File: INSTALL_FPORT___SET_USER.COM
+$!
+$! This file installs the SET USER routine as a shared image, linking it if
+$! needed.
+$!
+$! This is required as the SET USER routine must be linked against the
+$! system symbol table, and must be rebuilt for each Version of OpenVMS.
+$!
+$! 11-Sep-1999	J. Malmberg
+$!
+$!============================================================================
+$!===========================================================================
+$!
+$! Copyright 2000, John E. Malmberg, All Rights Reserved
+$!
+$!   This program is free software; you can redistribute it and/or modify
+$!   it under the terms of the GNU General Public License as published by
+$!   the Free Software Foundation; either version 2 of the License, or
+$!   (at your option) any later version.
+$!
+$!   This program is distributed in the hope that it will be useful,
+$!   but WITHOUT ANY WARRANTY; without even the implied warranty of
+$!   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+$!   GNU General Public License for more details.
+$!
+$!   You should have received a copy of the GNU General Public License
+$!   along with this program; if not, write to the Free Software
+$!   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+$!
+$!===========================================================================
+$!
+$! Save environment
+$!-----------------
+$set noon
+$old_priv = f$getjpi("","CURPRIV")
+$!
+$!
+$!   Turn on privileges for terminal servers and ports"
+$!-----------------------------------------------------
+$needed_priv = "CMKRNL,SYSNAM,SYSPRV"
+$set proc/priv=('needed_priv')
+$if .not. f$privilege(needed_priv) then goto no_priv
+$!
+$!
+$! First find out what type of CPU we are on
+$!-------------------------------------------
+$hw_model = f$getsyi("HW_MODEL")
+$if hw_model .ge. 1000
+$then
+$    arch = "AXP"
+$else
+$    arch = "VAX"
+$endif
+$!
+$! Then get the OpenVMS version name
+$!-----------------------------------
+$node_swvers = f$getsyi("node_swvers")
+$!
+$! Now mangle the name into a suitable file specification
+$!--------------------------------------------------------
+$part1 = f$element(0,".",node_swvers)
+$part2 = f$element(1,".",node_swvers)
+$!
+$vms_ver = part1
+$if part2 .nes. "."
+$then
+$   vms_ver = part1 + "_" + part2
+$endif
+$!
+$!
+$! Where are the sources?
+$!-----------------------
+$procedure = f$environment("PROCEDURE")
+$device = f$parse(procedure,,,"DEVICE")
+$direct = f$parse(procedure,,,"DIRECTORY")
+$source_dir = device + direct
+$!
+$!
+$! Now figure out where the installed image is.
+$!---------------------------------------------
+$imagename = f$trnlnm("FRONTPORT___SET_USER")
+$if imagename .eqs. ""
+$then
+$    imagename = "''source_dir'FRONTPORT___SET_USER_''arch'_''vms_ver'.EXE"
+$    DEFINE/SYSTEM/EXEC FRONTPORT___SET_USER 'imagename'
+$endif
+$!
+$!
+$! Is there a C compiler present?
+$!-------------------------------
+$object1 = "''source_dir'FPORT___SET_USER.OBJ_''arch'"
+$rebuild1 = "FALSE"
+$decc_image = f$search("SYS$SYSTEM:DECC$COMPILER.EXE")
+$if decc_image .nes. ""
+$then
+$!
+$!   Set up the correct CC command
+$!--------------------------------
+$   cc := cc/decc/warn=enable=level4
+$!
+$!   GCC not implemented at this time.
+$!-------------------------------------
+$!
+$!   Are the objects up to date?
+$!------------------------------
+$   source1 = "''source_dir'FPORT___SET_USER.C"
+$   if f$search(source1) .nes. ""
+$   then
+$	if f$search(object1) .eqs. ""
+$	then
+$	   rebuild1 = "TRUE"
+$	else
+$	    src_rdt = f$cvtime(f$file_attributes(source1, "RDT"), "COMPARISON")
+$	    obj_rdt = f$cvtime(f$file_attributes(object1, "RDT"), "COMPARISON")
+$	    if obj_rdt .lts. src_rdt then rebuild1 = "TRUE"
+$	endif
+$	if rebuild1
+$	then
+$	    CC/object='object1' 'source1'
+$	endif
+$   endif
+$endif
+$!
+$! And the images
+$!---------------
+$if arch .eqs. "ALPHA" then macro := macro/migration
+$source2 = "''source_dir'SYS_SETUSER.MAR"
+$object2 = "''source_dir'SYS_SETUSER.OBJ_''arch'"
+$rebuild2 = "FALSE"
+$if f$search(source2) .nes. ""
+$then
+$   if f$search(object2) .eqs. ""
+$   then
+$	rebuild2 = "TRUE"
+$   else
+$	src_rdt = f$cvtime(f$file_attributes(source2, "RDT"), "COMPARISON")
+$	obj_rdt = f$cvtime(f$file_attributes(object2, "RDT"), "COMPARISON")
+$	if obj_rdt .lts. src_rdt then rebuild2 = "TRUE"
+$   endif
+$   if rebuild2
+$   then
+$	MACRO/object='object2' 'source2'
+$   endif
+$endif
+$!
+$rebuild3 = "FALSE"
+$if arch .eqs. "VAX"
+$then
+$   source3 = "''source_dir'FPORT___SET_USER_XFER.MAR"
+$   object3 = "''source_dir'FPORT___SET_USER_XFER.OBJ"
+$   if f$search(source3) .nes. ""
+$   then
+$	if f$search(object3) .eqs. ""
+$	then
+$	    rebuild3 = "TRUE"
+$	else
+$	    src_rdt = f$cvtime(f$file_attributes(source3, "RDT"), "COMPARISON")
+$	    obj_rdt = f$cvtime(f$file_attributes(object3, "RDT"), "COMPARISON")
+$	    if obj_rdt .lts. src_rdt then rebuild3 = "TRUE"
+$	endif
+$	if rebuild3
+$	then
+$	    MACRO/object='object3' 'source3'
+$	endif
+$   endif
+$endif
+$!
+$!
+$!  Is the image up to date?
+$!--------------------------
+$relink = rebuild1 .or. rebuild2 .or. rebuild3
+$if f$search(imagename) .eqs. "" then relink = "TRUE"
+$if .not. relink
+$then
+$   image_rdt = f$cvtime(f$file_attributes(imagename, "RDT"), "COMPARISON")
+$   obj_rdt = f$cvtime(f$file_attributes(object1, "RDT"),"COMPARISON")
+$   if image_rdt .lts. obj_rdt then relink = "TRUE"
+$endif
+$if .not. relink
+$then
+$   obj_rdt = f$cvtime(f$file_attributes(object2, "RDT"),"COMPARISON")
+$   if image_rdt .lts. obj_rdt then relink = "TRUE"
+$endif
+$if .not. relink .and. (arch .eqs. "VAX")
+$then
+$   obj_rdt = f$cvtime(f$file_attributes(object3, "RDT"),"COMPARISON")
+$   if image_rdt .lts. obj_rdt then relink = "TRUE"
+$endif
+$if relink
+$then
+$   if arch .eqs. "AXP"
+$   then
+$	LINK/SHARE='imagename' 'object1', 'object2'/SYSEXE,SYS$INPUT:/OPTION
+gsmatch=lequal,1,0
+identification = "FPORT S U 1.0"
+SYMBOL_VECTOR=(fport___set_user = PROCEDURE)
+$   else
+$	LINK/SHARE='imagename' 'object1', 'object2', 'object3', -
+	SYS$SYSTEM:SYS.STB/selective_search, SYS$INPUT/opt
+gsmatch=lequal,1,0
+identification = "FPORT S U 1.0"
+universal = fport___set_user
+$   endif
+$endif
+$!
+$!
+$!  Is the image already installed?
+$!----------------------------------
+$cmd = "ADD"
+$if f$file_attributes(imagename,"KNOWN") then cmd = "REPLACE"
+$!
+$!  install the new image  NEVER WITH PRIVILEGES.
+$!-------------------------------------------------
+$install 'cmd' 'imagename' /SHARE/OPEN/HEADER
+$!
+$!
+$! Clean up and exit
+$!------------------
+$all_exit:
+$if f$type(old_priv) .eqs. "STRING" then set proc/priv=(NOALL,'old_priv')
+$exit
+$!
+$!
+$! No privilege for attempted operation
+$!-------------------------------------
+$no_priv:
+$!
+$ind = 0
+$prv_loop:
+$priv = f$element(ind,",",needed_priv)
+$if priv .eqs. "," then goto prv_loop_end
+$IF .NOT. F$PRIVILEGE(priv)
+$THEN
+$    WRITE SYS$OUTPUT "You need ''priv' privilege to run this procedure."
+$ENDIF
+$ind = ind + 1
+$goto prv_loop
+$prv_loop_end:
+$    WRITE SYS$OUTPUT "Please see your system manager."
+$goto all_exit

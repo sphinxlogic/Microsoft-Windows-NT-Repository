@@ -1,0 +1,91 @@
+        .title  TST_DN4OBJ    
+        .ident  /V05-001/ 
+; TEST get obj via get_nice                  
+
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUCNTDEF
+	EMUDN4DEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+CRCDESC:	.QUAD	0
+RETURN:		.BLKB	4096
+RETURN_D:	.LONG	.-RETURN
+		.ADDRESS  RETURN
+ADDR:
+	.WORD	^XC920		; Deimos
+	.WORD	^XC990		; RAFFLE
+	.WORD	^XC9C4          ; Hedges
+	.WORD	^XC923		; Pluto
+
+	.long	0
+
+FAOBUF:		.BLKB	132
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+OBJNAM:		.ASCID	/Name = !AC/
+OBJPARAM:	.ASCID	/!UL (!UL) !XL/
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=TST_DN4OBJ
+
+	MOVAL	ADDR,R6
+
+10$:
+	TSTL	(R6)
+	BNEQ	20$
+	RET
+20$:
+
+; Get obj. Each line type has to go in it's own table
+	MOVL	#4096,RETURN_D
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#DN4_W_KNOBJ 		; Function
+	MOVZWL	(R6),-(SP) 		; Node
+	CALLS	#3,G^GETNICE
+	BLBS	R0,310$                         
+	BRW	400$
+310$:
+	MOVQ	RETURN_D,R8
+	ADDL3	R8,R9,R10		; End addr
+320$:
+	MOVL	#132,FAODESC
+	ADDL3	#4,R9,-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	OBJNAM
+	CALLS	#4,G^SYS$FAO
+	PUSHAL	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	ADDL	#20,R9
+	BRW	390$
+330$:
+	TSTL	(R9)
+	BLSS	320$
+	MOVL	#132,FAODESC
+	PUSHL	8(R9)
+	PUSHL	4(R9)
+	PUSHL	(R9)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	OBJPARAM
+	CALLS	#6,G^SYS$FAO
+	PUSHAL	FAODESC
+	CALLS	#1,G^LIB$PUT_OUTPUT
+        ADDL3	#8,4(R9),R1
+	ADDL	R1,R9
+390$:
+	CMPL	R9,R10
+	BGEQ	400$
+	BRW	330$	
+400$:
+	ADDL	#2,R6
+	BRW     10$
+        .END	TST_DN4OBJ

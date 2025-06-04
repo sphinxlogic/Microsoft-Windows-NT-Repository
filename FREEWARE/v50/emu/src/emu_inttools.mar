@@ -1,0 +1,511 @@
+	.TITLE	EMU_INTTOOLS   
+	.IDENT	/V5-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	APR-1997	PB	Creation
+;	
+;++
+;1 EMU_INTTOOLS   
+; Collection of internal tools used to debug emu. 
+; See individual routines for descriptions
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$NMADEF
+	$LCKDEF
+	$SMGDEF
+	$TRMDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUCNTDEF
+	EMUPSRDEF
+	EMUPSRDEF
+	EMUDBDEF
+	;	
+	.PSECT	EMU_INTTOOLS_D,WRT,NOEXE,PIC,SHR,PAGE
+
+PSRTBL_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+COUNTERS_A:	.QUAD	0
+RELATER_A:	.QUAD	0
+TRCIOSB:	.QUAD   0
+COMIPC_A:	.QUAD	0
+INADDR:		.QUAD	0
+GBLSIZ:		.LONG	0
+; 
+PSRTBLCNT:	.LONG	0
+
+
+
+	.ALIGN 	LONG
+
+
+DBTBL:
+                .QUAD	0
+		.LONG	SYS_PID_C_RELATER
+		.LONG	0                       ; Key offset
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS RELATDBLKNAM
+		.ADDRESS RELATSECNAM
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIP
+		.LONG	PSR_IP_L_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPDB
+		.ADDRESS EMU_PSRIP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRSCS
+		.LONG	PSR_SCS_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_SCSDB
+		.ADDRESS EMU_PSRSCS
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN4
+		.LONG	PSR_DN4_W_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN4DB
+		.ADDRESS EMU_PSRDN4
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRETH
+		.LONG	PSR_ETH_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_ETHDB
+		.ADDRESS EMU_PSRETH
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRLAT
+		.LONG	PSR_LAT_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_LATDB
+		.ADDRESS EMU_PSRLAT
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN5
+		.LONG	PSR_DN5_B20_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN5DB
+		.ADDRESS EMU_PSRDN5
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_NAMER
+		.LONG	NAM_DB_L_OPTKEY
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_NAMERDB
+		.ADDRESS EMU_NAMER
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+
+
+DBTBL_DESC:	.LONG 	.-DBTBL
+		.ADDRESS  DBTBL
+
+
+;
+; Lock Names
+RELATDBLKNAM:		
+		.ASCID	/EMU_RELATERDB/	; DB Lock name 
+
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_IPDB:	
+		.ASCID	\EMU_IPDB\            ; Lock name
+EMU_SCSDB:	
+		.ASCID	\EMU_SCSDB\            ; Lock name
+EMU_DN5DB:	
+		.ASCID	\EMU_DN5DB\            ; Lock name
+EMU_DN4DB:	
+		.ASCID	\EMU_DN4DB\            ; Lock name
+EMU_LATDB:	
+		.ASCID	\EMU_LATDB\            ; Lock name
+EMU_ETHDB:	
+		.ASCID	\EMU_ETHDB\            ; Lock name
+EMU_NAMERDB:		
+		.ASCID	/EMU_NAMERDB/	; DB Lock name 
+; Section names
+RELATSECNAM:		
+		.ASCID	/EMU_RELATER/
+EMU_PSRMOP:
+		.ASCID	/EMU_PSRMOP/
+EMU_PSRIP:
+		.ASCID	/EMU_PSRIP/
+EMU_NAMER:
+		.ASCID	/EMU_NAMER/
+EMU_PSRSCS:	
+		.ASCID	\EMU_PSRSCS\  		; Section name
+EMU_PSRDN5:	
+		.ASCID	\EMU_PSRDN5\  		; Section name
+EMU_PSRDN4:	
+		.ASCID	\EMU_PSRDN4\  		; Section name
+EMU_PSRLAT:	
+		.ASCID	\EMU_PSRLAT\  		; Section name
+EMU_PSRETH:	
+		.ASCID	\EMU_PSRETH\  		; Section name
+
+
+; SMG
+	.ALIGN	LONG
+; SMG
+;Main display
+MAIN_DISP:	.LONG		; Virtual Display ID
+MAIN_ROWS: 	.LONG  0        ; Set by routine (page size-7)
+MAIN_COLS: 	.LONG  132
+MAINPB_BOARD:	.LONG 		; Pasteboard ID
+MAINPB_COL:	.LONG	1      
+MAINPB_ROW:	.LONG 	5
+OCSTATE:	.LONG	0
+; Hint display
+;
+HINTPB_BOARD:	.LONG 		; Pasteboard ID
+HINT_DISP:	.LONG		; Virtual Display2 ID
+HINT_ROWS: 	.LONG  3        ; Static
+HINT_COLS: 	.LONG  132
+HINT_PBCOLS:	.LONG	1      
+HINT_PBROWS:	.LONG 	1
+; Misc SMG ...
+BORDER:		.LONG	SMG$M_BORDER
+SAVE_DISP:	.LONG	0		; Saved char
+SCR_WID:	.LONG	132
+SCR_HEIGHT:	.LONG	48
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+TIMEOUT:	.LONG	15
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+RPCASE:		.LONG	0
+; Menu params
+;
+; Virtual Keyboard Parameters
+;
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+KB_BOARD:	.LONG           	; Virtual Keyboard ID
+BYTCNT:		.WORD	0
+; 
+; FAO
+FAOBUF:		.BLKB	132
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+; Messages
+ZBOXMSG:	.ASCID	/Found and deleted !UL BOXIDs From DB !UL/
+EXITMSG:	.ASCID	/ Any Key to Continue/
+
+
+	.PSECT	INTOOLS_C,NOWRT,EXE,SHR,PIC,LONG
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CLR_RELATIONS
+;++ 
+;2 CLR_RELATIONS
+; Routine to clear relations in the PSRDBs.
+; Maps to all active DBs and clears the COM_HDR_L_PTYBITS field
+; in all records found. This is turn causes the PSRs to rebuild
+; all relations through the relater.
+;3 Input
+;  User may select either a single BOXID to clear or all BOXIDS
+;  Note that only CLEAR ALL is currently implemented.
+;3 Output
+;  All matching records found have  COM_HDR_L_PTYBITS in the header.
+;3 Returns
+;  User is informed of the number of records selected and cleared
+;  No VMS returns
+;--
+;	
+; Create and Map to sections 
+
+	MOVAL	DBTBL,R9                        ; List of all dbs
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R10	; Last addr to map
+100$:
+	PUSHL	R9				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,120$                          ; Log error if DB not mapped
+110$:
+	ADDL	#SYS_MAP_C_MAPSIZ,R9
+	CMPL	R9,R10				; Done mapping?
+	BLSSU	100$                             ; Br if more
+	RET
+120$:
+	MOVL	(R9),R6				; Addr of DB
+	MOVL	COM_DBHDR_L_RECSIZE(R6),R8	; Entry SIZE
+	MOVL	COM_DBHDR_L_ENTRIES(R6),R7	; Entry count 
+	BEQL	200$				; Br if no entries
+	ADDL	R8,R6				; 1ST Entry
+130$:
+	CLRL	COM_HDR_L_PTYBITS(R6)
+	ADDL	R8,R6                           ; Next entry
+	SOBGTR	R7,130$	
+	PUSHL	R9
+	CALLS	#1,G^UNMAPLVB_DB
+        BRW	110$				; Next db
+200$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DELETE_ZERO_BOX
+;++ 
+;2 DELETE_ZERO_BOX
+; Routine to Delete any record with BOXID = 0
+; Maps to all active DBs and tests each record for BOXID = .
+; ANy found are deleted by setting the delete bit in the record.
+;3 Input
+;	None
+;3 Output
+;	None
+;3 Returns
+;  User is informed of the number of records selected and deleted
+;  No VMS returns
+;--
+;	
+	CALLS	#0,G^CREATE_TOOLS_ENVIRONMENT  
+
+; Create and Map to sections 
+
+	MOVAL	DBTBL,R9                        ; List of all dbs
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R10	; Last addr to map
+100$:
+	PUSHL	R9				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,120$                         ; Log error if DB not mapped
+110$:
+	ADDL	#SYS_MAP_C_MAPSIZ,R9
+	CMPL	R9,R10				; Done mapping?
+	BLSSU	100$                            ; Br if more
+	PUSHAL	BYTCNT
+	PUSHAL	MAIN_DISP
+	PUSHAL	EXITMSG
+	CALLS	#3,G^TOOLS_READ_PROMPT
+	PUSHAL	MAIN_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	HINT_DISP                        ; exit system
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	#SS$_NORMAL,R0
+	RET
+120$:
+	MOVL	(R9),R6				; Addr of DB
+	MOVL	COM_DBHDR_L_FLAG(R6),R2		; DB ID
+	CLRL	R1
+	MOVL	COM_DBHDR_L_RECSIZE(R6),R8	; Entry SIZE
+	MOVL	COM_DBHDR_L_ENTRIES(R6),R7	; Entry count 
+	BEQL	200$				; Br if no entries
+	ADDL	R8,R6				; 1ST Entry
+130$:
+	BBS	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),140$	
+	TSTL	COM_HDR_L_BOXID(R6)
+	BEQL    300$
+140$:
+	ADDL	R8,R6                           ; Next entry
+	SOBGTR	R7,130$	
+	PUSHL	R9
+	CALLS	#1,G^UNMAPLVB_DB
+        BRW	200$				; Next db
+300$:
+	BISL	#SYS_COM_M_DELETE,COM_HDR_L_SYSCTL(R6)
+	INCL	R1				; Count deleted
+	BRW	140$
+200$:
+	MOVL	#132,FAODESC
+	PUSHL	R2
+	PUSHL	R1
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	ZBOXMSG
+        CALLS	#5,G^SYS$FAO
+	BLBS	R0,210$
+	RET
+210$:
+        PUSHAL	FAODESC
+	PUSHAL	MAIN_DISP
+        CALLS   #2,G^SMG$PUT_LINE
+	BLBS	R0,220$
+	RET
+220$:
+	BRW	110$
+
+
+	
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CREATE_TOOLS_ENVIRONMENT  
+
+;++ 
+;2 CREATE_TOOLS_ENVIRONMENT
+; Creates the SMG environment that all the internal tools use
+; for user input/output.
+;3 Input
+;	 None
+;3 Output
+; 	SMG screens id and such are created
+;3 Return
+; Any error form SMG
+;--
+;
+; Create Pasteboard
+;
+	PUSHAL	MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BLBS	R0,5$
+	RET
+5$:
+	PUSHAL	HINTPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BLBS	R0,10$
+	RET
+10$:
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BLBS	R0,20$
+	RET
+20$:
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	MAIN_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BLBS	R0,30$
+	RET
+30$:
+	SUBL	#7,MAIN_ROWS			; Set our page len
+;
+	PUSHAL	 BORDER
+	PUSHAL	MAIN_DISP
+	PUSHAL	MAIN_COLS
+        PUSHAL	MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,40$
+	RET
+40$:
+;
+	PUSHAL	 BORDER
+	PUSHAL	HINT_DISP
+	PUSHAL	HINT_COLS
+        PUSHAL	HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BLBS	R0,50$
+	RET
+50$:
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BLBS	R0,60$
+	RET
+60$:
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	MAINPB_COL		;Column
+	PUSHAL	MAINPB_ROW		;Row
+	PUSHAL	MAINPB_BOARD
+	PUSHAL	MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BLBS	R0,70$
+	RET
+70$:
+
+	PUSHAL	HINT_PBCOLS		;Column
+	PUSHAL	HINT_PBROWS		;Row
+	PUSHAL	HINTPB_BOARD
+	PUSHAL	HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=5, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TOOLS_READ_PROMPT
+
+
+;2 SUI_READ_PROMPT
+; Displays the prompt specified by the input on the specified 
+; display, waits for user input and returns the input in KB_BUF.
+;	
+;3 Input
+;	P1. address of desc pointing to ascii string to display
+;	P2. address of display
+;	P3. address of bytcnt, where READ_STRING writes the count 
+;	    of user input bytes.
+;	P4. address of case flag. Optional. May be 1 of:
+;		0		Not uppercased
+;		TRM$M_TM_CVTLOW Uppercased
+;	P5. Address of desc pointing to where READ_STRING 
+;	    places the user input. If not present input is 
+;	    placed in KB_BUF
+;3 Output
+;	The prompt is displayed on the specified display
+;	Any user input is returned in KB_BUF
+;
+;3 Return
+;	Any return from SMG$READ_STRING
+;--
+		MOVL	#TRM$M_TM_CVTLOW,RPCASE	; Set def		
+		MOVAL	KB_DES,R6		; Set def outp
+		CMPL	#4,(AP)                  ; Present?
+		BGTR	20$			; No options
+		MOVL	16(AP),RPCASE		; Set case
+;
+		CMPL	#5,(AP)                  ; Present?
+		BNEQ	20$			; Br if not
+		MOVL	20(AP),R6               ; Set oupt
+20$:
+		PUSHL	8(AP)                   ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	12(AP)                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	RPCASE                  ; Case 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	4(AP)                 	; Output DSC
+		PUSHL	R6                      ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		RET                             ; Any error handled by caller
+
+
+	.END

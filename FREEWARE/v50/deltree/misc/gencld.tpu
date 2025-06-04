@@ -1,0 +1,55 @@
+
+
+procedure copy_line(P1)
+  copy_text(P1); split_line;
+endprocedure;
+
+
+pos := search_quietly("TREE",forward);
+if pos <> 0
+then 
+  message("TREE qualifier is already IN");
+else
+  pos := search_quietly("qualifier"+ANY(eve$kt_whitespace)+"symbol",forward);
+  if pos <> 0 then
+    position(pos);
+    position(line_begin); split_line; move_vertical(-1);
+    copy_line("!**JL DELTREE**"); 
+    copy_text("	qualifier TREE, syntax=DELETE_TREE, nonnegatable, value(type=$rest_of_line)");
+
+    pos := search_quietly("disallow",FORWARD);
+    if pos <> 0 then
+      position(pos); position(line_begin); split_line;
+      copy_line("!**JL DELTREE**"); 
+      copy_line("	disallow tree and (entry or symbol or characteristic or form or");
+      copy_line("		intrusion_record or key or queue or symbol)"); 
+
+      position(beginning_of(current_buffer));
+      pos := search_quietly("define"+ANY(eve$kt_whitespace)+"syntax"+ANY(eve$kt_whitespace)+"delete_symbol",forward);
+      if(pos <> 0)then
+	position(pos);
+	position(line_begin);
+	split_line; move_vertical(-1);
+	copy_line("!**JL DELTREE**"); 
+	copy_line("!**JL DELTREE**"); 
+	copy_line("define syntax DELETE_TREE"); 
+	copy_line("  image VMSAPPS:DELTREE.EXE");
+
+	! Now include the original DELTREE_CLI.CLD
+	eve_include_file("[-]DELTREE_CLI.CLD");
+	pos := mark(none); pos2:= search_quietly("verb DELTREE",FORWARD); 
+	position(pos2); position(line_end); erase(create_range(pos,mark(none),none));
+
+	eve_write_file("DELETE.CLD");
+      else
+	message("delete_symbol syntax is not present");
+      endif;
+    else
+      message("No DISALLOW rules in this file (??)");
+    endif;
+  else
+    message("Cannot find the /SYMBOL qualifier position");
+  endif;
+endif;
+
+

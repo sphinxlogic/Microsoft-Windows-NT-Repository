@@ -1,0 +1,209 @@
+1 EMU_TRACE  
+ Enable tracing of specified data frames as they are passed through
+ the running system.
+ A process supporting trace will, when enabled,
+ write the selected frames to a mailbox this process reads. The frames
+ are formatted and displayed in 'real' time.
+2 Format
+ Trace records have common format:
+	Record type	.long
+	event code	.long
+	Sending process .quad	(.ascic name of process)
+	data		up to 104 bytes as dictated by the record type
+2 Supporting_processes
+ Currently the LISTENER supports tracing of EBUFFS.
+ When enabled, the listener reports all EBUFF activity:
+ Any frame read from ethernet.
+ Any frame qued to PSR
+ Any frame qued to Ethernet
+ RELATER supports received relater frames
+3 EBUFFS
+ In addition to the standard trace header each EBUFF is displayed 
+ as follows:
+ (IPC header)     Target flags, Return flags, Buffer number, param
+ (Ethernet header) Destination, Source, Protocol type
+3 Relater_frames
+  The relater header and all targets are displayed.
+2 TRCFMT_PSRHEAD   
+ Format standard PSR header
+3 Input
+  Address of PSR  record
+3 Output
+  Formatted PSR record header
+3 Return
+  None
+3 PSR_Head_format
+	FLAGS   	Flags 
+	BOXID         	Unique device id
+	PTYBITS       	Other protocols present
+	SYSCTL       	System control flags (SYSDEF)
+	LSTHRD       	Last time heard
+	LSTALT       	Time last alert sent
+	FSTHRD      	Time 1st heard
+	STATUS      	Current status
+	ACNT        	Count of access this rec
+	LEN         	Len of data
+	HOWSET      	How this addr found
+	READLOCK    	Count of read accessors
+	WRITELOCK   	Count of write accessors
+2 TRCFMT_TRCHEAD   
+ Format standard trace header
+3 Input
+  Address of trace record
+3 Output
+  Formatted trace record header
+3 Return
+  None
+3 Trace_Head_format
+  Record type	.long
+  Event type	.long
+  Sender	.quad  (.ascic of sending process name)
+2 TRCFMT_IPCHEAD
+ Format standard IPC (Inter Process Communication) header
+3 Inputs
+  Addr of IPC buffer
+3 Output
+ Formatted string
+3 IPC_Header
+  Target flags		.long
+  Return flags 	.long
+  Buffer Number        .long
+  Paramater		.long
+2 TRCFMT_ETHHEAD 
+ Format Ethernet header. This is in VMS format.
+3 Inputs
+  Address of VMS standard Ethernet header
+3 Outputs
+  Formatted header
+3 VMS Standard header
+  Destination		Ethernet address
+  Source		Ethernet address
+  Protocol Type	One of:
+			  Ethernet type 2 (00-00-00-xx-xx)
+			  IEEE	          (00-00-00-xx-xx)
+			  SNAP		  (xx-xx-xx-xx-xx)
+2 TRCFMT_RELHDR   
+ Format standard relater frame header
+3 Input
+  Address of start of relater frame
+3 Output
+  Formatted relater header
+3 Return
+  None
+3 Relater_Head_format
+	BOXID		Sender's boxid
+	SENDER		Sender's EMU PID
+	MTYPE		Message type
+	TARGETS		Number of address to follow
+2 TRCFMT_RELTGT 
+ Format A single relater target entry.
+ This is a portion of the relater frame
+3 Inputs
+  Address of relater target
+3 Outputs
+  Formatted target
+3 Target_format
+	Target PID
+	Address len
+	Address
+
+2 TRACE_GET_INPUT
+ Unsolicited input is enabled and when received this routine is run.
+ Allows for controlling logging of messages and exit only.
+2 Logging
+ When logging is enabled, formatted trace records are written to
+ EMU5_LOG:TRACE.LOG
+ Each time tracing is enabled, a new file is opened.
+  
+PUSHAL	CMDCOL			; Column (1)
+PUSHAL	CMDROW			; Row (1)
+PUSHAL	VD_DISP
+CALLS	#3,G^SMG$SET_CURSOR_ABS
+PUSHAL	VD_DISP                 ; Output display
+CLRL	-(SP)                   ; Blank 
+PUSHAL	BYTCNT                  ; Bytes to display
+CLRL	-(SP)                   ; Blank 
+CLRL	-(SP)                   ; Blank 
+PUSHAL	UPCASE                  ; Make input UPCASE 
+CLRL	-(SP)                   ; Blank 
+PUSHAL	PROMPT                      ; Output DSC
+PUSHAL	KB_DES                  ; Input buf
+PUSHAL	KB_BOARD                ; Input ID
+CALLS	#10,G^SMG$READ_STRING
+BLBS	R0,10$
+PUSHAL	VD_DISP
+CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+
+PUSHAL	SAVE_DISP	
+PUSHAL  PB_BOARD
+CALLS	#2,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+MOVL	#SS$_NORMAL,R0
+RET					; EXIT
+0$:
+TSTW	BYTCNT
+BNEQ	20$
+RET
+0$:
+ Check if log file open. If so close it. If not open it.
+       TSTW	TRACEFAB+FAB$W_IFI	; File open?
+BNEQU	30$			; Br if open
+$CREATE	FAB = TRACEFAB 		; Open file
+BSBW	ERROR_CHK
+	$CONNECT RAB = TRACERAB		;Connect input stream
+BSBW	ERROR_CHK
+       RET
+0$:
+$CLOSE	FAB = TRACEFAB 
+RET
+
+
+
+
+.SBTTL	EMU_TRACE_EXIT_HDLR
+.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=EMU_TRACE_EXIT_HDLR 
+
+ Disable all tracing
+
+MOVL	CONTROL_A,R1
+CLRL	CTL_TRC_L_ENAFLG(R1)
+pushal	twenty_four
+pushal	vd_disp
+calls	#2, g^smg$set_cursor_abs
+
+pushal	reset_cursor
+pushal	pb_board
+calls	#2, g^smg$set_cursor_mode
+
+
+0$:	movl	#1, r0
+ret
+
+.sbttl	emu_trace_oob_ast ()
+	.entry	emu_trace_oob_ast, ^m<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,iv>
+.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=EMU_TRACE_OOB_AST
+
+movl	4(ap), r2		; Structure address
+
+cmpb	smg$b_character(r2), control_z
+beql	10$
+brw	50$
+
+0$:	movl	#1, exit_requested		; 
+
+0$:	cmpb	smg$b_character(r2), control_w
+bneq	100$			;
+pushal	pb_board		;
+calls	#1, g^smg$repaint_screen
+bsbw	error_chk		;
+
+00$:	movzwl	#ss$_normal, r0		; return good status
+ret
+
+
+.END	

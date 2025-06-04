@@ -1,0 +1,496 @@
+! Copyright © 1995, 1997, 2000, Oracle Corporation.  All Rights Reserved.
+
+MODULE OUTPUT_LOGGER(	IDENT = 'V1.0',
+			MAIN = OL_MAIN,
+			ADDRESSING_MODE (EXTERNAL = GENERAL,
+					 NONEXTERNAL = WORD_RELATIVE)) =
+BEGIN
+
+!++
+! FACILITY:
+!
+!   FreeWare Utility Programs
+!
+! ABSTRACT:
+!
+! This software is unencumbered to the public.  No license fee is requested of
+! or required for its use.  Oracle does not warrant the software.  The
+! submittor does not warrant the software.  Oracle does not provide service for
+! this software, will not fix this software, and will not warrant that this
+! software works correctly nor works at all.  You are free to adapt and to
+! change source code for your needs.
+!
+!   Applications that generate a number of small log files (detached or batch
+!   server processes, for example) may end up creating a large number of files
+!   that can fill disks and directories and make management of the information
+!   difficult.  These many files, in turn, are difficult to search and
+!   maintain and are a minimum of the disk cluster factor in size.
+!
+!   By sending the contents of all of the log files to a single, common log,
+!   the number of files and the amount of I/O used to write and manage the logs
+!   can be significantly reduced.  By using a single writer to the log file,
+!   I/O can be effectively reduced (in some cases from hundreds of I/O per
+!   second to less than 10 per minute).
+!
+!   This module contains the routines to open and write records to a common log
+!   file.  This program is written in BLISS32 and works on OpenVMS VAX or
+!   Alpha.  Get the BLISS compiler from the OpenVMS freeware CD if you have not
+!   already installed it.
+!
+!   This program creates a system-wide permanent mailbox called
+!   LOG_OUTPUT_MAILBOX.  All write I/O to that mailbox will be captured,
+!   stamped with the current time, the writer's PID and process name, and the
+!   data itself.  Every minute, if there has been any write activity to the log
+!   file, the file is $FLUSHed to make sure that all the data made it to disk.
+!
+!   All RMS I/O is done asynch with deferred writes to the sequential file.
+!   Multiple writers (in a cluster for example) are allowed.
+!
+!   The mailbox created by this program is allowed records up to 2048 bytes
+!   long.  The mailbox is created to be large enough to hold 250 records at
+!   maximum size.
+!
+!   All I/O is done at AST level.  This program hibernates most of the time and
+!   just responds to write requests to the mailbox and then reads those records
+!   and writes them to the log file.
+!
+!   If a message in the mailbox is read with the 20 byte string
+!   "<<>>REOPENLOGFILE!<>", the log file will be closed and a new one created.
+!
+!   Privs required to run this program:	PRMMBX, SYSNAM
+!
+!   Example commands to run this program:
+!
+!	    $DEFINE/SYSTEM/EXEC LOG_OUTPUT_LOGFILE SYS$MANAGER:OUTPUT_LOGGER.TXT
+!	    $RUN SYS$SYSTEM:OUTPUT_LOGGER -
+!		    /DETACHED -
+!		    /AST_LIMIT=100 -
+!		    /BUFFER_LIMIT=100000 -
+!		    /ENQUEUE_LIMIT=1000 -
+!		    /ERROR=SYS$MANAGER:OUTPUT_LOGGER.LOG -
+!		    /EXTENT=1000 -
+!		    /FILE_LIMIT=100 -
+!		    /IO_BUFFERED=100 -
+!		    /IO_DIRECT=100 -
+!		    /MAXIMUM_WORKING_SET=1000 -
+!		    /OUTPUT=SYS$MANAGER:OUTPUT_LOGGER.LOG -
+!		    /PAGE_FILE=50000 -
+!		    /PRIORITY=10 -
+!		    /PRIVILEGES=(PRMMBX, SYSNAM) -
+!		    /PROCESS_NAME="OutputLogger" -
+!		    /UIC=[1,4] -
+!		    /WORKING_SET=1000
+!
+!   Compile and Link instructions for VAX or Alpha:
+!
+!	    $ BLISS/LIST/OPTIMIZE OUTPUT_LOGGER
+!	    $ LINK/MAP/FULL/CROSS OUTPUT_LOGGER
+!	    $ COPY OUTPUT_LOGGER.EXE SYS$COMMON:[SYSEXE]
+!
+!   Example of how to re-open the log file while the output logger is running:
+!
+!	    $ OPEN/WRITE/SHARE OLMBX LOG_OUTPUT_MAILBOX:
+!	    $ WRITE OLMBX "<<>>REOPENLOGFILE!<>"
+!	    $ CLOSE OLMBX
+!
+!   Consider this module a template; feel free to modify as needed for your own
+!   uses.  No support is, however, expressed or implied.
+!
+! AUTHOR:   Norman Lastovica / Oracle Rdb Engineering
+!	    Oracle Corporation / Colorado Springs, Colorado
+!	    nlastovi@us.oracle.com
+!	    24-Jul-1997
+!--
+
+
+! INCLUDE FILES:
+
+LIBRARY 'SYS$LIBRARY:STARLET';
+
+! MACROS:
+
+MACRO
+    _ALIGN_QUAD = ALIGN (3) %,	! align on quadword boundry
+    _ALIGN_PAGE =		! align on page boundry
+	%IF	%BLISS (BLISS32E)
+	%THEN	ALIGN (13)	! 8192 byte page
+	%ELSE	ALIGN (9)	! 512 byte page
+	%FI %;
+
+MACRO
+    _CHKERR_SIG (EXP) =
+	(LOCAL   CHKERR_SIG_STATUS : INITIAL (EXP);
+
+	IF	NOT .CHKERR_SIG_STATUS
+	THEN    SIGNAL (.CHKERR_SIG_STATUS);
+
+	.CHKERR_SIG_STATUS) %;
+
+MACRO    
+    _ASCID (STR) =
+	$BBLOCK [DSC$K_Z_BLN]
+	    PRESET ( [DSC$B_CLASS]  = DSC$K_CLASS_S,
+		     [DSC$B_DTYPE]  = DSC$K_DTYPE_T,
+		     [DSC$W_LENGTH] = %CHARCOUNT(STR),
+		     [DSC$A_POINTER]= UPLIT BYTE (STR)) %;
+
+MACRO
+    _POST_OL_READ (NULL) =
+	_CHKERR_SIG ($QIO ( EFN	   = _OL_EFN,
+			    CHAN   = .OLMBXCHAN,
+			    FUNC   = IO$_READVBLK,
+			    IOSB   = OLMBXIOSB,
+			    ASTADR = OL_READ_AST,
+			    P1     = OLMBXBUFF,
+			    P2     = OLMBXBUFFSIZ)) %;
+
+MACRO
+    OLREC$K_REOPENSTR = '<<>>REOPENLOGFILE!<>' %,
+    OLREC$K_FAOCTRSTR = '!%D !XL !AD !AD'%; ! TAD, pid, processname, data
+
+! If the output records already come with a TAD, then might want to use a
+! control string that does not include the TAD in the output.
+
+!!!!    OLREC$K_FAOCTRSTR = '!0%D !XL !AD !AD'%; ! pid, processname, data
+
+!
+! EQUATED SYMBOLS:
+!
+LITERAL
+    TRUE = 1,
+    FALSE = 0,
+    MAXMSG = 2048,		! up to 2k byte messages
+    BUFQUO = MAXMSG * 250,	! mailbox big enough for 250 of them
+    OLMBXBUFFSIZ = MAXMSG,
+    OLFILBUFFSIZ = OLMBXBUFFSIZ + 128;	! Buffer size plus 128 for safety
+
+LITERAL
+    _OL_EFN =	! If a new enough version of VMS, use the 'null' event flag
+	%IF	%DECLARED (EFN$C_ENF)
+	%THEN	EFN$C_ENF
+	%ELSE	0
+	%FI ;
+
+! TABLE OF CONTENTS:
+
+FORWARD ROUTINE
+    OL_MAIN,
+    OL_TIMER_AST,
+    OL_READ_AST;
+
+! PSECT definitions
+ 
+PSECT
+    PLIT   = $PLIT	(PIC,SHARE),
+    CODE   = $CODE	(PIC,SHARE),
+    OWN	   = $OWN	(PIC,NOSHARE, _ALIGN_PAGE),
+    GLOBAL = $GLOBAL	(PIC,NOSHARE);
+
+! OWN STORAGE:
+
+OWN
+    OLFILBUFF		: $BBLOCK [OLFILBUFFSIZ] _ALIGN_PAGE,
+    OLMBXBUFF		: $BBLOCK [OLMBXBUFFSIZ] _ALIGN_PAGE,
+    OLXAB		: $BBLOCK [XAB$C_PROLEN] _ALIGN_QUAD,
+    OLFAB		: $BBLOCK [FAB$K_BLN] _ALIGN_QUAD,
+    OLRAB		: $BBLOCK [RAB$K_BLN] _ALIGN_QUAD,
+    LAST_PID		: LONG INITIAL (0) _ALIGN_QUAD,
+    OLMBXCHAN		: LONG INITIAL (0) _ALIGN_QUAD,
+    OLMBXIOSB		: VECTOR [4, WORD] _ALIGN_QUAD,
+    DATA_PUT		: LONG VOLATILE INITIAL (FALSE) _ALIGN_QUAD,
+    OL_TIMER_DELTA	: $BBLOCK [8] _ALIGN_QUAD,
+    PROCESS_NAME	: $BBLOCK [15] _ALIGN_QUAD,
+    PROCESS_NAME_DESC	: $BBLOCK [DSC$K_D_BLN] INITIAL (0) _ALIGN_QUAD,
+    FAOCTLSTR		: $BBLOCK [DSC$K_D_BLN] INITIAL (0) _ALIGN_QUAD,
+    PREFIX_STR		: $BBLOCK [DSC$K_D_BLN] INITIAL (0) _ALIGN_QUAD;
+
+! EXTERNAL REFERENCES:
+
+EXTERNAL ROUTINE
+    LIB$GETSYI,
+    LIB$GETJPI,
+    LIB$SYS_FAO;
+
+
+%SBTTL 'Main program - Open the log file and create the mailbox'
+GLOBAL ROUTINE ol_main = 
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   open the application output log file and create the application output log
+!   mailbox.
+!
+! FORMAL PARAMETERS:		None
+! 
+! IMPLICIT INPUT PARAMETERS:	None
+! 
+! IMPLICIT OUTPUT PARAMETERS:	None
+! 
+! RETURN VALUE:	ss$_normal
+! 
+!--
+BEGIN
+    MACRO 
+	LOG_FILE_LOGICAL	= 'LOG_OUTPUT_LOGFILE' %;
+
+    LOCAL
+	OL_FLUSH_RATE		: _ASCID ('0 0:1:0.0'),
+	CTLOLMBXNAM		: _ASCID ('LOG_OUTPUT_MAILBOX');
+
+    ! Initialize descriptors
+
+    PROCESS_NAME_DESC [DSC$W_LENGTH] = %ALLOCATION (PROCESS_NAME);
+    PROCESS_NAME_DESC [DSC$A_POINTER] = PROCESS_NAME;
+
+    FAOCTLSTR [DSC$W_LENGTH] = %CHARCOUNT (OLREC$K_FAOCTRSTR);
+    FAOCTLSTR [DSC$A_POINTER] = UPLIT BYTE (%STRING (OLREC$K_FAOCTRSTR));
+
+    ! Create the mailbox and mark it delete pending
+
+    _CHKERR_SIG ($CREMBX (  CHAN = OLMBXCHAN,
+			    PRMFLG = TRUE,
+			    MAXMSG = MAXMSG,
+			    BUFQUO = BUFQUO,
+			    LOGNAM = CTLOLMBXNAM));
+
+    _CHKERR_SIG ($DELMBX (CHAN = .OLMBXCHAN));
+
+    ! Initialize the fab, rab & protection xab
+
+    $XABPRO_INIT (XAB = OLXAB, PRO=<RWE,RWE,,>);
+
+    $FAB_INIT (FAB = OLFAB, FAC=<PUT>,	    ! Put access
+			    FOP=<   MXV,    ! Maximize version number
+				    CBT,    ! Contiguous best-try
+				    TEF,    ! Truncate at end of file on close
+				    DFW,    ! Deferred write
+				    SQO>,   ! Sequential access only
+			    ORG=SEQ,	    ! Sequential organization
+			    RAT=CR,	    ! CR carriage control
+			    RFM=VAR,	    ! variable length records
+			    FNM=LOG_FILE_LOGICAL,	    ! file name
+			    DNM='APPLICATION_OUTPUT.LOG',   ! default name
+			    SHR=<SHRGET>,   ! Allow other readers
+			    ALQ=2500,	    ! Allocation 
+			    DEQ=2500,	    ! Extension
+			    XAB=OLXAB);	    ! Protection XAB
+
+    $RAB_INIT (RAB=OLRAB,   FAB=OLFAB,	    ! FAB
+			    MBF=3,	    ! 3 buffers
+			    MBC=127,	    ! 127 blocks per buffer
+			    RAC=SEQ,	    ! sequential access 
+			    RBF=OLFILBUFF); ! buffer
+
+    ! Open/create the output file
+
+    _CHKERR_SIG ($CREATE (FAB=OLFAB));
+
+    _CHKERR_SIG ($CONNECT (RAB=OLRAB));
+
+    ! Enable asynch mode
+     
+    OLRAB [RAB$V_ASY] = TRUE;
+
+    ! Start the reader
+    
+    _POST_OL_READ ();
+
+    ! Determine the log file flush interval and then start the log flush timer
+    
+    _CHKERR_SIG ($BINTIM (TIMBUF = OL_FLUSH_RATE,
+ 			  TIMADR = OL_TIMER_DELTA));
+
+    OL_TIMER_AST ();
+
+    ! Wait here forever
+
+    WHILE TRUE
+    DO
+	$HIBER;
+
+    RETURN SS$_NORMAL;
+END;
+
+
+%SBTTL 'log flush timer ast routine'
+ROUTINE ol_timer_ast = 
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   The log flush timer has expired.  If there has been log file writes since
+!   the last timer, flush the log file and reset the timer.  
+! 
+! FORMAL PARAMETERS:	none
+! 
+! IMPLICIT INPUT PARAMETERS:	olrab, data_put
+! 
+! IMPLICIT OUTPUT PARAMETERS:	olrab, data_put
+! 
+! RETURN VALUE:	ss$_normal
+! 
+!--
+BEGIN
+
+    ! If any log file writes have happened, wait for I/O and then flush the log
+    ! file and clear the flag
+
+    IF	    .DATA_PUT
+    THEN    BEGIN
+	    $WAIT (RAB=OLRAB);
+	    $FLUSH (RAB=OLRAB);
+	    DATA_PUT = FALSE;
+	    END;
+
+    ! Re-set the timer
+ 
+    _CHKERR_SIG ($SETIMR (EFN    = _OL_EFN,
+			  DAYTIM = OL_TIMER_DELTA,
+			  ASTADR = OL_TIMER_AST,
+			  REQIDT = OL_TIMER_AST));
+
+    RETURN SS$_NORMAL;
+
+END;
+
+
+%SBTTL 'a read is complete from the ol mailbox'
+ROUTINE ol_read_ast = 
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   a read has completed on the application output log mailbox.  the contents
+!   of the mailbox need to be written to the application output log file.  the
+!   mailbox contents are preceeded in the log file by the application prefix
+!   information that is in the CPB.  This string is basically a unique
+!   identified (system time string) and the remote access number.
+!
+! FORMAL PARAMETERS:	none
+! 
+! IMPLICIT INPUT PARAMETERS:	None
+! 
+! IMPLICIT OUTPUT PARAMETERS:	None
+! 
+! RETURN VALUE:	ss$_normal
+! 
+!--
+BEGIN
+
+    ! Read and process all the messages in the mailbox before falling back
+    ! out of AST-level processing.  This is to help keep up with the mailbox
+    ! writers so they don't have to wait for us to read the mailbox.
+
+    DO	    BEGIN
+
+	    ! Check the IOSB status.  For problems, just exit the loop.
+	 
+	    IF	    NOT .OLMBXIOSB [0]
+	    THEN    BEGIN
+
+		    ! For applications that do not frequently close, it might
+		    ! be handy to flush the log file when they disconnect from
+		    ! the mailbox.  But applications that frequently
+		    ! disconnect, the flushing may cause too much I/O.
+
+!!!!		    $WAIT (RAB=OLRAB);
+!!!!		    $FLUSH (RAB=OLRAB);
+
+		    EXITLOOP;
+		    END
+	    ELSE    BEGIN
+		    BIND
+			SENDING_PID = OLMBXIOSB[2] : LONG;   ! 2ND longword
+
+		    ! Only determine the other process's name if the PID
+		    ! changes.  This prevents extra calls to $getjpi in cases
+		    ! where the same process is sending multiple messages.
+
+		    IF	    .SENDING_PID NEQU .LAST_PID
+		    THEN    BEGIN
+
+			    ! Get the process name
+
+			    _CHKERR_SIG (LIB$GETJPI (%REF (JPI$_PRCNAM), 
+					 LAST_PID,0,0, 
+					 PROCESS_NAME_DESC));
+			    END;
+
+		    ! Create the output buffer descriptor
+
+		    PREFIX_STR [DSC$W_LENGTH] = OLFILBUFFSIZ;
+		    PREFIX_STR [DSC$A_POINTER] = .OLRAB[RAB$L_RBF];
+
+		    ! Wait for any previous write to complete
+
+		    $WAIT (RAB = OLRAB);
+
+		    ! Create the output record
+
+		    LIB$SYS_FAO (FAOCTLSTR,
+				 OLRAB [RAB$W_RSZ], 
+				 PREFIX_STR,
+				 0,			    ! Current time
+				 .LAST_PID,		    ! PID
+				 %ALLOCATION (PROCESS_NAME), ! Name length
+				 PROCESS_NAME,		    ! Name string
+				 .OLMBXIOSB [1],	    ! Data length
+				 OLMBXBUFF);		    ! Data pointer
+
+		    ! Write the log record to the file
+
+		    _CHKERR_SIG ($PUT (RAB=OLRAB));
+
+		    ! Note that an I/O has occured
+
+		    DATA_PUT = TRUE;
+
+		    ! If the message contained the magic re-open string, close
+		    ! and re-open the log file
+
+		    IF	    '<<>>' EQLU .OLMBXBUFF [0,0,32,0] AND
+			    .OLMBXIOSB [1] EQLU %CHARCOUNT (OLREC$K_REOPENSTR)
+		    THEN    IF	    CH$EQL (%CHARCOUNT (OLREC$K_REOPENSTR),
+					    UPLIT BYTE (OLREC$K_REOPENSTR),
+					    .OLMBXIOSB [1],
+					    OLMBXBUFF)
+			    THEN    BEGIN
+
+				    ! wait for the previous write to complete
+
+				    $WAIT (RAB = OLRAB);
+
+				    ! Disable asynch operations 'just-in-case'
+
+				    OLRAB [RAB$V_ASY] = FALSE;
+
+				    ! Close and then recreate the file
+
+				    _CHKERR_SIG ($CLOSE (FAB=OLFAB));
+
+				    _CHKERR_SIG ($CREATE (FAB=OLFAB));
+
+				    _CHKERR_SIG ($CONNECT (RAB=OLRAB));
+
+				    ! Turn asynch back on
+
+				    OLRAB [RAB$V_ASY] = TRUE;
+				    END
+
+		    END;
+	    END
+    WHILE   $QIO (  EFN  = _OL_EFN,
+		    CHAN = .OLMBXCHAN,
+		    FUNC = IO$_READVBLK OR IO$M_NOW, ! don't wait for a write
+		    IOSB = OLMBXIOSB,
+		    P1   = OLMBXBUFF,
+		    P2   = OLMBXBUFFSIZ);
+
+    ! Post another mailbox read
+
+    _POST_OL_READ ();
+
+    RETURN SS$_NORMAL;
+
+END;
+
+END				! END OF MODULE
+ELUDOM

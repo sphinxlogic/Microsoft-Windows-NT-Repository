@@ -1,0 +1,187 @@
+1 DELTREE
+ Syntax:  DELTREE[/qualifier] DirectorySpecification
+
+ Delete  directory utility.  This command will delete the directory and
+ its tree  (files  and  directories  if  any)  starting  from  the  top
+ DirectorySpecification.   It's  much  faster than a usual command file
+ using a sequential algorithm.
+!
+!
+2 DirectorySpecification
+  DirectorySpecification can be of any of the following form
+
+    DirName[.dir]       local directory (.dir is optional)
+    [.XXX.YYY]          relative path syntax. Deletes [.XXX]YYY.DIR
+    DISK:[XXX.YYY]      would remove DISK:[XXX]YYY.DIR
+    x,y,z               a comma separated list of the above
+!
+!
+2 Qualifier
+/ALLDIR
+ /[NO]ALLDIR
+ Controls  whether  or  not DELTREE/CONFIRM request confirmation before
+ sub-directory deletion.  Default is /NOALLDIR.
+
+/CONFIRM
+ /[NO]CONFIRM
+
+ Controls  whether  DELTREE  request  confirmation  for DIRector{y|ies}
+ deletion.  Only the TOP directory  confirmation  is  requested  unless
+ /ALLDIR is used.  Default is /CONFIRM.
+
+/DETACH
+ /DETACH
+
+ Detach   deltree   with  all  the  other  parameters  and  qualifiers.
+ /NOCONFIRM is forced in  a  detached  process.
+
+ DELTREE  detach mode creates temporary files in SYS$SCRATCH.  They are
+ named Dtree'pid'X (X currently being a number between 0 and 15).  File
+ extension  are  .LOG  (output  result)  .ERR  (errors) and a temporary
+ (which should not remain) .COM file.  Note that the .ERR  file  should
+ not be created unless you are using the GCC compiled version.
+
+/HELP
+ /HELP
+
+ Quick help summary.
+
+/LOG
+ /[NO]/LOG
+
+ Prints out operation failure i.e.  protection change and file deletion
+ failure.  At the end, DELTREE also prints out a CPU statistics and the
+ number of files deleted. Default is /NOLOG
+
+/NOTIFY
+ /NOTIFY={MAIL|SEND}
+
+ This qualifier can be used with /DETACH only.
+
+ Controls  whether  a message is sent back to you upon completion.  The
+ default mode MAIL sends it by mail, SEND can be used where available.
+
+ MAIL  send the message via the MAIL program.  Only the subject will be
+ used.
+
+ If SEND symbol is defined, DELTREE will use it to send the message. If
+ you are using Multinet  TCPIP,  DELTREE  will  automatically  use  the
+ MULTINET  SEND program.  Otherwise, "SEND" will be assumed to be known
+ and the assumed usage is of the form
+	$ SEND 'username' "Message"
+
+/PRIORITY
+ /PRIORITY[=n]
+
+ This qualifier can be used with /DETACH only.
+
+ Use priority 'n' for the detached process. Default is n=4.
+
+/PRIVILEGES
+ /PRIVILEGES={[NO]BYPASS|[NO]READALL|[NO]GRPPRV|[NO]SYSPRV}
+
+ This qualifier can be used with /DETACH only.
+
+ Enables  one of the above specific privileges (we assume you have been
+ granted those privileges).
+
+ BYPASS         allows   to   delete  any  files  regardless  of  their
+                protection.
+
+ READALL        will  allow you to read and scan all files from a tree.
+                This does NOT imply that you will  be  able  to  delete
+                them  but only to bypass sub-directories protection and
+                be able to go deeper in the  tree,  deleting  what  you
+                can.
+
+ SYSPRV         allows you file control through SYSTEM protection. This
+                does NOT imply that you will  be  able  to  delete  the
+                files.   If  the  SYSTEM protection mask does not allow
+                you to delete/control the file, nothing will be done.
+
+ GRPPRV         As above but through GROUP protections.
+
+/TOP
+ /[NO]TOP
+
+ Controls  whether  or  not  DELTREE  preserve  the TOP directory.  The
+ default is /TOP.
+
+/VERSION
+ /VERSION
+
+ Shows the current DELTREE version.
+!
+!
+2 ExitStatus
+ DELTREE  has  a  full  MSG  interface and may return some error status
+ depending on the severity of the problem.
+
+ Most of the messages displayed when /LOG is used are informational or
+ success messages.
+
+ [4mWarning[0m  level  are  displayed whenever the specified directories does
+ not exist or when a file protection or deletion operation has failed.
+
+ [4mError[0m  level  are  __returned__  if  DELTREE  has failed to delete the
+ tree(s) or if you are trying to make DELTREE  crash  with  some  funky
+ arguments.  You will also be warned in case of privilege violation.
+
+ [4mFatal[0m  level  will  happen  only if serious problem occurs and prevent
+ DELTREE to  continue.
+!
+!
+!
+2 Examples
+ $ DELTREE/LOG/NOCONFIRM/NOTOP CACHE.DIR
+ %DELTREE-I-PRSRVD, top directory /sys_user4/jlauret/scratch/cache preserved
+ %DELTREE-S-DELETED, /sys_user4/jlauret/scratch/cache.dir.
+ %DELTREE-S-STAT, 21 files deleted in 0.4 seconds
+
+ $ DELTREE/NOCONFIRM/LOG TEST
+ %DELTREE-I-DEEPDIR, dealing with deep directory /disk$test/jlauret/apps_dev/
+ projects/deltree/test/blip/blup
+ %DELTREE-S-DELETED, /disk$test/jlauret/apps_dev/projects/deltree/test.dir.
+ %DELTREE-S-STAT, 108 files deleted in 0.9 seconds
+
+ $ DELTREE/NOCONFIRM [.TEMP2.BLOP]
+ $ DELTREE/LOG/NOCONF TEST.DIR,TEMP1.DIR,[.TEMP2.BLOP],[.TEMP2]
+ %DELTREE-I-NOTFND, directory not found []./TEST
+ %DELTREE-S-DELETED, /disk$test/jlauret/apps_dev/projects/deltree/temp1.dir.
+ %DELTREE-S-STAT, 1 file deleted in 0.0 seconds
+ %DELTREE-I-NOTFND, directory not found [.TEMP2]./BLOP
+ %DELTREE-S-DELETED, /disk$test/jlauret/apps_dev/projects/deltree/temp2.dir.
+ %DELTREE-S-STAT, 2 files deleted in 0.1 seconds
+
+!
+!
+2 PROBLEMS_&_WARNINGS
+ By  nature,  DELTREE  IS  A  DANGEROUS  PROGRAM.   Always think before
+ pressing RETURN :)
+
+ DELTREE  __DOES__NOT__  understand  hard-linked  directory entries the
+ Unix way i.e.  ALIAS  directories  created  with  the  SET  FILE/ENTER
+ command  will  be  followed  and file within those directories deleted
+ !!!! BE AWARE that you should determined the list of ALIASES prior  of
+ running deltree and the consequence for such deletion.
+
+ Use  /DETACH/PRIV=BYPASS  with  care and pay attention to what you are
+ doing. If you press return by mistake, you may cause great dammage  to
+ your system :  time to figure out how to kill the detached process and
+ the damage  may  be  unrecoverable.   So,  BEWARE  OF  THE  CONVENIENT
+ FEATURE.
+
+ This command will not give you a detailed list of the file deleted. We
+ have chosen this for processing speed purposes.  Use /ALLDIR for  each
+ sub-directory deletion confirmation.
+
+ If  the  directory  from where you have issued the command disappears,
+ DELTREE will abort.
+
+
+2 Author
+ J. Lauret <jlauret@mail.chem.sunysb.edu>
+
+ Bugs  ? Crashes ? Never happened to me but if you find anything wrong,
+ please send a report immediately !!
+

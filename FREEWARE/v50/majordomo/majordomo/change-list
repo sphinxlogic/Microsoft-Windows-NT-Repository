@@ -1,0 +1,289 @@
+$cf = $ENV{'UCX$MAJORDOMO_CF'};
+if ($majordomo_debug) {print "\$cf is $cf\n";}
+eval(`type $cf`) || &my_die("eval of majordomo.cf failed $@");
+
+$tmp = "/SYS\$SCRATCH/CHANGE-LIST_$$";
+$status = 0;
+$tmp_filename;
+
+$defdir = `SHOW DEFAULT`;
+$defdir =~ s/\s//g;
+if ($majordomo_debug) {print "Default directory is $defdir\n";}
+
+# Go to the home directory specified by the .cf file
+chdir($homedir) || &my_die("Can't chdir(\"$homedir\"): $!");
+
+# All these should be in the standard PERL library
+unshift(@INC, $homedir);
+require "majordomo.pl";		# all sorts of general-purpose Majordomo subs
+require "majordomo-util.pl";	# all sorts of general-purpose Majordomo for
+				# config purposes
+require "shlock.pl";		# NNTP-style file locking
+require "config_parse.pl";	# functions to parse the config files
+
+if ($majordomo_debug) {&log_cf_stuff;}
+
+$my_system_name = &systemname;
+
+$list = ();
+print "
+This script will allow you to change the forwarding values for an existing list.
+Ie. The values set with SET FORWARD/USER. You may also add or delete a digest
+for an existing list.
+
+You need SYSPRV turned on to run this script.
+";
+
+print "Enter name of list: ";
+while ($list = <STDIN>)
+  {
+  chop($list);
+  if (($list eq "") || (!$list)) {&my_exit(0);}
+  $clean_list = &valid_list_name($list);
+  if (!$clean_list)
+    {
+    print "Clean is $clean_list\n";
+    print "List name $list is invalid.\nEnter name of list: ";
+    next;
+    }
+  elsif (is_digest_name($clean_list))
+    {
+    print "
+List $clean_list is a digest. To add or delete a digest for a list enter the
+name of the list itself. You will have the chance later to add or delete the
+digest.
+";
+    print "Enter name of list: ";
+    next;
+    }
+  elsif (!&list_exists($listdir,$clean_list))
+    {
+    print "List $clean_list doesn't exist.\nEnter name of list: ";
+    next;
+    }
+  else
+    {last;}
+  }
+
+# This handles Ctrl-Z
+if (!$list) {&my_exit(0);}
+
+&get_config($listdir, $clean_list) 
+  if !&cf_ck_bool($clean_list, '', 1);
+
+$passwd = ();
+print "Enter password for list $clean_list: ";
+while ($passwd = <STDIN>)
+  {
+  chop($passwd);
+  if (($passwd eq "") || (!$passwd)) {&my_exit(0);}
+  if (!&valid_passwd($listdir, $clean_list, $passwd))
+    {print "Password $passwd is invalid.\nEnter password for list $clean_list: ";next;}
+  else
+    {last;}
+  }
+
+# This handles Ctrl-Z
+if (!$passwd) {&my_exit(0);}
+
+$list_owner = &get_list_owner($clean_list);
+if (!$list_owner) {&my_exit(0);}
+
+if (list_has_digest($listdir,$clean_list))
+  {
+  $has_a_digest = 1;
+  if (!(&ask_delete_digest($clean_list)))
+    {
+    # define digest symbols so we'll set up list forwards right later on
+    $wants_a_digest = 1;
+    $digest_name = make_digest_name($clean_list);
+    $digest_owner = make_digest_owner($clean_list);
+    # Read digest password for mail notification.
+    $digest_passwd = get_passwd($listdir, $digest_name);
+    }
+  }
+else
+  {
+  if (&ask_list_digest($clean_list))
+    {
+    $wants_a_digest = 1;
+    $make_a_digest = 1;
+    $digest_name = make_digest_name($clean_list);
+    $digest_owner = make_digest_owner($clean_list);
+    $digest_passwd = ();
+    print "Enter password for list $digest_name: ";
+    while ($digest_passwd = <STDIN>)
+      {
+      chop($digest_passwd);
+      if (($digest_passwd eq "") || (!$digest_passwd)) {&my_exit(0);}
+      if (!&passwd_legal_chars($digest_passwd))
+        {print "Password $digest_passwd is invalid.\nEnter password for list $digest_name: ";next;}
+      else
+        {last;}
+      }
+  
+    # This handles Ctrl-Z
+    if (!$digest_passwd) {&my_exit(0);}
+    }
+  }
+
+print "List name:	$clean_list\n";
+print "List owner:	$list_owner\n";
+print "Password:	$passwd\n";
+print "System name:	$my_system_name\n";
+
+if ($wants_a_digest)
+  {
+  print "Digest name:	$digest_name\n";
+  print "Digest owner:	$digest_owner\n";
+  print "Digest Password:	$digest_passwd\n";
+  }
+
+$tmp_filename = $tmp  . "_" . $my_system_name . ".COM";
+
+&set_list_fwd($tmp_filename, $clean_list, $list_owner);
+
+#
+# Do we need to make a digest for this existing list?
+if ($make_a_digest)
+  {
+  #
+  # Yes. Set the digest's forwarding entries.
+  &set_digest_fwd($tmp_filename, $digest_name, $digest_owner);
+  #
+  # Make the digest's initial list and password files.
+  &make_list_file($listdir, $digest_name) || &my_die("Error while creating list file: $!\n");
+  &make_passwd_file($listdir, $digest_name, $digest_passwd) || &my_die("Error while creating passwd file: $!\n");
+  #
+  # "subscribe" listname-digest@whereami to the list file to associate the
+  # digest with the list.
+  $subscriber = "$digest_name\@$whereami";
+  if ($main'majordomo_debug)
+    {print "Adding $subscriber to file $listdir/$list.\n";}
+  &lopen(LIST, ">>", "$listdir/$clean_list") || &my_die("Can't open $listdir/$clean_list for append: $!");
+  print LIST "$subscriber\n";
+  lclose(LIST)  || &my_die("Can't close $listdir/$list.: $!\n");
+  }
+else
+  {
+  #
+  # Do not need to make a digest. Do we need to delete an existing one?
+  if (($has_a_digest) && !($wants_a_digest))
+    {
+    #
+    # Yes. "Unsubscribe" the listname-digest@whereami from the list file.
+    $tmp_digest_name = make_digest_name($clean_list);
+    $subscriber = "$tmp_digest_name\@$whereami";
+    $match_count = 0;
+    #
+    # This code was pretty much lifted from the majordomo script's
+    # do_unsubscribe routine.
+    &lopen(LIST, "", "$listdir/$clean_list") || &my_die("Can't open $listdir/$clean_list: $!");
+    open(NEW, ">$listdir/$clean_list.new") || &my_die("Can't open $listdir/$clean_list.new: $!");
+    chmod(0664, "$listdir/$clean_list.new") || &my_die("chmod(0664, \"$listdir/$clean_list.new\"): $!");
+    while (<LIST>)
+      {
+      # skip comment lines for compatability with UCX SMTP comments
+      if (&line_is_comment($_)) {next;}
+      if (! &addr_match($subscriber, $_))
+        {print NEW $_;}
+      else
+        {
+        $match_count++;
+        if ($match_count != 1)
+          {
+          print "ERROR: '$subscriber' found in list $clean_list more than once.\n";
+          last;
+          }
+        }
+      }
+
+    close(NEW);
+    # purge .NEW temp file and set file version num back to ;1
+    ($status = &purge("$listdir/$clean_list.new")) ||
+      warn "Couldn't purge $listdir/$clean_list.new\n";
+    if (!$status)
+      {print "$!\n";}
+    if ($match_count == 1)
+      {
+      # we deleted exactly 1 name, so now we shuffle the files
+      if ($majordomo_debug)
+        {
+        print ".new file is $listdir/$clean_list.new\n";
+        print "renaming to file $listdir/$clean_list.\n";
+        }
+      ($status = rename("$listdir/$clean_list.new","$listdir/$clean_list.")) ||
+        warn "Couldn't rename temp file.\n";
+      if (!$status)
+        {print "$!\n";}
+      # purge and set file version num back to ;1
+      ($status = &purge("$listdir/$clean_list.")) ||
+        warn "Couldn't purge $listdir/$clean_list.\n";
+      if (!$status)
+        {print "$!\n";}
+      }
+    elsif ($match_count == 0)
+      {
+      unlink("$listdir/$clean_list.new");
+      print "ERROR: '$subscriber' not found in list $clean_list\n";
+      }
+    &lclose(LIST);
+    }
+  }
+
+&mail_list_info($clean_list, $passwd, $digest_name, $digest_passwd)
+  || warn("Error while mailing list owner info: $!\n");
+
+&print_final;
+my_exit(0);
+
+
+sub print_final
+{
+local($tmp_string);
+print
+"********************************************************************************
+$list_owner is the new owner of the $clean_list list. To see the forwards
+created by this script do
+
+   MAIL> SHOW FORWARD/USER=*$clean_list*
+
+";
+print "********************************************************************************\n\n";
+}
+
+
+sub make_empty_list_file
+{
+local($listdir) = shift;
+local($list) = shift;
+local($FH) = "EMPTY";
+open($FH, ">$listdir/$list.") || return 0;
+close($FH) || return 0;
+return 1;
+}
+
+
+sub make_passwd_file
+{
+local($listdir) = shift;
+local($list) = shift;
+local($passwd) = shift;
+local($FH) = "PASSWD";
+open($FH, ">$listdir/$list.passwd") || return 0;
+print $FH $passwd;
+close($FH) || return 0;
+return 1;
+}
+
+
+sub list_name_valid
+{
+return(1);
+}
+
+
+sub list_owner_valid
+{
+return(1);
+}

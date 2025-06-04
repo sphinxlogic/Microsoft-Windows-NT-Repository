@@ -1,0 +1,168 @@
+1 MAP_SECTIONS
+ Module containing routines used to map and unmap EMU global sections.
+ see individual routines for detail
+2 MAP_XLTTBL 
+ Maps caller to the specified translation table. Cuurently there are 4:
+	Netware SAP
+	Ethernet Protocol types
+	Ethernet UOD (maufacturer's ID)
+	MOP device types 
+3 Inputs
+ .long table to map. Symbols are in _EMUUIDEF 
+ .address of .quad returned addresses of section
+  The necessary file and section names are 
+3 Outputs
+	The quad 1st and last address of the section is written in P2
+3 Returns
+  Any from $RMS, $CRMPSC 
+2 MAP_EBUFFS 
+ Maps caller to the Ethernet buffer section. This section is where 
+ the Listener writes raw Ethernet frames to as they are read off the 
+ network.
+3 Inputs
+ .address of .quad returned addresses of section
+2 MAP_COMIPC
+ Map common IPC (Inter Process Communication) buffers. If section created, 
+ init free buff by placing all buffs in free que.
+3 Inputs
+ .address of .quad returned addresses of section
+2 UNMAPLVB_DB 
+ Unmap a database section and convert the associated lock to NULL.
+ This is essentialy the reverse of MAPLVB_DB. This is the default
+ BLAST routine setup when MAPLVB_DB is called.
+3 Input
+ .address of MAP_STRUCTURE 
+3 Returns
+  The Memory section given by the input is deleted
+  The associated DB lock is converted to NL
+4 MAP_STRUCTURE
+    SYS_MAP_Q_ADDR          
+	1ST and last addresses of the section mapped. This routine
+	clears this field.
+    SYS_MAP_L_PID 
+	EMU defined process identifier of the DB creator
+    SYS_MAP_L_KEY
+	Offset in each record in this DB where the unique key is found 
+    SYS_MAP_L_LCKID
+	The VMS assigned lock id
+    SYS_MAP_L_SPR
+	Spare field - Future use & keeps structure .quad aligned
+    SYS_MAP_L_LOCK 
+	.address of the lock name associated with this DB
+    SYS_MAP_L_SEC
+	.address of the section name associated with this DB
+2 MAPLVB_DB 
+ Maps a database section using Lock Manager with Lock Value block. 
+ This routine requests the lock specified by the input symbol in CW mode.
+ The LVB has been previously written by the DB creator with the size (in 
+ pages) of the section. The calling process waits for the lock to be granted.
+ If the LVB = 0 or this process creates the section, an error is returned.
+
+ A blocking AST is always set up. The caller may specify it's own routine
+ or accept the default one supplied.
+
+ Note the lock request is $ENQW - The routine waits until the lock is 
+ granted 
+3 Default_Blast
+ If the caller does not specify it's own AST routine the default one:
+	Deletes VM
+	Clears the .quad pointer to the db
+	converts lock to NL
+ The caller MUST check the .quad for valid addresses before each access.
+ It is advisable to disable ast during any access.
+
+3 User_Supplied_Blast
+ In this case the caller supplies both:
+	.address of the Blocking AST routine
+	.long Blast param that will be returned upon AST delivery.
+ Thus when the (exclusive)lock is requested by the creator the caller
+ must unmap and release the lock. Normaly the param is set to indicate
+ which DB to unmap.
+
+3 Inputs
+ .address of MAP_STRUCTURE 
+ .address of user supplied Blast routine. (Optional)
+ .address of .long Blast Param. (must be present if P2 specified)
+4 MAP_STRUCTURE
+    SYS_MAP_Q_ADDR          
+	1ST and last addresses of the section mapped
+    SYS_MAP_L_PID 
+	EMU defined process identifier of the DB creator
+    SYS_MAP_L_KEY
+	Offset in each record in this DB where the unique key is found 
+    SYS_MAP_L_LCKID
+	The VMS assigned lock id
+    SYS_MAP_L_SPR
+	Spare field - Future use & keeps structure .quad aligned
+    SYS_MAP_L_LOCK 
+	.address of the lock name associated with this DB
+    SYS_MAP_L_SEC
+	.address of the section name associated with this DB
+3 Returns
+  	SS$_NORMAL 	Lock granted, section mapped to
+	SS$_BADPARAM	Called with 2 params (must be either 1 or 3)
+	SS$_INVEVENT	The size returned in the lock value block 
+			was <= 0. The caller has run before the
+			database was created. 
+ Any return from $ENQW, $EXPREG or $CRMPSC 
+2 MAP_COUNTERS
+ Maps the counter section. This section is written to by many processes
+ counting significant events. EMU_DISP_xxxx displays the current counters
+ in real time.
+3 Inputs
+ .address of .quad returned addresses of section
+3 Outputs
+  If mapped successfuly, the input quad is written with the 1st and 
+  last addresses of the section.
+3 Returns
+  Any from $EXPREG, $CRMPSC
+2 MAP_CONTROL  
+ Maps the caller to the control section. This section contains various 
+ dynamic paramaters used to control the system.
+3 Inputs
+ .address of .quad returned addresses of section
+2 MAP_PSRTBL  
+ Maps the PSRTBL section to the caller. If the section is created, the file
+ is opened and the contents are loaded into memory. The number of entries is 
+ always returned.
+ Entries are counted only when section is created. The count is 
+ stored in the control section @CTL_PSTTBL_L_CNT. Subsequent calls map the 
+ section, skip the load and return the count and addr.
+2 Inputs:
+ .address of .quad returned addresses of section
+ .address of .long where count of entries found is returned
+2 MAP_ALL_DB
+ Maps all known DBs in the input table. If the section is already
+ mapped the entry is skipped. It is then safe to call this routine
+ without knowing which DBs are currently mapped. 
+3 Inputs
+	.address of desc pointing to table of MAP_STRUCTUREs. There 
+	is one structure per DB to map and no restrictions on the 
+	number of structures passed in a single call
+4 MAP_STRUCTURE
+	.quad	1st and last address of the DB. Write only
+	.long	EMU PID of DB to map. This is the SYS_PID_C_xxxxx
+		symbol found in _EMUSYSDEF. Read only
+	.long	Offset to the key in this database. Not used by 
+		most routines.
+	.long	LOCK Id. Where the lock this process takes out on
+		the database is written. Write only
+	.long	Spare/align
+	.long	Address of .ascid lock name
+	.long	address of .ascid section name
+ Offsets and symbols are in _EMUSYSDEF
+
+3 Outputs
+	Any section newly mapped has it's 1st and last addr written
+	to the associated map structure.
+3 Returns
+ 	SS$_NORMAL is always returned in R0
+	Number of newly mapped databases is returned in R1
+3 Locking
+	Each database requests a CW lock and if granted, writes 
+	the DB addresses in the structure. It also sets a Blocking
+	AST that when fired (by the DB owner requesting exclusive access)
+	clears the DB addresses. The caller must then:
+	1. Check before access that the DB is still mapped. 
+	2. Disable ASTs for the duration of the operation.
+	3. Re-enable ASTs

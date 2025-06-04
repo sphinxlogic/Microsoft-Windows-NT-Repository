@@ -1,0 +1,45 @@
+;
+; Hack to zero the system and device error counters on OpenVMS Alpha
+;
+; Jur van der Burg
+; Compaq
+;
+; $ macro zeroerr
+; $ link/sysexe zeroerr
+;
+        .library        'sys$library:lib.mlb'
+
+        $ucbdef
+        $ssdef
+
+        .entry  zeroerr,^m<>
+
+        $cmkrnl_s       routin=zero
+        ret
+
+        .entry  zero,^m<>
+
+        movab   nocrash,(fp)
+        movl    g^ctl$gl_pcb,r4
+        jsb     g^sch$iolockw
+        clrl    r11
+
+10$:    jsb     g^ioc$scan_iodb
+        blbc    r0,20$
+        clrl    ucb$l_errcnt(r10)
+        brb     10$
+
+20$:    clrl    g^exe$gl_memerrs
+        clrl    g^exe$gl_mchkerrs
+        movl    g^ctl$gl_pcb,r4
+        jsb     g^sch$iounlock
+        setipl  #0
+        movzbl  #ss$_normal,r0
+        ret
+
+        .entry  nocrash,^m<>
+
+        setipl  #0
+        $exit_s
+
+        .end    zeroerr

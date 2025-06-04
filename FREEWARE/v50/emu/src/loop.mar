@@ -1,0 +1,158 @@
+	.TITLE LOOP 
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 002	10-jun-1994	PB	Fixed stupid fucking bug in calling seq
+;				when response time wanted. Call with 2 params
+;				to loop routine is now correct ($@#!)
+;++
+;1 LOOP 
+; This routine has 2 distinct functions:
+;	 Calls the loop routine specified in the P2 params and returns
+;	success or failure and (optionaly) reponse time.
+;	If the P2 param is 0 it determines the loop type to call 
+;	and returns the type in P2.
+;
+;2 Inputs
+;	P1	.address of 6 byte Ethernet address of target node (net fmt)
+;	P2 	.address of .long containing loop type to perform
+;    Optional:
+;	P3 	.address of .long where reponse time is written.
+;		Given as no. of 100th sec intervals
+;2 Output
+;  If P2 = 0 then all loop types are attempted and the 1st successful type
+; (if any) is written to P2.
+;  If P3 specifiec then P3 written with number of 100th second units 
+;  if took to perform round trip to target.
+;2 Return
+;	SS$_NORMAL	All Requested loops were succesful
+;	SS$_BADPARAM	P2 out of range (0-3)
+;	SS$_UNREACHABLE	Failed to receive loop response from target
+;	SS$_ACCVIO	Can' read input params or can't write outp field
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LIBRARY	"EMU_DIR:EMU.MLB"
+
+	$IODEF		; I/O functions
+	$NMADEF		; Network Management Functions
+	EMUIDXDEF
+		.PSECT	CODE,NOWRT,EXE,LONG
+;		.ENTRY  LOOP,^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, LABEL=LOOP
+;
+; Validate Params
+	PROBER	#0,#6,4(AP)  		; Read Ethernet address?
+	BEQL	10$			; Yes
+	PROBER	#0,#4,8(AP)  		; Read Loop type?
+	BEQL	10$			; Yes
+	CMPL	#3,(AP)			; 3 params?
+	BNEQU	20$
+	PROBEW	#0,#8,12(AP)  		; Write response time?
+	BNEQ	20$			; Yes
+10$:
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+20$:
+	MOVL	8(AP),R1
+	BBC	#IDX_V_ELOOP,(R1),25$		; Not ethernet type?
+	BRW	60$
+25$:
+	BBC	#IDX_V_XLOOP,(R1),30$		; Not XID type?
+	BRW	70$
+30$:
+	BBC	#IDX_V_ILOOP,(R1),35$		; Not 802 type?
+	BRW	80$
+35$:
+	BBC	#IDX_V_MLOOP,(R1),50$		; Not MOP type?
+	BRW	90$
+; Don't kno type
+50$:
+; Determine loop type
+	PROBEW	#0,#4,8(AP)  		; Write Loop type?
+	BNEQ	53$			; Yes
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+53$:
+	PUSHL	4(AP)
+	CALLS	#1,G^LOOPE		; Ethernet loop?
+	BLBC	R0,54$                  ; No
+	BISL	#IDX_M_ELOOP,@8(AP)               ; Write loop type
+	MOVL	#SS$_NORMAL,R0
+	RET
+54$:
+	PUSHL	4(AP)
+	CALLS	#1,G^LOOPM		; MOP LOOP?
+	BLBC	R0,55$                  ; No
+	BISL	#IDX_M_MLOOP,@8(AP)               ; Write loop type
+	MOVL	#SS$_NORMAL,R0
+	RET
+55$:
+	PUSHL	4(AP)
+	CALLS	#1,G^LOOPX		; 802 XID loop?
+	BLBC	R0,56$                  ; No
+	BISL	#IDX_M_XLOOP,@8(AP)               ; Write loop type
+	MOVL	#SS$_NORMAL,R0
+	RET
+56$:
+	PUSHL	4(AP)
+	CALLS	#1,G^LOOPI		; XID loop?
+	BLBC	R0,57$                  ; No
+	BISL	#IDX_M_ILOOP,@8(AP)               ; Write loop type
+	MOVL	#SS$_NORMAL,R0
+	RET
+57$:
+	MOVL	#SS$_UNREACHABLE,R0
+	RET
+60$:
+;Ethernet loop
+	MOVL	#1,R6
+	CMPL	#3,(AP)			; Wants reponse time??
+	BNEQU	65$                     ; No
+	PUSHL	12(AP)
+	INCL	R6
+65$:
+	PUSHL	4(AP)
+	CALLS	R6,G^LOOPE
+	RET	
+70$:
+;802.3 test (loop) function 
+	MOVL	#1,R6
+	CMPL	#3,(AP)			; Wants reponse time??
+	BNEQU	75$                     ; No
+	PUSHL	12(AP)
+	INCL	R6
+75$:
+	PUSHL	4(AP)
+	CALLS	R6,G^LOOPI
+	RET	
+80$:
+; 802.3 XID (Poll bit set) loop
+	MOVL	#1,R6
+	CMPL	#3,(AP)			; Wants reponse time??
+	BNEQU	85$                     ; No
+	PUSHL	12(AP)
+	INCL	R6
+85$:
+	PUSHL	4(AP)
+	CALLS	R6,G^LOOPX
+	RET	
+90$:
+;MOP loop
+	MOVL	#1,R6
+	CMPL	#3,(AP)			; Wants reponse time??
+	BNEQU	95$                     ; No
+	PUSHL	12(AP)
+	INCL	R6
+95$:
+	PUSHL	4(AP)
+	CALLS	R6,G^LOOPM
+	RET	
+		.END								
+		
+

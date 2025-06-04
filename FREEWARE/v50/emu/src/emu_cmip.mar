@@ -1,0 +1,1605 @@
+	.TITLE	EMU_CMIP 
+	.IDENT /V01-002/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 EMU_CMIP 
+; Various routines to process CMIP returns.
+; See individual routines for detail.
+;--
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+	EMUCMIPDEF
+	$SSDEF
+
+	.PSECT	DATA WRT,NOEXE,QUAD
+
+OUTINT:		.QUAD	0
+
+; Debug log file
+CMIPFAB:	$FAB	FAC = <PUT>,-        	; Access
+		FNM = <EMU_CMIP>,-    ; Filename 
+		DNM = <EMU_CMIP.LOG>,-    ; Filename 
+		SHR = <DEL,UPD,GET,PUT>,- ; Share access R/W
+		FOP = CIF		; Create if doesn't exist
+CMIPRAB:	$RAB	FAB = CMIPFAB,-           
+		RAC = SEQ,-		; Sequential access
+		ROP = EOF,-		; Open for append
+		RBF = CMIPREC,-
+		UBF = CMIPREC,-
+		USZ = CMIPREC_SIZE,-
+		RSZ = CMIPREC_SIZE
+
+CMIPREC:	.BLKB	132
+CMIPREC_SIZE =	.-CMIPREC  
+
+; Return packet
+ASN1_RETURN:	.BLKL	8
+ASN1_RETURN2:	.BLKL	8
+DECID:		.BYTE	^X2B,^X0C,^X02,^X87  
+FAOBUF:		.BLKL	132
+FAODESC:
+FAOLEN:		.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+FAOLIST:	.BLKL	64
+FAOSTR:		.BLKB	64
+FAOSTR_D:	.LONG	.-FAOSTR 		; Dynamic
+		.ADDRESS  FAOSTR
+FNAME:		.BLKB	512
+FNAME_D:	.LONG	.-FNAME
+		.ADDRESS  FNAME
+RETURN_D:	.QUAD	0
+MSGHDR:		.BLKB	512                     ; CMIP Header parse results
+MSGHDR_D:	.LONG	.-MSGHDR
+		.ADDRESS  MSGHDR
+XTRETURN:       .BLKB   2048                    ; Primitive extraction results
+XTRETURN_D:     .LONG   .-XTRETURN
+                .ADDRESS  XTRETURN
+
+FAOAC:		.ASCII	/!AC./
+FAOUB:		.ASCII	/!UB./
+FAOSEP:		.ASCII	/./
+PRM_HEAD:	.ASCID	/ CMIP Param = !UL, Primitives = !UL/
+TITLE:		.ASCID	/ Class  Tag   Len       Data /
+ADATA:		.ASCID	/ !4<!UL!>  !4<!UL!>  !4<!UL!>   !AD/ 
+DATA:		.ASCID	/ !4<!UL!>  !4<!UL!>  !4<!UL!>   !XL !XL !XL !XL/ 
+
+	.PSECT	CODE	EXE,NOWRT,LONG
+
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PARSE_CMIP_HEADER
+;++
+;2 PARSE_CMIP_HEADER
+; Strip CMIP header and return components
+;3 Inputs
+;	address of descriptor pointing to header 
+;	address of descriptor pointing to output
+; 
+; 1st byte of header must be one of:
+;	^xA1	- one of multiple returns
+;	^xA2	- Last return
+;	^xA3	- Error returned
+;	^xA4	- Reject
+;3 Output
+; .quad	- counted string of entity (less comon part)
+; .long	- total header len (distance to 1st param)
+; .var	- .ascic of entity name (if present)
+;3 Returns
+;	SS$_NORMAL	OK
+;	SS$_ACCVIO	Could not write outp
+;	SS$_FORMAT	Input in unexpected format
+;--
+	MOVAB	EMU_CMIP_HANDLER,(FP)	; Condition handler 
+	MOVQ	@8(AP),R6
+	PROBEW	#0,R6,(R7)			; Check for write access
+	BNEQ	1$
+	MOVL	#SS$_ACCVIO,R0
+	RET
+1$:
+	MOVQ	@4(AP),R6
+	CMPB	(R7),#161
+	BGEQU	10$
+	MOVL	#SS$_FORMAT,R0
+	RET
+10$:
+	CASEB	(R7),#161,#3		; Select processing routine
+100$:                             
+	.WORD	101$-100$          ;      Invoke (1 of multiple)
+	.WORD	102$-100$          ;      Return (Last - or only)
+	.WORD	103$-100$          ;      Error
+	.WORD	104$-100$          ;      Reject
+	MOVL	#SS$_FORMAT,R0
+	RET
+
+101$:
+	BRW	CMIP_INVOKE
+102$:
+	BRW	CMIP_RETURN
+103$:
+	BRW	CMIP_ERROR
+104$:
+	BRW	CMIP_REJECT
+
+CMIP_INVOKE:
+	MOVL	R7,R8				; Save origin
+	ADDL3	R6,R7,R9			; Set end
+60$:
+; Parse through header until we see tag A6 (attribute list)
+; On the way, extract and return:
+;	Entity (remove common 1st 7 bytes)
+; 	Entity is 2nd context specific tag (80)
+;	Instance
+;	This (if present) is either simple or fullname of entity instance
+65$:
+	PUSHAL	ASN1_RETURN
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,70$
+	RET
+70$:
+	MOVAL	ASN1_RETURN,R1
+	CMPB	(R8),#CMIP_TAG_CTXSPC			; Entity ?
+	BEQLU	80$
+73$:
+	ADDL	ASN_PAT_C_NEXT(R1),R8			; Next tag
+	CMPL	R8,R9
+	BLSSU	65$
+75$:
+	MOVL	#SS$_DATACHECK,R0                        ; Did not find
+	RET
+80$:
+; 1st quad of outp is initialised to be a counted string of the 
+; current entity less the common part. Will always start with 01 (node)
+; Check this is the field we want. 
+; Tag is 80 (context specific 0)
+; 1st 4 bytes of data must be 2b,0c,02,87  
+	ADDL3   ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2 ; Offset to param  
+	ADDL	R8,R2					 ; Param start
+	CMPL	(R2),DECID                               ; Right codes?
+	BNEQU	73$                                      ; Br if not
+	SUBL3	#7,ASN_PAT_C_LVAL(R1),R3		 ; Skip common part
+	BLEQ	75$					 ; Exit if < 7
+	ADDL	#7,R2
+	MOVQ	@8(AP),R5
+	CLRQ	(R6)
+	CLRQ	ECP_CHP_L_HEDLEN(R6)
+	MOVB	R3,(R6)+				 ; Move in len
+90$:
+	MOVB	(R2)+,(R6)+
+	SOBGTR	R3,90$
+; skip to entity instance
+100$:
+	PUSHAL	ASN1_RETURN
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,110$
+	RET
+110$:
+	MOVAL	ASN1_RETURN,R1
+	CMPB	(R8),#CMIP_TAG_ENTINST			; Entity instance?
+	BEQLU	120$                                    ; Br if yes
+	ADDL	ASN_PAT_C_NEXT(R1),R8			; Next tag
+	CMPL	R8,R9
+	BLSSU	100$
+	MOVL	#SS$_DATACHECK,R0                        ; Did not find
+	RET
+120$:
+	PUSHAL	ASN1_RETURN                             ; Explode instance tag
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,130$
+	RET
+130$:
+	MOVAL	ASN1_RETURN,R1
+	TSTL	ASN_PAT_C_LVAL(R1)    		; Instance present?
+	BNEQ	132$				; Br if len .ne. 0
+	BRW	150$
+132$:
+; Instance is present. Locate tag indicating either simple or fullname.
+	MOVL    ASN_PAT_C_LVAL(R1),R2		; Len of instance
+	ADDL	R8,R2				; Add of last byte
+135$:
+	PUSHAL	ASN1_RETURN                     ; Explode Tag
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,136$
+	RET
+136$:
+	MOVAL	ASN1_RETURN,R1
+	CMPB	ASN_PAT_C_TVAL(R1),#CML_TAG_APP_simplename	; Name ?
+	BEQLU	138$                            ; Br if yes
+	CMPB	ASN_PAT_C_TVAL(R1),#CML_TAG_APP_fullname	; Name?
+	BEQLU	138$                            ; Br if yes
+	ADDL	ASN_PAT_C_NEXT(R1),R8		; Next tag
+	CMPL	R8,R2                           ; End of instance?
+	BLSSU	135$				; Br if more
+	BRW	150$				; Not found
+138$:
+	MOVL	#512,FNAME_D			; Reset desc
+	ADDL3   ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2 ; Offset to param  
+        PUSHAL	FNAME_D                         ; Outp
+	PUSHL	R8				; Name tag
+	CALLS	#2,G^CMIP_XTRFULLNAME           ; Extract name
+	BLBC	R0,150$				; Br if didn't get
+	MOVL	FNAME_D,R1			; Returned len
+	MOVL	FNAME_D+4,R2			; Returned STRING
+	MOVQ	@8(AP),R5			; Outp block
+	ADDL	#ECP_CHP_AC_NAME,R6	        ; Write .ascic here
+	MOVB	R1,(R6)+
+140$:
+	MOVB	(R2)+,(R6)+
+	SOBGTR	R1,140$
+; Skip to attribute list
+150$:
+	PUSHAL	ASN1_RETURN
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,155$
+	RET
+155$:
+	MOVAL	ASN1_RETURN,R1
+	CMPB	(R8),#CMIP_TAG_ATTRID			; Attribut list start?
+	BEQLU	170$                                    ; Br if yes
+	ADDL	ASN_PAT_C_NEXT(R1),R8			; Next tag
+	CMPL	R8,R9
+	BLSSU	150$
+160$:
+	MOVL	#SS$_DATACHECK,R0                       ; Did not find
+	RET
+
+170$:
+	MOVQ	@8(AP),R4
+	SUBL3	R7,R8,ECP_CHP_L_HEDLEN(R5)             ; Write head len
+	MOVL	#SS$_NORMAL,R0
+	RET
+CMIP_RETURN:
+	MOVL	R7,R8				; Save origin
+	ADDL3	R6,R7,R9			; Set end
+60$:
+; Parse through 'header'  until we see tag A6 (attribute list)
+; Extract and print:
+;	Entity (remove common 1st 7 bytes)
+;	Instance(s)
+; Entity is 1st context specific tag (80)
+; immediately followed by instances
+65$:
+	PUSHAL	ASN1_RETURN
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,70$
+	RET
+70$:
+	MOVAL	ASN1_RETURN,R1
+	CMPB	(R8),#CMIP_TAG_CTXSPC			; Entity ?
+	BEQLU	80$
+73$:
+	ADDL	ASN_PAT_C_NEXT(R1),R8			; Next tag
+	CMPL	R8,R9
+	BLSSU	65$
+75$:
+	MOVL	#SS$_DATACHECK,R0                        ; Did not find
+	RET
+80$:
+; 1st quad of outp is initialised to be a counted string of the 
+; current entity less the common part. Will always start with 01 (node)
+; Check this is the field we want. 
+; Tag is 80 (context specific 0)
+; 1st 4 bytes of data must be 2b,0c,02,87  
+	ADDL3   ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2 ; Offset to param  
+	ADDL	R8,R2					 ; Param start
+	CMPL	(R2),DECID                               ; Right codes?
+	BNEQU	73$                                      ; Br if not
+	SUBL3	#7,ASN_PAT_C_LVAL(R1),R3		 ; Skip common part
+	BLEQ	75$					 ; Exit if < 7
+	ADDL	#7,R2
+	MOVQ	@8(AP),R4
+	CLRQ	(R5)
+	CLRQ	8(R5)
+	ADDL	#ECP_CHP_Q_ENT,R5			; Write class here
+	MOVB	R3,(R5)+				; Move in len
+90$:
+	MOVB	(R2)+,(R5)+
+	SOBGTR	R3,90$
+
+; skip to entity instance
+100$:
+	PUSHAL	ASN1_RETURN
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,110$
+	RET
+110$:
+	MOVAL	ASN1_RETURN,R1
+	CMPB	(R8),#CMIP_TAG_ENTINST			; Entity instance?
+	BEQLU	120$                                    ; Br if yes
+	ADDL	ASN_PAT_C_NEXT(R1),R8			; Next tag
+	CMPL	R8,R9
+	BLSSU	100$
+	MOVL	#SS$_DATACHECK,R0                        ; Did not find
+	RET
+120$:
+	PUSHAL	ASN1_RETURN                             ; Explode instance tag
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,130$
+	RET
+130$:
+	MOVAL	ASN1_RETURN,R1
+	TSTL	ASN_PAT_C_LVAL(R1)    		; Instance present?
+	BNEQ	132$				; Br if len .ne. 0
+	BRW	150$
+132$:
+; Instance is present. Locate tag indicating either simple or fullname.
+	MOVL    ASN_PAT_C_LVAL(R1),R2		; Len of instance
+	ADDL	R8,R2				; Add of last byte
+135$:
+	PUSHAL	ASN1_RETURN                     ; Explode Tag
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,136$
+	RET
+136$:
+	MOVAL	ASN1_RETURN,R1
+	CMPB	ASN_PAT_C_TVAL(R1),#CML_TAG_APP_simplename	; Name ?
+	BEQLU	138$                            ; Br if yes
+	CMPB	ASN_PAT_C_TVAL(R1),#CML_TAG_APP_fullname	; Name?
+	BEQLU	138$                            ; Br if yes
+	ADDL	ASN_PAT_C_NEXT(R1),R8		; Next tag
+	CMPL	R8,R2                           ; End of instance?
+	BLSSU	135$				; Br if more
+	BRW	150$				; Not found
+138$:
+	MOVL	#512,FNAME_D			; Reset desc
+	ADDL3   ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2 ; Offset to param  
+        PUSHAL	FNAME_D                         ; Outp
+	PUSHL	R8				; Name tag
+	CALLS	#2,G^CMIP_XTRFULLNAME           ; Extract name
+	BLBC	R0,150$				; Br if didn't get
+	MOVL	FNAME_D,R1			; Returned len
+	MOVL	FNAME_D+4,R2			; Returned STRING
+	MOVQ	@8(AP),R5			; Outp block
+	ADDL	#ECP_CHP_AC_NAME,R6	        ; Write .ascic here
+	MOVB	R1,(R6)+
+140$:
+	MOVB	(R2)+,(R6)+
+	SOBGTR	R1,140$
+; Skip to attribute list
+150$:
+	PUSHAL	ASN1_RETURN
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,155$
+	RET
+155$:
+	MOVAL	ASN1_RETURN,R1
+	CMPB	(R8),#CMIP_TAG_ATTRID			; Attribut list start?
+	BEQLU	170$                                    ; Br if yes
+	ADDL	ASN_PAT_C_NEXT(R1),R8			; Next tag
+	CMPL	R8,R9
+	BLSSU	150$
+160$:
+	MOVL	#SS$_DATACHECK,R0                        ; Did not find
+	RET
+
+170$:
+	MOVQ	@8(AP),R4
+	SUBL3	R7,R8,ECP_CHP_L_HEDLEN(R5)               ; Write head len
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+CMIP_ERROR:
+CMIP_REJECT:
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DISPLAY_PRIMITIVES
+;++
+;2 DISPLAY_PRIMITIVES
+; Routine to log results from CMIP_XTRPRIMITIVES  (which see)
+; to file. Called when debug options set.
+;3 Inputs
+;  .addr of desc pointing to CMIP_XTRPRIMITIVES outp block
+;3 Outputs
+;  Formatted records written to EMU_CMIP.LOG in default directory.
+;--   
+; Open the file (if not already open)
+	MOVAB	EMU_CMIP_HANDLER,(FP)	; Condition handler 
+
+	TSTW	CMIPFAB+FAB$W_IFI	; File open?
+	BNEQ	1$			; Br if open
+; Open and connect (no error checks)
+	$CREATE	FAB = CMIPFAB		; Open input file (CIF)
+ 	$CONNECT RAB = CMIPRAB		; Connect input stream
+1$:
+
+
+; Display results from CMIP_XTRPRIMITIVES
+	MOVQ	@4(AP),R6		; Input desc
+; Header
+	MOVL	#132,FAODESC
+	PUSHL	4(R7)                   ; Number of primitives
+	PUSHL	(R7)                	; Param
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PRM_HEAD
+	CALLS	#5,G^SYS$FAO
+	MOVW	FAODESC,CMIPRAB+RAB$W_RSZ	; rec size
+	MOVL	FAODESC+4,CMIPRAB+RAB$L_RBF	; Rec location
+	$PUT	RAB=CMIPRAB
+	MOVL	4(R7),R11		; Loop control
+	BGTR	10$
+	MOVL	#SS$_NORMAL,R0
+	RET
+10$:
+	MOVW	TITLE,CMIPRAB+RAB$W_RSZ	; rec size
+	MOVL	TITLE+4,CMIPRAB+RAB$L_RBF	; Rec location
+	$PUT	RAB=CMIPRAB
+	ADDL	#8,R7			; 1st entry
+20$:
+; display each primitive as:
+;	Class	Tag	Len	Data (either formatted or 1st 16 bytes)
+; Attempt to format
+	CASEW	(R7),#0,#3		; Select processing routine for class
+30$:                             
+	.WORD	1000$-30$                         
+	.WORD	2000$-30$                         
+	.WORD	3000$-30$                         
+	.WORD	4000$-30$                         
+	MOVL	#SS$_DATACHECK,R0        ; Screwed up
+	RET
+1000$:					; Universal
+	CASEW	2(R7),#0,#7		; Select processing for universal tag
+1010$:                             
+	.WORD	1100$-1010$                         
+	.WORD	1200$-1010$                         
+	.WORD	1300$-1010$                         
+	.WORD	1400$-1010$                         
+	.WORD	1500$-1010$                         
+	.WORD	1600$-1010$                         
+	.WORD	1700$-1010$                         
+	.WORD	1800$-1010$  
+	BRW	10000$			; No formatter                       
+		
+; FOrmat routines for universal tags
+1100$:
+	BRW	10000$			; Boolean - Use default format
+1200$:
+	
+1300$:
+1400$:
+1500$:
+1600$:
+1700$:
+1800$:
+       BRW	10000$
+2000$:					 ; Application
+; Format routines for Application tags
+	CASEW	2(R7),#0,#66		; Select processing for universal tag
+2900$:
+	.WORD	2100$-2900$	; Null - Null entity class 
+	.WORD	2101$-2900$	; BOOLEAN
+	.WORD	2102$-2900$	; UNSIGNEDINT16	
+	.WORD	2103$-2900$	; UNSIGNEDINT32	
+	.WORD	2104$-2900$	; UNSIGNEDINT64	
+	.WORD	2105$-2900$	; SIGNEDINT16	
+	.WORD	2106$-2900$	; SIGNEDINT32	
+	.WORD	2107$-2900$	; SIGNEDINT64	
+	.WORD	2108$-2900$	; OCTET	
+	.WORD	2109$-2900$	; OCTETSTRING	
+	.WORD	21010$-2900$	; ENUMERATION	
+	.WORD	21011$-2900$	; NULL	
+	.WORD	21012$-2900$	; NUMERICSTRING	
+	.WORD	21013$-2900$	; BITSET	
+	.WORD	21014$-2900$	; RECORD	
+	.WORD	21015$-2900$	; SEQUENCE	
+	.WORD	21016$-2900$	; char abstime
+	.WORD	21017$-2900$	; bin abstine
+	.WORD	21018$-2900$	; char reltime
+	.WORD	21019$-2900$	; bin reltime
+	.WORD	21020$-2900$	; latin (printable string)
+	.WORD	21021$-2900$	; SET	
+	.WORD	21022$-2900$	; UNSIGNEDINT8
+	.WORD	21023$-2900$	; SIGNEDINT8	
+	.WORD	21024$-2900$	; Unassigned	
+	.WORD	21025$-2900$	; Unassigned	
+	.WORD	21026$-2900$	; simple name
+	.WORD	21027$-2900$	; full name
+	.WORD	21028$-2900$	; UID -16 bytes
+	.WORD	21029$-2900$	; known			- implict null - wildcard
+	.WORD	21030$-2900$	; entity name    		- sequence of objid
+	.WORD	21031$-2900$	; local entity name	-   "
+	.WORD	21032$-2900$	; default - implicit null
+	.WORD	21033$-2900$	; version number		- 4 bytes (Status(V) maj,min,ECO)
+	.WORD	21034$-2900$	; ID			- LAN addr
+	.WORD	21035$-2900$	; DTE addr
+	.WORD	21036$-2900$	; file spec
+	.WORD	21037$-2900$	; NSAP addr
+	.WORD	21038$-2900$	; NET Ent Title
+	.WORD	21039$-2900$	; area addr
+	.WORD	21040$-2900$	; counter16
+	.WORD	21041$-2900$	; counter32
+	.WORD	21042$-2900$	; counter64
+	.WORD	21043$-2900$	; addr prefix
+	.WORD	21044$-2900$	; Towerset
+	.WORD	21045$-2900$	; endusersepc
+	.WORD	21046$-2900$	; transport selector
+	.WORD	21047$-2900$	; phaseIV name
+	.WORD	21048$-2900$	; PhasIV addr
+	.WORD	21049$-2900$	; implementation          - set of component
+	.WORD	21050$-2900$	; version edit number	- seq
+	.WORD	21051$-2900$	; component name          - record containing component name, version
+	.WORD	21052$-2900$	; DNS timstamp            -14 bytes
+	.WORD	21053$-2900$	; entity class 		- obj id
+	.WORD	21054$-2900$	; bit string
+	.WORD	21055$-2900$	; floor	 - seq of {protocol(protocolIdentifier), addr } see prottabl
+	.WORD	21056$-2900$	; Protocol tower   set of floor (55)
+	.WORD	21057$-2900$	; EVENTCLASS	
+	.WORD	21058$-2900$	; EVENTINSTANCE	
+	.WORD	21059$-2900$	; SUBRANGE	
+	.WORD	21060$-2900$	; RANGE	
+	.WORD	21061$-2900$	; CMIPMESSAGE	
+	.WORD	21062$-2900$	; IPADDRESS	
+	.WORD	21063$-2900$	; ID802_SNAP	
+	.WORD	21064$-2900$	; IDENETV2_TYPE	
+	.WORD	21065$-2900$	; FDDITIMER	
+	.WORD	21066$-2900$	; EnetProtType
+        BRW	10000$		; No formatter
+
+2100$:				; Null - Null entity class 
+2101$:				; BOOLEAN
+2102$:				; UNSIGNEDINT16	
+2103$:				; UNSIGNEDINT32	
+2104$:				; UNSIGNEDINT64	
+2105$:				; SIGNEDINT16	
+2106$:				; SIGNEDINT32	
+2107$:				; SIGNEDINT64	
+2108$:				; OCTET	
+2109$:				; OCTETSTRING	
+21010$:				; ENUMERATION	
+21011$:				; NULL	
+21012$:				; NUMERICSTRING	
+21013$:				; BITSET	
+21014$:				; RECORD	
+21015$:				; SEQUENCE	
+21016$:				; char abstime
+21017$:				; bin abstine
+21018$:				; char reltime
+21019$:				; bin reltime
+	BRW	10000$
+21020$:				; latin (printable string)
+	ADDL3	#8,R7,R1	; Addr of string
+	MOVL	4(R7),R0   	; Len of string
+	BRW	30000$
+
+21021$:				; SET	
+21022$:				; UNSIGNEDINT8
+21023$:				; SIGNEDINT8	
+21024$:				; Unassigned	
+21025$:				; Unassigned	
+	BRW	10000$
+21026$:				; simple name
+	ADDL3	#10,R7,R1	; Addr of string
+	MOVZBL	9(R7),R0   	; Len of string
+	BRW	30000$
+	
+21027$:				; full name
+	MOVL	#512,FNAME_D
+	PUSHAL	FNAME_D		; Write string here
+	ADDL3	#3,R8,-(SP)	; Xtracted param
+	CALLS	#2,G^CMIP_XTRFULLNAME
+	MOVL	FNAME_D,R0	; Len
+	MOVL	FNAME_D+4,R1	; ADDR
+	BRW	30000$
+
+; 
+21028$:				; UID -16 bytes
+21029$:				; known			- implict null - wildcard
+21030$:				; entity name    		- sequence of objid
+21031$:				; local entity name	-   "
+21032$:				; default - implicit null
+21033$:				; version number		- 4 bytes (Status(V) maj,min,ECO)
+21034$:				; ID			- LAN addr
+21035$:				; DTE addr
+21036$:				; file spec
+21037$:				; NSAP addr
+21038$:				; NET Ent Title
+21039$:				; area addr
+21040$:				; counter16
+21041$:				; counter32
+21042$:				; counter64
+21043$:				; addr prefix
+21044$:				; Towerset
+21045$:				; endusersepc
+21046$:				; transport selector
+21047$:				; phaseIV name
+21048$:				; PhasIV addr
+21049$:				; implementation          - set of component
+21050$:				; version edit number	- seq
+21051$:				; component name          - record containing component name, version
+21052$:				; DNS timstamp            -14 bytes
+21053$:				; entity class 		- obj id
+21054$:				; bit string
+21055$:				; floor	 - seq of {protocol(protocolIdentifier), addr } see prottabl
+21056$:				; Protocol tower   set of floor (55)
+21057$:				; EVENTCLASS	
+21058$:				; EVENTINSTANCE	
+21059$:				; SUBRANGE	
+21060$:				; RANGE	
+21061$:				; CMIPMESSAGE	
+21062$:				; IPADDRESS	
+21063$:				; ID802_SNAP	
+21064$:				; IDENETV2_TYPE	
+21065$:				; FDDITIMER	
+21066$:				; EnetProtType
+	BRW	10000$
+
+
+
+
+3000$:                                   ; Context specific
+4000$:                                   ; Private
+
+
+
+10000$:
+
+	MOVL	#132,FAODESC
+	PUSHL	8(R7)		; Data
+	PUSHL	12(R7)
+	PUSHL	16(R7)
+	PUSHL	20(R7)
+	PUSHL	4(R7)   	; Len
+	MOVZWL	2(R7),-(SP)     ; Tag
+	MOVZWL	(R7),-(SP)      ; Class
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	DATA
+	CALLS	#10,G^SYS$FAO
+	MOVW	FAODESC,CMIPRAB+RAB$W_RSZ	; rec size
+	MOVL	FAODESC+4,CMIPRAB+RAB$L_RBF	; Rec location
+	$PUT	RAB=CMIPRAB
+	BRW	20000$
+20000$:
+	ADDL	4(R7),R7
+	ADDL	#8,R7
+	SOBGTR	R11,20010$
+	MOVL	#SS$_NORMAL,R0
+	RET
+20010$:
+	BRW	20$
+30000$:
+	MOVL	#132,FAODESC
+	PUSHL	R1		; Addr of string
+	PUSHL	R0		; Len of string
+	PUSHL	4(R7)   	; Len
+	MOVZWL	2(R7),-(SP)     ; Tag
+	MOVZWL	(R7),-(SP)      ; Class
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	ADATA
+	CALLS	#8,G^SYS$FAO
+	MOVW	FAODESC,CMIPRAB+RAB$W_RSZ	; rec size
+	MOVL	FAODESC+4,CMIPRAB+RAB$L_RBF	; Rec location
+	$PUT	RAB=CMIPRAB
+	BRW	20000$
+;
+	.CALL_ENTRY	MAX_ARGS=3, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CMIP_XTRPRIMITIVES 
+;++
+;2 CMIP_XTRPRIMITIVES  
+; Extract primitive data types from DNA_CMIP encoded paramater
+;
+;3 Inputs
+; 	Address of DNA_CMIP paramater
+;	Address of descriptor pointing to outp
+;       (Optional) If present, address of .long where outp len is written
+;
+; Input must always start with X'80,len,param
+;3 Output 
+;	.long	CMIP param number
+;	.long	Number of primitives found
+;	for each primitive found: 
+;	unaligned sequence of tag,len,value 
+;	tag = .WORD Class
+;	      .WORD Tag value (stripped) 
+;	len = .long
+;	Value = ASN.1 encoded stripped of all protocol.
+;
+;3 Returns
+;	SS$_NORMAL	all is well
+;	SS$_BUFFEROVF	Outp buf too small . Any partial return not trusted.
+;	SS$_DATACHECK	Could not parse input
+;--
+	MOVAB	EMU_CMIP_HANDLER,(FP)	; Condition handler 
+	MOVL	4(AP),R6	; Input
+	MOVQ	@8(AP),R7	; R7 = len , r8 = addr of outp
+	CMPL	#3,(AP)		; Option present?
+	BNEQ	5$		; Br if not
+	CLRL	@12(AP)		; Clear if present
+; Set number  of this param
+5$:
+	PUSHAL	ASN1_RETURN2
+	PUSHL	R6
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,10$
+	RET
+10$:
+	CLRQ	(R8)					; param, entries
+	MOVAL	ASN1_RETURN2,R1
+	ADDL3	ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2	; offset to par
+	ADDL	R6,R2					; Param number
+	MOVL	ASN_PAT_C_LVAL(R1),R3 			; Len of param
+	BNEQ	20$					; Br if > 0
+	MOVL	#SS$_DATACHECK,R0
+	RET
+20$:
+	DECL	R3
+30$:
+	MOVB	(R2)[R3],(R8)[R3]
+	SOBGTR	R3,30$
+; 	
+	ADDL3	#ECP_XTP_L_NUMP,R8,R11		; Keep count here
+	ADDL	#ECP_XTP_C_1STSLOT,R8		; 1st avail slot
+	SUBL	#ECP_XTP_C_1STSLOT,R7		; Less used space
+	BGTR	40$                             ; br if buffer left
+	MOVL	#SS$_BUFFEROVF,R0               ; Error
+	RET
+40$:
+	ADDL	ASN_PAT_C_NEXT(R1),R6		; Next tag
+; Find total len this param
+	PUSHAL	ASN1_RETURN2
+	PUSHL	R6
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,50$
+	RET
+50$:
+	MOVAL	ASN1_RETURN2,R1
+	MOVL	ASN_PAT_C_LVAL(R1),R10		; R10 = Total Len
+	BNEQ	100$
+	MOVL	#SS$_NORMAL,R0
+	RET
+100$:
+; Check if this is a constructed tag 
+	BBC	#ASN_TAG_V_CONST,(R6),200$	; Br if primitive
+110$:
+	INCL	(R11)				; Count param
+	EXTZV	#6,#2,(R6),(R8)			; Set type
+	MOVW	ASN_PAT_C_TVAL(R1),2(R8)	; Set tag
+	CLRL	4(R8)        			; Set len
+	ADDL	#8,R8                           ; Move pointer
+	SUBL	#8,R7                           ; Deduct from remaining buffer
+;	
+	PUSHAL	ASN1_RETURN2
+	PUSHL	R6
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,120$
+	RET
+120$:
+	MOVAL	ASN1_RETURN2,R1
+	ADDL	ASN_PAT_C_NEXT(R1),R6		; Next tag
+	SUBL	ASN_PAT_C_NEXT(R1),R10		; Any left?
+	BGTR	100$				; Br of some left
+; for debug - if debug turned on then call display routing to 
+; format and display resulting block to file.
+;	PUSHL	8(AP)
+;	CALLS	#1,G^DISPLAY_PRIMITIVES   
+	CMPL	#3,(AP)				; Option present?
+	BNEQ	130$				; Br if not
+; Get original outp desc and cal len written
+	MOVQ	@8(AP),R9		; R9 = len , r10 = addr of outp
+	SUBL3	R10,R8,@12(AP)
+130$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+200$:
+; Primitive tag
+; Parse this tag
+;
+	PUSHAL	ASN1_RETURN2
+	PUSHL	R6
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,210$
+	RET
+210$:
+; Check we have enough room in outp. The distance to the next tag is
+; approx what we will use + 8 bytes for the header. The actual used
+; will be somewhat less but to hell with all that processing...
+	MOVAL	ASN1_RETURN2,R1
+	TSTL	ASN_PAT_C_LVAL(R1)        	; Len = 0?
+	BNEQ	205$                            ; Br if not
+	BRW	120$                            ; Ignore zero len params
+205$:
+	ADDL3	#8,ASN_PAT_C_NEXT(R1),R2	; Total len
+	CMPL	R2,R7				; Enough?
+	BLSSU	220$				; Br if OK
+	MOVL	#SS$_BUFFEROVF,R0               ; Error
+	RET
+220$:
+; Tag is formed in 2x .words:
+;	The top word is the actual tag number after all protocol stripping
+;	Lower word is made from top 2 bits of initial tag byte indicating:
+;	00	Universal
+;	01	Application
+;	10	Context specific
+;	11	Private
+;
+	INCL	(R11)						; Count param
+	EXTZV	#6,#2,(R6),ECP_XTP_W_TCLAS(R8)			; Set Class
+	MOVW	ASN_PAT_C_TVAL(R1),ECP_XTP_W_TVAL(R8)		; Set tag
+	MOVL	ASN_PAT_C_LVAL(R1),ECP_XTP_L_DLEN(R8)           ; Set len
+	ADDL	#ECP_XTP_C_DVAL,R8                              ; Value here
+	ADDL3	ASN_PAT_C_TLEN(R1),ASN_PAT_C_LLEN(R1),R2   ; offset to Value
+	ADDL	R6,R2					   ; Value
+	MOVL	ASN_PAT_C_LVAL(R1),R3			   ; Loop control
+	SUBL	R3,R7                           ; Deduct from remaining buffer
+	SUBL	#ECP_XTP_C_DVAL,R7
+230$:
+	MOVB	(R2)+,(R8)+
+	SOBGTR	R3,230$
+	BRW	120$
+
+
+;
+	.CALL_ENTRY	MAX_ARGS=2, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CMIP_XTRFULLNAME
+;++
+;2 CMIP_XTRFULLNAME  
+; Extract CMIP encoded fullname to .ascii string
+;3 Input
+; Addr of ASN1 tag at start of name field (5b)
+; Addr of desc pointing to area where .ascii string is written
+;3 Output
+; .ascic string of assembled name in format SN:.sn.sn.sn
+; where SN is a simplename component
+;3 Return
+;	SS$_NOTRAN  	Unable to translate (not implemented)
+;	SS$_DATACHECK 	Input format error or routine error.
+;	SS$_BADPARAM	1. ASN1 tag is not fullname (5B) or simplename (5A)	
+;--
+	MOVAB	EMU_CMIP_HANDLER,(FP)	; Condition handler 
+	MOVL	4(AP),R2		; Tag start
+	CMPB	#90,(R2)		; Simple name ?
+	BNEQU	1$			; Br if not
+	INCL	R2			; point to len field
+	brb	2$			
+; assume fullname - skip UID
+1$:
+	ADDL	#16,R2
+2$:
+	MOVZBL	(R2)+,R3		; TOTAL LEN
+	ADDL	R2,R3			; Last addr
+	MOVAL	FAOLIST,R11		; Build param list here
+	MOVAL	FAOSTR,R10		; Build control str here
+	CLRL	FAOSTR_D		; No params yet
+;	
+; Process flag byte
+; Flag is bot 4 bits (hi 4 are reserved)
+; 0 = null (not present)
+; 1 = normal (Latin-1 pritable string)
+; 2 = quoted
+; 3 = bin
+; 4 = wildcard
+; 5 = ellipsis (Full-depth wildcard?)
+5$:
+	EXTZV	#0,#4,(R2),R1		; Extract flag
+	CASEB	R1,#0,#5		; Select processing routine
+10$:                             
+	.WORD	100$-10$                         
+	.WORD	101$-10$                         
+	.WORD	102$-10$                         
+	.WORD	103$-10$                         
+	.WORD	104$-10$                         
+	.WORD	105$-10$                         
+	MOVL	#SS$_DATACHECK,R0        ; Screwed up
+	RET
+100$:
+; Null
+	CLRL	(R11)+			; Param	
+	MOVL	FAOUB,(R10)+		; Control
+	ADDL	#4,FAOSTR_D		; Reset len of control str
+	INCL	R2			; Move to next flag 
+	CMPL	R2,R3                   ; any frame left?
+	BLSSU	5$                      ; Br if yes
+	BRW	200$			; End processing
+101$:
+; Normal
+	MOVZBL	1(R2),R1		; Get len of str
+	ADDL3	#1,R2,(R11)+		; Param - addr of counted str
+	MOVL	FAOAC,(R10)+		; Control
+	ADDL	#4,FAOSTR_D		; Reset len of control str
+	ADDL	#2,R1			; Flag, count byte
+	ADDL	R1,R2			; Next flag
+	CMPL	R2,R3                   ; any frame left?
+	BLSSU	5$                      ; Br if yes
+	BRW	200$			; End processing
+102$:
+103$:
+104$:
+105$:
+	MOVL	#SS$_NOTRAN,R0		; Not implemented
+	RET
+200$:
+	MOVL	8(AP),R1
+	PUSHAL	FAOLIST
+	PUSHL	R1
+	PUSHL	R1
+	PUSHAL	FAOSTR_D
+	CALLS	#4,G^SYS$FAOL
+	RET				; Any error is returned
+
+	.CALL_ENTRY	MAX_ARGS=4, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DN5_MAKTBL 
+;++
+;2 DN5_MAKTBL 
+; Routine to extract and format params from CMIP encoded frame.
+;3 Inputs
+;	P1 	.address of desc pointing to CMIP frame
+;	P2	.address of desc pointing to param selection table
+;	P3	.address of .desc pointing to outp
+; 	P4	.adddress of .long where context is written
+;3 Param selection table
+; field		offs		desc
+; param		0	Paramater number to extract
+; Size		4	Size of output field
+; Format	8	format routine to use
+; Location	12	offset into outp table where param is written
+;
+
+;3 Outputs
+;       Block of fully parsed, partialy formated params as directed by
+;	selection table. Fields requested are written as:
+;	.long		CMIP param number
+;	.long		len of field
+;	.long		len of data
+;	fixed size	value padded to size of outp field  
+;
+; 	Context. In case of multiple instances, this .long is written with the
+; 	address of the next block and SS$_NORMAL is returned. At end of block
+;	SS$_NOMOREITEMS is returned. 
+;4 Output
+; Each param is written as a .long param number followed by the param value in 
+; a Field sized by the size param. If the param is shorter it is padded with 
+; null bytes.  If is is longer, it is not returned.
+;
+; Multiple instances are detected when a param already written is discovered
+; in the input block (that is the 2nd instance of the same param). In this
+; case, SS$_NORMAL is returned and the context is written with the addr
+; of the param. This is used on the next call and the next block is returned.
+; 
+;4 Formatting.
+; Each param is formatted according to the format paramater. It is a symbol
+; used to select a routine in this programme. Currently provided:
+; symbol	Format
+;  0 		as is (input is copied to output)
+;  1		.ascic returned 
+;  2		.long  
+;  3		.long byte reversed 
+;  4		.quad ethernet address (net fmt)
+;  5		.quad
+;  6 		.quad byte reversed
+;  7 		.ascic name (either simple or full)  
+;3 Returns
+;	SS$_NORMAL 	A single block parsed and written successfuly. There 
+;			is more data in the raw return from CMIP.            
+;	SS$_NOMOREITEMS A single block parsed and written successfuly. There 
+;			is no more data in the raw return from CMIP. The caller
+;			should always recursively call this routine until
+;			Receiving this return.
+; 	SS$_BUFFEROVF	One (or more) params are larger than the size indicated
+;			in select table. The param is not returned.
+;--            
+; Check params
+	MOVAB	EMU_CMIP_HANDLER,(FP)	; Condition handler 
+	
+	PROBER	#0,#4,@4(AP)			; Check for read access
+	BEQL	20$				; No
+	MOVQ	@8(AP),R10			; table desc
+	PROBER	#0,R10,(R11)			; Check for read access
+	BEQL	20$
+	MOVQ	@12(AP),R6			; outp desc
+	PROBEW	#0,R6,(R7)			; Check for write access
+	BEQL	20$				; OK
+	PROBEW	#0,#4,@16(AP)			; Check context for write access
+	BNEQ	30$				; OK
+
+20$:
+	MOVL	#SS$_ACCVIO,R0 			; Signal Error
+	RET					; Die
+
+30$:
+	MOVC5	#0,#0,#0,R6,(R7)		; Init output
+	ADDL3	R7,R6,R6			; Set end addr
+	MOVQ	@4(AP),RETURN_D			; Input frame
+	MOVL	RETURN_D+4,R8			; Start addr
+	TSTL	@16(AP)				; Context present?
+	BEQL	50$                             ; Br if = 0
+; We are processing part of a multiblock return:
+; Context (@AP)+16 is the start address of the next block to process.
+; Reset the start addr and the input descriptor.
+	MOVL	@16(AP),R8			; Set to next block
+	SUBL3	RETURN_D+4,R8,R1          	; Get len diff
+	SUBL	R1,RETURN_D			; Reset desc len
+	MOVL	R8,RETURN_D+4			; Reset origin
+50$:
+; Parse CMIP Header
+	PUSHAL	MSGHDR_D
+	PUSHAL	RETURN_D
+	CALLS	#2,PARSE_CMIP_HEADER                                  
+	BLBS	R0,60$
+	MOVL	#SS$_NOMOREITEMS,R0		; Assume eod
+	RET
+60$:
+	PUSHAL	ASN1_RETURN             ; Get len of this block
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,70$
+	RET
+70$:
+	MOVAL	ASN1_RETURN,R1
+; Calc distance to end of this block and set R9 to this addr:
+; Distance is Len of tag+len of Len +len of data
+;
+	ADDL3	ASN_PAT_C_LLEN(R1),ASN_PAT_C_TLEN(R1),R9  ;llen+tlen
+	ADDL	ASN_PAT_C_LVAL(R1),R9 			  ; Len of data
+	ADDL	R8,R9					  ; Set end addr
+	ADDL	MSGHDR+8,R8              	; Start at end of hdr
+170$:
+; find each param 
+	PUSHAL	ASN1_RETURN
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,180$
+	RET
+180$:
+	MOVAL	ASN1_RETURN,R1
+	CMPB	(R8),#CMIP_TAG_CTXSPC			; param ?
+	BEQLU	200$
+
+190$:
+	MOVAL	ASN1_RETURN,R1
+	ADDL	ASN_PAT_C_NEXT(R1),R8			; Next tag
+	CMPL	R8,R9                                   ; End of this block?
+	BLSSU	170$                                    ; Br if no
+	ADDL3	RETURN_D,RETURN_D+4,R1                  ; Calc end of data
+	CMPL	R8,R1                                   ; At end?
+	BLSSU	195$					; Br if no
+	MOVL	#SS$_NOMOREITEMS,R0                     ; No more data
+	RET
+195$:
+	MOVL	R9,@16(AP)                              ; set context
+	MOVL	#SS$_NORMAL,R0                          ; More data
+	RET
+200$:
+; Set CMIP param number and primatives found
+	PUSHAL	XTRETURN_D
+	PUSHL	R8
+	CALLS	#2,G^CMIP_XTRPRIMITIVES  
+	BLBS	R0,210$
+	RET
+210$:
+; Find if this param is wanted
+	MOVAL	XTRETURN,R1
+	MOVQ	@8(AP),R10			; table desc
+	ADDL3	R10,R11,R10			; R11 = addr, r10 = end addr
+220$:
+	CMPL   ECP_XTP_L_PARAM(R1),ECP_MKT_L_PARAM(R11)  ; 
+	BEQL	230$				; Br if wanted param
+	ACBL	R10,#ECP_MKT_C_SIZE,R11,220$
+	BRW	190$				; Not wanted
+
+230$:
+	CASEL	ECP_MKT_L_FMT(R11),#0,#7
+250$:
+        .WORD   301$-250$          ;      No format
+        .WORD   302$-250$          ;      ascic           
+        .WORD   303$-250$          ;      long              
+        .WORD   304$-250$          ;      long reversed
+        .WORD   305$-250$          ;      quad ethernet       
+        .WORD   306$-250$          ;      quad               
+        .WORD   307$-250$          ;      quad reversed
+        .WORD   308$-250$          ;      Simple or full name
+	MOVL	#SS$_BADPARAM,R0      ; 	  No such format
+	RET
+
+
+301$:		; No format
+        MOVL    ECP_XTP_L_PARAM(R1),R4          ; Save param number
+	MOVL	ECP_XTP1_L_DLEN(R1),R3		; Number of digits
+	CMPL	R3,ECP_MKT_L_SIZE(R11) 		; Check outp size
+	BGTR	3150$				; Br if too small
+	ADDL	#ECP_XTP1_C_DVAL,R1		; Input
+        ADDL3	ECP_MKT_L_OUTP(R11),R7,R5		; Outp
+	ADDL3	R5,ECP_MKT_L_SIZE(R11),R2       ; Check we can write it
+	ADDL	#8,R2                           ; add in param,len
+	CMPL	R2,R6
+	BGTR	3150$
+	CLRL	R2
+	MOVL	R4,(R5)+			; Move param number
+	MOVL	ECP_MKT_L_SIZE(R11),(R5)+	; Move len
+	MOVL	R3,(R5)+                        ; data len
+3110$:
+	MOVB	(R1)[R2],(R5)[R2]               ; Move input bytes
+	AOBLEQ	R3,R2,3110$			
+	SUBL3	R3,ECP_MKT_L_SIZE(R11),R3 	; Move in pad bytes (if needed)
+	BEQL	3130$                           ; Br if not
+3120$:
+        CLRB	(R5)[R2]
+	SOBGTR	R3,3120$
+3130$:
+	BRW	190$				; OK - next tag
+3150$:
+	MOVL	#SS$_BUFFEROVF,R0			; Not OK
+	RET
+
+302$:       ; .ascic
+        MOVL    ECP_XTP_L_PARAM(R1),R4          ; Save param number
+	MOVL	ECP_XTP1_L_DLEN(R1),R3		; Number of digits
+	CMPL	R3,ECP_MKT_L_SIZE(R11) 		; Check outp size
+	BGTR	3250$				; Br if too small
+	ADDL	#ECP_XTP1_C_DVAL,R1		; Input
+        ADDL3	ECP_MKT_L_OUTP(R11),R7,R5		; Outp
+	ADDL3	R5,ECP_MKT_L_SIZE(R11),R2       ; Check we can write it
+	ADDL	#8,R2                           ; add in param,len
+	CMPL	R2,R6
+	BGTR	3250$
+	CLRL	R2
+	MOVL	R4,(R5)+			; Move param number
+	MOVL	ECP_MKT_L_SIZE(R11),(R5)+	; Move in len
+	MOVL	R3,(R5)+                        ; data len
+	MOVB	R3,(R5)+                        ; Make .ascic
+3210$:
+	MOVB	(R1)[R2],(R5)[R2]               ; Move input bytes
+	AOBLSS	R3,R2,3210$			
+	BRW	190$				; OK - next tag
+3250$:
+	MOVL	#SS$_BUFFEROVF,R0			; Not OK
+	RET
+
+303$:       ; .long
+        MOVL    ECP_XTP_L_PARAM(R1),R4          ; Save param number
+	MOVL	ECP_XTP1_L_DLEN(R1),R3		; Number of digits
+	CMPL	R3,ECP_MKT_L_SIZE(R11) 		; Check outp size
+	BGTR	3350$				; Br if too small
+	ADDL	#ECP_XTP1_C_DVAL,R1		; Input
+        ADDL3	ECP_MKT_L_OUTP(R11),R7,R5		; Outp
+; Here add code to handle multiple instances
+	ADDL3	R5,ECP_MKT_L_SIZE(R11),R2       ; Check we can write it
+	ADDL	#4,R2                           ; add in param len
+	CMPL	R2,R6
+	BGTR	3350$
+	CLRL	R2
+	MOVL	R4,(R5)+			; Move param number
+	MOVL	ECP_MKT_L_SIZE(R11),(R5)+	; Move len
+	MOVL	R3,(R5)+                        ; data len
+3310$:
+	MOVB	(R1)[R2],(R5)[R2]               ; Move input bytes
+	AOBLSS	R3,R2,3310$			
+	BRW	190$				; OK - next tag
+3350$:
+	MOVL	#SS$_BUFFEROVF,R0			; Not OK
+	RET
+
+304$:       ; .long - byte reversed
+        MOVL    ECP_XTP_L_PARAM(R1),R4          ; Save param number
+	MOVL	ECP_XTP1_L_DLEN(R1),R3		; Number of digits
+	CMPL	R3,ECP_MKT_L_SIZE(R11) 		; Check outp size
+	BGTR	3450$				; Br if too small
+	ADDL	#ECP_XTP1_C_DVAL,R1		; Input
+        ADDL3	ECP_MKT_L_OUTP(R11),R7,R5		; Outp
+	ADDL3	R5,ECP_MKT_L_SIZE(R11),R2       ; Check we can write it
+	ADDL	#4,R2                           ; add in param len
+	CMPL	R2,R6
+	BGTR	3450$
+	MOVL	R4,(R5)+			; Move param number
+	MOVL	ECP_MKT_L_SIZE(R11),(R5)+	; Move len
+	MOVL	R3,(R5)+                        ; data len
+	DECL	R3                              ; Make index
+	BLSS	3415$                           ; Br if no digits
+3410$:
+	MOVB	(R1)[R3],(R5)+                  ; Reverse input bytes
+	SOBGEQ	R3,3410$			
+3415$:
+	BRW	190$				; OK - next tag
+3450$:
+	MOVL	#SS$_BUFFEROVF,R0			; Not OK
+	RET
+
+305$:       ; .QUAD Ethernet addr
+        MOVL    ECP_XTP_L_PARAM(R1),R4          ; Save param number
+	MOVL	ECP_XTP1_L_DLEN(R1),R3		; Number of digits
+	CMPL	R3,ECP_MKT_L_SIZE(R11) 		; Check outp size
+	BGTR	3550$				; Br if too small
+	ADDL	#ECP_XTP1_C_DVAL,R1		; Input
+        ADDL3	ECP_MKT_L_OUTP(R11),R7,R5		; Outp
+; Here add code to handle multiple instances
+	ADDL3	R5,ECP_MKT_L_SIZE(R11),R2       ; Check we can write it
+	ADDL	#4,R2                           ; add in param len
+	CMPL	R2,R6
+	BGTR	3550$
+	MOVL	R4,(R5)+			; Move param number
+	MOVL	ECP_MKT_L_SIZE(R11),(R5)+	; Move len
+	MOVL	R3,(R5)+                        ; data len
+3510$:
+	MOVL	(R1),(R5)+
+	MOVW	4(R1),(R5)
+	BRW	190$				; OK - next tag
+3550$:
+	MOVL	#SS$_BUFFEROVF,R0			; Not OK
+	RET
+
+306$:       ; .QUAD 
+        MOVL    ECP_XTP_L_PARAM(R1),R4          ; Save param number
+	MOVL	ECP_XTP1_L_DLEN(R1),R3		; Number of digits
+	CMPL	R3,ECP_MKT_L_SIZE(R11) 		; Check outp size
+	BGTR	3650$				; Br if too small
+	ADDL	#ECP_XTP1_C_DVAL,R1		; Input
+        ADDL3	ECP_MKT_L_OUTP(R11),R7,R5		; Outp
+	ADDL3	R5,ECP_MKT_L_SIZE(R11),R2       ; Check we can write it
+	ADDL	#4,R2                           ; add in param len
+	CMPL	R2,R6
+	BGTR	3650$
+	CLRL	R2
+	MOVL	R4,(R5)+			; Move param number
+	MOVL	ECP_MKT_L_SIZE(R11),(R5)+	; Move len
+	MOVL	R3,(R5)+                        ; data len
+3610$:
+	MOVB	(R1)[R2],(R5)[R2]               ; Move input bytes
+	AOBLSS	R3,R2,3610$			
+	BRW	190$				; OK - next tag
+3650$:
+	MOVL	#SS$_BUFFEROVF,R0			; Not OK
+	RET
+
+
+307$:       ; .quad - byte reversed
+        MOVL    ECP_XTP_L_PARAM(R1),R4          ; Save param number
+	MOVL	ECP_XTP1_L_DLEN(R1),R3		; Number of digits
+	CMPL	R3,ECP_MKT_L_SIZE(R11) 		; Check outp size
+	BGTR	3750$				; Br if too small
+	ADDL	#ECP_XTP1_C_DVAL,R1		; Input
+        ADDL3	ECP_MKT_L_OUTP(R11),R7,R5		; Outp
+; Here add code to handle multiple instances
+	ADDL3	R5,ECP_MKT_L_SIZE(R11),R2       ; Check we can write it
+	ADDL	#4,R2                           ; add in param len
+	CMPL	R2,R6
+	BGTR	3750$
+	MOVL	R4,(R5)+			; Move param number
+	MOVL	ECP_MKT_L_SIZE(R11),(R5)+	; Move len
+	MOVL	R3,(R5)+                        ; data len
+	DECL	R3
+	BLSS	3715$
+3710$:
+	MOVB	(R1)[R3],(R5)+                  ; Reverse input bytes
+	SOBGEQ	R3,3710$			
+3715$:
+	BRW	190$				; OK - next tag
+3750$:
+	MOVL	#SS$_BUFFEROVF,R0			; Not OK
+	RET
+308$:					;.ascic CMIP full or simplename
+	MOVL	ECP_XTP1_L_DLEN(R1),R3		; Number of digits
+	CMPL	R3,ECP_MKT_L_SIZE(R11) 		; Check outp size
+	BGTR	3850$				; Br if too small
+        MOVL   ECP_XTP_L_PARAM(R1),R4     ; Save param number
+	MOVL	#512,FNAME_D
+        PUSHAL	FNAME_D                         	; Outp
+	ADDL3	ASN1_RETURN+ASN_PAT_C_NEXT,R8,R1        ; Distance to name tag
+	PUSHL	R1				; Name tag
+	CALLS	#2,G^CMIP_XTRFULLNAME           ; Extract name
+	BLBC	R0,3820$			; Br if didn't get
+	MOVL	FNAME_D,R1			; Returned len
+	MOVL	FNAME_D+4,R2			; Returned STRING
+        ADDL3	ECP_MKT_L_OUTP(R11),R7,R5		; Outp
+	MOVL	R4,(R5)+			; Move param
+	MOVL	ECP_MKT_L_SIZE(R11),(R5)+	; Move len
+	MOVL	R1,(R5)+                        ; data len
+	MOVB	R1,(R5)+                        ; Move count
+3810$:
+	MOVB	(R2)+,(R5)+                     ; Name
+	SOBGTR	R1,3810$
+3820$:
+	BRW	190$				; Next tag
+	
+3850$:
+	MOVL	#SS$_BUFFEROVF,R0			; Not OK
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=4, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CMIP_XTRPARAM 
+;++
+;2 DN5_XTRPARAM 
+; Routine to extract params from CMIP encoded frame.
+;3 Inputs
+;	P1 	.address of desc pointing to CMIP frame
+;	P2	.address of .desc pointing to outp
+; 	P3	.adddress of .long where context is written
+
+;3 Outputs
+;       Block of fully parsed, unformated params. All params
+; 	for a single instance are returned with each param as follows:
+;
+;	 .long	 len of following:
+;        .long   CMIP param number
+;        .long   Number of primitives found
+;      For each primitive found:
+;        unaligned sequence of tag,len,value
+;        tag = .WORD Class
+;              .WORD Tag value (stripped)
+;        len = .long
+;        Value = ASN.1 encoded stripped of all protocol.
+;
+; 	Context. In case of multiple instances, this .long is written with the
+; 	address of the next block and SS$_NORMAL is returned. At end of block
+;	SS$_NOMOREITEMS is returned. 
+;
+;3 Returns
+;	SS$_NORMAL 	A single block parsed and written successfuly. There 
+;			is more data in the raw return from CMIP.            
+;	SS$_NOMOREITEMS A single block parsed and written successfuly. There 
+;			is no more data in the raw return from CMIP. The caller
+;			should always recursively call this routine until
+;			Receiving this return.
+; 	SS$_BUFFEROVF	The output field is too small to receive all params
+;			Any partial return contains complete data. That is 
+;			any paramter returned is not truncated.
+; Check params
+	MOVAB	EMU_CMIP_HANDLER,(FP)	; Condition handler 
+	
+	MOVQ	@4(AP),R8			; Inpt desc
+	PROBER	#0,R8,(R9)			; Check for read access
+	BEQL	20$
+	MOVQ	@8(AP),R6			; outp desc
+	PROBEW	#0,R6,(R7)			; Check for write access
+	BEQL	20$				; OK
+	PROBEW	#0,#4,@12(AP)			; Check context for write access
+	BNEQ	30$				; OK
+
+20$:
+	MOVL	#SS$_ACCVIO,R0 			; Signal Error
+	RET					; Die
+
+30$:
+	MOVC5	#0,#0,#0,R6,(R7)		; Init output
+;	ADDL3	R7,R6,R6			; Set end addr
+	MOVQ	@4(AP),RETURN_D			; Input frame
+	MOVL	RETURN_D+4,R8			; Start addr
+	TSTL	@12(AP)				; Context present?
+	BEQL	50$                             ; Br if = 0
+; We are processing part of a multiblock return:
+; Context (@AP)+16 is the start address of the next block to process.
+; Reset the start addr and the input descriptor.
+	MOVL	@12(AP),R8			; Set to next block
+	SUBL3	RETURN_D+4,R8,R1          	; Get len diff
+	SUBL	R1,RETURN_D			; Reset desc len
+	MOVL	R8,RETURN_D+4			; Reset origin
+50$:
+; Parse CMIP Header
+	PUSHAL	MSGHDR_D
+	PUSHAL	RETURN_D
+	CALLS	#2,PARSE_CMIP_HEADER                                  
+	BLBS	R0,60$
+	MOVL	#SS$_NOMOREITEMS,R0		; Assume eod
+	RET
+60$:
+	PUSHAL	ASN1_RETURN             ; Get len of this block
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,70$
+	RET
+70$:
+	MOVAL	ASN1_RETURN,R1
+; Calc distance to end of this block and set R9 to this addr:
+; Distance is Len of tag+len of Len +len of data
+;
+	ADDL3	ASN_PAT_C_LLEN(R1),ASN_PAT_C_TLEN(R1),R9  ;llen+tlen
+	ADDL	ASN_PAT_C_LVAL(R1),R9 			  ; Len of data
+	ADDL	R8,R9					  ; Set end addr
+	ADDL	MSGHDR+8,R8              	; Start at end of hdr
+170$:
+; find each param 
+	PUSHAL	ASN1_RETURN
+	PUSHL	R8
+	CALLS	#2,PROCESS_ASN1_TAG
+	BLBS	R0,180$
+	RET
+180$:
+	MOVAL	ASN1_RETURN,R1
+	CMPB	(R8),#CMIP_TAG_CTXSPC			; param ?
+	BEQLU	200$
+
+190$:
+	MOVAL	ASN1_RETURN,R1
+	ADDL	ASN_PAT_C_NEXT(R1),R8			; Next tag
+	CMPL	R8,R9                                   ; End of this block?
+	BLSSU	170$                                    ; Br if no
+	MOVL	R9,@12(AP)                              ; set context
+	MOVQ	@8(AP),R8			; Original outp desc
+        SUBL3	R9,R7,@8(AP)			; Write len returned data
+	MOVL	#SS$_NORMAL,R0                          ; More data
+	RET
+200$:
+; Set CMIP param number and primatives found
+
+	ADDL3	#4,R7,XTRETURN_D+4              ; Make desc - addr
+	SUBL3	#4,R6,XTRETURN_D                  ;  - len 
+	PUSHL	R7				;  ret len here
+	PUSHAL	XTRETURN_D
+	PUSHL	R8
+	CALLS	#3,G^CMIP_XTRPRIMITIVES  
+	BLBS	R0,210$
+	RET
+210$:
+; Check outp space and store param (if space)
+	MOVL	(R7),R1				; Written len
+	BEQL	220$				; Br if no outp
+	ADDL	#4,R1				; + tot len
+	ADDL	R1,R7				; Move pointer
+	SUBL	R1,R6  				; Deduct written
+220$:
+	BRW	190$				; Next tag
+
+
+
+	.CALL_ENTRY	MAX_ARGS=3, -
+			HOME_ARGS=TRUE, - 
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PROCESS_ASN1_TAG   
+;++
+;2 PROCESS_ASN1_TAG  
+; This routine processes an ASN.1 tag and returns information about it's
+; contents.
+;--
+; Modifications
+; 001 	25-jan 1996	PB	Creation		
+;++
+;3 Inputs
+; P1 = addr of TAG To process
+; format = (T)ag, (L)ength, (V)alue
+;4 Notes:
+; Tag is either 1 byte or constructed:
+; If bot 5 bits of 1st byte are all set then tag value is concatination
+; of the lower 7 bits of each subsequent octet until (and including) the 
+; top bit is set. examples:
+; tag 		Interpretation
+; 02		universal, simple, value = 2
+; 7F 2c		Private, constructed, value = 2C
+; Cf 81 01	Private, simple, value= 17 (not really valid)
+;
+; Len is in 1 of 2 formats:
+; If hi bit of len field is 0 then len is in botton 7 bits
+; If hi bit = 1 then bottom 7 bits is number of bytes following which
+; contain len
+; The distance to the next tag is:
+; tag_len bytes for the current tag
+; + Number of len bytes
+; + the len of the field or, in the case of a constucted tag then 0
+;
+;3 Returns
+; R0 = ss$_normal    - tag processed and output written
+;      ss$_datacheck - Could not parse input (input data in bad format)
+;3 Outputs
+; array of:
+; Len of Tag		.long
+; Val of tag		.long
+; Len of len		.long
+; Val of len		.long
+; offset to next tag    .long
+; spare			.blkl	3
+;
+;--
+	MOVAB	EMU_CMIP_HANDLER,(FP)	; Condition handler 
+ 
+	PROBER	#0,#4,@4(AP)		; Check for read access
+	BEQL	10$			; No
+	PROBEW	#0,#32,@8(AP)		; Check for write access
+	BNEQ	20$			; OK
+10$:
+	MOVL	#SS$_ACCVIO,R0 		; Signal Error
+	RET				; Die
+20$:
+PARAMS:OK:
+	MOVL	4(AP),R6    		; Inpt frame
+	MOVL	8(AP),R11		; Outp array
+; Determine len of tag field:
+; Tag value is bottom 5 bits of tag:
+	CLRL	R9	       		; Len of tag
+	EXTZV	#0,#5,(R6),R1  		; Initial tag value
+	CMPL	#31,R1	       		; If all tag bits set, this is extended
+	BNEQ	5$	       		; br if 'normal' tag
+	CLRQ	OUTINT	       		; Tag value
+1$:
+	INCL	R9			; Tag len = +1
+	MOVZBL	(R6)[R9],OUTINT		; Get next byte
+	ASHL	#25,OUTINT,OUTINT	; Shift out hi bit
+	ASHQ	#7,OUTINT,OUTINT	; Shift low 7 bits into hi .long
+	BBS	#7,(R6)[R9],1$		; If hi bit set then there is more
+	MOVL	OUTINT+4,R1
+5$:
+        INCL	R9 			; Add initial tag field in
+; Tag value is in R1, Tag len is in R9
+	MOVL	R1,ASN_PAT_C_TVAL(R11)  ; Move to outp
+	MOVL	R9,ASN_PAT_C_TLEN(R11)  ; move to outp
+;
+	ADDL	R9,R6	       		; Move pointer to len field	
+	BBS	#7,(R6),10$
+	MOVL	#1,R2	       		; Len is single byte
+	MOVZBL	(R6),R7	       		; Len of field
+	BRB	60$
+10$:
+; Len is a number of bytes following the len identifier
+;
+	EXTZV	#0,#7,(R6),R2		; Number of len bytes
+	BEQL	60$	      		; Br if 0
+20$:
+	CMPL	#4,R2
+	BGEQU	40$
+30$:
+	MOVL	#SS$_DATACHECK,R0
+	RET
+40$:
+	MOVL	R2,R0	      		; Loop control
+	MOVAL	OUTINT,R7      		; Temp destin
+	CLRL	(R7)			; Clear value
+	DECL	R0			; Make Inpt index
+	ADDL3	#1,R6,R8		; Addr of value
+        CLRL	R3			; Outp index
+50$:
+; Reverse byte order
+	MOVB	(R8)[R0],(R7)[R3]	; Move value
+	INCL	R3			; Outp index
+	SOBGEQ	R0,50$                  ; Loop until no more digits
+	MOVL	OUTINT,R7               ; Move result
+	INCL	R2			; Add in lenID
+60$:
+; len of data is now in R7
+; Len of len field is in R2
+	MOVL	R7,ASN_PAT_C_LVAL(R11)  ; Move to outp
+	MOVL	R2,ASN_PAT_C_LLEN(R11)  ; move to outp
+
+; If this is constructed then distance to next field is:
+;	R9 (tag bytes) + R2 
+; If this is simple then:
+;	R9 (tag bytes) Len ID + R2 + R7
+	MOVL	4(AP),R6		; restore to begin of Inpt frame
+	ADDL 	R9,R2			; Add tag field = offset to value
+	MOVL	R2,R3			; Same if constructor
+	BBS	#5,(R6),70$             ; Br if constructed
+	ADDL	R7,R3 			; Add in field len = offset to next
+	
+70$:
+	MOVL	R3,ASN_PAT_C_NEXT(R11)  ; Move to outp
+	MOVL	#SS$_NORMAL,R0          ; a miracle
+	RET                             ; Done
+	
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE,-
+			 INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			 LABEL=EMU_CMIP_HANDLER
+        $UNWIND_S			; Unwind stack to previous caller
+	MOVL	#CHF$L_SIG_NAME,R0	; Error
+	RET				; Tell the caller
+	.END	
+

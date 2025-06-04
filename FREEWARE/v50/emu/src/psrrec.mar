@@ -1,0 +1,304 @@
+        .title  PSRREC    
+        .ident  /V05-001/                   
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 PSRREC 
+; Implements the recording function in EMU. This routine records on disk
+; all frames sent to it by the LISTENER. Recording options are set
+; using PSRTBL.
+;--
+
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUCNTDEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+THIS_PROCESS = SYS_PID_C_PSRREC
+THIS_PROCESS_FLAG = SYS_FLG_C_PSRREC  
+
+       
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+INADDR:		.QUAD	0
+EBUFFS_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+RECDB_A: 	.QUAD	0
+COUNTERS_A:	.QUAD	0
+PSRTBL_A:	.QUAD	0
+; temp - move to section
+PSRTBLCNT:	.LONG	0		; Count of psr table entries
+PASS_COUNT:	.LONG	0               ; COunt of buffs rec'ed 1 cycle
+; Error Log
+; The error system works as follows:
+; The standard header contains the Routine name, the error number, the VMS
+; error code, time and  may be followed by a counted ascii string. There is
+; a spare word in the header. All routines using this error system write in 
+; this format to a common file.
+;
+; The format is below:
+; Error System Params
+	.ALIGN 	LONG
+ERRFAB:	$FAB	FAC = <PUT>,-        	; Access
+		FNM = <EMU_ERR>,-    ; Filename 
+		DNM = <EMU5_LOG:EMU_ERR.LOG>,-    ; Filename 
+		SHR = <DEL,UPD,GET,PUT>,- ; Share access R/W
+		FOP = CIF		; Create if doesn't exist
+ERRRAB:	$RAB	FAB = ERRFAB,-           
+		RAC = SEQ,-		; Sequential access
+		ROP = EOF,-		; Open for append
+		RBF = ERRREC,-
+		UBF = ERRREC,-
+		USZ = ERRREC_SIZE,-
+		RSZ = ERRREC_SIZE
+
+	.ALIGN 	LONG
+RECFAB:	$FAB	FAC = <PUT>,-        	; Access
+		FNM = <EMU_REC>,-    ; Filename 
+		DNM = <EMU5_DAT:EMU_REC.DAT>,-    ; Filename 
+		SHR = <DEL,UPD,GET,PUT>,- ; Share access R/W
+		FOP = CIF		; Create if doesn't exist
+RECRAB:	$RAB	FAB = RECFAB,-           
+		RAC = SEQ,-		; Sequential access
+		ROP = EOF		; Open for append
+	.ALIGN 	LONG
+ERRREC:
+; Standard Header
+ERRNO:		.WORD                   ; Msg. File rel rec no.   
+ERRSPR:		.WORD			; Spare/ALIGN 
+RTNNAME: 	.ASCIC	/PSRREC /	; 8 Bytes
+VMSERR:		.LONG			; Error from VMS
+ERRTIM:		.QUAD			; Time recorded
+ERRDATA:	.BLKB	40		; Cur. restricted to 1x .ascic (opt)
+ERRREC_SIZE =	.-ERRREC                ; Total 64 bytes
+
+
+FLAGS:	.LONG	0
+EFLAGS1:		.ASCID	/EFLAGS1/	; Event Flag Cluster (64-95)
+EFLAGS2:		.ASCID	/EFLAGS2/	; Event Flag Cluster (96-127)
+RECDB:			.ASCID	/RECDB/
+
+
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=PSRREC
+
+
+; Ensure death if control process dies
+	calls	#0, g^get_control_lock	; 
+  	bsbw	error_chk		; 
+
+
+
+; Open error log
+; If this fails a wrong error message is produced on exit.
+	$CREATE	FAB = ERRFAB		; Open input file (CIF)
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = ERRRAB		; Connect input stream
+	BSBW	ERROR_CHK
+; 
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	calls	#0, g^asn_tempmbx_system
+	bsbw	error_chk		; 
+
+;	
+; Create and Map to sections 
+; Private - actualy global but only used in this routine
+; This is for temprorary storage before writing to disk.
+; 
+; Calc mem
+  	MULL3	#IPC_ETH_C_BUFSIZE,#IPC_ETH_C_LASTBUF,R6	
+	DIVL	#512,R6
+; Get Memory
+	clrq	-(sp)			; p0 space, access mode
+	pushal	inaddr			; returned address
+	pushl	R6  	        	; no. of pages
+	calls	#4, g^sys$expreg	; Expand process space
+	bsbw	error_chk		; check ok
+; map section	
+	clrq	-(sp)			; pfc, protection
+	clrl	-(sp)			; virtual block number
+	pushl	R6			; no. of pages
+	clrq	-(sp)			; channel, rel page no.
+	clrl	-(sp)			; version id
+	pushal	RECDB			; section name
+	pushl	#<sec$m_gbl!sec$m_dzro!sec$m_wrt!sec$m_pagfil!sec$m_sysgbl>
+	clrl	-(sp)			; access mode
+	pushal	recdb_a			; returned address
+	pushal	inaddr			; in address
+	calls	#12, g^sys$crmpsc	; create section
+	bsbw	error_chk
+
+; Other sections
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	BSBW	ERROR_CHK
+	pushal	ebuffs_a		; Ebuffs section return addresses
+	calls	#1, g^map_ebuffs	; Create and map ebuffs
+	bsbw	error_chk		; check errors
+	pushal	control_a		; Control section return addresses
+	calls	#1, g^map_control	; Create and map control section
+	bsbw	error_chk		; check errors
+	PUSHAL	PSRTBLCNT  		; Count of entries found
+	PUSHAL	PSRTBL_A		; PSR table start addr
+	CALLS	#2,G^MAP_PSRTBL
+	BSBW	ERROR_CHK
+; Create record file
+	$CREATE	FAB=RECFAB
+	BSBW	ERROR_CHK
+	$CONNECT RAB=RECRAB
+	BSBW	ERROR_CHK
+
+	MOVL	EBUFFS_A,R9            ; que heads
+
+; Common Event flag Cluster:
+;
+	$ASCEFC_S	EFN = #64,-
+			NAME = EFLAGS1
+	BSBW	ERROR_CHK       	; Fatal
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	BSBW	ERROR_CHK       	; Fatal
+;
+; Register constants
+; R6 = Current buffer
+; R8 = current datarec
+; R9 = addr of que header
+; R11 = counters
+; Locate our place in the PSR table to store counts
+        MOVL	PSRTBL_A,R6			; 
+	MOVL	PSRTBLCNT,R3			; Count of entries
+100$:
+	CMPL	#THIS_PROCESS_FLAG,PSR_TBL_L_PSRID(R6)
+        BEQLU	110$
+	ADDL	#PSR_TBL_C_SIZE,R6   	; Next entry
+	SOBGTR	R3,100$			; Loop for all
+	MOVL	#SS$_ITEMNOTFOUND,R0	; We could not find ourselves
+	RET
+110$:
+; Find our area in counters section and init
+	MOVL	COUNTERS_A,R11      	; Start of counters
+	ADDL	#CNT_PSR_C_START,R11    ; Start of PSRs
+	MULL3	#THIS_PROCESS,#CNT_PSR_C_ASIZE,R1	; Offset
+	ADDL	R1,R11					; Our space
+        MOVC5	#0,#0,#0,#CNT_PSR_C_ASIZE,(R11)		; Clear
+        MOVQ	PSR_TBL_Q_DNAM(R6),CNT_PSR_Q_NAME(R11)   ; Our name
+WAIT:
+	$wflor_s  	EFN=#96,-       ; Wait for our flag set
+			MASK=#THIS_PROCESS_FLAG
+
+	$READEF_S 	EFN=#96,-      ; Get EBUFF Flags
+			STATE=FLAGS     ; Current state
+
+READ:
+;++ 
+;2 Processing
+; When our flag is set:
+; 1. Clear our CEF
+; 2. Scan all ebuffs for any with our flag set.
+; If any found, copy the buffer to a private section and clear our flag.
+; At end of each cycle (all buffs scanned once), write out any
+; recorded buffers to disk.
+; Repeat 2. until no buffs are found for us
+; Wait for our CEF
+;--
+; Clear our CEF 
+	ADDL3	#96,#THIS_PROCESS,R1
+	PUSHL	R1
+	CALLS	#1,G^SYS$CLREF
+; Here call process command buffer
+        MOVL	RECDB_A,R9			; Start store here
+	CLRL	PASS_COUNT			; Clear cycle count
+	MOVL	EBUFFS_A,R6            		; Ethernet buffers
+	ADDL	#IPC_EBUF_C_BUFSTART,R6 	; Buffers
+	MOVL	#IPC_ETH_C_LASTBUF,R7		; Number of buffers
+MAIN:
+	BBS	#THIS_PROCESS,IPC_HDR_L_RFLAGS(R6),PROCESS   ; Br if buffer is ours
+	ADDL	#IPC_ETH_C_BUFSIZE,R6	
+	SOBGTR	R7,MAIN
+	TSTL    PASS_COUNT			; Did we record any?
+	BEQL	WAIT				; Cycle again
+	PUSHL	PASS_COUNT
+	CALLS	#1,G^PSRREC_WRITE		; Write out all buffs
+	BRW	READ
+
+PROCESS:
+	INCL	CNT_PSR_L_PRCV(R11)	; Count 1 buff in
+	MOVZWL	IPC_ETH_W_ELEN(R6),R10	; Get len of buff
+	ADDL	#IPC_ETH_1500_DATA,R10	; Len of header,IOSB,R5, etc
+	MOVC3   R10,(R6),(R9)
+	CLRQ	IPC_HDR_L_TFLAGS(R9)	; Clear flags in stored rec
+; clear our bit in return
+; reque this buff back to listen
+	BICL  	#THIS_PROCESS_FLAG,IPC_HDR_L_RFLAGS(R6)
+	INCL	CNT_PSR_L_RET(R11)
+	INCL	PASS_COUNT
+	ADDL	R10,R9
+	BRB	MAIN
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=PSRREC_WRITE 
+;++
+;2 PSRREC_WRITE 
+; Routine to write all frames recorded in single cycle to disk.
+;3 Inputs
+; Number of records to write
+;3 Outputs
+; All records written to EMU5_DAT:EMU_REC.DAT
+;3 Returns
+; None
+;-- 
+
+	MOVL	4(AP),R6
+        BEQL	100$			; Br if none
+	MOVL	RECDB_A,R9		; Top
+10$:
+	MOVZWL	IPC_ETH_W_ELEN(R9),R10	; Get len of buff
+	ADDL	#IPC_ETH_1500_DATA,R10	; Len of header,IOSB,R5, etc
+        MOVW    R10,RECRAB+RAB$W_USZ
+        MOVW    R10,RECRAB+RAB$W_RSZ
+        MOVL    R9,RECRAB+RAB$L_RBF     ; Rec to write
+        MOVL    R9,RECRAB+RAB$L_UBF     ; Rec to write
+        $PUT    RAB=RECRAB
+        BSBW    ERROR_CHK
+	ADDL	R10,R9			; Next buf
+	SOBGTR	R6,10$			; Loop for all current
+100$:
+	RET
+
+; Subroutines
+ERROR_CHK:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+        BLBC    R0,10$
+        RSB
+10$:
+	MOVL	R0,R6			; Save
+	MOVL	COUNTERS_A,R11
+	INCL	CNT_PSR_L_ERROR(R11)
+	MOVQ	EXE$GQ_SYSTIME,ERRTIM
+        MOVL    R0,VMSERR
+        $PUT    RAB=ERRRAB
+        $FLUSH  RAB=ERRRAB
+	MOVL	R6,R0			; restore
+	RET
+        .END	PSRREC

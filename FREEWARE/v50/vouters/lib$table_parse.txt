@@ -1,0 +1,540 @@
+$!
+$!     Procedure Name: LOGICAL.COM
+$!
+$!
+$!                             COPYRIGHT (C) 1994, 2000 BY
+$!                       COMPAQ COMPUTER CORPORATION, HOUSTON
+$!                        TEXAS.  ALL RIGHTS RESERVED.
+$!
+$!     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+$!     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+$!     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+$!     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+$!     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+$!
+$!     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+$!     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+$!     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+$!
+$!     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+$!     ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+$!     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+$!     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+$!
+$!
+$!
+$!     The commands tested are included at the end of the command procedure.
+$!     Type '$ RUN TPARSE' to test other commands. At the program's prompt
+$!     (>>>), enter any text. If the system includes the VAX C and DEC C
+$!     compilers, the command procedure will use the default VAX C compiler.
+$!     Type '$ @LOGICAL DECC' to test with the DEC C (with VAX C present).
+$!     
+$!     
+$!
+$!
+$! Procedure parameter P1 can have three options : not specified, DECC or VAXC
+$ compiler_switch = "/"+ P1
+$ decc = f$search ("sys$system:decc$compiler.exe")
+$ vaxc_compiler = f$search ("sys$system:vaxc.exe")
+$ if vaxc_compiler .eqs. "" .and. decc .eqs. "" then goto end
+$ if vaxc_compiler .eqs. "" .and. decc .nes. ""
+$ then
+$     compiler_switch = ""
+$     compiler = "DECC"
+$ endif
+$ if vaxc_compiler .nes. "" .and. decc .eqs. ""
+$ then
+$     compiler_switch = ""
+$     compiler = "VAXC"
+$ endif
+$ if vaxc_compiler .nes. "" .and. decc .nes. ""  .and. P1 .eqs. ""
+$ then
+$     compiler_switch = "/VAXC"
+$     compiler = "VAXC"
+$ else
+$ if P1 .nes. ""
+$ then
+$     compiler_switch = "/"+ P1
+$     compiler = P1
+$ endif
+$ endif
+$!
+$ create tparse.c
+
+#ifdef __DECC
+#pragma module setlog "V1.0-00"
+#else
+#module setlog "V1.0-00"
+#endif
+
+/*
+                     COPYRIGHT (C) 1994, 2000 BY
+             COMPAQ COMPUTER CORPORATION, HOUSTON
+               TEXAS.  ALL RIGHTS RESERVED.
+
+THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE
+INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR ANY OTHER
+COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY
+TRANSFERRED.
+
+THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE
+AND SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER
+CORPORATION.
+
+COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+
+NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE ON
+EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+
+SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+*/
+
+#include <stdio.h>
+#include <ssdef.h>
+#include <descrip.h>
+#include <lnmdef.h>
+#include <rmsdef.h>
+#include <lib$routines.h>
+#include <string.h>
+#include <str$routines.h>
+#include <starlet.h>
+#include <stdlib.h>
+#include <tpadef.h>
+#include <libdef.h>
+#include <stdlib.h>
+#include <ctype.h>
+
+char *logicalname;
+char *tabl;
+int num_equivalence=0;
+char *equivalence[100];
+int keep_going;
+int nolog,table_set;
+
+#ifdef __DECC
+extern int ufd_state, ufd_key;
+#endif
+#if defined (VAXC) || defined (__VAXC)
+globalref int ufd_state, ufd_key;
+#endif
+#if defined (VAXC) || defined (__VAX)
+#define __int32 int
+#endif
+
+int main()
+{
+      char *bstring;
+      char string[132], *stringptr;
+      int i, stringcnt;
+      int status, options, count;
+      short len, pos;
+      int flags = 0;
+      struct tpadef tpars;
+      struct dsc$descriptor_s command_desc;
+      $DESCRIPTOR (prompt,">>> ");
+
+/*
+** Read input string from user.
+*/
+
+      printf(" Enter a DEFINE[/TABLE] logname equivalence[,other_equivalence] \
+command.\n");
+
+    command_desc.dsc$w_length = sizeof (string);
+    command_desc.dsc$b_dtype = DSC$K_DTYPE_T;
+    command_desc.dsc$b_class = DSC$K_CLASS_S;
+    command_desc.dsc$a_pointer = string;
+    keep_going = 1;
+
+    while (keep_going){
+/*
+**      Initialize variables
+*/
+       for (i=0;i<num_equivalence;i++) free (equivalence[num_equivalence]);
+       tabl =  "LNM$PROCESS_TABLE";
+       num_equivalence = 0;
+       nolog = 0;
+       table_set = 0;
+
+/*      Call lib$get_foreign to get the input line
+*/
+
+       status = lib$get_foreign(&command_desc,&prompt,&len,flags);
+       if (status == RMS$_EOF) break;
+
+/*
+** Convert lowercase to UPPERCASE
+*/
+
+        for (i=0; i<len; i++)
+           string[i]=toupper(string[i]);
+        string[len]='\0';
+
+/*
+** Set parameter block count
+*/
+
+        tpars.tpa$l_count = TPA$K_COUNT0;
+
+/*
+** Set options. Do not process blanks and allow abbreviations.
+*/
+
+        tpars.tpa$v_blanks = 0;
+        tpars.tpa$v_abbrev = 1;
+
+/*
+** Call LIB$TABLE_PARSE
+*/
+        tpars.tpa$l_stringcnt = len;
+        tpars.tpa$l_stringptr = (int)string;
+#if defined (__VAX) || defined (VAX)
+        status = lib$tparse(&tpars, &ufd_state, &ufd_key);
+#else
+#if defined __ALPHA
+        status = lib$table_parse(&tpars, &ufd_state, &ufd_key);
+#endif
+#endif
+/*
+** Print out the return values
+*/
+
+        if (status == LIB$_SYNTAXERR) {
+            pos = strlen(string) - tpars.tpa$l_stringcnt;
+            if (tpars.tpa$l_stringcnt != 0) {
+                printf(" Syntax error at position %d\n", pos);
+                printf ("Unrecognized or conflicting: \\%.*s\\\n",tpars.tpa$l_tokencnt,
+                        (char *)tpars.tpa$l_tokenptr);
+            }
+            else if (tpars.tpa$l_stringptr != (int)string)
+                      printf ("Unexpected end-of-line. Check syntax\n");
+        }
+        if ( status == SS$_NORMAL) {
+                /* If we were actually defining a logical, we would use a
+                ** a call to sys$trnlnm() and printf a message if the
+                ** logical translates AND logging is enabled.
+                ** Then we would call lib$set_logical to assign the logical.
+                ** For this example we only say that the syntax is correct if
+                ** logging is enabled.
+                */
+                if (!(nolog)) printf(" SYNTAX IS OK\n");
+        }
+        free (logicalname);
+        logicalname = 0;
+
+     }/* end while(keep_going) */
+  exit (EXIT_SUCCESS);
+}
+
+/*
+** Here is the Action Routine
+*/
+#if defined (__VAX) || defined (VAX)
+int action (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int action (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the logical is.
+** This routine will print the device specification, then return.
+*/
+
+      logicalname = malloc(tpars->tpa$l_tokencnt+1);
+      logical[tpars->tpa$l_tokencnt] = '\0';
+      strncpy(logicalname, (char *)tpars->tpa$l_tokenptr,
+                                tpars->tpa$l_tokencnt);
+
+/*
+** Byte array string now contains the string.  Print it.
+*/
+
+      printf(" The logical is %s\n",logicalname);
+      return(1);
+}
+
+/*
+** Here is the Action Routine
+*/
+#if defined (__VAX) || defined (VAX)
+int table (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int table (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the qualifier TABLE option should be.
+** This routine will print the device specification, then return.
+*/
+      if (!(table_set)){
+          if (strncmp((char *)tpars->tpa$l_tokenptr,"SYSTEM",1) == 0)
+                tabl = "LNM$SYSTEM_TABLE";
+          if (strncmp((char *)tpars->tpa$l_tokenptr,"GROUP",1) == 0)
+                tabl = "LNM$GROUP_TABLE";
+          if (strncmp((char *)tpars->tpa$l_tokenptr,"JOB",1) == 0)
+                tabl = "LNM$JOB_TABLE";
+          if (strncmp((char *)tpars->tpa$l_tokenptr,"PROCESS",1) == 0)
+                tabl = "LNM$PROCESS_TABLE";
+          table_set++;
+/*
+** Byte array string now contains the string.  Print it.
+*/
+          printf(" The group is %s\n",tabl);
+          return(1);
+          }
+      else
+/* Conflicting option */
+          return(0);
+}
+
+#if defined (__VAX) || defined (VAX)
+int quit (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int quit (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the command specification EXIT is.
+** This routine will set the flag to 0, then return, causing an exit
+** of the program.
+*/
+    keep_going--;
+    return(1);
+}
+
+#if defined (__VAX) || defined (VAX)
+int assign (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int assign (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the equivalence string is.
+** This routine will print the equivalence found, then return.
+*/
+
+      equivalence[num_equivalence] = malloc(tpars->tpa$l_tokencnt + 1);
+      strncpy (equivalence[num_equivalence],(char *)tpars->tpa$l_tokenptr,
+                tpars->tpa$l_tokencnt);
+
+/*
+** Byte array string now contains the string.  Print it.
+*/
+      printf(" One of the equivalence is %s\n",equivalence[num_equivalence]);
+      num_equivalence++;
+      return(1);
+}
+
+#if defined (__VAX) || defined (VAX)
+int log_off (__int32 pseudo_ap)
+#else
+#if defined __ALPHA
+int log_off (struct tpadef *tpars)
+#endif
+#endif
+{
+#if defined (__VAX) || defined (VAX)
+struct tpadef *tpars = (struct tpadef *)(&pseudo_ap - 1);
+#endif
+/*
+** This is an Action Routine.  The state transition that occured, is
+** that a character was found were the NOLOG option is.
+** This routine will set the nolog flag, then return.
+*/
+
+   nolog = 1;
+   return(1);
+}
+$ create parse.mar
+       .TITLE PARSE
+;+
+; This macro routine will set up the state tables for
+; the define/exit/comment commands.
+;-
+
+;+                             COPYRIGHT (C) 1994 BY
+;                      COMPAQ COMPUTER CORPORATION, HOUSTON
+;                        TEXAS.  ALL RIGHTS RESERVED.
+;
+;     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+;     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+;     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+;     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+;     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+;
+;     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+;     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+;
+;     COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+;     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+;
+;     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+;     ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+;
+;     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+;     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+;     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+;-
+
+;+
+; Define control block offsets
+;-
+       $TPADEF GLOBAL
+       $LIBDEF GLOBAL
+
+;+
+; Syntax accepted
+; 1/ DEFINE [/table][/logging option] logical "equivalence" [,...,"equivalencen"]
+; with table = PROCESS or JOB or GROUP or SYSTEM
+; with logging option : LOG or NOLOG
+; 2/ EXIT
+; 3/ '!' rest of line not interpreted
+;-
+
+;+
+; Begin definition of the state table.  UFD_STATE and UFD_KEY are
+; the names of the state and key tables.
+;-
+        $INIT_STATE     UFD_STATE, UFD_KEY
+;+
+; The $STATE Macro designates that we are entering a new state and
+; a name for that state.  The name is used for branching to.
+; The $TRAN Macro specifies a keyword and, optionally, a state to branch
+; to.
+;-
+        $STATE  COMMAND
+        $TRAN   'DEFINE',DEF              ; the command we are studying
+        $TRAN   'EXIT',TPA$_EXIT,QUIT     ; to exit the utility
+        $TRAN   '!',TPA$_EXIT             ; for comments
+
+;+
+; Position of optional qualifier(s) determined by the presence of character
+; '/'. If the character is not the option separator, then it is the starting
+; of the logical name The syntax below enables several TABLE options. The
+; variable "table_set" in C code will determined if several TABLE option
+; are set in the command and will report a syntax error (return(0)).
+; If /LOG and /NOLOG are present in the command /NOLOG will overwritte the
+; default option. Because the user may specify the logging option and table
+; option qualifiers in any order , there must be a branch back to $STATE DEF.
+;-
+        $STATE  DEF
+        $TRAN   '/',QUAL
+        $TRAN   TPA$_LAMBDA,LOGNAM
+
+        $STATE  QUAL
+        $TRAN   'GROUP', DEF,TABLE
+        $TRAN   'JOB', DEF ,TABLE
+        $TRAN   'PROCESS', DEF,TABLE
+        $TRAN   'SYSTEM', DEF,TABLE
+        $TRAN   'LOG',DEF
+        $TRAN   'NOLOG',DEF,LOG_OFF
+        $TRAN   TPA$_EOS, TPA$_FAIL
+;
+; Must be the name of the logical, If the command string is terminated after
+; the logical (TPA$_EOS) there is an error (unexpected end-of-line)
+;
+        $STATE  LOGNAM
+        $TRAN   TPA$_SYMBOL,NEXT,ACTION
+        $TRAN   TPA$_EOS, TPA$_FAIL
+
+; We are parsing the string equivalence which starts with the string delimiter
+; '"'.
+        $STATE  NEXT
+        $TRAN   '"'
+;
+; Next state is the chaacter string of the eqivalence.
+;
+        $STATE
+        $TRAN   TPA$_STRING,,ASSIGN
+
+;
+; Next state is the delimiter character '"' which ends the string.
+;
+        $STATE
+        $TRAN   '"'
+
+;
+; Final state is either the character ',', in which case we parse next
+; equivalence, or an End-Of_String (EOS) in which case line parsing is all
+; done.
+;
+        $STATE
+        $TRAN   <','>,NEXT
+        $TRAN   TPA$_EOS, TPA$_EXIT
+
+       $END_STATE
+       .END
+$ create tpars.opt
+sys$share:vaxcrtl/share
+$ cc'compiler_switch' tparse
+$ macro parse
+$ if compiler .EQS. "VAXC"
+$ then link tparse,parse,tpars/opt
+$ else link tparse,parse
+$ endif
+$ run tparse
+!
+! Three correct syntaxes
+!
+define/group log "log1"
+define /process log "log1", "log2"
+define log "log1"
+!
+! empty string => no errors (fetches next command after displaying program's
+! prompt
+!
+
+!
+! incomplete syntaxes
+!
+define log
+define log "log1
+define log "log1",
+!
+! Conflicting options
+!
+define / group / process log "log1"
+!
+! non conflicting option . nolog takes precedence.
+!
+define /group/log/nolog/log  log "log1"
+!
+! options can be specified in any order.
+!
+define /log /group log "log1"
+exit
+$end:
+$ exit

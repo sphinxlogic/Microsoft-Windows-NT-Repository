@@ -1,0 +1,1876 @@
+%TITLE	'CVTLIS'
+MODULE CVTLIS (MAIN = main, IDENT = 'V3.4') = 
+BEGIN
+!++
+!
+!  Facility:	CVTLIS
+!
+!  Author:	Hunter Goatley
+!		Copyright © 1994,1999 Hunter Goatley.  All rights reserved.
+!
+!  Date:	December 8, 1994
+!
+!  Abstract:
+!
+!	This program converts DEC's .LIS files from the Source Listings
+!	on CD back to the appropriate source files.  The following file
+!	types are recognized:
+!
+!		Language	Type		Output file type
+!		---------	----		----------------
+!		MACRO-32	(VAX)		.MAR
+!		AMACRO-32	(Alpha)		.MAR
+!		BLISS-32	(VAX)		.B32
+!		BLISS-32E	(Alpha)		.B32E
+!		BLISS-64	(Alpha)		.B64
+!		MACRO-64	(Alpha)		.M64
+!		VAX C		(VAX)		.C
+!		DEC C		(VAX/Alpha)	.C
+!		SDL		(VAX/Alpha)	.SDL
+!		CDU		(VAX/Alpha)	.CLD
+!		MESSAGE		(VAX/Alpha)	.MSG
+!		VAX PL/I	(VAX)		.PLI
+!		DEC PL/I	(Alpha)		.PLI
+!		VAX Pascal	(VAX)		.PAS
+!		DEC Pascal	(VAX/Alpha)	.PAS
+!
+!	Highly dependent on the .LIS format produced for the source listings
+!	CDs.  Fortunately, most of the VMS programmers follow rigorous
+!	source code formats, so this program will successfully convert
+!	most listing files.
+!
+!	Known restrictions:
+!
+!	     o  For some languages, source file lines that are wrapped by
+!		the compiler onto multiple listing lines are not put back
+!		together properly.  The following languages are handled:
+!
+!			BLISS-32, BLISS-32E, BLISS-64E, MACRO-32,
+!			AMACRO-32, MACRO-64, DEC PL/I, DEC C (Alpha),
+!			VAX C, DEC C (VAX)
+!
+!		Note that some compilers (MESSAGE, for example) just
+!		truncate long lines instead of wrapping them.
+!
+!  Modified by:
+!
+!	V3.4		Hunter Goatley		30-NOV-1999 19:12
+!		For DEC C, skip lines beginning with <TAB><TAB> or "%".
+!
+!	V3.3		Hunter Goatley		31-AUG-1998
+!		Remove references to MadGoat.
+!
+!	V3.2-1		Hunter Goatley		 8-APR-1998 09:19
+!		For AMACRO-32, also skip lines beginning with <TAB>.
+!
+!	V3.2		Hunter Goatley		 2-APR-1998 07:24
+!		For BLISS-32E, skip lines beginning with "<TAB><TAB>"
+!		(they are pointers before %BLS32 compiler messages).
+!		Also, re-order compiler search list to reflect the fact
+!		that C is used more in the VMS sources, add support for
+!		DEC PL/I, add support for auto-folding of wrapped
+!		lines for DEC C, add support for VAX version of DEC C,
+!		try to handle wrapped lines for VAX C.
+!
+!	V3.1		Hunter Goatley		 9-FEB-1996 08:35
+!		Merged in do_axp_macro32() fix from Glenn Everhart.
+!
+!	V3.0-1		Hunter Goatley		10-DEC-1994 05:46
+!		Fixed bug that caused the Table of Contents to not be
+!		skipped in VAX MACRO-32 listings.
+!
+!	V3.0		Hunter Goatley		 8-DEC-1994 09:39
+!		BLISS rewrite.  Original version written June 13, 1990.
+!
+!--
+
+LIBRARY 'SYS$LIBRARY:STARLET';			!Pull stuff from STARLET
+
+SWITCHES ADDRESSING_MODE (EXTERNAL = GENERAL, NONEXTERNAL = WORD_RELATIVE);
+
+    FORWARD ROUTINE
+	main,					!Main entry point
+	create_file,
+	write_line,
+	do_vax_bliss,
+	do_vax_macro,
+	do_axp_bliss32e,
+	do_axp_bliss64e,
+	do_axp_bliss,
+	do_axp_macro32,
+	do_message,
+	do_sdl,
+	do_cld,
+	do_vax_pli,
+	do_dec_pli,
+	do_vax_pascal,
+	do_dec_pascal,
+	do_pascal,
+	do_vax_dec_c,
+	do_vax_vax_c,
+	do_vax_c,
+	do_dec_c,
+	do_axp_macro64
+	;
+
+    EXTERNAL ROUTINE
+	LIB$GET_FOREIGN,
+	LIB$PUT_OUTPUT,
+	FPARSE;
+
+    EXTERNAL LITERAL
+	CVTLIS__CREATING,
+	CVTLIS__CONVERTED,
+	CVTLIS__UNKNOWN;
+
+    MACRO
+	BIND_ASCID (name, string) [] =
+		    name = %ASCID string : $BBLOCK
+		    %IF NOT %NULL (%REMAINING) %THEN , BIND_ASCID(%REMAINING)%FI
+	%,
+	INIT_SDESC (desc, len, addr) =
+		BEGIN
+		desc [DSC$W_LENGTH]  = len;
+		desc [DSC$B_DTYPE]   = DSC$K_DTYPE_T;
+		desc [DSC$B_CLASS]   = DSC$K_CLASS_S;
+		desc [DSC$A_POINTER] = addr;
+		END
+	%;
+
+    KEYWORDMACRO
+	PUT_FF (RAB) =
+	    BEGIN
+	    EXTERNAL ROUTINE SYS$PUT;
+	    rab [RAB$W_RSZ] = .saved_length;		!Flush the buffer
+	    rab [RAB$L_RBF] = saved_buffer;		!... and zap the saved
+	    SYS$PUT (rab, 0, 0);			!... line number
+	    CH$FILL (0, %ALLOCATION(saved_line_number), saved_line_number);
+	    saved_length = 0;
+	    rab [RAB$W_RSZ] = .ff_record [DSC$W_LENGTH];
+	    rab [RAB$L_RBF] = .ff_record [DSC$A_POINTER];
+	    SYS$PUT (rab, 0, 0);
+	    END
+	%,
+	FLUSH_SAVED_BUFFER (RAB) =
+	    BEGIN
+	    EXTERNAL ROUTINE SYS$PUT;
+	    rab [RAB$W_RSZ] = .saved_length;
+	    rab [RAB$L_RBF] = saved_buffer;
+	    SYS$PUT (rab, 0, 0);
+	    CH$FILL (0, %ALLOCATION(saved_line_number), saved_line_number);
+	    saved_length = 0;
+	    END
+	%;
+
+    BIND
+	BIND_ASCID (contents,	'Table of contents',
+		    symbols,	'Symbol table',
+		    sbttl,	%STRING(%CHAR(9),'.SBTTL'),
+		    lsbttl,	%STRING(%CHAR(9),'.sbttl'),
+		    subtitle,	%STRING(%CHAR(9),'.SUBTITLE'),
+		    page,	%STRING(%CHAR(9),'.PAGE'),
+		    ff_record,	%STRING(%CHAR(12)),
+		    rtnsiz,	'; Routine Size: ',
+		    end_b32,	%STRING(';',%CHAR(9),%CHAR(9),%CHAR(9),
+				%CHAR(9),'       PSECT SUMMARY'),
+		    end_vax_c,	'Command Line',
+		    end_pli,	' COMMAND LINE ',
+		    end_dpli,	' COMMAND LINE',
+		    end_pas,	'Generated Code',
+		    end_pas2,	'Pascal Compilation Statistics',
+		    end_axp,	'Machine Code Listing',
+		    end_m64,	'Command:');
+
+    LITERAL
+	vax_macro_id	=  0,		!The compilers are listed in the
+	vax_bliss_id	=  1,		!... order in which they are most
+	axp_macro32_id	=  2,		!... likely to be found.  Since most
+	axp_bliss32e_id	=  3,		!... of VMS is written in MACRO, BLISS,
+	dec_c_id	=  4,		!... and C, these are listed first to
+	dec_c_vax_id	=  5,		!... and C, these are listed first to
+	vax_c_id	=  6,		!... try to optimize the number of
+	sdl_id		=  7,		!... substring searches that must be
+	cdu_id		=  8,		!... performed.
+	message_id	=  9,		!...
+	axp_bliss64e_id	= 10,
+	axp_macro64_id	= 11,
+	dec_pascal_id	= 12,
+	vax_pascal_id	= 13,
+	vax_pli_id	= 14,
+	dec_pli_id	= 15,
+	max_compilers	= 15;
+	
+    OWN
+	!
+	!  The order of the compiler IDs below must match the order of the
+	!  LITERALs defined above.
+	!
+	compilers	: VECTOR [max_compilers+1, LONG] INITIAL (
+			%ASCID'VAX MACRO',
+			%ASCID'VAX Bliss-32',
+			%ASCID'AMAC',
+			%ASCID'BLISS-32E',
+			%ASCID'DEC C',
+			%ASCID'DEC C',
+			%ASCID'VAX C ',
+			%ASCID'SDL ',
+			%ASCID'VMS Command Definition Utility',
+			%ASCID'Message definitions',
+			%ASCID'BLISS-64E',
+			%ASCID'MACRO-64',
+			%ASCID'DEC Pascal',
+			%ASCID'VAX Pascal',
+			%ASCID'VAX PL/I',
+			%ASCID'DEC PL/I');
+
+    !
+    !  Let's be cheesy and use lots of globals.
+    !
+    OWN
+	inrec		: VECTOR [1024, BYTE],		!Input buffer
+	work_buffer	: VECTOR [1024, BYTE],		!Work buffer
+	do_ff,						!Flag for writing <FF>
+	line_count,					!Count of lines written
+	saved_length,					!Length of saved line
+	saved_buffer	  : $BBLOCK[%ALLOCATION(work_buffer)],	!Buffer
+	saved_line_number : $BBLOCK[7],			!The line number
+	input_buffer_d	: $BBLOCK [DSC$K_S_BLN],
+	lis_filename	: $BBLOCK [NAM$C_MAXRSS],
+	lis_filename_d	: $BBLOCK [DSC$K_S_BLN],
+	out_filename	: $BBLOCK [NAM$C_MAXRSS],
+	out_filename_d	: $BBLOCK [DSC$K_S_BLN],
+	filename_d	: $BBLOCK [DSC$K_S_BLN],
+	lis_nam : $NAM (RSA = lis_filename,
+			RSS = NAM$C_MAXRSS),
+	lis_fab : $FAB (DNM = 'SYS$DISK:[].LIS',
+			NAM = lis_nam,
+			FAC = GET,
+			SHR = GET),
+	lis_rab : $RAB (FAB = lis_fab,
+			RAC = SEQ,
+			UBF = inrec,
+			USZ = %ALLOCATION(inrec)),
+	out_nam : $NAM (RSA = out_filename,
+			RSS = NAM$C_MAXRSS),
+	out_fab : $FAB (DNM = 'SYS$DISK:[]',
+			FAC = PUT,
+			ORG = SEQ,
+			RFM = VAR,
+			RAT = CR,
+			NAM = out_nam,
+			FOP = MXV),
+	out_rab : $RAB (FAB = out_fab,
+			RAC = SEQ);
+
+
+ROUTINE main =
+BEGIN
+!+
+!
+!  Routine:	MAIN
+!
+!  Functional description:
+!
+!	The main routine for CVTLIS.  This routine opens the .LIS file,
+!	determines the compiler that generated it, and then calls the
+!	appropriate action routine to do the conversion.
+!
+!-
+    LOCAL
+	vax,
+	compiler;
+
+			
+    REGISTER
+	status		: UNSIGNED LONG;
+
+    $INIT_DYNDESC (input_buffer_d);
+    $INIT_DYNDESC (filename_d);
+    INIT_SDESC (lis_filename_d, %ALLOCATION(lis_filename), lis_filename);
+    INIT_SDESC (out_filename_d, %ALLOCATION(out_filename), out_filename);
+
+    status = LIB$GET_FOREIGN (input_buffer_d, %ASCID'_File: ', input_buffer_d);
+    IF NOT(.status) OR (input_buffer_d [DSC$W_LENGTH] EQLU 0)
+    THEN
+	IF (.status EQLU RMS$_NORMAL)		!If user entered CTRL-Z, then
+	THEN					!... change the status to
+	    RETURN (SS$_NORMAL)			!... success and exit
+	ELSE					!Otherwise, return the returned
+	    RETURN (.status);			!... error
+
+    lis_fab [FAB$B_FNS] = .input_buffer_d [DSC$W_LENGTH];
+    lis_fab [FAB$L_FNA] = .input_buffer_d [DSC$A_POINTER];
+
+    status = $OPEN (FAB = lis_fab);		!Try to open the .LIS file
+    IF (.status)
+    THEN
+	status = $CONNECT (RAB = lis_rab);	!Connect the RAB
+
+    IF (.status)
+    THEN
+	BEGIN
+	lis_filename_d [DSC$W_LENGTH] = .lis_nam [NAM$B_RSL];	!Name length
+	out_fab [FAB$W_MRS] = .lis_fab [FAB$W_MRS];	!Copy file attributes
+
+	status = FPARSE (filename_d, input_buffer_d, 0, 0, %REF(%B'0100'));
+
+	END;
+
+    IF (.status)
+    THEN
+	BEGIN
+	!
+	!  Store the filename in the output FAB.
+	!
+	out_fab [FAB$B_FNS] = .filename_d [DSC$W_LENGTH];
+	out_fab [FAB$L_FNA] = .filename_d [DSC$A_POINTER];
+
+	!
+	!  Read the first record.
+	!
+	status = $GET (RAB = lis_rab);
+
+	!  If the first line is just a <FF> or is a null record, it was
+	!  produced by a VAX compiler (BLISS, PL/1, VAX C, SDL) and the
+	!  second record must be read to determine the compiler.
+	!
+	vax = 0;
+	IF (.status) AND
+	   (.lis_rab [RAB$W_RSZ] LEQU 1)	!If nothing or only one
+	THEN					!... character, then read the
+	    BEGIN				!... second record
+	    status = $GET (RAB = lis_rab);
+	    vax = 1;
+	    END;
+
+	END;
+
+    !
+    !  If there was an error up there, then exit now.
+    !
+    IF NOT(.status)
+    THEN
+	BEGIN
+	IF (lis_fab [FAB$W_IFI] NEQU 0)		!If the file was opened,
+	THEN					!... close it
+	    $CLOSE (FAB = lis_fab);
+	RETURN (.status);
+	END;
+
+    compiler = -1;
+    !
+    !  Step through the index of compiler identifiers and exit the loop
+    !  when the matching compiler is located.
+    !
+    INCR i FROM 0 to MAX_COMPILERS DO
+	BEGIN
+	BIND compiler_name = .compilers [.i] : $BBLOCK [DSC$K_S_BLN];
+	IF NOT(CH$FAIL(CH$FIND_SUB(.lis_rab [RAB$W_RSZ], inrec,
+		.compiler_name [DSC$W_LENGTH], .compiler_name [DSC$A_POINTER])))
+	THEN (compiler = .i; EXITLOOP);
+	END;
+
+    !
+    !  Initialize the buffer for saving line numbers.
+    !
+    CH$FILL (0, %ALLOCATION(saved_line_number), saved_line_number);
+    do_ff = line_count = saved_length = 0;
+
+    !
+    !  Special case.  If it's DEC C on VAX, just pretend it's VAX C,
+    !  as the listing files are identical.
+    !
+    IF (.vax) AND (.compiler EQLU dec_c_id)
+    THEN
+	compiler = dec_c_vax_id;
+
+    !
+    !  Now call the appropriate action routine.
+    !
+    SELECTONE (.compiler) OF
+	SET
+	[vax_macro_id]		: do_vax_macro();
+	[vax_bliss_id]		: do_vax_bliss();
+	[axp_macro32_id]	: do_axp_macro32();
+	[axp_bliss32e_id]	: do_axp_bliss32e();
+	[dec_c_id]		: do_dec_c();
+	[dec_c_vax_id]		: do_vax_dec_c();
+	[vax_c_id]		: do_vax_vax_c();
+	[sdl_id]		: do_sdl();
+	[cdu_id]		: do_cld();
+	[message_id]		: do_message();
+	[axp_bliss64e_id]	: do_axp_bliss64e();
+	[axp_macro64_id]	: do_axp_macro64();
+	[dec_pascal_id]		: do_dec_pascal();
+	[vax_pascal_id]		: do_vax_pascal();
+	[vax_pli_id]		: do_vax_pli();
+	[dec_pli_id]		: do_dec_pli();
+	[OTHERWISE]		: status = CVTLIS__UNKNOWN;
+	TES;
+
+    !
+    !  Close the input and output files now.
+    !
+    IF (.lis_fab [FAB$W_IFI] NEQU 0)
+    THEN
+	$CLOSE (FAB = lis_fab);
+
+    IF (.out_fab [FAB$W_IFI] NEQU 0)
+    THEN
+	$CLOSE (FAB = out_fab);
+
+    IF (.status)
+    THEN
+	SIGNAL (CVTLIS__CONVERTED, 2, lis_filename_d, out_filename_d);
+
+    RETURN (.status);				!Return status to VMS
+
+END;						!End of routine
+
+
+ROUTINE create_file (type_a, ext_a) =
+BEGIN
+!+
+!  Routine:	CREATE_FILE
+!
+!  Functional description:
+!
+!	This routine creates the output source file.
+!
+!  Inputs:
+!
+!	type_a		- Descriptor address for compiler name to be displayed
+!	ext_a		- Descriptor address for the file type
+!
+!-
+    BIND
+	type	= .type_a	: $BBLOCK,
+	ext	= .ext_a	: $BBLOCK;
+
+    LOCAL
+	status;
+
+    out_fab [FAB$L_DNA] = .ext [DSC$A_POINTER];
+    out_fab [FAB$B_DNS] = .ext [DSC$W_LENGTH];
+
+    status = $CREATE (FAB = out_fab);
+    IF (.status)
+    THEN
+	status = $CONNECT (RAB = out_rab);
+
+    IF (.status)
+    THEN
+	BEGIN
+	out_filename_d [DSC$W_LENGTH] = .out_nam [NAM$B_RSL];
+	SIGNAL (CVTLIS__CREATING, 2, type, out_filename_d);
+	status = SS$_NORMAL;
+	END;
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE write_line (length, address_a, line_no_offset_a) =
+BEGIN
+!+
+!  Routine:	WRITE_LINE
+!
+!  Functional description:
+!
+!	This routine is called to write a line of output to the source
+!	file.  This routine handles the joining of continued lines in
+!	the listing files.
+!
+!  Implicit inputs:
+!
+!	do_ff, saved_length, saved_buffer, saved_line_number, and more.
+!
+!-
+    BIND
+	address		= .address_a		: $BBLOCK,
+	line_no_offset	= .line_no_offset_a	: $BBLOCK;
+
+    LOCAL
+	status;
+
+    !  If a line is wrapped in a listing file, the line numbers for
+    !  both lines are the same.  Here, we jump through some hoops
+    !  to reassemble those lines.
+    !
+    !  If there is a saved number and this line number is different
+    !  from the saved number, then write out the saved line and save
+    !  this line.  Otherwise, just append this line to the saved line.
+    !
+    IF (CH$RCHAR(saved_line_number) NEQU %CHAR(0)) AND
+	CH$NEQ (7, saved_line_number, 7, line_no_offset)
+    THEN
+	BEGIN
+	out_rab [RAB$W_RSZ] = .saved_length;		!Write out the saved
+	out_rab [RAB$L_RBF] = saved_buffer;		!... line
+	status = $PUT (RAB = out_rab);			!...
+
+	IF (.do_ff)				!Need to do a <FF>?
+	THEN					!If so, then do one and reset
+	    BEGIN				!... the flag
+	    out_rab [RAB$L_RBF] = .ff_record [DSC$A_POINTER];
+	    out_rab [RAB$W_RSZ] = 0;
+	    $PUT (RAB = out_rab);
+	    out_rab [RAB$W_RSZ] = .ff_record [DSC$W_LENGTH];
+	    $PUT (RAB = out_rab);
+	    do_ff = 0;
+	    line_count = 0;			!Reset the line counter too
+	    END;
+	!
+	!  Now save this line in saved_buffer.
+	!
+	CH$MOVE (.length, address, saved_buffer);
+	saved_length = .length;
+	END
+    ELSE
+	BEGIN
+	!
+	!  Here, the line numbers are the same, so just append
+	!  this line to our saved line.
+	!
+	CH$MOVE (.length, address,
+			CH$PLUS (saved_buffer, .saved_length));
+	saved_length = .saved_length + .length;
+	END;
+
+    line_count = .line_count + 1;	!Bump the line counter
+
+    !
+    !  Save the line number for this record for later comparison.
+    !
+    CH$MOVE (7, line_no_offset, saved_line_number);
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_vax_bliss =
+BEGIN
+!+
+!
+!  Routine:	DO_VAX_BLISS
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by BLISS-32.  Parsing stops when the "PSECT SUMMARY" record is found.
+!
+!-
+    LOCAL
+	skip_lines,
+	status;
+
+    status = create_file (%ASCID'BLISS-32', %ASCID'.B32');
+    IF NOT(.status) THEN RETURN (.status);
+
+    skip_lines = 2;				!Skip the first header lines
+    line_count = 0;
+    status = $GET (RAB = lis_rab);		!Read a record
+    WHILE (.status) DO
+	BEGIN
+	WHILE (.status AND (.skip_lines GTR 0)) DO
+	   BEGIN
+	   status = $GET (RAB = lis_rab);
+	   skip_lines = .skip_lines - 1;
+	   END;
+
+	IF (.lis_rab [RAB$W_RSZ] GTRU 0)	!If something was read
+	THEN
+	    BEGIN
+	    IF (.lis_rab [RAB$W_RSZ] EQLU 1) AND	!If a <FF> line was
+	       (CH$RCHAR(inrec) EQLU %CHAR(12))		!... read, we have a
+	    THEN					!... header, so skip it
+		BEGIN
+		IF (.line_count LSSU 57)		!If not a full page,
+		THEN					!... then write a <FF>
+		    PUT_FF (RAB = out_rab);
+		line_count = 0;				!Re-init the line count
+		skip_lines = 3;				!Skip 3 more lines
+		END;
+	    
+	    !
+	    !  If we don't have a header and the line begins with a ";", then
+	    !  we have a listing record that is to be printed
+	    !
+	    IF (.skip_lines EQLU 0) AND
+	       (CH$RCHAR(inrec) EQLU %C';') AND
+	       (CH$RCHAR(inrec[3]) LEQU %C'9')
+	    THEN
+		BEGIN
+		LOCAL length;
+		length = .lis_rab [RAB$W_RSZ] - 12;
+		IF (.length LSS 0) THEN length = 0;
+
+		status = write_line (.length, inrec [12], inrec [1]);
+		END;
+
+	    status = $GET (RAB = lis_rab);		!Read the next record
+
+	    END
+	ELSE		! IF (.lis_rab [RAB$W_RSZ] GTRU 0)
+	    BEGIN
+	    !
+	    !  Here, we've encountered the null lines that precede the
+	    !  MACRO instructions in the listing.  Read and ignore all
+	    !  lines until we encounter a line that looks like the
+	    !  following line:
+	    !
+	    !		"; Routine Size:  512 bytes,    Routine Base:  ..."
+	    !
+	    !  At this point, there should be two null records and then
+	    !  a <FF> header record introducing the next routine.  Read
+	    !  all records until the <FF> line then continue the loop.
+	    !
+	    LOCAL done;
+	    done = 0;
+	    WHILE NOT(.done) DO
+		BEGIN
+		status = $GET (RAB = lis_rab);
+		IF NOT(.status) THEN RETURN (.status);
+		! Look for record starting with ";".
+		IF (.lis_rab [RAB$W_RSZ] GTRU .rtnsiz [DSC$W_LENGTH]) AND
+		   (CH$RCHAR(inrec) EQLU %C';')
+		THEN
+		    done = 1;
+		END;
+
+	    !
+	    !  Found the end of the routine.
+	    !
+	    !  See if we've encountered end-of-module ("ELUDOM").
+	    !  Another way is to read until we encoutner
+	    !  ";<whitespace>PSECT SUMMARY".
+	    !
+	    IF (.lis_rab [RAB$W_RSZ] GEQU .end_b32 [DSC$W_LENGTH]) AND
+	       (CH$EQL (.end_b32 [DSC$W_LENGTH], .end_b32 [DSC$A_POINTER],
+				.end_b32 [DSC$W_LENGTH], inrec))
+	    THEN
+		BEGIN
+		flush_saved_buffer (RAB = out_rab);
+		RETURN (SS$_NORMAL);		!Finished!!
+		END;
+
+	    lis_rab [RAB$W_RSZ] = 0;
+	    !
+	    !  Loop until we're past the null lines.
+	    !
+	    WHILE (.lis_rab [RAB$W_RSZ] EQLU 0) DO
+		BEGIN
+		$GET (RAB = lis_rab);		!Read next record
+
+		!
+		!  It's possible that the page break came between
+		!  the null lines, etc.  Check for that here and
+		!  skip the header if so (and get the next line
+		!  after the header).
+		!
+		IF (.lis_rab [RAB$W_RSZ] EQLU 1) AND
+		   (CH$RCHAR(inrec) EQLU %CHAR(12))
+		THEN
+		    INCR i FROM 1 TO 4 DO $GET (RAB = lis_rab);
+
+		END;	!WHILE (.lis_rab.....
+	    !
+	    !  See if we've hit a header before rejoining the code.
+	    !
+	    IF (.lis_rab [RAB$W_RSZ] EQLU 1) AND
+		(CH$RCHAR(inrec) EQLU %CHAR(12))
+	    THEN
+		skip_lines = 3;
+
+	    END;
+
+	END;
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_vax_macro =
+BEGIN
+!+
+!
+!  Routine:	DO_VAX_MACRO
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by MACRO.  It skips the table of contents (labeled by "Table of
+!	contents" in the header record) and processes the file up to the
+!	symbol table listing (denoted by "Symbol table").
+!
+!	Form-feeds are inserted before all .SBTTL records (beginning with
+!	"<TAB>.SBTTL").
+!
+!-
+    LOCAL
+	skip_lines,
+	multiple_sbttls,
+	length,
+	offset,
+	status;
+
+    status = create_file (%ASCID'MACRO-32', %ASCID'.MAR');
+    IF NOT(.status) THEN RETURN (.status);
+
+    skip_lines = 2;
+    line_count = 0;
+    multiple_sbttls = 0;
+
+    status = $GET (RAB = lis_rab);		!Read a record
+    WHILE (.status) DO
+	BEGIN
+
+	IF NOT(CH$FAIL(CH$FIND_SUB(.contents [DSC$W_LENGTH], inrec,
+			.contents [DSC$W_LENGTH], .contents [DSC$A_POINTER])))
+	THEN
+	    BEGIN
+	    WHILE (.status) AND (CH$RCHAR(inrec) NEQU %CHAR(12)) DO
+		status = $GET (RAB = lis_rab);
+	    status = $GET (RAB = lis_rab);		!Read next record
+	    END;
+
+        !
+	!  If we found the "Symbol table", then we're finished.
+	!
+	IF NOT(CH$FAIL(CH$FIND_SUB(.symbols [DSC$W_LENGTH], inrec,
+			.symbols [DSC$W_LENGTH], .symbols [DSC$A_POINTER])))
+	THEN
+	    BEGIN
+	    flush_saved_buffer (RAB = out_rab);
+	    RETURN (SS$_NORMAL);
+	    END;
+	    
+	WHILE (.status AND (.skip_lines GTR 0)) DO
+	   BEGIN
+	   status = $GET (RAB = lis_rab);
+	   skip_lines = .skip_lines - 1;
+	   END;
+
+	IF (CH$RCHAR(inrec) EQLU %CHAR(12))	!Is 1st char. a <FF>?
+	THEN
+	    skip_lines = 2
+	ELSE
+	    BEGIN
+	    length = .lis_rab [RAB$W_RSZ] - 48;
+	    IF (.length GEQ 0)
+	    THEN
+		BEGIN
+		!
+		!  Check to see if this is a .SBTTL record.  If so, write out
+		!  a <FF> unless this is the second or third in a multiple
+		!  .SBTTL sequence.  For example, DEC has started using the
+		!  following sequence, which this code handles:
+		!
+		!	.SBTTL	+
+		!	.SBTTL	The pluses make the table of contents pretty
+		!	.SBTTL	+
+		!
+		IF (.length GEQU .sbttl [DSC$W_LENGTH]) AND
+		   (CH$EQL (.sbttl [DSC$W_LENGTH], inrec [48],
+			   .sbttl [DSC$W_LENGTH], .sbttl [DSC$A_POINTER]) OR
+		    CH$EQL (.lsbttl [DSC$W_LENGTH], inrec [48],
+			   .lsbttl [DSC$W_LENGTH], .lsbttl [DSC$A_POINTER]))
+		THEN
+		    BEGIN
+		    IF NOT(.multiple_sbttls)
+		    THEN
+			BEGIN
+			PUT_FF (RAB = out_rab);
+			multiple_sbttls = 1;
+			END;
+		    END
+		ELSE
+		    multiple_sbttls = 0;
+
+		!
+		!  Now handle macro expansions.  These lines do not have
+		!  line numbers, so we can check to see if there is a blank
+		!  word at offset 46.  If so, stick a comment character in
+		!  position 47 and write from there.
+		!
+		IF (CH$RCHAR(inrec[46]) EQLU %CHAR(32)) AND
+		   (CH$RCHAR(inrec[47]) EQLU %CHAR(32))
+		THEN
+		    BEGIN
+		    !
+		    !  Not all such lines actually contain macro expansions;
+		    !  they can be object code continuation lines, so check
+		    !  to see if there's something on the line besides listing
+		    !  stuff.
+		    !
+		    IF (.lis_rab [RAB$W_RSZ] GTRU 48)	!Make sure there's
+		    THEN
+			BEGIN
+			CH$WCHAR(%C';', inrec[47]);		!Store comment character
+			offset = 47;
+			length = .length + 1;
+			END
+		    ELSE				!Nothing there, then
+			length = -1;			!... don't write out
+		    END
+		ELSE
+		    offset = 48;
+
+		IF (.length GEQ 0)
+		THEN
+		    status = write_line (.length, inrec [.offset], inrec [40]);
+
+		END;	!IF (.length GTR 0)
+	    END;	!IF (CH$RCHAR(inrec) EQLU %CHAR(12))
+
+	status = $GET (RAB = lis_rab);
+
+	END;		!WHILE (.status)
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_axp_bliss32e = (do_axp_bliss (%ASCID'BLISS-32E', %ASCID'.B32E'));
+ROUTINE do_axp_bliss64e = (do_axp_bliss (%ASCID'BLISS-64E', %ASCID'.B64'));
+
+ROUTINE do_axp_bliss (type_a, ext_a) =
+BEGIN
+!+
+!
+!  Routine:	DO_AXP_BLISS
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by BLISS-32E.  Parsing stops when a "Machine Code Listing" header is
+!	found.
+!-
+    LOCAL
+	skip_lines,
+	length,
+	status;
+
+    status = create_file (.type_a, .ext_a);
+    IF NOT(.status) THEN RETURN (.status);
+
+    skip_lines = 2;
+    do_ff = 0;
+
+    status = $GET (RAB = lis_rab);
+    WHILE (.status) DO
+	BEGIN
+	IF (.skip_lines NEQU 0)			!If processing a header, look
+	THEN					!... for the end of the file
+	    BEGIN
+	    !
+	    !  The end of a BLISS-32E module is determined by finding a
+	    !  header that reads "Machine Code Listing".  If we find that,
+	    !  stop processing the file.
+	    !
+	    IF NOT(CH$FAIL(CH$EQL(.end_axp [DSC$W_LENGTH], inrec [32],
+			.end_axp [DSC$W_LENGTH], .end_axp [DSC$A_POINTER])))
+	    THEN
+		BEGIN
+		flush_saved_buffer (RAB = out_rab);
+		RETURN (SS$_NORMAL);
+		END;
+
+
+	    WHILE (.status AND (.skip_lines GTR 0)) DO
+		BEGIN
+		status = $GET (RAB = lis_rab);
+		skip_lines = .skip_lines - 1;
+		END;
+
+	    END;		!IF (.skip_lines NEQU 0)
+
+	IF (CH$RCHAR (inrec) EQLU %CHAR(12))	!Is the first char a <FF>?
+	THEN
+	    BEGIN
+	    !
+	    !  If we have a <FF> before 55 lines of code have been output,
+	    !  then we have a short routine and should print a <FF> too.
+	    !
+	    IF (.line_count LSSU 55)		!Signal that we need to do
+	    THEN				!... a <FF> when the time is
+		do_ff = 1;			!... right
+	    line_count = 0;
+	    skip_lines = 3;			!Skip next four records
+	    END
+	ELSE
+	    BEGIN
+	    length = .lis_rab [RAB$W_RSZ] - 14;	!Get the length
+	    IF (.length LSS 0) THEN length = 0;	!If null, then make it null
+
+	    !
+	    !  If this is not a compiler message (indicated by a line that
+	    !  begins with "%BLS"), then write it to the output file.
+	    !  Also skip all lines that begin with a <TAB>.
+	    !
+	    IF CH$NEQ (4, UPLIT('%BLS'), 4, inrec) AND
+		((CH$RCHAR(inrec) NEQU %CHAR(9)) AND
+		 (CH$RCHAR(inrec+1) NEQU %CHAR(9)))
+	    THEN
+		status = write_line (.length, inrec [14], inrec [6]);
+	    END;
+
+	status = $GET (RAB = lis_rab);		!Read next record
+
+	END;		!WHILE (.status) DO
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_axp_macro32 =
+BEGIN
+!+
+!
+!  Routine:	DO_AXP_MACRO32
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by MACRO.  It skips the table of contents (labeled by "Table of
+!	contents" in the header record) and processes the file up to the
+!	symbol table listing (denoted by "Symbol table").
+!
+!	Form-feeds are inserted before all .SBTTL records (beginning with
+!	"<TAB>.SBTTL").
+!
+!-
+    LOCAL
+	skip_lines,
+	multiple_sbttls,
+	length,
+	xtraloc,
+	chopstart,
+	status;
+
+    status = create_file (%ASCID'AMACRO-32', %ASCID'.MAR');
+    IF NOT(.status) THEN RETURN (.status);
+
+    skip_lines = 2;
+    multiple_sbttls = do_ff = line_count = 0;
+
+    status = $GET (RAB = lis_rab);		!Read a record
+    WHILE (.status) DO
+	BEGIN
+
+	WHILE (.skip_lines GTR 0) DO		!Processing a header?
+	    BEGIN
+	    !
+	    !  The end of an AMAC MACRO32 module is determined by finding a
+	    !  header that reads "Machine Code Listing".  If we find that,
+	    !  stop processing the file.
+	    !
+	    IF NOT(CH$FAIL(CH$EQL(.end_axp [DSC$W_LENGTH], inrec [32],
+			.end_axp [DSC$W_LENGTH], .end_axp [DSC$A_POINTER])))
+	       OR
+	       NOT(CH$FAIL(CH$EQL(.symbols [DSC$W_LENGTH], inrec [32],
+			.symbols [DSC$W_LENGTH], .symbols [DSC$A_POINTER])))
+	    THEN
+		BEGIN
+		flush_saved_buffer (RAB = out_rab);
+		RETURN (SS$_NORMAL);
+		END;
+
+	    status = $GET (RAB = lis_rab);
+	    skip_lines = .skip_lines - 1;
+	    END;
+
+	IF (CH$RCHAR(inrec) EQLU %CHAR(12))	!Is the first char a <FF>?
+	THEN
+	    skip_lines = 2			!Skip next two records
+	ELSE
+	    BEGIN
+	    !
+	    !  If first char is a tab, only chop 11 characters.
+	    !
+	    IF (CH$RCHAR(inrec[0]) EQLU %CHAR(9))
+	    THEN
+		BEGIN
+		xtraloc = 0;
+		chopstart = 0;
+		END
+	    ELSE
+		BEGIN
+		xtraloc = 31;
+		chopstart = 39;
+		END;
+	    length = .lis_rab [RAB$W_RSZ] - .chopstart;
+	    !
+	    !  Ignore the record if:
+	    !
+	    !	o the length is negative
+	    !   o there is no line number (<TAB> instead)
+	    !   o it's a compiler message (%AMACRO....)
+	    !   o it's a continued message (-MAC...)
+	    !
+	    IF (.length GEQ 0) AND
+		(CH$RCHAR(inrec[.xtraloc]) NEQU %CHAR(9)) AND
+		CH$NEQ (4, UPLIT('%AMA'), 4, inrec) AND
+		CH$NEQ (4, UPLIT('-MAC'), 4, inrec)
+	    THEN
+		BEGIN
+		!
+		!  Check to see if this is a .SBTTL record.  If so, write out
+		!  a <FF> unless this is the second or third in a multiple
+		!  .SBTTL sequence.  For example, DEC has started using the
+		!  following sequence, which this code handles:
+		!
+		!	.SBTTL	+
+		!	.SBTTL	The pluses make the table of contents pretty
+		!	.SBTTL	+
+		!
+		IF (.length GEQU .sbttl [DSC$W_LENGTH]) AND
+		   (CH$EQL (.sbttl [DSC$W_LENGTH], inrec [39],
+			   .sbttl [DSC$W_LENGTH], .sbttl [DSC$A_POINTER]) OR
+		    CH$EQL (.lsbttl [DSC$W_LENGTH], inrec [39],
+			   .lsbttl [DSC$W_LENGTH], .lsbttl [DSC$A_POINTER]))
+		THEN
+		    BEGIN
+		    IF NOT(.multiple_sbttls)
+		    THEN
+			BEGIN
+			do_ff = 1;
+			multiple_sbttls = 1;
+			END;
+		    END
+		ELSE
+		    multiple_sbttls = 0;
+
+		status = write_line (.length, inrec [.chopstart],
+					inrec [.xtraloc]);
+
+		END	!IF (.length GEQ 0)
+	    ELSE
+		line_count = .line_count + 1;
+
+	    END;	!IF (CH$RCHAR(inrec) EQLU %CHAR(12))
+
+	status = $GET (RAB = lis_rab);
+
+	END;		!WHILE (.status)
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_message =
+BEGIN
+!+
+!
+!  Routine:	DO_MESSAGE
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by MESSAGE.
+!
+!-
+    LOCAL
+	skip_lines,
+	multiple_sbttls,
+	length,
+	status;
+
+    status = create_file (%ASCID'MESSAGE', %ASCID'.MSG');
+    IF NOT(.status) THEN RETURN (.status);
+
+    skip_lines = 2;
+
+    status = $GET (RAB = lis_rab);		!Read a record
+    WHILE (.status AND (.lis_rab [RAB$W_RSZ] NEQU 0)) DO
+	BEGIN
+	WHILE (.status AND (.skip_lines GTR 0)) DO
+	    BEGIN
+	    status = $GET (RAB = lis_rab);
+	    skip_lines = .skip_lines - 1;
+	    END;
+
+	IF (CH$RCHAR(inrec) EQLU %CHAR(12))	!Is the first char a <FF>?
+	THEN
+	    BEGIN
+	    !
+	    !  If we have a <FF> before 55 lines of code have been output,
+	    !  then we have a short routine and should print a <FF> too.
+	    !
+	    IF (.line_count LSSU 55)		!Do a <FF> if we need to
+	    THEN
+		PUT_FF (RAB = out_rab);
+	    line_count = 0;
+	    skip_lines = 2;			!Skip next two records
+	    END
+	ELSE
+	    BEGIN
+	    length = .lis_rab [RAB$W_RSZ] - 40;	!Get the length
+	    IF (.length GEQ 0)
+	    THEN
+		BEGIN
+		out_rab [RAB$W_RSZ] = .length;
+		out_rab [RAB$L_RBF] = inrec [40];
+		status = $PUT (RAB = out_rab);
+		line_count = .line_count + 1;
+		END;
+	    END;
+
+	status = $GET (RAB = lis_rab);
+
+	END;	!WHILE (.status AND (.lis_rab....
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_sdl =
+BEGIN
+!+
+!
+!  Routine:	DO_SDL
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by SDL.
+!
+!-
+    LOCAL
+	status;
+
+    status = create_file (%ASCID'SDL', %ASCID'.SDL');
+    IF NOT(.status) THEN RETURN (.status);
+
+    line_count = 0;
+    status = $GET (RAB = lis_rab);		!Read a record
+    WHILE (.status) DO
+	BEGIN
+	WHILE (.status AND ((.lis_rab [RAB$W_RSZ] EQLU 0) OR
+			    (CH$RCHAR(CH$PLUS(inrec,5)) EQLU %CHAR(32)) OR
+			    (.lis_rab [RAB$W_RSZ] LSSU 8))) DO
+	    BEGIN
+	    IF (.line_count GTRU 0) AND (.line_count LSSU 57)
+	    THEN
+		BEGIN
+		PUT_FF (RAB = out_rab);
+		END;
+	    line_count = 0;
+	    status = $GET (RAB = lis_rab);
+	    END;
+
+	out_rab [RAB$W_RSZ] = .lis_rab [RAB$W_RSZ] - 8;
+	out_rab [RAB$L_RBF] = .lis_rab [RAB$L_RBF] + 8;
+	status = $PUT (RAB = out_rab);
+	line_count = .line_count + 1;
+	IF (.status)
+	THEN
+	    status = $GET (RAB = lis_rab);
+
+	END;	!WHILE (.status)
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_cld =
+BEGIN
+!+
+!
+!  Routine:	DO_CLD
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by the Command Definition Utility.
+!
+!-
+    LOCAL
+	skip_lines,
+	length,
+	status;
+
+    status = create_file (%ASCID'CDU', %ASCID'.CLD');
+    IF NOT(.status) THEN RETURN (.status);
+
+    line_count = 0;
+    skip_lines = 3;
+
+    status = $GET (RAB = lis_rab);		!Read a record
+    WHILE (.status) DO
+	BEGIN
+	WHILE (.status AND (.skip_lines GTR 0)) DO
+	    BEGIN
+	    status = $GET (RAB = lis_rab);
+	    skip_lines = .skip_lines - 1;
+	    END;
+
+	IF (.lis_rab [RAB$W_RSZ] EQLU 0)	!A null record?  If so, we're
+	THEN					!... finished
+	    RETURN (SS$_NORMAL);
+
+	IF (CH$RCHAR(inrec) EQLU %CHAR(12))	!Is the first char a <FF>?
+	THEN
+	    BEGIN
+	    !
+	    !  If we have a <FF> before 55 lines of code have been output,
+	    !  then we have a short routine and should print a <FF> too.
+	    !
+	    IF (.line_count LSSU 56)		!Do a <FF> if we need to
+	    THEN
+		PUT_FF (RAB = out_rab);
+	    line_count = 0;
+	    skip_lines = 4;			!Skip next four records
+	    END
+	ELSE
+	    BEGIN
+	    length = .lis_rab [RAB$W_RSZ] - 10;	!Get the length
+	    IF (.length GEQ 0)
+	    THEN
+		BEGIN
+		out_rab [RAB$W_RSZ] = .length;
+		out_rab [RAB$L_RBF] = inrec [10];
+		status = $PUT (RAB = out_rab);
+		line_count = .line_count + 1;
+		END;
+	    END;
+
+	status = $GET (RAB = lis_rab);
+
+	END;	!WHILE (.status AND (.lis_rab....
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_vax_pli =
+BEGIN
+!+
+!
+!  Routine:	DO_VAX_PLI
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by the VAX PL/1 compiler.
+!
+!-
+    LOCAL
+	skip_lines,
+	length,
+	status;
+
+    status = create_file (%ASCID'VAX PL/I', %ASCID'.PLI');
+    IF NOT(.status) THEN RETURN (.status);
+
+    line_count = 0;
+    skip_lines = 4;				!Skip first header
+
+    status = $GET (RAB = lis_rab);		!Read a record
+    WHILE (.status) DO
+	BEGIN
+	WHILE (.status AND (.skip_lines GTR 0)) DO
+	    BEGIN
+	    status = $GET (RAB = lis_rab);
+	    skip_lines = .skip_lines - 1;
+	    END;
+
+	IF (.lis_rab [RAB$W_RSZ] NEQU 0)	!Was something read?
+	THEN					!... finished
+	    BEGIN
+	    IF (CH$RCHAR(inrec) EQLU %CHAR(12)) !Start with a <FF>?  If so,
+	    THEN				!... we're on a header
+		BEGIN
+		!
+		!  If we have a <FF> before 55 lines of code have been output,
+		!  then we have a short routine and should print a <FF> too.
+		!
+		IF (.line_count LSSU 55)	!Do a <FF> if we need to
+		THEN
+		    PUT_FF (RAB = out_rab);
+		line_count = 0;			!Reset line counter
+		skip_lines = 4;			!Skip next four lines
+		END
+	    ELSE
+		BEGIN
+		!
+		!  See if we've encountered end-of-file.  If so, the
+		!  record will be " COMMAND LINE ".
+		!
+		IF (.lis_rab [RAB$W_RSZ] EQLU .end_pli [DSC$W_LENGTH])
+		THEN
+		    RETURN (SS$_NORMAL);
+
+		out_rab [RAB$W_RSZ] = (IF (.lis_rab [RAB$W_RSZ] LEQU 11)
+				       THEN 0 ELSE (.lis_rab [RAB$W_RSZ] - 11));
+		out_rab [RAB$L_RBF] = inrec + 11;
+		status = $PUT (RAB = out_rab);
+		line_count = .line_count + 1;
+		END;
+	    END;
+
+	status = $GET (RAB = lis_rab);		!Read the next record
+
+	END;	!WHILE (.status AND (.lis_rab....
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_dec_pli =
+BEGIN
+!+
+!
+!  Routine:	DO_DEC_PLI
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by the DEC PL/1 compiler.
+!
+!-
+    LOCAL
+	skip_lines,
+	length,
+	offset,
+	address,
+	status;
+
+    status = create_file (%ASCID'DEC PL/I', %ASCID'.PLI');
+    IF NOT(.status) THEN RETURN (.status);
+
+    line_count = 0;
+    skip_lines = 2;				!Skip first header
+
+    status = $GET (RAB = lis_rab);		!Read a record
+    WHILE (.status) DO
+	BEGIN
+	WHILE (.status AND (.skip_lines GTR 0)) DO
+	    BEGIN
+	    status = $GET (RAB = lis_rab);
+	    skip_lines = .skip_lines - 1;
+	    END;
+
+	IF (.lis_rab [RAB$W_RSZ] NEQU 0)	!Was something read?
+	THEN					!... finished
+	    BEGIN
+	    IF (CH$RCHAR(inrec) EQLU %CHAR(12)) !Start with a <FF>?  If so,
+	    THEN				!... we're on a header
+		BEGIN
+		line_count = 0;			!Reset line counter
+		skip_lines = 3;			!Skip next three lines
+		END
+	    ELSE
+		BEGIN
+		!
+		!  See if we've encountered end-of-file.  If so, the
+		!  record will be " COMMAND LINE".
+		!
+		IF (.lis_rab [RAB$W_RSZ] EQLU .end_dpli [DSC$W_LENGTH])
+		THEN
+		    BEGIN
+		    flush_saved_buffer (RAB = out_rab);
+		    RETURN (SS$_NORMAL);	!Finished!
+		    END;
+
+		!
+		!  Lines can look like:
+		!
+		!	"   |<TAB>    # /*...."
+		!	"   |   #     # ...."
+		!	"       #     # ...."
+		!	"(1) compiler message"
+		!	"<TAB><TAB>blah"  (compiler messages too)
+		!	"<TAB>     # text : PROCEDURE OPTIONS(MAIN)"
+		!	""
+		!
+		IF (CH$RCHAR(inrec) EQLU %CHAR(32)) OR	!Begins with<SP>
+		   ((CH$RCHAR(inrec) EQLU %CHAR(9)) AND	!Or with <TAB><SP>
+		    (CH$RCHAR(inrec+1) EQLU %CHAR(32)))
+		THEN
+		    BEGIN
+		    offset = (IF (CH$RCHAR(inrec+4) EQLU %CHAR(9))
+				THEN 13 ELSE IF (CH$RCHAR(inrec) EQLU %CHAR(9))
+				THEN 9 ELSE 16);
+		    length = (IF (.lis_rab [RAB$W_RSZ] LEQU .offset)
+				THEN 0 ELSE (.lis_rab [RAB$W_RSZ] - .offset));
+		    address = inrec + .offset;
+		    status = write_line (.length, inrec+.offset, inrec+8);
+		    line_count = .line_count + 1;
+		    END;
+		END;
+	    END;
+
+	status = $GET (RAB = lis_rab);		!Read the next record
+
+	END;	!WHILE (.status AND (.lis_rab....
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_vax_pascal = (do_pascal (%ASCID'VAX Pascal', %ASCID'.PAS'));
+ROUTINE do_dec_pascal = (do_pascal (%ASCID'DEC Pascal', %ASCID'.PAS'));
+
+ROUTINE do_pascal (type_a, ext_a) =
+BEGIN
+!+
+!
+!  Routine:	DO_PASCAL
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by the VAX Pascal compiler.
+!
+!-
+    LOCAL
+	skip_lines,
+	status;
+
+    status = create_file (.type_a, .ext_a);
+    IF NOT(.status) THEN RETURN (.status);
+
+    line_count = 0;
+    skip_lines = 4;				!Skip first header
+    do_ff = 0;
+
+    status = $GET (RAB = lis_rab);		!Read a record
+    WHILE (.status) DO
+	BEGIN
+	WHILE (.status AND (.skip_lines GTR 0)) DO
+	    BEGIN
+	    !
+	    !  We've reached the end when we find a header reading either
+	    !  "Generated Code" or "Pascal Compilation Statistics".
+	    !
+	    IF NOT(CH$FAIL(CH$EQL(.end_pas [DSC$W_LENGTH],
+			.end_pas [DSC$A_POINTER],
+			.end_pas [DSC$W_LENGTH], inrec [32])))
+		OR
+		NOT(CH$FAIL(CH$EQL(.end_pas2 [DSC$W_LENGTH],
+				.end_pas2 [DSC$A_POINTER],
+			.end_pas2 [DSC$W_LENGTH], inrec [32])))
+	    THEN
+		RETURN (SS$_NORMAL);
+
+	    status = $GET (RAB = lis_rab);
+	    skip_lines = .skip_lines - 1;
+	    END;
+
+	IF (.lis_rab [RAB$W_RSZ] NEQU 0)	!Was something read?
+	THEN					!... finished
+	    BEGIN
+	    IF (CH$RCHAR(inrec) EQLU %CHAR(12)) !Start with a <FF>?  If so,
+	    THEN				!... we're on a header
+		BEGIN
+		!
+		!  If we have a <FF> before 55 lines of code have been output,
+		!  then we have a short routine and should print a <FF> too.
+		!
+		IF (.line_count LSSU 55)	!Do a <FF> if we need to
+		THEN
+		    do_ff = 1;
+		line_count = 0;			!Reset line counter
+		skip_lines = 4;			!Skip next four lines
+		END
+	    ELSE
+		BEGIN
+		IF (.lis_rab [RAB$W_RSZ] GEQU 16)
+		THEN
+		    BEGIN
+		    IF (.do_ff)
+		    THEN
+			BEGIN
+			PUT_FF (RAB = out_rab);
+			do_ff = 0;
+			END;
+		    out_rab [RAB$W_RSZ] = .lis_rab [RAB$W_RSZ] - 16;
+		    out_rab [RAB$L_RBF] = inrec [16];
+		    status = $PUT (RAB = out_rab);
+		    line_count = .line_count + 1;
+		    END;
+		END;
+	    END;
+
+	status = $GET (RAB = lis_rab);		!Read the next record
+
+	END;	!WHILE (.status AND (.lis_rab....
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_vax_dec_c = (do_vax_c (%ASCID'DEC C (VAX)', %ASCID'.C'));
+ROUTINE do_vax_vax_c = (do_vax_c (%ASCID'VAX C', %ASCID'.C'));
+
+ROUTINE do_vax_c (type_a, ext_a) =
+BEGIN
+!+
+!
+!  Routine:	DO_VAX_C
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by the VAX C compiler.
+!
+!-
+    LOCAL
+	skip_lines,
+	length,
+	status;
+
+    status = create_file (.type_a, .ext_a);
+    IF NOT(.status) THEN RETURN (.status);
+
+    line_count = 0;
+    skip_lines = 4;				!Skip first header
+
+    status = $GET (RAB = lis_rab);		!Read a record
+    WHILE (.status) DO
+	BEGIN
+	WHILE (.status AND (.skip_lines GTR 0)) DO
+	    BEGIN
+	    status = $GET (RAB = lis_rab);
+	    skip_lines = .skip_lines - 1;
+	    END;
+
+	IF (.lis_rab [RAB$W_RSZ] NEQU 0)	!Was something read?
+	THEN					!... finished
+	    BEGIN
+	    IF (CH$RCHAR(inrec) EQLU %CHAR(12)) !Start with a <FF>?  If so,
+	    THEN				!... we're on a header
+		BEGIN
+		!
+		!  If we have a <FF> before 55 lines of code have been output,
+		!  then we have a short routine and should print a <FF> too.
+		!
+		IF (.line_count LSSU 55)	!Do a <FF> if we need to
+		THEN
+		    PUT_FF (RAB = out_rab);
+		line_count = 0;			!Reset line counter
+		skip_lines = 3;			!Skip next three lines
+		END
+	    ELSE
+		BEGIN
+		!
+		!  See if we've encountered end-of-file.  If so, the
+		!  record will be "Command Line".
+		!
+		IF (.lis_rab [RAB$W_RSZ] EQLU .end_vax_c [DSC$W_LENGTH]) AND
+		   CH$EQL (.end_vax_c [DSC$W_LENGTH],
+			   .end_vax_c [DSC$A_POINTER],
+			   .end_vax_c [DSC$W_LENGTH],
+			   inrec)
+		THEN
+		    RETURN (SS$_NORMAL);
+
+		!
+		!  Try to handle wrapped lines.  VAX C/DEC C doesn't do
+		!  line wrapping gracefully like Alpha's DEC C does---it
+		!  just wraps, period.  So: if a line is 132 characters
+		!  long, just read in the next line at the end and call it
+		!  done.
+		!
+		IF (.lis_rab [RAB$W_RSZ] EQLU 132)
+		THEN
+		    BEGIN
+		    LOCAL rsize, size, addr : REF $BBLOCK;
+		    !
+		    !  Save the current user buffer size and address,
+		    !  change them to point to the end of the current
+		    !  line, read in the next record, then reset those
+		    !  RAB fields.
+		    !
+		    rsize = .lis_rab [RAB$W_RSZ];
+		    size = .lis_rab [RAB$W_USZ];
+		    addr = .lis_rab [RAB$L_UBF];
+		    lis_rab [RAB$W_USZ] = .size - .lis_rab [RAB$W_RSZ];
+		    lis_rab [RAB$L_UBF] = .lis_rab [RAB$L_RBF] + .rsize;
+		    status = $GET (RAB = lis_rab);	!Read next record
+		    IF NOT(.status) THEN RETURN(.status);
+		    lis_rab [RAB$W_RSZ] = .lis_rab [RAB$W_RSZ] + .rsize;
+		    lis_rab [RAB$W_USZ] = .size;
+		    lis_rab [RAB$L_UBF] = .addr;
+		    END;
+
+		IF (.lis_rab [RAB$W_RSZ] GEQU 14) AND
+		   (CH$RCHAR(inrec[4]) NEQU %CHAR(32))
+		THEN
+		    BEGIN
+		    IF (CH$RCHAR(inrec[12]) EQLU %CHAR(32))
+		    THEN
+			BEGIN
+		    out_rab [RAB$W_RSZ] = .lis_rab [RAB$W_RSZ] - 14;
+		    out_rab [RAB$L_RBF] = inrec [14];
+		    status = $PUT (RAB = out_rab);
+			END;
+		    line_count = .line_count + 1;
+		    END;
+		END;
+	    END;
+
+	status = $GET (RAB = lis_rab);		!Read the next record
+
+	END;	!WHILE (.status AND (.lis_rab....
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_dec_c =
+BEGIN
+!+
+!
+!  Routine:	DO_DEC_C
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by the DEC C compiler.
+!
+!-
+    LOCAL
+	skip_lines,
+	status;
+
+    status = create_file (%ASCID'DEC C (Alpha)', %ASCID'.C');
+    IF NOT(.status) THEN RETURN (.status);
+
+    line_count = 0;
+    skip_lines = 2;				!Skip first header
+    do_ff = 0;
+
+    status = $GET (RAB = lis_rab);		!Read a record
+    WHILE (.status) DO
+	BEGIN
+	WHILE (.status AND (.skip_lines GTR 0)) DO
+	    BEGIN
+	    !
+	    !  We've reached the end when we find a header reading
+	    !  "Machine Code Listing".
+	    !
+	    IF NOT(CH$FAIL(CH$EQL(.end_axp [DSC$W_LENGTH],
+			.end_axp [DSC$A_POINTER],
+			.end_axp [DSC$W_LENGTH], inrec [32])))
+	    THEN
+		BEGIN
+		flush_saved_buffer (RAB = out_rab);
+		RETURN (SS$_NORMAL);
+		END;
+
+	    status = $GET (RAB = lis_rab);
+	    skip_lines = .skip_lines - 1;
+	    END;
+
+	IF (.lis_rab [RAB$W_RSZ] NEQU 0)	!Was something read?
+	THEN					!... finished
+	    BEGIN
+	    IF (CH$RCHAR(inrec) EQLU %CHAR(12)) !Start with a <FF>?  If so,
+	    THEN				!... we're on a header
+		BEGIN
+		!
+		!  If we have a <FF> before 55 lines of code have been output,
+		!  then we have a short routine and should print a <FF> too.
+		!
+		IF (.line_count LSSU 55)	!Do a <FF> if we need to
+		THEN
+		    do_ff = 1;
+		line_count = 0;			!Reset line counter
+		skip_lines = 3;			!Skip next four lines
+		END
+	    ELSE
+		BEGIN
+		LOCAL length, offset, line_no_offset;
+		!
+		!  If the line begins with <TAB><TAB> or "%", it's a warning
+		!  line and should be omitted.
+		!
+		IF (((CH$RCHAR(inrec) EQLU %CHAR(9)) AND
+		    (CH$RCHAR(inrec+1) EQLU %CHAR(9))) OR
+		   (CH$RCHAR(inrec) EQLU %C'%'))
+		THEN
+		    length = -1
+		ELSE
+		    BEGIN
+		    !
+		    !  If the first character is a TAB, our offset is 9, else
+		    !  the offset is 16.
+		    !
+		    offset = (IF (CH$RCHAR(inrec) EQLU %CHAR(9))
+			  THEN 9 ELSE 16);
+		    line_no_offset = (IF (.offset EQLU 9) THEN 2 ELSE 8);
+		    length = .lis_rab [RAB$W_RSZ] - .offset;
+		    END;
+		IF (.length GEQ 0)
+		THEN
+		    status = write_line (.length, inrec[.offset], inrec[.line_no_offset]);
+		END;
+	    END;
+
+	status = $GET (RAB = lis_rab);		!Read the next record
+
+	END;	!WHILE (.status AND (.lis_rab....
+
+    RETURN (.status);
+
+END;
+
+
+ROUTINE do_axp_macro64 =
+BEGIN
+!+
+!
+!  Routine:	DO_AXP_MACRO64
+!
+!  Functional Description:
+!
+!	This subroutine handles the parsing of a .LIS file created
+!	by MACRO-64.  It skips the table of contents (labeled by "Table of
+!	contents" in the header record) and processes the file up to the
+!	symbol table listing (denoted by "Symbol table").
+!
+!	Form-feeds are inserted before all .SBTTL records (beginning with
+!	"<TAB>.SBTTL").
+!
+!-
+    LOCAL
+	skip_lines,
+	multiple_sbttls,
+	length,
+	status;
+
+    status = create_file (%ASCID'MACRO-64', %ASCID'.M64');
+    IF NOT(.status) THEN RETURN (.status);
+
+    skip_lines = 2;
+    multiple_sbttls = do_ff = line_count = 0;
+
+    status = $GET (RAB = lis_rab);		!Read a record
+    WHILE (.status) DO
+	BEGIN
+	WHILE (.status AND (.skip_lines GTR 0)) DO
+	    BEGIN
+	    !
+	    !  We've reached the end when we find a header reading
+	    !  "Machine Code Listing".
+	    !
+	    IF NOT(CH$FAIL(CH$EQL(.end_axp [DSC$W_LENGTH],
+			.end_axp [DSC$A_POINTER],
+			.end_axp [DSC$W_LENGTH], inrec [32])))
+	    THEN
+		BEGIN
+		flush_saved_buffer (RAB = out_rab);
+		RETURN (SS$_NORMAL);
+		END;
+
+	    status = $GET (RAB = lis_rab);
+	    skip_lines = .skip_lines - 1;
+	    END;
+
+	IF (CH$RCHAR(inrec) EQLU %CHAR(12))	!Is the first char a <FF>?
+	THEN
+	    skip_lines = 3			!Skip next three records
+	ELSE
+	    BEGIN
+	    LOCAL i : REF VECTOR[,BYTE], j : REF VECTOR[,BYTE], char : BYTE,
+		  tabcol, offset;
+	    !
+	    !  The MACRO-64 compiler throws various TABs and things in the
+	    !  way, so we "detab" the first part of each line to get a
+	    !  common offset.
+	    !
+	    i = inrec;  j = work_buffer;
+	    WHILE (.j LSSU work_buffer[48]) DO		!Only detab part of it
+		BEGIN
+		tabcol = 8;
+		WHILE (.tabcol GTRU 0) DO		!While in a tab column
+		    BEGIN
+		    IF (.j GEQU work_buffer[48])
+		    THEN
+			EXITLOOP;
+		    char = CH$RCHAR_A (i);
+		    IF (.char EQLU %CHAR(9))		!If character is <TAB>,
+		    THEN				!... replace it with
+			BEGIN				!... the right # of
+			DECR tabcol FROM .tabcol TO 1 DO
+			    CH$WCHAR_A(%CHAR(32), j);	!... blanks
+			tabcol = 0;
+			END
+		    ELSE				!Otherwise, just copy
+			BEGIN				!... the character
+			CH$WCHAR_A (.char, j);
+			tabcol = .tabcol - 1;
+			END;
+		    END;
+		END;
+	    !
+	    !  Copy the rest of the string now.
+	    !
+	    WHILE (.i LEQU inrec [.lis_rab [RAB$W_RSZ] - 1]) DO
+		CH$WCHAR_A (CH$RCHAR_A(i), j);
+
+	    length = .j - work_buffer;		!Length of detabbed record
+
+	    offset = 48;
+	    length = .length - .offset;
+	    IF (.length GEQ 0)
+	    THEN
+		BEGIN
+		!
+		!  Check to see if this is a .SUBTITLE record.  If so, write
+		!  a <FF> unless this is the second or third in a multiple
+		!  .SUBTITLE sequence.  For example, DEC has started using the
+		!  following sequence, which this code handles:
+		!
+		!	.SUBTITLE +
+		!	.SUBTITLE The pluses make the table of contents pretty
+		!	.SUBTITLE +
+		!
+		IF (.length GEQU .page [DSC$W_LENGTH]) AND
+		   (CH$EQL (.page [DSC$W_LENGTH], work_buffer [.offset],
+			    .page [DSC$W_LENGTH], .page [DSC$A_POINTER])) OR
+		   (CH$EQL (.subtitle [DSC$W_LENGTH], work_buffer [.offset],
+			   .subtitle [DSC$W_LENGTH], .subtitle [DSC$A_POINTER]))
+		THEN
+		    BEGIN
+		    IF NOT(.multiple_sbttls)
+		    THEN
+			BEGIN
+			do_ff = 1;
+			multiple_sbttls = 1;
+			END;
+		    END
+		ELSE
+		    multiple_sbttls = 0;
+
+		status = write_line (.length, work_buffer [.offset],
+					work_buffer [40]);
+
+		END;	!IF (.length GEQ 0)
+	    END;	!IF (CH$RCHAR(inrec) EQLU %CHAR(12))
+
+	status = $GET (RAB = lis_rab);
+
+	END;		!WHILE (.status)
+
+    RETURN (.status);
+
+END;
+
+END						!End of module BEGIN
+ELUDOM						!End of module

@@ -1,0 +1,1345 @@
+File: Frontport_documentation.txt
+
+Copyright 2000, John E. Malmberg
+All Rights Reserved
+
+E-mail: WB8TYW@QSL.NET
+
+Documentation for the Frontport library.
+
+
+License:
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the
+Free Software Foundation; either version 2 of the License, or (at your
+option) any later version.
+
+This program is distributed in the hope that it will be useful but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+
+Abstract:
+
+The Frontport library is a shared image that is used to assist in
+porting programs from other operating systems to versions of OpenVMS
+from 5.5-2 to the current version.  At this writing it has only been
+built on OpenVMS VAX 7.1 and OpenVMS ALPHA 7.2.
+
+This was originally designed as an assist to porting a fully functional
+version of SAMBA to OpenVMS.
+
+These routines consist of a set of four shared images for Alpha and for
+VAX.  Three of these images are actually used.  The fourth image is
+linked against the COMPAQ C BACKPORT library.  Logical names are used
+to reference the images.  The logical names are:
+
+FRONTPORTP__CRTL
+
+This is a privileged library that must be installed protected.  It is
+presently only used to provide fcntl() functionality to lookup the
+process id of a blocked lock.  If this routine is not present, only
+this functionality will be missing.
+
+FRONTPORT___SET_USER
+
+This is a routine that sets the username and UIC as part of the
+implementation of setuid().  If this routine is not present, only this
+functionality will be missing.
+
+FRONTPORT__CRTL
+
+This is the library that contains all of the non-privileged routines.
+
+
+The first two images are helper images for special routines that must
+be locally linked against the system image.  The examples below are
+for an Alpha running OpenVMS 7.2.  Substitute VAX for AXP and the VMS
+Version for other versions.  This naming convention allows a single
+directory to be shared between both VAX and ALPHA.
+
+FRONTPORTP__CRTL FRONTPORTP_AXP_V7_2.EXE
+
+FRONTPORT___SET_USER_AXP_V7_2.EXE
+
+FRONTPORT.EXE_AXP
+
+FRONTPORT_BACK.EXE_AXP
+
+
+The command file FRONTPORT_STARTUP.COM will install the
+FRONTPORT.EXE_AXP image, and rebuild the two helper images as needed.
+It assigns the logical names to these images.
+
+The routine fcntl() is not present in OpenVMS 7.1 unless a DEC C ECO
+is applied.  A dummy module fake_fcntl.c contains a fcntl() routine
+that provides only the dup functionality, and can be used to resolve
+the image at link time.  If this is done the F_SETFL and F_GETFL
+commands will not be available.
+
+
+Disclaimers:
+
+At present I can only test on OpenVMS/VAX 7.1 and OpenVMS/AXP 7.2.
+These routines are as is, and no warrantee is provided.  Fixes will
+be incorporated only as I have time to do so.  Bug reports are
+welcomed, but there is no guarantee that I will be able to respond
+or acknowledge them.
+
+Support for ODS5 file specifications is implemented at the time that
+this is written, and these routines seem to properly handle them.
+Some of the underlying DEC C runtime routines may not fully operate
+on ODS-5 specifications.
+
+
+Installation:
+
+The FRONTPORT library is distributed in two kits.  The base kit
+contains the binaries and command files needed to link and install
+the FRONTPORT shared images.  The source kit contains all of the
+sources.
+
+Both kits are distributed as .ZIP archives.
+
+Create a directory such as SYS$SYSDEVICE:[FRONTPORT] and UNZIP the
+base kit into the directory.  Execute the command file
+@frontport_startup.com on each node of a cluster.
+
+The call to the frontport_startup.com must also be executed from
+the SYSTARTUP_*.COM
+
+Building the library from sources is covered toward the end of this
+document.
+
+
+Building Programs:
+
+The program to be ported will need to be modified to include the
+following lines.  Many GNU programs already have a "config.h" file
+that is the place to put these.
+
+#define FRONTPORT_HIDE_DECC 1
+#include "frontport.h"
+
+The first define causes the standard C RTL definitions to be hidden.
+The FRONTPORT library routines all have the prefix "fport__" on them
+to make sure that their symbols do not conflict with other shared
+images.
+
+The include path for the C compiler must be set to reference
+FRONTPORT__DIR:.  There are two underscores in that name and all of
+the public symbols and logical names to prevent name space
+collisions with programs.  Private symbols will have three
+underscores in them.  They are not generally meant for external use.
+
+The application is then linked against the shared image referenced
+by the logical name FRONTPORT__CRTL.
+
+Some UNIX programs expect that the C runtime routines read() and
+write() work on an arbitrary stream of bytes, and pay no
+attention to record boundaries.  When the options is set to allow
+fcnt() locking to work in this library, all reads and writes must
+be in complete records.  To resolve this conflict, additional
+wrapper routines will cover up selected C I/O routines when the
+following define is set.
+
+#define FPORT__STREAM_UNIXIO 1
+
+Note that in this mode, writing into the middle of an existing file
+will only work for fixed format files.  I will be looking into a
+future enhancement to allow this to work for stream files.
+
+
+The fport__vms_crypt() routine will not replace the UNIX crypt()
+function.  It does not produce the same encryption as the UNIX crypt
+function.  A "#define crypt fport__vms_crypt" must be put in the
+source to make this visible.
+
+
+Library description:
+
+Some of the additional routines in the FRONTPORT library can be used
+to vary the behavior by setting global flags.
+
+Logical names are also used to by some of the routines.  The logical
+names have a default prefix, but an option routine is available to
+customize this on a per program basis.
+
+
+Option getting and setting routines.
+
+unsigned long fport__get_fname_options(void)
+
+Set file name processing options based on a bitmap.  The options
+are described below with the prefix of FPORT__M_FNAME_ .
+
+
+FPORT__M_FNAME_CASE_ACE
+
+When set and combined with FPORT__M_FNAME_PWRK will cause the exact
+case to be stored in an ACE per Richard Levitte's suggestion.
+(not implemented)
+
+
+FPORT__M_FNAME_CASE_MEYER
+
+When set and combined with FPORT__M_FNAME_PWRK will cause the exact
+case to be encoded as in Eckart Meyer's port of SAMBA.
+(not implemented)
+
+
+FPORT__M_FNAME_EXTLASTDOT
+
+When set (default) causes new files that have multiple dots in
+their filenames to have the last dot considered the delimiter for
+the extension.
+
+When clear it causes the first dot to be interpreted as the
+delimiter for the extension.
+
+Note: The behavior of the FRONTPORT library when this option is set
+is to try first using the last dot as the delimiter and if that
+does not succeed, to try again by interpreting the first dot.
+
+
+FPORT__M_FNAME_MULTINET
+
+When set it causes filenames to be encoded / decoded by the same as
+Process Software's Multinet product.
+(not implemented)
+
+
+FPORT__M_FNAME_ODS5
+
+When set it causes filenames to be displayed or encoded / decoded as
+if on an ODS-5 volume on an ODS-5 volume.  This is also the default
+setting.  If clear it causes ODS-5 volumes to be treated as ODS-2.
+
+
+FPORT__M_FNAME_PWRK
+
+When set it causes file names to be encoded/decoded according to
+Compaq's Pathworks apparent conventions.  Default is set.  Since no
+other options are implemented, currently changing the setting has
+no effect.
+
+
+FPORT__M_FNAME_DUNDER
+
+When set it causes true double underscores in filenames not be
+encoded as "_5F_" when saved on OpenVMS on ODS-2 volumes.  Either
+setting of this option can cause some files to be inaccessible.
+
+
+
+uid_t fport__get_root_uid(void)
+
+This routine gets the current uid that will be converted to zero as
+a root alias.  The corresponding set routine allows you to specify
+a specific OpenVMS account to be treated as "root" or uid 0 by the
+program you are porting.  This allows better control of security.
+
+
+unsigned long fport__get_stat_options(void)
+
+Sets the protection mode and stat structure behavior based on a
+bitmap.  The options are described below with the prefix
+FPORT__M_STAT_ .
+
+FPORT__M_STAT_FCNTL_LOCK
+
+When set this causes files to be opened with no explicit file
+locking present.  It is expected that the program will use fcntl()
+to manually lock access.
+
+When clear (default), files will be opened exclusively locked.
+This is the default VMS behavior.
+
+
+FPORT__M_STAT_SAMBA
+
+When set this causes the protection mode bits returned from stat()
+and fstat() to be encoded with special data for SAMBA to interpret.
+
+When clear (default), no changes are done on the returned
+protection mode.
+
+
+FPORT__M_STAT_SET_SAMBA_SYSTEM_ACE
+
+The FPORT__M_STAT_SAMBA must also be set to for this option to be
+used.  When set this causes the presence of a SAMBA__SYSTEM ACE
+on the file to mark it as having a DOS SYSTEM attribute.
+(not implemented)
+
+When clear (default), a file that requires SYSPRV or higher to
+access it will be marked as having a DOS SYSTEM attribute.
+
+
+FPORT__M_STAT_SWAP_CTIME
+
+Under some conditions it has been reported that the st_ctime and
+st_mtime are reported as reverse from SAMBA.  This option swaps
+them as reported from fport__stat() and fport__fstat().
+Note, OpenVMS treats st_ctime as the create time of the file, UNIX
+treats it as a date of a significant modification.
+
+
+FPORT__M_STAT_USEACL
+
+When set this causes the fport__fstat() and fport__stat() routines
+to modify the mode_t protection mask based on any ACL that may be
+on the file.
+
+When clear (default), the protection mask will reflect only the
+UIC based protection.
+
+
+unsigned long fport__vms_support_flags(void)
+
+This routine returns flags to indicate if the version of OpenVMS
+supports a specific option.  Currently the supported bits are
+FPORT__M_VMS_EFS and FPORT__M_VMS_DEEPDIR.
+
+FPORT__M_VMS_EFS
+
+This indicates that the version of OpenVMS supports Extended
+Filenames.  (OpenVMS 7.2 Alpha and later)
+
+FPORT__M_VMS_DEEPDIR
+
+This indicates that the version of OpenVMS supports deep nesting
+of directories.  (OpenVMS 7.2 and later)
+
+
+void fport__set_fname_options(unsigned long options)
+
+Sets the options globally for filename processing.  See
+fport__get_fname_options for details.
+
+
+void fport__set_global_options(void)
+
+This routine sets global options based on logical names to
+simplify programming.  Logical names with the prefix
+FRONTPORT__ will be used.
+
+This routine is to simplify the setting of options for
+small programs.
+
+FRONTPORT__DEVICE_PREFIX = ?
+Default is "FPORT__VMS_DEV_".  Maximum of 40 characters.
+
+FRONTPORT__FNAME_CASE = (NONE, ACE, MEYER)
+Default is NONE.
+(None are implemented)
+
+FRONTPORT__FNAME_EXTLASTDOT = (TRUE, FALSE)
+When true, the last dot found in a UNIX file specification is assumed
+to delimit the extension.  When false, the first dot found is assumed
+to delimit the extension.
+Default is TRUE.
+
+FRONTPORT__FNAME_ODS5 = (TRUE, FALSE)
+When true, if the file system is detected to be ODS-5, then ODS-5
+parsing of the will be attempted.  Since I have not fully tested the
+ODS-5 code yet, this allows reversion to the ODS-2 behavior.
+Default is TRUE
+
+FRONTPORT__FNAME_XLATE = (PATHWORKS, MULTINET)
+Default is PATHWORKS.
+(No others implemented)
+
+FRONTPORT__STAT_SWAP_CTIME = (TRUE, FALSE)
+Default is FALSE.
+
+FRONTPORT__TEMPLATE_PREFIX = ?
+Default is "FPORT__TEMPLATES:TEMPLATE"
+
+
+
+void fport__set_root_uid(uid_t)
+
+This routine sets the uid that will be used to replace zero for the
+root.  The default is [1,4].
+
+
+
+void fport__set_stat_options(unsigned long)
+
+Sets the options globally for stat and protection mode handling.  See
+fport__get_stat_options for details.
+
+
+void fport__set_template_prefix(const char * templprefix)
+
+Stores a default prefix for use in determining the directory and the
+filename part of the template specification.  If no prefix is set, the
+name "FPORT__TEMPLATES:TEMPLATE" is used.
+
+When creating a file, the FRONTPORT library will look up the template
+file of the same extension and use it's attributes on the new file.
+
+
+void fport__set_unix_device_prefix(const char * devprefix)
+
+This changes the device prefix from "FPORT__VMS_DEV_" to be the one
+passed.  The device prefix is used to translate UNIX /dev/nnn
+specifications to logical names or files.  For instance /dev/tty will
+be translated by default to FPORT__VMS_DEV_TTY:.  This allows you to
+have specific device logical names for your program independent of
+other programs.
+
+
+
+Debugger Assistance Routines:
+
+These routines are used to assist in debugging C programs.  The user
+typically does not know how to interpret or address some structures or
+other information in the debugger.  These routines can be called from
+the debugger to provide this information.
+
+They are not intended to be called directly from a program.
+
+To use in the OpenVMS debugger, use these steps for the example of
+using of using the fport__print_fstat() routine.
+
+
+DBG> examine file_number		! Get the file descriptor number
+
+DBG> set image frontport__crtl		! Set the image to the frontport C
+					! library wrapper
+DBG> set module fport__print_fstat	! Make the image known to the DEBUGGER
+DBG>call fport__print_fstat(nnnn)	! Print information from the
+					! previously obtained file descriptor.
+
+If you need information that is not printed, or like SAMBA, the
+application being debugged has closed stdout or otherwise redirected
+it, you can use the debugger to examine the contents.  You can set a
+breakpoint on the routine before you call it.  Of course this requires
+that the library has been linked in DEBUG and the source is available.
+The FRONTPORT.MMS script will build the library in debug mode and the
+assistant routines also in debug and no optimize mode.
+
+
+DBG>set module fport__print_fstat
+void fport__print_fstat(int file_number);
+
+This routine calls the fstat routine.  It prints the filename and the
+device.
+
+
+DBG>set module fport__print_fstat
+void fport__print_file_stat(FILE * fileptr);
+
+This routine prints out the file descriptor number and then calls
+fport__print_fstat().
+
+
+DBG>set module fport__print_errno
+int fport__print_errno(void);
+
+This routine calls perror("errno = ") and returns errno.  The errno
+variable is actually hidden under a global symbol and difficult to
+expose from the debugger with out this routine.
+
+
+DBG>set module fport__print_procinfo
+void fport__print_procinfo(void);
+
+This routine prints out information about the current process.  At the
+time of this writing, it only displays the current and authorized
+privileges.  More information may be added in the future.
+
+
+
+Alphabetical standard routine reference:
+
+int fport__add_history(const char * line)
+
+This adds a line to the READLINE history buffer.  This is part of UNIX
+READLINE library emulation.
+(The history buffer is not used by the readline() function for this
+release)
+
+
+int fport__chdir(const char * vmspath)
+
+Wrapper for chdir().  Handles filename translation.
+
+
+unsigned long fport__check_disk_type(const char * path)
+
+This routine checks the disk type.  The bit value FPORT__M_DISK_ODS5
+is set for an ODS-5 volume.  The bit value FPORT__M_DISK_NOFILE if the
+device is not a disk.  The bit value FPORT__M_DISK_NODEV is set if the
+device does not exist.
+
+This routine is used internally by the frontport library.  More bit
+options may be added with later releases.
+
+
+int fport__check_rms_lock
+    (struct stat * statbuf, unsigned long * rab2ptr, unsigned int
+     rqmode, unsigned long * blkpid)
+
+This routine is mainly intended for internal use.  It is used as a
+wrapper to set up the call for the User Written System Service that
+actually does the check in EXECUTIVE mode.
+
+
+int fport__chmod(const char * vmspath, mode_t mode)
+
+Wrapper for chmod().  Handles filename translation and SAMBA mode
+translation.
+
+
+int fport__chown(const char * vmspath, uid_t uid, gid_t gid)
+
+Wrapper for chown().  Handles filename translation.  Also will
+translate uid of 0 to the current root alias.
+
+
+int fport__close(int filedesc)
+
+Wrapper for close.  In addition to normal close() operations, this
+cleans up the fcntl() locks on this stream.  It flushes out to disk
+any unwritten data through from the fport__write() routines.
+
+
+int fport__closedir(FPORT__DIR * dirp)
+
+Wrapper for closedir().  Cleans up after fport__opendir().
+
+
+int fport__close_lock_stream(int filedesc)
+
+This routine is mainly intended for internal use.  It is used to clean
+up the fcntl() locks on this stream.
+
+
+uid_t fport__convert_root_to_uid(uid_t test)
+
+This routine is used to test if the given uid is 0, and replaces it
+with the current alias.  The default alias is [1,4].  If the given uid
+is not 0, it is returned unchanged.  This is intended mainly for
+internal use.
+
+
+uid_t fport__convert_uid_to_root(uid_t test)
+
+This routine is used to test if the given uid is the same as the alias
+for root, and replaces it with 0.  If it is not root then it is
+returned unchanged.  This is intended mainly for internal use.
+
+
+int fport__creat(const char * vmsfile, mode_t mode)
+
+Wrapper for creat().  This handles filename translation and SAMBA mode
+translation.  The attributes for a new file will be inherited from the
+template directory if a matching template is found.  Otherwise the
+normal DEC C defaults will apply.
+
+When creating a file, the routine fport__get_default_attr() is used to
+lookup the file extension in a template directory and sets the
+attributes to match.  The template directory is set by using the
+routine fport__set_template_prefix().
+
+The RMS context information is stored for later use by fport__fcntl().
+
+
+#define crypt fport__vms_crypt
+char * fport__vms_crypt(const char * key, const char * salt);
+
+This implements a fake crypt function.  It uses the values from a
+previous call to fport__getpwnam() to calculate a password encryption
+for OpenVMS using SYS$HASH_PASSWORD.  This encrypted password is
+returned in hex in an ASCII string.
+
+This routine is not automatically exposed from the header to replace
+the crypt function.  It does not do a UNIX crypt function.
+
+
+char * fport__ctime(const time_t * clock)
+
+This implements the ctime() routine.  Provided for versions of OpenVMS
+that do not have it.
+
+
+int fport__delete(const char *vmsfile)
+
+Wrapper for delete().  This handles filename translation.
+
+
+void fport__dlclose(void * handle)
+
+Wrapper for dlclose.()  Implementation is in progress so that it will
+work with prior versions of OpenVMS.  (Not implemented on VAX, and
+will produce Informational compile diagnostics, may not compile on
+ALPHA for versions of OpenVMS prior to 7.2)
+
+char * fport__dlerror(void)
+
+Wrapper for dlerror().  Implementation is in progress so that it will
+work with prior versions of OpenVMS.  (Not implemented on VAX, and
+will produce Informational compile diagnostics, may not compile on
+ALPHA for versions of OpenVMS prior to 7.2)
+
+
+void * fport__dlopen(const char * pathname, int mode)
+
+Wrapper for dlopen().  This wrapper will convert filenames as
+previously described.  Implementation is in progress so that it will
+work with prior versions of OpenVMS.  (Not implemented on VAX, and
+will produce Informational compile diagnostics, may not compile on
+ALPHA for versions of OpenVMS prior to 7.2)
+
+
+void * fport__dlsym(void * handle, char * name)
+
+Wrapper for dlsym().  Implementation is in progress so that it will
+work with prior versions of OpenVMS.  (Not implemented on VAX, and
+will produce Informational compile diagnostics, may not compile on
+ALPHA for versions of OpenVMS prior to 7.2)
+
+
+int fport__dup(int filedesc)
+
+Wrapper for dup().  Stores context information for later use by
+fport__fcntl().
+
+
+int fport__dup2(int filedesc1, int filedesc2)
+
+Wrapper for dup2().  Stores context information for later use by
+fport__fcntl()
+
+
+int fport__fclose(FILE * fileptr)
+
+Wrapper for fclose().  In addtion to normal fclose() operation, cleans
+up lock information from fport__fcntl.
+
+
+
+int fport__fcntl(int filedesc, int cmd, ...)
+
+Wrapper for fcntl().  Implements file locking.  This is accomplished
+by opening a second RMS stream in record mode on the file
+specification.  Passes through the non-locking functions to the
+underlying C RTL.  A fake_fcntl() module provides the dup() and dup2()
+functionality for earlier versions of OpenVMS.
+
+Note that this function will extend the file if needed to lock a
+range.  UNIX programs expect to be able to lock non-existant parts of
+a file.  This may cause portability problems with programs.
+
+
+FILE * fport__fdopen(int filedesc, char * amode)
+
+Wrapper for fdopen().  Currently does nothing but call fdopen().
+
+
+char * fport__fgetname(FILE * fileptr, char * buffer)
+
+Wrapper for fgetname().  Returns the filename in UNIX format.
+
+
+int fport__fileno(FILE * fileptr)
+
+Wrapper for fileno().  Currently does nothing but call fileno().
+
+
+FILE * fport__fopen(const char * filename, const char * amode)
+
+Wrapper for fopen().  See the description of fport__creat().
+
+
+FILE * fport__freopen(const char *file, const char * a_mode,
+		      FILE * fileptr)
+
+Wrapper for freopen().  See the description of fport__creat().
+
+
+int fport__fstat(int file_desc, fport__stat_t * statbuf)
+
+Wrapper for fstat().  Time is always returned in UTC.  The mode bits
+may be modified as a result of ACLs or special SAMBA modes.
+
+
+int fport__fstatvfs(int file_desc, struct statvs * statbuf)
+
+Implements statvfs() to return information about the file system the
+open file resides on.
+
+
+#define FPORT__STREAM_UNIXIO 1
+int fport__fsync(int filedesc)
+
+Implements the fsync() function for random access to buffered I/O.  It
+makes sure that the buffer is flushed to the current record boundary.
+Currently only reliable on fixed format files.
+
+
+void fport__ftime(struct timeb * tb)
+
+Implements the ftime() routine for versions of OpenVMS that do not
+have it.
+
+
+int fport__ftrunctate(int filedesc, off_t length)
+
+Wrapper for ftruncate.  This wrapper marks a high-water setting.  This
+is moved if any subsequent writes are done to the file.  If no more
+writes are done to the file, it will be truncated after it is closed.
+If this is used to extend a file, no extension is done until a
+subsequent write.
+
+
+char * fport__getcwd(char * buffer, size_t len)
+
+Wrapper for getcwd().  File specification is returned in UNIX format.
+
+
+#define getenv fport__getenv_trnlnm
+char * fport__getenv_trnlnm(const char * name, ...)
+
+Procedure for translating logical names similar to a common use of
+getenv().  I do not recommend using the DEC C getenv() for this inside
+of a loop, as it's behavior varies with the version of the underlying
+C run time library.  Using this routine will give consistent results.
+
+fport__getenv_trnlnm with only one parameter will just translate the
+name into up to 2047 bytes into local static storage for the procedure.
+This will be overwritten by subsequent calls.
+
+The second parameter is the size of an optional buffer pointed to the
+third parameter.  This buffer will contain the translated name instead
+of the static buffer.
+
+In the event that the logical name can not be translated, or only two
+parameters are given, the result will be a null pointer.  This is
+consistent with the allowed behavior for getenv().
+
+
+#define getegid fport__getgid
+short_gid_t fport__getgid(void)
+
+Gets the current gid, converting from the VMS group designated to the
+UNIX root id if needed.
+
+
+#define getgid fport__getgid_set
+short_gid_t fport__getgid_set(void)
+
+Gets the last GID that was set with fport__setgid().  This is used for
+some programs that test a setgid() call with a getgid() call
+immediately following.
+
+
+struct group * fport__getgrgid(long_gid_t gid)
+
+Looks up a UIC based group identifier or numeric rights ID and returns
+a pointer to a group structure that contains a pointer to the text
+name for the group.  If needed will substitute the designated VMS
+group for the UNIX group of 0.  For OpenVMS this will also translate
+rights identifiers to names.  The group structure can be overwritten
+by a subsequent call to fport__getgrgid() or fport__getgrnam().
+
+
+struct group * fport__getgrnam(const char * name)
+
+Looks up the UIC or numeric rightslist value for the given name, and
+then call fport__getgrgid() to return a pointer to the group structure.
+
+
+int fport__getgroups(int gidsetsize, long_gid_t * gid)
+
+Populates an array with all of the identifiers currently held by the
+user.
+
+
+char * fport__getname(int filedesc, char * buffer)
+
+Wrapper for getname().  Returns the file specification in UNIX format.
+
+
+char * fport__getopt(int argc, const char * argv[],
+		     const char * optstring)
+
+This is a modified version of the GNU getopt() function.  The
+modifications allow the use of "/" instead of "-" for long file
+options.  This allows GNU applications to have more of a OpenVMS look
+and feel with out much work.  To take advantage of this, the program
+must be written to use the gnu getopt function.
+(The enhancements have not been tested from this repackaged version.)
+
+
+char * fport__getpass(const char * prompt)
+
+This implements the getpass() routine.  It will read up to 39
+characters from the input stream.  Note that OpenVMS will only allow
+39 character passwords and Windows NT 4.0 will only allow 14 character
+passwords.  If standard input is not a terminal, this routine will
+return a null password.  This routine creates a channel to the
+standard input device that is shared with the fport__readline()
+function.
+
+
+struct fport__passwd_st * fport__getpwnam(const char * username)
+
+This implements an enhanced getpwnam().  The structure returned has
+more members to it than the DEC C one does, for ones that SAMBA
+expects, and most of the other fields of the user authorization
+record.  The user must have the appropriate privileges to obtain the
+information for this call to work.
+
+The directory name and login command file name will be returned in
+UNIX format.  The pw_gecos field is populated with the data from the
+VMS UAF owner field.  The VMS password hash is returned in hexadecimal.
+
+
+struct fport__passwd_st * fport___getpasswd_st(void)
+
+This routine will return a pointer to the last structure that was
+looked up with the fport__getpwnam().  This is used to implement the
+fport__vms_crypt() function.
+
+
+struct fport__passwd_st * fport__getpwuid(uid_t uid)
+
+This routine translates the uid to a username and then calls
+fport__getwpnam().
+
+
+int fport__gettimeofday(struct timeval * tv, void * tz)
+
+Implements the gettimeofday() routine.
+
+
+#define geteuid fport__getuid
+uid_t fport__getuid(void)
+
+This routine will return the current uid.  It will be converted from
+a VMS UID to the UNIX root uid if needed.
+
+
+char * fport___getusername(void).
+
+This routine will return a pointer to the last username that was
+looked up with fport__getpwnam().
+
+
+mode_t fport__get_acl_mode(const char * file_spec, mode_t umode)
+
+This routine modifies the umode protection mask passed based on any
+ACLs that are present on a file.
+
+
+void fport__get_default_file_attr(char * vmspath,
+				  const char *filename, char * attr)
+
+This routine converts the given file specification to be in a properly
+encoded VMS file specification.  It also looks up the default file
+attributes for a file based on a template of the same extension found
+in a template directory.
+
+The template directory name is based on the settings of
+fport__set_template_prefix().  This defaults to
+"FPORT__TEMPLATES:TEMPLATE"
+
+
+uid_t fport__get_root_uid(void)
+
+Gets the current VMS UIC that corresponds to the UNIX UID of 0.  The
+default is [1,4] for the SYSTEM account.
+
+
+mode_t fport__get_samba_mode(const char * filename, mode_t umode)
+
+This routine looks up special SAMBA DOS attributes for a file and does
+a logical OR of them with the umode parameter.
+
+The DOS Archive bit is clear if a backup date is recorded for the
+file.  SAMBA encodes this as S_IXUSR.
+
+If the FPORT__M_STAT_SET_SAMBA_SYSTEM_ACE option is clear (current
+default) then the SYSTEM bit is set if SYSPRV or higher is needed for
+write access to the file.  If the option is set, then the presence of
+the SAMBA__SYSTEM ACE on the file will be used as the indicator.
+SAMBA encodes this as S_IXGRP.
+
+If the FPORT__M_STAT_SET_SAMBA_READONLY_ACE option is clear (current
+default) then the READONLY bit is set if the user normally does not
+have privileges to modify the file.  This may generate a false
+READONLY setting if the UIC based protection is set to World + Group
++ Owner readonly already, but an ACE grants the user access.  If the
+option is set, then the presence of the SAMBA__READONLY ACE on the
+file will be used as the indicator.  SAMBA encodes this as all three
+of the S_IWUSR, S_IWGRP, S_IWOTH being clear.
+
+
+Using ACEs as these indicators is currently not implemented.
+Activating the option bits for this will cause those attributes to
+not be displayed.
+
+Some more work on this will be done later.
+
+
+struct tm * fport__gmtime(const time_t * clock)
+
+Implements the gmtime() routine.
+
+
+FPORT__HIST_ENTRY **fport__history_list(void)
+
+Returns a pointer to an array of input history lines that were
+maintained by fport__add_history() function.  This is part of UNIX
+READLINE library emulation.  The fport__readline() function does not
+currently use the history lines.
+
+
+int fport__kill(int pid, int sig);
+
+Wrapper for the kill() function.  This version always just returns the
+current pid for a signal value of 0.
+
+
+struct tm * fport__localtime(const time_t * clock)
+
+Implements the localtime() routine.
+
+
+#define FPORT__STREAM_UNIXIO 1
+off_t fport__lseek(int filedesc, off_t offset, int direction)
+
+Attempts to handles random byte access for RMS files.  Currently will
+only work reliably for fixed format files.  Attempting to lseek() to
+write into the middle of a stream file opened in record mode will
+cause an extra record terminating characters to be inserted.
+
+
+int fport__mkdir(const char * dirspec, mode_t mode)
+
+Wrapper for the mkdir() function.  This handles the filename
+translation.
+
+
+time_t  fport__mktime(struct tm * tm)
+
+Implements the mktime routine.
+
+
+void fport__nt_time_to_vms(void * vms_time, const void * nt_time)
+
+This routine converts an NT 64 bit time to a VMS 64 bit time with no
+loss of precision.
+
+The arguments are two member longword arrays.  Void pointers are used
+because of the variety of ways the time quad word can be stored.
+
+
+int fport__open(const char *filename, int flags, ...)
+
+See the description for creat().  This routine accepts a third
+optional parameter of the protection mode.
+
+
+FPORT__DIR fport__opendir(const char * dirspec)
+
+Wrapper for opendir().  The FPORT__DIR structure is modified from the
+standard DIR structure in that it has an additional field.  If you
+pass it the UNIX path of "/", it will use the logical name that
+fport__unix_dev_translate() will substitute for it.  If you pass it
+the UNIX path of /DEV it will check to see if the logical name
+fport__unix_dev_translate() will substitute for it is a search list,
+then the logical names in the search list will be listed by the
+subsequent readdir().  If no logical name exists, it then readdir will
+return a list of all devices known on the system.
+
+See the description for fport__unix_dev_translate() for more
+information on device translation.
+
+
+void fport__pwrk_fname_to_unix(char * outfile, const char * infile,
+			       long option)
+
+This routine is called by fport__vms_fname_to_unix() when
+FPORT__M_FNAME_PWRK is set.  This routine decodes a VMS file name
+encoded into Compaq's PATHWORKS format to be the expected UNIX format.
+This routine is mainly for internal use.  The option flags control
+aspects of the translation.
+
+
+#define FPORT__STREAM_UNIXIO 1
+ssize_t fport__read(int filedesc, void* buffer, size_t nbytes)
+
+This routine buffers read information to give the illusion that a VMS
+file read in record mode is still a continuous stream of bytes.
+
+
+struct dirent * fport__readdir(FPORT__DIR * dirp)
+
+Wrapper for readdir().  See the description for fport__opendir().
+
+
+char * fport__readline(const char * prompt)
+
+Implements a readline simulation using SYS$QIOW.  At the present time
+using the history list is not implemented, but single line recall and
+editing is available.  This is part of UNIX READLINE library
+emulation.  This routine creates a channel to the standard input
+device that is shared with the fport__getpass() function.
+
+
+
+#define fport__remove fport__delete
+
+Alias for fport__delete().  No function has been implemented.  The two
+routines have the same functionality.
+
+
+int fport__rename(const char * name1, const char * name2)
+
+Wrapper for rename().  Accepts UNIX format file specifications.  This
+will change the protection of a directory to allow it to be renamed,
+if the user normally has permission to change the protection of a
+directory.
+
+
+void fport__report_version(void)
+
+This routine prints out the version of the FRONTPORT library and some
+information that can be used to help diagnose problems.
+
+
+void fport__rewinddir(FPORT__DIR * dirp)
+
+Wrapper for rewinddir().  See the description for fport__opendir().
+
+
+int fport__rmdir(const char * dirname);
+
+Wrapper for rmdir().  This handles the filename translation.
+
+
+void fport__seekdir(FPORT__DIR * dirp, long int loc)
+
+Wrapper for seekdir().  See the description for fport__opendir().
+
+
+mode_t fport__samba_to_unix_chmod(mode_t mode)
+
+This routine strips off the SAMBA encoded mode bits from the
+protection mode.
+
+
+#define setegid fport__setgid
+int fport__setgid(gid_t gid)
+
+Wrapper for setgid().  Routine always returns success, and does not
+change the group identification number as this has no meaning in
+OpenVMS.  The group uid is stored for later return by
+fport__getgid_set().
+
+
+#int seteuid fport__setuid
+int fport__setuid(uid_t uid)
+
+An implementation of setuid().  This routine changes the UIC, the
+Username, and loads the appropriate identifiers for the new user.
+Requires the FRONTPORT___SET_USER shared image to be installed.
+
+
+unsigned long fport__set_file_modtime(const char * filename,
+				      const long * vmsdate)
+
+This procedure sets the file specified in VMS convention with the
+revision date supplied in VMS quadword format.  No filename conversion
+is done.  Used by utime().
+
+
+void fport__set_global_options(void)
+
+This procedure sets global options in one convenient routine by
+reading logical names.  This was documented in an earlier section.
+
+
+void fport__set_root_uid(uid_t alias)
+
+Sets the VMS UIC that corresponds to the UNIX uid of 0.  Use this
+function to allow running of UNIX code that assumes it must be
+running under root.
+
+
+void fport__set_samba_mode(const char * vmspath, mode_t mode)
+
+This routine is for future implementation.  Due to differences in the
+OpenVMS security model and Windows NT, it will require more work.
+
+With the current UIC based protection mapping, it is not possible to
+be able to properly reverse a protection change operation.  For
+example, making a file READONLY from a DOS point of view requires
+removing write access from the world and group also.  Removing
+READONLY from a DOS point of view should not imply adding world and
+group write access in addition to owner.
+
+
+int fport__snprintf(char * str, size_t n, const char *format, ...)
+
+This implements the snprintf() as a wrapper to sprintf() routine.  The
+destination string is limited to 65535 characters.
+
+
+int fport__stat(const char * filename, fport__stat_t * statbuf)
+
+Wrapper for stat().  Behavior is controlled by the
+FPORT__M_STAT_USEACL, FPORT__M_STAT_SAMBA options.
+
+
+int fport__statvfs(const char * filename, struct statvs * statbuf)
+
+Implements statvfs().  Returns information about the file system that
+the filename is on.
+
+
+int fport__system(const char * command)
+
+This routine implements the system() routine.  It changes the
+effective uid to be the original uid just before the command is
+spawned and then changes it back.  This appears to be the way UNIX
+code expects it to work.
+
+
+time_t fport__time(time_t * clock)
+
+Implements the time() routine.
+
+
+long int fport__telldir(FPORT__DIR * dirp)
+
+Wrapper for telldir().  See the description for fport__opendir().
+
+
+int fport__truncate(const char * filename, off_t length)
+
+Wrapper for truncate().  Handles the filename translation.
+
+
+void fport__tzset(void)
+
+Sets the global variables daylight, timezone, and tzname[2].  The
+first logical name found of the set TZ, SYS$TIMEZONE_RULE, UCX$TZ,
+POSIX_TZ, POSIX$DEFAULT_TZ will be used.
+
+
+int fport__umask(mode_t mode)
+
+Wrapper for umask().  Behavior is controlled by the
+FPORT__M_STAT_SAMBA option.
+
+
+void fport__unix_dev_translate(char * outfile, const char * infile)
+
+This routine looks to see if infile is of the format "/dev/nnnn"
+format and then translates it to a logical name with a prefix
+determined by fport__set_unix_device_prefix().  The default prefix is
+FPORT__VMS_DEV_.
+
+For example /dev/nl would be interpreted as FPORT__VMS_DEV_NL:.
+
+It also will interpret "/" as the same prefix and adding the suffix
+"ROOT".   This allows a programmer to designate what is the "ROOT"
+directory.  If the resulting logical name does not exist, then
+SYS$LOGIN: is used.
+
+This routine is called by all routines in this library that accept
+UNIX file specifications.  The routines that convert from VMS file
+specifications to UNIX file specifications reverse this by calling
+fport__vms_dev_translate().
+
+
+
+void fport__unix_fname_to_pwrk(char * vmspath, const char *filename,
+			       unsigned long options)
+
+This routine will convert a UNIX style filename to a format that is
+compatible with Compaq's Pathworks product if the target device is on
+an ODS-2 device.  This routine is used by all functions in this
+library that accept a UNIX file specification.  It is called by the
+fport__unix_fname_to_vms() routine.
+
+
+void fport__unix_fname_to_vms(char * vmspath, const char *filename,
+			      unsigned long options)
+
+This routine converts a UNIX style filename into a VMS style filename
+encoding the characters that are not legal VMS characters by the
+specified FPORT__M_FNAME_* option.  At the present time only
+FPORT__M_FNAME_PWRK is implemented.
+
+
+void fport__unix_time_t_to_vms(void * vms_time, time_t unix_time)
+
+This routine converts a UNIX time_t format to a VMS quadword format.
+The vms_time is passed as two element longword array or equivalent
+size structure.
+
+
+int fport__utime(const char * fname, const struct utimbuf * times)
+
+Implementation of utime().  This routine only sets the modification
+date of the file.  The access time parameter is currently ignored.
+Support for it will need to be added later where it is supported.
+
+
+int fport__vms_dev_translate(char *outfile, const char * unixpath,
+			     char sep)
+
+This routine is the reverse of the fport__unix_dev_translate()
+routine.  When this routine is passed a logical name matching one
+generated by the fport__unix_dev_translate(), it will decode it into
+the UNIX device specification that produced it.  This is to allow file
+specifications to be translated in both directions.
+
+
+
+void fport__vms_dir_to_fname(char * vmsdirpath, const char * vmspath)
+
+This converts a VMS directory specification into a file specification.
+
+
+void fport__vms_fname_to_unix(char * unixpath, const char * vmspath,
+			      options)
+
+This converts a VMS file specification to a UNIX specification,
+decoding special characters as needed and controlled by the
+FPORT__M_FNAME options.  This calls the fport__pwrk_fname_to_unix()
+to do the translation.  Currently only Pathworks and ODS-5 encoding
+is translated.
+
+
+void fport__vms_time_to_nt(void * nt_time, const void * vms_time)
+
+This routine converts a VMS quadword time to NT time format with no
+loss of precision.
+
+
+unsigned long fport__vms_statvfs(char * devname, struct statvfs * buf)
+
+This routine implements a statvfs() routine on a VMS device
+specification.  It is used by fport__statvfs() and fport__fstatvfs().
+This routine is mainly for internal use.  The devname parameter should
+be declared as const, and will probably be with the next revision.
+
+
+unsigned long fport__vms_support_flags(void)
+
+This routine is used to determine what options the version of OpenVMS
+that it is running on will support.  Currently the flags returned are:
+    FPORT__M_VMS_EFS - VMS version supports EFS.
+    FPORT__M_VMS_DEEPDIR - VMS version supports 255 directory levels.
+
+
+int fport__vsnprintf(char * str, size_t n, const char *format,
+		     va_list ap)
+
+This implements the vsnprintf() routine as a wrapper to vsprintf()
+routine.  The destination string is limited to 65535 characters.
+
+
+#define FPORT__STREAM_UNIXIO 1
+int fport__write()
+
+This buffers write requests until an entire record can be written.
+It provides the illusion that an RMS file can be written to as a
+stream of bytes while open in record context.
+
+
+
+Some special notes:
+
+The file fake_fcntl.c is provided for those versions of VMS that the
+DEC C RTL does not contain any fcntl() function.  This is to allow the
+library to be linked on those systems.  Some of the I/O fcntl()
+functions may not be available when this is done.
+
+grp.h is provided to allow UNIX programs that reference it to compile.
+Only the getgrgid() and getgrnam() routines are implemented at this
+time.
+
+
+Building the FRONTPORT library:
+
+The source kit is a ZIP archive.
+
+The source files can be in a different directory than the default
+directory.  This allows you to have the files that are not being
+modified in a CMS library.
+
+You need to have your default set to the directory where you want the
+binary files to be created.  The command procedure
+SETUP_FRONTPORT_BUILD.COM must be run out of the directory where the
+source files are.  This will set up the needed logical names and
+symbols to do the build.
+
+I strongly recommend that you NOT set your default to a CMS reference
+directory.
+
+Either Compaq Module Management System (MMS) or the MadGoat Make (MMK)
+should be able to build the main shared image.
+
+The command MMS/DESCRIP=FRONTPORT will compile and link the shared
+image.
+
+To build and install the helper images, you must copy the startup
+command files to the default directory and run the command file
+FRONTPORT_STARTUP.COM.  The DEC C compiler is required.
+
+
+If I receive patches to allow GCC to build these routines or to allow
+older versions of OpenVMS than I can test with, I will try to
+accommodate them, but I can only test DECC on close to the latest
+version of OpenVMS at this time.
+
+This is a spare time project, so I will not commit to any release
+schedule for any enhancements.
+
+
+Acknowledgements:
+
+This library is not a sole effort.  The following people need to be
+acknowledged.
+
+The UTC time routines were originally written by Eckart Meyer. Eckart
+Meyer also provided the base code for many other of the routines.
+
+The code for looking up the holder of a blocked lock as part of fcntl()
+is from Usenet postings by Hein van den Heuvel.
+
+The getopt routines are from the FSF GNU project.
+
+The utime setting routines are based on code from Eckart Meyer and
+Joe Medows.
+
+The user written system used the code from SYS$EXAMPLES: for VAX and
+ALPHA as templates.
+
+The set user macro routines were written by Geoff Fitch., "ABS STINE",
+and "DSA".
+
+Glenn C. Everhart has provided me with sample routines that will be
+used to derive additional functionality in the future in the area of
+case preserved storage and display of filenames, and also in a future
+implementation of DOS attributes.
+
+
+All trademarks mentioned here in are the properties of their owners.
+OpenVMS, and VMS are trademarks of Compaq Computer Corporation.  UNIX
+is a trade mark of "The Open Group".

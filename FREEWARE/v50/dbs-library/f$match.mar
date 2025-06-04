@@ -1,0 +1,225 @@
+	.title	f$match
+	.ident	/X1-001/
+
+;+
+; Version:	X1-001
+;
+; Facility:	General utilities.
+;
+; Abstract:	Performs a wildcard match on two strings.
+;
+;		$ f$matc*h == "$wmc_library:f$match"
+;		$ f$match(candidate, pattern)
+;
+;		f$match must be defined as a foreign command.
+;		If either string is a quoted string, the strings as passed
+;		are used.  If either string is unquoted, it is assumed to be
+;		a DCL symbol and a call to lib$get_symbol is done to find
+;		the value of the symbol.  The $status symbol must be checked
+;		to see if there was a match.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	10-Dec-1991, DBS, Version X1-001
+; 001 -	Original version.
+;-
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	.external	lib$get_foreign
+	.external	lib$get_symbol
+	.external	lib$signal
+	.external	lib$stop
+	.external	lib$tparse
+	.external	str$match_wild
+	.external	str_uppercase
+
+	$climsgdef
+	$libdef
+	$libdtdef
+	$rmsdef
+	$ssdef
+	$stsdef
+	$tpadef
+	$gblini GLOBAL
+
+	def_psect _util_data_rw, type=DATA, alignment=LONG
+	def_psect _util_code, type=CODE, alignment=LONG
+
+	.subtitle Data areas
+
+	set_psect _util_data_rw
+
+util_prompt:	.ascid	"_f$match: "
+
+;>>> start of lib$tparse argument block
+; this becomes the argument block for all lib$tparse action routines
+
+util_parse_ctrl:		; control block for lib$tparse
+	.long	tpa$k_count0	; longword count - required
+	.long	tpa$m_abbrev	; allow unambiguous abbreviations
+		; from here down is filled in at run time
+	.long	0	; length of input string	tpa$l_stringcnt
+	.long	0	; pointer to input string	tpa$l_stringptr
+	.long	0	; length of current token	tpa$l_tokencnt
+	.long	0	; pointer to current token	tpa$l_tokenptr
+	.blkb	3	; unused area
+	.byte	0	; character returned		tpa$b_char
+	.long	0	; binary value of numeric token	tpa$l_number
+	.long	0	; argument supplied by user	tpa$l_param
+		; up to here is REQUIRED, anything after here is optional
+util_parse_ctrl_end:
+
+;>>> end of lib$tparse argument block
+
+	alloc_string	util_command, 256
+	alloc_string	cand_symbol, 256
+	alloc_string	patt_symbol, 256
+
+candidate:	.quad	0
+pattern:	.quad	0
+quote_char:	.long	0
+
+flags:		.long	0
+	v_cand_quoted = 0
+	m_cand_quoted = 1
+	v_patt_quoted = 1
+	m_patt_quoted = 2
+
+	reset_psect
+
+	.subtitle Main command processing loop
+
+	set_psect _util_code
+
+	.entry -
+util_start, ^m<>
+
+	call	lib$get_foreign -
+			util_command_ds, -
+			util_prompt, -
+			util_command
+	blbc	r0, 90$
+
+	clrl	flags
+	call	str_uppercase util_command
+
+	movzwl	util_command, -		; move the command descriptor to
+		util_parse_ctrl+tpa$l_stringcnt ; the control block so that
+	movab	util_command_t, -	; lib$tparse knows what to look at
+		util_parse_ctrl+tpa$l_stringptr
+	call	lib$tparse -		; let's parse the command
+			util_parse_ctrl, -
+			start_state_tbl, -
+			start_keyword_tbl
+	blbs	r0, 90$
+	movl	#cli$_expsyn, r0
+
+90$:	bisl	#sts$m_inhib_msg, r0
+	$exit_s	code=r0
+
+	ret
+
+	.subtitle Routine to perform the checking
+
+	.entry -
+check_match, ^m<>
+
+	bbs	#v_cand_quoted, -	; if candidate was quoted
+		flags, 10$		;  then use what we were given
+	call	lib$get_symbol -	; else see if it is a valid
+		candidate, -		;  cli symbol
+		cand_symbol_ds, -
+		cand_symbol
+	blbc	r0, 90$			; bail out if no good
+	movq	cand_symbol, candidate	; now point to the symbol value
+	call	str_uppercase candidate
+
+10$:	bbs	#v_patt_quoted, -	; if the pattern was quoted
+		flags, 20$		;  then use what we were given
+	call	lib$get_symbol -	; else see if it is a valid
+		pattern, -		;  cli symbol
+		patt_symbol_ds, -
+		patt_symbol
+	blbc	r0, 90$			; bail out if no good
+	movq	patt_symbol, pattern	; now point to the symbol value
+	call	str_uppercase pattern
+
+20$:	call	str$match_wild -
+			candidate, -
+			pattern
+
+90$:	bisl	#sts$m_inhib_msg, r0
+	$exit_s	code=r0
+
+	ret
+
+	.subtitle Routines to set error status and compare quote characters
+
+	.entry -
+say_error, ^m<>
+
+	movl	#cli$_expsyn, r0
+	bisl	#sts$m_inhib_msg, r0
+	$exit_s	code=r0
+
+	ret
+
+	.entry -
+compare_char, ^m<>
+	cmpb	tpa$b_char(ap), -
+		quote_char
+	bneq	90$
+	clrl	r0
+90$:	ret
+
+	.subtitle Parser state and transition defintions for start
+
+double_quote=34
+
+$init_state start_state_tbl, start_keyword_tbl
+
+	$state start
+	$tran	'('		,save_candidate
+	$tran	tpa$_eos	,tpa$_exit,say_error
+
+	$state save_candidate
+	$tran	double_quote	,quoted_candidate,,,quote_char
+	$tran	tpa$_filespec	,comma,,,candidate
+	$tran	tpa$_eos	,tpa$_exit,say_error
+	$state quoted_candidate
+	$tran	!q_string	,,,,candidate
+	$state
+	$tran	double_quote	,comma,,m_cand_quoted,flags
+
+	$state comma
+	$tran	<','>		,save_pattern
+	$tran	tpa$_eos	,tpa$_exit,say_error
+
+	$state save_pattern
+	$tran	double_quote	,quoted_pattern,,,quote_char
+	$tran	tpa$_filespec	,r_bracket,,,pattern
+	$tran	tpa$_eos	,tpa$_exit,say_error
+	$state quoted_pattern
+	$tran	!q_string	,,,,pattern
+	$state
+	$tran	double_quote	,r_bracket,,m_patt_quoted,flags
+
+	$state r_bracket
+	$tran	')'		,tpa$_exit,check_match
+	$tran	tpa$_eos	,tpa$_exit,say_error
+
+	$state q_string
+	$tran	tpa$_any	,q_string,compare_char
+	$tran	tpa$_lambda	,tpa$_exit
+
+$end_state
+
+	.end	util_start

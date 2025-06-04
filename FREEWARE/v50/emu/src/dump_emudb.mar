@@ -1,0 +1,511 @@
+	.TITLE	DUMP_EMUDB 
+	.IDENT /V01-004/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 DUMP_EMUDB 
+; Routine to sequentialy read, format and display all recs in EMUDB
+; The keys used (in order primary , secondary ....:
+;	BOXID, Table, Instance, Paramater
+; Mostly a test/debug tool.
+; Now called from Management memu in EMU_UILIB and uses SMG for output.
+; 
+;--
+; Modifications
+; 01	SEP-1996	PB	Create
+; 02	Mar-1997	PB	Minor changes to run a subroutine
+;                                and use SMG as output.
+; 03	Mar-1997	PB	Added out-of-band AST to enable CTRL-Y
+;				To interrupt and exit
+; 04	Apr-1997	PB	Added logfile option
+
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+	EMUDBDEF
+	$SMGDEF
+	$TRMDEF
+
+	.PSECT  RW_DATA, NOEXE, RD, WRT, QUAD ,PIC, NOSHR 
+RETURN:		.BLKB	2048
+RETURN_D:	.LONG	.-RETURN
+		.ADDRESS  RETURN
+RECDESC:	.QUAD	0
+LINCNT:		.LONG	0
+REC_HEAD:
+FAOBUF:		.BLKB	80
+FAODESC:	.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+ERRSTR:		.ASCID	/!UL.!UL. Error: !XL/
+NODESTR:	.ASCID	/ Node = !UL/
+TABLESTR:	.ASCID	/ Table = !UL/
+RMSERR:		.ASCID	/ Read Error : !XL/
+EOFMSG:		.ASCID	/ End of database. Any key to exit/
+FILEPRMPT:	.ASCID	/ Filename <CR> for no logging: /
+LOGMSG:		.ASCID	/ Logging file ON /
+	.align	long
+; log file
+FILENAME:	.BLKB	40
+FILENAME_LEN:	.LONG	0
+LOGFAB:	
+	$FAB	FAC = <PUT>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; 
+		ORG = SEQ,-
+		RAT = CR			; 
+LOGRAB:	
+	$RAB	FAB = LOGFAB		; pointer to FAB
+;
+
+
+
+	.align	long
+EMUDBFAB:	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 768,-                     ; Largest rec
+		RFM = VAR,-			; Variable len
+		GBC = 10,-                      ; Use global buffers
+		DNM = <EMU5_DAT:EMUDB.DAT>,-	; Default Filename 
+		FNM = <EMUDB>,-			; Filename 
+		XAB = EMUDBXAB0                  ; Keys
+
+EMUDBRAB:	$RAB	FAB = EMUDBFAB,-		; pointer to FAB
+		RBF = EMUDBREC_BUF,-		; i/o buffer 
+		RSZ = EMUDBREC_SIZE,-		; Write this many bytes
+		ROP = RRL,-			; Ignore locks
+		UBF = EMUDBREC_BUF,-		; i/o buffer 
+		USZ = EMUDBREC_SIZE,-		; 
+		RAC = SEQ			; Sequential access
+EMUDBRAB2:	$RAB	FAB = EMUDBFAB,-		; pointer to FAB
+		RBF = EMUDBREC_BUF,-		; i/o buffer 
+		ROP = <NXT,RRL>,-			; Ignore locks
+		RSZ = EMUDBREC_SIZE,-		; Write this many bytes
+		UBF = EMUDBREC_BUF,-		; i/o buffer 
+		USZ = EMUDBREC_SIZE,-		; 
+		RAC = KEY,-			; Indexed access
+                KSZ = KEY_LEN,-
+		KBF = KEY_BUF
+
+EMUDBXAB0:	$XABKEY	REF = 0,-  		; PROTOCOL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP>,-		; Duplicates, changes allowed
+		NXT = EMUDBXAB1
+;
+EMUDBXAB1:	$XABKEY	REF = 1,-  		; BOXID
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUDBXAB2
+;
+EMUDBXAB2:	$XABKEY	REF = 2,-  		; TABLE
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 8,-               ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUDBXAB3
+;
+EMUDBXAB3:	$XABKEY	REF = 3,-  		; Instance
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 12,-              ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUDBXAB4
+;
+EMUDBXAB4:	$XABKEY	REF = 4,-  		; Paramater
+		DTP = BN4,-             ; Key = 4 byte binary (ascending)
+		POS = 16,-              ; Key position
+		SIZ = 4,-               ; Key len
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		NXT = EMUDBXAB5
+;
+EMUDBXAB5:	$XABKEY	REF = 5,-  	; Protocol,boxid
+		DTP = BN8,-             ; Key = 4 byte binary (ascending)
+		POS = 0,-              ; Key position
+		SIZ = 8,-               ; Key len
+                FLG = <DUP,CHG>,-		; Duplicates, changes allowed
+		NXT = EMUDBXAB6
+;
+EMUDBXAB6:	$XABKEY	REF = 6,-  	; Unique param
+		DTP = STG,-             ; String
+		POS = 0,-               ; Key position
+		SIZ = 20,-                ; Key len - Duplicates not allowed
+		NXT = EMUDBXAB7
+;
+EMUDBXAB7:	$XABKEY	REF = 7,-  	; BOXID,TABLE
+		DTP = BN8,-             ; 8 BYTES
+                FLG = <DUP,CHG>,-	; Duplicates, changes allowed
+		POS = 4,-               ; Key position
+		SIZ = 8,-                 ; Key len 
+		NXT = EMUDBXAB8
+;
+EMUDBXAB8:	$XABKEY	REF = 8,-  	 ; TABLE,PARAM
+		DTP = STG-               ; 8 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = <8,16>-            ; Key position
+		SIZ = <4,4>,-              ; Key len 
+		NXT = EMUDBXAB9
+;
+EMUDBXAB9:	$XABKEY	REF = 9,-  	 ; BOXID TABLE,PARAM
+		DTP = STG,-               ; 12 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = <4,8,16>-            ; Key position
+		SIZ = <4,4,4>,-              ; Key len 
+		NXT = EMUDBXAB10
+
+EMUDBXAB10:	$XABKEY	REF = 10,-  	 ; Flag field
+		DTP = BN4-               ; 4 BYTES
+                FLG = <DUP,CHG>,-	 ; Duplicates, changes allowed
+		POS = 20,-            	 ; Key position
+		SIZ = 4               	 ; Key len 
+
+EMUDBREC_BUF:
+KEY_BUF:	
+PROTO:		.LONG
+BOXID:		.LONG
+DBTBL:		.LONG
+DBINST:		.LONG
+DBPARM:		.LONG
+KEYSPR:		.LONG
+KEY_LEN = .-KEY_BUF
+EMUDBDAT_BUF:	.BLKB	768-KEY_LEN		; 
+REC_HEAD_LEN = .-REC_HEAD
+EMUDBREC_SIZE = .-EMUDBREC_BUF 
+PREV_KEY:
+	.BLKL	24
+	.ALIGN	LONG
+EXIT_REQUESTED:		.LONG	0
+CC_MASK:		.LONG	8	; Control-c
+
+; SMG
+;Main display
+DUMP_MAIN_DISP:	.LONG		; Virtual Display ID
+DUMP_MAIN_ROWS: 	.LONG  0        ; Set by routine (page size-7)
+DUMP_MAIN_COLS: 	.LONG  132
+DUMP_MAINPB_BOARD:	.LONG 		; Pasteboard ID
+DUMP_MAINPB_COL:	.LONG	1      
+DUMP_MAINPB_ROW:	.LONG 	5
+; Hint display
+;
+DUMP_HINTPB_BOARD:	.LONG 		; Pasteboard ID
+DUMP_HINT_DISP:	.LONG		; Virtual Display2 ID
+DUMP_HINT_ROWS: 	.LONG  3        ; Static
+DUMP_HINT_COLS: 	.LONG  132
+DUMP_HINT_PBCOLS:	.LONG	1      
+DUMP_HINT_PBROWS:	.LONG 	1
+; Misc SMG ...
+BORDER:		.LONG	SMG$M_BORDER
+SAVE_DISP:	.LONG	0		; Saved char
+SCR_WID:	.LONG	132
+SCR_HEIGHT:	.LONG	48
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG	0
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+BYTCNT:		.WORD
+
+;
+	.PSECT	CODE NOWRT,EXE,QUAD
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DUMP_EMUDB  
+;
+	BSBW	CREATE_DUMP_ENVIRONMENT
+;
+; Log file option
+		PUSHAL	DUMP_HINT_DISP                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)		           ; Timeout 
+		PUSHAL	UPCASE                  ; Make input UPCASE 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	FILEPRMPT               ; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+	BLBC	R0,100$
+	TSTW	BYTCNT
+	BEQL	100$
+	MOVAL	KB_BUF,LOGFAB+FAB$L_FNA	; Location of name
+	MOVB	BYTCNT,LOGFAB+FAB$B_FNS	; Size of name
+	$CREATE	FAB=LOGFAB
+	BLBC	R0,100$
+	$CONNECT RAB=LOGRAB
+	BLBC	R0,100$
+	PUSHAL	LOGMSG
+        PUSHAL	DUMP_MAIN_DISP
+	CALLS	#2,G^SMG$PUT_LINE
+
+100$:
+	$OPEN	FAB=EMUDBFAB
+	BSBW	ERROR_CHK
+	$CONNECT RAB=EMUDBRAB 		; seq
+	BSBW	ERROR_CHK
+	$CONNECT RAB=EMUDBRAB2          ; key
+	BSBW	ERROR_CHK
+	MOVB	#6,EMUDBRAB2+RAB$B_KRF	;
+	MOVB	#DB_C_PRMKSZ,EMUDBRAB2+RAB$B_KSZ	;
+;	BISL	#RAB$M_EQNXT,EMUDBRAB+RAB$L_ROP
+        CLRL	EXIT_REQUESTED
+; Get and display recs in order:
+;	All params this box,tbl,instance
+;	When instance changes, next instance
+;	When 
+READ:
+	BLBS	EXIT_REQUESTED,2$	; Br if exit requested set
+	$GET	RAB=EMUDBRAB2            ; Get 1st rec
+	BLBS	R0,5$
+	CMPL	#RMS$_RNF,R0
+	BEQLU	2$
+	MOVL	#80,FAODESC
+	PUSHL	R0
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RMSERR
+	CALLS	#4,G^SYS$FAO
+	PUSHAL	FAODESC
+        CALLS	#1,G^DBD_DISPLAY_PARAM 
+	BRW	READ
+2$:
+	$CLOSE	FAB=EMUDBFAB
+	BRW	END
+5$:
+	CMPL	EMUDBREC_BUF+DB_REC_L_BOXID,PREV_KEY+DB_REC_L_BOXID
+	BEQLU	10$
+	PUSHAL	EMUDBREC_BUF
+	CALLS	#1,G^DBD_DISPLAY_NODE
+10$:
+	CMPL	EMUDBREC_BUF+DB_REC_L_TABLE,PREV_KEY+DB_REC_L_TABLE
+	BEQLU	20$
+	PUSHAL	EMUDBREC_BUF
+	CALLS	#1,G^DBD_DISPLAY_TABLE
+20$:
+	
+        MOVQ	EMUDBREC_BUF,PREV_KEY
+        MOVQ	EMUDBREC_BUF+8,PREV_KEY+8
+
+
+TRANSLATE:	
+; Make rec desc
+	MOVAL	EMUDBREC_BUF,RECDESC+4
+	MOVZWL	EMUDBRAB2+RAB$W_RSZ,RECDESC		
+
+	MOVL	#2048,RETURN_D
+	PUSHL	#DB_XLTOPT_M_SUPDAT	; OPT
+;	CLRL	-(SP)			; no opts
+	MOVL	#80,-(SP)		; Line len
+	PUSHAL	LINCNT
+	PUSHAL	RETURN_D
+	PUSHAL	RECDESC
+	CALLS	#5,G^PARAMXLT
+	CMPL	#SS$_NORMAL,R0
+	BNEQU	20$
+	PUSHAL	RETURN_D
+        CALLS	#1,G^DBD_DISPLAY_PARAM 
+	BRW	READ
+20$:
+	MOVL	#80,FAODESC
+	MOVQ	RECDESC,R6
+	PUSHL	R0		; Error
+	PUSHL	DB_REC_L_PARAM(R7)
+	PUSHL	DB_REC_L_TABLE(R7)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	ERRSTR
+	CALLS	#6,G^SYS$FAO
+	PUSHAL	FAODESC
+        CALLS	#1,G^DBD_DISPLAY_PARAM 
+	BRW	READ
+		
+END:
+	BLBS	EXIT_REQUESTED,10$		; Skip prompt if interputed
+		PUSHAL	DUMP_MAIN_DISP                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	UPCASE                  ; Make input UPCASE 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	EOFMSG                 	; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+10$:
+	PUSHAL	DUMP_MAIN_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	DUMP_HINT_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBC	R0,10$
+	RSB
+10$:
+	RET
+READ_PROMPT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+
+CREATE_DUMP_ENVIRONMENT:
+        .JSB_ENTRY      INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+ 
+; Create Virtual Displays
+; 
+;
+; Create Pasteboard
+;
+	PUSHAL	DUMP_MAINPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+	PUSHAL	DUMP_HINTPB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+
+; Save the current screen set up. Attempt to set it to 48x132. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	DUMP_MAINPB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	BSBW	ERROR_CHK
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	DUMP_MAIN_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	DUMP_MAIN_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	DUMP_MAINPB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	BSBW	ERROR_CHK
+	SUBL	#7,DUMP_MAIN_ROWS			; Set our page len
+;
+	PUSHAL	 BORDER
+	PUSHAL	DUMP_MAIN_DISP
+	PUSHAL	DUMP_MAIN_COLS
+        PUSHAL	DUMP_MAIN_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+	PUSHAL	 BORDER
+	PUSHAL	DUMP_HINT_DISP
+	PUSHAL	DUMP_HINT_COLS
+        PUSHAL	DUMP_HINT_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	DUMP_MAINPB_COL		;Column
+	PUSHAL	DUMP_MAINPB_ROW		;Row
+	PUSHAL	DUMP_MAINPB_BOARD
+	PUSHAL	DUMP_MAIN_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+
+	PUSHAL	DUMP_HINT_PBCOLS		;Column
+	PUSHAL	DUMP_HINT_PBROWS		;Row
+	PUSHAL	DUMP_HINTPB_BOARD
+	PUSHAL	DUMP_HINT_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+	PUSHAL	DBD_OOB_RECEIVE			; AST
+	PUSHAL	CC_MASK
+	PUSHAL	DUMP_MAINPB_BOARD
+	CALLS	#3,G^SMG$SET_OUT_OF_BAND_ASTS
+	BSBW	ERROR_CHK
+
+;	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+;	PUSHAL	DUMP_MAINPB_BOARD
+;	CALLS	#2, G^SMG$SET_CURSOR_MODE
+	RSB
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DBD_DISPLAY_NODE
+; Write node (boxid)
+	MOVL	4(AP),R6
+	MOVL	#80,FAODESC
+	PUSHL	DB_REC_L_BOXID(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	NODESTR
+	CALLS	#4,G^SYS$FAO
+	PUSHAL	FAODESC
+        CALLS	#1,G^DBD_DISPLAY_PARAM 
+	RET
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DBD_DISPLAY_TABLE
+
+	MOVL	4(AP),R6
+	MOVL	#80,FAODESC
+	PUSHL	DB_REC_L_TABLE(R6)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	TABLESTR
+	CALLS	#4,G^SYS$FAO
+	PUSHAL	FAODESC
+        CALLS	#1,G^DBD_DISPLAY_PARAM 
+	RET  
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DBD_DISPLAY_PARAM 
+
+	
+	MOVL	4(AP),R6
+	PUSHL	4(AP)
+        PUSHAL	DUMP_MAIN_DISP
+	CALLS	#2,G^SMG$PUT_LINE
+	TSTW	LOGFAB+FAB$W_IFI 
+	BEQL	100$
+	MOVQ	@4(AP),R6
+	MOVL	R6,LOGRAB+RAB$W_RSZ       	; Size
+        MOVL	R7,LOGRAB+RAB$L_RBF           ; Addr
+	$PUT	RAB= LOGRAB
+100$:	
+	RET  
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DBD_OOB_RECEIVE  
+;++
+;2 DBD_OOB_RECEIVE  
+; This routine is called when a CTRL-C is pressed. It sets a flag to
+; indicate to the main routine the user has requested exit. The main
+; routine then exits orderly.
+;-- 
+	MOVL	#1,EXIT_REQUESTED
+	RET
+
+	.END

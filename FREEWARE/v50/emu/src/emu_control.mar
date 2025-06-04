@@ -1,0 +1,953 @@
+	.TITLE	EMU_CONTROL 
+	.IDENT /V01-003/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 EMU_CONTROL 
+; This is the EMU control processor. Executing this program starts the system
+;2 Inputs
+;	PRCTBL.DAT -  A file of processes and related flags and paramaters
+;		      directing this process to start the system processes.  
+;	EMU_KEY.DAT-  A license key - not currently implemented
+;	EMU5_DAT:PSRTBL.DAT - The list of PSRs available and 
+;		      status as of last write.
+;2 Outputs
+;       The process table is updated with the current PIDs. This is used to 
+;	identify and restart failed processes.
+;	EMU5_DAT:PSRTBL.DAT - Written on exit 
+;
+;2 Modifications
+; 001  KOB AUG 1993		CREATION 
+; 002  PB  Oct 1996		Minor mods for V5:
+;				A bit in PRCTBLDEF disables start this proc 
+;				Removed assign to record MBX
+; 003	PB JAN 1997		Changed to allow 2 phase startup. 2nd phase
+;				waits for CEF flag to be set before executing.
+;				This is now EMU specific.                 
+; 004	PB Apr 1997		Added flag for debug and routine to 
+;				allow $CREPRC to send DBG i/o.
+;--
+; Definitions
+	.library	/emu5_lib:emu5.mlb/
+	.library	/emu5_lib:macrolib.mlb/
+
+	$ACCDEF
+      	$DVIDEF
+	$iodef
+	$JPIDEF
+	$LcKDEF
+	$LKIDEF
+	$PRCDEF
+	$PSLDEF
+	$PQLDEF
+	$TRMDEF                                                
+
+	_prctbldef
+	emusysdef
+	EMUPSRDEF
+
+	.psect	rw_data, noexe, rd, wrt, quad, pic, noshr	;Read/Write data
+PSRTBL_A:	.QUAD
+PSRTBLCNT:	.LONG
+  
+PRCFAB:	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; 
+		ORG = IDX,-			; Keyed file (Finally)
+		XAB = PRCXAB0,-			; KEYED DESC
+		DNM = <EMU5_DAT:PRCTBL.DAT>,-; Default Filename 
+		FNM = <PRCTBL>		; Filename 
+PRCRAB:	$RAB	FAB = PRCFAB,-			; Record 
+		RAC = SEQ,-			; Sequential access
+		RBF = PRCREC,-			; 
+		UBF = PRCREC,-			; 
+		USZ = PRCTBL_SIZE,-		; 
+		RSZ = PRCTBL_SIZE		; 
+PRCRAB2:
+	$RAB	FAB = PRCFAB,-			; Record 
+		RAC = key,-			; Sequential access
+		RBF = PRCREC2,-			; 
+		UBF = PRCREC2,-			; 
+		USZ = PRCTBL_SIZE,-		; 
+		RSZ = PRCTBL_SIZE		; 
+
+prcxab0: 	$xabkey ref=0,-
+			prolog=0,-
+			pos=prctbl_prcnam ,-
+			siz=16,-
+			dtp=stg,- 		; proc name
+			nxt=prcxab1
+prcxab1: 	$xabkey ref=1,-
+			prolog=0,-
+			pos=prctbl_startlvl,-
+			siz=4,-
+			dtp=BN4,- 		; Start level
+			nxt=prcxab2
+prcxab2: 	$xabkey ref=2,-
+			prolog=0,-
+			pos=prctbl_pid,-
+			siz=4,-
+			dtp=BN4 		; Start level
+	.ALIGN 	LONG
+
+; 
+; Error System Params
+	.ALIGN 	LONG
+;ERRFAB:	$FAB	FAC = <PUT>,-        	; Access
+;		DNM = <EMU5_LOG:EMU_ERRLOG.DAT>,-    ; Filename 
+;		FNM = <EMU_ERRLOG>,-    ; Filename 
+;		SHR = <DEL,UPD,GET,PUT>,- ; Share access R/W
+;		ORG = <IDX>,-		; Keyed (On date)
+;		XAB = ERRXAB,-		; KEYED DESC
+;		FOP = CIF		; Create if doesn't exist
+;ERRRAB:	$RAB	FAB = ERRFAB,-           
+;		RAC = SEQ,-		; Sequential access
+;		RBF = ERRREC,-
+;		UBF = ERRREC,-
+;		USZ = ERRREC_SIZE,-
+;		RSZ = ERRREC_SIZE
+;errxab: 	$xabkey ref=0,prolog=0,pos=0,siz=8,dtp=bn8 ; key time
+
+;
+; Symbol table
+	.ALIGN LONG
+SYMFAB:	$FAB	FAC = <DEL,UPD,GET,PUT>,-	; Access
+		MRS = SYMREC_SIZE,-		; FIXED
+		SHR = <DEL,UPD,GET,PUT>,-	; 
+		FNM = <EMU_SYSDEF>,-		; Filename 
+		DNM = <EMU5_DAT:EMU_SYSDEF.TBL>      ; Filename 
+SYMRAB:	$RAB	FAB = SYMFAB,-			; Record 
+ 		RBF = SYMREC,-
+		UBF = SYMREC,-
+		USZ = SYMREC_SIZE,-
+		RSZ = SYMREC_SIZE
+SYMREC:		.BLKB	128
+SYMREC_SIZE = .-SYMREC
+sym_desc:	.long	0
+		.address symrec
+
+;
+; License file
+	.ALIGN LONG
+LICFAB:	$FAB	FAC = <DEL,UPD,GET,PUT>,-	; Access
+		SHR = <DEL,UPD,GET,PUT>,-	; 
+		FNM = <EMU_KEY>,-		; Filename 
+		DNM = <EMU5_DAT:EMU_KEY.DAT>	; Filename 
+LICRAB:	$RAB	FAB = LICFAB,-			; Record 
+ 		RBF = LICREC,-
+		UBF = LICREC,-
+		USZ = LICREC_SIZE,-
+		RSZ = LICREC_SIZE
+LICREC:		.BLKB	128
+LICREC_SIZE = .-LICREC
+time_desc:	.long	0
+		.address licrec
+lic_desc:	.long	0
+		.address licrec
+
+cmd_str_len	= 256
+cmd_strl:	.long	cmd_str_len
+cmd_stra:	.address cmd_str
+cmd_str:	.blkb	cmd_str_len
+
+fao_str_len	= 256
+fao_strl:	.long	fao_str_len
+fao_stra:	.address fao_str
+fao_str:	.blkb	fao_str_len
+
+PRCREC:		.BLKB	PRCTBL_SIZE
+PRCREC2:	.BLKB	PRCTBL_SIZE
+
+;
+; Termination MBX params
+; 
+read_term_mbx:	.long	12				; arg counter
+evtflg:		.long	0				; event number
+trmchan:	.long	0				; channel
+       		.long	io$_readvblk			; function
+  		.address read_iosb			; io status block
+       		.long	emu_control_term_ast  		 	; ast routine
+       		.long	0				; ast param
+       		.address term_msg				; p1
+       		.long	acc$k_termlen			; p2
+		.long	0				; p3
+		.long	0				; p4
+		.long	0				; p5
+		.long	0				; p6
+;
+read_iosb:	.quad	0
+cmd_iosb:	.quad	0
+term_msg:	.blkb	acc$k_termlen
+
+ERRREC:
+; Standard Header
+ERRNO:		.WORD                   ; Msg. File rel rec no.   
+ERRSPR:		.WORD			; Spare/ALIGN 
+RTNNAME: 	.ASCIC	/STARTUP/	; 8 Bytes
+VMSERR:		.LONG			; Error from VMS
+ERRTIM:		.QUAD			; Time recorded
+ERRDATA:	.BLKB	40		; Cur. restricted to 1x .ascic (opt)
+ERRREC_SIZE =	.-ERRREC                ; Total 64 bytes
+;
+; Device information param list
+	.ALIGN	long
+NULLARG:	.QUAD
+DEVIOSB:	.QUAD
+; Call frame
+GET_MBXUNIT:	
+	.LONG	8         ; No.
+	.LONG	0	  ; EFN
+DEVCHN:	.LONG	0         ; Chan
+	.LONG	0         ; Dev Name
+	.ADDRESS ITMLIST
+	.ADDRESS DEVIOSB  
+	.LONG	0	  ; AST addr
+	.LONG	0 	  ;AST Param
+	.ADDRESS NULLARG  ; DEC
+;
+ITMLIST:	.WORD	4
+		.WORD	DVI$_UNIT
+		.ADDRESS	TRMMBXUNIT
+		.ADDRESS	TRMMBXUNIT_LEN
+		.LONG	0			; List Terminator
+TRMMBXUNIT:	.LONG	0
+TRMMBXUNIT_LEN:	.WORD	0
+DBG_TERM_NAME:	.BLKB	16
+DBG_TERM_DESC:	.LONG	.-DBG_TERM_NAME
+		.ADDRESS  DBG_TERM_NAME
+DBG_PROMPT:	.ASCID	/ Terminal: /
+exit_status:	.long	0
+exit_block:	.long	0
+		.address emu_control_exit_handler
+		.long	1
+		.address exit_status
+
+enq_flags:	.long	0
+enq_lkmode:	.long	0
+lock_iosb:	.blkb	24
+restart_system:	.long	0
+stop_system:	.long	0
+lock_wait:	.float	1.0
+proc_cnt:	.long	0
+emu_record_mbx_chan:	.long	0
+
+; Command channel mailbox stuff
+cmd_chan_unsol:		.long	0
+cmd_chan:		.long	0
+time:			.quad	0	; 
+license_key:		.long	0	; key value in hex
+license_dbsize:		.long	0	; licensed d/b size
+license_rcds:		.quad	0
+
+EFLAGS2:		.ASCID	/EFLAGS2/	; Event Flag Cluster (64-95)
+
+
+	.psect	rd_data, noexe, rd, nowrt, long, pic, shr	;Read Only data
+zero:		.long	0
+creprc_stsflg:	.long	<prc$m_detach!prc$m_nouaf>
+demo_kit:	.ascid	/Product demo kit. Expires !%D/
+creprc_sysuic:	.long	^x010004		; [1,4]
+
+creprc_quota:	.byte	pql$_astlm
+		.long	200
+		.byte	pql$_biolm
+		.long	50000
+		.byte	pql$_bytlm
+		.long	1000000
+		.byte	pql$_diolm
+		.long	100
+		.byte	pql$_enqlm
+		.long	200
+		.byte	pql$_fillm
+		.long	100
+		.byte	pql$_pgflquota
+		.long	80000
+		.byte	pql$_tqelm
+		.long	100
+		.byte	pql$_wsdefault
+		.long	2048
+		.byte	pql$_wsextent
+		.long	8096
+		.byte	pql$_wsquota
+		.long	4096
+		.byte	pql$_listend
+;
+creprc_privs:	.long	-1
+		.long	-1
+creprc_error:	.ascid	/NLA0:/
+creprc_output:	.ascid	/NLA0:/
+creprc_input:	.ascid	/NLA0:/
+
+creprc_fao:	.ascid	/Created !AS (PID:!XL) on !%D/
+died_fao:	.ascid	/Process !AS (PID:!XL) died on !%D (Status:!XL)/
+PH1_END:	.ASCID	/Finished  Phase I .../ 
+PH2_START:	.ASCID	/Starting Phase II .../ 
+exit_fao:	.ascid	/Exit handler shutdown control process/
+running:	.ascid	/EMU CONTROL process already running/
+control_lock:	.ascid	/EMU_CONTROL_LOCK/
+EMU_cmd_mbx:	.ascid	/EMU_COMMAND_MAILBOX/
+cmd_iofunc:	.long	io$_readvblk
+shutdown:	.ascid	/SHUTDOWN/
+unreccmd:	.ascid	/Unrecognised command entered. Ignored/
+invalid_lic:	.ascid	/Invalid license file for product./
+invalid_db_lic:	.ascid	/Invalid license file database size./
+ccci_contact:	.ascid	/CCCI Ltd (0860-489261) or your software supplier/
+product_dir:	.ascid	/EMU5_DAT/
+product_name:	.ascid	/EMU/
+starting_fao:	.ascid	/Creating EMU process !AS using image !AS/
+
+	.psect	prog_code, rd, nowrt, exe, pic, shr, long
+;	.entry	EMU_control, ^m<>
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_CONTROL
+
+; Command interface MBX. Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	calls	#0, g^asn_tempmbx_system
+	bsbw	error_chk		; 
+
+; ensure not already running. gain control lock
+	movl	#<lck$m_noqueue!lck$m_system!lck$m_syncsts!lck$m_valblk>, -
+                        enq_flags
+        movl    #lck$k_exmode, enq_lkmode
+        $enqw_s lkmode=enq_lkmode, lksb=lock_iosb, -
+                flags=enq_flags, resnam=control_lock
+        cmpw    #ss$_synch, r0          ;
+        beql    5$                   	;
+	pushal	running			; 
+	calls	#1, g^lib$put_output	; 
+	movl	#1, r0
+	$exit_s	r0
+
+
+; Open error log file
+5$:	
+;	$create	fab=errfab
+;	bsbw	error_chk
+;	$connect rab=errrab
+;	bsbw	error_chk
+
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	BSBW	ERROR_CHK
+; MAP Process table into mem
+	PUSHAL	PSRTBLCNT  		; Count of entries found
+	PUSHAL	PSRTBL_A		; PSR table start addr
+	CALLS	#2,G^MAP_PSRTBL
+	BLBS	R0,7$
+        ret
+7$:
+; Open process table file
+	$open	fab = prcfab		;open input file
+	bsbw	error_chk
+ 	$connect rab = prcrab		;connect input stream
+	bsbw	error_chk
+ 	$connect rab = prcrab2		;connect input stream for ast
+	bsbw	error_chk
+
+; Validate license file
+;	chg_dyn_desc #0, license_rcds	; 
+;	pushal	ccci_contact		; Contact name for license errors
+;	pushaq	time			; demo time
+;	pushaq	license_rcds		; license file records
+;	pushal	product_dir		; product directory
+;	pushal	product_name		; product name
+;	calls	#5, g^Check_license	; 
+;	bsbw	error_chk		; 
+
+; Find db=nn in returned string for d/b size in index entries else exit
+; and update symbol file is altered.
+	bsbw	validate_symrec_idx_r0_r3 
+
+; Termination MBX
+	clrl	-(sp)		; Logical Name
+	CLRL	-(SP)		; Access Mode
+	CLRL	-(SP)		; Protection Mask
+	PUSHL	#1056		; Buff Quota
+	PUSHL	#128		; Max Message Size
+	PUSHAL	TRMCHAN		; I/O Channel
+	clrl	-(sp)		; Temp Mailbox
+	CALLS	#7, g^SYS$CREMBX	; Create Mailbox
+	BSBW	ERROR_CHK       ; Fatal
+
+; Que MBX read with AST
+next:	$QIO_G	read_term_mbx
+
+; Get MBX unit No.
+	MOVL	TRMCHAN,DEVCHN
+	$GETDVIW_G GET_MBXUNIT
+	BSBW	ERROR_CHK	; Fatal
+
+	pushal	EMU_cmd_mbx	; logical name
+	clrl	-(sp)		; access mode
+	clrl	-(sp)		; protection mask
+	pushl	#cmd_str_len	; buff quota
+	pushl	#cmd_str_len	; max message size
+	pushal	cmd_chan_unsol	; i/o channel
+	clrl	-(sp)		; temp mailbox
+	calls	#7, g^sys$crembx	; create mailbox
+	bsbw	error_chk       ; fatal
+
+	clrl	-(sp)		; flags
+	clrl	-(sp)		; mailbox
+	clrl	-(sp)		; acmode
+	pushal	cmd_chan	; channel
+	pushal	EMU_cmd_mbx	; logical name
+	calls	#5, g^sys$assign
+	bsbw	error_chk
+
+; pre-read command channel
+	clrq	-(sp)		;
+	clrq	-(sp)		;
+	pushl	#cmd_str_len	; buffer length
+	pushal	cmd_str		; buffer address
+	clrl	-(sp)		; ast param
+	pushal	g^cmd_ast	; ast routine
+	pushal	cmd_iosb	; 
+	pushl	cmd_iofunc	; i/o function
+	pushl	cmd_chan	; chan
+	clrl	-(sp)		; efn
+	calls	#12, g^sys$qio	; 
+	bsbw	error_chk	; read ready for command to come in
+
+
+; Declare exit handler
+	$dclexh_s desblk=exit_block	; 
+	bsbw	error_chk		; 
+
+	moval	prcrec, r11		; process record start address
+	moval	prcrab, r9		; process table rab address
+	clrl	r6			; Used as phase II in prog flag
+;
+; Read process table file down start level key for startup sequencing
+10$:	clrl	stop_system		; 
+	clrl	restart_system		
+	movb	#rab$c_key, rab$b_rac(r9)
+	movb	#1, rab$b_krf(r9)	; 
+	moval	zero, rab$l_kbf(r9)	; Read fisr record on 2nd key
+	movb	#4, rab$b_ksz(r9)	; longword
+	bisl2	#rab$m_kge, rab$l_rop(r9) ; find .ge. 0
+
+15$:	movw	#prctbl_size, rab$w_rsz(r9) ; 
+	movw	#prctbl_size, rab$w_usz(r9) ; 
+	$get	rab=(r9)		; read next record
+	blbs	r0, 50$			; 
+	cmpl	r0, #rms$_eof		; 
+	beql	20$			; 
+	cmpl	r0, #rms$_rnf		; 
+	beql	20$			; 
+	bsbw	error_chk		; 
+20$:	brw	500$			; End of file. All processes started
+
+; start this process
+50$:
+
+; Ensure that we dont get interrupted until processes pid written to file
+; +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+	clrl	-(sp)			; disable
+	calls	#1, g^sys$setast	;  asts
+; 
+; If this process is disabled - dont create
+  	bbs	#prctbl_flags_v_disable,prctbl_flags(r11),60$
+; If we are starting phase II startup then wait for the flag
+	CMPL	#SYS_STU_C_PH2STRT,PRCTBL_STARTLVL(R11)
+	BLEQ	70$			; Br if at or above Phase II
+55$:
+  	bbs	#prctbl_flags_v_debug,prctbl_flags(r11),57$	; Br if debug
+	bsbw	create_process		; 
+	BRB	60$
+57$:
+	bsbw	create_process_debug		; 
+
+; Ensure reading sequentially down the file from now on
+60$:
+	movb	#rab$c_seq, rab$b_rac(r9)
+
+	pushl	#1		; enable
+	calls	#1, g^sys$setast ;  asts
+
+	brw	15$		; read next record
+70$:
+	BLBS	R6,55$		; Phase II already started - continue
+; Wait for continue CEF set
+	PUSHAL	PH1_END
+	CALLS	#1, G^LIB$PUT_OUTPUT	; 
+
+	$WFLOR_S  	EFN=#96,-       	; Wait for Continue flag set  
+			MASK=#SYS_STU_M_PH2FLG  ; RELATER'S flag
+	BSBW	ERROR_CHK
+	PUSHAL	PH2_START
+	CALLS	#1, G^LIB$PUT_OUTPUT	; 
+	MOVL	#1,R6				; Signal Phase II started
+	BRW	55$
+
+
+; End of file. All processes started.
+; ensure mop buffer is avail at startup
+
+; Now watch/wait for process termination
+500$:
+	$hiber_s
+
+; Shutdown whole system and restart the lot, unless "STOP" requested
+; Read all records in process table file and force exit all processes.
+
+
+	blbs	restart_system, 600$	; 
+	blbc	stop_system, 600$	; 
+	brw	900$			; exit
+
+; Restart the system by converting the control lock to null to kill everyone.
+; Wait for process's counter to be zero and then goto the top.
+; Convert the control lock back to exclusive and goto top.
+600$:	movl	#<lck$m_system!lck$m_convert!lck$m_valblk>, enq_flags
+	movl    #lck$k_nlmode, enq_lkmode
+	$enqw_s lkmode=enq_lkmode, lksb=lock_iosb, -
+		flags=enq_flags, resnam=control_lock
+	bsbw	error_chk		; 
+
+610$:	pushaf	lock_wait		;
+	calls	#1, g^lib$wait		; 
+
+	tstl	proc_cnt		; Any left
+	bgtr	610$			; yep
+; nop
+
+	movl	#<lck$m_system!lck$m_convert!lck$m_valblk>, enq_flags
+	movl    #lck$k_exmode, enq_lkmode
+	$enqw_s lkmode=enq_lkmode, lksb=lock_iosb, -
+		flags=enq_flags, resnam=control_lock
+	bsbw	error_chk		; 
+
+	blbs	stop_system, 900$	; 
+
+; Validate license file
+;	clrl	-(sp)			; No rab
+;	pushal	ccci_contact		; Contact name for license errors
+;	pushaq	time			; demo time
+;	pushaq	license_rcds		; license file records
+;	pushal	product_dir		; product directory
+;	pushal	product_name		; product name
+;	calls	#5, g^Check_license	; 
+;	bsbw	error_chk		; 
+
+; Find db=nn in returned string for d/b size in index entries else exit
+; and update symbol file is altered.
+	bsbw	validate_symrec_idx_r0_r3 
+
+	brw	10$			; restart the lot
+
+
+; If stop requested then cancel exit handler and exit after shuting processes
+900$:	$canexh_s desblk=exit_block	; 
+	bsbw	error_chk		; 
+
+	pushl	cmd_chan	; chan
+	calls	#1, g^sys$cancel
+
+	movl	#1, r0
+	ret
+	
+
+	.sbttl	validate_symrec_idx_r0_r3 ()
+validate_symrec_idx_r0_r3:		; scraps r0,r1,r2,r3
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+; Find db=nn in returned string for d/b size in index entries else exit
+;	movq	license_rcds, r0	; 
+;	locc	#^a/=/, r0, (r1)	; find "=" sign
+;	bneq	10$			; found it
+;	brw	900$			; invalid key file
+;
+;; Convert last records database size value
+;10$:	incl	r1			; move pass = sign
+;	decl	r0			; likewise
+;	movq	r0, r2			; save descriptor in r2
+;	locc	#^a/,/, r0, (r1)	; find "," sign (from check_license)
+;	bneq	20$			; found it
+;	brw	900$			; invalid key file
+;
+;20$:	subl2	r0, r2			; remove ,etc from string
+;	pushal	license_dbsize		; licensed d/b size in hex
+;     	pushl	r3			; string address
+;	pushl	r2			; string len
+;	calls	#3, g^lib$cvt_dtb	; Convert string to number
+;	blbs	r0, 50$			; 
+;	brw	900$			; invalid key file
+;
+;; License is valid
+;; Open the symbol table and validate the license database size requirements
+;50$:	$open	fab = symfab		; 
+;	bsbw	error_chk		; 
+;	$connect rab = symrab		; 
+;	bsbw	error_chk		; 
+;	$get	rab = symrab		; 
+;	bsbw	error_chk		; 
+;	movzwl	symrab+rab$w_rsz, sym_desc ; get length read in
+;
+;; Now we should have the licensed d/b size as well as the current one required
+;	cmpl	maxeaddress+symrec, license_dbsize
+;	bleq	830$			; 
+;	brw	910$			; too small
+;
+;830$:	movl	license_dbsize, symrec+liceaddress
+;	$update rab = symrab		; 
+;	bsbw	error_chk		; 
+;	$close	fab = symfab		; 
+;	bsbw	error_chk		; 
+;	brw	1000$			; 
+;
+;; license file invalid 
+;900$:	movl	#fao_str_len, fao_strl	; max fao descriptor length
+;	pushal	fao_strl		; fao descriptor address
+;	pushal	fao_strl		; fao descriptor address
+;	pushal	invalid_lic		; fao control str
+;	calls	#3, g^sys$fao
+;	bsbw	error_chk		; signal if error
+;	movl	#ss$_nolicense, r11	; 
+;	brw	920$			; 
+; license exceeds d/b size alowed by license
+;910$:	movl	#fao_str_len, fao_strl	; max fao descriptor length
+;	pushal	fao_strl		; fao descriptor address
+;	pushal	fao_strl		; fao descriptor address
+;	pushal	invalid_db_lic		; fao control str
+;	calls	#3, g^sys$fao
+;	bsbw	error_chk		; signal if error
+;	movl	#ss$_exlicense, r11
+;
+;920$:	pushal	fao_strl		; fao descriptor address
+;	calls	#1, g^lib$put_output	; 
+;	$exit_s	r11
+1000$:	rsb
+
+	.sbttl	create_process
+create_process:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; r9  is expected to be the rab address
+; r11 is expected to be the process table start address
+	
+	moval	prctbl_prcnam(r11), prctbl_prcnam_adr(r11) ; relocated address
+	moval	prctbl_image(r11), prctbl_image_adr(r11) ; relocated address
+
+	pushal	prctbl_image_desc(r11)	; 
+	pushal	prctbl_prcnam_desc(r11)	; 
+	movl	#fao_str_len, fao_strl	; max fao descriptor length
+	pushal	fao_strl		; fao descriptor address
+	pushal	fao_strl		; fao descriptor address
+	pushal	starting_fao		; fao control str
+	calls	#5, g^sys$fao
+	bsbw	error_chk		; signal if error
+	pushal	fao_strl		; fao descriptor address
+	calls	#1, g^lib$put_output	; 
+
+	pushl   creprc_stsflg	; status flags
+	pushl	trmmbxunit	; termination mbx
+	pushl	creprc_sysuic	; uic
+	pushl	prcrec+prctbl_priority ; priority
+	pushal	prctbl_prcnam_desc(r11) ; process name
+	pushal	creprc_quota	; quotas
+	pushaq	creprc_privs	; all
+	pushal	creprc_error	; 
+	pushal	creprc_output	; 
+	pushal	creprc_input	; 
+	pushal	prctbl_image_desc(r11) ; image name
+	pushal	prctbl_pid(r11)	; Update records pid 
+	calls	#12, g^sys$creprc
+	movl	r0, prctbl_creprc_sts(r11)	; save status
+	movl	exe$gl_abstim, prctbl_start_time(r11) ; save start time
+	
+; Started process ok. Update record with pid information
+	movw	#prctbl_size, rab$w_rsz(r9) ; 
+	movw	#prctbl_size, rab$w_usz(r9) ; 
+	$update	rab=(r9)	; 
+	bsbw	error_chk	; 	
+	$flush	rab=(r9)
+	movl	prctbl_creprc_sts(r11), r0
+	bsbw	error_chk	; 	
+	
+	incl	proc_cnt	; One more started
+ 
+; Inform of process creation
+	clrl	-(sp)		; time
+	pushl	prctbl_pid(r11)	; process pid created
+	pushal	prctbl_prcnam_desc(r11) ; process name
+	movl	#fao_str_len, fao_strl
+	pushal	fao_strl	; 
+	pushal	fao_strl	; 
+	pushal	creprc_fao	; 
+	calls	#6, g^sys$fao	; 
+	bsbw	error_chk	; 
+
+	pushal	fao_strl	; 
+	calls	#1, g^lib$put_output
+	bsbw	error_chk	; 
+
+	rsb
+
+
+
+create_process_debug:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; r9  is expected to be the rab address
+; r11 is expected to be the process table start address
+; Routine to start process in debug mode. 
+; Identical to create_process subr except:
+;  Ask for terminal name to use for debug
+;  assign input,output to this term
+;		
+; Get terminal name
+	PUSHAL	DBG_TERM_DESC
+	PUSHAL	DBG_PROMPT
+	PUSHAL	DBG_TERM_DESC
+	CALLS	#3,G^LIB$GET_INPUT
+	BLBS	R0,10$
+	RET
+10$:
+
+	moval	prctbl_prcnam(r11), prctbl_prcnam_adr(r11) ; relocated address
+	moval	prctbl_image(r11), prctbl_image_adr(r11) ; relocated address
+
+	pushal	prctbl_image_desc(r11)	; 
+	pushal	prctbl_prcnam_desc(r11)	; 
+	movl	#fao_str_len, fao_strl	; max fao descriptor length
+	pushal	fao_strl		; fao descriptor address
+	pushal	fao_strl		; fao descriptor address
+	pushal	starting_fao		; fao control str
+	calls	#5, g^sys$fao
+	bsbw	error_chk		; signal if error
+	pushal	fao_strl		; fao descriptor address
+	calls	#1, g^lib$put_output	; 
+
+	pushl   creprc_stsflg	; status flags
+	pushl	trmmbxunit	; termination mbx
+	pushl	creprc_sysuic	; uic
+	pushl	prcrec+prctbl_priority ; priority
+	pushal	prctbl_prcnam_desc(r11) ; process name
+	pushal	creprc_quota	; quotas
+	pushaq	creprc_privs	; all
+	pushal	creprc_error	; 
+	pushal	DBG_TERM_DESC	; Input
+	pushal	DBG_TERM_DESC	; Output
+	pushal	prctbl_image_desc(r11) ; image name
+	pushal	prctbl_pid(r11)	; Update records pid 
+	calls	#12, g^sys$creprc
+	movl	r0, prctbl_creprc_sts(r11)	; save status
+	pushal	prctbl_start_time(r11)		; save start time
+	calls	#1, g^sys$gettim
+;	movl	exe$gl_abstim, prctbl_start_time(r11) ; save start time
+	
+; Started process ok. Update record with pid information
+	movw	#prctbl_size, rab$w_rsz(r9) ; 
+	movw	#prctbl_size, rab$w_usz(r9) ; 
+	$update	rab=(r9)	; 
+	bsbw	error_chk	; 	
+	$flush	rab=(r9)
+	movl	prctbl_creprc_sts(r11), r0
+	bsbw	error_chk	; 	
+	
+	incl	proc_cnt	; One more started
+ 
+; Inform of process creation
+	clrl	-(sp)		; time
+	pushl	prctbl_pid(r11)	; process pid created
+	pushal	prctbl_prcnam_desc(r11) ; process name
+	movl	#fao_str_len, fao_strl
+	pushal	fao_strl	; 
+	pushal	fao_strl	; 
+	pushal	creprc_fao	; 
+	calls	#6, g^sys$fao	; 
+	bsbw	error_chk	; 
+
+	pushal	fao_strl	; 
+	calls	#1, g^lib$put_output
+	bsbw	error_chk	; 
+
+	rsb
+
+
+
+
+
+	.sbttl	emu_control_term_ast
+;	.ENTRY	emu_control_term_ast, ^M<>
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=emu_control_term_ast
+
+; Here when process terminates
+; Read process record based on pid
+; Write to error log and record final status
+; TBA - Determine if process can be restarted and/or take appropriate action.
+; Process table needs more fields to allow this.
+
+	movzwl	read_iosb, r0
+	blbs	r0, 10$			; Ok
+	cmpw	#ss$_abort, r0		; 
+	beql	5$			; 
+	$exit_s	r0	
+5$:	brw	990$			; 
+
+10$:	moval	prcrec2, r11		; process record start address
+	moval	term_msg, r10		; termination message
+	moval	prcrab2, r9		; process table rab address
+
+	decl	proc_cnt		; One stopped
+	movb	#rab$c_key, rab$b_rac(r9)
+	movb	#2, rab$b_krf(r9)	; 
+	moval	acc$l_pid(r10), rab$l_kbf(r9)	; Read based on Pid
+	movb	#4, rab$b_ksz(r9)	; longword
+	bicl2	#rab$m_kge, rab$l_rop(r9) ; find exact
+
+15$:	$get	rab=(r9)		; read next record
+	blbs	r0, 50$			; 
+; >>>  attempt to write failure message to errrab. to be added
+	bsbw	error_chk		; 
+
+; Inform of process death
+50$:	moval	prctbl_prcnam(r11), prctbl_prcnam_adr(r11) ; relocated address
+	moval	prctbl_image(r11), prctbl_image_adr(r11) ; relocated address
+
+	pushl	acc$l_finalsts(r10)
+	clrl	-(sp)		; time
+	pushl	prctbl_pid(r11)	; process pid created
+	pushal	prctbl_prcnam_desc(r11) ; process name
+	movl	#fao_str_len, fao_strl
+	pushal	fao_strl	; 
+	pushal	fao_strl	; 
+	pushal	died_fao	; 
+	calls	#7, g^sys$fao	; 
+	bsbw	error_chk	; 
+
+	pushal	fao_strl	; 
+	calls	#1, g^lib$put_output
+	bsbw	error_chk	; 
+
+; Determine if process which died is to be restarted
+	blbs	restart_system, 54$	; We are restarting the system
+	blbs	stop_system, 54$	; We are stopping the system
+
+	clrl	prctbl_pid(r11)		; Update records pid 
+	movl	acc$l_finalsts(r10), prctbl_creprc_sts(r11)
+	bbs	#prctbl_flags_v_restart, prctbl_flags(r11), 60$
+; Process is not to be restarted. Check if system should keel over
+	bbc	#prctbl_flags_v_close_system, prctbl_flags(r11), 55$
+	$wake_s	; Wake main process to restart everything
+	movl	#1, restart_system		; 
+54$:	movw	#prctbl_size, rab$w_rsz(r9)	; 
+	movw	#prctbl_size, rab$w_usz(r9)	; 
+	$update	rab=(r9)	; Save final status causing death
+	bsbw	error_chk	; 	
+55$:	brw	910$			; update record and exit
+
+60$:	subl3	prctbl_start_time(r11), exe$gl_abstim, r0
+	cmpl	r0, #prctbl_restart_sec	; minimum time before restart
+	blss	54$			; too close together
+
+	bsbw	create_process		; 
+
+; Started process ok. Update record with pid information
+900$:	bbc	#prctbl_flags_v_restart, prctbl_flags(r11), 910$
+	bbs	#prctbl_flags_v_close_system, prctbl_flags(r11), 910$
+	movl	prctbl_creprc_sts(r11), r0	; check status
+	bsbw	error_chk	; 	
+
+; Re-read termination mailbox
+910$:	$QIO_G	read_term_mbx
+	bsbw	error_chk	; 	
+
+990$:	movl	#1, r0
+	ret
+
+	.sbttl	cmd_ast
+;	.ENTRY	cmd_ast, ^M<>
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CMD_AST
+
+	movzwl	cmd_iosb, r0	; 
+	blbs	r0, 10$		; 
+	brw	900$		; 
+
+10$:	movzwl	cmd_iosb+2, cmd_strl
+	pushal	cmd_strl
+	calls	#1, g^lib$put_output
+
+	pushal	cmd_strl
+	pushal	cmd_strl
+	calls	#2, g^str$upcase
+
+	movq	shutdown, r0
+	movq	cmd_strl, r2
+	cmpc5	R0, (R1), #^A/ /, r2, (r3)
+	bneq	20$		; check next command
+; Shutdown system
+	movl	#1, stop_system	; 
+	movl	#1, r0		; 
+	$exit_s	r0		; 
+
+	brw	100$
+
+; no more commands yet
+20$:
+
+
+; unrecognised command
+	pushal	unreccmd	; 
+	calls	#1, g^lib$put_output
+
+; re-read command channel
+100$:	clrq	-(sp)		;
+	clrq	-(sp)		;
+	pushl	#cmd_str_len	; buffer length
+	pushal	cmd_str		; buffer address
+	clrl	-(sp)		; ast param
+	pushal	g^cmd_ast	; ast routine
+	pushal	cmd_iosb	; 
+	pushl	cmd_iofunc	; i/o function
+	pushl	cmd_chan	; chan
+	clrl	-(sp)		; efn
+	calls	#12, g^sys$qio	; 
+	bsbw	error_chk	; read ready for command to come in
+
+900$:	movl	#1, r0
+	ret
+
+
+	.sbttl	emu_control_exit_handler
+;	.entry	emu_control_exit_handler, ^m<>
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_CONTROL_EXIT_HANDLER
+
+	pushl	cmd_chan	; chan
+	calls	#1, g^sys$cancel
+
+	pushl	trmchan		; 
+	calls	#1, g^sys$cancel
+
+	pushal	exit_fao
+	calls	#1, g^lib$put_output
+
+	movl	#1, r0
+	ret
+
+
+	.sbttl	error_chk
+error_chk:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		blbs	r0, 10$
+		$exit_s	r0
+10$:		rsb
+
+	.end	EMU_control

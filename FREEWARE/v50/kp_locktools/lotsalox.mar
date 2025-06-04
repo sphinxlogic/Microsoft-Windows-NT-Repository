@@ -1,0 +1,394 @@
+        .title  Lots-a-Lox
+;;
+;; This program uses the $ENQ system service to take out and free a null lock
+;; on the resource name specified in the DCL symbol LOTSALOX_RESOURCE.  It does
+;; this repeatedly until aborted.  The idea is to try to induce lock
+;; mastership for the lock tree to move immediately to this node.
+;;								K.Parris 3/98
+;;
+;; Algorithm:
+;; 1) Take out a Null lock on the root resource of the lock tree of interest.
+;;    We hold this lock because apparently the counts of lock activity get lost
+;;    if at any point there are _no_ locks on a given lock tree on a node.  By
+;;    holding this null root lock, we preserve our traffic counts on this node.
+;; 2) Take out a Null lock on a sub-resource of the root resource with an odd
+;;    name (unlikely to conflict with any real sub-resource names)
+;; 3) Convert this Null lock to Concurrent Read and back to Null repeatedly.
+;;    This should increment the lock activity counts rapidly for this node,
+;;    causing them to eventually exceed the counts for any other node, and thus
+;;    trigger a lock remastering operation
+;; 4) while checking to see if the lock mastership of the entire tree has moved
+;;    to this node (which is the goal, at which point we can exit)
+;; 5) while generating a high number of lock requests, but being careful not to
+;;    saturate the interrupt stack of the existing lock master node, by limiting
+;;    the number of conversion requests we generate (perhaps starting out with
+;;    a low rate and growing gradually over time (up to some maximum)
+;;    (Taking into account the sampling periods for lock rates and remastering
+;;     initiation -- 8 seconds and ? seconds)
+;;
+;;    (Can we see the Activity counters to see when a remastering operation has
+;;     been initiated, so we can stop generating lock requests? or perhaps use the
+;;     rate of conversion request completions to detect when a remastering
+;;     operation has begun?) (Can we use the Activity counters to see how many
+;;     lock requests per second we need to generate to trigger remastering --
+;;     i.e. how many requests the busiest node is currently generating -- so we
+;;     can exceed that value?)
+;;
+;;     Can we identify cases where a remastering operation _would_ occur, but
+;;     is being prevented by PE1 being non-zero? (i.e. to predict what would
+;;     happen if we temporarily removed the PE1 throttle)
+;;
+;; Author: Keith Parris  parris@encompasserve.org or keithparris@yahoo.com
+;; http://www.geocities.com/keithparris/ or http://encompasserve.org/~parris/
+
+	$lckdef                       ;include definitions used for $ENQ
+	$lkidef                       ;include definitions used for $GETLKI
+	$syidef                       ;include definitions used for $GETSYI
+	$psldef                       ;USER/SUPER/EXEC/KERNEL mode definitions
+;------------------------------------------------------------------------------
+	.PSECT	RO_DATA	QUAD,RD,noWRT,noEXE
+;;
+;; Read-only data area
+;;
+
+	.align	quad
+symbol_name_res:	.ascid	"LOTSALOX_RESOURCE"	;Resource name
+	.align	quad
+symbol_name_acmode:	.ascid	"LOTSALOX_ACMODE"	;Mode (USER/SUP/EXEC/KERNEL)
+;;
+;; Output strings used to format the lock information.
+;;
+	.align	quad
+line1:	.ascid	"Lock master CSID: !XL"
+	.align	quad
+line2:	.ascid	"Lock master node: !AS"
+;;
+;; Item List for the $GETLKI call.
+;;
+	.align	long
+lki_itmlst:
+	.word		4			;buffer length (1 longword)
+	.word		LKI$_MSTCSID		;CSID of master node
+	.address	lock_mstcsid		;buffer address
+	.long		0			;returned length address [null,
+;						;since it will always be 4...]
+	.long		0	;end of item list.
+;;
+;; Item List for the $GETSYI call.
+;;
+	.align	long
+syi_itmlst:
+	.word		4			;buffer length
+	.word		SYI$_NODE_CSID		;Return CSID of node
+	.address	node_csid		;buffer address
+	.long		0			;returned length address [unused]
+;
+	.long		0	;end of item list.
+
+;------------------------------------------------------------------------------
+	.PSECT	RW_DATA	QUAD,RD,WRT,noEXE
+;;
+;; Read-write data area
+;;
+
+; Name of the root resource for the lock tree of interest
+	.align	quad
+resnam_length = 31
+resnam_desc:				; resource name descriptor
+resnam_len:	.long		resnam_length	;length of string
+		.address	lock_resnam	;address of buffer
+lock_resnam:	.blkb		resnam_length	;resource name
+; A sub-resource name of our own invention, which we do lots of lock activity
+; on, to bump the lock traffic counters, while holding the above root lock
+	.align	quad
+subresnam_desc:				; resource name descriptor
+	.ascid	"LotsALox$UnIqUe_nAmE"	; Unique subresource name
+
+	.align	quad
+acmode_length = 10
+acmode_desc:				; access mode descriptor
+acmode_len:	.long		acmode_length	;length of string
+		.address	acmode	;address of buffer
+acmode:	.blkb		acmode_length	;access mode name
+
+	.align	long
+lock_acmode:	.blkl		;Access mode of lock (PSL$C_xxxx value)
+
+	.align	quad
+lksb:	.blkl	2		;lksb for $ENQW of root lock
+lock_id = lksb+4		; LKSB+4 = lock id
+
+	.align	quad
+lksb2:	.blkl	2		;lksb for $ENQW of sub-lock
+lock_id2 = lksb2+4		; LKSB+4 = lock id of sub-lock
+
+	.align	quad
+iosb:	.blkl	2		;IOSB for $GETLKI
+
+;;
+;; Buffer(s) referenced in the $GETLKI item list.
+;;
+	.align	long
+lock_mstcsid:	.blkl		;CSID of lock master
+
+;;
+;; Buffer(s) referenced in the $GETSYI item list.
+;;
+	.align	long
+node_csid:	.blkl		;CSID of the node we're running on
+
+;;
+;; Descriptor for $FAO call.
+;;
+;maxfao = 80			;maximum fao buffer length
+;	.align	quad
+;faodesc:			;fao descriptor
+;faolen:	.blkl			;fao output buffer length
+;	.address	faobuf	;address of buffer
+;faobuf:	.blkb	maxfao		;80 character buffer
+;------------------------------------------------------------------------------
+	.PSECT	CODE	QUAD,RD,noWRT,EXE
+;;
+;;
+;;  Begin code
+;;
+;;
+
+;;
+;; status check macro
+;;
+.macro check_status, loc=R0, ?no_error1$
+        blbs loc, no_error1$          ;branch if no error
+	.if different loc, R0
+        movzwl loc, R0                ;move error into R0
+	.endc
+        $exit_s R0                    ;exit with error
+no_error1$:                           ;return to program flow
+.endm check_status
+
+;;
+;; Format and Output message macro.
+;;
+.macro output_msg, msg_line, param1, ?end_of_msgs$
+	movzbl  #maxfao,faolen
+	$fao_s	ctrstr=msg_line,-	;format the message
+		outlen=faolen,-
+		outbuf=faodesc,-
+		p1=param1
+	check_status			;check status
+	pushal faodesc
+	calls	#1, g^lib$put_output	;output the message
+	check_status			;check status
+end_of_msgs$:                         ;Message is output
+.endm output_msg                      ;return to program flow
+
+;;;;===========================================================================
+;;;;
+;;;;
+;;;; Main program
+;;;;
+;;;;
+;;;;===========================================================================
+        .entry  start,^m<>
+;;
+;; Find out the CSID of the node we're running on.  The goal is for the
+;; this node to become the lock master node for the resource tree.
+;;
+;;
+;; Find out the CSID of the node we're running on
+;;
+	$getsyiw_s	-
+			itmlst=syi_itmlst,-	;item list
+			iosb=iosb		;IOSB
+	check_status				;check status of R0
+	check_status iosb			;check status of iosb
+
+;;
+;; Grab the resource name from the DCL symbol LOTSALOX_RESOURCE
+;;
+;;;;	pushl	#0		; table-type-indicator, by reference [null]
+	pushaw	resnam_len	; resultant-length, by reference
+	pushaq	resnam_desc	; resultant-string, by descriptor
+	pushaq	symbol_name_res	; symbol name, by descriptor
+	calls	#3,g^LIB$GET_SYMBOL
+	check_status
+;;
+;; Grab the lock access mode name from the DCL symbol LOTSALOX_ACMODE
+;;
+;;;;	pushl	#0		; table-type-indicator, by reference [null]
+	pushaw	acmode_len	; resultant-length, by reference
+	pushaq	acmode_desc	; resultant-string, by descriptor
+	pushaq	symbol_name_acmode	; symbol name, by descriptor
+	calls	#3,g^LIB$GET_SYMBOL
+	check_status
+
+;;
+;; Grab a NL lock on the root resource.
+;;
+;; First, determine if we'll be taking out a User or Executive mode lock
+;;
+	movl	#PSL$C_USER,lock_acmode	; Default is user mode
+	movzbl	acmode,R0	; Grab the first letter of the access mode
+;	cmpb	R0,#^a'U'	; User mode?
+;	beql	20$		; Yes, user mode -->
+	cmpb	R0,#^a'E'	; Exec mode?
+	bneq	20$		; No, not exec mode --> default to user
+	movl	#PSL$C_EXEC,lock_acmode	; Exec mode lock needed
+	$cmexec_s -		; Have to do $ENQ/$GETLKI in EXEC mode
+		routin=enq_lock,-
+		arglst=#0
+	check_status
+	brb	30$
+; We won't even try to support kernel or supervisor modes at this point
+;	movl	#PSL$C_KERNEL,lock_acmode
+;	cmpb	R0,#^a'E'		; Exec mode?
+;	movl	#PSL$C_SUPER,lock_acmode
+;	cmpb	R0,#^a'S'		; Exec mode?
+20$:
+	calls	#0,enq_lock
+	check_status
+30$:
+
+
+;;iterations = 1000	; Do 10K locks at a time
+;; But this means we could lose the lock counts every 10K lock requests.
+;; Better to check for when we actually trigger the remastering operation
+;; and quit after that...
+iterations = 99999999	; Essentially an infinite loop (we terminate the loop
+;			; early if this node becomes the lock master)
+	movl	#iterations,r6
+loop:
+;;
+;; Do some lock conversions to raise the VMS lock traffic counters for this node
+;;
+	movzbl	acmode,R0	; Grab the first letter of the access mode
+	cmpb	R0,#^a'E'		; Exec mode?
+	bneq	40$		; No, not exec mode --> default to user
+	$cmexec_s -		; Have to do $ENQ/$DEQ/$GETLKI in Exec mode
+		routin=lock_work,-
+		arglst=#0
+	check_status
+	brb	50$
+
+40$:
+	calls	#0,lock_work	; Can do the $ENQ/$DEQ/$GETLKI in User mode
+	check_status
+;	brb	50$
+
+50$:	; continue
+
+	cmpl	lock_mstcsid,node_csid	;Is this node now the lock master?
+	beql	90$			;Yes --> we've been successful
+
+	sobgtr	r6,loop		; loop for 'iterations' times
+
+;;
+;; We're done.  Release the NL mode lock we have been holding all this time.
+;;
+90$:	movzbl	acmode,R0	; Grab the first letter of the access mode
+	cmpb	R0,#^a'E'		; Exec mode?
+	bneq	60$		; No, not exec mode --> default to user
+	$cmexec_s -		; Have to do $DEQ in EXEC mode
+		routin=deq_lock,-
+		arglst=#0
+	check_status
+	brb	70$
+60$:
+	calls	#0,deq_lock
+	check_status
+70$:
+
+
+
+99$:
+;;;
+;;; Done.  Exit.
+;;;
+	$exit_s	r0				;exit and check status
+;
+	ret	; So Alpha macro compiler knows this routine has ended
+;;-----------------------------------------------------------------------------
+;;
+;; Take out a NL mode lock on the root resource.  This routine is either simply
+;; called in user mode or (for an exec-mode lock) called by $CMEXEC in
+;; executive mode.
+;;
+	.entry  enq_lock,^m<R7>
+; Take out a NL lock on the root resource
+	$enqw_s	-
+		resnam=resnam_desc,-	;resource name
+		lkmode=#LCK$K_NLMODE,-	;lock mode: Null
+		flags=#LCK$M_SYSTEM,-	;system-wide lock (not per-UIC-group)
+		acmode=lock_acmode,-	;user-mode lock
+		lksb=lksb		;lock status block
+	blbc	r0,enq_lock_exit	;check status in R0
+	movzwl	lksb,r0			;check status of lksb
+	blbc	r0,enq_lock_exit
+
+enq_lock_exit:
+	ret
+
+;;-----------------------------------------------------------------------------
+;;
+;; Take out a NL mode lock on a sub-resource, and release it.  Repeat this
+;; a large number of times.  This routine is either simply 
+;; called in user mode or (for an exec-mode lock) called by $CMEXEC in
+;; executive mode.
+;;
+	.entry  lock_work,^m<R7>
+repeat_count = 100
+	movl	#repeat_count,r7
+1$:
+; Take out a NL lock on a sub-resource of our own creation
+	$enqw_s	-
+		resnam=subresnam_desc,-	;resource name
+		lkmode=#LCK$K_NLMODE,-	;lock mode: Null
+		flags=#LCK$M_SYSTEM,-	;system-wide lock (not per-UIC-group)
+		acmode=lock_acmode,-	;user-mode lock
+		parid=lock_id,-		;Sub-lock of the root lock
+		lksb=lksb2		;lock status block
+	blbc	r0,lock_work_exit	;check status in R0
+	movzwl	lksb,r0			;check status of lksb
+	blbc	r0,lock_work_exit
+;;
+;; Dequeue the sub-lock we just grabbed
+;;
+	$deq_s	lkid=lock_id2			;dequeue the queued lock
+	blbc	r0,lock_work_exit
+
+	sobgtr	r7,1$		; loop for 'repeat_count' times in a row
+				; before returning (or exiting EXEC mode)
+
+;;
+;; Find out where the lock tree is presently mastered.  Perhaps we've
+;; succeeded in inducing VMS to move it to this node.
+;;
+	$getlkiw_s -
+		lkidadr=lock_id,-	;id for lock we want info on
+		itmlst=lki_itmlst,-	;item list
+		iosb=iosb		;status block
+	blbc	r0,lock_work_exit	;check status in R0
+	movzwl	iosb,r0			;check status of iosb
+;;	blbc	r0,lock_work_exit
+
+
+lock_work_exit:
+	ret
+
+;;-----------------------------------------------------------------------------
+;;
+;; Dequeue the NL lock we have been holding all this time.  This routine is
+;; either simply called in user mode or (for an exec-mode lock) called by
+;; $CMEXEC in executive mode.
+;;
+	.entry  deq_lock,^m<R7>
+
+	$deq_s	lkid=lock_id			;dequeue the queued lock
+;;	blbc	r0,deq_lock_exit
+
+deq_lock_exit:
+	ret
+
+;;-----------------------------------------------------------------------------
+
+        .end start

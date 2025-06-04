@@ -1,0 +1,225 @@
+/* CONFIGDC.TH */
+/* Y.L. Noyelle, Supelec, France 1994 */
+
+/* dcc coding assumes throughout that the sign bit (signed integral types) is
+   the leftmost bit, and that its value is 1 for a negative number (cf, for
+   example, macro 'InsideInterval', file 'dc.th'). It also assumes that address
+   1 is not the address of any object/function (cf macros 'QuasiNULLval',
+   'GtPtr', same file). */
+
+/* Possible LONGLONG type is assumed to be always wider than 'long' */
+#if defined(VMS) && defined(__ALPHA)
+/*#  include <ints.h>*/
+#  define LONGLONG	__int64
+#elif defined(__linux__) || defined(__DJGPP__) || defined(__sparc__)
+#  define LONGLONG	long long
+#endif
+
+#include <limits.h>
+#include <stddef.h>
+
+#ifdef NULL
+#  undef NULL
+#endif
+#define NULL		(void *)0  /* some platforms define NULL as 0, and then
+				      cannot compile pointer conditional expres-
+				      sions of which one arm is NULL... */
+
+#define False		(0 != 0)
+#define True		(0 == 0)
+
+#define TstAdjFiles	True
+#define Debug		True
+
+#ifndef FILENAME_MAX
+#  define FILENAME_MAX	255
+#endif
+
+#ifdef VMS
+#  pragma member_alignment
+#  define LcEqUc			/* Lower case == Upper case (for file names) */
+#  ifndef __STDC__
+#    define NotInitUnions
+#  endif  /* __STDC__ */
+#else   /* ! VMS */
+#  define CrEchoedAsNewLine
+#endif  /* VMS */
+
+#ifdef EXIT_FAILURE
+#  ifdef VMS
+#    undef  EXIT_SUCCESS
+#    define EXIT_SUCCESS	1
+#    undef  EXIT_FAILURE
+#    define EXIT_FAILURE	0x10000002
+#    define EXIT_WARNINGS1	0x10000000
+#    define DELTASTAT		0x8
+#    define EXIT_WARNINGS2	(EXIT_WARNINGS1 + DELTASTAT)
+#  else
+#    if EXIT_FAILURE > 0
+#      define DELTASTAT		1
+#    else
+#      define DELTASTAT		-1
+#    endif
+#    define EXIT_WARNINGS1	EXIT_SUCCESS
+#    define EXIT_WARNINGS2	(EXIT_FAILURE + DELTASTAT + DELTASTAT)  /* so
+			    leaves room for another value for EXIT_WARNINGS1. */
+#  endif
+#  define EXIT_ERRORS1		(EXIT_WARNINGS2 + DELTASTAT)
+#  define EXIT_ERRORS2		(EXIT_ERRORS1   + DELTASTAT)
+#endif
+
+/* Out streams for warning/error and summary reports */
+#define MAIN_OUT_STREAM	stderr
+#define SUMMARY_STREAM	stdout
+
+#define CoefMaxParStrunSize 25	/* Maximum size (when multiplied by 'sizeof(
+				   void *)' that does not entail warning for
+				   struct/union passed as (value) parameter. */
+#define ConstWarn	Warn3	/* 'Warnx'/'Err' if warning/error wished on 
+					      "'const' qualifier not heeded". */
+#define DefaultMsgLimit 20	/* number of error/warning messages after
+				   which dcc quits (non-interactive mode). */
+#define DefaultTabSpacing 8	/* Tab spacing by default */
+#define ExplainMsgChar	'e'	/* character to be typed to get more
+						 information about a message. */
+#define IsVisibleChar(c) ((uint)c >= (uint)' ')  /* to be adapted to suit
+								 local needs. */
+#define LineSize	80	/* size of physical line on screen (used for
+					  formatting error/warning messages). */
+#define MaxLgtId	(SignifLgtId + (17)) /* nb of kept characters in non-
+				   external identifiers (arbitrary, max
+				   UCHAR_MAX, that is 255 for 8-bits bytes). */
+#define MaxMacroLgtInCmd 509	/* Maximum size of macro defined via command
+							 line (cf C standard) */
+#define NbBitsChar	7	/* number of bits used to code a character
+				   (ASCII character codind assumed; if not,
+				   change array 'charInfo' in file DCREC.C */
+#define NbUnivEltInChunk 21	/* number of 'universal' blocks (used and freed
+				   by various linked structures) allocated at
+				   each 'malloc' request. Optimized so that uses
+				   efficiently memory under most malloc schemes.
+				   Corresponding memory never given back to
+				   heap. */
+#define NULLNotZero	False	/* if (void*)1 == (void*)0 + 1 */
+#if NULLNotZero
+#  define GtPtr(ptr1, ptr2) (ptr1!=NULL && ptr1!=ptr2)
+#  define InexPtrVal	...	/* value such that, when cast to pointer, yields
+				   an address differing from any object's (and
+				   of NULL). */
+#else
+#  define GtPtr(ptr1, ptr2) ((size_t)ptr1 > (size_t)ptr2)
+#  define InexPtrVal	1
+#endif
+
+#define PowTwoSizeSymTab 10	/* log2(size of bucket array for symbolTable) */
+#define PtrGtLong	False	/* tells whether addresses cannot be
+						     represented in a 'long'. */
+#ifndef LONGLONG
+/*~zif PtrGtLong != (sizeof(void *)>sizeof(long)) "Change value of PtrGtLong" */
+#else
+/*~zif PtrGtLong != (sizeof(void *)>sizeof(LONGLONG))
+						  "Change value of PtrGtLong" */
+#endif
+
+#define FrstFewMsg	5	/* (By default) stop outputting 'all' warning/
+				   error messages as soon as that many have been
+				   outputted. */
+#define SeparPattern    "+"	/* Separating pattern between processing of
+				   several compilation units (repeated as much
+				   as necessary to fill one horizontal line). */
+
+/* SignedChar tells whether 'char' are signed/unsigned by default in local
+							      implementation. */
+#if (defined(__alpha) || defined (__ALPHA)) && !defined(VMS)
+#define SignedChar	False	
+#else
+#define SignedChar	True
+#endif
+
+#define SignedIntField	True	/* tells whether 'int' bit-fields are signed/un-
+				   signed by default in local implementation. */
+#define SignifLgtId	31	/* nb of significant characters in non-external
+								 identifiers. */
+/*~zif MaxLgtId > UCHAR_MAX "MaxLgtId too big " */
+#define SizeMacroStorageBlk 248  /* constraints: see 'zif' on
+					    SizeMacroStorageChunk in dcdir.c. */
+#define SizeNameStorageBlk 248  /* constraint: see 'zif' on
+					     SizeNameStorageChunk in dcrec.c. */
+#define SizTypTxtBuf 	(2)*LineSize /* (arbitrary) size of buffer for decoded
+					   types (in error/warning messages). */
+#define TolLostSpace	10	/* length of maximum tolerated lost space at
+				   end of message line (in character units;
+				   arbitrary). */
+#define TransfSize	((236) - LineSize) /* minimum wished size for load chunk
+				   of source file. Must be larger than MaxLgtId.
+				   Optimised for 'power of two' malloc
+				   allocators. */
+/*~zif TransfSize<MaxLgtId "Pb" */
+#define TwosCompl	(~0 == -1)
+
+#include "locdcFil.mng"
+#define PrintfFamily							       \
+ ConvTname("\x6\0printf"), ConvTname("\x7\0fprintf"), ConvTname("\x7\0sprintf")
+#define SizePrintfFamily 3
+#define ScanfFamily							       \
+ ConvTname("\x5\0scanf"), ConvTname("\x6\0fscanf"), ConvTname("\x6\0sscanf")
+#define IndexSScanf	3	/* in previous array */
+
+#ifdef __alpha
+#  define MaxPowOfTenInGtstInt 1000000000000000000
+#  define Log10MaxLongNb	18  /* log10(MaxPowOfTenInGtstInt) */
+#elif defined(LONGLONG)
+#  define MaxPowOfTenInGtstInt 1000000000000000000LL
+#  define Log10MaxLongNb	18  /* log10(MaxPowOfTenInGtstInt) */
+#else
+#  define MaxPowOfTenInGtstInt 1000000000
+#  define Log10MaxLongNb	9   /* log10(MaxPowOfTenInGtstInt) */
+   /*~zif (sizeof(long) != 4) "'long' on more than 4 bytes; change previous "
+			  "'MaxPowOfTenInLong' and 'Log10MaxLongNb' symbols." */
+#endif
+
+/* The following definitions in order to allow cross-compilation */
+#define CHAR_BITC	CHAR_BIT
+#define SCHAR_MINC	SCHAR_MIN
+#define SCHAR_MAXC	SCHAR_MAX
+#define UCHAR_MAXC	UCHAR_MAX
+#define CHAR_MAXC	CHAR_MAX
+#define SHRT_MINC	SHRT_MIN
+#define SHRT_MAXC	SHRT_MAX
+#define ShortSiz	sizeof(short)
+#define USHRT_MAXC	USHRT_MAX
+#define INT_MINC	INT_MIN
+#define INT_MAXC	INT_MAX
+#define IntSiz		sizeof(int)
+#define UINT_MAXC	UINT_MAX
+#define LONG_MAXC	LONG_MAX
+#define LONG_MINC	LONG_MIN
+#define ULONG_MAXC	ULONG_MAX
+#ifdef LONGLONG
+#  ifdef __ALPHA
+#    define LONGLONG_MAXC  __INT64_MAX	/* not usable		*/
+#    define LONGLONG_MINC  __INT64_MIN	/*	      in	*/
+#    define ULONGLONG_MAXC __UINT64_MAX	/*		 #if... */
+#  else
+#    define LONGLONG_MAXC  LONG_LONG_MAX  /* not usable           */
+#    define LONGLONG_MINC  LONG_LONG_MIN  /*            in        */
+#    define ULONGLONG_MAXC ULONG_LONG_MAX /*               #if... */
+#  endif
+#  define LongLongSiz	sizeof(LONGLONG)
+#else
+#  define LONGLONG_MAXC   LONG_MAXC
+#  define LONGLONG_MINC   LONG_MINC
+#  define ULONGLONG_MAXC  ULONG_MAXC
+#endif
+#define LongSiz		sizeof(long)
+#define FloatSiz	sizeof(float)
+#define DoubleSiz	sizeof(double)
+#if defined(VMS) && !defined(__DECC)
+#  define LongDblSiz	sizeof(double) /* no 'long double' on old VMS compiler... */
+#else
+#  define LongDblSiz	sizeof(long double)
+#endif
+#define PtrSiz		sizeof(void *)
+#define size_tc		size_t
+#define ptrdiff_tc	ptrdiff_t
+/* End CONFIGDC.TH */

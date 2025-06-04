@@ -1,0 +1,152 @@
+	.TITLE CVTMAP 
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; One off to convert old MAPPER.DAT to new fmt
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+
+	$RMSDEF
+	$DSCDEF		; Declare DSC sysmbols
+	$IODEF
+	$SSDEF
+	EMUCTRLDEF
+	EMUSYSDEF
+	EMUDBDEF
+;
+
+	.PSECT PARAMXLT_DATA,WRT,NOEXE,QUAD,pic
+
+
+	.ALIGN	LONG
+MAPPERFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		RFM = FIX,-
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <EMU5_Dat:MAPPER.DAT>,-	; Default Filename 
+		FNM = <MAPPER>,-			; Filename 
+		XAB = MAPPERXAB0                  ; Keys
+
+MAPPERRAB:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = MAPPERREC_BUF,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = MAPPERREC_BUF,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		RAC = SEQ			; Keyed file
+
+MAPPERXAB0:	$XABKEY	REF = 0,-  		; TBL,PARAM
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-                 ; Key len (dups not allowed)
+		NXT = MAPPERXAB1
+
+MAPPERXAB1:	$XABKEY	REF = 1,-  	; TBL
+		DTP = BN2,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 2,-               ; Key len (dups allowed)
+		FLG = DUP
+;
+MAPPERREC_BUF:	
+MAPKEY_buf:
+MAPPER_TBL:		.LONG	0	; Table 
+MAPPER_PARAM:		.LONG	0	; Paramater
+MAPPER_SEC:		.QUAD	0	; Prives req'ed to detect. VMS sec
+MAPPER_KEYW_LEN:	.LONG	0	; Len of following string
+MAPPER_KEYW:		.BLKB	32      ; Standard keyword this param
+MAPPER_FMTTYP:		.LONG	0	; Either len of following of rtn num.
+MAPPER_FMTSTR:		.BLKB	68	; FAO directive str
+MAPPER_RPTLVL:		.LONG	0
+MAPPERREC_SIZE = .-MAPPERREC_BUF        ; = 128
+
+
+;
+	.ALIGN	LONG
+MAPPER2FAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		RFM = FIX,-
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <EMU5_Dat:MAPPER2.DAT>,-	; Default Filename 
+		FNM = <MAPPER2>,-			; Filename 
+		XAB = MAPPER2XAB0                  ; Keys
+
+MAPPER2RAB:	$RAB	FAB = MAPPER2FAB,-		; pointer to FAB
+		RBF = MAPPER2REC_BUF,-		; i/o buffer 
+		RSZ = MAPPER2REC_SIZE,-		; Write this many bytes
+		UBF = MAPPER2REC_BUF,-		; i/o buffer 
+		USZ = MAPPER2REC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		KBF = MAP2KEY_BUF,-			; Key location
+		KSZ = 8
+
+MAPPER2XAB0:	$XABKEY	REF = 0,-  		; TBL,PARAM
+		DTP = BN8,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+		NXT = MAPPER2XAB1
+
+MAPPER2XAB1:	$XABKEY	REF = 1,-  	; TBL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+;
+MAPPER2REC_BUF:	
+MAP2KEY_buf:
+MAPPER2_TBL:		.LONG	0	; Table 
+MAPPER2_PARAM:		.LONG	0	; Paramater
+MAPPER2_SEC:		.QUAD	0	; Prives req'ed to detect. VMS sec
+MAPPER2_KEYW_LEN:	.LONG	0	; Len of following string
+MAPPER2_KEYW:		.BLKB	64      ; Standard keyword this param
+MAPPER2_FMTTYP:		.LONG	0	; Either len of following of rtn num.
+MAPPER2_FMTSTR:		.BLKB	32	; FAO directive str
+MAPPER2_POLFLG:		.LONG	0       ; Poll flags
+MAPPER2_RPTLVL:		.LONG	0       ; Report level
+MAPPER2REC_SIZE = .-MAPPER2REC_BUF        ; = 128
+;	
+
+;
+;	.End data definitions
+;
+	.PSECT PARAMXLT_CODE,EXE,pic
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=cvtmap      
+;
+; For now use direct file access. At a later time, move to subr that builds
+; section.
+	$OPEN	FAB = MAPPERFAB		;Open input file
+ 	$CONNECT RAB = MAPPERRAB	;Connect input stream
+	$CREATE	FAB = MAPPER2FAB		;Open input file
+ 	$CONNECT RAB = MAPPER2RAB	;Connect input stream
+
+
+
+; Read input seq, calc new key, write outp keyed.
+10$:
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,20$
+	RET
+20$:
+	MOVC3	#20,MAPPERREC_BUF,MAPPER2REC_BUF
+	MOVC5	#32,MAPPER_KEYW,#^A/ /,#65,MAPPER2_KEYW
+	MOVL	MAPPER_FMTTYP,MAPPER2_FMTTYP
+	MOVC5	#68,MAPPER_FMTSTR,#^A/ /,#32,MAPPER2_FMTSTR
+	CLRQ	MAPPER2_POLFLG
+	$PUT	RAB=MAPPER2RAB
+	BLBS	R0,10$
+	RET
+	.END	cvtmap	
+
+
+

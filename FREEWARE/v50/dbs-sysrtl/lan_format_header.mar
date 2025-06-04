@@ -1,0 +1,162 @@
+	.title	lan_format_header
+	.ident	"X1-002"
+
+;+
+; Version:	X1-002
+;
+; Facility:	LAN - Ethernet Routines
+;
+; Abstract:	Format an ethernet packet header into a recognizable form.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	07-Jul-1994, DBS, Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS, Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	This routine will format the contents of an ethernet packet header
+;	into the normal readable form.  Destination and source addresses are
+;	presented in the form "XX-XX-XX-XX-XX-XX".  The protocol/sap details
+;	are returned in the form "XX-XX XX XX-XX-XX-XX-XX" where
+;		XX-XX is the protocol or dsap/ssap
+;		XX is the control byte
+;		XX-XX-XX-XX-XX is the copid/ipid.
+;	Depending on what type of header is received, you can extract the
+;	relevant parts of the protocol/sap string and use as you wish.
+;
+; Calling Sequence:
+;	status = lan_format_header (%descr(header),%descr(destination)
+;				,%descr(source),%descr(sap))
+;
+; Formal Argument(s):
+;	header_buffer.rt.ds	A longword containing the address of the
+;				string descriptor of the packet header that
+;				is to be formatted.
+;	destination.wt.ds	A longword containing the address of the
+;				string descriptor to receive the formatted
+;				destination address.
+;	source.wt.ds		A longword containing the address of the
+;				string descriptor to receive the formatted
+;				source address.
+;	sap.wt.ds		A longword containing the address of the
+;				string descriptor to receive the formatted
+;				protocol/sap details.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_normal	Successful completion.
+;	ss$_insfarg	Insufficient arguments supplied.
+;	ss$_ovrmaxarg	Too many arguments supplied.
+;	ss$_badparam	Indicates that the header is not 20 bytes.
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	_lanhdrdef
+	$ssdef
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+	arg_count = 4			; MUST have 4 parameters
+	header_buffer = 4		; offsets to parameters
+	destination = 8
+	source = 12
+	sap = 16
+
+address_fao:	.ascid	"!XB-!XB-!XB-!XB-!XB-!XB"
+sap_fao:	.ascid	"!XB-!XB !XB !XB-!XB-!XB-!XB-!XB"
+param_list:	.blkl	8		; maximum of 8 fao directives
+					; should match maximum directives
+					;  required in the above formats
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+lan_format_header, ^m<r8,r9,r10,r11>
+
+	movl	#ss$_insfarg, r0	; be cynical...
+	cmpb	(ap), #arg_count	; check the number of arguments
+	beql	20$			; ok, so carry on
+	bgtru	10$			; too many
+	brw	exit			; too few, so bail out
+10$:	movl	#ss$_ovrmaxarg, r0	; too many, let them know
+	brw	exit			;  and bail out
+20$:	movq	@header_buffer(ap), r8	; save descriptor of input buffer
+					; R8 is the length of the header
+					; R9 is the address of the header
+	cmpw	r8, #lanhdr_s_lanhdrdef	; make sure we have a 20 byte header
+	beql	30$			; yep, ok
+	movl	#ss$_badparam, r0	; no good, set status
+	brw	exit			;  and get out of here
+30$:	tstw	destination(ap)		; is there a destination
+	beql	40$			; no, so don't do this bit
+	moval	param_list, r10
+	movzbl	(r9)+, (r10)+		; here we move the destination
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	$faol_s	ctrstr=address_fao, -
+		outbuf=@destination(ap), -
+		prmlst=param_list
+40$:	tstw	source(ap)		; is there a source
+	beql	50$			; no, so don't do this bit
+	moval	param_list, r10
+	movzbl	(r9)+, (r10)+		; here we move the source
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	$faol_s	ctrstr=address_fao, -
+		outbuf=@source(ap), -
+		prmlst=param_list
+50$:	tstw	sap(ap)			; do they want sap stuff
+	beql	60$			; no so bail out
+	moval	param_list, r10
+	movzbl	(r9)+, (r10)+		; here we move the sap stuff
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	movzbl	(r9)+, (r10)+
+	$faol_s	ctrstr=sap_fao, -
+		outbuf=@sap(ap), -
+		prmlst=param_list
+60$:	movl	#ss$_normal, r0
+exit:	ret
+
+	.end

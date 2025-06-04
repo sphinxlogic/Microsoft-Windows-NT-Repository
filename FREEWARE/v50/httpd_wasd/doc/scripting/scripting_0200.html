@@ -1,0 +1,594 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.SCRIPTING]SCRIPTING_CGI.SDML">
+<META NAME="date" CONTENT="Fri, 26 Jan 2001 12:57:24">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>CGI</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Scripting Environment</H1>
+
+<A NAME="40">
+<H2>2 - CGI</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+2.1 - <A HREF="scripting_0200.html#41" TARGET="_self">CGI Environment Variables</A>
+<BR>2.2 - <A HREF="scripting_0200.html#47" TARGET="_self">Script Output</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;2.2.1 - <A HREF="scripting_0200.html#48" TARGET="_self">CGI Compliant Output</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;2.2.2 - <A HREF="scripting_0200.html#52" TARGET="_self">Non-Parsed-Header Output</A>
+<BR>2.3 - <A HREF="scripting_0200.html#57" TARGET="_self">Raw HTTP Input (POST Processing)</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="scripting_0300.html" TARGET="_self">next</A>] [<A HREF="scripting_0100.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0200.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> The information in this chapter merely outlines the WASD implementation
+details, which are in general very much vanilla CGI and NCSA CGI (Common
+Gateway Interface) compliant, originally based the INTERNET-DRAFT authored by
+D.Robinson (drtr@ast.cam.ac.uk), 8 January 1996, and confirmed against the
+latest INTERNET-DRAFT authored by Ken A.L.Coar (drtr@etrade.co.uk), 12 June
+1999.
+
+<A NAME="41">
+<H3><BR><U>2.1 - CGI Environment Variables</U></H3>
+</A>
+
+<P> With the standard CGI environment variables are provided to the script via
+DCL global symbols.&nbsp; Each CGI variable symbol name is prefixed with
+&quot;WWW_&quot; (by default, although this can be changed using the
+&quot;/CGI_PREFIX&quot; qualifier and the SET CGIPREFIX mapping rule, see
+&quot;Technical Overview&quot;, this is not recommended if the WASD VMS scripts
+are to be used, as they expect CGI variable symbols to be prefixed in this
+manner).&nbsp;
+
+<P> In line with other CGI implementations, additional, non-compliant variables
+are provided to ease CGI interfacing.&nbsp;  These provide the various components of
+the query string.&nbsp;  A <I>keyword</I> query string and a <I>form</I>
+query string are parsed into separated variables, named
+
+<FONT COLOR="#333333"><PRE>  WWW_KEY_<I>number</I>
+  WWW_KEY_COUNT
+  WWW_FORM_<I>form-element-name</I>
+</PRE></FONT>
+
+<P> plus a number of non-&quot;standard&quot; CGI variables to assist in tailoring
+scripts for the WASD environment.&nbsp;  Do not make your scripts dependent on any of
+these if portability is a goal.&nbsp;  See the table below.&nbsp;
+
+<A NAME="42">
+<H3><BR>VMS Apache Compliance</H3>
+</A>
+
+<P> WASD v7.0 had it's CGI environment tailored slightly to ease portability
+between VMS Apache and WASD.&nbsp;  This included the provision of an APACHE$INPUT:
+stream and several Apache-specific CGI variables (see the table below).&nbsp; The
+CGILIB C function library (see <A HREF="scripting_0100.html#38" TARGET="_self">1.7 - Scripting Function Library</A>) has also been made
+CSWS V1.0-1 (Apache 1.3.12) compliant.&nbsp;
+
+<A NAME="43">
+<H3><BR>VMS Limits</H3>
+</A>
+
+<P> CGI variable values are limited to approximately 980 characters (regardless
+of the version of VMS in use).&nbsp;  This should be sufficient for most
+circumstances (if not consider using CGIplus or ISAPI, extensions to CGI
+programming which remove this limitation).&nbsp;  Why such an odd number and why a
+little rubbery?&nbsp;  A DCL command line is limited to 255 characters so the symbols
+for larger variables are built up over successive DCL commands.&nbsp;  The limit of
+980 characters is set by <I>what can actually be achieved</I> this way
+(still, it's much more useful than a limit of 255 or less!).
+
+<P> The total length of all CGI variable names and values is determined by the
+value of [BufferSizeDclCommand] configuration directive, which determines the
+total buffer space of a mailbox providing the script's SYS$COMMAND.&nbsp;  The
+default value of 4096 bytes will be ample for the typical CGI script request,
+however if it contains an extraordinary number of form fields, etc., it may be
+possible to exhaust this buffer space.&nbsp;
+
+<A NAME="44">
+<H3><BR>CGI Variables</H3>
+</A>
+
+<P> Remember, all variables are prefixed by &quot;WWW_&quot;, and not all
+variables will be present for all requests.&nbsp;
+
+<P>
+
+<BR><CENTER>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=1>
+<TR><TD>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=0>
+<TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Name</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Description</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>&quot;Standard&quot;</U></TH></TR>
+<TD ALIGN=left VALIGN=top>AUTH_ACCESS</TD><TD ALIGN=left VALIGN=top>&quot;READ&quot; or &quot;READ+WRITE&quot;</TD><TD ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>AUTH_AGENT</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>only present to and used by authorization agent</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD ALIGN=left VALIGN=top>AUTH_GROUP</TD><TD ALIGN=left VALIGN=top>authentication group</TD><TD ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>AUTH_PASSWORD</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>plain-text password, only if EXTERNAL realm</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD ALIGN=left VALIGN=top>AUTH_REALM</TD><TD ALIGN=left VALIGN=top>authentication realm</TD><TD ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>AUTH_REALM_DESCRIPTION</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>browser displayed string</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD ALIGN=left VALIGN=top>AUTH_TYPE</TD><TD ALIGN=left VALIGN=top>authentication type (BASIC or DIGEST)</TD><TD ALIGN=left VALIGN=top>yes</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>AUTH_USER</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>details of authenticated user</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD ALIGN=left VALIGN=top>CONTENT_LENGTH</TD><TD ALIGN=left VALIGN=top>&quot;Content-Length:&quot; from request header</TD><TD ALIGN=left VALIGN=top>yes</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>CONTENT_TYPE</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>&quot;Content-Type:&quot; from request header</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>yes</TD></TR>
+<TD ALIGN=left VALIGN=top>DOCUMENT_ROOT</TD><TD ALIGN=left VALIGN=top>always empty for WASD</TD><TD ALIGN=left VALIGN=top>Apache</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>FORM_field</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>query string &quot;&amp;&quot; separated form elements</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>no</TD></TR>
+<TD ALIGN=left VALIGN=top>GATEWAY_BG</TD><TD ALIGN=left VALIGN=top>device name &quot;BG<I>nnnn</I>:&quot; of raw client
+socket</TD><TD ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>GATEWAY_INTERFACE</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>&quot;CGI/1.1&quot;</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>yes</TD></TR>
+<TD ALIGN=left VALIGN=top>GATEWAY_MRS</TD><TD ALIGN=left VALIGN=top>maximum record size of script SYS$OUTPUT</TD><TD ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>HTTP_ACCEPT</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>any list of browser-accepted content types</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>optional</TD></TR>
+<TD ALIGN=left VALIGN=top>HTTP_ACCEPT_CHARSET</TD><TD ALIGN=left VALIGN=top>any list of browser-accepted character sets</TD><TD ALIGN=left VALIGN=top>optional</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>HTTP_ACCEPT_LANGUAGE</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>any list of browser-accepted languages</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>optional</TD></TR>
+<TD ALIGN=left VALIGN=top>HTTP_AUTHORIZATION</TD><TD ALIGN=left VALIGN=top>any from request header</TD><TD ALIGN=left VALIGN=top>optional</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>HTTP_COOKIE</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>any cookie sent by the client</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>optional</TD></TR>
+<TD ALIGN=left VALIGN=top>HTTP_FORWARDED</TD><TD ALIGN=left VALIGN=top>any proxy/gateway hosts that forwarded the request</TD><TD ALIGN=left VALIGN=top>optional</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>HTTP_HOST</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>host and port request was sent to</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>optional</TD></TR>
+<TD ALIGN=left VALIGN=top>HTTP_IF_MODIFIED_SINCE</TD><TD ALIGN=left VALIGN=top>any last modified GMT time string</TD><TD ALIGN=left VALIGN=top>optional</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>HTTP_PRAGMA</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>any pragma directive of request header</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>optional</TD></TR>
+<TD ALIGN=left VALIGN=top>HTTP_REFERER</TD><TD ALIGN=left VALIGN=top>any source document URL for this request</TD><TD ALIGN=left VALIGN=top>optional</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>HTTP_USER_AGENT</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>client/browser identification string</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>optional</TD></TR>
+<TD ALIGN=left VALIGN=top>KEY_n</TD><TD ALIGN=left VALIGN=top>query string &quot;+&quot; separated elements</TD><TD ALIGN=left VALIGN=top>no</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>KEY_COUNT</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>number of &quot;+&quot; separated elements</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>no</TD></TR>
+<TD ALIGN=left VALIGN=top>PATH_INFO</TD><TD ALIGN=left VALIGN=top>virtual path of data requested in URL</TD><TD ALIGN=left VALIGN=top>yes</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>PATH_TRANSLATED</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>VMS file path of data requested in URL</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>yes</TD></TR>
+<TD ALIGN=left VALIGN=top>QUERY_STRING</TD><TD ALIGN=left VALIGN=top>un-URL-decoded string following &quot;?&quot; in URL</TD><TD ALIGN=left VALIGN=top>yes</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>REMOTE_ADDR</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>IP host address of HTTP client</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>yes</TD></TR>
+<TD ALIGN=left VALIGN=top>REMOTE_HOST</TD><TD ALIGN=left VALIGN=top>IP host name of HTTP client</TD><TD ALIGN=left VALIGN=top>yes</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>REMOTE_USER</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>authenticated remote user name (or empty)</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>yes</TD></TR>
+<TD ALIGN=left VALIGN=top>REQUEST_CHARSET</TD><TD ALIGN=left VALIGN=top>any server-determined request character set</TD><TD ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>REQUEST_METHOD</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>&quot;GET&quot;, &quot;PUT&quot;, etc.&nbsp;</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>yes</TD></TR>
+<TD ALIGN=left VALIGN=top>REQUEST_SCHEME</TD><TD ALIGN=left VALIGN=top>&quot;http:&quot; or &quot;https:&quot;</TD><TD ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>REQUEST_TIME_GMT</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>GMT time request received</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD ALIGN=left VALIGN=top>REQUEST_TIME_LOCAL</TD><TD ALIGN=left VALIGN=top>Local time request received</TD><TD ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>REQUEST_URI</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>full, unescaped request string</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>Apache</TD></TR>
+<TD ALIGN=left VALIGN=top>SCRIPT_FILENAME</TD><TD ALIGN=left VALIGN=top>script file name
+(e.g. &quot;CGI-BIN:[000000]QUERY.COM&quot;)</TD><TD ALIGN=left VALIGN=top>Apache</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>SCRIPT_NAME</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>script being executed (e.g. &quot;/query&quot;)</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>yes</TD></TR>
+<TD ALIGN=left VALIGN=top>SERVER_ADDR</TD><TD ALIGN=left VALIGN=top>IP host name of server system</TD><TD ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>SERVER_ADMIN</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>email address for server administration</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>Apache</TD></TR>
+<TD ALIGN=left VALIGN=top>SERVER_CHARSET</TD><TD ALIGN=left VALIGN=top>server default character set</TD><TD ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>SERVER_GMT</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>offset from GMT (e.g. &quot;+09:30&quot;)</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>WASD</TD></TR>
+<TD ALIGN=left VALIGN=top>SERVER_NAME</TD><TD ALIGN=left VALIGN=top>IP host name of server</TD><TD ALIGN=left VALIGN=top>yes</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>SERVER_PROTOCOL</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>HTTP protocol version (always &quot;HTTP/1.0&quot;)</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>yes</TD></TR>
+<TD ALIGN=left VALIGN=top>SERVER_PORT</TD><TD ALIGN=left VALIGN=top>IP port request was received on</TD><TD ALIGN=left VALIGN=top>yes</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>SERVER_SIGNATURE</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>server ID, host name and port</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>Apache</TD></TR>
+<TD ALIGN=left VALIGN=top>SERVER_SOFTWARE</TD><TD ALIGN=left VALIGN=top>software ID of HTTP server</TD><TD ALIGN=left VALIGN=top>yes</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>UNIQUE_ID</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>request-unique 19 character string</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>Apache</TD></TR>
+</TABLE>
+</TD></TR>
+</TABLE>
+</CENTER><BR>
+
+
+<P> If the request path is set to provide them, there are also be variables
+providing information about a Secure Sockets Layer transported request's SSL
+environment.&nbsp;
+
+<A NAME="45">
+<H3><BR>CGI Variable Demonstration</H3>
+</A>
+
+<P> The basic CGI symbol names are demonstrated here with a call to a script 
+that simply executes the following DCL code:
+
+<FONT COLOR="#333333"><PRE>  $ SHOW SYMBOL WWW_*
+  $ SHOW SYMBOL *
+</PRE></FONT>
+ Note how the request components are represented for
+&quot;ISINDEX&quot;-style searching (third item) and a forms-based query (fourth
+item).&nbsp; 
+
+<OL>
+<LI> <A TARGET="_top" HREF="/cgi-bin/cgi_symbols">/cgi-bin/cgi_symbols</A>
+<LI> <A TARGET="_top" HREF="/cgi-bin/cgi_symbols/ht_root/doc/htd">
+     /cgi-bin/cgi_symbols/ht_root/doc/htd</A>
+<LI> <A TARGET="_top" HREF="/cgi-bin/cgi_symbols/ht_root/doc/htd/*.*?string1+string2">
+     /cgi-bin/cgi_symbols/ht_root/doc/htd/*.*?string1+string2</A>
+<LI> <A TARGET="_top" HREF="/cgi-bin/cgi_symbols/ht_root/doc/htd?FirstField=for&SecondField=this">
+     /cgi-bin/cgi_symbols/ht_root/doc/htd?FirstField=for&SecondField=this</A>
+</OL>
+
+
+<A NAME="46">
+<H3><BR>UNIQUE_ID Note</H3>
+</A>
+
+<P> The UNIQUE_ID variable is a mostly Apache-compliant implementation (the
+&quot;_&quot; has been substituted for the &quot;@&quot; to allow it's use in file
+names), for each request generating a globally and temporally unique 19
+character string that can be used where such a identifier might be needed.&nbsp; 
+This string contains only &quot;A&quot;-&quot;Z&quot;, &quot;a&quot;-&quot;z&quot;,
+&quot;0&quot;-&quot;9&quot;, &quot;_&quot; and &quot;-&quot; characters and is generated
+using a combination of time-stamp, host IP address, server system process
+identifier and counter, and is &quot;guaranteed&quot; to be unique in (Internet)
+space and time.&nbsp; 
+
+<A NAME="47">
+<H3><BR><U>2.2 - Script Output</U></H3>
+</A>
+
+<P> This information applies to all subprocess-based scripting, CGI, CGIplus,
+RTE, ISAPI.&nbsp;  For subprocess scripting WASD uses mailboxes for inter-process
+communication (IPC).&nbsp;  These are efficient, versatile and allow direct output
+from all VMS environments and utilities.&nbsp;  Like many VMS record-oriented devices
+however there are some things to consider when using them.&nbsp;
+<UL>
+
+<LI><B>Record-Oriented</B>
+
+<P> The mailboxes are created record, not stream oriented.&nbsp;  This means records
+output by standard VMS means (e.g. DCL, utilities, programming languages) are
+discretely identified and may be processed appropriately by the server as text
+or binary depending on the content-type.&nbsp;
+<P>
+<LI><B>Maximum Record Size</B>
+
+<P> Being record oriented there is a maximum record size (MRS) that can
+be output.&nbsp;  Records larger than this result in SYSTEM-F-MBTOOSML errors.&nbsp;  The
+WASD default is 4096 bytes.&nbsp;  This may be changed using the
+[BufferSizeDclOutput] configuration directive.&nbsp;  This allocation consumes
+process BYTLM with each mailbox created so the account must be dimensioned
+sufficiently to supply demands for this quota.&nbsp;  The maximum possible size for
+this is a VMS-limit of 60,000 bytes.&nbsp;
+<P>
+<LI><B>Buffer Space</B>
+
+<P> When created the mailbox has it's buffer space set.&nbsp;  With WASD IPC
+mailboxes this is the same as the MRS.&nbsp;  The total data buffered may not exceed
+this without the script entering a wait state (for the mailbox contents to be
+cleared by the server).&nbsp;  As mailboxes use a little of the buffer space to
+delimit records stored in it the amount of data is actually less than the total
+buffer space.&nbsp;
+</UL>
+
+
+<P> To determine the maximum record size and total capacity of the mailbox
+buffer between server and script WASD provides a CGI environment variable,
+GATEWAY_MRS, containing an integer with this value.&nbsp;
+
+<A NAME="48">
+<H3><BR><U>2.2.1 - CGI Compliant Output</U></H3>
+</A>
+
+<P> Script response may be CGI or NPH compliant (see
+<A HREF="scripting_0200.html#52" TARGET="_self">2.2.2 - Non-Parsed-Header Output</A>).&nbsp;   CGI compliance means the script's response
+must begin with a line containing one of the following fields.&nbsp;
+<UL>
+
+<LI><B>Status: </B> an HTTP status code and associated
+explanation string
+<LI><B>Content-Type: </B> the script body's MIME content-type
+<LI><B>Location: </B> a redirection URL
+</UL>
+
+
+<P> Other HTTP-compliant response fields may follow, with the response header
+terminated and the response body begun by a single empty line.&nbsp;  The following 
+is an example of a CGI-compliant response.&nbsp;
+
+<FONT COLOR="#333333"><PRE>
+  Content-Type: text/html
+  Content-Length: 35
+
+  &lt;HTML&gt;
+  &lt;B&gt;Hello world!&lt;/B&gt;
+  &lt;/HTML&gt;
+</PRE></FONT>
+
+<P> Strict CGI output compliance can be enabled and disabled using the
+[CgiStrictOutput] configuration directive.&nbsp;  With it disabled the server will
+accept any output from the script, if not CGI or NPH compliant then it
+automatically generates plain-text header.&nbsp;  When enabled, if not a CGI or NPH
+header the server returns a &quot;502 Bad Gateway&quot; error.&nbsp;  For debugging
+scripts generating this error introduce a <I>plain-text</I> debug mode and
+header, or use the WATCH facility's CGI item (see the Technical Overview).&nbsp;
+
+<A NAME="49">
+<H3><BR>WASD Specifics</H3>
+</A>
+
+<P> This section describes how WASD deals with some particular output issues.&nbsp;
+<UL>
+
+<LI><B>Content-Type: text/...</B>
+
+<P> If the script response content-type is &quot;text/...&quot; (text
+document) WASD assumes that output will be line-oriented and requiring HTTP
+carriage-control (each record/line terminated by a line-feed), and will ensure
+each record it receives is correctly terminated before passing it to the
+client.&nbsp;  In this way DCL procedure output (and the VMS environment in general)
+is supported transparently.&nbsp;  Any other content-type is assumed to be
+<I>binary</I> and no carriage-control is enforced.&nbsp;  This default behaviour
+may be modified as described below.&nbsp;
+<P>
+<LI><B>Carriage-Control</B>
+
+<P> Carriage-control behaviour for <U>any</U> content-type may be
+explicitly set using either of two additional response header fields.&nbsp;  The term
+<I>stream</I> is used to describe the server just transfering records,
+without  additional processing, as they were received from the script.&nbsp;  This is
+obviously necessary for binary/raw content such as images, octet-streams, etc.&nbsp;
+The term <I>record</I> describes the server ensuring each record it
+receives has correct carriage-control - a trailing newline.&nbsp;  If not present one
+is added.&nbsp;  This mode is useful for VMS textual streams (e.g. output from DCL
+and VMS utilities).&nbsp;
+
+<P> Using the Apache Group's proposed CGI/1.2 &quot;Script-Control:&quot; field.&nbsp; 
+The WASD extension-directives <I>X-record-mode</I> and
+<I>X-stream-mode</I> sets the script output into each of the respective
+modes.&nbsp; See <A HREF="scripting_0200.html#50" TARGET="_self">Script-Control:</A>.&nbsp;
+
+<P> Examples of usage this field:
+
+<FONT COLOR="#333333"><PRE>  Script-Control: X-stream-mode
+  Script-Control: X-record-mode
+</PRE></FONT>
+<P>
+<LI><B>Script Output Buffering</B>
+
+<P> By default WASD writes each record received from the script to the
+client as it is received.&nbsp;  This can range from a single byte to a complete
+mailbox buffer full.&nbsp;  WASD leaves it up to the script to determine the rate at
+which output flows back to the client.&nbsp;
+
+<P> While this allows a certain flexibility it can be inefficient.&nbsp;  There will
+be many instances where a script will be providing just a body of data to the
+client, and wish to do it as quickly and efficiently as possible.&nbsp;  Using the
+proposed CGI/1.2 &quot;Script-Control:&quot; field with the WASD extension
+directive <I>X-buffer-records</I> a script can direct the server to buffer
+as many script output records as possible before transfering it to the client.&nbsp; 
+The following should be added to the CGI response header.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  Script-Control: X-buffer-records
+</PRE></FONT>
+
+<P> While the above offers some significant improvements to efficiency and
+perceived throughput the best approach is for the script to provide records the
+same size as the mailbox (see <A HREF="scripting_0200.html#47" TARGET="_self">2.2 - Script Output</A> for detail on
+determining this size if required).&nbsp;  The can be done explicitly by the script
+programming  or if using the C language simply by changing <I>stdout</I>
+to a binary stream.&nbsp;  With this environment the C-RTL will control output,
+automatically buffering as much as possible before writing it to the server.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  if ((stdout = freopen ("SYS$OUTPUT", "w", stdout, "ctx=bin")) == NULL)
+     exit (vaxc$errno);
+</PRE></FONT>
+
+<P> Also see the section describing <A HREF="scripting_0200.html#55" TARGET="_self">NPH C Script</A>.&nbsp;
+</UL>
+
+
+<A NAME="50">
+<H3><BR>Script-Control:</H3>
+</A>
+
+<P> The <I>Apache Group</I> has proposed a CGI/1.2 that includes a
+<I>Script-Control:</I> CGI response header field.&nbsp;  WASD implements the
+one proposed directive, along with a number of WASD extensions (those
+beginning with the &quot;X-&quot;).  Note that by convention extensions unknown by
+an agent should be ignored, meaning that they can be freely included, only
+being meaningful to WASD and not significant to other implementations.&nbsp;
+<UL>
+
+<LI><B>no-abort - </B>
+The server must not terminate the script during processing for either
+no output or no-progress timeouts.&nbsp;  The script is to be left completely alone
+to control it's own termination.&nbsp;  Caution, such scripts if problematic could
+easily accumulate and &quot;clog up&quot; a server or system.&nbsp;
+<P>
+<LI><B>X-buffer-records - </B>
+Buffer records written by the script until there is [BufferSizeDclOutput] bytes
+available then write it as a single block to the client.&nbsp;
+<P>
+<LI><B>X-crlf-mode - </B>
+The server should always ensure each record has trailing carriage-return then
+newline characters (0x0d, 0x0a).&nbsp;  This is generally what VMS requires for
+carriage control on terminals, printers, etc.&nbsp;
+<P>
+<LI><B>X-lifetime=<I>value</I> - </B>
+The number of minutes before the idle script subprocess is deleted by the
+server.&nbsp;  Zero sets it back to the default, &quot;none&quot; disables this
+functionality.&nbsp; 
+<P>
+<LI><B>X-record-mode - </B>
+The server should always ensure each record has a trailing newline
+character (0x0a), regardless of whether the response is a <I>text/...</I>
+content-type or not.&nbsp;  This is what is usually required by browsers for
+carriage-control in text documents.&nbsp;
+<P>
+<LI><B>X-stream-mode - </B>
+The server is not to adjust the carriage-control of records regardless of
+whether the response is a <I>text/...</I> content-type or not.&nbsp;  What the
+script writes is exactly what the client is sent.&nbsp;
+<P>
+<LI><B>X-timeout-noprogress=<I>value</I> -</B>
+The number of minutes allowed where the script does not transfer any data to
+the server before the server deletes the process.&nbsp;  Zero sets it back to the
+default, &quot;none&quot; disables this functionality.&nbsp; 
+<P>
+<LI><B>X-timeout-output=<I>value</I> - </B>
+The number of minutes allowed before an active script is deleted by the server,
+regardless of it still processing the request.&nbsp;  Zero sets it back to the
+default, &quot;none&quot; disables this functionality.&nbsp; 
+</UL>
+
+
+<P> The following is a simple example response where the server is instructed
+not to delete the script process under any circumstances, and that the body
+does not require any carriage-control changes.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  Content-Type: text/plain
+  Script-Control: no-abort; X-stream-mode
+ 
+  <I>long, slowww script-output ...</I>
+</PRE></FONT>
+
+<A NAME="51">
+<H3><BR>Example DCL Scripts</H3>
+</A>
+
+<P> A simple script to provide the system time might be:
+
+<FONT COLOR="#333333"><PRE>  $ say = "write sys$output"
+  $! the next two lines make it CGI-compliant
+  $ say "Content-Type: text/plain"
+  $ say ""
+  $! start of plain-text body
+  $ show time
+</PRE></FONT>
+
+<P> A script to provide the system time more elaborately (using HTML):
+
+<FONT COLOR="#333333"><PRE>
+  $ say = "write sys$output"
+  $! the next two lines make it CGI-compliant
+  $ say "Content-Type: text/html"
+  $ say ""
+  $! start of HTML script output
+  $ say "&lt;HTML&gt;"
+  $ say "Hello ''WWW_REMOTE_HOST'"  !(CGI variable)
+  $ say "&lt;P&gt;"
+  $ say "System time on node ''f$getsyi("nodename")' is:"
+  $ say "&lt;H1&gt;''f$cvtime()'&lt;/H1&gt;"
+  $ say "&lt;/HTML&gt;"
+</PRE></FONT>
+
+<A NAME="52">
+<H3><BR><U>2.2.2 - Non-Parsed-Header Output</U></H3>
+</A>
+
+<P> A script does not have to output a CGI-compliant data stream.&nbsp;  If it begins
+with a HTTP header status line WASD assumes it will supply a
+<B>raw</B> HTTP data stream, containing all the HTTP requirements.&nbsp; 
+This is the same or equivalent to the <I>non-parsed-header</I>, or
+&quot;nph...&quot; scripts of many environments.&nbsp;  This is an example of
+such a script response.&nbsp;
+
+<FONT COLOR="#333333"><PRE>
+  HTTP/1.0 200 Success
+  Content-Type: text/html
+  Content-Length: 35
+
+  &lt;HTML&gt;
+  &lt;B&gt;Hello world!&lt;/B&gt;
+  &lt;/HTML&gt;
+</PRE></FONT>
+
+<P> Any such script must observe the HyperText Transfer Protocol, supplying a
+<B>full response header and body, including correct
+carriage-control</B>.&nbsp;  Once the server detects the HTTP status header line it
+pays no more attention to any response header fields or body records, just
+transfering everything directly to the client.&nbsp;  This can be very efficient, the
+server just a conduit between script and client, but does transfer the
+responsibility for a correct HTTP response onto the script.&nbsp;
+
+<A NAME="53">
+<H3><BR>NPH DCL Script</H3>
+</A>
+
+<P> The following example shows a DCL script.&nbsp;  Note the full HTTP header and
+each line explicitly terminated with a carriage-return and line-feed pair.&nbsp; 
+
+<FONT COLOR="#333333"><PRE>
+  $ lf[0,8] = %x0a
+  $ crlf[0,16] = %x0d0a
+  $ say = "write sys$output"
+  $! the next line determines that it is raw HTTP stream
+  $ say "HTTP/1.0 200 Success" + crlf
+  $ say "Content-Type: text/html" + crlf
+  $! response header separating blank line
+  $ say crlf
+  $! start of HTML script output
+  $ say "&lt;HTML&gt;" + lf 
+  $ say "Hello ''WWW_REMOTE_HOST'" + lf 
+  $ say "&lt;P&gt;" + lf 
+  $ say "Local time is ''WWW_REQUEST_TIME_LOCAL'" + lf 
+  $ say "&lt;/HTML&gt;" + lf 
+</PRE></FONT>
+
+<A NAME="54">
+<H3><BR>CGIUTL Utility</H3>
+</A>
+
+<P> This assists with the generation of HTTP responses, including the transfer
+of binary content from files (copying a file back to the client as part of the
+request), and the processing of the contents of POSTed requests from DCL.&nbsp;  See
+<A HREF="scripting_0100.html#37" TARGET="_self">1.6 - DCL Processing of Requests</A>.&nbsp;
+
+<A NAME="55">
+<H3><BR>NPH C Script</H3>
+</A>
+
+<P> When scripting using the C programming language there can be considerable
+efficiencies to be gained by providing a binary output stream from the script.&nbsp; 
+This results in the C Run-Time Library (C-RTL) buffering output up to the
+maximum supported by the IPC mailbox.&nbsp;  This may be simply enabled using a code
+construct similar to following to reopen <I>stdout</I> in binary mode.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  if ((stdout = freopen ("SYS$OUTPUT", "w", stdout, "ctx=bin")) == NULL)
+     exit (vaxc$errno);
+</PRE></FONT>
+
+<P> This is used consistently in WASD scripts.&nbsp;  Carriage-control must be
+supplied as part of the C standard output (no differently to any other C
+program).&nbsp;  Output can be be explicitly sent to the client at any stage using
+the <I>fflush()</I> standard library function.&nbsp;  Note that if the
+<I>fwrite()</I> function is used the current contents of the C-RTL buffer
+are automatically flushed along the the content of the fwrite().
+
+<FONT COLOR="#333333"><PRE>
+     fprintf (stdout,
+  "HTTP/1.0 200 Success\r\n\
+  Content-Type: text/html\r\n\
+  \r\n\
+  &lt;HTML&gt;\n\
+  Hello %s\n\
+  &lt;P&gt;\n\
+  System time is %s\n\
+  &lt;/HTML&gt;\n",
+     getenv("WWW_REMOTE_HOST"),
+     getenv("WWW_REQUEST_TIME_LOCAL"));
+</PRE></FONT>
+
+<A NAME="56">
+<H3><BR>CGI Function Library</H3>
+</A>
+
+<P> A source code collection of C language functions useful for processing the
+more vexing aspects of CGI/CGIplus programming.&nbsp;  See
+<A HREF="scripting_0100.html#38" TARGET="_self">1.7 - Scripting Function Library</A>.&nbsp;
+
+<A NAME="57">
+<H3><BR><U>2.3 - Raw HTTP Input (POST Processing)</U></H3>
+</A>
+
+<P> For POST and PUT HTTP methods (e.g. a POSTed HTML form) the body of the
+request may be read from the HTTP$INPUT stream.&nbsp;  For executable image scripts
+requiring the body to be present on SYS$INPUT (the C language
+<I>stdin</I> stream) a user-mode logical may be defined immediately
+before invoking the image, as in the example.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  $ EGSCRIPT = "$HT_EXE:EGSCRIPT.EXE"
+  $ DEFINE /USER SYS$INPUT HTTP$INPUT
+  $ EGSCRIPT
+</PRE></FONT>
+
+<P> The HTTP$INPUT stream may be explicitly opened and read.&nbsp;  Note that this is
+a raw stream, and HTTP <I>lines</I> (carriage-return/line-feed terminated
+sequences of characters) may have been blocked  together for network transport.&nbsp; 
+These would need to be explicity parsed by the program.&nbsp;
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="scripting_0300.html" TARGET="_self">next</A>] [<A HREF="scripting_0100.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0200.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

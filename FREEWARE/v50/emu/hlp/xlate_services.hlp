@@ -1,0 +1,657 @@
+1 XLATE_SERVICES
+ This module contains routines used to translate internal or otherwise
+ coded fields into printable strings. Each routine is documented
+ seperately.
+2 WEEKDAY 
+ Routine to translate a .quad abs system time to the day of the 
+ week this date occured on. 
+3 Inputs:
+	.address of .quad absolute system time
+	.address of .long where 4 bytes .ascii day is written.
+	The day is always 3 ascii characters and 1 space in len
+3 Outputs
+	Translation is written to output
+3 Returns:
+	SS$_NORMAL	OK
+	any from LIB$_DAY_OF_WEEK
+
+2 SNMP_IFXLATE 
+ Routine to translate the SNMP standard interface type code to an
+ ascii string suitable for display. The length written is always 
+ SNMP_IFXLATE_SIZE = 24 bytes.
+3 Inputs:
+	.long	interface code
+	.address of descriptor pointing to where translation is written
+3 Outputs
+	Translation is written to descriptor
+3 Returns:
+	SS$_NORMAL	OK
+	SS$_BUFFEROVF	Oupt buffer to small
+       SS$_BADPARAM	Code < 1 
+3 Description
+ The translation table is hardcoded in this routine for performance 
+ reasons. If the translation is not in the table, 'OTHER' is returned.
+2 ADDR2NAME
+ Routine to return name for input address.  
+3 Inputs:
+	.long protocol (SYS_PID_C_xxxx of the PSR)
+	.long len of following address
+	.address of protocol address  (net format)
+	.address of descriptor pointing to where name is written
+3 Outputs
+	If name is found, it is written to descriptor
+	If not found the address is translated to printable string
+	and returned in the descriptor
+3 Returns:
+	SS$_NORMAL		OK   Name is written
+	SS$_LOGNAME		OK  Address is written
+	SS$_ITEMNOTFOUND        Specified address not found
+	SS$_BUFFEROVF		Oupt buffer to small
+	SS$_VALNOTVALID		Undefined SYS_PID_C_xxxx
+	Any from MAP/UNMAP routines
+3 Description
+ The specified database is searched for the sepecified address. If
+ the db entry is found it performs a NAME_LOOKUP using default 
+ preferences. If not, the address is translated to a printable string
+ and returned.
+2 NAME_LOOKUP 
+ Routine to return name for input BOXID.  
+3 Inputs:
+	.address of RELATER REC
+	.address of descriptor pointing to where name is written
+    	---------- Optional ---------------------
+	.long flags
+	.address of .long where context is written
+4 Flags
+	Bit		When set
+	0		Exact match only. If set context is ignored
+	1		Preference order 1 (see description)
+
+3 Outputs
+	Name is written to descriptor
+	COntext, if present and appropriate is written
+3 Returns:
+	SS$_NORMAL		OK
+	SS$_ITEMNOTFOUND        did not find matching name
+	SS$_BUFFEROVF		Oupt buffer to small
+       SS$_BADPARAM		Invalid flag field
+				- both bits are set 
+				- Bits other than 0-1 are set
+3 Description
+ A name lookup is essentialy BOXID to NAME translation. The default 
+ preference order for returning a name is:
+	User set preferred name
+	Name on protocol specified by input PSRREC
+	Any name on this box
+ The flags field changes this ordering:
+ Bit 0	Exact match is just that. BOXID and Protocol must match 
+ Bit 1	Preference order 1 is:
+	Name on protocol specified by input PSRREC
+	User set preferred name
+	Any name on this box
+ If the context field is present, it is checked on input and if not 0
+ starts the new search from where last one left off. On output it is 
+ written with the address of the last record matching search criteria.
+2 FORMAT_ADDR  
+ Routine to format the specified protocol address into 
+ printable string. 
+3 Inputs:
+	.address of QUERY_STRUCTURE
+	.address of descriptor where string is written
+3 Outputs:
+	printable string 
+3 Returns:
+	SS$_ACCVIO	Can't read PSRrec header
+	Any return from $FAO
+3 Description
+   A paramater in the query structure is the address if the current 
+ PSRrec being displayed. This record contains sufficient information
+ to determine the address type and len.  
+
+MOVQ	@4(AP),R6		; db
+MOVL	COM_DBHDR_L_FLAG(R6),R1 ; PID
+MOVL	4(AP),R6
+ADDL	#SUI_QRY_L_CONTEXT,R6	; Addr of addr of rec
+MOVL	(R6),R6			; Addr of rec
+PROBER  #0,#COM_HDR_C_SIZE,(R6) ; Read header?
+       BNEQ	10$
+MOVL	#SS$_ACCVIO,R0
+RET
+0$:
+CASEL	R1,#0,#12
+0$:
+.WORD	100$-90$	; Undef
+.WORD	101$-90$	; Listen ( no db)
+.WORD	102$-90$	; dn4
+.WORD	103$-90$	; DN5
+.WORD	104$-90$	; scs
+.WORD	105$-90$	; lat
+.WORD	106$-90$	; mop
+.WORD	107$-90$	; ip
+.WORD	108$-90$	; ipx
+.WORD	109$-90$	; dns
+.WORD	110$-90$	; dts
+.WORD	111$-90$	; arp
+.WORD	112$-90$	; eth
+00$:
+01$:
+MOVL	#SS$_BADPARAM,R0
+RET
+
+02$:
+MOVZWL  PSR_DN4_W_ADDR(R6),DADDR            ; Decnet addr
+       EDIV    #1024,DADDR,R1,R2
+PUSHL	R2
+PUSHL	R1
+PUSHL	8(AP)
+PUSHL	8(AP)
+PUSHAL	PSRDN4ADDR
+CALLS	#5,G^SYS$FAO
+       RET
+03$:
+PUSHL	8(AP)		; Outp
+ADDL3	#PSR_DN5_B20_ADDR,R6,-(SP)
+PUSHL	PSR_DN5_L_ADDRLEN(R6)
+CALLS	#3,G^XLATE_NSAP
+       RET
+04$:
+ADDL3	#PSR_SCS_EA_ADDR,R6,R7		; Addr
+       BRW	1000$
+
+05$:
+ADDL3	#PSR_LAT_EA_ADDR,R6,R7		; Addr
+BRW	1000$
+
+06$:
+ADDL3	#PSR_MOP_EA_ADDR,R6,R7		; Addr
+BRW	1000$
+07$:
+ADDL3	#PSR_IP_L_ADDR,R6,R3
+PUSHL	3(R3)
+PUSHL	2(R3)
+PUSHL	1(R3)
+PUSHL	(R3)
+PUSHL	8(AP)
+PUSHL	8(AP)
+PUSHAL	PSRIPADDR
+CALLS	#7,G^SYS$FAO
+RET
+08$:
+09$:
+10$:
+11$:
+MOVL	#SS$_BADPARAM,R0
+RET
+12$:
+ADDL3	#PSR_ETH_EA_ADDR,R6,R7	; Addr
+BRW	1000$
+
+000$:
+ Common Ethernet translation
+
+
+MOVZBL	5(R7),-(SP)                     ; Addr
+MOVZBL	4(R7),-(SP)                     ;
+MOVZBL	3(R7),-(SP)                     ;
+MOVZBL	2(R7),-(SP)                     ;
+MOVZBL	1(R7),-(SP)                     ;
+MOVZBL	(R7),-(SP)                      ;
+PUSHL   8(AP)
+PUSHL	8(AP)
+PUSHAL	PSRETHADDR
+CALLS	#9,G^SYS$FAO
+       RET
+
+
+
+
+.CALL_ENTRY	MAX_ARGS=4, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=XLATE_ADDR 
+++
+2 XLATE_ADDR  
+ Routine to format the specified protocol address into 
+ printable string. 
+3 Inputs:
+	.long	 PID
+	.long	len of following addr
+	.address of protocol address
+	.address of descriptor where string is written
+3 Outputs:
+	printable string 
+3 Returns:
+	SS$_ACCVIO	Can't read PSRrec input
+	SS$_BADPARAM	Unrecognised or invalid DB
+	Any return from $FAO
+3 Description
+	Translate the input protocol address using the routine specified
+	by the PID. The PID is the SYS_PID_C_xxxx of the db this 
+	address normaly appears in.
+
+
+MOVL	4(AP),R1		; PID
+MOVL	12(AP),R6		; Input
+0$:
+CASEL	R1,#0,#12
+0$:
+.WORD	100$-90$	; Undef
+.WORD	101$-90$	; Listen ( no db)
+.WORD	102$-90$	; dn4
+.WORD	103$-90$	; DN5
+.WORD	104$-90$	; scs
+.WORD	105$-90$	; lat
+.WORD	106$-90$	; mop
+.WORD	107$-90$	; ip
+.WORD	108$-90$	; ipx
+.WORD	109$-90$	; dns
+.WORD	110$-90$	; dts
+.WORD	111$-90$	; arp
+.WORD	112$-90$	; eth
+00$:
+01$:
+MOVL	#SS$_BADPARAM,R0
+RET
+
+02$:
+MOVZWL  (R6),DADDR            ; Decnet addr
+       EDIV    #1024,DADDR,R1,R2
+PUSHL	R2
+PUSHL	R1
+PUSHL	16(AP)
+PUSHL	16(AP)
+PUSHAL	PSRDN4ADDR
+CALLS	#5,G^SYS$FAO
+       RET
+03$:
+PUSHL	16(AP)		; Outp
+PUSHL	8(AP)		; len
+PUSHL	R6		; len
+PUSHL	PSR_DN5_L_ADDRLEN(R6)
+CALLS	#3,G^XLATE_NSAP
+       RET
+04$:
+       BRW	1000$
+
+05$:
+BRW	1000$
+
+06$:
+BRW	1000$
+07$:
+PUSHL	3(R6)
+PUSHL	2(R6)
+PUSHL	1(R6)
+PUSHL	(R6)
+PUSHL	16(AP)
+PUSHL	16(AP)
+PUSHAL	PSRIPADDR
+CALLS	#7,G^SYS$FAO
+RET
+08$:
+09$:
+10$:
+11$:
+MOVL	#SS$_BADPARAM,R0
+RET
+12$:
+BRW	1000$
+
+000$:
+ Common Ethernet translation
+
+
+MOVZBL	5(R6),-(SP)                     ; Addr
+MOVZBL	4(R6),-(SP)                     ;
+MOVZBL	3(R6),-(SP)                     ;
+MOVZBL	2(R6),-(SP)                     ;
+MOVZBL	1(R6),-(SP)                     ;
+MOVZBL	(R6),-(SP)                      ;
+PUSHL   16(AP)
+PUSHL	16(AP)
+PUSHAL	PSRETHADDR
+CALLS	#9,G^SYS$FAO
+       RET
+
+
+
+
+
+
+.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=MAKE_PTYTYP  
+++
+2 MAKE_PTYTYP  
+ Routine to translate VMS Ethernet header to EMU Internal protocol type.
+3 Inputs:
+	.address of EMU EBUFF
+	.address of .quad where internal type is written
+3 Outputs:
+	Internal type 
+3 Returns:
+	SS$_NORMAL	OK
+3 Description
+ There are 2 Ethernet frame types with one type in two parts. Effectively
+ 3 types. In order to speed processing convert to a standard internal.
+ As in P5 receive:
+ Type		 position	Len		Desc
+ Enet II	12		2	The familiar 2 byte field
+ IEEE		12		3	3 bytes are: DSAP,SSAP,CTRL
+ IEEE SNAP	12		8	When DSAP, SSAP = AAAA then
+					5 byte field follows CTRL (ofset 15)
+ These are converted to an internal format used ONLY in this context:
+ Type		Byte 0 		Remainder of quad
+ Enet		  1		bytes 6,7 = bytes 12,13 of original
+ IEEE		  2		Byte 7 = DSAP (byte 12 of original
+ SNAP		  3		Bytes 3 - 7 = bytes 15 - 20 or original
+2 XLATE_ENETPTY
+ Routine to translate the EMU formatted protocol type  field to
+ the registered name and optionaly, Ethernet frame type.
+ The routine /file combination now handles:
+ Ethernet type II (2 byte protocol type)
+ IEEE 802.3	(1 byte DSAP)
+ IEEE SNAP  (5 byte PID)
+3 Inputs
+ 		.address of .QUAD input. EMU Formatted protocol type 
+		.address of desc pointing to outp. May be up to 255 bytes.
+		.long by val optional flag field
+4 Input_format
+  field	ofs	len		desc
+ type		0	1	EMU defined frame type: type2, IEEE or extended
+ ETYYPE	6	2	2 byte protocol field when type2
+ DSAP		7	1	1 byte Destination SAP when IEEE
+ SNAP		3	5	5 byte extended PID when SNAP
+ Bytes 1,2 never written
+4 Optional_flag 
+	bit			When Set
+	0		Include frame type translation
+
+3 Outputs	
+	.ASCIC registered name
+2 EMU_BITPTOASCIC 
+ Translate group bits. This routine searches a bit pattern and returns an
+ .ascii string showing bits found to be set. 
+3 Inputs
+       .long   addresss of bit pattern to search
+       .long   value of number of bits to search
+       .long   address of desc pointing to outp
+
+3 Ouputs
+       .ASCII   Comma seperated list of bits set. On overflow the last
+                char is '+'.
+3 Abstract
+The returned string is formed as follows:
+ 
+ While limit .lt.  Number of bits to search:
+       Find first bit set.
+       Translate bit No. to ascii and place in str+1
+       Br to Lastbitset
+   Lastbitset:
+       Find next bit clear
+       Translate bit No. - 1 to acsii and add '-bit' to str
+       Br to lastbitclear
+   Lastbitclear:
+       Find next bit set
+       Add ',' to str
+       Translate bit No. to ascii and add to str
+       Br to lastbitset
+ Calc len of resulting str and put in first byte to form .ascic
+ End
+2 ASCII_STRING
+ Translate ascii string. This routine is provided to get around the 
+ limitations of the translation routine. It can only translate
+ a paramater and does not differentiate between params that need address
+ input of value input. That routine is always value input. Ascii strings
+ are address. Very simply, this routine takes the input param desc and
+ FAOs it into the output desc.
+ Input
+ addr of desc pointing to ascii string
+ addr of des pointing to output.
+ Output
+ Ascii string
+ Return
+ Any return from $FAO
+2 EADRTOASCII
+ Translate net formatted Ethernet addr to readable form.
+3 Example
+ 5634122B0008 (6 bytes) is translated to 08-00-2B-12-34-56<SP> (18 Bytes)
+
+3Inputs
+	.long	addresss of 6 bytes Ethernet address in hex
+	.long	address of descriptor to write (17 or 18 bytes) return to
+	.long	(option)Value flags. If present then return .ascic
+
+3 Ouputs:
+	.ASCII  Ethernet address  or .ASCIC Ethernet address
+2 ASCTOBITP
+ Translate comma seperated list of decimal numbers to bit pattern. 
+ valid inputs are 0-255 ',' and '-'
+ 
+3 Inputs
+	.long	address of desc pointing to inpt
+	.long	addresss of 32 byte bit pattern to return
+ 
+3 Ouputs
+	.blkb	32 bytes wherein a bit is set if the input specified this
+		number.
+2 XLATE_CIRCTYP
+ Routine to translate CMIP Routing circuit type code to .ascii string
+3 Inputs
+	.address of descriptor poiting to EMUDB formatted record
+	.address Descriptor pointing to output
+3 Outputs
+ 	The translated cic type is written in the output field
+	The output len is written in the descriptor 
+3 Returns
+ 	SS$_NORMAL	all is well
+	SS$_BADPARAM	Unrecognised type
+	SS$_ACCVIO	Can't read/write inpt/outp
+	SS$_BUFFEROVF	Outp too small
+2 XLATE_CMP_VER
+ Routine to translate CMIP Version code to .ascii string
+3 Inputs
+	.address of descriptor pointing to EMUDB formatted param
+	.address Descriptor pointing to output
+4 Input_format
+	.word	tag class    	(must be 1)
+	.word	tag value       (must be 33)
+	.long	len of data     (must be 4)
+	.var	data
+3 Outputs
+ 	The translated Version is written in the output field
+	The output len is written in the descriptor 
+4 Format
+ Version if a 4 byte code:
+	Byte		Description
+	0	Status. One of V(Approved),T(Field Test),X(Draft)
+	1	Major
+	2	Minor
+	3	ECO
+3 Returns
+	SS$_ACCVIO	Can't read/write inpt/outp
+	Any return from $FAO
+2 XLATE_CMIP_VERSION
+ Routine to translate CMIP Version code to .ascii string
+3 Inputs
+	.address of descriptor pointing to EMUDB formatted record
+	.address Descriptor pointing to output
+3 Outputs
+ 	The translated Version is written in the output field
+	The output len is written in the descriptor 
+4 Format
+ Version if a 4 byte code:
+	Byte		Description
+	0	Status. One of V(Approved),T(Field Test),X(Draft)
+	1	Major
+	2	Minor
+	3	ECO
+3 Returns
+	SS$_ACCVIO	Can't read/write inpt/outp
+	Any return from $FAO
+2 XLATE_NSAP
+ Routine to translate binary NSAP into OSI standard output format
+3 Inputs
+ 	.long 	 len of binary NSAP in network format (byte reversed) 
+	.address Location of NSAP to translate
+	.address Descriptor pointing to output
+3 Outputs
+ 	The translated NSAP is written in the output field
+	The output len is written in the descriptor 
+	If the len = 1 and the 1st byte in the input string = 0
+	then the string 'default value' is returned
+3 Returns
+ 	SS$_NORMAL	all is well
+	SS$_BADPARAM	Unrecognised AFI
+	SS$_ACCVIO	Can't read/write inpt/outp
+
+3 Example
+ 	490032AA000400C5C815
+	Is translated to:
+	49::00-50:AA-00-04-00-C5-C8:21
+3 Description
+ There are 3 parts:
+ IDP
+ Address
+ Selector
+ The 1st byte defines the len of the AFI. This is looked up in a table.
+ This len (+1) is the len of the addr+selector
+ The selector is always 1. In the example then:
+ IDP	49::00-32     (Note the IDP is UB as is the SEL - all others XB)
+ Addr  AA-00-04-00-C5-C8
+ Sel	21
+2 XLATE_XTRFULLNAME  
+ Extract CMIP encoded fullname to .ascii string
+3 Input
+ Addr of EMU encoded start of DNS fullname. 1st 16 bytes are 
+ binary UID followed by DNS encoded fullname. IF 1st char of name is not
+ '01' then return '0:.
+ Addr of desc pointing to area where .ascii string is written
+ The descriptor is written with the resulting length
+3 Output
+ .ascii string of assembled name in format SN:.sn.sn.sn
+ where SN is a simplename component
+3 Return
+	SS$_NOTRAN  	Unable to translate (not implemented)
+	SS$_DATACHECK 	Input format error or routine error.
+	Any return from $FAO
+2 XLATE_SNMP
+ Routine to translate return from GETSNMP5
+ to printable string
+3 Input
+ 	.address of descriptor pointing to EMUDB Rec containing 
+	SNMP encoded paramater
+	.address of descriptor pointing to output
+4 Input_format
+	Standard EMUDB header followed by:
+	ASN.1 encoded paramater (single param per record):
+	Tag, Len, Value
+ 	This is stored unformatted and this routine 'explodes' and
+	formats the paramater according to ASN.1/SNMP/EMU rules.
+
+3 Output
+	.ascii string translated paramater is returned in the outp desc.
+	The outp desc is written with the resulting len.
+
+3 Return
+	SS$_NORMAL	Successfully translated all primatives (may be 0)
+	SS$_BADPARAM	Unknown SNMP encoding
+	SS$_BUFFEROVF	Output too small to contain translation
+
+2 XLATE_CMIP
+ Routine to translate results from CMIP_XTRPRIMITIVES  (which see)
+ to printable string
+3 Input
+ 	.address of descriptor pointing to CMIP encoded paramater
+	.address of descriptor pointing to output
+4 Input_format
+	A list of CMIP primatives
+	for each primitive found: 
+	unaligned sequence of tag,len,value 
+	tag = .WORD Class
+	      .WORD Tag value (stripped) 
+	len = .long
+	Value = ASN.1 encoded stripped of all protocol.
+	The total len is the len of the record - key
+
+
+3 Output
+	.ascii string translated paramater
+ 	Each primative is prefixed by ':' to allow following processers
+	to distinguish the parts.  
+3 Return
+	SS$_NORMAL	Successfully translated all primatives (may be 0)
+	SS$_BADPARAM	Unknown CMIP encoding
+	SS$_BUFFEROVF	Output too small to contain translation
+
+2 CMP_OBJID
+ Format CMIP object id
+ To simplify, the following assumtions are made:
+	The object id is <= 12 bytes in total. At present the 
+	longest known is 11 and not expected to increase
+	beyond 4
+	The 1st 8 bytes are the DEC id and introducer:
+	2B	 iso, Identified org
+	0C	 ECMA
+	02	 Member Company
+	87	 Dec ...
+	73	 ... (1011)
+	02	 EMA
+	01	 Entities
+	01	 Node
+	Following above are the subidentifiers:
+				SubSub
+					Ssubsubsub
+						And so on
+	This routine translates the subidentifiers into 
+	the coresponding entity name. 
+ Input
+ 	.address of EMU encoded CMIP primative
+	.address of desc pointing to outp
+ Output
+	The object id is looked up in a table and if found, the 
+	output is written with the string.
+
+ 	SS$_ITEMNOTFOUND Not in table
+ 	SS$_INTOVF	 Subidentifiers are > 4 bytes long 
+	SS$_BUFFEROVF	 Output is too small
+	SS$_NORMAL	 OK
+2 CMP_INTEGER
+ Format any ASN1 integer 
+ Input
+ 	.address of EMU encoded CMIP primative
+	.address of desc pointing to outp
+ Output
+ The input integer is byte reversed and translated to the output string
+ Returns
+ 	SS$_INTOVF	Integer is > 4 bytes long (vax compatibility)
+	SS$_BUFFEROVF	Output is too small
+	SS$_NORMAL	Formatted correctly or len = 0
+2 CVT_SNMPINT
+   
+ CONVERT ASN.1 From SNMP Integer to VMS .quad integer
+3 inputs
+	addr of asn1 encoded integer
+	addr of outp .quad
+ The input integer is expected to be in format:
+	tag	1 byte
+	len	1 byte
+	value	for len
+3 returns:
+ 	r0 = normal or overflow
+       .quad converted int 
+3 Status Returns
+ SS$_NORMAL	- OK
+ SS$_INTOVF	- Len > 8 bytes or = 0
+2 CMP_APPL_45
+ Translate CMIP tag application 45 (end user spec)
+3 Input
+ .address of EMU formatted CMIP param
+ .address of desc pointing to outp
+3 Output
+ Ascii translation is written 
+3 Return
+ 	SS$_BADPARAM          Not right Introducer (0..3))
+ 	SS$_NODATA		Input len = 0
+ 	any return from $FAO

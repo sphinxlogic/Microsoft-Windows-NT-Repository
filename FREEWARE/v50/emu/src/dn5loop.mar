@@ -1,0 +1,176 @@
+	.TITLE DN5LOOP
+	.IDENT /V02-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;2 Modifications
+; 001	06-Jul-1995	PB 	Creation
+; V2	July 1998	PB	Upgraded for emuv5
+;++
+;1 DN5LOOP
+; This routine will test the specified DECnet address with 
+; an APPLICATION LOOPBACK (Mirror) packet.
+;
+;2 Input
+;	P1	value of 2 byte DECnet address of target node
+;	P2 	.address of .long  where reponse time is written
+;2 Output
+; The average response time of 10 loops is written to P2 (100th sec units)
+;2 Return
+;	SS$_NORMAL	All Requested loops were succesful
+;	SS$_UNREACHABLE	Failed to receive loop response from target
+;	SS$_ACCVIO	Can' read input params or can't write outp field
+;--
+	.PSECT	DATA,WRT,NOEXE,QUAD
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	$IODEF		; I/O functions
+	$NMADEF		; Network Management Functions
+
+NUM=0
+VER=5
+DECO=0
+UECO=0
+
+NET_CHAN:	.WORD	0
+NET_DEVICE:	.ASCID	/_NET:/
+
+NCB_DESC:	.WORD	NCB_LEN
+		.WORD	0
+		.ADDRESS	-
+			NCB
+NCB:		.BLKB	40
+NCB_LEN=<.-NCB>
+
+NCB_CTRSTR:	.ASCID	?!UL::"25=/?<NUM><NUM>
+NCB_OPTDATA:	.ASCIC	<VER><DECO><UECO>
+		.BLKB	17-<.-NCB_OPTDATA>
+		.ASCII	/"/
+OPT_LEN=<.-NCB_OPTDATA>
+; Request packet
+	.ALIGN	LONG
+
+REQP_DESC:	.WORD	 REQP_LEN
+		.WORD	 0
+		.ADDRESS REQP
+REQP:		.BYTE	0,^XAA,^XAA,^XAA,^XAA,^XAA,^XAA,^XAA
+REQP_LEN:	.LONG .-REQP
+;
+; Misc
+;
+	.ALIGN	QUAD
+
+RETBUF:		.BLKB	128
+RETBUF_LEN = .-RETBUF
+IOSB:		.QUAD	0			; 
+WRTIME:		.LONG   0                       ; Time write completes
+RETURN:		.LONG	0
+; Code
+;
+		.PSECT	CODE,NOWRT,EXE,LONG
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=DN5LOOP
+
+;
+; Get and Validate Params
+	PROBER	#0,#2,4(AP)  		; Read DECnet address?
+	BEQL	10$			; No
+	PROBEW	#0,#4,8(AP)  		; Write response time?
+	BNEQ	20$			; Yes
+10$:
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+; Initialisation
+20$:
+	TSTW	NET_CHAN
+	BNEQ	25$
+	$ASSIGN_S	CHAN=NET_CHAN,-
+		 	DEVNAM=NET_DEVICE
+	BLBS	R0,25$
+	RET
+25$:
+	CLRL	@8(AP)    		; Clear response time
+	MOVW	#NCB_LEN,NCB_DESC	; Make 1st part NCB
+	$FAO_S	CTRSTR=NCB_CTRSTR,-
+		OUTLEN=NCB_DESC,-
+		OUTBUF=NCB_DESC,-
+		P1=4(AP)
+	BSBW	ERROR_CHK
+;
+	MOVAL	NCB,R6
+	MOVZWL	NCB_DESC,R7     
+	MOVC3	#OPT_LEN,NCB_OPTDATA,(R6)[R7]	; 2nd part 
+	ADDW2	#OPT_LEN,NCB_DESC
+	$QIOW_S	-
+		CHAN=NET_CHAN,-			; Make link
+		FUNC=#IO$_ACCESS,-
+		IOSB=IOSB,-
+		P2=#NCB_DESC
+	BSBW	ERROR_CHK
+	MOVZWL	IOSB,R0			    ; Check IOSB return
+	BSBW	ERROR_CHK
+
+	MOVL	EXE$GL_ABSTIM_TICS,WRTIME       ; Get current time
+	MOVL	#10,R10				; 10 loops
+40$:
+	$QIOW_S	-
+		CHAN=NET_CHAN,-
+		FUNC=#IO$_WRITEVBLK,-   ; Req
+		IOSB=IOSB,-
+		P1=REQP,-
+		P2=REQP_LEN
+	BSBW	ERROR_CHK
+	MOVZWL	IOSB,R0			    ; Check IOSB return
+	BSBW	ERROR_CHK
+; Attempt to read response
+	$QIOW_S	-
+		CHAN=NET_CHAN,-
+		FUNC=#IO$_READVBLK,-    ; Resp
+		IOSB=IOSB,-
+		P1=retbuf,-
+		P2=#retbuf_len
+	BSBW	ERROR_CHK
+	MOVZWL	IOSB,R0			    ; Check IOSB return
+	BSBW	ERROR_CHK
+;
+; Message OK
+	SOBGTR	R10,40$                     ; 10 loops
+	SUBL3	WRTIME,EXE$GL_ABSTIM_TICS,@8(AP)    ; Write response time
+	DIVL	#10,@8(AP)		    ; Average
+	
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS!IO$M_ABORT,-
+		IOSB=IOSB
+	MOVL	#SS$_NORMAL,R0	; Signal Success
+	RET                     ; Exit to caller
+
+
+; Subroutines
+;
+;
+; Routine Error
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	MOVL	R0,R7		; Save Error
+	$CANCEL_S	CHAN=NET_CHAN
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS!IO$M_ABORT,-
+		IOSB=IOSB
+	MOVL	R7,R0	        ; Restore error
+	RET
+	
+		.END								
+		
+

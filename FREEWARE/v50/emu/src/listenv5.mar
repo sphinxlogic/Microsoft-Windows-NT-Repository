@@ -1,0 +1,896 @@
+ 	.TITLE	LISTENV5
+	.IDENT /V05-004/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+;	Jan 1993	PB	Creation v1
+; 5-1	Aug 1996	PB	Create v5 
+; 5-2	Sep 1996	PB	Added trace facility
+; 5-3	Dec 1996	PB	Fixed possible hang - do not enter wait state
+;				if 0 buffers qued (will never wake up)
+; 5-4	JULY-1998	PB	Removed old error logger and inserted new
+;				added error messages.
+;++ 
+;1 LISTENV5
+; Read Ethernet in Promiscuous Mode and pass packets to other Routines. 
+; Packets are read into a 32 buffer area termed EBUFFS
+;2 EBBUFS
+; Standard buffer header:
+; Field		ofs	len		Desc
+; TFlag		0	4	Target process
+; RFlag		4	4	Returned buffers
+; Buffno	8       4	Buffer number
+; Param		12	4	Spare
+; Ethernet:
+; IOSB		16	8       Status block of Ethernet read
+; RCVP5:	24	20      Packet Header (as from VMS)
+; Buffno	44	4	Ebuff number
+; DATA:		48	1500    Data
+; spare		1548	4	spare /align
+;;	 	total len = 1552    
+;
+; Each of the buffers is associated with a bit in CEF cluster 3(64-95)
+; The buffer addresses are calculated into a table to facilitate fast lookups.
+; The reads are queued and the second part waits for any flag set.
+;2 Ethernet_read
+; When a flag is set the buffer is calculated using the Flag that was set.
+; A table of PSRs is scanned to see if this buffer should be directed to 
+; any. In the case where 1 (or more) PSRs should be a target, the corresponding
+; PSR flag is : 1. Set in the TFLAGS field of the buffer
+;		2. Set in the CEF to wake up the PSR
+; A count of frames sent to each PSR is kept.
+; At end of processing the PSRTBL, if any Tflag bit is set: 
+; this field is copied to to the RFLAGS field.
+; Otherwise the buffer is requed to ethernet.
+; 
+; Each PSR scans the buffers and processes any it finds with it's flag set in
+; the Tflag field, it process the buffer and at end clears it's flag in Rflag.
+;2 Ethernet_reque  
+; Any time the Listener reques an ethernet buffer, it scans the entire set
+; and XORs the Tflag and Rflag field. Any bit set as a result of this 
+; indicates the PSR(s) which have returned the buffer. These PSRs' counters
+; are adjusted and if all PSRs have returned the buffer, it is requed.
+; 
+; Performance counters are kept in Global memory.
+;
+;2 Tracing
+; A bit pattern set by the user in control section dictates trace records
+; this process will write (when enabled).
+; Tracing is enabled by running the trace program, setting the trace recs
+; required and starting it. Logging the results to file is optional.
+; Trace recs are written to a mailbox which is read by the trace program,
+; formatted and displayed.
+; A trace rec is written by a seperate routine and formed as follows:
+; type, len, value. It is unaligned.
+; Exiting the trace program clears all trace bits.
+;--
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY        /EMU5_LIB:EMU5.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$NMADEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUCNTDEF
+	EMUPSRDEF
+	EMUMSGDEF
+;
+
+THIS_PROCESS = SYS_PID_C_LISTEN
+	.psect	listen_sec,wrt,noexe,pic,shr,page
+;
+; Argument list for promiscious read
+;
+	.ALIGN	LONG
+READETH:.LONG	12				; Arg counter
+EVTFLG:	.LONG	0				; Event number
+CHNPRM:	.LONG	0				; Channel
+	.LONG	IO$_READVBLK			; Function
+IOSB:	.LONG	0				; IO Status block
+	.LONG	0				; AST Routine
+	.LONG	0				; AST Param
+RCVBUF:	.LONG	0				; P1
+	.LONG	1500				; P2
+	.LONG	0				; P3
+	.LONG	0				; P4
+RCVP5:	.LONG	0				; P5
+	.LONG	0				; P6
+;
+; 
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+EBUFFS_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+PSRTBL_A:	.QUAD   0
+COUNTERS_A:	.QUAD	0
+TRCIOSB:	.QUAD   0
+; other quads
+FLAGS:		.QUAD	0		; Read CEF into here
+INTPTYTYP: 	.QUAD	0		; Internal Protocol type
+MNUMSK:         .BYTE   ^X0,^X0,^X0,^XFF ;  Mask out top 3 bytes E-Addr
+INTFLG:		.LONG                   ; Build targets here
+WAIT_INTERVAL:	.FLOAT	1               ; Time to wait for buffer ques (5-3)
+;
+; Section areas
+;
+; Counters kept:
+	.ALIGN 	LONG
+; Temp areas - these to be moved to section
+PSRTBLCNT:		.LONG	0		; Count of psr table entries
+LISTENV5_CONTROL:	.LONG	0		; Listener control flags
+ALL_TRAFFIC = 1
+; Trace params
+TRACE_FLAGS:	.LONG	0 ; Move to control section
+	.ALIGN 	LONG
+PSRFAB:	$FAB	FAC = <GET,UPD,PUT,DEL>,-        ; Access
+		SHR = <DEL,UPD,GET,PUT>,-
+		ORG = IDX,-		; Indexed
+		XAB = PSRXAB,-
+		FNM = <PSRTBL>,-	; Filename 
+		DNM = <EMU5_DAT:PSRTBL.DAT>      ; Filename 
+		
+PSRRAB:	$RAB	FAB = PSRFAB,-            ; Record 
+		RAC = SEQ
+PSRXAB: 	$XABKEY REF=0,-
+		PROLOG=0,-
+		POS=0,-
+		SIZ=8,-
+		DTP=BN8,-
+		FLG=DUP 		; PTYKEY
+	.ALIGN 	LONG
+
+
+; Read LISNMBX call frame
+	.ALIGN LONG
+WRITETRC:	.LONG	12				; Arg counter
+		.LONG	0				; Event number
+TRCCHAN:	.LONG	0				; Channel
+       		.LONG	<IO$_WRITEVBLK!IO$M_NOW!IO$M_NORSWAIT>	; Function
+       		.LONG   TRCIOSB				; IO Status block
+       		.LONG	0				; AST Routine
+		.LONG	0				; AST Param
+	       	.LONG	TRCMBX				; P1
+TRCMBXLEN:	.LONG	0				; P2
+       		.LONG	0				; P3
+       		.LONG	0				; P4
+       		.LONG	0				; P5
+       		.LONG	0				; P6
+TRCMBX:        			
+TRCRECTYP:	.LONG
+TRCEVTTYP:	.LONG
+TRCNAME:	.ASCIC	/LISTEN /	; Must be .quad!
+TRCDATA:	.BLKB	104		; This is data+trchead+MBXhead = 128
+MAXTRCMBXLEN = 120
+; Error Log
+; The error system works as follows:
+; The standard header contains the Routine name, the error number, the VMS
+; error code, time and  may be followed by a counted ascii string. There is
+; a spare word in the header. All routines using this error system write in 
+; this format to a common file.
+;
+; The format is below:
+; Error System Params
+
+	.ALIGN 	LONG
+
+; Error Log
+; Error System Params
+
+	.ALIGN 	LONG
+
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/LISTEN/
+;
+;
+;++
+;2 PSRTBL 
+;  Field	 Ofs  Len	 Type
+; PTYTYP	  0    8 	EMU Conversion of Ethernet protocol type 
+; PsrID		  8    4        Bit pattern showing que and flag info
+; Spare		  12	4	Spare/ailgn
+; Displayed fields     
+;  MBXname	  16    8  	.ascic display name this PSR type
+;  Flags	  24	4	control flags
+;  Counters:
+;   MAXOst	  28    4 	Max outstanding before discard
+;   MsgSnt	  32	4	Sends to PSR
+;   MsgDsc	  36	4	Discarded
+;   MsgOst	  40	4	Current Outstanding
+;   HIGHESTOst	  44    4 	Highest count of outstanding 
+;   Spares	  48 - 60
+;  total = 64 bytes
+;3 Control flags:
+;	bit		When set
+;	0		Disabled - do not send to this PSR
+;	1		Send all traffic (not only Multicast)
+;
+;3 PTYTYP. converted from Ethernet for fast lookups:
+;  field	ofs	len		desc
+; type		0	1	EMU defined frame type: type2, IEEE or extended
+; ETYYPE	4	2	2 byte protocol field when type2
+; DSAP		4	1	1 byte Destination SAP when IEEE
+; SNAP		3	5	5 byte extended PID when SNAP
+; Bytes 1,2 never written
+;--
+	.ALIGN	LONG
+;
+; QIO structures for the promiscuous  channel.
+
+SETPARM:
+        .WORD   NMA$C_PCLI_BFN          ; Number of buffers to save
+        .LONG   255                     ; No. of buffers saved by driver
+        .WORD   NMA$C_PCLI_BUS          ; Max. receivable buffer size
+        .LONG   1500
+        .WORD   NMA$C_PCLI_PAD          ; Padding
+        .LONG   NMA$C_STATE_OFF
+	.WORD	NMA$C_PCLI_PRM
+        .LONG   NMA$C_STATE_ON		; Promiscuous mode on
+SETPARMLEN = .-SETPARM
+
+SETPARMDSC:
+        .LONG           SETPARMLEN
+        .ADDRESS        SETPARM
+SETIOSB:	.QUAD
+;
+; Misc
+; Event flags associated with incoming buffers
+EFLAGS1:		.ASCID	/EFLAGS1/	; Event Flag Cluster (64-95)
+EFLAGS2:		.ASCID	/EFLAGS2/	; Event Flag Cluster (96-127)
+TRCLOGNAM:		.ASCID	/TRCMBX/
+	.ALIGN	LONG
+EXIT_BLOCK:	.LONG	0
+		.ADDRESS LISTENV5EXIT_HDLR  
+		.LONG	1
+		.ADDRESS EXIT_STATUS
+EXIT_STATUS:	.LONG	0
+
+
+
+	.PSECT	LISTENV5_C,NOWRT,EXE,SHR,PIC,LONG
+	.sbttl	listen ()
+	.CALL_ENTRY	MAX_ARGS=6, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=LISTENV5
+
+; Errors between here and READ: are fatal
+;
+; Ensure death if control process dies
+	CALLS	#0, G^GET_CONTROL_LOCK	; 
+  	BSBW	FATAL_ERROR_CHK		; 
+; 
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BSBW	FATAL_ERROR_CHK		; 
+
+;	
+; Create and Map to sections 
+;
+
+	PUSHAL	EBUFFS_A		; Ebuffs section return addresses
+	CALLS	#1, G^MAP_EBUFFS	; Create and map ebuffs
+	BSBW	FATAL_ERROR_CHK		; check errors
+	PUSHAL	CONTROL_A		; Control section return addresses
+	CALLS	#1, G^MAP_CONTROL	; Create and map control section
+	BSBW	FATAL_ERROR_CHK		; check errors
+	PUSHAL	PSRTBLCNT  		; Count of entries found
+	PUSHAL	PSRTBL_A		; PSR table start addr
+	CALLS	#2,G^MAP_PSRTBL
+	BSBW	FATAL_ERROR_CHK
+	PUSHAL	COUNTERS_A		; Counters
+	CALLS	#1,G^MAP_COUNTERS
+	BSBW	FATAL_ERROR_CHK
+; Create trace mailbox
+;	PUSHAL	TRCLOGNAM       ; Logical Name
+;	CLRL	-(SP)		; Access Mode
+;	CLRL	-(SP)		; Protection Mask
+;	PUSHL	#2048		; Buff Quota (16 messages)
+;	PUSHL	#120		; Max Message Size
+;	PUSHAL	TRCCHAN		; I/O Channel
+;	PUSHL	#0		; Temp Mailbox
+;	CALLS	#7,SYS$CREMBX	; Create Mailbox
+;	BSBW	FATAL_ERROR_CHK       ; Fatal
+
+; Set registers constants 	
+	MOVL	PSRTBL_A,R9
+	MOVL	COUNTERS_A,R11
+; Init counters
+	MULL3	#CNT_LSN_C_END,#4,R1			; Len of listen section
+	MOVC5	#0,#0,#0,R1,CNT_LSN_C_START(R11) 	; Zero all  	
+	MOVL    #IPC_ETH_C_LASTBUF,CNT_LSN_LQUE(R11)    ; Set low cnt to max
+; PSRTBL counts
+	SUBL3	#PSR_TBL_C_FSTCNT,#PSR_TBL_C_SIZE,R8	; Size to clear
+	MOVL	PSRTBLCNT,R7				; Entries
+100$:
+	MOVC5	#0,#0,#0,R8,PSR_TBL_C_FSTCNT(R9) 	; Zero all  
+	ADDL	#PSR_TBL_C_SIZE,R9			; Next
+	SOBGTR	R7,100$					; Loop for all entries
+	
+;
+INIT_EBUFFS:
+; Initalise all buffers
+        MOVL	#IPC_EBUF_C_EBUFFQUE,R2
+	MOVL	EBUFFS_A,R9		;
+; Calc buffer addresses 
+	ADDL3	R9,#IPC_EBUF_C_BUFSTART,R6		; Addr of 1st buf
+  	MOVL	#IPC_ETH_C_BUFSIZE,R8	; Len 1 buf
+	MOVL	#IPC_ETH_C_LASTBUF,R7	; Number of buffers
+	CLRL	R10			; Buffer number
+	
+10$:
+	MOVL	R10,IPC_HDR_L_BUFFNO(R6)	 ; Buffer no
+	CLRQ	IPC_HDR_L_TFLAGS(R6)	         ; Clear any outstanding
+	ADDL	R8,R6                 	; Next location
+	INCL	R10			; Buffer no.
+	SOBGTR	R7,10$                  ; Init all buffs
+; Common Event flag Cluster:
+;
+	$ASCEFC_S	EFN = #64,-
+			NAME = EFLAGS1
+	BSBW	FATAL_ERROR_CHK       	; Fatal
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	BSBW	FATAL_ERROR_CHK       	; Fatal
+
+ASSIGN:
+	PUSHAL	CHNPRM                  ; Channel
+	CALLS	#1,G^ASSETHCHN          ; Assign to Eth Device
+	BSBW	FATAL_ERROR_CHK		; 
+; Start controller
+	$QIOW_S FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>,-
+                CHAN=CHNPRM, IOSB=SETIOSB, P2=#SETPARMDSC
+	BSBW	FATAL_ERROR_CHK
+	MOVL	SETIOSB,R0
+	BSBW	FATAL_ERROR_CHK
+; Que all buffers
+	CALLS	#0,G^QUE_ETHERNET_BUFFERS  
+;
+	$dclexh_s	desblk=exit_block
+  	bsbw	FATAL_error_chk
+	BRB	READ_FLAGS
+;
+	.ALIGN	LONG                    ; Align main target
+WAIT_FLAGS:
+; Routines run when process is waiting:
+; Reset trace flags:
+	MOVL	CONTROL_A,R1
+	MOVL	CTL_TRC_L_ENAFLG(R1),TRACE_FLAGS
+; Wait for any CEF set
+; Mod 5-3:
+; check if any buffers qued, if not call QUE_ETHERNET_BUFFERS until at least 1
+; is qued. This  will loop infinitely with a 1 sec wait between loops until
+; something gets qued.
+;
+10$:
+	TSTL	CNT_LSN_EQUE(R11)               ; ANy qued?
+	BNEQ	20$				; Br if some
+	PUSHAL	WAIT_INTERVAL                  	; Wait
+	CALLS	#1,G^LIB$WAIT
+	CALLS	#0,G^QUE_ETHERNET_BUFFERS   	; Reque any waiting buffs
+	BRB	10$				; Retry to wait
+	
+20$: 
+	$wflor_s  	EFN=#64,-       ; Wait for any flag set
+			MASK=#-1
+	BRB	READ_FLAGS		; Proceses
+READ_FLAGS:
+; Flag may be set under 1 of 2 possible conditions:
+; 1.Ethernet read completed. R/W field is 0. Process buffer in main loop
+; 2.PSR has finished processing this buffer. R/W field .ne. 0
+;   After validation, reque buffer to Ethernet.
+	$READEF_S 	EFN=#FLG_C_1STEBUFF,-      ; Get EBUFF Flags
+			STATE=FLAGS     ; Current state
+
+	TSTL	FLAGS    	        ; Any flag set?
+	BNEQ 	10$	                ; Yes - Branch
+	BRW	WAIT_FLAGS              ; No - Wait
+10$:
+	CLRL	R7			; Index to EBUFF table
+	BRB	MAIN			;
+	.ALIGN	LONG                    ; Align main target
+MAIN:
+; Register constants:
+; R6 address of current ethernet buffer
+; R7 current flag (this + FLG_C_1STEBUFF = current CEF)
+; R8 Current (converted) ptytyp
+; R9 start addr of PSRTBL
+; R10 start addr of control section
+; R11 address of 1st LSN counter
+	BBSC	R7,FLAGS,20$			; Br if bit set (clear bit)
+	AOBLEQ	#IPC_ETH_C_BUFNO,R7,MAIN        ; Search all used bits
+	CALLS	#0,G^QUE_ETHERNET_BUFFERS   	;Reque any waiting buffs
+	BRB	READ_FLAGS			; All current buffs processed
+
+20$:	
+; Locate buffer.
+; The flag number determines which buffer has been read
+   	ADDL3	#64,R7,-(SP)			; Clear ths flag
+	CALLS	#1,G^SYS$CLREF
+;
+	CLRL	INTFLG				; No targets yet
+	MULL3	#IPC_ETH_C_BUFSIZE,R7,R6	; Offset to  buffer
+	ADDL	EBUFFS_A,R6			; Section location
+	ADDL	#IPC_EBUF_C_BUFSTART,R6		; Buffer location
+.BRANCH_LIKELY
+	BBC	#TRC_ETH_V_ENA,TRACE_FLAGS,30$	; Br if trace no ena
+	PUSHL	R6
+	PUSHL	#TRC_EVT_C_EBUFRETH                 ; Event
+	PUSHL	#TRC_REC_C_EBUFF 		; Rec type
+	CALLS	#3,G^TRC_LISTENV5			; no error check
+30$:
+
+; Decrement buffers qued to Ethernet
+; Keep track of lowest que count
+	CLRQ	IPC_HDR_L_TFLAGS(R6)			; No dest/returns
+	DECL	CNT_LSN_EQUE(R11)  
+	CMPL	CNT_LSN_EQUE(R11),CNT_LSN_LQUE(R11)     ; Lowest ever?
+	BGEQ	40$					; Br if no
+	MOVL    CNT_LSN_EQUE(R11),CNT_LSN_LQUE(R11) 
+40$:
+; Check IOSB
+; If IOSB fails then count bad frame and write error. 
+; Ignore frame.
+.BRANCH_LIKELY
+	BLBS	IPC_ETH_W_ESAT(R6),VALIDATE_FRAME		; Br if OK
+	INCL	CNT_LSN_IOSBERR(R11)
+	MOVZWL 	IPC_ETH_W_ESAT(R6),R0
+	BSBW	ERROR_CHK		; Write it
+	BRW	REQUE_READ	
+
+
+VALIDATE_FRAME:
+; Following tests made. If any true count error and  ignore frame. 
+; There will be a monitor for this.
+; Top 3 bytes of SA or DA = 0 
+; SA = Multicast
+; PTYTYP = 0
+	BICL3	MNUMSK,IPC_ETH_EA_DA(R6),R0	; Check top 3 bytes of Dest addr.
+	BNEQ    20$			; Br if NOT 0
+	INCL	CNT_LSN_ZERDA(R11)	; Count Bad Address
+	BRW	REQUE_READ		 ; 
+20$:
+	BICL3	MNUMSK,IPC_ETH_EA_SA(R6),R0	; Check top 3 bytes of Source addr.
+	BNEQ    30$			; Br if NOT 0
+	INCL	CNT_LSN_ZERSA(R11)	; Count Bad Address
+	BRW	REQUE_READ		 ; 
+30$: 
+	TSTW	IPC_ETH_W_PTY(R6)	; PTYTYP Must be .ne. 0
+	BNEQ	40$			; OK
+	INCL	CNT_LSN_ZERPTY(R11)	; Count Bad PTYTYP
+	BRW	REQUE_READ		; 
+
+40$:
+	BLBC	IPC_ETH_EA_SA(R6),50$	; Br if SA .NE. Mcast msg
+	INCL	CNT_LSN_MCSA(R11)	; Count Multicast SA
+	BRW	REQUE_READ		; 
+50$:
+; Add other checks here
+	INCL	CNT_LSN_READ(R11)		; Count good reads
+		
+        MOVAL	INTPTYTYP,R8
+	PUSHL	R8 			; Build internal type here
+	PUSHL	R6			; Ethernet buffer
+	CALLS	#2,MAKE_PTYTYP
+	BLBS	R0,60$			; Br if OK
+	BSBW	ERROR_CHK               ; Log error
+	BRW	REQUE_READ              ; Don't process
+60$:
+; Invoke 1st filter. This will set any destinations matching
+
+	PUSHL	R8			; Converted ptytyp
+	PUSHL	R6                      ; Ethernet frame
+	CALLS	#2,G^LISTEN_FILTER1
+
+PROCESS_FRAME:
+        MOVL	PSRTBL_A,R9			; 
+	MOVL	PSRTBLCNT,R3			; Count of entries
+;++
+;2 Frame_selection
+; This section determines which (if any) PSRs this frame should go to.
+; Any matching criteria sets the target bit.
+; Matching table:
+; bit set		multicast 	Unicast 
+; Disable   		N		N
+; All			Y		Y
+; NoCHeck		Y		N
+; Recording check:
+; Recordall		Y		Y
+; RecordFilt		Y		N
+; 
+; The recorder, does not have an entry in the PSRTBL.
+; Once this section complete, recording is treated like a PSR.
+; That is, recording bit coresponds to a flag and PSR slot for the 
+; recorder and it responds PSR like.
+;--
+	BRB	20$
+10$:
+	ADDL	#PSR_TBL_C_SIZE,R9   	; Next entry
+	SOBGTR	R3,20$			; Loop for all
+	BRW	200$			; Next phase
+
+20$:
+	BBC	#PSR_CFLG_V_DISAB,PSR_TBL_L_CFLGS(R9),10$    ; Skip if disabled
+	BBC	#PSR_CFLG_V_NOCHECK,PSR_TBL_L_CFLGS(R9),30$  ; Skip if nocheck
+; Protocol type match
+	CMPL 	4(R8),4(R9)		; Match?
+	BNEQU	10$			; No
+	CMPL 	(R8),(R9)		; Match?
+	BNEQU	10$			; No
+30$:
+        BLBS    IPC_ETH_EA_DA(R6),50$   ; Br if DA = Mcast msg
+; Unicast frame
+	BBC	#PSR_CFLG_V_RECORDALL,PSR_TBL_L_CFLGS(R9),40$ ; Skip if disabled
+	BISL	#SYS_FLG_C_PSRREC,INTFLG         ; Set record
+40$:
+	BBC	#PSR_CFLG_V_ALL,PSR_TBL_L_CFLGS(R9),10$  ; Ignore if not all
+	BISL	PSR_TBL_L_PSRID(R9),INTFLG 
+ 	BRW	10$				; Next
+; Multicast fame
+50$:
+	BBC	#PSR_CFLG_V_RECORDFILT,PSR_TBL_L_CFLGS(R9),60$ ; Skip if disabled
+	BISL	#SYS_FLG_C_PSRREC,INTFLG        ; Set record
+60$:
+	BISL	PSR_TBL_L_PSRID(R9),INTFLG     	; This PSR
+ 	BRW	10$				; Next
+
+200$:
+; All desired destinations now set. If none then reque.
+; For each desired check frame limits, record stats etc.
+; Flag if frame actualy sent
+
+	TSTL  	INTFLG 				; Any set?
+	BNEQ	210$                            ; Br if some
+	BRW	REQUE_READ				; No destinations
+210$:
+	INCL	CNT_LSN_PROC(R11)               ; Count processed frame
+        MOVL	PSRTBL_A,R9			; 
+	MOVL	PSRTBLCNT,R3			; Count of entries
+230$:	
+; Find if this PSR's bit is set in dest
+	BITL	PSR_TBL_L_PSRID(R9),INTFLG
+	BNEQ	250$				; Br if match
+240$:
+	ADDL	#PSR_TBL_C_SIZE,R9   		; Next entry
+	SOBGTR	R3,230$				; Loop for all
+	MOVL	INTFLG,IPC_HDR_L_RFLAGS(R6)     ; Set returns
+	BNEQ	300$				; Br if some destinations
+	BRW	REQUE_READ			; None
+250$:
+; Check current outstanding messages. If > limit do not send.
+	CMPL 	PSR_TBL_L_OST(R9),PSR_TBL_L_LOST(R9)	; cur vs. limit
+	BGEQU	260$					; Br if not OK
+	INCL	PSR_TBL_L_SNT(R9)  		; Count sent message
+	INCL	PSR_TBL_L_OST(R9) 		; Count in process message
+        CMPL	PSR_TBL_L_OST(R9),PSR_TBL_L_HOST(R9)
+	BLEQU	240$
+	MOVL	PSR_TBL_L_OST(R9),PSR_TBL_L_HOST(R9) ; Record highest value
+        BRB	240$                            ; Next PSR
+260$:
+	INCL	PSR_TBL_L_DSC(R9)		; Count discarded
+	BICL	PSR_TBL_L_PSRID(R9),INTFLG	; Clear destination
+	BRW	240$
+300$:
+	MOVL	INTFLG,IPC_HDR_L_TFLAGS(R6)     ; Set dest
+	CLRL	R2				; Loop control
+310$:	
+	BBS	R2,IPC_HDR_L_TFLAGS(R6),330$	; Br if dest set
+320$:
+	AOBLEQ	#IPC_EBUF_C_MAXPSR,R2,310$	; Loop for all PSRs
+        BRW	MAIN				; Done
+330$:
+.BRANCH_LIKELY
+	BBC	#TRC_ETH_V_ENA,TRACE_FLAGS,340$	; Br if trace no ena
+	PUSHL	R6
+	PUSHL	#TRC_EVT_C_EBUFSPSR		; Event
+	PUSHL	#TRC_REC_C_EBUFF		; Rec type
+	CALLS	#3,G^TRC_LISTENV5		; no error check
+340$:
+   	ADDL3	#96,R2,-(SP)			; Set ths flag
+	CALLS	#1,G^SYS$SETEF
+	BRW	320$
+REQUE_READ:
+	ADDL3	IPC_HDR_L_BUFFNO(R6),#FLG_C_1STEBUFF,EVTFLG     ; Set this flag
+	ADDL3	R6,#IPC_ETH_20_RP5,RCVP5	; P5 address
+	ADDL3	R6,#IPC_ETH_Q_IOSB,IOSB		; IOSB address
+	ADDL3	R6,#IPC_ETH_1500_DATA,RCVBUF	; Data address
+	CLRL	IPC_ETH_L_TYPIND(R6)		; Clear packet type indicator
+        BISL	#IPC_EBUF_M_ETHQUE,IPC_HDR_L_TFLAGS(R6) ; Indicate queued
+.BRANCH_LIKELY
+	BBC	#TRC_ETH_V_ENA,TRACE_FLAGS,10$	; Br if trace no ena
+	PUSHL	R6
+	PUSHL	#TRC_EVT_C_EBUFQETH		; Event
+	PUSHL	#TRC_REC_C_EBUFF		; Rec type
+	CALLS	#3,G^TRC_LISTENV5			; no error check
+10$:
+	$QIO_G	READETH			; 		
+	BLBC	R0,30$                 ; Que Failed
+; Count good que
+	INCL	CNT_LSN_EQUE(R11)
+	BRW	MAIN
+30$:
+; Count & LOG  BAD que
+	INCL	CNT_LSN_QERR(R11)
+        MOVL	#MSG_LISTEN_PRMQUE,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+	CALLS	#0,G^QUE_ETHERNET_BUFFERS   	;Reque any waiting buffs
+	BRW	MAIN
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=QUE_ETHERNET_BUFFERS 
+;++
+;2 QUE_ETHERNET_BUFFERS   
+; Inputs: None
+; Output: None
+; Scan all EBUFFS and:
+; Determine which (if any) PSRs have returned this buffer
+; Target flags indicate where the buffer is currently:
+; 1 of : Ethernet - ignore in this routine
+;      : 1 or more PSRs - determine which have returned and adjust counts
+;      : Neither ( Return flags are all 0) - reque this to ethernet
+; If command message then call execute command
+;	Else que this buffer to ethernet 
+; Exit after 1 cycle
+;--
+	MOVL	#IPC_ETH_C_LASTBUF,R4
+	MOVL	EBUFFS_A,R9		; Location of our que header
+	ADDL3	R9,#IPC_EBUF_C_BUFSTART,R6		; Addr of 1st buf
+10$:
+20$:
+30$:
+        BBS	#IPC_EBUF_V_ETHQUE,IPC_HDR_L_TFLAGS(R6),310$	; BR if queued
+50$:
+	XORL3	IPC_HDR_L_RFLAGS(R6),IPC_HDR_L_TFLAGS(R6),R2	; R2 = returned buffs
+	BEQL	300$				; Br if none set
+	MOVL	PSRTBL_A,R10			; Table top
+	MOVL	PSRTBLCNT,R3			; Count of entries
+55$:
+   	BITL	PSR_TBL_L_PSRID(R10),R2   
+	BNEQ	70$			; Br if this bit set (returned)
+60$:
+	ADDL	#PSR_TBL_C_SIZE,R10   	; Next entry
+	SOBGTR	R3,55$			; Loop for all
+	BRW	300$			; Next phase
+70$:
+	BICL	PSR_TBL_L_PSRID(R10),IPC_HDR_L_TFLAGS(R6)  	; Clear dest  
+	BICL	PSR_TBL_L_PSRID(R10),IPC_HDR_L_RFLAGS(R6)  	; Clear return  
+	DECL	PSR_TBL_L_OST(R10) 		; UnCount in process message
+	BGEQ	60$                        
+	CLRL    PSR_TBL_L_OST(R10)      	; Ensure this is never .lt 0 
+	BRB	60$
+300$:
+	TSTL	IPC_HDR_L_TFLAGS(R6)  
+	BEQL	320$				; None still outstanding
+310$:
+  	ADDL	#IPC_ETH_C_BUFSIZE,R6		; Next buf
+	SOBGTR	R4,10$                          ; Scan all buffs
+	MOVL	#SS$_NORMAL,R0                  ; Done
+	RET
+
+
+
+
+320$:
+; The buffer number is in the buffer
+	MULL3	#IPC_ETH_C_BUFSIZE,IPC_HDR_L_BUFFNO(R6),R1	; Offset
+	ADDL	EBUFFS_A,R1					; Addr of sect
+	ADDL	#IPC_EBUF_C_BUFSTART,R1			; Buffer location
+
+
+; The buffer number determines which flag to use
+	ADDL3	IPC_HDR_L_BUFFNO(R6),#FLG_C_1STEBUFF,EVTFLG     ; Set this flag
+	ADDL3	R1,#IPC_ETH_20_RP5,RCVP5	; P5 address
+	ADDL3	R1,#IPC_ETH_Q_IOSB,IOSB		; IOSB address
+	ADDL3	R1,#IPC_ETH_1500_DATA,RCVBUF	; Data address
+	CLRL	IPC_ETH_L_TYPIND(R6)		; Clear packet type indicator
+	CLRQ	IPC_HDR_L_TFLAGS(R6)            ; Clear old targets,Returns
+        BISL	#IPC_EBUF_M_ETHQUE,IPC_HDR_L_TFLAGS(R6) ; Indicate queued
+.BRANCH_LIKELY
+	BBC	#TRC_ETH_V_ENA,TRACE_FLAGS,330$	; Br if trace no ena
+	PUSHL	R6
+	PUSHL	#TRC_EVT_C_EBUFQETH		; Event
+	PUSHL	#TRC_REC_C_EBUFF		; Rec type
+	CALLS	#3,G^TRC_LISTENV5			; no error check
+
+330$:
+	$QIO_G	READETH				; 		
+	BLBC	R0,340$                 	; Que NOT OK
+	INCL	CNT_LSN_EQUE(R11)               ; Count good
+	BRW	310$
+340$:
+; Count & LOG  bad que
+	INCL	CNT_LSN_QERR(R11)
+        MOVL	#MSG_LISTEN_PRMQUE,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+	BRW	310$			; Next
+
+; Subroutines
+	.PSECT	LISTENV5_SUBR,NOWRT,EXE,SHR,PIC,LONG
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	MOVL	R0,R6
+        MOVL	#MSG_LISTEN_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+	RSB
+
+FATAL_ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	MOVL	R0,R6
+        MOVL	#MSG_LISTEN_FATAL,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	MOVL	R6,R0
+	MOVL	R6,R0
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=LISTEN_FILTER1   
+
+;++
+;2 LISTEN_FILTER1
+; This the 1ST filter. Most frames are not Multicast and are ignored.
+; There are however some exceptions.
+; Catch and process all:
+;  For IP:   ICMP, SNMP and ARP frames 
+;  For OSI:  Error report frames
+; 
+;3 Inputs:
+;	.addr of ethernet buffer
+;	.addr of converted ptytyp
+;3 Outputs:
+;	Target bits are set in INTFLG if matching filter found
+;3 Returns:
+;	None
+;--
+	MOVL	4(AP),R6
+	MOVL	8(AP),R8
+	CMPW	#PTY_ETH_C_IP,SYS_ETP_W_ETYPII(R8)	; IP?
+	BEQLU	PROCESS_IP			; Br if yes
+	CMPW	#PTY_ETH_C_ARP,SYS_ETP_W_ETYPII(R8)	; ARP?
+	BEQLU	PROCESS_IP			; Br if yes
+	CMPB	#PTY_ETH_C_OSI,SYS_ETP_B_DSAP(R8)	; OSI?
+	BEQLU	PROCESS_OSI			; Br if yes
+; Insert any other test for non-multicast processing here
+	RET					; No special filter found
+PROCESS_IP:
+; IP specific filter
+	ADDL3	#IPC_ETH_1500_DATA,R6,R3 		; Point to IP frame
+	CMPB	PKT_IP_C_IPROT(R3),#PKT_IP_PROT_C_ICMP  ; ICMP Packet?
+	BEQLU	10$				; Yes - Branch
+	CMPW	PKT_IP_C_DSTPORT(R3),#PKT_IP_PORT_C_SNMPTRAP 	; SNMP Trap?
+	BEQLU	10$                           ; Yes - branch
+	RET
+10$:
+	BISL	#SYS_FLG_C_PSRIP,INTFLG
+	RET
+PROCESS_OSI:
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TRC_LISTENV5   
+;++
+;2 TRC_LISTENV5
+; Write a trace record to the trace mailbox
+;3 Inputs
+;	Record type by val
+;	Event type by val
+;	data to write by addr
+;3 Outputs
+; Trace rec written to trace mailbox   
+;4 format:
+; 	Rec type  
+;	Event type 
+;	Process name - This is set in the mbxframe
+;	Ebuff header - This is the entire buffer up to ethernet data
+;3 Returns
+; None
+;--
+; This is 'cased' for future additional rec types
+        CASEL   4(AP),#1,#0		; Select routine to write trace rec
+150$:
+        .WORD   1000$-150$       ; Ethernet heads
+        RET
+1000$:				; Ethernet buffs
+
+	MOVL	4(AP),TRCRECTYP			; Record type
+	MOVL	8(AP),TRCEVTTYP			; Event
+	MOVL	#IPC_ETH_1500_DATA,R6 		; Len of data
+        MOVC3	R6,@12(AP),TRCDATA		; Move data
+	ADDL3	#TRC_HDR_C_SIZE,R6,TRCMBXLEN	; Write len
+        $QIO_G	WRITETRC
+	BLBC	R0,1010$		   ; Br on error
+	RET
+1010$:
+; Increment 'lost trace rec' count
+	MOVL	CONTROL_A,R11
+	INCL	CTL_TRC_L_LOST(R11)
+	CMPL	#SS$_MBFULL,R0                  ; Don't log MBX full messages
+	BNEQU	1020$
+	RET
+1020$:
+	BSBW	ERROR_CHK			; write error
+	RET
+	.sbttl	exit_hdlr ()
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=LISTENV5EXIT_HDLR 
+;++
+;2 LISTENV5EXIT_HDLR 
+; Exit handler to shut down orderly.
+;3 Exit_actions
+; Write PSRTBL out to file
+;--
+	$CREATE	FAB = PSRFAB		; New file
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = PSRRAB		; Connect input stream
+        BSBW	ERROR_CHK
+	MOVL	PSRTBL_A,R6		; Table top
+	MOVL	PSRTBLCNT,R9		; Entry count
+	MOVW	#PSR_TBL_C_SIZE,PSRRAB+RAB$W_USZ
+	MOVW	#PSR_TBL_C_SIZE,PSRRAB+RAB$W_RSZ
+100$:
+	MOVL	R6,PSRRAB+RAB$L_RBF	; Rec to write
+	MOVL	R6,PSRRAB+RAB$L_UBF	; Rec to write
+	$PUT	RAB=PSRRAB
+	BSBW	ERROR_CHK
+	ADDL	#PSR_TBL_C_SIZE,R6	; Next entry
+	SOBGTR	R9,100$
+	$CLOSE	FAB=PSRFAB
+900$:	MOVZWL	#SS$_RESIGNAL, R0		; Always resignal
+	RET
+
+	.END	LISTENV5

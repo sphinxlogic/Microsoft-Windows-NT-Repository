@@ -1,0 +1,207 @@
+
+			X11 R3 VMS PORTING CONSIDERATIONS
+			---------------------------------
+
+	In porting the code I have enclosed the VMS specifics using
+	conditional compilation blocks (#ifdef VMS), so you can search
+	for "VMS" to see where the changes are. Any code which was
+	common to multiple clients, and UNIX look-alike routines, I
+	have placed in [X.VMS].
+
+	NOTE: There is a trick with the VAX-C compiler whereby you
+	can use the following statement:
+		#include <X11/Xlib.h>
+	To do so, just define a logical name X11, as in:
+		$ DEFINE X11 DECW$INCLUDE
+
+	If you edit the command procedure X11_SETUP.COM in the 
+	[X.VMS] directory to insert your own disk device name, you 
+	can execute this procedure to set up the required logicals
+	before compiling. Certain other logical names (XMU, XAW, 
+	etc.) are used in some of the code. You MUST therefore 
+	execute X11_SETUP.COM.
+
+	Some clients refer to include files in the X11 directory
+	which do not exist on VMS, e.g. copyright.h. These were
+	copied from the MIT tape into the directory [X.VMS].
+	This is referred to by the logical name X_MIT, on the
+	assumption that at some later date these MIT header files
+	may live somewhere else. (Expecting them to be in X11 is
+	probably a bad assumption on the part of MIT.)
+
+
+	Changes to the code
+	-------------------
+
+	This section lists the changes which were required to get
+	the code working. It is also to some extent a guide to
+	producing portable code. The items are in no special order.
+
+	Some clients declare main() to be void. VAX C does not
+	allow this, so the "void" has been removed with an #ifndef.
+	This is probably superfluous, and it may be better just to
+	remove it altogether.
+
+	Externals (global variables, routines, etc.) must not have
+	more than 31 characters in the name. This is a VMS linker
+	restriction. (The VAX C compiler allows up to 255 characters
+	for statics.)
+
+	Case-sensitive names, in particular Exit, Malloc and Realloc,
+	are used by a number of clients. This does not work on VMS
+	because all externals are translated to uppercase by the
+	linker. It is poor programming practise in any case, and
+	should be discouraged.
+
+	The use of case-sensitive filenames should also be avoided.
+	VMS treats all filenames as uppercase, and only allows the
+	hypen (-), dollar ($) and underscore (_) as additional
+	characters.
+
+	Include files should have an explicit extension, e.g.
+	".h", ".bm", ".icon", etc. The VAX C compiler will not
+	find a file referred to in the following way:
+		#include "xxx"
+	It must have a period as follows:
+		#include "xxx."
+	Also, filenames must avoid using more than one period,
+	because VMS uses the period to separate the filename
+	from the filetype.
+
+	Care should be taken in the use of quotes ("") and angle
+	brackets (<>) in #includes. The interpretation is not the
+	same under VMS as under UNIX. Quotes should only be used
+	where the include file is in the same directory.
+
+	The use of "globaldef" and "globalref" via #define should
+	be avoided because these are keywords in VAX C. See for
+	instance ATOMS.C and XMU.H in [X.XMU].
+
+	free() is used by a number of clients to free structures
+	returned from Xlib. This causes access violations on VMS,
+	and these should really be XFree() anyway. Although the
+	changes have been made using #ifdef VMS, this is probably
+	unnecessary.
+
+	The standard MIT command line options must be included
+	in the Xrm options list explicitly on VMS. This means that
+	many clients do not recognise common options such as
+	-geometry, etc. The code for xclock, xload and xlogo has
+	been changed to include the MIT options, as well as a set
+	of options using a slash (/) as an introducer. This makes
+	them a little more "VMS-like", but may be inappropriate
+	for inclusion on an MIT distribution. Unfortunately, those
+	clients which do not use the toolkit cannot have the extra
+	command line options added easily.
+
+
+	Athena Widgets
+	--------------
+
+	For instructions on converting the Athena Widgets, refer
+	to the AAAREADME.TXT in [X.LIB.XAW].
+
+
+	Window Manager Differences
+	--------------------------
+
+	VMS DECwindows uses a pseudo-root to cover the root window.
+	This means that many of the standard clients which refer
+	to the root window will not work. To overcome this problem,
+	a routine called PSEUDO_ROOT was written. (It is in [X.VMS].)
+
+	In many of the toolkit clients, the first parameter to the
+	XtInitialize() call was "main". This was changed to a more
+	appropriate name because it is used in the title bar on the
+	window under DECwindows. There is probably no need for an
+	#ifdef here: just incorporate the change.
+
+
+	General Comments
+	----------------
+
+	All code was compiled under VAX C Version 3.0. This is
+	probably relevant only in so far as V3.0 has the include
+	files socket.h and netdb.h. Otherwise, previous versions
+	should probably also work. The system was VMS V5.1.
+
+	Error codes returned by clients via exit() are not 
+	appropriate for VMS. These do not cause any problems, 
+	but can result in extraneous messages. See xmag for a 
+	possible example of how the VMS message codes could be 
+	used. It is not really necessary to add this type of 
+	code to all the clients.
+
+	A few clients which deal with files attempt to make a
+	backup copy by renaming the current file and appending
+	".bak". This is not really necessary under VMS because
+	it keeps multiple versions anyway.
+
+	Areas where problems are most likely to occur are in
+	file handling and timer routines.
+
+
+	Additional Routines
+	-------------------
+
+	The directory [X.VMS] contains a number of additional
+	routines which are not normally present on VMS. This
+	directory is therefore specific to VMS, but must be
+	included on the distribution tape in order for VMS
+	sites to use the code.
+
+	A number of UNIX library routines are required. These
+	can be found in:
+		GETHOSTNAME.C
+		GETOPT.C
+		RANDOM.C
+		STRINGS.MAR
+		UNIX_TIMES.C
+		UNLINK.C
+
+	One Toolkit routine is missing in the DEC implementation
+	as of VMS V5.1:
+		XTSTRINGCONVERSIONWARNING.C
+
+	Also, DEC provides only R2 routines and so a few of the
+	R3 routines are missing. These can be found in:
+		XMISC.C
+	This should be unnecessary under a future version of
+	DECwindows.
+
+	The following miscellaneous routines are provided as well:
+		LOWERCASE.C
+		PRINT_EVENT.C
+		TIMER.C
+
+	Finally, a couple of routines are provided to get around
+	problems with the pseudo-root window under VMS:
+		CHOOSE_WINDOW.C
+		DSIMPLE.C    
+		PSEUDO_ROOT.C
+	NOTE: DSIMPLE is used by a few clients.
+
+
+	Contact Address
+	---------------
+
+	If you wish to contact me, I can be reached via E-mail at:
+
+		taylort@decus.com.au
+
+	or via the post at:
+
+		Microcomputer Technology
+		P.O. Box 155
+		Aspley  QLD  4034
+		AUSTRALIA
+
+
+		Trevor Taylor
+		Oct-89
+
+
+	Disclaimer: All software is supplied "as is" and no 
+	guarantee can be made that it is free from bugs. 
+	Testing under VMS has been minimal, and some of the
+	code may (in fact, most likely does) have problems.

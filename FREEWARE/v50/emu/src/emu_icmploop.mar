@@ -1,0 +1,221 @@
+	.TITLE	EMU_ICMPLOOP
+	.IDENT	/01-003/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+;	Now called as library function
+;	Options:
+;	Reponse time to station. Time in 100th sec intervals representing
+;	round trip time to this station is returned
+; 01-003	Updated for v5.
+;		Added param to allow raw frame to be returned to caller
+;++
+;1 EMU_ICMPLOOP
+; This routine will test the specified IP layer address on the Internet with 
+; an ICMP echo packet.
+;
+; NOTE: This programme is loosley based on example A-3 in TCP Programming
+; Reference Manual
+;
+;
+;2 Input
+;	P1	.address of 4 byte IP address of target node
+;    Optional:
+;	P2 	.address of .long  where reponse time is written
+;2 Output
+; If P2 is specified, it is written with the response time as 1/100th sec
+; units.
+;2 Returns
+;	SS$_NORMAL	Requested echo(s) were succesful
+;	SS$_UNREACHABLE	Failed to receive response from target
+;	SS$_ACCVIO	Can' read input params or can't write outp field
+;--
+; Data
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"    ; Temp loc of inet defs
+
+	$IODEF		; I/O functions
+        $INETSYMDEF
+	EMUPSRDEF
+		.PSECT	EMU_ICMPLOOP_DATA,WRT,NOEXE,QUAD
+
+IOSTATUS:	.QUAD	0			; I/O status block block
+INTLTIM:	.QUAD   ^XFFFFFFFFFF1B1E40      ; 1.5 sec Delta
+TIMER_ID:	.LONG	0
+INTIM_D:	.LONG	16
+		.ADDRESS  INTIM
+INTIM:		.ASCII	/0000 00:00:01.50/      ; Max Wait for response
+CHANNEL:	.WORD 	0		; Channel assigned to INET
+DEV:		.ASCID	/BG:/		; Internet device name
+;
+;	INET Socket address structure for local host IP address
+;
+	.ALIGN	LONG
+LOCAL_ADR:
+	.WORD 	INET$C_AF_INET	; Inet domain
+	.WORD	0		; Port number (system assigns) 
+ 	.LONG	0		; IP Address (system assigns local)
+	.BLKB	8		; not used
+LEN=.-LOCAL_ADR	
+;
+;	Peer Socket address structure
+;
+REMOTE_ADR:	
+	.WORD 	INET$C_AF_INET	; Inet domain
+	.BYTE 	0,7		; Port number 7 ICMP
+TARGET:	.LONG	0		; Place P1 here
+	.BLKB	8		; not used
+;
+;	Socket parameters for Socket creation
+;
+PAR11:	.WORD	INET$C_ICMP		; ICMP/IP protocol
+	.BYTE	INET_PROTYP$C_RAW 	; Socket type is datagram
+	.BYTE	0
+;
+;	Descriptor of Local Socket for the Bind operation
+;
+PAR12:	.LONG	LEN
+	.ADDRESS LOCAL_ADR
+;
+;	Descriptor of Remote Socket for the Connect operation
+;
+PAR13:	.LONG	LEN
+	.ADDRESS REMOTE_ADR
+
+MESSAGE:	.BYTE	8		; Echo request
+		.BYTE	0		; Code (0)
+ICMPCKS:	.WORD	0		; Checksum
+		.WORD	123		; ID
+		.WORD	1		; Seq
+		.LONG	1234		; Opt (Echoed data)
+MESSAGE_LEN=.-MESSAGE
+RETBUF:		.BLKB	512
+RETBUF_LEN = .-RETBUF
+;
+	.PSECT	EMU_ICMPLOOP_CODE,EXE,NOWRT,QUAD
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_ICMPLOOP
+; Get and Validate Params
+	PROBER	#0,#6,4(AP)  		; Read Ethernet address?
+	BNEQ	1$			; OK
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+1$:
+ 	TSTW	CHANNEL		; Init?
+	BNEQ	10$		; Done - Br
+;
+;	Assign the INET device
+;
+	$ASSIGN_S	DEVNAM=DEV, CHAN=CHANNEL
+	BLBS	R0,5$
+	RET
+; Compute checksum - required param
+5$:
+	DIVL3	#2,#MESSAGE_LEN,-(SP)	; Number of  WORDS!
+	PUSHAL	MESSAGE
+	CALLS	#2,G^CKSUM
+	MOVW	R0,ICMPCKS		; Put in message
+
+
+; Create a Socket and Bind the socket to a port and address
+;
+	$QIOW_S	CHAN=CHANNEL, -		; Channel
+		FUNC=#IO$_SETMODE,-	; I/O function
+		IOSB= IOSTATUS, -	; I/O status
+		P1=PAR11		; Socket creation parameters
+	BSBW	ERROR_CHK
+; 
+10$:
+; Set target address
+	MOVL	@4(AP),TARGET
+	MOVL	EXE$GL_ABSTIM_TICS,R10       ; Get current time
+	MOVL	#1,R9			    ; Number of loops to perform
+	CMPL	#2,(AP)			    ; Respnse time?
+	BNEQ	12$
+	MOVL	#50,R9
+12$:
+	$QIOW_S	CHAN=CHANNEL, -		; Channel
+		FUNC=#IO$_WRITEVBLK,-	; I/O function
+		IOSB= IOSTATUS, -	; I/O Status block
+		P1=MESSAGE,-		; I/O buffer address
+		P2=#MESSAGE_LEN,-	; I/O buffer length
+		P3= #PAR13              ; Remote IP address
+	BSBW	ERROR_CHK
+; Set timer, attempt count and que read for response
+15$:
+	MOVL	#3,R8                   ; Try 5 times
+	BSBW	SET_TIME		; Don't wait forever
+	$QIOW_S	CHAN=CHANNEL, -		; Channel
+		FUNC=#IO$_READVBLK,-	; I/O function
+		IOSB= IOSTATUS, -	; I/O Status block
+		P1=RETBUF,-		; I/O buffer address
+		P2=#RETBUF_LEN		; I/O buffer length
+	BLBS	R0,20$
+	BSBW	ERROR_CHK
+20$:
+	CLRL	-(SP)
+	PUSHL	TIMER_ID		; TIMER ID
+	CALLS	#2,G^SYS$CANTIM		; Stop Read timer - No error Check
+	BLBS	IOSTATUS,30$            ; Br on no err
+25$:
+	MOVL	#SS$_UNREACHABLE,R0     ; ASSUME Signal Timeout
+	RET
+30$:	
+	SOBGTR	R8,35$                  ; No. of attempts left
+	BRB	25$                     ; None left
+35$:
+	SOBGTR	R9,50$                       ; Number of successful loops
+	MOVL	EXE$GL_ABSTIM_TICS,R11      ; Get current time
+	CMPL	#2,(AP)				; Response time?
+	BNEQ	40$
+	SUBL3	R10,R11,@8(AP)           ; Get diff
+	DIVL	#5,@8(AP)                      ; 1/10 SEC
+40$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+50$:
+	BRW	12$
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBS	R0,10$                  ; Br no error
+	RET                             ;
+10$:
+	BLBC	IOSTATUS,20$            ; Br if error
+	RSB                             ; Done
+20$:	
+	MOVZWL	IOSTATUS,R0             ; Return error
+	RET
+SET_TIME:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+; Set the timeout for read
+;
+;
+; Set the timer
+; Convert the input time - must be DELTA
+;
+	$SETIMR_S-
+		DAYTIM=INTLTIM,-
+		ASTADR=LOST_ICMP_MSG             ; AST address
+	BSBW	ERROR_CHK
+        RSB
+; Here on Read Timout
+;
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=LOST_ICMP_MSG
+	PUSHL	CHANNEL
+	CALLS	#1,G^SYS$CANCEL		; Cancel I/O - No error check
+	RET                             ; Exit to main
+	.END 
+

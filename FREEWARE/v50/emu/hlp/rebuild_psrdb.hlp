@@ -1,0 +1,54 @@
+1 REBUILD_PSRDB 
+ Subroutine called when PSR initialises and saved section does not exist.
+ This routine attempts to rebuild the PSR db with data from EMUDB.DAT.
+ The common reason for this is EMU was abnormally shut down (System crash)
+ and the memory sections were lost. These sections form the database for EMU
+ operations and provide indexes to EMUDB for querry/report purposes. 
+ EMUDB.DAT is on disk and writes to it are always FLUSHED. It therefore
+ is a reliable source to extract from in all predicted circumstances.
+
+2 Inputs
+	.long	Value of PSRid. This is the SYS_PID_PSRxxx of the caller.
+	.long	Value of Table in EMUDB the paramater is in
+	.long	Value of the paramater number
+	.long	Address .quad 1st and last addr of the newly created PSR 
+		section
+ P2 and P3 are keys in EMUDB and point to specific params. In the case
+ of a rebuild, the param wanted is the PSRDB key, for example:
+	PSR	Key
+	ETH	Ethernet address
+	IP	IP address
+	DN4	DECnet address
+	   etc.
+2 Outputs
+	For each paramater read from EMUDB, the param is processed PID
+	specificaly and added to the PSRDB per normal operations.
+2 Abstract
+	Extract the raw param	 - Make key
+	Call LOCATE_PSRREC       - Add to DB
+	If created (normal case):
+		CREATE_RELATER_FRAME
+		SEND_RELATER_FRAME
+	If not created then ignore
+	Next EMUDB rec until No more recs.
+  Each address is verified before adding to DB. On error, ignore.
+  Any error returned from LOCATE_PSRREC causes an exit with error. If 
+ the error is insufficient memory the caller may resize the section and
+ call this routine again.
+ Errors from CREATE_RELATER and SEND_RELATER are ignored - they will correct
+ in later processing.
+2 REBUILD_NAMER
+ The procedure to rebuild all other PSRdbs will not work for the NAMER db
+ as there is insufficient information avaialble to relate the names found
+ to any particular address - we can rebuild the name DB but cannot know 
+ who the name belongs to. Therefore other mechanisms are required...
+ There are 2 methods used to propogate names to the DB: If the protocol
+ sends a name in the frame, the PSR sends it to the relater and it is
+ added to the DB. The scanner process scans (hence the name) EMUDB.DAT 
+ looking for specific recods containing names. If it finds one, it sends a 
+ relater frame which again propogates it into the DB. In both cases a flag
+ is set indicating the name has been sent and the routine skips it. 
+ This routine undoes the scanner part by reversing the effect of the scanner.
+ The PSR bit is handled by the relater at startup. If the DB is being 
+ rebuilt in the case of the NAMER, it will start with 0 recs causing the 
+ relater to 'unrelate' all names in all PSR dbs.

@@ -1,0 +1,637 @@
+%!PS-Adobe-1.0
+%
+% sundial.ps - generate horizontal sundial for any latitude/longitude in
+% Northern or (although I haven't flown there to try it out) Southern
+% Hemisphere.  Theoretically, anyway; latitudes between 30 and 60 degrees
+% work best.
+%
+% Author: A. W. Rogers, with some help from the Blue Book
+%
+% Inspired by _What To Make (Popular Mechanics Craftman's Guide)_, 1936.
+%
+% For further information on sundials in general, see
+%
+%	http://www.sundials.co.uk/projects.htm
+%
+
+% set latitude, location, range of hours displayed, and motto according to
+% locale and/or personal preference (note that at present no line width
+% checking is performed on the motto)
+
+% latitude may be expressed as [degrees] (negative for Southern Hemisphere),
+% [degrees minutes], or [degrees minutes seconds]
+
+/latitude [42 22] def
+
+% "longitude" may be specified to correct the hour line placement for sun time
+% relative to clock time; it may be expressed as [degrees] (negative for
+% Eastern Hemisphere), [degrees minutes], [degrees minutes seconds], or []
+% (no correction for longitude)
+
+/longitude [71 14] def
+
+% "meridian" is the longitude of the nominal center of the local time zone,
+% typically (but not always) a multiple of 15 degrees
+
+/meridian 75 def
+
+% "DST" is true for Daylight Savings Time, false for Standard Time
+
+/DST true def
+
+% "location" is also optional and may be the null string
+
+/location (Waltham, MA) def
+
+% pick a motto (more are available at http://www.sundials.co.uk/mottoes.htm )
+
+/motto [
+ (I  COUNT  NONE  BUT  SUNNY  HOURS)
+% (TEMPUS  FUGIT)
+% (GROW  OLD  WITH  ME) (THE  BEST  IS  YET  TO  COME)
+% (TIME FLIES LIKE AN ARROW) (FRUIT FLIES LIKE A BANANA)
+] def
+
+% "showEOT" is true to display a graph of the Equation Of Time correction
+
+/showEOT true def
+
+%
+% end of user-tweakable variables; probably a Good Thing to leave the others alone
+%
+
+/Hmin 5 def			% first, last hours (24-hour clock)
+/Hmax 19 def
+
+/FS1 12 def			% font sizes
+/FS2 18 def
+/FS3 21 def
+
+/Xcenter 306 def		% center of dial and gnomon
+/Ycenter 468 def
+
+/R 240 def			% inner radius
+/R1 R 0.1 mul def		% hour line starting radius
+/R2 R FS2 1.75 mul add def	% outer radius
+
+/fillgray 0.9 def		% gray scale values
+/textgray 0.7 def
+
+/A 24 array def			% for saving hour line angles
+
+/Roman [(XII) (I) (II) (III) (IV) (V) (VI) (VII) (VIII) (IX) (X) (XI)] def
+
+/NS [(N) (S)] def
+/WE [(W) (E)] def
+/NESW [(N) (E) (S) (W)] def
+
+% force single-sided mode, Letter size paper
+
+statusdict (duplexmode) known { statusdict begin false setduplexmode end } if
+statusdict /lettertray known { statusdict begin lettertray end } if
+
+% remap the font to include the "degree" symbol (borrowed straight out of
+% the Blue Book)
+
+/alt_dict 20 dict def
+/alt_mappings [                         % Roman8 character mappings
+  8#202		/degree
+] def
+
+/remap_font {
+  alt_dict begin
+  /newName exch def
+  /oldName exch def
+  /oldDict oldName findfont def
+  /newDict oldDict maxlength dict def
+  oldDict {
+  exch dup /FID ne {
+    dup /Encoding eq {
+      exch dup length array copy
+      newDict 3 1 roll put
+      } {
+        exch newDict 3 1 roll put
+      } ifelse
+    } {
+    pop pop
+    } ifelse
+  } forall
+  newDict /FontName newName put
+  0 2 alt_mappings length 1 sub {
+    dup
+    alt_mappings exch get
+    exch 1 add alt_mappings exch get
+    newDict /Encoding get 3 1 roll put
+  } for
+  newName newDict definefont pop
+  end
+} bind def
+
+% print text inside/outside a circle (borrowed again from the Blue Book)
+
+/PI 3.14159265359 def
+
+/findhalfangle {
+  stringwidth pop 2 div
+  2 xradius mul PI mul div 360 mul
+} def
+
+/insideplacechar {
+  /char exch def
+  /halfangle char findhalfangle def
+  gsave
+  halfangle rotate
+  radius 0 translate
+  90 rotate
+  char stringwidth pop 2 div neg 0 moveto
+  char show
+  grestore
+  halfangle 2 mul rotate
+} def
+
+/outsideplacechar {
+  /char exch def
+  /halfangle char findhalfangle def
+  gsave
+  halfangle neg rotate
+  radius 0 translate
+  -90 rotate
+  char stringwidth pop 2 div neg 0 moveto
+  char show
+  grestore
+  halfangle 2 mul neg rotate
+} def
+
+/insidecircletext {
+  /radius exch def
+  /centerangle exch def
+  /ptsize exch def
+  /str exch def
+  /xradius radius ptsize 3 div sub def
+
+  gsave
+  centerangle str findhalfangle sub rotate
+
+  str {
+    /charcode exch def
+    ( ) dup 0 charcode put insideplacechar
+  } forall
+  grestore
+} def
+
+/outsidecircletext {
+  /radius exch def
+  /centerangle exch def
+  /ptsize exch def
+  /str exch def
+  /xradius radius ptsize 4 div add def
+
+  gsave
+  centerangle str findhalfangle add rotate
+
+  str {
+    /charcode exch def
+    ( ) dup 0 charcode put outsideplacechar
+  } forall
+  grestore
+} def
+
+% center a string
+
+/center {
+  1 index stringwidth pop sub 2 div 0 rmoveto show
+} bind def
+
+/showRJ {                       % display string right-justified
+  currentpoint pop 1 index stringwidth pop sub currentpoint exch pop moveto
+  show
+} def
+
+% tangent trig function
+
+/tan { dup sin exch cos div } def
+
+% arctangent trig function (returns arctan in 0..180 range)
+
+/arctan {
+  dup abs exch 0 lt { -1.0 } { 1.0 } ifelse atan
+} def
+
+/strcat {
+2 copy
+length exch length
+dup 3 -1 roll add
+string
+dup 0 6 -1 roll putinterval
+dup 3 -1 roll 4 -1 roll putinterval
+} bind def
+
+% convert angle array to string
+
+/angle2str {			% direction angle => string
+  5 dict begin
+  splitangle
+  pop /deg exch def  /min exch def  /sec exch def
+  /dir exch def
+  deg abs 3 string cvs (\202) strcat % always print degrees
+  min 0 ge sec 0 ge or {	% print minutes/seconds if specified
+    min 3 string cvs strcat (') strcat
+    sec 0 ge {
+      sec 3 string cvs strcat (") strcat
+    } if
+  } if
+  ( ) strcat
+  dir deg 0 ge { 0 } { 1 } ifelse get strcat
+  end
+} def
+
+% calculate angle for drawing hour line
+
+/calcangle {				% hour calcangle => angle
+  5 dict begin
+
+  /h exch def
+  /t 12 h sub 15.0 mul time_correction add def
+  /tabs t abs def
+
+  tabs 90 sub abs 0.1 le { 90 } { tabs tan S mul arctan } ifelse 
+       t 0 le S_hemi xor { neg } if 90 add
+  end
+
+} def
+
+% split angle array into degrees/minutes/seconds (for printing) and
+% recalculate angle in fractional degrees
+
+/splitangle {		% array => sec min deg angle
+  dup dup 0 get
+  exch dup length 2 ge { 1 get } { pop -1 } ifelse
+  3 2 roll dup length 3 ge { 2 get } { pop -1 } ifelse
+  exch 3 2 roll
+  0 index abs
+  2 index 0 gt { 2 index 60.0 div add } if
+  3 index 0 gt { 3 index 3600.0 div add } if
+  1 index 0 lt { neg } if
+} def
+
+% plot the equation of time centered (horizontally; around 0-axis vertically)
+% around current point
+
+/plotEOT {
+  15 dict begin
+
+  /WIDTH exch def			% width of graph
+  /HEIGHT WIDTH 12.0 div 7.0 mul def
+
+  % correction for equation of time (minutes)
+
+  /eqn [ -3.30 -5.59 -7.69 -9.56 -11.15 -12.43 -13.38 -13.99 -14.26 -14.21
+	 -13.85 -13.21 -12.33 -11.24 -9.98 -8.60 -7.14 -5.63 -4.13 -2.67
+	 -1.29 -0.02 1.10 2.05 2.79 3.32 3.61 3.67 3.50 3.10
+	 2.50 1.72 0.81 -0.21 -1.28 -2.36 -3.40 -4.35 -5.17 -5.82
+	 -6.26 -6.48 -6.46 -6.18 -5.66 -4.89 -3.90 -2.70 -1.32 0.21
+	 1.86 3.58 5.35 7.12 8.86 10.51 12.04 13.40 14.56 15.48
+	 16.11 16.43 16.42 16.05 15.34 14.27 12.86 11.16 9.18 6.99
+	 4.64 2.20 -0.28 -2.71 ] def
+
+  /months [(J) (F) (M) (A) (M) (J) (J) (A) (S) (O) (N) (D)] def
+
+  gsave
+  currentpoint exch WIDTH 2 div sub exch translate
+
+  % assorted scaling factors and font size
+  /xscale WIDTH 365 div def
+  /yscale HEIGHT 35 div def
+  /FS HEIGHT 10 div def
+  fontname findfont FS scalefont setfont
+
+  % draw grid
+
+  -15 5 20 {
+    /min exch def
+    /str min abs 10 string cvs def
+    /y min yscale mul def
+    min 0 eq { 0.5 } { 0.1 } ifelse setlinewidth
+    0 y moveto
+    WIDTH 0 rlineto
+    stroke
+    FS 0.33 mul neg y FS 0.375 mul sub moveto	 % minutes slow/fast
+    str showRJ
+  } for
+
+  0.1 setlinewidth
+  /x0 0 def
+  /x WIDTH 12.0 div def
+  13 {
+    x0 -15 yscale mul moveto
+    0 HEIGHT rlineto stroke
+    /x0 x0 x add def
+  } repeat
+
+  % print month initials beneath grid
+
+  /x0 x 2.0 div def
+  months {
+    x0 -15 yscale mul FS sub moveto
+    0 center
+    /x0 x0 x add def
+  } forall
+
+  % plot the graph itself
+
+  0.7 setlinewidth
+  /x0 0 def
+  x0 eqn 0 get yscale mul moveto
+  /x 365.0 eqn length 1 sub div def
+  eqn {
+     x0 xscale mul exch yscale mul lineto
+     /x0 x0 x add def
+  } forall
+  stroke
+
+  % Fast/Slow legends along right-hand Y axis
+
+  gsave
+  WIDTH FS 0.33 mul add 20 yscale mul moveto
+  -90 rotate
+  (Fast) 20 yscale mul center
+  grestore
+
+  gsave
+  WIDTH FS 0.33 mul add 0 moveto
+  -90 rotate
+  (Slow) 15 yscale mul center
+  grestore
+
+  0 20 yscale mul FS 0.33 mul add moveto
+  (Equation Of Time \050minutes\051) WIDTH center
+
+  grestore
+  end
+} def
+
+% show compass rose centered around current point
+
+/showcompass {
+  gsave
+  currentpoint translate
+  /h exch def
+  /h4 h 4 div def
+  0.1 setlinewidth
+  0 setgray
+  S_hemi { 180 rotate } if
+
+  fontname findfont h4 1.5 mul scalefont setfont
+
+  NESW {
+    0 h 1.1 mul moveto		% direction
+    0 center
+
+    0 0 moveto			% point (left half filled in black)
+    h4 h4 lineto
+    0 h lineto
+    closepath stroke
+    0 0 moveto
+    0 h lineto
+    h4 neg h4 lineto
+    closepath fill stroke
+
+    -90 rotate
+  } forall
+  grestore
+} def
+
+%
+% start of first page (dial)
+%
+
+/NewCenturySchlbk-Bold /NewCenturySchlbk-Bold-8 remap_font
+/fontname /NewCenturySchlbk-Bold-8 def
+
+% convert latitude and longitude arrays to degrees and string
+
+/latitude_deg latitude splitangle 4 1 roll pop pop pop def
+/latitude_str NS latitude angle2str def
+
+longitude length 0 gt {
+  /longitude_deg longitude splitangle 4 1 roll pop pop pop def
+  /longitude_str WE longitude angle2str def
+  /time_correction longitude_deg meridian sub def
+} {
+  /longitude_deg 0 def
+  /longitude_str () def
+  /time_correction 0 def
+} ifelse
+
+/S_hemi latitude_deg 0 lt def		% in Southern Hemisphere?
+
+% show latitude and location
+
+Xcenter 100 moveto
+fontname findfont FS1 scalefont setfont
+latitude_str
+longitude_str () ne {
+  (   ) strcat longitude_str strcat
+} if
+location () ne {
+  (   \050) strcat location strcat (\051) strcat
+} if
+DST {
+  (   \050DST\051) strcat
+} if
+0 center
+
+Xcenter 100 FS1 1.2 mul sub moveto
+DST {
+  (\050Subtract one hour for Standard Time\051)
+}
+{
+  (\050Add one hour for Daylight Savings Time\051)
+} ifelse
+0 center
+
+% show compass rose and (if requested) plot Equation Of Time
+
+showEOT {
+  Xcenter Ycenter R 0.35 mul sub moveto
+  25 showcompass
+  Xcenter Ycenter R 0.75 mul sub moveto
+  100 plotEOT
+} {
+  Xcenter Ycenter R 2 div sub moveto
+  32 showcompass
+} ifelse
+
+% show outer circle
+
+Xcenter Ycenter translate
+newpath
+1.5 setlinewidth
+0 0 R2 0 360 arc stroke
+
+/S latitude_deg abs sin def		% sin(abs(latitude))
+
+% calculate and save angles for each hour
+
+Hmin 1 Hmax {
+  /h exch def
+  A h h calcangle put			% save for subsequent use
+} for
+
+% draw shaded area for gnomon
+
+/gnangle 10 def
+/x R gnangle sin mul def
+/y R gnangle cos mul def
+fillgray setgray
+newpath
+0 0 moveto
+0 R lineto
+x y lineto
+closepath fill stroke
+
+0 setgray		% dashed line corresponding to fold on gnomon
+1.0 setlinewidth
+[1 4] 4 setdash
+0 R moveto
+0 0 lineto stroke
+[] 0 setdash
+
+% draw hour lines; show hours as Roman numerals (compensate for DST)
+
+0 setgray
+1.0 setlinewidth
+fontname findfont FS2 scalefont setfont
+Hmin 1 Hmax {
+  /h exch def
+  /angle A h get def
+
+  /x R angle cos mul def
+  /y R angle sin mul def
+  x 0.1 mul y 0.1 mul moveto
+  x y lineto stroke
+
+  Roman h DST { 1 add } if 12 mod get
+    FS2 angle R FS2 0.5 mul add outsidecircletext
+} for
+
+% draw dots for half-hours
+
+0 setgray
+0.1 setlinewidth
+Hmin 1 Hmax 1 sub {
+  /h exch 0.5 add def
+  /angle h calcangle def
+  /r R R2 add 2 div def
+  /x r angle cos mul def
+  /y r angle sin mul def
+  newpath x y 1.5 0 360 arc fill stroke
+} for
+
+% print the dial's latitude (in gnomon area)
+
+gsave
+textgray setgray
+fontname findfont FS1 scalefont setfont
+gnangle neg 2 div 90 add rotate
+R 80 sub FS1 -0.375 mul moveto
+latitude_str show
+grestore
+
+% print the motto (concentric circles around base)
+
+fontname findfont FS3 scalefont setfont
+/l motto length 1 sub def
+0 1 l {
+  /n exch def
+  /r R2 FS3 l n sub 0.5 add mul sub def
+  motto n get FS3 270 r insidecircletext
+} for
+showpage
+
+%
+% start of second page (gnomon)
+%
+
+612 0 translate
+90 rotate
+
+/Xtext 120 def
+/Ytext 120 def
+
+/crlf {				% n crlf => simulate n CR/LF's
+   /Ytext exch FS1 1.1 mul mul Ytext exch sub def
+   Xtext Ytext moveto
+} def
+
+% brief description
+
+fontname findfont FS1 scalefont setfont
+Xtext Ytext moveto
+(Gnomon for latitude ) show
+latitude_str show
+
+1.5 crlf
+(\050Cut along solid lines, score along dashed line, fold into shape,) show
+( and glue to dial.  You may prefer) show
+1.0 crlf
+( to use this as a template for cutting a gnomon out of) show
+( stiffer material.\051) show
+1.5 crlf
+(For further information on sundial construction, see ) show
+(http://www.sundials.co.uk/projects.htm) show
+
+% draw the gnomon with a flap for attaching to base
+
+/a 90 gnangle add def
+/x R 90 a sub sin mul def
+/y R 90 a sub cos mul def
+/x1 x R1 R div mul def
+/y1 y R1 R div mul def
+
+S_hemi { 680 } { 120 } ifelse 160 translate
+0.5 setlinewidth
+
+% fill in shaded areas (for gluing flap to base)
+
+fillgray setgray
+newpath
+0 0 moveto
+x y lineto
+0 R lineto
+closepath fill
+
+% dashed lines for folding
+
+0 setgray
+[1 4] 4 setdash
+0 y moveto
+0 0 lineto stroke
+
+% solid lines for cutting
+
+/Y R 1.2 mul def				% tip of gnomon
+/X Y latitude_deg tan mul def
+
+[] 0 setdash					% outside of flap
+0 0 moveto
+x y lineto
+0 R lineto
+
+X 0.1 mul  R Y R sub 0.1 mul add lineto		% curve along gnomon's edge
+X 0.2 mul  Y 0.5 mul
+X 0.5 mul  Y 0.7 mul
+X 0.9 mul  R Y R sub 0.9 mul add curveto
+X Y lineto
+0 0 lineto stroke
+
+% also print the gnomon's latitude on the fold-over flap
+
+gsave
+textgray setgray
+a 90 sub 2 div 90 add rotate
+R 80 sub FS1 -0.375 mul moveto
+latitude_str show
+grestore
+
+showpage

@@ -1,0 +1,97 @@
+$!                             COPYRIGHT (C) 1996, 2000 BY
+$!                       COMPAQ COMPUTER CORPORATION, HOUSTON
+$!                        TEXAS.  ALL RIGHTS RESERVED.
+$!
+$!     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+$!     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+$!     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+$!     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+$!     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+$!
+$!     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+$!     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+$!     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+$!
+$!     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+$!     ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+$!     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+$!     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+$!
+$ create ini.c
+#pragma module ini "V1.0"
+
+#include <lib$routines.h>
+#include <descrip.h>
+
+/*
+ * Declare lib$initialize as an external routine, so that the linker
+ * combines the LIB$INITIALIZE psect correctly.
+ */
+extern void lib$initialize();
+int *lib$initialize_entry = (int *)&lib$initialize;
+
+int test$init ();
+/*
+ * Store a longword (VAX) or a quadword (ALPHA) containing the address
+ * of the entry point of our initialize routine.
+ */
+#pragma extern_model save
+#pragma extern_model strict_refdef "LIB$INITIALIZE" noshr
+unsigned long long *test$ini_entry = (unsigned long long *)&test$init;
+#pragma extern_model restore
+
+/*
+ * test$init is passed six parameters, two of which are declared.
+ * However as init_routine is the first parameter and we get the actual
+ * number of parameters (declaration of ap), the lib$callg will call
+ * init_routine with the correct number of arguments which were passed to
+ * this routine. Also, no DEC C run-time routines can be called here because
+ * the DEC C RTL has not been initialized; hence the two lib$put_output.
+ */
+int test$init (void *init_coroutine(), void *cli_coroutine())
+{
+    int *ap = (int *)&init_coroutine - 1;
+    int l_status;
+    $DESCRIPTOR (put_dsc1,"start of init");
+    $DESCRIPTOR (put_dsc2,"end of init");
+
+    /*
+     * output we got here before mymain is called.
+     */
+    lib$put_output (&put_dsc1);
+
+    /*
+     * call LIB$INITIALIZE dispatcher...
+     */
+    l_status = lib$callg (*ap, *init_coroutine);
+
+    /*
+     * output we got here after mymain has been called.
+     */
+    lib$put_output (&put_dsc2);
+    return l_status;
+}
+$ cc/debug/noopt ini
+$ create cmain.c
+#include <stdio.h>
+/*
+ * do not declare this entry point as main(), otherwise DEC C will add its own
+ * LIB$INITIALIZE routine and, at main exit, the routine will call sys$exit()
+ * which will not return to our test$init routine.
+ */
+int mymain()
+{
+    printf("in main");
+    return 1;
+}
+$ cc/debug/noopt cmain
+$ link/debug cmain,ini,sys$input/opt
+! set the correct psect attributes for LIB$INITIALIZE
+psect_attr=LIB$INITIALIZE,nopic,nowrt
+$ run cmain
+$ delete cmain.*;*,ini.*;*
+$ exit

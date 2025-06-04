@@ -1,0 +1,2191 @@
+--
+-- 
+--
+
+          A3Com-System-MIB DEFINITIONS ::= BEGIN
+
+          IMPORTS
+                  enterprises, IpAddress, Counter, TimeTicks
+                      FROM RFC1155-SMI
+                  DisplayString
+                      FROM RFC1213-MIB
+                  MacAddress
+                      FROM RFC1286-MIB
+                  TRAP-TYPE
+                      FROM RFC-1215
+                  OBJECT-TYPE
+                          FROM RFC-1212;
+
+          --
+          -- This MIB is for General 3Com Systems.  
+          --
+
+          a3Com         OBJECT IDENTIFIER ::= { enterprises 43 }
+          brouterMIB    OBJECT IDENTIFIER ::= { a3Com 2 }
+          a3ComSys      OBJECT IDENTIFIER ::= { brouterMIB 13 }
+          a3ComSysID    OBJECT IDENTIFIER ::= { a3ComSys 1 }
+          a3ComChip     OBJECT IDENTIFIER ::= { a3ComSys 2 }
+          a3ComMem      OBJECT IDENTIFIER ::= { a3ComSys 3 } 
+          a3ComBrd      OBJECT IDENTIFIER ::= { a3ComSys 4 } 
+          a3ComAudit    OBJECT IDENTIFIER ::= { a3ComSys 5 } 
+          a3ComTime     OBJECT IDENTIFIER ::= { a3ComSys 6 } 
+          a3ComAccCtl   OBJECT IDENTIFIER ::= { a3ComSys 7 }
+          a3ComSysMisc  OBJECT IDENTIFIER ::= { a3ComSys 8 }
+          a3ComFW       OBJECT IDENTIFIER ::= { a3ComSys 9 }
+          a3ComBoot     OBJECT IDENTIFIER ::= { a3ComSys 10 }
+          a3ComLastBoot OBJECT IDENTIFIER ::= { a3ComSys 11 }
+          a3ComFileMgmt OBJECT IDENTIFIER ::= { a3ComSys 12 }
+              a3ComFileList OBJECT IDENTIFIER ::= { a3ComFileMgmt 9 }
+
+          a3ComFwUpdate OBJECT IDENTIFIER ::= { a3ComSys 13 }
+          a3ComLog      OBJECT IDENTIFIER ::= { a3ComSys 14 }
+
+          netBuilder-mib    OBJECT IDENTIFIER ::= { a3Com 12 }
+          nbGeneric         OBJECT IDENTIFIER ::= { netBuilder-mib 1 } 
+          nbRemote          OBJECT IDENTIFIER ::= { nbGeneric 1 }
+
+
+      RowStatus ::= INTEGER {
+                         active(1),
+                         notInService(2),
+                         notReady(3),                               
+                         createAndGo(4),
+                         createAndWait(5),
+                         destroy(6)
+      }
+
+      --This data type, which has the same semantics as the rowStatus
+      --textual convention used in SNMPv2, is used to add and 
+      --delete entries from a table.
+
+      --The tables in this MIB allow a subset of the functionality
+      --provided by the rowStatus textual convention.  In particular
+      --row creation is allowed using only the createAndGo method.
+
+      --That is, when adding entries to this table, this object
+      --must be set to createAndGo(4).  The instance identifier
+      --for this object will define the values of the columns 
+      --that make up the index.  
+
+      --In the same PDU, the appropriate remaining columns
+      --of that row must be set as well.  The agent
+      --will immediately set the value of this object to
+      --active(1) if the row is correct.  If not, the agent
+      --will refuse the SET request and return an
+      --error code.
+
+      --To modify an existing entry, it must be removed
+      --and another entry with the desired changes added. 
+                   
+      --To remove an entry, set the value of this object
+      --to destroy(6).
+          
+--
+-- The ID Group
+--
+
+           a3sysVersion OBJECT-TYPE
+               SYNTAX  DisplayString
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "A text string containing general system information,
+                       including the package identifier and the system's 
+                       software release number."
+               ::= { a3ComSysID 1 } 
+
+           a3sysPlatformDescr OBJECT-TYPE
+               SYNTAX  DisplayString
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "A text string describing the physical platform
+                       or chassis on which the system is running."
+               ::= { a3ComSysID 2 }
+
+           a3sysPlatformID OBJECT-TYPE
+               SYNTAX  OBJECT IDENTIFIER
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "An OID defining the system platform."
+               ::= { a3ComSysID 3 }
+
+--
+-- The Chip group
+--
+
+          a3sysChipTable OBJECT-TYPE
+              SYNTAX  SEQUENCE OF A3sysChipEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "This table contains information about the
+                      chips that are used in the CPU board of the 
+                      system."
+              REFERENCE
+                      "NetBuilderII Ref. Guide: System Service
+                      Parameters:  CPUboardInfo"
+              ::= { a3ComChip 1 }
+
+          a3sysChipEntry OBJECT-TYPE
+              SYNTAX  A3sysChipEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "Each entry in this table contains information
+                      about one of the chips installed in the CPU
+                      module."
+              REFERENCE
+                      "NetBuilderII Ref. Guide: System Service
+                      Parameters:  CPUboardInfo"
+              INDEX { a3sysChipSlotIndex, a3sysChipIndex }
+              ::= { a3sysChipTable 1 }
+
+          A3sysChipEntry ::= 
+              SEQUENCE {
+                  a3sysChipSlotIndex      INTEGER,
+                  a3sysChipIndex          INTEGER,
+                  a3sysChipName           DisplayString,
+                  a3sysChipDescr          DisplayString
+              }
+
+          a3sysChipSlotIndex OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This identifies a specific slot (and
+                      hence, a specific board).  All the Chips
+                      described with this index are located
+                      on a single board."
+              ::= { a3sysChipEntry 1 }
+
+          a3sysChipIndex OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This identifies a specific chip on the board
+                      identified by a3sysChipSlotIndex."
+              ::= { a3sysChipEntry 2 }
+
+          a3sysChipName OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This provides a readable name for the chip."
+              ::= { a3sysChipEntry 3 }
+
+          a3sysChipDescr OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This provides general information about
+                      the chip, including its part number and
+                      revision number."
+              ::= { a3sysChipEntry 4 }
+
+--
+-- The Memory group
+--
+
+          a3sysMemTable OBJECT-TYPE
+              SYNTAX  SEQUENCE OF A3sysMemEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "This table contains information about the
+                      system's memory configurations."
+              ::= { a3ComMem 1 }
+
+          a3sysMemEntry OBJECT-TYPE
+              SYNTAX  A3sysMemEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "Each entry in this table contains information
+                      about a specific memory component.  The
+                      information includes the memory type, its
+                      starting address and its size."
+              INDEX  { a3sysMemSlotIndex, a3sysMemIndex}
+              ::= { a3sysMemTable 1 }
+
+          A3sysMemEntry ::=
+              SEQUENCE {
+                  a3sysMemSlotIndex
+                      INTEGER,
+                  a3sysMemIndex
+                      INTEGER,
+                  a3sysMemType
+                      INTEGER,
+                  a3sysMemStartAdd
+                      INTEGER,
+                  a3sysMemSize
+                      INTEGER
+              }
+
+          a3sysMemSlotIndex OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This identifies the slot (and hence the board)
+                      that supports the memory elements identified
+                      by this entry in the table."
+              ::= { a3sysMemEntry 1 }
+            
+          a3sysMemIndex OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The index into this table.  Each memory component
+                      is identified by a unique value of this object.
+                      This is specific to the board identified by 
+                      a3sysMemSlotIndex."
+              ::= { a3sysMemEntry 2 }
+
+          a3sysMemType OBJECT-TYPE
+              SYNTAX  INTEGER {
+                   other           (1),
+                   ram-instruction (2),
+                   ram-data        (3),
+                   ram-shared      (4),
+                   rom-fprom       (5),
+                   rom-eeprom      (6) 
+              }
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This object identifies the type of the memory
+                      component."
+              ::= { a3sysMemEntry 3 }
+
+          a3sysMemStartAdd OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The starting address of the memory component."
+              ::= { a3sysMemEntry 4 }
+
+          a3sysMemSize OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The size of the memory component, in bytes."
+              ::= { a3sysMemEntry 5 }
+
+--
+-- The Board group
+--
+--   This group contains information about all the boards installed
+--   on the system.  This includes IO boards and CPU boards.
+--
+--  (The objects relating to boards may migrate to the Chassis MIB
+--  once it's defined.)
+--
+          a3sysSlotNumber OBJECT-TYPE
+              SYNTAX  INTEGER
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "The number of slots (empty or not) in the system"
+              ::= { a3ComBrd 1 }
+
+          a3sysBrdTable  OBJECT-TYPE
+              SYNTAX  SEQUENCE OF A3sysBrdEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "A table that contains information about the IO boards 
+                      in this system."
+              ::= { a3ComBrd 2 }
+
+          a3sysBrdEntry OBJECT-TYPE
+              SYNTAX  A3sysBrdEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "A list of information for each IO board in the
+                      system."
+              INDEX  { a3sysSlotIndex }
+              ::= { a3sysBrdTable 1 }
+
+          A3sysBrdEntry ::=
+              SEQUENCE {
+                  a3sysSlotIndex
+                      INTEGER,
+                  a3sysBrdDescr
+                      DisplayString,
+                  a3sysBrdPathCapacity
+                      INTEGER,
+                  a3sysBrdOID
+                      OBJECT IDENTIFIER
+                  }
+
+           a3sysSlotIndex OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "The slot number which this board occupies."
+               ::= { a3sysBrdEntry 1 }
+
+           a3sysBrdDescr OBJECT-TYPE
+               SYNTAX  DisplayString
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This contains general information about the
+                       Board, including the model type, the serial
+                       number, and manufacturing information."
+               ::= { a3sysBrdEntry 2 }
+
+          a3sysBrdPathCapacity OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "The number of physical ports supported by
+                       this board."
+               ::= { a3sysBrdEntry 3 }
+
+          a3sysBrdOID OBJECT-TYPE
+               SYNTAX  OBJECT IDENTIFIER
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "The Object Identifier assigned to this
+                       Board."
+               ::= { a3sysBrdEntry 4 }
+
+--
+-- Audit trail group
+--
+
+          a3sysAuditTrailType OBJECT-TYPE
+              SYNTAX  INTEGER {
+                   local    (1),   -- use local time 
+                   univeral (2) -- use universal or GMT
+              }
+              ACCESS  read-write
+              STATUS  mandatory
+              DESCRIPTION
+                      "This object allows the user to determine the format 
+                      of the time/date stamp that is included with each
+                      audit trail message the system generates.  This
+                      only applies if there is a Network Control Server 
+                      for the IBM PC/AT (NCS/AT) or Remote Boot and 
+                      Configuration Services (RBCS) server on the attached
+                      network.  Audit trail messages are generated by 
+                      various network events and are displayed on the
+                      NCS or RBCS console."
+              ::= { a3ComAudit 1 }
+
+          a3sysLogServerAddress OBJECT-TYPE
+              SYNTAX  IpAddress
+              ACCESS  read-write
+              STATUS  mandatory
+              DESCRIPTION
+                      "The address of the NCS or the RBCS that serves
+                      as the log server for the system.  The log server
+                      receives all of the system's audit trail messages."
+              ::= { a3ComAudit 2 }
+
+--
+--  The Time group
+--
+
+           a3sysDate OBJECT-TYPE
+              SYNTAX  DisplayString
+              ACCESS  read-write
+              STATUS  mandatory
+              DESCRIPTION
+                      "The current date and time as reflected by the
+                      system clock.  The date is displayed via the User
+                      interface and Audit Trail Messages as 
+                      yy/mm/dd hh:mm[:ss].  This same format must be
+                      used when setting the Date."
+              ::= { a3ComTime 1 }
+
+           a3sysDSTime OBJECT-TYPE
+              SYNTAX  INTEGER (-120..120)
+              ACCESS  read-write
+              STATUS  mandatory
+              DESCRIPTION
+                      "This parameter specifies the displacement, in 
+                      minutes, from non-daylight savings time.  The
+                      a3sysDSTime object, along with the a3sysTimeZone
+                      object, allows the system to support Universal
+                      time for network communications spanning different
+                      time zones."
+              ::= { a3ComTime 2 }
+
+           a3sysTimeZone OBJECT-TYPE
+              SYNTAX  INTEGER (-720..720)
+              ACCESS  read-write
+              STATUS  mandatory
+              DESCRIPTION
+                      "This object specifies the number of minutes
+                      displacement west of Greenwich the system's site
+                      is located.  A negative number for this parameter
+                      indicates how many minutes displacement east of
+                      Greenwich the site is located.  A positive number
+                      indicates the number of minutes west of Greenwich."
+              ::= { a3ComTime 3 }
+
+--
+-- The Access Control Group
+--
+
+           a3sysRemoteAccess OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    enabled  (1),
+                    disabled (2)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object determines whether another device
+                       can access this system via REMOTE"
+              ::= { a3ComAccCtl 1 }
+
+           a3sysTelnetAccess OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    enabled  (1),
+                    disabled (2)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object determines whether another device
+                       can access this system via TELNET"
+              ::= { a3ComAccCtl 2 }
+
+           a3sysConsoleAccess OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    enabled  (1),
+                    disabled (2)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object determines whether another device
+                       can access this system via the Console"
+              ::= { a3ComAccCtl 3 }
+
+           a3sysSNMPAccess OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    enabledTraps    (1),
+                    enabledNoTraps  (2),
+                    disabledTraps   (3),
+                    disabledNoTraps (4)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object determines whether another device
+                       can access this system via SNMP.  Note, once
+                       SNMP access is disabled, the NMS will no longer
+                       be able to access this system via SNMP.
+
+                       If this is set to enabledTraps(1), the system 
+                       allows SNMP access and will send traps when
+                       appropriate.
+
+                       If this is set to enabledNoTraps(2), the system
+                       allows SNMP access, but no traps will be sent.
+
+                       If this is set to disabledTraps, the system
+                       does not allow SNMP access, but will send
+                       traps when appropriate.
+
+                       If this is set to disabledNoTraps(4), the system
+                       does not allow SNMP access and does not
+                       send any traps."
+              ::= { a3ComAccCtl 4 }
+
+--
+-- This table contains the SNMPv1 Community Strings
+--
+
+           a3sysSNMPCommTable OBJECT-TYPE
+              SYNTAX  SEQUENCE OF A3sysSNMPCommEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "This table contains all the community strings
+                      known to the SNMP agent."
+              ::= { a3ComAccCtl 5 }
+
+           a3sysSNMPCommEntry OBJECT-TYPE
+              SYNTAX  A3sysSNMPCommEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "Each entry in the table contains information
+                      about a single community string. "
+              INDEX { a3sysSNMPCommString }
+              ::= { a3sysSNMPCommTable 1 }
+
+           A3sysSNMPCommEntry ::= 
+              SEQUENCE {
+                  a3sysSNMPCommString         DisplayString (SIZE(1..15)),
+                  a3sysSNMPCommAccess         INTEGER,
+                  a3sysSNMPCommTrap           INTEGER,
+                  a3sysSNMPCommStatus         RowStatus
+              }
+
+           a3sysSNMPCommString OBJECT-TYPE
+              SYNTAX  DisplayString (SIZE(1..15))
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This identifies a specific community string."
+              ::= { a3sysSNMPCommEntry 1 }
+
+           a3sysSNMPCommAccess OBJECT-TYPE
+              SYNTAX  INTEGER {
+                   readOnly  (1),
+                   readWrite (2)
+              } 
+              ACCESS  read-write
+              STATUS  mandatory
+              DESCRIPTION
+                      "This identifies the level of access allowed
+                      for this community string."
+              ::= { a3sysSNMPCommEntry 2 }
+
+           a3sysSNMPCommTrap OBJECT-TYPE
+              SYNTAX  INTEGER {
+                   genericOnly  (1),    -- coldStart, warmStart, linkDown/Up
+                   authenOnly   (2),    -- authenticationFailure
+                   allTraps     (3),
+                   noTraps      (4) 
+              }
+              ACCESS  read-write
+              STATUS  mandatory
+              DESCRIPTION
+                      "This specifies which traps get sent to the
+                      managers specified by this community string."
+              ::= { a3sysSNMPCommEntry 3 }
+
+           a3sysSNMPCommStatus OBJECT-TYPE
+              SYNTAX  RowStatus
+              ACCESS  read-write
+              STATUS  mandatory
+              DESCRIPTION
+                      "This object is used to add and delete
+                      entries in this table.  See the notes
+                      describing RowStatus at the beginning
+                      of this MIB."
+              ::= { a3sysSNMPCommEntry 4 }
+
+--
+-- This table contains the Managers that are allowed to use
+-- each of the community strings identified above.
+--
+
+           a3sysSNMPMgrTable OBJECT-TYPE
+              SYNTAX  SEQUENCE OF A3sysSNMPMgrEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "This table contains the Managers that
+                      are allowed to use the community strings
+                      identified in a3sysSNMPCommTable.  Each
+                      Manager is identified by its IP address."
+              ::= { a3ComAccCtl 6 }
+
+           a3sysSNMPMgrEntry OBJECT-TYPE
+              SYNTAX  A3sysSNMPMgrEntry
+              ACCESS  not-accessible
+              STATUS  mandatory
+              DESCRIPTION
+                      "Each entry identifies a single Manager,
+                      community string pair."
+              INDEX { a3sysSNMPMgrCommString, a3sysSNMPMgrAddress }
+              ::= { a3sysSNMPMgrTable 1 }
+
+           A3sysSNMPMgrEntry ::=
+              SEQUENCE {
+                  a3sysSNMPMgrCommString      DisplayString (SIZE(1..15)),
+                  a3sysSNMPMgrAddress         IpAddress,
+                  a3sysSNMPMgrMask            IpAddress,
+                  a3sysSNMPMgrStatus          RowStatus
+              }
+
+           a3sysSNMPMgrCommString OBJECT-TYPE
+              SYNTAX  DisplayString (SIZE(1..15))
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This identifies a specific community string."
+              ::= { a3sysSNMPMgrEntry 1 }
+
+           a3sysSNMPMgrAddress OBJECT-TYPE
+              SYNTAX  IpAddress
+              ACCESS  read-only
+              STATUS  mandatory
+              DESCRIPTION
+                      "This identifies a single Management station
+                      that is allowed to use the community string
+                      associated with this entry.  The set of all
+                      entries with same value of a3sysSNMPMgrCommString
+                      identifies all the Managers that are allowed
+                      to use that community string."
+              ::= { a3sysSNMPMgrEntry 2 }
+
+           a3sysSNMPMgrMask OBJECT-TYPE
+              SYNTAX  IpAddress
+              ACCESS  read-write
+              STATUS  mandatory
+              DESCRIPTION
+                      "This object can be used to mask part of the
+                      IP address specified by a3sysSNMPMgrAddress.
+                      The use of this mask can then be used to identify
+                      a range of addresses that are allowed to use
+                      this community string."
+              ::= { a3sysSNMPMgrEntry 3 }
+
+           a3sysSNMPMgrStatus OBJECT-TYPE
+              SYNTAX  RowStatus
+              ACCESS  read-write
+              STATUS  mandatory
+              DESCRIPTION
+                      "This object is used to add and delete entries
+                      in this table.  See the notes describing
+                      RowStatus at the beginning of this MIB for
+                      specific instructions on how to do this."
+              ::= { a3sysSNMPMgrEntry 4 } 
+                      
+--
+-- The Misc System Group
+--
+
+           a3sysNetMapTime OBJECT-TYPE
+               SYNTAX  INTEGER (0..120)
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "The number of seconds between broadcasts of the
+                       system's address on the attached network.  This
+                       only applies to 3Com's NETMap protocol.  If this
+                       object is set to 0, the broadcasting of the system's
+                       address is disabled."
+               DEFVAL { 0 }
+               ::= { a3ComSysMisc 1 } 
+
+           a3sysUIBinary OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    on  (1),
+                    off (2)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "If on, the system is allowed to negotiate for
+                       binary transmission when a Telnet connection is
+                       made."
+               DEFVAL { off }
+               ::= { a3ComSysMisc 2 } 
+
+           a3sysChangeTimestamp OBJECT-TYPE
+               SYNTAX  TimeTicks
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object contains the value of sysUpTime
+                       when the most recent change was made to this
+                       system, either via the Console, TELNET, or 
+                       through SNMP."
+               ::= { a3ComSysMisc 3 } 
+
+           a3sysCpuUtil OBJECT-TYPE
+               SYNTAX  INTEGER (0..100)
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object provides a measure of the
+                       current utilization of the CPU on this
+                       system."
+               ::= { a3ComSysMisc 4 } 
+
+           a3sysCpuBrdMacAddr OBJECT-TYPE
+               SYNTAX  MacAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "The system's MAC address.  For those devices 
+                       whose CPU boards contain a MAC address, this 
+                       object provides the value of that address (NB2's).  
+                       For those devices whose CPU boards don't contain a 
+                       MAC address (NB1's), this provides the MAC address 
+                       of the first interface."
+               ::= { a3ComSysMisc 5 }
+
+           a3sysExpMacAddr OBJECT-TYPE
+               SYNTAX  MacAddress
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This identifies the MAC address to which the @m
+                       symbol is expanded when doing file copies."
+               ::= { a3ComSysMisc 6 }
+
+--
+-- this group controls Firmware related parameters
+--
+
+           a3sysFwSerBaudCons OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown  (1),
+                    bps110   (2),
+                    bps300   (3),
+                    bps600   (4),
+                    bps1200  (5),
+                    bps2400  (6),
+                    bps4800  (7),
+                    bps9600  (8),
+                    bps19200 (9),
+                    bps38400 (10),
+                    bps57600 (11)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object sets the baud rate for the
+                       console port, which is located on the CEC 
+                       module's connector/LEDC panel."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: Serial Port
+                       Parameter."
+               ::= { a3ComFW 1 }
+
+           a3sysFwSerBaudAux OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown  (1),
+                    bps110   (2),
+                    bps300   (3),
+                    bps600   (4),
+                    bps1200  (5),
+                    bps2400  (6),
+                    bps4800  (7),
+                    bps9600  (8),
+                    bps19200 (9)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object sets the baud rate for the
+                       auxiliary port, which is located on the CEC 
+                       module's connector/LEDC panel."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: Serial Port
+                       Parameter."
+               ::= { a3ComFW 2 }
+
+           a3sysFwSelfTest OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    skip              (1),
+                    testOnce          (2),
+                    other             (3)
+               } 
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This parameter determines how the system handles
+                       self tests when the system is powered on or
+                       reset.  The system can be configured to skip its
+                       self tests or run self tests once."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: Self Test
+                       Parameter."
+               ::= { a3ComFW 3 }
+
+--
+-- this group controls Booting related Firmware parameters
+--
+
+           a3sysReBoot OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    other      (1),
+                    stdReboot  (2)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object can be used to reboot the system.
+                       If this object is set to stdReboot(2), the 
+                       system's action is determined by the value of
+                       a3sysStartUpAction.  If that object has the value
+                       monitor(1), the system will go into monitor
+                       mode.  If that object has the value userListOnce(2)
+                       or userListForever(3), the system will attempt to 
+                       reboot from the sources identified by the User Boot List.
+
+                       If this object is read, the value, other (1),
+                       will be returned."
+               REFERENCE
+                       "NBII Ref. Guide, Commands: ReBoot."
+               ::= { a3ComBoot 1 }
+
+           a3sysTestBootTime OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "The Test Boot Time indicates the number of seconds
+                       after a test reboot the system will automatically
+                       reboot.  Upon reboot, the system will start up a timer
+                       initialized to the value of this object.  The object
+                       a3sysTestRecoveryTimer contains the real time value of
+                       this timer.  The timer will automatically start counting 
+                       down after the system comes up.  If this timer expires, 
+                       the system will automatically reboot using the Primary Boot 
+                       Source.
+
+                       To cancel the timer, the object a3sysTestRecoveryTimer must 
+                       be set to zero.  This provides a recovery mechanism for a 
+                       system under test that loses management connectivity."
+                ::= { a3ComBoot 2 }
+
+           a3sysStartUpAction OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    monitor         (1),
+                    userListOnce    (2),
+                    userListForever (3),
+                    local           (4)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This parameter determines the boot source 
+                       when the system is powered on or reset.  If
+                       monitor (1) is chosen, the system enters
+                       monitor mode immediately.  If userListOnce (2)
+                       is chosen, the system attempts to boot from
+                       primary and secondary sources defined by the 
+                       User Boot List.  (Specifics about the use of the
+                       secondary boot source are provided by a3sysBootSources.)
+                       This list may identify network boot sources or local 
+                       floppy sources, or both.
+                       If userListForever (3) is chosen, the system
+                       will keep trying the sources listed in the
+                       User Boot List until one of them is successful.
+                       If local(4) is chosen, the system will boot from
+                       the local floppy.  The name of the file used is
+                       identified by the value of a3sysUblFileName for the
+                       Primary Boot Source."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: Initial Boot 
+                       Type Parameter."
+               ::= { a3ComBoot 3 }
+
+           a3sysTestRecoveryTimer OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object contains the real time value of the
+                       Test Recovery Timer.  When the system is performing
+                       a 'test boot' (ie, a boot when a3sysBootSources equals
+                       testWithPrimaryBackup (3)), the system will start a
+                       countdown timer initialized to the value of a3sysBootTime.
+                       If this timer is allowed to count down to zero, the
+                       system will reboot, this time using the primary boot source
+                       instead of the secondary.  If the timer is disabled, however,
+                       before it counts down (the timer is disabled by setting
+                       the value of this object to zero), the system won't reboot
+                       and will continue to run the secondary boot source's
+                       software.
+
+                       This timer is part of a comprehensive software update 
+                       strategy.  See the relevant 3Com manuals for more
+                       details."
+               ::= { a3ComBoot 4 }
+
+           a3sysDirectedReBoots OBJECT-TYPE
+               SYNTAX  Counter
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This is a counter that tracks the number of times the
+                       system has complete successfully a boot, no matter
+                       how the boot was initiated (power-on, front-panel-button
+                       reset, command line, or exception)."
+               ::= { a3ComBoot 5 }
+
+           a3sysExceptionReBoots OBJECT-TYPE
+               SYNTAX  Counter
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This is a counter that tracks the number of times
+                       the system has crashed and a reboot sequence is begun
+                       by the exception handler.  Note, some type of crashes
+                       are not able to update this counter due to various
+                       hardware lockups.  Also note, this counter will be
+                       incremented when a user resets the system from the
+                       command line (RS).  This will not be incremented,
+                       however, when the user reboots the system from the
+                       command line (RB)."
+               ::= { a3ComBoot 6 }
+
+           a3sysBootDump OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    noDump      (1),
+                    monitor     (2),
+                    localDevice (3),
+                    userList    (4)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This determines whether or not a memory dump
+                       is performed if the system fails due to a 
+                       software problem.  If noDump (1) is selected,
+                       the system will not attempt to perform a memory
+                       dump.  If monitor (2) is selected, the system
+                       goes directly into monitor mode and waits for
+                       further commands.  If localDevice (3) is selected,
+                       the system dumps its memory to the local storage
+                       device.  Since the memory dump will require several
+                       floppy disks, the system will prompt the user via the
+                       User Interface to change disks.  If userList (4) is
+                       selected, the system will upload its memory to the
+                       source specified in the User Boot List."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: Dump Destination 
+                       Parameter."
+               ::= { a3ComBoot 7 }
+   
+           a3sysBootSources OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    primary               (1),
+                    primaryAndSecondary   (2),
+                    testWithPrimaryBackup (3) 
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This parameter indicates whether the Secondary
+                       Boot Source (ie, the second entry in 
+                       a3sysUserBootListTable) is to be used as
+                       the test boot source, as a backup to the
+                       Primary Boot Source, or not at all.
+
+                       If this object is set to primary(1), the system
+                       will use only the primary boot source when
+                       rebooting.  (note, this is the entry where
+                       a3sysUblSource = primary(1)).
+
+                       If this object is set to primaryAndSecondary(2),
+                       the system will attempt to boot first from the
+                       primary boot source, and, if that fails (after
+                       a3sysUblMaxRetries attemps), the system will
+                       try the secondary boot source.
+
+                       If this object has the value testWithPrimaryBackup(3),
+                       the system, when rebooting, will use the 
+                       secondary boot source as a test boot.  After booting
+                       from the secondary boot source, if the
+                       Test Recovery Timer (a3sysTestRecoveryTimer) is
+                       allowed to count down to zero, the system will
+                       reboot using the primary boot source.  (see the
+                       reference guide for details about test booting).
+                       When in this mode, to prevent the system from rebooting
+                       using the primary boot source, the Test Recovery Timer
+                       (a3sysTestRecoveryTimer) must be set to zero.
+
+                       Note, this object cannot be set to testWithPrimaryBackup(3)
+                       explicitly.  Instead, by setting a3sysTestBootTimer to a 
+                       non-zero value, the system will automatically go into
+                       'Test Boot' mode and this object will be given the
+                       value testWithPrimaryBackup(3)."
+               ::= { a3ComBoot 8 }
+
+           a3sysUserBootListTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF A3sysUserBootListEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               DESCRIPTION
+                       "This table defines a list of boot sources (and
+                       memory dump destinations).  If a3sysStartUpAction is
+                       set to userListOnce (2), the system will attempt to
+                       boot first from the boot source defined by the
+                       first entry (primary) in this table.  If that is 
+                       unsuccessful, the system will attempt to boot from 
+                       the source defined by the next (secondary) entry. 
+                       If the system still has not booted successfully
+                       after the secondary boot source, the boot attempts 
+                       will end and the system will enter monitor mode.  If 
+                       a3sysStartUpAction is set to userListForever (3), the 
+                       system will continuously try to boot from the boot list."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: User Boot List
+                       Parameter."
+               ::= { a3ComBoot 9 }
+       
+           a3sysUserBootListEntry OBJECT-TYPE
+               SYNTAX  A3sysUserBootListEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               DESCRIPTION
+                       "Each entry in this table contains a single boot source."
+               INDEX { a3sysUblSource }
+               ::= { a3sysUserBootListTable 1 }
+
+           A3sysUserBootListEntry ::= 
+               SEQUENCE {
+                   a3sysUblSource           INTEGER,
+                   a3sysUblDevice           INTEGER,
+                   a3sysUblFileName         DisplayString,
+                   a3sysUblNetFile          DisplayString,
+                   a3sysUblSlot             INTEGER,
+                   a3sysUblInterface        INTEGER,
+                   a3sysUblMaxRetries       INTEGER,
+                   a3sysUblConfigFileDevice INTEGER,
+                   a3sysUblConfigFilePath   DisplayString,
+                   a3sysUblConfigProt       INTEGER,
+                   a3sysUblConfigUserName   DisplayString (SIZE(0..20)),
+                   a3sysUblConfigPassword   DisplayString (SIZE(0..20)),
+                   a3sysUblConfigAcct       DisplayString (SIZE(0..30)),
+                   a3sysUblMacAddress       INTEGER,
+                   a3sysUblCanonicalFlag    INTEGER,
+                   a3sysUblRemoteProt       INTEGER,
+                   a3sysUblBaudRate         INTEGER,
+                   a3sysUblClockSource      INTEGER,
+                   a3sysUblConnectorType    INTEGER,
+                   a3sysUblWanAddress       DisplayString (SIZE(0..80)),
+                   a3sysUblClientIpAddr     IpAddress,
+                   a3sysUblServerIpAddr     IpAddress,
+                   a3sysUblGwIpAddr         IpAddress,
+                   a3sysUblConfigFileIpAddr IpAddress,
+                   a3sysUblIpMask           IpAddress, 
+                   a3sysUblAddressDiscovery INTEGER,
+                   a3sysUblPassword         DisplayString
+               }
+
+           a3sysUblSource OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    primary   (1),
+                    secondary (2)
+               }
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This identifies the entry number in this table.
+                       Currently, the table is limited to two entries.
+                       The first entry is labelled primary(1), the next
+                       has the label secondary(2)."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: User Boot List"
+               ::= { a3sysUserBootListEntry 1 }
+
+           a3sysUblDevice OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    localMediaA  (1),
+                    localMediaB  (2),
+                    network      (3),
+                    monitor      (4),
+                    other        (5)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object identifies the source from which the
+                       system attempts to boot.  If this object is set to 
+                       localMediaA(1), the system will attempt to boot from 
+                       drive A of the local storage media (A is the flash drive
+                       for those systems with both flash and floppy drives), 
+                       using the filename identified by a3sysUblFileName.
+                       If this is set to localMediaB(2), the system will
+                       boot from drive B.
+
+                       If this object is set to network (3), the system will
+                       attempt to boot from a BOOTP/TFTP server attached to
+                       the network.  The network interface that is used in the
+                       booting is identified by both a3sysUblSlot and 
+                       a3sysUblInterface.
+
+                       The name of the boot file on the remote system is
+                       identified by a3sysUblFileName.
+
+                       monitor(4) is no longer supported.
+
+                       If this object has the value other(5), nothing has
+                       been specified."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: User Boot List:
+                       Boot Source Parameter."
+               ::= { a3sysUserBootListEntry 2 }
+
+           a3sysUblFileName OBJECT-TYPE
+               SYNTAX  DisplayString
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies the path and name of the boot 
+                       file.  For example, to specify the file boot.29k in
+                       the root directory, this object should
+                       have the value 'boot.29k'"
+               REFERENCE
+                       "NBII CEC Module Installation Guide: User Boot List:
+                       Boot Filename Parameter."
+               ::= { a3sysUserBootListEntry 3 }
+
+           a3sysUblNetFile OBJECT-TYPE
+               SYNTAX  DisplayString
+               ACCESS  read-write
+               STATUS  deprecated
+               DESCRIPTION
+                       "This object has been deprecated. (use a3sysUblFileName
+                       regardless of whether it's local or remote)."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: User Boot List:
+                       Network Boot String Parameter."
+               ::= { a3sysUserBootListEntry 4 }
+
+           a3sysUblSlot OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies the physical slot where the IO module
+                       from which the system will be booting is installed.
+                       This only applies when a3sysUblDevice is set to
+                       network(2)"
+               REFERENCE
+                       "NBII CEC Module Installation Guide: User Boot List:
+                       Boot Source Parameter."
+               ::= { a3sysUserBootListEntry 5 }
+
+           a3sysUblInterface OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown(1),
+                    interfaceA (2),
+                    interfaceB (3)
+               } 
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies the physical port on the IO
+                       module (installed in the slot identified by a3sysUblSlot)
+                       that the system will be booting from.  This only applies 
+                       when a3sysUblDevice is set to network(2).  If there
+                       is only one connector in the module, this object should
+                       have the value: interfaceA(2)."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: User Boot List:
+                       Boot Source Parameter."
+               DEFVAL { interfaceA }
+               ::= { a3sysUserBootListEntry 6 }
+
+           a3sysUblMaxRetries OBJECT-TYPE
+               SYNTAX  INTEGER (0..255)
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object determines the number of times the
+                       system will try to boot from the source identified
+                       by this table entry before going to the next entry."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: User Boot List:
+                       Maximum Retries Parameter."
+               ::= { a3sysUserBootListEntry 7 }
+
+           a3sysUblConfigFileDevice OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    bootDevice   (1),
+                    local        (2),
+                    network      (3),
+                    other        (4)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies the device used to access the
+                       configuration files needed by this system.  If
+                       this object has the value bootDevice(1), the
+                       system will look for its configuration files on
+                       the same device as its boot files.  This device is
+                       specified by a3sysUblDevice.  If this object has
+                       the value network(3), the system will look for
+                       its configuration files on the device specified
+                       by a3sysUblConfigIpAddr.  If this object has the
+                       value local(2), the system will look for its
+                       configuration files on the local storage media.
+                       If this object has the value other(4), nothing
+                       has been specified.
+
+                       In all the cases listed above, the path for the
+                       configuration files is specified by 
+                       a3sysUblConfigFilePath."
+               ::= { a3sysUserBootListEntry 8 }
+
+           a3sysUblConfigFilePath OBJECT-TYPE
+               SYNTAX  DisplayString 
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object specifies the path to the configuration
+                       files needed by this system.  The source of these
+                       files is the same as that for the executable image."
+               ::= { a3sysUserBootListEntry 9 }
+
+           a3sysUblConfigProt OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    fap   (1),
+                    ftp   (2),
+                    other (3)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object specifies the protocol to use
+                       to get the configuration files if they
+                       are stored across the network.  Note, this
+                       applies only if the value of 
+                       a3sysUblConfigFileDevice is network(3) or
+                       bootDevice(1).  If a3sysUblConfigFileDevice
+                       has the value bootDevice(1), then the
+                       corresponding instance of a3sysUblDevice
+                       must be network(2) for this object to have relevance."
+               DEFVAL { fap }
+               ::= { a3sysUserBootListEntry 10 }
+
+           a3sysUblConfigUserName OBJECT-TYPE
+               SYNTAX  DisplayString (SIZE(0..20))
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object indicates the Username to be
+                       used by the file service protocol identified
+                       the corresponding instance of a3sysUblConfigProt."
+               DEFVAL { "threecom" }
+               ::= { a3sysUserBootListEntry 11 }
+
+           a3sysUblConfigPassword OBJECT-TYPE
+               SYNTAX  DisplayString (SIZE(0..20))
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies the Password to be used
+                       by the file service protocol identified by
+                       the corresponding instance of a3sysUblConfigProt."
+               DEFVAL { "threecom" }
+               ::= { a3sysUserBootListEntry 12 }
+                    
+           a3sysUblConfigAcct OBJECT-TYPE
+               SYNTAX  DisplayString (SIZE(0..30))
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies the Account Name used
+                       by the file service protocol."
+               DEFVAL { "" }
+               ::= { a3sysUserBootListEntry 13 }
+               
+           a3sysUblMacAddress OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    cpu-module (1),
+                    io-module  (2),
+                    other      (3)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "The MAC address to be used for booting over the
+                       network.  This can be configured to use either the
+                       MAC address assigned to the CPU module or the MAC
+                       address assigned to the I/O module over which the boot
+                       is being performed."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: System IP Addresses:
+                       Boot MAC Address Parameter."
+               ::= { a3sysUserBootListEntry 14 }
+              
+           a3sysUblCanonicalFlag OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    other        (1),
+                    canonical    (2),
+                    nonCanonical (3)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This controls the format of addresses within
+                       ARP packets sent by this system."
+               ::= { a3sysUserBootListEntry 15 }
+
+           a3sysUblRemoteProt OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    notApplicable    (1),
+                    ppp              (2),
+                    frameRelay       (3),
+                    auto             (4)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object specifies which serial link
+                       protocol to use if a3sysUblSlot identifies
+                       a slot with a High Speed Serial board.  
+                       If this is set to auto (4), the system
+                       will try all supported protocols until
+                       the serial line is active. 
+
+                       If there is a different kind of board in that
+                       slot, the value of this object is ignored."
+               ::= { a3sysUserBootListEntry 16 }
+
+           a3sysUblBaudRate OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown      (1),
+                    bps9600      (2),
+                    kbps19       (3),
+                    kbps38       (4),
+                    kbps56       (5),
+                    kbps64       (6),
+                    kbps128      (7),
+                    kbps256      (8),
+                    kbps448      (9),
+                    kbps1536     (10),
+                    kbps2048     (11),
+                    mbps4        (12),
+                    mbps16       (13)
+               } 
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object specifies the serial line or
+                       Token Ring baud rate.  For all other types
+                       of ports, this object will be ignored."
+               ::= { a3sysUserBootListEntry 17 }
+
+           a3sysUblClockSource OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    internal     (1),
+                    external     (2),
+                    unknown      (3)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies whether to use an internal
+                       or external clock source.  This applies only
+                       to High Speed Serial ports."
+               ::= { a3sysUserBootListEntry 18 }
+
+           a3sysUblConnectorType OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    unknown         (1),
+                    rs232           (2),
+                    v35             (3)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object specifies the serial line
+                       connector type."
+               ::= { a3sysUserBootListEntry 19 }
+
+           a3sysUblWanAddress OBJECT-TYPE
+               SYNTAX  DisplayString (SIZE(0..80))
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies a string to initiate a
+                       WAN connection.  The specified string required
+                       is interface and protocol specific.  The maximum 
+                       string length is 80 bytes.  Note, this applies
+                       only to High Speed Serial ports."
+               ::= { a3sysUserBootListEntry 20 }
+
+           a3sysUblClientIpAddr OBJECT-TYPE
+               SYNTAX  IpAddress
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "The IP Address of this system used in packets
+                       when booting over the network."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: System IP Addresses:
+                       Client IP address Parameter."
+               ::= { a3sysUserBootListEntry 21 }
+
+           a3sysUblServerIpAddr OBJECT-TYPE
+               SYNTAX  IpAddress
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "The IP address of the Boot Server."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: System IP Addresses:
+                       Server IP Address Parameter."
+               ::= { a3sysUserBootListEntry 22 }
+         
+           a3sysUblGwIpAddr OBJECT-TYPE
+               SYNTAX  IpAddress
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "The IP address of the gateway that will forward
+                       packets to the Boot Server."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: System IP Addresses:
+                       Gateway IP Address Parameter."
+               ::= { a3sysUserBootListEntry 23 }
+              
+           a3sysUblConfigFileIpAddr OBJECT-TYPE
+               SYNTAX  IpAddress
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "The IP address of the configuration files Server, 
+                       if needed."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: System IP Addresses:
+                       FAP Server IP Address Parameter."
+               ::= { a3sysUserBootListEntry 24 }
+              
+           a3sysUblIpMask OBJECT-TYPE
+               SYNTAX  IpAddress
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "The mask to be applied to the addresses specified
+                       above."
+               ::= { a3sysUserBootListEntry 25 }
+
+           a3sysUblAddressDiscovery OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    other      (1),
+                    bootp      (2),
+                    configAddr (3)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies the address discovery protocol
+                       to use for booting from the network.  If configAddr(3)
+                       is specified, then the configured addresses are
+                       used.  If nothing has been specified, other(1) is
+                       returned."
+               ::= { a3sysUserBootListEntry 26 }
+
+           a3sysUblPassword OBJECT-TYPE
+               SYNTAX  DisplayString (SIZE(0..5))
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This is needed when booting over a port that
+                       uses a protocol that requires a password, e.g,
+                       PPP."
+               ::= { a3sysUserBootListEntry 27 }
+
+
+--
+-- The Last Boot Group.  This group contains information about the
+-- most recent boot of the system
+--
+           a3sysLastBootSource OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    primary   (1),
+                    secondary (2),
+                    monitor   (3)
+               }
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object identifies the source from which the
+                       system last booted.
+
+                       The specifics of the boot source can be found
+                       from the corresponding User Boot List entry."
+               REFERENCE
+                       "NBII CEC Module Installation Guide: User Boot List:
+                       Boot Source Parameter."
+               ::= { a3ComLastBoot 1 }
+
+           a3sysLastBootError OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    none                  (1), -- there have been no known 
+                                               -- failures
+                    unknownLocalAddress   (2),
+                    unknownServerAddress  (3),
+                    noServerResponse      (4),
+                    fileTransferFailed    (5),
+                    imageNotFound         (6),
+                    imageInvalid          (7)
+               }
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object identifies the reason for the
+                       most recent boot failure."
+               ::= { a3ComLastBoot 2 }
+
+           a3sysLastBootDate OBJECT-TYPE
+               SYNTAX  DisplayString
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                      "The date and time as reflected by the system 
+                      clock at the time the system last rebooted.  
+                      The date has the format yy/mm/dd hh:mm[:ss]."
+               ::= { a3ComLastBoot 3 }
+                
+
+--
+-- The File Management group
+--
+
+           a3sysFmOperation OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    other      (1),
+                    copy       (2),
+                    do         (3),
+                    delete     (4),
+                    rename     (5),
+                    directory  (6),
+                    initialize (7),
+                    copySystem (8),
+                    verify     (9),
+                    abortCopy  (10)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object is used to initiate a file
+                       management operation.  When set to copy(2), the 
+                       system will get the file from the Source device 
+                       (identified by a3sysFmSourceIpAddr and
+                       a3sysFmSourceFile) and copy it to the
+                       Target device (identified by a3sysFmTargetIpAddr 
+                       and a3sysFmTargetFile).  Note, both the
+                       Source and Target devices cannot be
+                       remote systems.  At least one must be
+                       the local system.  
+
+                       All information about the file
+                       and the server is taken from the values
+                       of the other objects in this group.  To
+                       avoid unnecessary errors, the relevant objects
+                       in this group should be examined and
+                       their values validated before setting this object
+                       to copy(2).
+
+                       For software release 6.2, the do(3) enumeration
+                       is not supported.
+ 
+                       If this object is set to delete(4), the system
+                       will delete a single file on the local storage
+                       device.  The file is identified by a3sysFmTargetFile.
+
+                       For software release 6.2, the rename(5) enumeration
+                       is not supported.
+
+                       If this object is directory(6), the system will list
+                       the file in the directory identified by a3sysFmTargetFile.
+                       The resulting list can be obtained by examining
+                       a3sysDfTable.
+
+                       For software release 6.2, enumeration 7 through
+                       9 are not supported.
+
+                       If this object is set to abortCopy(10), the
+                       system will abort any file copy process in
+                       progress.
+ 
+                       If this object is read, other(1) will be
+                       returned."
+               ::= { a3ComFileMgmt 1 }
+
+           a3sysFmSourceIpAddr OBJECT-TYPE
+               SYNTAX  IpAddress
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object specifies the IP address of
+                       the Source device from which files are
+                       obtained.
+
+                       If this is set to zero's, the local storage
+                       device is assumed."
+               ::= { a3ComFileMgmt 2 }
+
+           a3sysFmSourceFile OBJECT-TYPE
+               SYNTAX  DisplayString
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies the path and name of
+                       a source file.  For example, if the
+                       action specified by a3sysFmOperation is
+                       copy(2) or rename(5), this identifies the 
+                       path and name of the file to be copied or 
+                       renamed.
+
+                       If there is no leading path string, the
+                       source file will be accessed from the root
+                       directory.  For devices with multiple disk
+                       drives, the drive will be identified by appending
+                       a prefix to the path.  For example, a:/path/name"
+               ::= { a3ComFileMgmt 3 }
+
+           a3sysFmTargetIpAddr OBJECT-TYPE
+               SYNTAX  IpAddress
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object specifies the IP address of
+                       the target device to which files are
+                       copied, renamed, etc."
+               ::= { a3ComFileMgmt 4 }
+
+           a3sysFmTargetFile OBJECT-TYPE
+               SYNTAX  DisplayString
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies the path and name of
+                       the target file on the target system.  
+                       (The filename may contain the string '@M'
+                       which will be expanded to the system MAC address.
+                       Alternatively, the filename may contain
+                       the string '@m'  which will be expanded to
+                       the last six characters of the system MAC address.
+                       This provides a mechanism for a remote system to
+                       generate system specific filenames automatically.)
+                       If there is no leading path string, the
+                       file will be accessed from the root directory.  
+                       For devices with multiple disk drives, the drive 
+                       will be identified by appending a prefix to the path.  
+                       For example, a:/path/name.
+
+                       If the action specified by a3sysFmOperation is copy(2), 
+                       this identifies where, on the target system (identified
+                       by a3sysFmTargetIpAddr) the file is to be placed and the 
+                       name to give it.  
+
+                       If the action specified by a3sysFmOperation is
+                       delete(4), this identifies the path and
+                       name of the local file which is to be
+                       deleted.
+
+                       If the action specified by a3sysFmOperation is
+                       directory(6), this identifies the full path
+                       of the directory that is to be listed."
+               ::= { a3ComFileMgmt 5 }
+
+           a3sysFmStatus OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    inactive   (1),
+                    inProgress (2)
+               }
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This identifies the current status
+                       of the file management operation.  This applies
+                       to the following operations: copy(2), 
+                       and directory(6).  If there
+                       is an operation in progress, this object
+                       will have the value inProgress(2).  Otherwise
+                       inactive(1) will be returned." 
+               ::= { a3ComFileMgmt 6 }
+
+           a3sysFmTimeStamp OBJECT-TYPE
+               SYNTAX  TimeTicks
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies the value of sysUpTime when
+                       the most recent file management operation was 
+                       initiated."
+               ::= { a3ComFileMgmt 7 }
+
+           a3sysFmError OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    none          (1), -- no operations since initialization
+                    successful    (2), -- the most recent operation was 
+                                       -- successful
+                    inProgress    (3), -- another operation was already in 
+                                       -- progress
+                    badSourceAddr (4), -- the Source IP Address is invalid
+                    badSourceFile (5), -- the Source file is invalid
+                    badTargetAddr (6), -- the Target IP Address is invalid
+                    badTargetFile (7), -- the Target file is invalid
+                    noResponse    (8), -- no response from the server
+                    noFile        (9), -- the file or dir. could not be found
+                    noSpace       (10), -- no space on destination system
+                    noPermission  (11), -- destination device is write protected
+                    writeError    (12), -- error encountered when writing
+                    timeout       (13), -- timeout during transfer
+                    badChecksum   (14), -- invalid file checksum computed
+                    badOperation  (15), -- invalid file operation
+                    aborted       (16), -- operation aborted by user
+                    other         (17)  -- an error not listed here
+               }
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                      "This object identifies the results of the
+                      most recent attempt at a file operation.  If no
+                      file operations have been attempted since the
+                      system was initialized, this object will have the
+                      value none(1).
+
+                      If the last operation was successful, this object
+                      will have the value successful(2).
+
+                      If the last operation could not be initiated 
+                      because there was another operation in progress,
+                      this object will have the value inProgress (3).
+
+                      If the source IP Address is invalid, this object
+                      will have the value badSourceAddr(4).
+
+                      If the source file name contains a syntax error,
+                      this object will have the value badSourceFile(5).
+      
+                      If the target IP Address is invalid, this object
+                      will have the value badTargetAddr(6).
+
+                      If there was a syntax error in the identification 
+                      of the target file (a3sysFmTargetFile), this
+                      object will have the value badTargetFile(7).
+
+                      If the remote server does not respond, this
+                      object will have the value noResponse(8).
+
+                      If either the source file or target file could
+                      not be found, this object will have the value
+                      noFile(9).
+
+                      If there is no space on the destination system
+                      this object will have the value noSpace(10).
+
+                      If the destination file location is write protected,
+                      this object will have the value noPermission(11).
+
+                      If there is an error encountered while
+                      writing the file to its destination, this object
+                      will have the value writeError(12).
+
+                      If the transfer took too much time and exceeded
+                      its limits, this object will have the value timeout(13).
+
+                      If the verify operation failed, this object will have
+                      the value badChecksum(14)."
+               ::= { a3ComFileMgmt 8 }
+
+--
+-- Disk File List Group
+--
+          a3sysDfTime OBJECT-TYPE
+              SYNTAX TimeTicks
+              ACCESS read-only
+              STATUS mandatory
+              DESCRIPTION
+                     "This object specifies the value of sysUpTime when
+                     the list of files on the system disk was last updated.
+                     This list is updated by setting a3sysFmOperation to
+                     directory(6)."
+              ::= { a3ComFileList 1 }
+
+          a3sysDfPath OBJECT-TYPE
+              SYNTAX DisplayString
+              ACCESS read-only
+              STATUS mandatory
+              DESCRIPTION
+                     "This object identifies the directory path under which
+                     the files listed in a3sysDfTable were obtained.  Where
+                     necessary, this object also identifies the disk drive
+                     where the files are stored."
+              ::= { a3ComFileList 2 }
+
+          a3sysDfTable OBJECT-TYPE
+              SYNTAX SEQUENCE OF A3sysDfEntry
+              ACCESS not-accessible
+              STATUS mandatory
+              DESCRIPTION
+                     "This table contains a listing of all the files in a
+                     specific directory on one of the systems disks.  The
+                     directory and disk are identified by a3sysDfPath.
+                     Each entry in this table contains information about
+                     a single file."
+              ::= { a3ComFileList 3 }
+
+          a3sysDfEntry OBJECT-TYPE
+              SYNTAX A3sysDfEntry
+              ACCESS not-accessible
+              STATUS mandatory
+              DESCRIPTION
+                     "Each entry in this table describes a single disk file."
+              INDEX { a3sysDfName }
+              ::= { a3sysDfTable 1 }
+
+          A3sysDfEntry ::= 
+              SEQUENCE {
+                 a3sysDfName      DisplayString,
+                 a3sysDfDir       INTEGER
+              }
+
+          a3sysDfName OBJECT-TYPE
+              SYNTAX DisplayString
+              ACCESS read-only
+              STATUS mandatory
+              DESCRIPTION
+                     "This contains the name of a single file on the disk."
+              ::= { a3sysDfEntry 1 }
+
+          a3sysDfDir OBJECT-TYPE
+              SYNTAX INTEGER {
+                   file      (1),
+                   directory (2)
+              }
+              ACCESS read-only
+              STATUS mandatory
+              DESCRIPTION
+                     "This specifies whether the file identified by the
+                     corresponding instance of a3sysDfName is a regular
+                     file or a directory."
+              ::= { a3sysDfEntry 2 } 
+
+
+--
+-- Firmware Update Group (This group is not supported in software release 6.2)
+--
+           a3sysFwUdOperation OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    other  (1),
+                    update (2)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object is used to initiate a firmware
+                       update operation.  This is done by setting
+                       this object to update(2).  The specifics on
+                       where the updates can be found and the version
+                       number expected on the updates are identified
+                       by the values of the other objects in this
+                       group.  It is important that they be examined
+                       and their values validated before setting this
+                       object to update(2).
+
+                       If this object is read, the value other(1) will
+                       be returned."
+               ::= { a3ComFwUpdate 1 }
+
+           a3sysFwUdDevice OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    local   (1),
+                    network (2)
+               }
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object specifies where the firmware
+                       update can be found.  If this has the value 
+                       network(2), the system will get the firmware
+                       update from the network.  If this has the
+                       value local(1), the system will get the
+                       firmware update from its local files."
+               ::= { a3ComFwUpdate 2 }
+
+           a3sysFwUdRemoteIpAddr OBJECT-TYPE
+               SYNTAX  IpAddress
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This specifies the IP address of the remote
+                       server from which the firmware update is to
+                       be obtained.  Note, this object is relevant
+                       only when the value of a3sysFwUdDevice is
+                       network(2)."
+               ::= { a3ComFwUpdate 3 }
+
+           a3sysFwUdFile OBJECT-TYPE
+               SYNTAX  DisplayString
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This identifies the path and name of the
+                       file that contains the firwmare updates.
+                       If a3sysFwUdDevice has the value local(1),
+                       this object identifies a local file.  If
+                       a3sysFwUdDevice has the value network(2),
+                       this object identifies a file on the remote
+                       server identified by a3sysFwUdRemoteIpAddr."
+               ::= { a3ComFwUpdate 4 }
+
+           a3sysFwUdVersion OBJECT-TYPE
+               SYNTAX  INTEGER
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object specifies the version number
+                       expected on the firmware update."
+               ::= { a3ComFwUpdate 5 }
+
+           a3sysFwUdStatus OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    inactive         (1), 
+                    loadingUpdate    (2), 
+                    validatingUpdate (3),
+                    updatingEEPROM   (4),
+                    updatingFPROM    (5)
+               }
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object specifies the current state
+                       of the firmware update feature.  If there
+                       is an update in progress, this object will
+                       have a value between 2 and 5, depending on
+                       the state of the update.  If there is no 
+                       update in progress, this object will have
+                       the value inactive(1)."
+               ::= { a3ComFwUpdate 6 }
+
+           a3sysFwUdTimeStamp OBJECT-TYPE
+               SYNTAX  TimeTicks
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object specifies the value of sysUpTime
+                       when the most recent firmware update was
+                       initiated.  Note, this does not include
+                       any updates that are currently in progress.
+                       Note, both this object and a3sysFwUdError
+                       are based on the same firmware update attempt." 
+               ::= { a3ComFwUpdate 7 }
+
+           a3sysFwUdError OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    none            (1), -- no FW updates have been attempted 
+                                         -- since the system last initialized
+                    success         (2), -- the last attempted update was 
+                                         -- successful
+                    noResponse      (3), -- the remote server did not respond
+                    noFile          (4), -- the update file was not found
+                    timeout         (5), -- timeout during file transfer
+                    localReadFailed (6), -- failure while reading local file
+                    invalidUpdate   (7)  -- invalid update file
+               }
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object specifies the results of the
+                       most recently attempted firmware update.  This
+                       is the same update that generated a3sysFwUdTimeStamp.
+
+                       If this object has the value none(1), then no
+                       updates have been attempted since the last system
+                       initilization.
+
+                       If this object has the value success(2), then the
+                       last attempted update was successful.
+
+                       If this object has the value noResponse(3), then the
+                       last attempted update failed due to a lack of 
+                       response from the remote server.
+
+                       If this object has the value noFile(4), then the
+                       last attempted update failed because the update
+                       file identified by a3sysFwUdFile could not be
+                       found.
+
+                       If this object has the value timeout(5), then the
+                       last attempted update failed due to a timeout
+                       during the file transfer phase.
+
+                       If this object has the value localReadFailed(6),
+                       then the last attempted update failed because the
+                       local file could not be read.
+
+                       If this object has the value invalidUpdate(7),
+                       then the last attempted update failed because
+                       the update file was found to be invalid." 
+               ::= { a3ComFwUpdate 8 }
+
+--
+-- The Log Group (this group is not supported in software release 6.2)
+--
+           a3LogTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF A3LogEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               DESCRIPTION
+                       "This table contains system messages that
+                       normally would be displayed on the console
+                       if the actions were initiated locally, but
+                       must use this table since they were initiated
+                       via SNMP."
+               ::= { a3ComLog 1 }
+
+           a3LogEntry OBJECT-TYPE
+               SYNTAX  A3LogEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               DESCRIPTION
+                       "Each entry contains a system message that
+                       normally would be displayed on the console.
+                       Associated with these console messages is
+                       a DisplayString describing the action that
+                       produced the message and the value of sysUpTime
+                       when the action was initiated."
+               INDEX { a3LogTimeStamp }
+               ::= { a3LogTable 1 } 
+
+           A3LogEntry ::= 
+               SEQUENCE {
+                    a3LogTimeStamp  TimeTicks,
+                    a3LogAction     DisplayString,
+                    a3LogMessage    DisplayString
+               }
+
+           a3LogTimeStamp OBJECT-TYPE
+               SYNTAX  TimeTicks
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This identifies the value of sysUpTime when
+                       the action was initiated."
+               ::= { a3LogEntry 1 }
+
+           a3LogAction OBJECT-TYPE
+               SYNTAX  DisplayString
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "This identifies the action that created this
+                       log entry."
+               ::= { a3LogEntry 2 }
+
+           a3LogMessage OBJECT-TYPE
+               SYNTAX  DisplayString
+               ACCESS  read-only
+               STATUS  mandatory
+               DESCRIPTION
+                       "The value of this object contains the system
+                       message that normally would be generated if
+                       the action described by a3LogAction were
+                       initiated via the console (ie, User Interface)."
+               ::= { a3LogEntry 3 }
+--
+-- The REMOTE Group (This group is not supported in software release 6.2)
+--
+
+           a3nbRemCtlTable OBJECT-TYPE
+               SYNTAX  SEQUENCE OF A3nbRemCtlEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               DESCRIPTION
+                       "A table containing entries of managers that
+                        are allowed to connect to this system via
+                        REMOTE."
+               ::= { nbRemote 1 }
+
+           a3nbRemCtlEntry OBJECT-TYPE
+               SYNTAX  A3nbRemCtlEntry
+               ACCESS  not-accessible
+               STATUS  mandatory
+               DESCRIPTION
+                       "Each entry contains the IP address of a manager
+                       that is allowed to connect to this system via
+                       REMOTE."
+               INDEX { a3nbRemCtlAddress }
+               ::= { a3nbRemCtlTable 1 }
+
+           A3nbRemCtlEntry ::=
+               SEQUENCE {
+                    a3nbRemCtlAddress   IpAddress,
+                    a3nbRemCtlStatus    INTEGER
+               }
+
+           a3nbRemCtlAddress OBJECT-TYPE
+               SYNTAX  IpAddress
+               ACCESS  read-write
+               STATUS  mandatory
+               DESCRIPTION
+                       "The IP address of a manager that is
+                       permitted to access this system via
+                       REMOTE.  An IP address of ff.ff.ff.ff 
+                       (all ones) indicates that any manager
+                       may access this system via REMOTE."
+               ::= { a3nbRemCtlEntry 1 }
+
+           a3nbRemCtlStatus OBJECT-TYPE
+               SYNTAX  INTEGER {
+                    active (1),
+                    underConstruction (2),
+                    underDestruction (3),
+                    underModification (4)
+               }
+               ACCESS  read-write 
+               STATUS  mandatory
+               DESCRIPTION
+                       "This object controls the insertion and removal
+                       of entries in this table.  Next, set this object to 
+                       underConstruction(2).  The instance identifier
+                       for this object will define the value of
+                       a3nbRemCtlAddress.  The agent will immediately
+                       set the value of this object to active(1).
+                       To remove an entry, set the value of this object
+                       to underDestruction(2)."
+               DEFVAL { active }
+               ::= { a3nbRemCtlEntry 2 }
+ 
+------------------------------TRAPS----------------------------------
+
+--
+-- These traps are not supported in software release 6.2
+--
+           
+           a3ComFtComplete TRAP-TYPE
+               ENTERPRISE  a3Com
+               VARIABLES   { a3sysFmError }
+               DESCRIPTION
+                       "This trap is sent when a file transfer is
+                       completed.  The varbind field in the trap
+                       identifies the result of the attempted 
+                       transfer.
+
+                       Note, if the file being transferred contains
+                       instructions to transfer additional files,
+                       this trap will only be sent after all the
+                       files have been transferred or when a failure
+                       occurs."
+               --#TYPE        "File Transfer Is Completed"
+               --#ARGUMENTS   { 0 }
+               --#SEVERITY    INFORMATIONAL
+               --#TIMEINDEX   1
+               --#STATE       OPERATIONAL
+               ::= 49
+
+           a3ComFwUdComplete TRAP-TYPE
+               ENTERPRISE  a3Com
+               VARIABLES   { a3sysFwUdError }
+               DESCRIPTION
+                       "This trap is sent when a file transfer is
+                       completed.  The varbind field in the trap
+                       identifies the result of the attempted 
+                       transfer."
+               --#TYPE        "File Transfer Is Completed"
+               --#ARGUMENTS   { 0 }
+               --#SEVERITY    INFORMATIONAL
+               --#TIMEINDEX   1
+               --#STATE       OPERATIONAL
+               ::= 50 
+
+END

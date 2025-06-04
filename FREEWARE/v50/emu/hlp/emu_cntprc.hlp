@@ -1,0 +1,157 @@
+1 EMU_CNTPRC   
+ This routine processes a stream of numbers into tables and:
+  1  Determines 'ususal' range stream moves in
+  2. Calculates if counter moves outside 'usual' range and alerts
+     this event.
+2 Range_calculations
+ There are 3 conceptual ranges used in this routine:
+	Short Term
+	Long Term
+	Absolute
+ Each range is shown as minimum and maximum resulting in 3
+ possible ranges any counter moves in.
+ Short term  is the simple average of the previous 48 samples
+ Long term is the simple average of all previous samples
+ Absolute is the largest and smallest value ever seen for this counter.
+ Ranges are expressed as percentage movement from the calulated average
+ and is stored for each stream and recalculated on each sample. The intent
+ is to reduce any stream to a single number representing the usual range
+ the counter moves in. This is how EMU determines 'normal' operational
+ paramaters for any device.
+
+2 Input
+ 	.address of counter processing structure
+2 Output
+ 	Counter processing structure may be written
+2 Return
+ 	SS$_NORMAL	Counter processed - no ranges exceeded
+	SS$_CREATED	New counter record created
+	SS$_BADPARAM	One of the following:
+			CNTID was neither 0 or existing 
+			Unknown function. Must be either process or delete.
+2 Counter_Processing_Structure
+ The structure is a 16 byte array used for both input and output.
+ On input:
+	CNTID		.long Unique Identifier this counter
+			This is assigned and written by this routine 
+			if the field is 0 on input. 
+	FUNC		.long Function. May be 1 of:
+		Process	 - Exactly that - processs the sample into 
+			the table for this CNTID. If CNTID is 0 
+			then create the record 1st.
+		Delete	- Delete the record specified by CNTID.
+		SAMPLE		.quad unsigned integer.
+ On Output:
+	CNTID		If 0 on input then written with ID to be used
+			to access this counter on future operations.
+	STATUS          .long - One of:
+               SS$_NORMAL      ; No threasholds exceedeed
+               SS$_NODATA      ; Not enough info stored ( < 8 samples)
+               SS$_DATACHECK   ; At least 1 threshold exceeded
+	THREAS		.long - bit pattern threasholds exceeded.
+			For each threashold exceeded a bit is set.
+	SEVERITY	.long accumulation of the calculated amount
+			each threashold exceeded according to:
+			10% of amount exceeded limited to 100. Therefore 
+			the maximum severity cannot exceed 300.
+2 Processing
+ The difference between this SAMPLE and the last is found as is the 
+ difference in seconds between samples. The result is a .long average 
+ number of counts per second during the period between samples. It is
+ this number that is stored, processed and reported on.
+
+2 Examples
+ Given an existing counter record whose currently calculated 
+ averages are:
+							Threashold
+	Range		Average		Movement    Min		Max
+	Short term	 100		50          50		150
+	Long Term	 50		40	    30           70
+	Min		20 - Absolute number
+	Max		200 -    "
+ If a sample is received for this counter whose value is 125:
+	Short term is OK. Movement is decremented by 1 to 49
+			  Average is recalulated
+	Long term is exceeded by  55 
+		Bit for long term hi is set
+		Severity is incremented by 5 (integer portion of 10% of 55)
+	        Movement is incremented by 5
+	Min/Max is OK
+	Final status is SS$_DATACHECK
+	Final Severity is 5
+ If a sample is received for this counter whose value is 400:
+	Short term is exceeded by  250
+		Bit for Short term hi is set
+		Severity is incremented by 25 (integer portion of 10% of 250)
+	        Movement is incremented by 25
+		Average is recalulated
+	Long term is exceeded by  330 
+		Bit for long term hi is set
+		Severity is incremented by 33 (integer portion of 10% of 330)
+	        Movement is incremented by 33
+	Min is OK
+	Max is exceeded by 200
+		Bit for Max is set
+		Severity is incremented by 20 (integer portion of 10% of 200)
+	        Max value is replaced by 400
+
+
+	Final status is SS$_DATACHECK
+	Final Severity is 78
+2 Usage_Notes 
+ This routine is providing 'back-end' support to the
+ current counter processors which preprocess raw counters info.
+ It is the results of those routines, passed to this routine on a regular,
+ periodic basis that will yeild the best results.
+ While this routine may be called  and used from anywhere, it is
+ not intended to provide usefulness outside this context. 
+3 CTP_PROCESSS
+ Processes a counter into existing table. 
+ If CNTID = 0 then assign new id and create record with def values
+4 Input
+  .address of call frame
+4 Output
+  CNTPRC.DAT record is modified (or created then modified)
+4 Returns
+   
+3 CTP_DELETE
+  Delete a counter record fromn the database. The counter record specified
+ by the CNTID in the call frame is deleted. 
+4 Input
+  .address of call frame
+4 Output
+  CNTPRC.DAT record is deleted
+4 Returns
+	SS$_NORMAL	Record deleted
+	SS$_BADPARAM	CNTID was 0   
+3 CTP_ADD2RETURN
+ Routine to add severity factor and threashold exceeded bit(s) to 
+ return frame. This routine calculates 10% of the amount exceeded,
+ limits it to 100, and adds this to the current severity factor 
+ (a number representing the amount various threasholds were exceeded) 
+ and sets the bit corresponding to this particular threashold. 
+ Additionly this factor is returned in R1.
+4 Input
+	.address of CTP call frame
+	.long bit mask of threahsold
+	.LONG amount exceeded
+4 Output
+	Call frame is modified as follows:
+		The bit mask specified is ANDed to THREAS field
+		10% of the amount exceeded (limited to 100) 
+		is added to the SEVERITY field.
+	The calculated severity is returned in R1
+4 Returns
+	SS$_NORMAL
+3 CTP_CREATE_REC
+ Routine to create a new counter processing record. The caller of the 
+ main routine specified a CNTID that does not yet exist.
+ Input
+	.address of CTP call frame
+ Output
+	Counter processing record
+ Return
+ Any return from RMS
+3 CTP_INITIALISE 
+  Called if file is not open, usualy on 1st call to main routine.
+  opens file (create if if doesn't exist)

@@ -1,0 +1,540 @@
+<HTML>
+<HEAD>
+<TITLE>RuleWorks</TITLE>
+</HEAD>
+<BODY>
+
+<FONT FACE="Arial" SIZE=6 color="navy"><P ALIGN="RIGHT">RuleWorks</P></FONT>
+
+<B><I><FONT FACE="HELVETICA" SIZE=6 color="RED"><P ALIGN="RIGHT">
+Program and Data Modularity</P></B></I></FONT>
+
+
+<P>RuleWorks makes possible explicit partitioning of rules and objects into modular systems or subsystems. The basic unit of modularity is the <B>block</B>; RuleWorks provides three block constructs:</P>
+
+<UL>
+<LI>ENTRY-BLOCK</LI>
+<LI>DECLARATION-BLOCK</LI>
+<LI>RULE-BLOCK</LI></UL>
+
+<B><P>&nbsp;</P>
+<ul>
+<P>Note</B> : Blocks cannot be nested; no block may contain another block.</P>
+</UL>
+<P>The most important type of block is the entry block. The entry block allows a rule-based routine to be called like a routine in any other language.</P>
+
+<P>The purpose of declaration and rule blocks is to allow controlled sharing of information.  Declaration blocks enable declarations and the objects described by them to be shared by multiple entry or rule blocks with the USES clause (see Example 5-1). Rule blocks enable rules to be shared among multiple entry blocks with the ACTIVATES clause.  Except for this sharing, the contents of one block are not visible to other blocks.</P>
+
+<P>Each block begins with a block construct that defines the block name, and ends with an END-BLOCK construct. A block is said to <B>contain</B> all the constructs between its block construct and its END-BLOCK construct. All non-block RuleWorks constructs must be contained in a block.</P>
+<P>&nbsp;</P>
+
+<B><P>Table 5-1. Summary of Block Constructs</P></B>
+<TABLE border=1>
+<TR><TD></TD><TD><B>Entry<BR>Block</B></TD><TD><B>Rule<BR>Block</B></TD><TD><B>Declaration<BR>Block</B></TD></TR>
+<TR><TD>Can be called from other languages</TD><TD>true</TD><TD>false</TD><TD>true, but*</TD</TR>
+<TR><TD>Name is visible to linker</TD><TD>true</TD><TD>true</TD><TD>true</TD</TR>
+<TR><TD>Can contain "ON-" statements</TD><TD>true</TD><TD>false</TD><TD>false</TD</TR>
+<TR><TD>Can contain rules and catchers</TD><TD>true</TD><TD>true</TD><TD>false</TD</TR>
+<TR><TD>Can contain declarations</TD><TD>true</TD><TD>true</TD><TD>true</TD</TR>
+<TR><TD>Contents can be shared at compile time</TD><TD>false</TD><TD>false</TD><TD>true</TD</TR>
+</TABLE>
+<P>* A declaration block can be called, but only for the purpose of initializing working memory and object classes before calling API routines that affect working memory.  </P>
+
+<B><FONT FACE="Helvetica" SIZE=5>Entry Blocks</B></FONT>
+<P>A RuleWorks <B>entry block</B> generates a C-callable entry point. An entry block is visible to your system linker and is callable by any language that adheres to the target system's calling standard conventions. An entry block can accept arguments and return a value. You can think of an entry block as a rule-based subroutine or "mini-expert."</P>
+
+<P>At least one entry block is required for each RuleWorks program.</P>
+
+<P>Only one entry block can be running at any given time. The entry block that is currently running is called the <B>active</B> entry block. Only rules contained in or activated by the active entry block can execute. Using entry blocks to divide your program into modules can therefore improve program performance, because the size of the match network and the conflict set are reduced.</P>
+<P><B>Declaring An Entry Block</P></B>
+<P>An entry block is declared by the keyword <B>ENTRY-BLOCK</B> followed by the name of the entry block. The entry block name must contain only letters, numbers, and underscores, and must be no longer than  31 characters.</P>
+
+<P>The complete syntax of an entry block is shown below:</P>
+<B><P>Figure 5-1. Entry Block Syntax</A></A></A></A>  </P></B>
+<P><IMG SRC="../IMAGES/F5-1.GIF" WIDTH=510 HEIGHT=441></P>
+
+<P>The clauses within the ENTRY-BLOCK declaration are all optional:</P>
+<UL>
+<LI>The ACCEPTS clause defines the input argument list, if any. If any argument is an array, its size is optional. See Chapter 6 for information on external data types and passing mechanisms.</P>
+<LI>The RETURNS clause specifies the entry block's return value, if any.  If the return value is compound, its size can be either an input argument of an integer type (byte, short, and so on) or an integer constant. See Chapter 6 for information on external data types and passing mechanisms.</P>
+<LI>The ACTIVATES clause enables rules not contained in the entry block to fire.   See Chapter 5, Rule Blocks, for information on rule blocks.</P>
+<LI>The USES clause allows rules contained in the entry block to match and manipulate objects whose class declarations are not contained in the entry block, and to call external routines whose declarations are not contained in the entry block.  See Chapter 5, Declaration Blocks, for more information on declaration blocks.</P>
+<LI>The STRATEGY clause allows you to specify a conflict-resolution strategy other than the default MEA strategy.  </P>
+</UL>
+
+<P>An entry block may contain any RuleWorks program constructs except another block construct, but they must be in the order shown above: declarations first, then ON- statements, then rules and catchers.</P>
+
+<P>If an entry block contains OBJECT-CLASS declarations, objects of those classes can be matched only by rules contained in the block. If an entry block contains rules, those rules can fire only when the block is active. Declaration blocks and rule blocks allow you to share objects and rules among multiple entry blocks.</P>
+
+<P>The END-BLOCK construct is required. The <I>entry-block-name</I> is optional inside the END-BLOCK construct, but if it is present the compiler verifies that it is the same name as in the ENTRY-BLOCK construct.</P>
+
+<P><B>Calling an Entry Block</P></B>
+<P>When an entry block is called, that entry block is the <I>only</I> active entry block. The entry block first runs its ON-ENTRY actions (if any), then runs recognize-act cycles until one of the following occurs:</P>
+<UL>
+<LI>The conflict set becomes empty, triggering the actions that were declared with the ON-EMPTY statement (if any) followed by the actions that were declared with the ON-EXIT statement (if any).</P>
+<LI>The RETURN action is executed, triggering the actions that were declared with the ON-EXIT statement (if any).</P>
+</UL>
+
+<P>Entry blocks can call other entry blocks, and even call themselves recursively. When an entry block is called, the caller is no longer active. The caller is referred to as being <B>suspended</B> and the called block becomes the <B>active</B> block, just as with a routine in any other language. Similarly, when the called block returns, the caller becomes active again.</P>
+
+<P>When an entry block returns, any objects created or changed by that block remain in working memory (unless that entry block is the main program, see Chapter 5, Naming an Entry Block "Main", for details).  If that entry block is called again later, all of those objects are again matchable.  However, the objects cannot be matched or modified by any other entry block unless both entry blocks are using the same declaration block (see Chapter 5, Declaration Blocks, for information on declaration blocks).</P>
+
+<P><B>Scope of Arguments to an Entry Block</P></B>
+<P>The arguments received by an entry block are visible <I>only</I> to actions within the ON-ENTRY, ON-EVERY, ON-EMPTY, and ON-EXIT statements inside the entry block. They are <I>not</I> visible to rules contained in or activated by the entry block. If rules need to match input arguments, their values must be placed into one or more objects (as shown in Example 5-1)</P>
+<B><P>Example 5-1. A Simple Entry Block and Declaration Block</P></B>
+<UL>
+<FONT FACE="Courier" SIZE=1><P>;  Shareable Class Declaration</P>
+<P>(declaration-block numbers)</P>
+<UL><P>    (object-class limit  ^value)</P></UL>
+<P>(end-block numbers)</P>
+<P>&nbsp;</P>
+<P>;  Entry Point Declaration</P>
+<P>(entry-block count_to</P>
+<UL><P>      (accepts &lt;num-arg&gt; long)</P>
+<P>      (returns long)</P>
+<P>      (uses numbers))</P>
+</UL><P>&nbsp;</P>
+<P>   ; Private Class Declaration</P>
+<P>   (object-class iterator  ^count)</P>
+<P>&nbsp;</P>
+<P>   ;  Executable Constructs</P>
+<P>   (on-entry</P>
+<UL><P>       (bind &lt;Limit&gt; (make  limit  ^value &lt;num-arg&gt;))</P>
+<P>       (make  iterator  ^count 1))</P>
+</UL><P>&nbsp;</P>
+<P>   (on-exit</P>
+<UL><P>       (remove &lt;Limit&gt;)         ; clean out WM when done</P>
+<P>       (return &lt;num-arg&gt;))</P>
+</UL><P>&nbsp;</P>
+<P>   (rule increment-rule</P>
+<UL><P>        (limit ^value &lt;lim&gt;)</P>
+<P>        (iterator  ^$id &lt;it&gt;  ^count { &lt;num&gt;  &lt;= &lt;lim&gt; })</P>
+<P>     --&gt;</P>
+<P>        (modify &lt;it&gt;  ^count (&lt;num&gt; + 1)) )</P>
+</UL><P>&nbsp;</P>
+<P>   (rule now-done</P>
+<UL><P>        (limit ^$id &lt;limit-id&gt;  ^value &lt;lim&gt;)</P>
+<P>        (iterator  ^$id &lt;it&gt;  ^count &gt; &lt;lim&gt;)</P>
+<P>     --&gt;</P>
+<P>        (remove &lt;it&gt;)</P>
+<P>        (remove &lt;limit-id&gt;) )</P>
+</UL><P>&nbsp;</P>
+<P>(end-block count_to)</P>
+</FONT></UL>
+<P>&nbsp;</P>
+<P>The same restrictions hold true of any variables bound in an ON- clause.  Such variables are also visible within any ON- clause.</P>
+<P><B>Scope of Execution of Entry Blocks</P></B>
+<P>A <B>call frame</B> is created when a RuleWorks entry block is called.  It contains all the dynamic data structures associated with a given invocation of an entry block. That is, it consists of all of the information "local" to this particular invocation of an entry block, or in some way visible to this particular invocation. Calls and returns really create and delete call frames. Call frames are an integral piece of entry blocks; by themselves they have no names and cannot be passed, returned, or otherwise manipulated directly.</P>
+
+<P>The following are local to the call frame:</P>
+<UL>
+<LI>Refraction.
+<P>Refraction does not apply across invocations of entry blocks. Thus,  a rule may fire more than once on the same data. This could happen when an entry block calls itself recursively, or when one entry block calls another and both activate the same rule block, or when an entry block is called repeatedly.</P>
+<LI>The local rule-firing counter.
+<P>This affects CATCH statements.    The CATCH counter counts only rules fired in the entry block invocation in which the AFTER action was executed, excluding rule firings in other invocations of the same entry block and in entry blocks called from the original entry block.</P>
+</UL>
+<P>The following are global:</P>
+<UL>
+<LI>The $ID generator.
+<P>The $ID value of an object is universally unique across entry block invocations.</P>
+<LI>The time-tag counter.
+<P>The time-tags assigned to objects are monotonically increasing across calls to and returns from entry blocks.</P>
+<LI>The global rule-firing counter.</P>
+<P>This affects the RUN command when you provide an argument (for example, RUN 5). Rule firings from other entry blocks are counted.</P>
+<LI>The atom generator.</P>
+<P>This affects the RuleWorks GENATOM and GENINT   functions, and the rul_genint, rul_gensym, and rul_gensymp API routines.  Every atom generated for any of these routines is unique while the program is running, and is unique across your entire program, not merely within an entry block.</P>
+</UL>
+
+<P><B>Naming an Entry Block "Main"</P></B>
+<P>An entry block named MAIN, if supplied, is automatically designated to the compiler and linker as the main RuleWorks routine. This design has semantic parallelism with the C language and provides the behavior most programmers would expect. The name can be in any case.</P>
+
+<P>If you want to capture command-line arguments to the program in a portable way, a declaration in the following form is recommended:</P>
+<P>&nbsp;</P>
+<UL>
+<FONT FACE="Courier" SIZE=1><P>(entry-block main</P>
+<UL><P>             (accepts &lt;argc&gt; long            ; traditional names for</P>
+<P>                      &lt;argv&gt; [&lt;argc&gt;] ASCIZ) ; command-line args</P>
+<P>             ...)</P>
+</UL>
+</ul></font>
+
+<P><B>Returning a Value from an Entry Block</P></B>
+<P>RuleWorks provides an RHS action, RETURN that stops the firing of rules in the active entry block, executes the ON-EXIT actions (if any) and passes control back to the caller of the entry block. This action has an optional argument, the value to be returned. The argument can be any expression. Thus, the RETURN action is useful for returning a condition code or value (see Example 5-1).</P>
+<P>The RETURN action is valid anywhere in the entry block, even inside the ON-EXIT and ON-EMPTY statements. The RETURN action is valid only in an entry block; it is not valid in a rule block.</P>
+<P>Executing more than one RETURN action in an entry block is possible, for example, when an ON-EXIT statement that contains a RETURN action is executed as a result of a RETURN action in a rule. If a value is being returned from the entry block, the value of the last RETURN action executed is used.</P>
+<P>If the value returned by an entry block is an array, the memory allocated for that array is not freed by RuleWorks.  Example 5-2 shows an entry block that accepts an array, sorts it, and then returns it.</P>
+<B><P>Example 5-2. Passing and Returning an Array</B></P>
+<UL>
+<FONT FACE="Courier" SIZE=1><P>(entry-block sort_slowly</P>
+<UL><P>            (accepts &lt;set-size&gt;                 long</P>
+<UL><P>                     &lt;set&gt;[&lt;set-size&gt;]          asciz)</P>
+</UL><P>            (returns &lt;sorted-set&gt;[&lt;set-size&gt;]   asciz))</P>
+</UL><P>        ;  Return the input set, except sorted (albeit slowly)</P>
+<P>   </P>
+<P>        (object-class an-atom ^value)</P>
+<P>        (object-class in-set  ^values compound)</P>
+<P>        (object-class out-set ^values compound)</P>
+<P>&nbsp;</P>
+<P>        (on-entry</P>
+<UL><P>            (make out-set)</P>
+<P>            (make in-set ^values &lt;set&gt;)</P>
+<P>            (for-each &lt;atom&gt; in &lt;set&gt;</P>
+<UL><P>                (make an-atom ^value &lt;atom&gt;)</P>
+</UL><P>            )</P>
+</UL><P>        )</P>
+<P>&nbsp;</P>
+<P>        (rule find-next</P>
+<UL><P>            (an-atom ^$id &lt;atom&gt;    ^value &lt;x&gt;)</P>
+<P>           -(an-atom ^$id &lt;&gt; &lt;atom&gt;    ^value &lt;= &lt;x&gt;)</P>
+<P>            (out-set ^$id &lt;out-set&gt; ^values &lt;out-vals&gt;)</P>
+<P>          --&gt;</P>
+<P>            (remove &lt;atom&gt;)</P>
+<P>            (modify &lt;out-set&gt; ^values (compound &lt;out-vals&gt; &lt;x&gt;))</P>
+</UL><P>        )</P>
+<P>&nbsp;</P>
+<P>        (rule all-done</P>
+<UL><P>            (out-set ^$id &lt;out-set&gt; ^values &lt;out-vals&gt;)</P>
+<P>            (in-set  ^$id &lt;in-set&gt;  ^values &lt;in-vals&gt;)</P>
+<P>           -(an-atom)</P>
+<P>         --&gt;</P>
+<P>            (remove &lt;out-set&gt; &lt;in-set&gt;)</P>
+<P>            (write  (crlf) |          Sort of  | &lt;in-vals&gt;</P>
+<P>                    (crlf) |              ==&gt;  | &lt;out-vals&gt; (crlf))</P>
+<P>            (return &lt;out-vals&gt;)</P>
+</UL><P>        )</P>
+<P>&nbsp;</P>
+<P>(end-block)</P>
+</ul></font>
+<P>&nbsp;</P>
+
+<B><FONT FACE="Helvetica" SIZE=5>Executing Actions Without Matching</FONT></P></B>
+
+<P>The actions on the right-hand side of a rule are executed only when the left-hand side matches working memory and the resulting instantiation is picked during conflict resolution. RuleWorks provides two types of executable constructs whose actions are executed without matching working memory: "ON-" statements and catchers.</P>
+<P><B>Using "ON-" Statements</P></B>
+<P>RuleWorks entry blocks may contain one each of the four "ON-" statements, which allow you to describe a set of actions that are executed at certain points in the recognize-act cycle (see the figure,  "ON-" Statements and the Recognize-Act Cycle) without matching any objects in working memory. These new statements are all defined with names that begin with the prefix "ON-" and end with the name of the special condition under which their associated actions are executed.</P>
+
+<B><P>Figure 5-2. "ON-" Statements and the Recognize-Act Cycle</P></B>
+<P><IMG SRC="../IMAGES/F5-2.gif" WIDTH=575 HEIGHT=365></P>
+<P>The "ON-" statements are listed below:</P>
+<P>&nbsp;</P>
+<UL>
+<LI>ON-ENTRY
+<P>The actions in an ON-ENTRY statement are executed whenever its entry block is called, and before any rules can fire. Thus, you can initialize working memory by putting MAKE actions in your ON-ENTRY statement.    For example:</P>
+<FONT FACE="Courier" SIZE=1><P> (on-entry</P>
+<UL><P>   (bind &lt;my_id&gt; (make my_wmo))         ; Create the first WMO.</P>
+<P>   (bind &lt;rule_count&gt; 0)                ; Initialize the counter...</P>
+<P>   (bind &lt;return_status&gt; good))         ; ... and the return value.</P>
+</UL></FONT>
+<P>These MAKE actions can use the input arguments to the entry block (see the section of this chapter, Scope of Arguments to an Entry Block)</P>
+<P>The ON-ENTRY statement is roughly analogous to the OPS5 STARTUP statement.</P>
+</UL>
+<P>&nbsp;</P>
+<ul>
+<li>ON-EVERY
+<P>The actions in an ON-EVERY statement are executed immediately after each successful rule firing, and before the determination of the next rule to fire. If a rule is fired that has a RETURN as its last action, then control will be returned up to the caller, and the ON-EVERY actions will not be executed.</P>
+<P>You could use an ON-EVERY statement to count the number of rules fired in the current invocation of the entry block, or to call an event handler.  For example:</P>
+<ul><FONT FACE="Courier" SIZE=1><P> (on-every</P>
+<ul><P>   (bind &lt;rule-count&gt; (&lt;rule-count&gt; + 1)))</P>
+</ul></ul></FONT></ul>
+<P>&nbsp;</P>
+<ul>
+<li>ON-EMPTY
+<P>The actions in an ON-EMPTY statement are executed whenever it is time to select the next rule to fire and there are no rules eligible to fire and thus the conflict set is empty. Note that the run-time system does not execute any recognize-act cycles after an ON-EMPTY statement, even if its actions create WMOs that satisfy one or more rules.</P>
+<P>You could use an ON-EMPTY statement to return a failed status if the   program should not have arrived at an empty CS. For example:</P>
+<ul><FONT FACE="Courier" SIZE=1><P> (on-empty</P>
+<ul><P>   (quit $failure))</P>
+</ul></ul></FONT></ul>
+<ul>
+<li>ON-EXIT
+<P>The actions in an ON-EXIT statement are executed just before control is returned to the caller of the entry block. These actions are executed when control is returned via a RETURN action or when the conflict set becomes empty. If an ON-EMPTY statement was also specified, the ON-EXIT actions are executed after the ON-EMPTY actions, and immediately before control is returned to the calling routine.</P>
+<P>The ON-EXIT actions are not executed after a QUIT action or command.</P>
+<P>ON-EXIT statements are useful for clean-up actions, such as removing dead instances of local object classes. For example:</P>
+<ul><FONT FACE="Courier" SIZE=1><P> (on-exit</P>
+<ul><P>   (remove &lt;my_id&gt;)</P>
+<P>   (remove-every local)</P>
+<P>   (return &lt;return_status&gt;))</P>
+</ul></ul>
+</FONT></ul>
+
+<P>"ON-" statements must be contained in an entry block. They cannot appear inside a rule block, nor inside a rule group within an entry block (see Rule Blocks and Rule Groups for more information).</P>
+<ul><B><P>Note: </B>Any variables bound in one "ON-" statement are available to all other "ON-" statements. These variables are not available to any rules.</P>
+</ul>
+<P>An entry block can contain at most one of each type of "ON-" statement. It doesn't have to contain any of them.  </P>
+
+<P><B>Using a Catcher</P></B>
+<P>A <B>catcher</B> is a list of actions that are executed after a specified number of recognize-act cycles have been executed. For example, if program execution is unattended, as in a batch job, a catcher can halt the program if it does not produce results within a specified limit.</P>
+
+<P>You define a catcher with a CATCH statement, which includes a symbol and one  or more actions. The symbol names the catcher, and functions as a label. A catcher's name must be unique; that is, it cannot be the same as the name of another catcher, rule, or rule group in the program. When the catcher fires, the actions are executed.   </P>
+
+<P>The following CATCH statement defines a catcher named FINISH, which consists of two actions, WRITE and HALT:</P>
+
+<UL><FONT FACE="Courier" SIZE=1><P>(catch finish</P>
+<UL><P>     (write (crlf)  | Finished. | )</P>
+<P>     (halt))</P>
+</UL></FONT>
+</UL>
+
+<P>You enable a catcher with the AFTER action, which tells the run-time system when to execute the catcher. Specify the AFTER action with a positive integer and the name of the catcher you want to enable. The integer indicates the number of recognize-act cycles (of the current invocation of the entry block) that the run-time system is to execute before executing the specified catcher.  For example:   </P>
+<UL><FONT FACE="Courier" SIZE=1><P>(after 10 finish)</P></UL>
+</FONT>
+<P>Only one catcher can be enabled at a time, per call frame. Therefore, when you enable a catcher, you disable the catcher currently enabled (if any).  Catchers are automatically disabled after they have been executed.</P>
+
+<P>Catchers may be contained in either entry or rule blocks. The catcher must be contained in the same block as the AFTER action that enables it.</P>
+
+<P>Example 5-3 illustrates the use of two catchers, STARTER and FINISH.</P>
+
+<B><P>Example 5-3. A Program That Loops</P></B>
+<UL><FONT FACE="Courier" SIZE=1><P>(entry-block sample)</P>
+<P>(object-class start)        ;Used for initialization</P>
+<P>(object-class number ^value)           ;Contains value to be printed</P>
+<P>(on-entry</P>
+<UL><P>     (make start)           ;Creates a working-memory object (START)</P>
+<P>     (after 1 starter))     ;Enables catcher STARTER after 1 recognize-act cycle</P>
+</ul>
+<P>&#9;<FONT FACE="arial black">(2)</FONT>
+ (catch starter              ;Catcher STARTER</P>
+<ul><P>     (write (crlf)  | Counting to 10... | )</P>
+<P>     (make number ^value 1)</P>
+<P>     (after 10 finish))     ;Enables catcher FINISH after the run-time</P>
+</ul><P>                            ;system has executed 10 more cycles</P>
+<P>&#9; <FONT FACE="arial black">(4)</FONT>
+(catch finish               ;Catcher FINISH</P>
+<ul><P>     (write (CRLF)  | Finished. | )</P>
+<P>     (return))              ;Stop program</P>
+</ul><P>&nbsp;</P>
+<P>&#9; <FONT FACE="arial black">(1)</FONT>
+(rule initialize            ;Initialize working memory</P>
+<ul><P>     (start ^$id &lt;START&gt;)</P>
+<P>   --&gt;</P>
+<P>     (write (crlf)  | Starting... | )</P>
+<P>     (remove &lt;start&gt;))</P>
+</ul><P>&nbsp;</P>
+<P>&#9;<FONT FACE="arial black">(3)</FONT>
+(rule count                 ;Output numbers</P>
+<ul><P>     (number ^$id &lt;number&gt; ^value &lt;n&gt;)</P>
+<P>   --&gt;</P>
+<P>     (write (crlf) (rjust 5) &lt;n&gt;)</P>
+<P>     (modify &lt;number&gt; ^value (&lt;n&gt; + 1)))</P>
+</ul><P>&nbsp;</P>
+<P>(end-block sample)</P>
+</FONT>
+</ul>
+<P>This program produces the following output:</P>
+
+<B><P>Example 5-4. A Program that Loops Output</P></B>
+<ul><FONT FACE="Courier" SIZE=1><P>Starting...</P>
+<P>Counting to 10...</P>
+<ul><P>    1</P>
+<P>    2</P>
+<P>    3</P>
+<P>    4</P>
+<P>    5</P>
+<P>    6</P>
+<P>    7</P>
+<P>    8</P>
+<P>    9</P>
+<P>   10</P>
+</ul><P>Finished.</P>
+</FONT></ul>
+<P>&nbsp;</P>
+<P>STARTER and FINISH are used in Example 5-3 as follows:</P>
+<P><FONT FACE="arial black">(1)</FONT>
+</B>&#9;The first recognize-act cycle fires rule INITIALIZE, because its CE matches the START object created in the ON-ENTRY statement. The ON-ENTRY statement does not count as a cycle.</P>
+<B><P><FONT FACE="arial black">(2)</FONT>
+</B>&#9;Catcher STARTER fires after one recognize-act cycle has been executed.  STARTER is enabled in the ON-ENTRY statement.</P>
+<B><P><FONT FACE="arial black">(3)</FONT>
+</B>&#9;The MAKE action in catcher STARTER creates an object on which rule COUNT can fire.</P>
+<B><P><FONT FACE="arial black">(4)</FONT>
+</B>&#9;The AFTER action in catcher STARTER enables catcher FINISH to fire after ten more recognize-act cycles have been executed.</P>
+
+<p>&nbsp;</p>
+<B><FONT FACE="Helvetica" SIZE=5>Declaration Blocks</B></FONT>
+<P>Declarations (OBJECT-CLASS and EXTERNAL-ROUTINE) can be private or shareable.  A declaration is <B>private</B> if it is contained in either an entry block or a rule block. Objects whose class declaration is private to a block can be matched only by rules contained in that block.  In other words, by placing declarations inside an entry block or rule block you create private data for that block. Similarly, external routines whose declarations are local to a block can be called from inside that block only.</P>
+
+<P>Figure 5-3 shows a RuleWorks program that consists of one entry block with two private object class declarations. Rules in EB1 can "see" all objects of classes Y and Z.</P>
+<B><P>Figure 5-3. Private Data in RuleWorks</P>
+</B><P><IMG SRC="../images/f5-3.gif" WIDTH=518 HEIGHT=326></P>
+
+
+<P><B>Data Partitioning</B></P>
+<P>By default, RuleWorks partitions working memory so there is no conflict over object classes of the same name when two or more entry blocks are combined. Rules can match only objects whose classes are contained in or used by their entry block; all other objects are invisible.</P>
+<P>This invisibility includes matches against the built-in class $ROOT.  If an object class is not visible at compile-time, instances of it are not visible to the block at run-time.</P>
+
+<B><P>Declaration Sharing</p></b>
+<P>A <B>declaration block</B> allows you to create a collection of declarations that are <B>shareable</B> among multiple entry blocks or rule blocks. <B>Declaration sharing</B> allows you to explicitly decide which data should remain private and which should be shared (and the extent of that sharing). This allows the absolute partitioning of object class declarations between several independently-developed subsystems of an application. It also allows information to be restricted to a single routine or a set of interdependent routines.</P>
+
+<P>A declaration block consists of zero or more declarations bounded by a DECLARATION-BLOCK construct at the top and an END-BLOCK construct at the bottom. </P>
+
+<B><P>Example 5-5.  DECLARATION-BLOCK Sharing</P></b>
+<ul>
+<FONT FACE="Courier" SIZE=1><P>(DECLARATION-BLOCK  line-items)</P>
+<ul><P>    (OBJECT-CLASS   item ^item-code</P>
+<ul><P>                        ^item-name</P>
+<P>                        ^quantity</P>
+<P>                        ^price-per</P>
+<P>                        ^item-total)</P>
+</ul><P>    (OBJECT-CLASS  shippable-item</P>
+<ul><P>                        (INHERITS-FROM item)</P>
+<P>                        ^part-number)</P>
+</ul></ul><P>(END-BLOCK line-items)</P>
+</FONT></ul>
+
+<P>The complete syntax of a declaration block is shown below:</P>
+
+<ul><B><I><P>&#9;(DECLARATION-BLOCK decl-block-name)</P></B>
+<ul><P>&#9;[ class-or-external-declaration ]</I> ... <BR></ul>
+<BR>
+&#9;<B>(END-BLOCK) <I>[decl-block-name]</P>
+</ul></B></I>
+
+<P>The <I>decl-block-name</I> is required in the DECLARATION-BLOCK construct. It is optional in the END-BLOCK construct, but if supplied it is checked. Declaration block names must be no longer than 31 characters, and contain letters, digits, and underscores only. Declaration block names must be distinct from entry and rule block names. Finally, the first eight characters of all declaration block names used in a program must be unique.  This allows RuleWorks to create portable names for the compiled files. For example, having two declaration blocks named DECLARE_CONTROL and DECLARE_KIWI generates a compile-time warning and results in a single file called DECLARE_.USE. Naming the blocks CONTROL_DECLS and KIWI_DECLS correctly generates two .USE files.</P>
+
+<ul><b><P>Note: </B>Object classes that are related by inheritance must all be declared  in the same block. An object class cannot inherit from a class declared in some other block.</P>
+</ul>
+<P>A declaration block must not contain any executable statements (rules, "ON-" statements, or catchers).</P>
+
+<P>Declarations are shared via the USES clause of an ENTRY-BLOCK or RULE-BLOCK construct. Objects whose class declarations are shared by a block are just as visible to the rules within that block as objects whose declarations are private to that block. Note that a USES clause cannot specify individual class names, only declaration block names.</P>
+
+<P>A block can use more than one declaration block. A compile-time error occurs if the combined shared and private declarations contain any classes with identical names.</P>
+
+<P>Figure 5-4 shows some private and some used object class declarations. The USES clause in EB1 "pulls in" the declarations from DB1. Rules in EB1 can still match objects of classes Y and Z.</P>
+
+<B><P>Figure 5-4. Shareable Declaration Blocks</P></B>
+<P><IMG src="../images/f5-4.gif"></P>
+
+<P>Figure 5-5 shows two entry blocks in the same program, each with some private and some used object class declarations. Rules in EB1 can see objects of classes Y and Z only; rules in EB2 can see objects of classes W and X only.</P>
+<B><P>Figure 5-5. Two Shareable Declaration Blocks</P></B>
+<P><IMG src="../images/f5-5.gif"></P>
+
+<P>Figure 5-6 shows the same two entry blocks sharing an object class declaration.  Rules in EB1can see objects of classes Y, Z, and O; rules in EB2 can see objects of classes W, X, and O.</P>
+<B><P>Figure 5-6. Shared Data in RuleWorks</P>
+</B>
+<P><IMG src="../images/f5-6.gif"></P>
+<P>The declaration block(s) used by an entry block must be compiled before the entry block itself can be compiled. You can put declaration blocks in a different file and compile them separately, or you can place them in the same file but above the entry block.  In either case, compiling a declaration block results in an intermediate file with the extension .USE. Entry or rule blocks in other source files can subsequently use one or more of those declaration blocks, without seeing all of the other declarations that were in the original source file.</P>
+<P>Example 5-6 shows a more complex set of block constructs where both declarations and rules are being shared.</P>
+
+<B><P>Example 5-6.  Sharing Declarations and Rules</P></B>
+<ul><FONT FACE="Courier" SIZE=1><P>(declaration-block        common_decls)</P>
+<ul><P>      (object-class  C-1          ... )</P>
+<P>      (object-class  C-2          ... )</P>
+</ul><P>(end-block                common_decls)</P>
+<P>&nbsp;</P>
+<P>(entry-block  my_little_function</P>
+<ul><P>      (accepts                ... )</P>
+<P>      (activates   shared-rules-1 )</P>
+<P>      (uses        common_decls   ) )</P>
+<ul><P>                ; needed to expose the contents of the</P>
+<P>                ; declaration-block defined above</P>
+</ul></ul><P>&nbsp;</P>
+<P>   (rule  my-rule-1        ... )</P>
+<P>    ...</P>
+<P>&nbsp;</P>
+<P>(end-block  my_little_function)</P>
+<P>&nbsp;</P>
+<P>(rule-block  shared_rules_1</P>
+<ul><P>      (uses      common_decls))</P>
+<P>&nbsp;</P>
+<P>   (rule  my-rule-1        ... )</P>
+<P>    ...</P>
+<P>&nbsp;</P>
+</ul><P>(end-block   shared_rules_1)</P>
+<P>&nbsp;</P>
+<P>(rule-block  shared_rules_2</P>
+<ul><P>      (uses      common_decls))</P>
+<P>    .</P>
+<P>    .</P>
+<P>    .</P>
+<P>&nbsp;</P>
+</ul><P>(end-block   shared-rules-2)</P>
+<P>&nbsp;</P>
+<P>(entry-block  my_other_little_function</P>
+<ul><P>      (accepts                  ... )</P>
+<P>      (activates  shared-rules-1 shared-rules-2)</P>
+<P>      (uses       common_decls))</P>
+</ul><P>&nbsp;</P>
+<P>   (rule  my-rule-1        ... )</P>
+<ul><P>    ...</P>
+<P>&nbsp;</P>
+</ul><P>(end-block   my_other_little_function)</P>
+</FONT></ul>
+
+<P>&nbsp;</P>
+<P><B>Calling a Declaration Block</P></B>
+<P>Declaration blocks are callable, and in certain circumstances it may be necessary to call one. For example, the following C program calls an entry block named KBT_RULES that uses a declaration block named KBT_DECL. In order for the C program to initialize working memory before calling the entry block, it must first call the declaration block:</P>
+<B><P>Example 5-7.  Calling a Declaration Block</P></B>
+<ul><FONT FACE="Courier" SIZE=1><P>#include &lt;stdio.h&gt;</P>
+<P>#include &lt;rul_rtl.h&gt;</P>
+<P>&nbsp;</P>
+<P>main ()</P>
+<P>{</P>
+<ul><P>&#9;/* define RuleWorks stuff */</P>
+<P>&#9;rul_atom obj_id;</P>
+<P>&nbsp;</P>
+<P>&#9;printf("Calling RuleWorks...");</P>
+<P>&nbsp;</P>
+<P>&#9;/* initialize working memory */</P>
+<P>&#9;KBT_DECL();</P>
+<P>&nbsp;</P>
+<P>&#9;/* make one object */</P>
+<P>&#9;rul_make_instance("(AnyWin ^name testing)","KBT_DECL");</P>
+<P>&#9;</P>
+<P>&#9;/* call RuleWorks entry block */</P>
+<P>&#9;kbt_rules();</P>
+</ul><P>}</P>
+</FONT></ul>
+
+<P>&nbsp;</P>
+<P><B><FONT FACE="Helvetica" SIZE=5>Rule Blocks</B></P></FONT>
+<P>In RuleWorks, rules can be gathered together into <B>rule blocks</B>. A rule block is a collection of rules that may be shared among several entry blocks. Whenever <I>any</I> of the entry blocks is called, all the rules in  the rule blocks it activates will participate in matching and be enabled to fire.</P>
+
+<P>Rule blocks can also be used when the number of rules in a single entry block becomes too large to reasonably store in a single file.  You can have rule blocks that are activated by only one entry block.</P>
+
+<P>The complete syntax of a rule block is shown in the following figure.</P>
+<B><P>Figure 5-7.  Complete Syntax of Rule Block</P>
+</B><P> <IMG SRC="../images/f5-7.gif" WIDTH=335 HEIGHT=222></P>
+
+<P>Rule blocks are activated by entry blocks with the ACTIVATES clause.  Only rules contained in or activated by the active entry block are eligible for matching and firing.  Only entry blocks can activate rule blocks; one rule block can neither contain nor activate another.  </P>
+
+<P>The <I>rule-block-name</I> is required in the RULE-BLOCK construct.  It is optional in the END-BLOCK construct, but if supplied it is checked.  Rule block names must be no longer than 31 characters, and contain letters, digits and underscores only.  Rule block names must be distinct from entry and declaration block names.</P>
+
+<P>Each rule block can have it’s own STRATEGY clause.  However, all rule blocks used by an entry block must have the same strategy as the entry block.  It is a run-time error to activate rule blocks that have different strategies.  If no strategy clause is specified, the default is MEA.</P>
+
+<P>A rule cannot be in more than one rule block; a rule block can contain zero or more rules.   (An empty rule block can be useful during prototyping and/or stuibbing phase of development).  Note that all rules contained in a block must be in the same file, but a file can contain more than one block.  Rule blocks can be compiled before or after the entry block that activates them.</P>
+<P>&nbsp;</P>
+<ul><B><P>Note</B> : &#9;A rule block is not a directly callable entity, and should not be called from any language except RuleWorks.  If a rule block is not referenced by at least one entry block, it’s rules can never fire.  No rules can be shared among multiple entry blocks unless they are contained within a rule block.</P></ul>
+
+<P>Rule blocks are activated by entry blocks by the ACTIVATES clause (see Entry Blocks).  Only rules contained in or activated by the active entry block are eligible for matching and firing.  Only entry blocks can activate rule blocks; one rule block can neither contain nor activate another.</P>
+
+<P>The visibility of objects to the active rules depends on whether their blocks contain or use the corresponding OBJECT-CLASS declarations.  When you put rules in rule blocks, it is up to you to set up declaration blocks in such a way that the classes that are to be matched and modified in your entry and rule blocks are shared as appropriate.  There is no implicit sharing of declarations between an entry block and the rule blocks it activates.  Thus, in the example, Sharing Declarations and Rules, the clause is required in the rule block as well as in the entry blocks. </P>
+
+<p><B><FONT FACE="Helvetica" SIZE=5>Scope of Names</P></B></FONT>
+<P> In RuleWorks, the name space for declarations and executable statements is not global. This name space is divided by blocks into independent name spaces.</P>
+
+<UL>
+<LI>Within a block, all named constructs except external routines share the same name space.  Therefore, no rule can have the same name as another rule, rule-group, or catcher in that same block.  Different blocks can, however, each contain a rule with the same name. </LI>
+<P>This name space is enforced by the RuleWorks compiler, and permits names to be any legal symbol.  </P>
+<P>When an entry block activates rule blocks, the entry block and all the rule blocks still have separate name spaces.  </P>
+</ul>
+<ul>
+<LI>Object classes inhabit a second name space, which is also enforced by the RuleWorks compiler.  You can have an object class and a rule with the same name, but you cannot have an object class and an external routine with the same name. </LI>
+<P>When an entry block or a rule block uses declaration blocks, the using block and all the used blocks have one common name space for object classes and external routines.  </P>
+</ul>
+<UL>
+<LI>Block names and external routine names share a third name space, which is enforced by the platform linker.  For example, a rule block cannot  have the same name as an entry block, declaration block, or external routine called by the same program.</LI>
+</ul>
+
+<P><B><FONT FACE="Helvetica" SIZE=5>Rule Groups</B></FONT></P>
+<P>Within an entry or rule block, an additional level of structure can be imposed on a collection of rules by using the <B>RULE-GROUP</B> construct.  This extra level is not necessary for program execution, but it can enable some useful debugging information.</P>
+
+<P><B><FONT FACE="Helvetica" SIZE=5>Efficiency Issues</P></B></FONT>
+<P>The entry block system in RuleWorks  may cause a program speed <I>increase</I> because it  restricts the visibility of rules and objects to what you  specified, rather than the global visibility of OPS5. </P>
+<P>Only those programs that actually use the block system will see the efficiency improvement.  Programs that are converted from OPS5 by wrapping a single entry block around all of the rules will not see this improvement.  </P>
+
+<P>The entry block system may impose an efficiency penalty when entry blocks are called repeatedly.  To avoid this problem, you should compile any entry block that is called repeatedly with the Optimize qualifier set to REINVOCATION.  <B>Note:</B> that the RuleWorks language semantics are not affected by this qualifier, only entry block initialization run-time and maximum memory usage. </P>
+
+<P>Partitioning working memory with declaration blocks will, if done appropriately, provide a significant improvement in execution speed.</P>
+
+<P>&nbsp;</P>
+
+</BODY>
+</HTML>

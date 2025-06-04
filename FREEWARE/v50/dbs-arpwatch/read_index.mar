@@ -1,0 +1,175 @@
+	.title	read_index
+	.ident	"X1-001"
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	.external	lib$signal
+	.external	lib$stop
+
+	$fabdef
+	$rabdef
+	$rmsdef
+	$ssdef
+	$stsdef
+
+	def_psect _util_data, type=DATA, alignment=LONG
+	def_psect _util_code, type=CODE, alignment=LONG
+
+	set_psect _util_data
+
+faol_prmlst:	.blkl	40
+		.long	^XFFBADBAD
+
+inet_eq_enet:	.ascid	"!17<!UB.!UB.!UB.!UB!> = !XB-!XB-!XB-!XB-!XB-!XB"
+enet_eq_inet:	.ascid	"!XB-!XB-!XB-!XB-!XB-!XB = !UB.!UB.!UB.!UB!"
+
+	alloc_string	_faobuf, 2048	; used for all output - needs to
+					;  be big enough to hold an ethernet
+					;  packet (in case /disp=fast is used)
+	alloc_string	command, 256
+
+	gen_b_flag = 0
+				gen_c_inet_enet = 1
+				gen_c_inet_name = 2
+				gen_c_enet_inet = 3
+	gen_l_inet_addr = 1
+	gen_r_enet_addr = 1
+	gen_s_enet_addr = 6
+	gen_w_mbz = 5
+	gen_b_spare = 7
+	gen_s_data = 32
+	gen_t_data = 8
+
+gen_record:
+	.blkb	6			; for address key
+	.blkb	1			; for flag byte
+	gen_keysize = .-gen_record
+	.blkb	1			; spare...
+	.blkb	gen_s_data
+	gen_rsize = .-gen_record
+
+	gen_mbf = 16			; multi buffer count
+	gen_rtv = 255			; retreival pointers
+
+	.align long
+gen_fab:
+	$fab	dnm=<ARPWATCH.INDEX>, -
+		fnm=<ARPWATCH.INDEX>, -
+		fac=<BRO,GET>, -
+		fop=<SQO>, -
+		org=<IDX>, -
+		rtv=gen_rtv, -
+		shr=<NIL>
+gen_rab:
+	$rab	fab=gen_fab, -
+		kbf=gen_record, -
+		ksz=gen_keysize, -
+		krf=0, -
+		mbf=gen_mbf, -
+		rac=<SEQ>, -
+		rbf=gen_record, -
+		rsz=gen_rsize, -
+		rop=<RAH>, -
+		ubf=gen_record, -
+		usz=gen_rsize
+
+	reset_psect
+
+	.subtitle Mainline
+
+	set_psect _util_code
+
+	.entry -
+read_index, ^m<>
+
+	call	open_index_file
+
+10$:	$get	rab=gen_rab
+	blbc	r0, 80$
+
+	movzwl	gen_rab+rab$w_rsz, r8
+	movl	gen_rab+rab$l_rbf, r9
+
+	call	display_index_record
+	brb	10$
+
+80$:	call	close_index_file
+
+90$:	ret
+
+	.subtitle Routines to handle the /generated file
+
+	.entry -
+open_index_file, ^m<>
+
+	$open	fab=gen_fab
+	if <lbc,r0> then
+	  signal code=r0
+	endif
+	$connect rab=gen_rab
+	if <lbc,r0> then
+	  signal code=r0
+	endif
+
+	ret
+
+	.entry -
+close_index_file, ^m<>
+
+	$close	fab=gen_fab
+
+	ret
+
+	.entry -
+display_index_record, ^m<>
+
+	moval	faol_prmlst, r10	; address of the parameter list
+	cmpb	gen_b_flag(r9), #gen_c_inet_enet
+	bneq	10$
+	brb	50$
+10$:	cmpb	gen_b_flag(r9), #gen_c_enet_inet
+	bneq	20$
+	brw	60$
+20$:	brw	90$
+
+50$:	movzbl	gen_l_inet_addr(r9), (r10)+
+	movzbl	gen_l_inet_addr+1(r9), (r10)+
+	movzbl	gen_l_inet_addr+2(r9), (r10)+
+	movzbl	gen_l_inet_addr+3(r9), (r10)+
+	movzbl	gen_t_data(r9), (r10)+
+	movzbl	gen_t_data+1(r9), (r10)+
+	movzbl	gen_t_data+2(r9), (r10)+
+	movzbl	gen_t_data+3(r9), (r10)+
+	movzbl	gen_t_data+4(r9), (r10)+
+	movzbl	gen_t_data+5(r9), (r10)+
+	$faol_s	ctrstr=inet_eq_enet, -
+		outbuf=_faobuf_ds, -
+		outlen=_faobuf, -
+		prmlst=faol_prmlst
+	display	_faobuf
+	brw	90$
+
+60$:	movzbl	gen_r_enet_addr(r9), (r10)+
+	movzbl	gen_r_enet_addr+1(r9), (r10)+
+	movzbl	gen_r_enet_addr+2(r9), (r10)+
+	movzbl	gen_r_enet_addr+3(r9), (r10)+
+	movzbl	gen_r_enet_addr+4(r9), (r10)+
+	movzbl	gen_r_enet_addr+5(r9), (r10)+
+	movzbl	gen_t_data(r9), (r10)+
+	movzbl	gen_t_data+1(r9), (r10)+
+	movzbl	gen_t_data+2(r9), (r10)+
+	movzbl	gen_t_data+3(r9), (r10)+
+	$faol_s	ctrstr=enet_eq_inet, -
+		outbuf=_faobuf_ds, -
+		outlen=_faobuf, -
+		prmlst=faol_prmlst
+	display	_faobuf
+
+90$:	ret
+
+	.end	read_index

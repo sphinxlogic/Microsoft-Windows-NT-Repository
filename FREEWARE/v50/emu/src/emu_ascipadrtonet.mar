@@ -1,0 +1,78 @@
+	.TITLE EMU_ASCIPADRTONET  
+	.IDENT	/V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 EMU_ASCIPADRTONET  
+; Translat Ascii IP addr to net format.
+; EG.
+; 138.204.204.1 (Up to 15 Bytes)  is translated to 01CCCC8A (4 bytes)
+;2 Inputs
+;	.long	address of Desc pointing to IP adres to xlate
+;	.long	addresss of 4 byte area to write translation to 
+; Routine accepts 'X' in dont care positions and returns '0' in those positions
+; to facilitate wild card searches.
+;2 Ouputs
+;	4 byt net format IP address
+;
+;2 Returns 
+;	SS$_BADPARAM	Input is not in form DD.DD.DD.DD
+;			where D is either valid Decimal char (0-255) or 'X'
+;-- 
+
+	.PSECT	ASCIPADRTONET_DATA,WRT,NOEXE,QUAD
+OUTP:	.LONG	0
+	.PSECT	ASCIPADRTONET_CODE,NOWRT,EXE,LONG
+;	.ENTRY	EMU_ASCIPADRTONET,^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, LABEL=EMU_ASCIPADRTONET
+	MOVAB	ASCIPADRTONET_HANDLER,(FP)
+	MOVQ	@4(AP),R6
+	MOVL	8(AP),R8
+        ADDL3	R6,R7,R10	; Addr of last inpt byte
+	CLRL	R11             ; Group counter (4)
+10$:
+	CLRL	R9		; Char count
+20$:
+	CMPB	(R7),#^A/X/	; is it 'X'?
+	BEQLU	50$		; Skip
+	CMPB	(R7),#^A/./	; is it '.'?
+	BEQLU	30$		; Yes
+	INCL	R9		; Count char
+	AOBLSS	R10,R7,20$	; Next char
+
+30$:
+	PUSHAL	OUTP    	; Write here
+	SUBL3	R9,R7,-(SP)     ; Inpt
+	PUSHL	R9		; convert R9 bytes
+	CALLS	#3,G^LIB$CVT_DTB
+	BLBS	R0,60$
+40$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+50$:
+	CLRL	OUTP
+	INCL	R7			; Skip char
+60$:
+	CMPL	OUTP,#255
+	BGTRU	40$			; Out of range
+	MOVB	OUTP,(R8)+
+	INCL	R7			; Skip past '.'
+	AOBLSS	#4,R11,10$		; Do 4 times
+	MOVL	#SS$_NORMAL,R0
+	RET
+100$:
+
+;	.ENTRY	ASCIPADRTONET_HANDLER,^M<R6>
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, LABEL=ASCIPADRTONET_HANDLER
+	MOVL	4(AP),R6		; Get list address
+	MOVL	CHF$L_SIG_NAME(R6),R6	; Error
+        $UNWIND_S			; Unwind stack to previous caller
+	MOVL	R6,R0                   ; Return error
+	RET				; Die
+	.END
+

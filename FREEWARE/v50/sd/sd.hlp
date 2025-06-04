@@ -1,0 +1,662 @@
+1 SD
+
+SD is a powerful and flexible alternative to the DCL command "SET DEFAULT".
+
+It has the capability to
+
+  . quickly set default to the default login directory (SYS$LOGIN);
+  . set default to logical directory names, wildcarded directory names
+    and complex directory specifications;
+  . store a history of "visited" directories in a "Last In First Out" (LIFO)
+    directory stack;
+  . set default to any given directory in the directory stack;
+  . display the contents of the directory stack;
+  . allow different styles of stack display;
+  . manipulate the contents of the directory stack;
+  . set the maximum size of the directory stack;
+  . re-initialize the directory stack;
+  . write the directory stack to a disk file for later re-loading of the
+    stack;
+  . read a previously dumped directory stack from a disk file to re-load
+    the stack;
+  . change the session prompt to reflect the current default directory;
+  . allow flexible specification of the format of the new session prompt;
+  . provide direct access to this help information from the command line;
+
+Format:
+
+  $ SD [directory_spec [, directory_spec ...]]
+
+ or
+
+  $ SD option
+
+
+2 Directory_Specs
+
+A directory_spec can be  any  valid  VMS  directory specification or any
+valid  relative  VMS  directory  specification with  or  without  square
+brackets, with the exception of any specification which  ends  with  the
+minus sign ("-").  The alternative VMS directory  delimiters "<" and ">"
+are recognised  and the characters "{" and "}" are translated to "[" and
+"]" respectively to cater for common typographical errors.
+
+Standard VMS wildcarding is allowed.  When wildcards are used, the first
+valid directory name to match is  used.  Note that empty directories are
+NEVER matched when using wildcarding.
+
+Examples of valid VMS directory specifications are:
+
+  D_J:[JEREMY]
+  [JULIE]
+  [XFILES.TRIAL_DATA]
+  [URSULA.FUN_AND_*]      ! Wildcard.
+  LAB_SYSTEM:             ! Logical name.
+
+Examples of valid relative VMS directory specifications used in SD are:
+
+  [.TRIAL_DATA]           ! Square brackets are optional here.
+  .TEST.DONUT.SPICY       ! Optional square brackets omitted here.
+  .FUN_AND_*              ! Wildcard and no square brackets.
+  [--]                    ! Must have square brackets when ending in "-".
+  -.SURFER                ! No square brackets needed here.
+  [...BAMBI]              ! First occurence of a BAMBI sub-directory.
+  ...SAVE...RAW_DATA*     ! First occurence of a sub-directory starting
+                          !   with RAW_DATA under first SAVE sub-directory.
+
+SD allows valid  directory_specs  to  be  specified as a comma-separated
+list  to  be successively expanded in order so as to create a path to  a
+given target directory.  For example,
+
+  LAB_SYSTEM:,.SOURCE.GUI
+
+where LAB_SYSTEM: is  a  logical  name  which  cannot syntactically have
+sub-directory  specifications added to it, yet it points to a  directory
+which contains sub-directories.
+
+2 Logical_Names
+
+SD uses a  number  of  logical  names  to  determine  its actions.  Some
+logical  names have corresponding commands which allow you to change the
+logicals from SD using the command line, or you can explicitly DEFINE or
+DEASSIGN them from DCL.  Other logical  names  can  only  be  explicitly
+changed from DCL.  In no case is any logical required for SD to function
+- all logical names have defaults.
+
+
+SD_STACK_STYLE      (default ABSOLUTE)
+
+  The stack used by SD can be one of two types: ABSOLUTE (or its synonym
+  FIXED),  or RELATIVE (or its synonym SLIDING).  This logical name must
+  be one of these four values.
+
+  An ABSOLUTE stack has its  slots  numbered in ascending order starting
+  from  1,  and  continuing beyond the size of the stack such  that  any
+  given entry will always retain the same slot number.  This allows  you
+  to  use  a  given valid slot number and be assured of getting the same
+  directory each time.
+
+  A RELATIVE stack has its  slots  numbered  in ascending order starting
+  from 1, and continuing up to (but not exceeding) the size of the stack
+  such  that any given entry will retain the same slot number until  the
+  stack is full, at which point, slot  numbers  for  particular  entries
+  will change as new entries are added to the stack.
+
+
+SD_STACK_SIZE       (default 20, minimum 2, maximum 200)
+
+  This logical name is an  integer  value which determines the number of
+  slots in the stack.  One slot corresponds with one directory entry.
+
+
+SD_UPDATE_PROMPT    (default FALSE)
+
+  This logical name is a boolean  value (TRUE or FALSE) which determines
+  if  the session prompt will be updated to reflect the current  default
+  directory.  The update prompt function is ignored if  specified  in  a
+  non-interactive process.
+
+
+SD_PROMPT_HEAD      (default "", i.e. empty; maximum 8 characters)
+
+  If the session prompt is being updated, this logical name is a literal
+  string value which is pre-pended to the prompt.
+
+
+SD_PROMPT_TAIL      (default " ", i.e. a single space; maximum 6 characters)
+
+  If the session prompt is being updated, this logical name is a literal
+  string value which is appended to the prompt.
+
+
+SD_PROMPT_FORMAT    (default LEFT)
+
+  If the session prompt is  being  updated,  this logical name is either
+  CENTRE  or  LEFT.   If the length of the name of the  current  default
+  directory causes the prompt length to exceed its  maximum,  characters
+  will  be  removed  from  the directory name to make the prompt no more
+  than the maximum length.  These characters  may be removed either from
+  the  centre of the name or the left of the name.  They are replaced by
+  an asterisk ("*").
+
+
+SD_MAX_PROMPT_SIZE  (default 32, minimum 2, maximum 32)
+
+  If the session  prompt  is  being  updated,  this  logical  name is an
+  integer value which is the maximum length of the prompt.
+
+
+SD_UNDO_IF_ERROR    (default TRUE)
+
+  This logical name is a boolean  value (TRUE or FALSE) which determines
+  if  the current default directory is set back to its original location
+  if  an  error  occurs  in  the  expansion  of  a   complex   directory
+  specification.
+
+
+SD_INPUT_FILE       (default SD_INPUT_FILE.DAT in current directory)
+
+  This logical name is  a  literal  string  value  which is the filename
+  specification  of the file which will be used to read input  directory
+  specifications (one per line) to be loaded into the directory stack.
+
+
+SD_OUTPUT_FILE      (default SD_OUTPUT_FILE.DAT in current directory)
+
+  This logical name is  a  literal  string  value  which is the filename
+  specification of the file which will be used to write output directory
+  specifications (one per line) currently loaded in the directory stack.
+
+
+SD_QUIET            (default FALSE)
+
+  This logical name is a boolean  value (TRUE or FALSE) which determines
+  if the new default directory name is displayed when you change default
+  directory.
+
+2 Usage_Summary
+Square brackets ("[]") below indicate optional items.  TOS = Top-Of-Stack,
+CDD = Current Default Directory, MFD = Main File Directory.
+
+SD                             ! Set default to SYS$LOGIN
+SD \                           ! Swap CDD with TOS
+SD \slot_number                ! Swap CDD with slot_number
+SD \-slot_count                ! Swap CDD with slot slot_count slots down
+SD ~user                       ! Set default to user's login default
+SD [disk:]^                    ! Set default to MFD of disk
+SD `                           ! Set default to next directory up the tree
+SD ? [subtopic]                ! Online help
+SD /A                          ! Display stack attributes
+SD /B [slot_count]             ! Pop stack back slot_count slots (default 1)
+SD /C                          ! Display CDD
+SD /D slot_number              ! Delete the specified slot from the stack
+SD /E [value]                  ! Display/change undo expansion errors flag
+SD /G slot_number              ! Make slot_number the CDD (Get slot)
+SD /H [subtopic]               ! Online help
+SD /? [subtopic]               ! Online help
+SD /L                          ! List CDD (indicated by "->") and stack
+SD /O slot_number              ! Overwrite stack slot with CDD
+SD /P [slot_number]            ! Pop stack to slot_number (default TOS)
+SD /Q [value]                  ! Display/change if new CDD will be displayed
+SD /R [input_file]             ! Read file & load directory specifications
+SD /S slot_number slot_number  ! Swap contents of two stack slots
+SD /T [value]                  ! Display/change the type of the stack
+SD /U [value]                  ! Display/change update prompt flag
+SD /W [output_file]            ! Write stack contents to file
+SD /Z                          ! Zero (reset) the stack
+2 Options
+
+SD can take from zero to three parameters as options.
+
+An option can be one of the  characters  "\", "~", "^", "`" or "?", or a
+qualifier style of option as described below.
+
+If no parameter  is  supplied,  the  default login directory (SYS$LOGIN)
+becomes the current default directory.  For example,
+
+     $ SD
+
+
+Backslash ("\") means that the directory stored  on the top of the stack
+should  be  made the current default directory and the  current  default
+directory should be stored on the top of the  stack,  i.e.,  swap  them.
+For example,
+
+     $ SD \
+
+
+Backslash ("\") can be  immediately  followed  by  a single slot number.
+This  means  that the directory stored in the given slot number  in  the
+stack should be made the  current  default  directory  and  the  current
+default  directory  should  be  stored  in  the given slot number of the
+stack, i.e., swap them.  For example,
+
+     $ SD \5           ! Swap with directory in slot number 5 in the stack.
+
+
+Backslash ("\") can also be  immediately  followed  by a single negative
+number.   This means that the directory stored in the slot which is that
+number of slots down in the stack should be  made  the  current  default
+directory  and  the  current  default directory should be stored in that
+slot of the stack, i.e., swap them.  The top-of-stack is always -1.  For
+example,
+
+     $ SD \-7          ! Swap with directory 7 slots down in the stack.
+
+
+Tilde ("~") means that  the  default  login  directory of the user whose
+username follows the tilde should be made the current default directory.
+This function is restricted to privileged users!  For example,
+
+     $ SD ~CHARLIE
+
+
+Circumflex  ("^")  means  that  the  Main  File  Directory  (MFD),  i.e.
+[000000],  of  the current or specified disk should be made the  current
+default directory.  For example,
+
+     $ SD ^            ! Set default to the MFD of the current disk.
+
+     $ SD D_9:^        ! Set default to the MFD of disk D_9.
+
+
+Back-quote ("`") means to go one subdirectory up the tree of the current
+position in the directory tree.  For  example, (assume a current default
+directory in each of the following examples of D_Z:[ZENA.DATA.RAT.BIG]):
+
+     $ SD `            ! Set default to D_Z:[ZENA.DATA.RAT]
+
+     $ SD ``           ! Set default to D_Z:[ZENA.DATA]
+
+     $ SD ``.CAT.SLOW  ! Set default to D_Z:[ZENA.DATA.CAT.SLOW]
+
+
+Question mark ("?") means provide online  help.  You may specify a valid
+Help  subtopic  for  quicker  access to information  you  require.   For
+example,
+
+     $ SD ?                   ! The full help file entry.
+
+     $ SD ? usage_summary     ! Just the entry entitled "Usage_Summary".
+
+
+/A
+
+  The A  option  causes  all  stack  Attributes  to  be  displayed.  For
+  example,
+
+     $ SD /A
+
+
+/B [slot_count]
+
+  The B option causes the stack to  be popped Back either to the current
+  top-of-stack, or, if the optional slot_count is provided, by the given
+  number of slots.  The current default directory is set to the contents
+  of  the  final  slot popped.  All intervening slots in the  stack  are
+  discarded.
+
+     $ SD /B           ! Pop to the top-of-stack (same as "/B 1" and "/P").
+
+     $ SD /B 7         ! Pop back 7 slots in the stack (same as "/P -7").
+
+
+/C
+
+  The C option causes  the  current  default  directory to be displayed.
+  This is equivalent to the DCL command "SHOW DEFAULT".  For example,
+
+     $ SD /C
+
+
+/D slot_number
+
+  The D option  deletes the given  slot number from  the directory stack
+  and compresses the stack numbering to eliminate the space created. For
+  example,
+
+     $ SD /D 125       ! Delete slot number 125 from the stack.
+
+
+/E [value]
+
+  The E option causes the state of  the undoing of Expansion Errors flag
+  to  be  displayed, or, if a valid value for the flag is supplied,  for
+  the flag to be changed to that value.  The value must be  either  TRUE
+  or FALSE.  For example,
+
+     $ SD /E             ! Show whether expansion errors will be undone.
+
+     $ SD /E TRUE        ! Ensure expansion errors will be undone.
+
+
+/G slot_number
+
+  The G option  makes the directory stored in the given slot number  the
+  current default directory without saving the current default directory
+  back into  the stack.  Consequently, the  current default directory is
+  not stored unless it is already in the stack elsewhere.  For example,
+
+     $ SD /G 25           ! Make slot number 25 in the stack the CDD.
+
+
+/H [subtopic]
+/? [subtopic]
+
+  The H option (for which the  question  mark ("?") is a synonym) causes
+  this  Help information to be displayed online.  The same action can be
+  caused by use of the question mark ("?")  as  a  parameter.   You  may
+  specify  a  valid  Help subtopic for quicker access to information you
+  require.  For example,
+
+     $ SD /H           ! Display online help.
+
+     $ SD /?           ! Display online help.
+
+     $ SD ?            ! Display online help.
+
+     $ SD /? usage     ! Display the Usage_Summary subtopic in online help.
+
+
+/L
+
+  The L option Lists the  current  default directory (indicated by "->")
+  and  all  used stack slots from the top-of-stack down by slot  number.
+  For example,
+
+     $ SD /L
+
+
+/O slot_number
+
+  The O option causes the  the  contents  of  the given stack slot to be
+  Overwritten  with the current default directory.  The current  default
+  directory is not affected.  For example,
+
+     $ SD /O 8
+
+
+/P [slot_number]
+
+  The P option causes  the  stack  to  be  Popped  either to the current
+  top-of-stack,  or,  if  the optional slot_number is provided,  to  the
+  given slot number.  The  current  default  directory  is  set  to  the
+  contents of the final slot popped.  All intervening slots in the stack
+  are  discarded.   The  optional  slot_number  can be a single negative
+  number.  This means that  the  directory  stored  in the slot which is
+  that  number  of  slots down in the stack should be made  the  current
+  default directory and all intervening slots should be popped from  the
+  stack and discarded.  For example,
+
+     $ SD /P           ! Pop to the top-of-stack.
+
+     $ SD /P 7         ! Pop to slot number 7 in the stack.
+
+     $ SD /P -7        ! Pop to 7 slots down in the stack (same as "/B 7").
+
+
+/Q [value]
+
+  The Q (Quiet) option will either  report whether new default directory
+  names are to be displayed, or, if a valid value is supplied, cause new
+  directory names to be displayed or not, as indicated, thereafter.  The
+  value must be either TRUE or FALSE.  For example,
+
+     $ SD /Q             ! Show if new default dir names are displayed
+
+     $ SD /Q TRUE        ! New default dir names are to be displayed
+
+
+/R [input_file]
+
+  The R option causes  a  file  containing directory specifications, one
+  per  line,  to  be  Read and for the stack to  be  loaded  with  these
+  specifications in the  order  they  are  read.   The  current  default
+  directory  is  not  affected.   An  optional  input  filename  may  be
+  specified.   If  no  filename  is  specified,  SD  uses  the  filename
+  specified  by the logical name SD_INPUT_FILE.  If this is not defined,
+  SD uses the file called SD_INPUT_FILE.DAT in  the  current  directory.
+  For example,
+
+     $ SD /R
+
+     $ SD /R  MY_DIR_LIST.SAVE
+
+
+/S slot_number slot_number
+
+  The S option causes the contents of the two stack slots to be swapped.
+  The current default directory is not affected.  For example,
+
+     $ SD /S 5 11       ! Swap the contents of slots 5 and 11.
+
+
+/T [value]
+
+  The T option causes the type of the stack (ABSOLUTE or RELATIVE) to be
+  displayed, or, if a valid value  for  the  stack type is supplied, for
+  the stack type to be changed to that type.  For example,
+
+     $ SD /T             ! Display current stack type.
+
+     $ SD /T ABSOLUTE    ! Make the current stack type ABSOLUTE.
+
+
+/U [value]
+
+  The U option  causes  the  state  of  the  Update  prompt  flag  to be
+  displayed, or, if a valid value for the flag is supplied, for the flag
+  to  be  changed  to  that value.  Whenever the flag  is  displayed  or
+  changed, the current prompt is updated accordingly.  The value must be
+  either TRUE or FALSE.  For example,
+
+     $ SD /U             ! Show whether prompt will be updated and update
+                         !  the current prompt if updating is enabled.
+
+     $ SD /U TRUE        ! Set Update prompt flag and update the prompt.
+
+
+/W [output_file]
+
+  The W option causes a file to  be Written which contains the directory
+  specifications  in  the  stack, one per line in  order.   The  current
+  default directory is not affected.  An optional output filename may be
+  specified.   If  no  filename  is  specified,  SD  uses  the  filename
+  specified by the logical name SD_OUTPUT_FILE.  If this is not defined,
+  SD  uses  the file called SD_OUTPUT_FILE.DAT in the current directory.
+  For example,
+
+     $ SD /W
+
+     $ SD /W  END_SESSION_DIRS.SAVE
+
+
+/Z
+
+  The Z option causes the  stack  to be Zeroed (i.e., completely reset).
+  The current default directory is not affected.  For example,
+
+     $ SD /Z
+
+2 Examples
+
+ 1.  Set current default directory to the default login directory.
+
+  $ SD
+  D_R:[REBECCA]
+  $
+
+
+ 2.  Display online help about the L option.
+
+  $ SD ? /L      ! Note the full option (including forward slash) is needed.
+
+  SD
+
+    /L
+
+    The L option Lists the  current  default directory (indicated by "->")
+    and  all  used stack slots from the top-of-stack down by slot  number.
+    For example,
+
+         $ SD /L
+
+  Topic?
+  $
+
+
+ 3.  Use the L option to list the current default directory and the stack.
+
+  $ SD /L
+  -> D_R:[REBECCA.AEROBICS]
+  2: D_R:[REBECCA.FITNESS.RESULTS]
+  1: D_R:[REBECCA]
+  $
+
+
+ 4.  Set the current default directory to a specified directory.
+     (Use stack from example immediately above.)
+
+  $ SD -.SWIMMERS.ATEAM                  ! Do the SD.
+  D_R:[REBECCA.SWIMMERS.ATEAM]
+  $ SD /L                                ! List the stack again.
+  -> D_R:[REBECCA.SWIMMERS.ATEAM]
+  3: D_R:[REBECCA.AEROBICS]
+  2: D_R:[REBECCA.FITNESS.RESULTS]
+  1: D_R:[REBECCA]
+  $
+
+
+ 5.  Set the current default directory to the most recently used directory
+     (the top-of-stack) and save the current default directory to the
+     top-of-stack.
+
+  $ SD /L                                ! First just list the stack.
+  -> D_R:[REBECCA.AEROBICS]
+  2: D_R:[REBECCA.FITNESS.RESULTS]
+  1: D_R:[REBECCA]
+  $ SD \                                 ! Do the swap.
+  D_R:[REBECCA.FITNESS.RESULTS]
+  $ SD /L                                ! List the stack again.
+  -> D_R:[REBECCA.FITNESS.RESULTS]
+  2: D_R:[REBECCA.AEROBICS]
+  1: D_R:[REBECCA]
+  $
+
+
+ 6.  Set the current default directory to the directory used "3 SDs ago".
+
+  $ SD /L                                ! List the stack.
+  -> D_R:[REBECCA.SWIMMERS.CTEAM]
+  5: D_R:[REBECCA.SWIMMERS.BTEAM]
+  4: D_R:[REBECCA.SWIMMERS.ATEAM]
+  3: D_R:[REBECCA.AEROBICS]
+  2: D_R:[REBECCA.FITNESS.RESULTS]
+  1: D_R:[REBECCA]
+  $ SD \-3                               ! Swap with directory 3 back.
+  D_R:[REBECCA.AEROBICS] 
+  $ SD /L                                ! List the stack again.
+  -> D_R:[REBECCA.AEROBICS]
+  5: D_R:[REBECCA.SWIMMERS.BTEAM]
+  4: D_R:[REBECCA.SWIMMERS.ATEAM]
+  3: D_R:[REBECCA.SWIMMERS.CTEAM]
+  2: D_R:[REBECCA.FITNESS.RESULTS]
+  1: D_R:[REBECCA]
+  $
+
+
+ 7.  Enable the prompt to be updated.
+
+  $ SD /C                                ! Simply see where we are now.
+  D_R:[REBECCA.AEROBICS]                 ! This is our current default dir.
+  $ SD /U TRUE                           ! Enable prompt updating.
+  %SD-I-UPDATE, Prompt will be updated.
+  D_R:[REBECCA.AEROBICS]                 ! This is now the new prompt !
+
+
+ 8.  With prompt updating enabled, change directory.
+
+  D_R:[REBECCA.AEROBICS] SD /A           ! Check what SD attributes are set.
+  SD Directory stack attributes:
+
+  Stack size:  20
+  Stack limit: 200
+  Stack style: ABSOLUTE
+  Stack usage: 5 slots.
+  Slot range:  1 to 5
+
+  Undo errors:   TRUE
+  Update Prompt: TRUE
+  Prompt format: LEFT
+  Prompt head:   Default.
+  Prompt tail:   Default.
+  Max Prompt size: 32
+  D_R:[REBECCA.AEROBICS] SD .HUFFNPUFF.FAST    ! SD to new directory.
+  *BECCA.AEROBICS.HUFFNPUFF.FAST]              ! *This* is now the prompt !
+
+
+ 9.  Change the maximum prompt size from the default (32) to 20 characters.
+
+  *BECCA.AEROBICS.HUFFNPUFF.FAST] DEFINE SD_MAX_PROMPT_SIZE 20  ! Set size.
+  *BECCA.AEROBICS.HUFFNPUFF.FAST] SD /U TRUE                    ! Update it.
+  %SD-I-UPDATE, Prompt will be updated.
+  *CS.HUFFNPUFF.FAST]
+
+
+ 10. Change directory using a complex directory specification involving a
+     logical name.  (Logical names may be defined by the user or by the
+     system).  (In this example, prompt updating is NOT enabled.)
+
+  $ DEFINE FINANCE D_S:[SCOTTY.PRIVATE.FINANCE]  ! Define logical name
+  $ DIRECTORY FINANCE:
+
+  Directory D_S:[SCOTTY.PRIVATE.FINANCE]
+
+  BANK.DIR;1
+
+  Total of 1 file.
+  $ SD FINANCE:,.BANK.ANZ
+  D_S:[SCOTTY.PRIVATE.FINANCE.BANK.ANZ]
+  $
+
+ 11. Delete slot number 3 from the stack.
+
+  $ SD /L                                ! List the stack.
+  -> D_R:[REBECCA.SWIMMERS.CTEAM]
+  5: D_R:[REBECCA.SWIMMERS.BTEAM]
+  4: D_R:[REBECCA.SWIMMERS.ATEAM]
+  3: D_R:[REBECCA.AEROBICS]
+  2: D_R:[REBECCA.FITNESS.RESULTS]
+  1: D_R:[REBECCA]
+  $ SD /D 3                              ! Delete slot number 3.
+  $ SD /L                                ! List the stack again.
+  -> D_R:[REBECCA.SWIMMERS.CTEAM]
+  4: D_R:[REBECCA.SWIMMERS.BTEAM]
+  3: D_R:[REBECCA.SWIMMERS.ATEAM]
+  2: D_R:[REBECCA.FITNESS.RESULTS]
+  1: D_R:[REBECCA]
+  $
+
+2 Installation
+To install SD:
+
+  1. Link SD (NO Traceback).
+  2. Define a foreign command: $ SD :== $device:[directory]SD
+
+2 Author
+The author of SD is
+
+    Jonathan Ridler,
+    Information Technology Services,
+    The University of Melbourne,
+    Parkville, Victoria, AUSTRALIA, 3052.
+
+    Email: jonathan@unimelb.edu.au
+
+SD is written entirely in DEC Pascal and has been built and tested on
+OpenVMS VAX v7.1 (DEC Pascal v5.6) and OpenVMS Alpha v7.1 (DEC Pascal v5.7).
+
+Suggestions, comments, criticisms, bug reports, bug fixes ... all welcome.
+
+2 Version
+The current version of SD is v3.2 (17-Aug-1999).

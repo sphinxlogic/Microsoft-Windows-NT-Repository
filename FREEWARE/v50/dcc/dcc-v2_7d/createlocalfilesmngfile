@@ -1,0 +1,57 @@
+#!/bin/sh
+#File createLocalFilesMngFile
+# 
+string1='PrefixDCCDFLTS'
+string2='SysHdrDir'
+answer='0'
+until [ $answer = 'y' ]; do
+  echo "Default dcc option(s) ?  For example:"
+  echo ' -zgpr        (less checking of "good programming practices")'
+  echo " +zrhw -zlvl2 (report only errors or highest level warnings, and prevent"
+  echo "               compilation if level >= 2)"
+  echo "See 'dcreadme.pod' for options. If several options, separate them by spaces."
+  echo -n ": "
+  read defaults
+  answer='0'
+  until [ $answer = 'y'  -o  $answer = 'n' ]; do
+    echo -n 'OK ? (y/n): '
+    read answer
+    if [ ! "$answer" ]; then answer='0'; fi
+  done
+done
+defaults="$defaults "
+sysHdrDir=0
+grep __dcc.\*gcc DccExecFiles/starter.dcc > /dev/null
+if [ $? = 0 ]; then
+  echo 'main(){}'|gcc -v -E - 2> specs.tmp>/dev/null
+  cppIncludeDirs=`sed -e '1,/#include </d' -e '/^End of/,$d' specs.tmp`
+  if [ ! "$cppIncludeDirs" ]; then
+    echo '>>> gcc does not give list of system include directories;'
+    echo '>>> "dccFiles.mng" file may have to be adapted by hand.'
+  else
+    set $cppIncludeDirs
+# Find last include directory 
+    while [ $# -ne 1 ]; do w="$w $1"; shift; done
+    sysHdrDir=$1
+# If there are other directories, prepare to put them in PrefixDCCDFLTS
+    if [ "$w" ]; then
+      set $w
+      defaults="$defaults$*"
+      defaults=`echo " $defaults"|sed -e 's. /. -I/.g'`
+      defaults="$defaults "
+    fi
+  fi
+fi
+# RegExp for string   <tab|space>* " <any>* "   (BEWARE of <tab> !!!) "
+suffix='\([ 	]*\)"\([^"]*\)"'
+if [ $sysHdrDir ]; then
+  sed -e "s!$string1$suffix!$string1\1\"\2$defaults\"!"\
+      -e "s!$string2$suffix!$string2\1\"$sysHdrDir\"!"\
+      dccFiles.mng >locdcFil.mng
+else
+  sed -e "s!$string1$suffix!$string1\1\"\2$defaults\"!"\
+      dccFiles.mng >locdcFil.mng
+fi
+#
+#End file createLocalFilesMngFile
+

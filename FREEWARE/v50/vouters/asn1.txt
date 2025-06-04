@@ -1,0 +1,253 @@
+/*
+ *                            COPYRIGHT (C) 2000 BY
+ *                      COMPAQ COMPUTER CORPORATION, HOUSTON
+ *                       TEXAS.  ALL RIGHTS RESERVED.
+ *
+ *    THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+ *    ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+ *    OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+ *    THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+ *    PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+ *
+ *    THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+ *    SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+ *    SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+ *
+ *    NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+ *    ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+ *    PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+ *    CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+ */
+/*
+
+  On OpenVMS, compile and link like any C program. To activate the program,
+  type:
+
+     $ mc asn1_coder -option value
+
+  Using Microsoft Visual C++, build a console application. Activate an MS-DOS
+  Window and and enter the command :
+
+     asn1_coder -option value
+
+     Note: -option can be "-e" for encoding an Object OID value to binary,
+           or "-d" to decode a binary value to Object OID. The value is
+           either the Object OID when option equals "-e", or the
+           binary value when option equals "-d".
+
+ */
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+#ifndef WIN32
+#define min(a,b) (a)<(b)?(a):(b)
+#endif
+/*
+** insert_byte
+** Translates a value into ASN.1 notation and insert
+** it inside a buffer.
+** Inputs: cp : character pointer inside the buffer.
+**                length : the value to be written
+** value : the number to be encoded.
+** Returns: cp : updated to point to first free byte.
+*/
+unsigned char *insert_byte (unsigned char *cp,int value) {
+    unsigned char byte_count = 0;
+    int i=value,j,k=value;
+
+    while ((i = i/0x80) > 0) byte_count++;
+    i = k;
+    for (j=byte_count;j>0;j--){
+         i = i >> (7*j);
+         *cp++ = (unsigned char)i + 0x80;
+         k -= (i<<(7*j));
+         i=k;
+    }
+    *cp++ = (unsigned char)value%0x80;
+    return (cp);
+}
+/*
+ * Encode a ASCII Object OID to ASN.1
+ * Input : ascii_values : string containing the object ID (in dot notation).
+ * Output : ident, the binary buffer containing the encoded object ID,
+ * Return : length of ident buffer.
+ */
+int encode(char *ascii_values, unsigned char **idents){
+     unsigned char *cp2,*cp3;
+     char *cp1,*cp5;
+     int i;
+     int longval,value;
+
+     *idents = malloc (50);
+     cp2 = cp3 = *idents;
+     cp1 = cp5 = ascii_values;
+     value = 0;
+     /*
+      * Process the first 2 values differently. The first byte of the
+      * sent identifier contains first value / 40 and the second value
+      * % 40.
+      */
+     for (i=0;i<2;i++){
+        cp1 = strchr (cp5,'.');
+        if (cp1 != NULL) *cp1 = 0;
+        /* Convert to an unsigned logword */
+        longval  = strtoul(cp5,NULL,10);
+        if (i==0) value = (unsigned char) longval*40;
+        else value += (unsigned char)longval;
+        cp5 = cp1+1;
+     }
+     cp2 = insert_byte (cp2,value);
+     /*
+      * Process the rest normally.
+      */
+     do {
+        cp1 = strchr (cp5,'.');
+        if (cp1 != NULL) *cp1 = 0;
+        /* Convert to an unsigned logword */
+        longval = strtoul(cp5,NULL,10);
+        cp2 = insert_byte (cp2,longval);
+        cp5 = cp1+1;
+     }while (cp1 != NULL);
+     i = (int)(cp2 - cp3);
+     return (i);
+}
+/*
+**  Decode a binary value to OID number in dot notation. Appends the value
+**  to a supplied ASCII buffer.
+*/
+unsigned char *return_ascii (unsigned char *cp,char *ascii_buffer) {
+    char tmp[60];
+    unsigned int added_size,size =0;
+
+    while (*cp >= 0x80){
+        size <<= 7;
+        added_size = *cp&0x7f;
+        size += (added_size<<7);
+        cp++;
+    }
+    size += *cp;
+    cp++;
+    if (ascii_buffer != NULL){
+        sprintf(tmp,"%1d.",size);
+        strcat (ascii_buffer,tmp);
+    }
+    return(cp);
+}
+/*
+** find_names
+** Returns the ASCII equivalent of ASN.1 numbers.
+*/
+char *find_names (unsigned char *names,int max_index) {
+     static char buffer[100];
+     unsigned char *cp,*cp1;
+     unsigned char *names_save;
+
+     /*
+      * Clear all bytes of buffer.
+      */
+     memset (buffer,0,sizeof(buffer));
+     /*
+      * Recompute data bytes whose value is
+      * greater than 128 (0x80) which are in two
+      * bytes.
+      */
+     names_save = calloc (max_index+1,sizeof (char));
+     memcpy(names_save,names,max_index);
+     cp = names_save;
+     cp1 = &names_save[max_index];
+     while (cp<cp1) cp = return_ascii((unsigned char *)cp,buffer);
+     buffer[strlen(buffer)-1] = 0;
+     free(names_save);
+     return (buffer);
+}
+/*
+** Upper level decoding routine.
+** Inputs: a binary buffer pointer and its length.
+** Return : pointer to an ASCII formatted OID.
+*/
+char *decode(unsigned char *cp,int length){
+     static char tmp[256];
+     unsigned char *names;
+     int i;
+
+     names = calloc (length+1,sizeof (char));
+     names [0] = *cp/40;
+     names [1] = *cp%40;
+     cp++;
+     for (i = 2; i <= length ; i++){
+          names [i] = *cp;
+          cp++;
+     } /* end for */
+     strcpy (tmp,find_names(names,length+1));
+     return(tmp);
+}
+void usage(){
+   printf ("Usage : ASN1_coder -op value\n");
+   printf ("Valid op : -e for encoding from OID to ASN.1\n");
+   printf ("           -d for decoding ASN.1 to OID\n");
+}
+int main(int argc,char **argv){
+    int length,i;
+    unsigned long value;
+    unsigned char *idents,*cp2;
+    char *cp,*cp1;
+    char buffer[1000];
+        char digits[9];
+
+    /*
+     * Check for correct number of arguments.
+     */
+    if (argc != 3){
+        usage();
+        exit(1);
+    }
+    /*
+     * if command contains -e, encode the second program
+     * argument which represents an ASCII OID.
+     */
+    if (!strcmp(argv[1],"-e")){
+       length = encode(argv[2],&idents);
+       for (i=0;i<length;i++) printf("%02x",idents[i]);
+       free(idents);
+    }
+
+    /*
+     * if command contains -d, decode the second program
+     * argument which represents an hexadecimal string.
+     */
+    if (!strcmp(argv[1],"-d")){
+       length = strlen(argv[2]);
+       idents =cp2= malloc(100);
+       memset(buffer,0,sizeof(buffer));
+       /*
+        * Copy bytes needed in reverse order.
+        */
+       cp = argv[2];
+       for (;*cp != 0;){
+           memcpy(digits,cp,min(8,strlen(cp)));
+           digits[min(strlen(cp),8)] = 0;
+           cp += min(strlen(cp),8);
+           value = strtoul(digits,NULL,16);
+            /*
+             * Compute significant digits starting from high-byte.
+             */
+            for (cp1 = ((char *)&value)+sizeof(unsigned int)-1;
+                 cp1 != ((char *)&value)-1;cp1--)
+                 if (*cp1 != 0)
+                     break;
+            /*
+             * Copy significant bytes.
+             */
+            for(;cp1!=((char *)&value) -1;cp1--) *cp2++ = *cp1;
+       }
+       cp = decode(idents,(int)(cp2 - idents));
+       printf("%s",cp);
+       free(idents);
+    }
+    return 1;
+}

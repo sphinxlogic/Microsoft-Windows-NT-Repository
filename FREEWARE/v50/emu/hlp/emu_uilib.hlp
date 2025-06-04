@@ -1,0 +1,608 @@
+1 EMU_UILIB   
+ Collection of routines used to implement a user interface. 
+ This library uses SMG with symbols in _EMUUIDEF
+ See individual routines for detail
+2 PARAMTBL_GETTABLE 
+ Routine to display all possible tables in a menu and after selection, set
+ the chosen table in the DB_MAP_L_TBL field in the input param
+3 Inputs:
+	.address of .long where .long table is written
+	.address of virtual display to place menu on
+3 Outputs:
+ 	.long value of the table (symbols in _EMUDBDEF)
+3 Returns:
+	SS$_NORMAL	did it
+	SS$_ACCVIO	Cant write it
+2 SUI_PARAM_SEL
+  Routine to:
+	Present all params in selected table in menu and upon selection:
+	Add selected table/param to output list.
+3 Inputs
+	.address of .long where number of items selected is written
+	.address of desc pointing to outp area
+	.address of virtual display
+ -------- Optional Params --------
+	.long	value of len of each item
+	.long	flags
+       MAPPER.DAT is the input data file
+4 Len_of_Item
+    Optional param. If not present def = 8. If present must be
+    >= 8.
+    The selected table/param is 2x.long. This routine places each
+    selected .quad in the list and advances the output pointer the 
+    number of bytes specified by len. The output areas skipped are not
+    read or written. The caller can use this routine to init a 
+    table with the params selected and complete it using others. 
+4 Flags
+   Optional param. If present the bits are interpreted as follows:
+	bit		When set
+	0		Exit after 1 selection
+3 Output
+	A list of selected table/param pairs seperated by number of 
+       bytes specified in Len_of_item.
+3 Return
+	SS$_NORMAL	OK
+	SS$_BUFFEROVF	Output buffer too small
+	SS$_BADPARAM	Len was < 8
+	Any from RMS
+2 SUI_MAKE_MENU
+
+ Routine to display a menu on the specified display.
+ If privilege checking is requested, each menu item has a corresponding
+ priv mask in which the required priv to display this item is specified.
+ If the caller does not have the required priv, the item is not part of
+ the resulting menu. This routine accounts for any suppressed item such
+ that the choice number returned to the caller always relates to the 
+ original position the item selected was in.
+
+3 Inputs
+	p1	.address pointing to a menu structure
+	p2	.address of .word choice returned
+	p3	.long menu type. Optional SMG symbol. If not 
+		present, default is SMG$K_VERTICAL.
+4 Menu_structure
+ A menu structure supplies display location and required priv information
+ in the following format:
+ 	.long	Virtual display the menu will appear on. 
+	.long	Virtual keyboard address
+	.long	Menu type
+	.long	Number of items in the menu
+	.long	Size of each item
+	.long	flag indicating whether or not to check privs
+	.long	address of priv list
+	 If priv checking is on, 
+	 one quad for each item, which is a VMS privilege mask specifying
+	 any privs necessary to display the corresponding item
+	 If the priv is not enabled, the item is not displayed.
+	 If checking is NOT on this param is ignored.
+       .long address of Display items
+	 The series of .ascii strings displayed in the menu. 
+	 These must be:
+		The number specified in P2
+		Each must be of len specified in P3
+	
+3 Outputs
+	.word 	choice number
+        The choice number always points to the corresponding item in 
+	 the original input, even if intervening items are suppressed by
+	 priv checking.
+3 Returns
+ 	SS$_NORMAL  	OK
+ 	SS$_BADPARAM	
+	SS$_NOPRIV	Caller does not have sufficient privs to 
+		        display ANY item.
+	SS$_INSFMEM  	More than MAXITEM items are in the menu and checking
+			is enabled.
+	any return from SMG menu or memory expansion operations, 
+3 Description
+	If checking is not on, the input menu is simply displayed
+	and upon user input, the choice is returned to the caller.
+	If checking is on, each item has a corresponding priv mask
+	and this is checked through CHECK_PRIVS (which see.
+	A table internal to this routine is maintained per call 
+	indexed by the resulting menu. The table contains the 
+	actual returned choice number which corresponds to the
+	the original input menu. For example:
+	A 5 item menu is input with checking enabled and the user
+	has privs to display items 1-3 and 5 but not 4
+	In this case items 1-3 and 5 (4 items) are  displayed. If the 
+	user selects item 4 (which is 5 in the original), 5 
+	is returned.
+2 EDIT_XLTTBL
+ 	Menu only routine to call EMU_XLTTBL routines. A menu of 
+	tables the underlying routines support is displayed. Upon
+	selection the routine is called with selection. 
+3 Input
+	None
+3 Output
+	According to the routine called. 
+3 Return
+	any from EMU_XLTTBL
+2 SCANNER_DB
+ Routine to maintain the scanner file. This file is read by SCANNER and
+ directs it's actions.
+3 Input
+	File EMU5_DAT:SCANNER.DAT
+	If the file does not exist, it is created.
+  File format:
+	Table		EMUBD table the following param is in
+	Param		EMUDB param to act on
+	Action		Which DB to send param to
+	Spare		Spare/align
+  User is resented with a a menu that allows:
+		List	- Format and display contents
+		Add	- Add an entry
+		Modify	- Change existing entry
+		Delete	- delete an entry
+
+3 Output
+	File EMU5_DAT:SCANNER.DAT
+3 Returns
+	SS$_NORMAL	OK
+2 SUI_QUERY 
+ Routine to establish a search context and pass it to the 
+ appropriate routines. The query screen is then constructed and 
+ displayed and the results diplayed there.
+3 QUERY_STRUCTURE
+ A query structure is created at the beginning of each query
+ and used until another query starts. Format:
+	.quad	DB to search in. This is the 1st and last
+		address of the DB written when it was mapped.
+	.quad	Search descriptor. Pointing to the user input
+		search string.
+	.long	Search direction. Either forward of backward.
+	.long	Context. Maintained by the search facility showing
+		last 'hit'. Used to walk through a DB displaying 
+		associated recs one at a time.
+	.long	param number. PSR specific
+	.long	DB ID - The PID of the DB owner
+2 SUI_QRY_HINTS
+ Clears screen and writes hint messages for query prompt on query screen.
+2 SUI_FIND_RELATER
+ Routine accepts a QUERY_STRUCTURE and returns a pointer to
+ the corresponding relater record (if found)
+3 Input
+	.address of query descriptor
+3 Output
+	R1 = address of relater record if found, Else R1 = 0
+	Context field of query structure is written with 
+	the address of the found record. Used to recursively
+	find sequences of records.
+3 Return
+ 	SS$_NORMAL		OK
+	SS$_ITEMNOTFOUND        Just that
+	SS$_BADPARAM		- DBid is not recognised
+       SS$_BADCONTEXT		Context field is invalid
+	SS$_BADCHAIN		Major error - The underlying DB contained
+				a BOXID that was not in the relater. This
+				can be valid for the instant it takes
+				between the time the boxid is created and
+				the time the relater record is sent. 
+				Preliminary advice:
+				Try query again. If error persists there is
+				DB inconsistancy and as this DB was designed 
+				to be consistant, this error cannot happen.
+				If this impossibility occurs, log it, skip
+				the query, die, crash and go to the pub
+				where solutions to this kind of problem 
+				are normaly worked out.
+	
+	Any return from $FAO, 
+2 STRING_COMPARE
+  Compares 2 strings for match. String 2 may contain VMS standard
+ widcards. By default, case is ignored. Optionaly, match can be made
+ case sensitive.
+3 Input
+  .address of desc pointing to string 1
+  .address of desc pointing to string 2
+  .long flags
+4 Flags
+  A bit pattern controlling search:
+   bit		When set
+   0		Case sesitive search
+ 
+3 Output
+  If match is case blind (default), string 2 is converted to uppercase.
+3 Return
+  STR$_MATCH		Strings matched  
+  STR$_NOMATCH		Strings did no match
+  SS$_ACCVIO		Could not read one of the strings
+   Any from STR$
+2 MAKE_REPORT
+  Takes as input a list of params to extract from the db, translate and 
+ list them to the screen and the given output file.
+3 Input
+  .address of .long number of params in list
+  .address of param list
+  .address of rab to write output to
+ Notes:
+	The params are 8 bytes long each and held in a section
+	of 16 bytes each leaving 8 bytes for this routine's usage.
+	The input params (bytes 0-7) are not modified
+	The 'spare' space (8-15) may be.
+       The rab param is the address of an RMS rab associated with a 
+	previously opened file.
+3 Output
+ Each param specified in the list is extracted from the database, translated
+ and written to file. The output is organised such that all params
+ associated with a specific device are listed together similar to:
+	NodeId	
+		Table
+			Instance Param
+			 	  .
+			 	  . 
+			Instance Param
+			 	  .
+			 	  . 
+		Table
+			Param
+			  .
+			  .
+	NodeId
+	  .
+       And so on
+	  .
+3 Description
+ The report is Generated by:
+	Create an internal section to store returned record headers
+	If during execution this section is exhausted it is 
+	doubled and the processing restarts.
+	In a loop:
+	Reading the param list and:
+	Get Next rec from EMUDB matching tbl.param in list
+	get Relater rec for this boxid
+	Store pram in section
+	Store BOXID in section
+	Store relater record addr in section
+	
+  From top of section:
+   Loop2:
+	Get next section entry
+	Print nodeid
+	While relater recs match:
+	Print table name
+	While table matches
+	Print param
+      	End loop
+	Delete section
+	done
+2 SUI_REPORT
+ Crude interface to generate report on selected params. This is 
+ more of a debug/development tool but is significantly more useable
+ than a dump of the database and subsequent editing.
+3 Description
+  User may create a new report or execute a previously defined one. 
+ Previously defined reports are held as param lists in EMU5_DAT: with 
+ filetype '.rptp'. All existing file names of this type are presented
+ in a menu and if any is selected it becomes the current. Otherwise
+ the user is taken through through SUI_PARAM_SEL (Which see) and selects 
+ those params wanted in  the report. The resulting list can be saved.
+2 EXCEL_REPORT_BR   
+ Routine to create a file that can be uploaded and displayed in Excel
+ spreadsheets. This routine creates a brief reports based on the PSR
+ databases only.
+3 Inputs
+  None specified. The routine maps to all PSR databases, extracts and 
+  formats the data to the output file.
+3 Outputs
+  None specified. The file name and location is hardcoded as:
+   EMU5_DAT:EXCEL_REPORT_BR.DAT
+  It is formatted as follows:
+ Record 1 is a comma seperated list of headings in this order:
+	 DECnet IV address
+	 DECnet V NSAP
+	 SCS LAN address
+	 SCS node name
+	 SCS Cluster Number
+	 LAT Address
+	 LAT node name
+	 MOP Address
+	 MOP Device type
+	 MOP Name
+	 IP address
+	 IPX Address
+	 IPX Name
+	 LAN Address
+	 Name       
+ Each databse is probed and for each response, the corresponding field is
+ is formatted and filled in. If no repsonse, the field is blanked.
+ Note that hadrcoded here are the databases to skip - there is no 
+ processing and no entries for these.
+ Once all fields are written, the record is stored. If all fields are
+ blank, the next BOX is processed. The resulting display (in Excel) 
+ should look something like:
+ 
+  DECnet IV|DECnet V   |SCS Address|SCS Name|Lan Address | IP Addr |Name
+    1.1     49:00 ...   08-00-2b... CCCIx    08-00-2b...   1.2.3.4  CCCI4
+            49:01 ...                        AA-00-04...   1.2.3.5  ccci4.com
+							    1.2.3.6
+							    1.2.3.7
+         ---- blank rec ----------
+    1.2     49:00 ...   08-00-2b... CCCIx    08-00-2b...            CCCI2
+            49:01 ...                        AA-00-04...            CCCI2
+ The intended result is that all known values are present and can be 
+ found in the spreadsheet easily.
+3 Returns
+ 	SS$_NORMAL	OK
+	Any from MAP_SECTIONS, $RMS, $FAO, $EXP
+ The final status is printed on the user screen at exit.
+2 EMU_QUERY   
+ This routine is the entry point into the search & display functions.
+ General:
+	1 build standard display screen
+	2 Execute query by passing the query block into the search 
+	  mechanism. This returns a pointer to the RELATER rec.
+	4 Using info in relater rec, scan EMUDB for all recs
+	  in each table 
+	5 Display any record(s) returned
+ 	6 Update control menu with currently available options
+	7 Take action based on user input
+	8 Repeat 2 - 8 until:
+		User exit
+		No more records satisfy search string
+	7. Cleanup and exit
+3 Input
+	.address of Query Structure fully filled out
+	.address of coresponding RELATER record
+4 QUERY_STRUCTURE
+ A query structure is created at the beginning of each query
+ and used until another query starts. Format:
+	.quad	DB to search in. This is the 1st and last
+		address of the DB written when it was mapped.
+	.quad	Search descriptor. Pointing to the user input
+		search string.
+	.long	Search direction. Either forward or backward.
+	.long	Context. Maintained by the search facility showing
+		last 'hit'. This is the address of the PSRrec.
+		Used to walk through a DB displaying 
+		associated recs one at a time.
+	.long	param number. PSR specific
+	.long	Spare - Future use
+3 Output
+	Formatted records displayed on screen one at a time
+	Optionaly, user may log output to file
+3 Returns
+	SS$_NORMAL
+	SS$_INVARG 	addresses in query block = 0
+			Seach descriptor points to empty string
+	SS$_ACCVIO	Can't read DB
+			Can't read search string
+	
+2 CHECK4COUNTS 
+  Routine to get the PSR rec sepecified by the input and determine
+  if this box on this protocol has counter data avaialble (SYS_COM_V_CNTDB
+ bit in COM_HDR_L_SYSCTL is set)                          
+2 Input
+	.address of EMUDB rec  - Only the PROTOCOL and BOXID must be present
+	.address of DBTBL
+2 Outputs
+	None
+3 Returns
+  SS$_NORMAL 		Counts are available
+  SS$_ITEMNOTFIUND	Counts not avaialble
+ 	Any from LOCATE_BOXID, MAPLVB_DB
+2 DISP_CNTPARAM_MENU 
+  Erases disp3, places a 2 item menu in the disp and upon user input,
+  erases the disp and returns the choice in R0.  
+2 Input
+	None
+2 Outputs
+	None
+3 Returns
+	0 	User exited without making choice
+  	1	Users selected COUNTS
+	2	User selected PARAMS
+2 DISPLAY_TITLE3 
+  Routine to get the PSR rec sepecified by the input and display
+  parts of the header on line 3 of the title display
+2 Input
+  .address of EMUDB rec 
+	Only the PROTOCOL and BOXID must be present
+2 Outputs
+	1 line is written on line 3 of the title display
+3 Returns
+  SS$_NORMAL 		OK
+ 	Any from LOCATE_BOXID, MAPLVB_DB, $SMG, $FAO
+2 SUI_SET_PARAM_HELP
+  Routine to set the correct paramater help file in query display.
+  Help files are protocol specific and except for IP the names are
+  hard coded. To facilitate auotmatic adding of MIBs to the system
+  IP is handled seperately (in this routine). 
+2 Input
+  .address of PID
+ ---- following params only if IP. If IP, they must be present.
+	.Address of .word menu item selected
+	.address of desc menu strings
+2 Outputs
+  PARMHLPLIB is set with 1 of:
+	The hardcoded help file name associated with this PID
+	The MIB name extracted from the input list (IP)
+	The default PARMHLPLIB
+
+3 Returns
+  SS$_NORMAL 		OK
+2 EMQ_DISP_PSRREC
+ Display parts of RELATER rec on lines 1-2  
+ of top display
+2 Input
+  .address of query structure
+  .address of relater record
+2 Outputs
+  Line1: Name (prefered) or protocol address (if no name)
+  Line2: Class and device type (from relater)
+
+3 Returns
+  SS$_NORMAL 		OK
+  SS$_ITEMNOTFOUND		 Did not find matching PSR rec (should never
+				 happen)
+2 EMQ_DISP_RELATER  
+ Display contents of currently selected relater record at line 1 of
+ top display.
+3 Input
+  .address of relater record
+3 Output
+  Formatted screen display
+ if logging is on, write to file
+3 Returns
+ SS$_NORMAL
+2 EMQ_OOB_RECEIVE  
+ This routine is called when a control character is pressed. Depending
+ on the character pressed, the appropriate action is taken.
+3 Options
+ Thus far the following characters are enabled:
+ ^\ Displays the control menu and upon selection, sets the 
+ various options.
+2 EMQ_DISP_TITLES 
+ Routine called whenver either table or protocol changes in 
+ continuing search. Clear main screen and display table name
+ in bold. 
+3 Input
+ .address of EMUDB record buffer
+ MAPPER.DAT is the input file  containing the ID to name xlate for 
+ for table names.
+3 Output
+ New titles on the screen. If xlate can't be preformed, the 
+ id is translated and number displayed as Protocol.Table
+3 Returns
+ 	SS$_NORMAL	OK
+	SS$_BADPARAM	Unrecognised protocol 
+	any from RMS, FAO, SMG print line
+2 SUI_PRINT
+ Routine to print the specified line on the specified display
+ If logging is enabled, the line is also written to the 
+ output file.
+3 Inputs
+ .address of virtual display ID
+ .address of desc pointing to line to print
+ NOTE: This routine reads CUR_MOPTS to determine if logging is 
+ enabled. This param is not passed.
+3 Output
+ The line is printed on the display
+ If logging is enabled, the line is written to the outp file
+3 Returns
+ Any return from $SMG or RMS
+2 EMQ_SET_EMQMENU
+ Routine to scan the BOXIDTBL in the passed relater record and 
+ create a menu containing only those protocols present on this BOX.
+ A list of .long PIDS is also kept such that a menu choice used as 
+ an an index to this list will return the corresponding EMUPID of the
+ selected protocol.
+3 Inputs
+ 	.address of relater frame
+	.address of .long where number of items selected is returned
+3 Outputs
+	1. a list of selected items is placed starting at 
+	   EMUQUERY_PROT_MENU.
+	   Each item is an 8 byte .ascii menu choice.
+       2. A list of .longs is written with the EMUPID of
+	   the selected items in the same order as the 
+	   menu items. That is to say, the choice number
+	   returned, used as an index to this array will return
+	   the PID of the selected item.
+	3. Count of items selected for display.
+3 Returns
+  SS$_NORMAL		
+2 SUI_LOCATE_DB                                                          
+ Locates a (Possibly) previously mapped DB in the DB table structure
+ The structure is searched for a match with the input paramater.
+ If found, the address of the quad DB addresses is checked .
+ If not mapped, the routine attempts to map it
+3 Input
+	.LONG  EMU PID of the database to find this in
+	.address of descriptor pointin to MAP_STRUCTURE
+	symbol is SYS_PID_C_xxxxx in EMUSYSDEF
+3 Output
+ If found, R1 contains the pointer to the quad 1st and last address
+ that was returned when the DB was mapped.
+3 Returns
+	SS$_NORMAL		DB was found, Pointer is in R1
+	SS$_ITEMNOTFOUND	Structure not found in table. R1 = 0
+    Any from MAPLVB_DB
+				(addresses = 0), R1 = 0
+2 SUI_PRINT_STATUS
+ Displays the line specified by the input on the status line
+3 Input
+	address of desc pointing to ascii string to display
+3 Output
+	The string is displayed on the status line
+3 Return
+	Any return from SMG$PUT_LINE  
+2 USER_SET_MIB
+ Routine to allow user to set MIB params for SNMP access.
+ User May:
+	Set the MIB(s) this BOXID will use to acquire data
+	from the node.
+	Set the password used to access the box. A passworrd file
+	is maintained and it is referenced by number. On most nets
+	there will be a few passwords used on many boxes. For that
+	reason the few passwords are stored (encrypted) and then a 
+       pointer to the password is associated with the box.
+       Maintain the password file. This is a relative rec file
+	User may add/change/view passwords
+  NOTE: None of these routines is accessable unless the user has 
+	 SYSPRIV set.
+ Input
+	.address of relater rec pointing to rec in PSRIP these routines
+	will operate on.
+	Files:
+	RAZDAZ.DAT. The SNMP password file
+ Output
+	The boxid pointer to by the input relater record may have
+	any/all or none of the following fileds modified:
+	COM_CFG_B16_SUPPORT - MIBs supported
+	COM_CFG_L_PASS  - Password pointer
+	Files:
+	RAZDAZ.DAT. The SNMP password file
+       All changes are logged to the logfile.
+ Return
+      	SS$_NORMAL	OK
+	SS$_BADPARAM	Ip BOXID in input relater rec was 0
+	Any from: 	MAPLVB_DB
+2 SETMIB_SET_MIB
+  Routine to allow user to set the MIB(s) that EMU_CONFIGMON should
+  use to collect SNMP data on this IP address. 
+  A menu of all registered mibs is presented. Selection of any item:
+	If enabled, the corresponding MIB is disabled 
+	If disabled, the corresponding MIB is enabled 
+ After each selection, the list of enabled MIBs is displayed
+ If changes are made, the change is propogated to all other IP recs
+ with the same BOXID.
+3 Input
+  .address of PSRIP record
+  Files/structures:
+	MAPPER.DAT - read only
+3 Output
+  PSRIP rec COM_CFG_B16_SUPPORT field may be modified
+  If it is the change is propogated to all other PSRIP recs with
+  matching BOXID.
+3 Return
+	SS$_NORMAL	OK
+2 SUI_GETTABLE 
+ Routine to display all tables for specified PID in a menu and after 
+ selection, return the chosen table code. In the case of a single level
+ table, the code is looked up in a table hard coded in this routine.
+ In the case of multiple level tables, The PID is tranformed into the key
+ required to find the next set of tables for the PID and the 2nd level is
+ displayed. Each choice there after causes the next level to be displayed 
+ and only  when the lowest level is reached, the choice is returned. 
+3 Inputs:
+	.address of .long PID whose table(s) are/is displayed.
+	.address of .long where .long table is written
+	.address of relater rec currently pointing to
+3 Outputs:
+ 	.long value of the table (symbols in _EMUDBDEF)
+	.long CURPID. This variable set to the current pid who's table
+	was last displayed. Useful for:
+		Faster table display (do not need to regenerate)
+		Allows skip of multiple level tables (IP)
+  For IP only:
+  It is in this routine that access to MIB params is reached.
+  P3 is the pointer to the rec and that is it's only use here.
+  If selected, USER_SET_MIB is called and that routine may 
+  produce further outputs. 
+3 Returns:
+	SS$_NORMAL		did it
+	SMG$_EOF		User abort
+	SS$_ITEMNOTFOUND        Not a single level table and no entries
+				found in MAPPER
+	Any from RMS

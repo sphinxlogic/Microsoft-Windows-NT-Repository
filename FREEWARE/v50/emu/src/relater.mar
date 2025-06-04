@@ -1,0 +1,2082 @@
+ 	.TITLE	RELATER  
+	.IDENT /V01-002/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+;	Oct 1996	PB	Creation v1
+;	Feb 1998	PB	Added Locking
+;
+;++
+;1 RELATER   
+; This programme has a number of primary responsibilities:
+;
+; 1. At startup it waits for WAIT_INTERVAL (5 sec) for PSR start messages
+; Those PSRs that send start messages are validated and enabled to receive
+; traffic. 
+; At PSR rundown, the PSR disables itself in the PSRTBL and this 
+; process re-enables it once the PSR has started and the validation is 
+; complete. This may happen at any time during system operation.
+; Validation simply scans the PSRDB and ensures that any record in
+; that DB has a corresponding entry in the relater db. The reverse of 
+; this is also checked. Any PSR rec not having a relater entry is erased.
+; Any relater pointer not having a PSR entry is erased.
+; This ensures at PSR startup any relationships that are recorded, exist.
+;
+; 2. EMU_CONTROL section is accessed and the recorded NEXT BOXID is
+; checked against all assigned boxids in the PSRdbs. NEXT BOXID must
+; be higher than any assigned and this routine guarantees this to be 
+; the case. (See REL_INIT)
+;
+; At end of startup a flag is set that allows the startup mechanism to
+; continue starting the remainder of the system. (See EMU_CONTROL)
+; This allows a startup in 2 distinct phases.
+;
+; 2. During normal operations PSRs will send relationships found to this 
+; process. This process (after sanity checks) sets the bits in the PSTTBL
+; fields of each PSR and ensures the BOXIDs match.
+;
+;2 Locking
+; This process is interlocked with other process also needing access to 
+; multiple records to process a single request. The lock is to coordinate
+; this access and ensure no interference from others. Once the lock is
+; gained, this process processes all waiting relater frames found in a 
+; single pass and then releases the lock.
+;
+;2 Relater frame
+; BOXID		Sending process's current boxid
+; Sender	Sending PSR. 	.long process id 
+;		(SYS_C_PID_xxxx) of sending PSR. 
+; Message type	Add, delete or start. The targets are either added to all PSRs or
+;		Deleted from all PSRs. In the case of start, only the sender
+;		field is used.
+; Targets	Number of targets to follow.
+; Follows is a list of PSR/Addr targets. It is an unaligned structure:
+; .long	process id (SYS_C_PID_xxxx) of target PSR
+; .long len of following addr
+; protocol address of the record in this PSR. This is in the format
+; expected in the receiving PSR. That is:
+; DECnet addresses are 2 bytes
+; IP addresses are 4 bytes
+; NOVELL adresses are 10 bytes 
+; OSI addreses are variable lens 
+; and so on.
+; Maximum relater frame len is 512 bytes. If it is assumed the average len of
+; an address is 8 bytes (actualy a bit high) then this leaves room for up to 
+; 31 relationships in 1 frame. In the unlikely event this is not enough,
+; the sender can continue in another frame - Each relationship is an
+; independent item. 
+;2 Relater database
+; BOXID 	Unused
+; PTYBITS	Collection of all (EMU Supported) Protocols on this box
+; Class		Relative importance of this device. This is used by the 
+;		alert mechanism to set priority of alerts for this device.
+;		It is user settable.
+; Layers	OSI layers this device supports. It is an indicator as to 
+;		what kind of device this is. (bridge, host, router, etc.)
+; BOXID Table	Table of BOXIDs that exist on this device. Within each
+;		DB a single boxid associates the addresses together such
+;		that a device with 3 IP addresses will have 3 entries in 
+;		IP database with the same BOXID. This BOXID is placed
+;		in the relater table at the IP offset. The Offset is 
+;		dictated by SYS_PID_C_xxxx in sysdef (that is the IP offset
+;		is SYS_PID_C_PSRIP (7). The current table size accomidates 24
+;		entries.
+;
+;2 Counters
+; Performance counters are kept in standard format and displayed via the 
+; standard interface. Counters kept:
+; Frames recieved	
+; Frames with error	any formatting error found
+; Frames processed	Frames without error
+; Frames returned	Placed back on freeq
+; Sanity: Processed + error should equal received
+;	  Received should equal returned.
+;
+;
+;2 Tracing
+; A bit pattern set by the user in control section dictates trace records
+; this process will write (when enabled).
+; Tracing is enabled by running the trace program, setting the trace recs
+; required and starting it. Logging the results to file is optional.
+; Trace recs are written to a mailbox which is read by the trace program,
+; formatted and displayed.
+; A trace rec is written by a seperate routine and formed as follows:
+; type, len, value. It is unaligned.
+; Exiting the trace program clears all trace bits.
+;--
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY        /EMU5_LIB:EMU5.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$NMADEF
+	$LCKDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUCNTDEF
+	EMUPSRDEF
+	EMUPSRDEF
+	EMUMSGDEF
+	EMURLTDEF
+	EMUDBDEF
+;
+
+THIS_PROCESS = SYS_PID_C_RELATER
+THIS_PROCESS_FLAG = SYS_FLG_C_RELATER  
+	.psect	listen_sec,wrt,noexe,pic,shr,page
+;
+; 
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+PSRTBL_A:	.QUAD	0
+CONTROL_A:	.QUAD	0
+COUNTERS_A:	.QUAD	0
+RELATER_A:	.QUAD	0
+TRCIOSB:	.QUAD   0
+COMIPC_A:	.QUAD	0
+INADDR:		.QUAD	0
+GBLSIZ:		.LONG	0
+BOXID:		.LONG	0
+NEWBOX:		.LONG	0
+RECCNT:		.LONG	0
+TRACKERTBL:	.BLKL	32			; PSR tracking table
+; 
+DEFRECCNT:      .LONG	3000			; DEF dbsize
+PSRTBLCNT:	.LONG	0
+CONTEXT:	.LONG	0
+LOCCXT:		.LONG	0
+TEMPBITS:	.LONG	0
+; Locking
+; Lock value block
+RELATDBLVB:
+RELATLVBSTA:	.WORD	0		; Status
+RELATLVBRES:	.WORD	0		; Reserved
+RELATLVBID:	.LONG	0		; Lock id
+RELATLVBSIZ:	.LONG	0		; Begining of LVB (Size of DB in pages)
+RELATLVBSPR:	.BLKL	3		; Unused 12 bytes
+; $ENQ call frame
+RELATDBLOCK:	
+		.LONG	12		; Arguments
+		.LONG	0		; EFN
+LKMODE:		.LONG	LCK$K_EXMODE	; Lock mode
+		.ADDRESS RELATDBLVB	; Lock value block
+LKFLGS:         .LONG 	<LCK$M_SYSTEM!LCK$M_VALBLK>	; Use value block
+LKNAM:		.ADDRESS RELATDBLKNAM 	; Resourse name
+		.LONG	0		; Parent id 
+                .LONG	0               ; AST
+		.LONG	0		; AST Param
+		.LONG	0		; BLAST
+		.LONG	0		; ACC Mode
+		.LONG	0		; RSDM_ID
+		.LONG	0		; Null
+
+ 
+RELATSECFAB:	
+		$FAB	FAC = <GET,PUT>,-        ; Access
+			FNM = <EMU5_ROOT:[DAT]EMU_RELATER.SEC>
+RELATSECRAB:	
+		$RAB	FAB = RELATSECFAB,-            ; Record 
+			RAC = SEQ,-
+       			RBF = RELATSECREC,-			; 
+       			UBF = RELATSECREC,-			; 
+       			USZ = RELATSECREC_SIZE,-		; 
+       			RSZ = RELATSECREC_SIZE   		; 
+		
+
+RELATSECREC:	 .BLKB	RLT_C_RECSIZE   
+RELATSECREC_SIZE = .-RELATSECREC
+	.ALIGN 	LONG
+PSRFAB:	$FAB	FAC = <GET,UPD,PUT,DEL>,-        ; Access
+		SHR = <DEL,UPD,GET,PUT>,-
+		ORG = IDX,-		; Indexed
+		XAB = PSRXAB,-
+		FNM = <PSRTBL>,-	; Filename 
+		DNM = <EMU5_DAT:PSRTBL.DAT>      ; Filename 
+		
+PSRRAB:	$RAB	FAB = PSRFAB,-            ; Record 
+		RAC = SEQ
+PSRXAB: 	$XABKEY REF=0,-
+		PROLOG=0,-
+		POS=0,-
+		SIZ=8,-
+		DTP=BN8,-
+		FLG=DUP 		; PTYKEY
+
+
+	.ALIGN 	LONG
+
+CTLFAB:	$FAB	FAC = <GET,UPD,PUT,DEL>,-        ; Access
+		SHR = <DEL,UPD,GET,PUT>,-
+		RFM = FIX,-
+		MRS = CTL_C_RECSIZE,-
+		ORG = SEQ,-		; Indexed
+		FNM = <EMU_CONTROL>,-	; Filename 
+		DNM = <EMU5_DAT:EMU_CONTROL.SEC>      ; Filename 
+		
+CTLRAB:	$RAB	FAB = CTLFAB,-            ; Record 
+		RAC = SEQ,-
+		RSZ = CTL_C_RECSIZE,-
+		USZ = CTL_C_RECSIZE
+
+
+
+
+	.ALIGN 	LONG
+RECBUF:
+EMUDB_KEYBUF:	.BLKB	DB_C_KSZ 			; 
+RECDAT:		.BLKB	DB_REC_C_MRS-DB_C_KSZ		; 768 (Total)
+RECBUF_DESC:	.LONG	.-RECBUF
+		.ADDRESS  RECBUF
+WRITEBUF_DESC:	.QUAD
+TEMPDESC:	.QUAD
+	.ALIGN 	LONG
+
+DBTBL:
+; Ordering in this table is important - the order in which they
+; appear is the order in which the PID was assigned
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 0 = invalid
+		.BLKB	SYS_MAP_C_MAPSIZ        ; = listener (no db)
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN4
+		.LONG	PSR_DN4_W_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRDN4
+		.ADDRESS EMU_DN4DB
+		.ADDRESS EMU_PSRDN4
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN5
+		.LONG	PSR_DN5_B20_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRDN5
+		.ADDRESS EMU_DN5DB
+		.ADDRESS EMU_PSRDN5
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRSCS
+		.LONG	PSR_SCS_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRSCS
+		.ADDRESS EMU_SCSDB
+		.ADDRESS EMU_PSRSCS
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRLAT
+		.LONG	PSR_LAT_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRLAT
+		.ADDRESS EMU_LATDB
+		.ADDRESS EMU_PSRLAT
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRMOP
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIP
+		.LONG	PSR_IP_L_ADDR
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRIP
+		.ADDRESS EMU_IPDB
+		.ADDRESS EMU_PSRIP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIPX
+		.LONG	PSR_IPX_L_NET
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRIPX
+		.ADDRESS EMU_IPXDB
+		.ADDRESS EMU_PSRIPX
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 9 = DNS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 10 = DTS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 11 = ARP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRETH
+		.LONG	PSR_ETH_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRETH
+		.ADDRESS EMU_ETHDB
+		.ADDRESS EMU_PSRETH
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 13 = Recorder (no relater) 
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRBRD
+		.LONG	PSR_BRD_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_PSRBRD
+		.ADDRESS EMU_BRDDB
+		.ADDRESS EMU_PSRBRD
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 15 = unassigned  
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 16 = unassigned  
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 17 = Relater - not used here  
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_NAMER
+		.LONG	NAM_DB_L_PID
+		.LONG	0			; Lock ID
+		.LONG	SYS_FLG_C_NAMER
+		.ADDRESS EMU_NAMERDB
+		.ADDRESS EMU_NAMER
+
+
+DBTBL_DESC:	.LONG 	.-DBTBL
+		.ADDRESS  DBTBL
+
+
+;
+	.ALIGN	LONG
+EXIT_BLOCK:	.LONG	0
+		.ADDRESS RELATEREXIT_HDLR  
+		.LONG	1
+		.ADDRESS EXIT_STATUS
+EXIT_STATUS:	.LONG	0
+
+
+	.ALIGN 	LONG
+
+
+; Write trace call frame
+	.ALIGN LONG
+WRITETRC:	.LONG	12				; Arg counter
+		.LONG	0				; Event number
+TRCCHAN:	.LONG	0				; Channel
+       		.LONG	<IO$_WRITEVBLK!IO$M_NOW!IO$M_NORSWAIT>	; Function
+       		.LONG   TRCIOSB				; IO Status block
+       		.LONG	0				; AST Routine
+		.LONG	0				; AST Param
+	       	.LONG	TRCMBX				; P1
+TRCMBXLEN:	.LONG	0				; P2
+       		.LONG	0				; P3
+       		.LONG	0				; P4
+       		.LONG	0				; P5
+       		.LONG	0				; P6
+TRCMBX:        			
+TRCRECTYP:	.LONG
+TRCEVTTYP:	.LONG
+TRCNAME:	.ASCIC	/RELATER/	; Must be .quad!
+TRCHEAD_LEN = .-TRCMBX
+TRCDATA:	.BLKB	104		; This is data+trchead+MBXhead = 128
+MAXTRCMBXLEN = 512
+TRACE_FLAGS:	.LONG	0
+; Error Log
+; Error System Params
+
+	.ALIGN 	LONG
+
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/RELATER/
+; Other routine names
+RTN_REL_GETDB:		.ASCID	/REL_GETDB/
+RTN_$ASCEFC:		.ASCID	/$ASCEFC/
+RTN_$ENQ:		.ASCID	/$ENQ/
+RTN_SYS$CREMBX:		.ASCID	/SYS$CREMBX/
+RTN_GET_CONTROL_LOCK:	.ASCID	/GET_CONTROL_LOCK/
+RTN_$DCLEXH:		.ASCID	/$DCLEXH/
+RTN_ASN_TEMPMBX_SYSTEM:	.ASCID	/ASN_TEMPMBX_SYSTEM/
+RTN_RELATER_INIT:   	.ASCID	/RELATER_INIT/
+RTN_REL_MAPDB:		.ASCID	/REL_MAPDB/
+RTN_MAP_CONTROL:	.ASCID	/MAP_CONTROL/
+RTN_MAP_COMIPC:         .ASCID	/MAP_COMIPC/
+RTN_MAP_COUNTERS:       .ASCID	/MAP_COUNTERS/
+RTN_UNMAPLVB_DB:	.ASCID	/UNMAPLVB_DB/
+RTN_CHANGE_BOXID:       .ASCID	/CHANGE_BOXID/
+RTN_CREATE_RELREC:	.ASCID	/CREATE_RELREC/
+RTN_LOCREC:		.ASCID	/LOCREC/
+RTN_MAP_PSRTBL:		.ASCID	/MAP_PSRTBL/
+RTN_UNLOCREC:		.ASCID	/UNLOCREC/
+RTN_LOCATE_BOXID:	.ASCID	/LOCATE_BOXID/
+RTN_LOCATE_RELATER_BOXID: .ASCID /LOCATE_RELATER_BOXID/
+RTN_LOCATE_PSRREC:	.ASCID	/LOCATE_PSRREC/
+RTN_MAP_RELATERDB:	.ASCID	/MAP_RELATERDB/
+RTN_MAPLVB_DB:  	.ASCID	/MAPLVB_DB/
+RTN_MERGE_BOXIDS:  	.ASCID	/MERGE_BOXIDS/
+
+;
+; Lock Names
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_IPXDB:	
+		.ASCID	\EMU_IPXDB\            ; Lock name
+EMU_BRDDB:	
+		.ASCID	\EMU_BRDDB\            ; Lock name
+EMU_IPDB:	
+		.ASCID	\EMU_IPDB\            ; Lock name
+EMU_SCSDB:	
+		.ASCID	\EMU_SCSDB\            ; Lock name
+EMU_DN5DB:	
+		.ASCID	\EMU_DN5DB\            ; Lock name
+EMU_DN4DB:	
+		.ASCID	\EMU_DN4DB\            ; Lock name
+EMU_LATDB:	
+		.ASCID	\EMU_LATDB\            ; Lock name
+EMU_ETHDB:	
+		.ASCID	\EMU_ETHDB\            ; Lock name
+EMU_NAMERDB:		
+		.ASCID	/EMU_NAMERDB/	; DB Lock name 
+; Section names
+EMU_PSRMOP:
+		.ASCID	/EMU_PSRMOP/
+EMU_PSRIPX:
+		.ASCID	/EMU_PSRIPX/
+EMU_PSRBRD:
+		.ASCID	/EMU_PSRBRD/
+EMU_PSRIP:
+		.ASCID	/EMU_PSRIP/
+EMU_NAMER:
+		.ASCID	/EMU_NAMER/
+EMU_PSRSCS:	
+		.ASCID	\EMU_PSRSCS\  		; Section name
+EMU_PSRDN5:	
+		.ASCID	\EMU_PSRDN5\  		; Section name
+EMU_PSRDN4:	
+		.ASCID	\EMU_PSRDN4\  		; Section name
+EMU_PSRLAT:	
+		.ASCID	\EMU_PSRLAT\  		; Section name
+EMU_PSRETH:	
+		.ASCID	\EMU_PSRETH\  		; Section name
+
+
+; Misc
+	.align	long
+SYSDBLOCK:	.LONG	0
+WAIT_INTERVAL:	.FLOAT	10               ; Time to wait for PSR startup
+
+EFLAGS2:	.ASCID  /EFLAGS2/ 
+TRCLOGNAM:	.ASCID	/TRCMBX/
+RELATDBLKNAM:		.ASCID	/EMU_RELATERDB/	; DB Lock name 
+RELATSECNAM:		.ASCID	/EMU_RELATER/
+
+
+	.PSECT	RELATER_C,NOWRT,EXE,SHR,PIC,LONG
+	.sbttl	relater ()
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=RELATER
+
+; Errors between here and READ: are fatal
+;
+; Ensure death if control process dies
+	CALLS	#0, G^GET_CONTROL_LOCK	     ; routine exits if lock rec'ed 
+	BLBS	R0,10$
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_GET_CONTROL_LOCK,(R1)+   ; From routine
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+;
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+10$:
+
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BLBS	R0,20$
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_ASN_TEMPMBX_SYSTEM,(R1)+   ; From routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+
+;	
+; Create and Map to sections 
+20$:
+	PUSHAL	CONTROL_A		; Control section return addresses     
+	CALLS	#1, G^MAP_CONTROL	; Create and map control section       
+	BLBS	R0,30$
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_MAP_CONTROL,(R1)+   ; From routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+30$:
+	PUSHAL	COUNTERS_A		; Counters                             
+	CALLS	#1,G^MAP_COUNTERS                                              
+	BLBS	R0,40$
+
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_MAP_COUNTERS,(R1)+   ; From routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+40$:
+; Map our DB
+        CALLS	#0,G^MAP_RELATERDB
+	BLBS	R0,50$
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_MAP_RELATERDB,(R1)+   ; From routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+50$:
+; Declare exit handler
+	$DCLEXH_S	DESBLK=EXIT_BLOCK
+	BLBS	R0,60$
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_$DCLEXH,(R1)+   ; From routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+60$:
+	PUSHAL	COMIPC_A		; Communication buffers
+	CALLS	#1,G^MAP_COMIPC                                                
+	BLBS	R0,70$
+
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_MAP_COMIPC,(R1)+   ; From routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+; Map to all active PSRs
+70$:
+;** temp fix to ensure PSRs map 1st!
+;
+	PUSHAL	WAIT_INTERVAL                  	; Wait
+	CALLS	#1,G^LIB$WAIT
+;**
+	CALLS	#0,G^REL_MAPDB
+; Create and map to PSR table
+	PUSHAL	PSRTBLCNT  		; Count of entries found
+	PUSHAL	PSRTBL_A   		; PSR table start addr
+	CALLS	#2,G^MAP_PSRTBL
+
+; Create trace mailbox
+100$:
+	PUSHAL	TRCLOGNAM       ; Logical Name
+	CLRL	-(SP)		; Access Mode
+	CLRL	-(SP)		; Protection Mask
+	PUSHL	#4096		; Buff Quota (~8 messages)
+	PUSHL	#512		; Max Message Size
+	PUSHAL	TRCCHAN		; I/O Channel
+	PUSHL	#0		; Temp Mailbox
+	CALLS	#7,SYS$CREMBX	; Create Mailbox
+	BLBS	R0,110$
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_SYS$CREMBX,(R1)+   ; From routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+110$:
+; Set registers. 	
+	MOVL	COUNTERS_A,R11          ; Counters
+	MOVL	RELATER_A,R6 		; Relater section
+
+; Init counters
+	MOVC5	#0,#0,#0,#CNT_RLT_C_SIZ,CNT_RLT_C_1ST(R11) ; Zero all  	
+
+; Common Event flag Cluster:
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	BLBS	R0,120$
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_$ASCEFC,(R1)+   ; From routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+120$:
+130$:
+	CALLS	#0,G^RELATER_INIT   
+
+READ:
+	MOVL	CONTROL_A,R1                       ; Reset trace flags
+	MOVL	CTL_TRC_L_ENAFLG(R1),TRACE_FLAGS
+
+; Wait for OUR CEF set
+	$WFLOR_S  	EFN=#96,-       	; Wait for our flag set  
+			MASK=#THIS_PROCESS_FLAG
+
+; Lock the databases
+;	PUSHL	#THIS_PROCESS		; We are the owner
+;	PUSHAL	SYSDBLOCK		; Lock id
+;	CALLS	#2,G^GET_EMUDBSYSLOCK	; Get it
+;	BLBS	R0,MAIN			; Br if got it
+;	RET				; Die otherwise
+MAIN:
+; Register constants (this section):
+; R6 address start of relater section
+; R7 address of currently processing frame
+	MOVL	RELATER_A,R6 		; Relater section
+	MOVQ	COMIPC_A,R7
+
+5$:
+	BLBS	RLT_FRM_L_STATUS(R7),10$    ; Waiting buff?
+	ADDL	#RLT_FRM_C_LEN,R7       ; Next frame
+	CMPL	R7,R8                   ; Still in section?
+	BLSS	5$                    ; Br if more
+
+	ADDL3	#96,#THIS_PROCESS,R1            ; Clear our flag
+	PUSHL	R1
+	CALLS	#1,G^SYS$CLREF
+; Unlock
+;	PUSHL	#THIS_PROCESS		; We are the owner
+;	PUSHAL	SYSDBLOCK		; Lock id
+;	CALLS	#2,G^RELEASE_EMUDBSYSLOCK	; Unget it
+;	BLBS	R0,7$			; Br if Ungot it
+;	RET                             ; Unget it the hard way!
+7$:
+        BRB	READ                            ; Wait for next
+10$:	
+	PUSHL	#CNT_RLT_L_RCV			; Count received frame
+	CALLS	#1,G^COUNT_RLT_EVENT
+.BRANCH_LIKELY            
+	BBC	#TRC_RLT_V_ENA,TRACE_FLAGS,12$	; Br if trace no ena
+	PUSHL	R7				; relater frame
+	PUSHL	#TRC_EVT_C_RECRLT                 ; Event
+	PUSHL	#TRC_REC_C_RLTFRM 		; Rec type
+	CALLS	#3,G^TRC_RELATER			; no error check
+; If message type is either add or delete then process.
+; otherwise trap here, invoke procedure and finish.
+.BRANCH_LIKELY            
+12$:
+	CMPL	#RLT_FRM_C_MSGSTART,RLT_FRM_L_MTYPE(R7)
+	BNEQU	15$
+	PUSHL	R7		; Message
+	CALLS	#1,G^REL_START_PSR
+	BRW	RETURN_BUFF
+
+
+
+
+; Find this boxid in our DB. If not found insert (if room)
+15$:
+	PUSHL	R7
+	CALLS	#1,G^REL_VALIDATE_FRAME
+	BLBS	R0,16$
+	BRW	RETURN_BUFF
+16$:
+
+	ADDL3	#RLT_FRM_L_SENDER,R7,-(SP)	; This entry
+	PUSHAL	RELATER_A                       ; Sea our DB
+	ADDL3	#RLT_FRM_L_BOXID,R7,-(SP)	; Boxid 
+	CALLS	#3,G^LOCATE_RELATER_BOXID
+	CMPL	#SS$_NORMAL,R0		; Did rec exist?
+	BEQL	50$			; Br if so
+	CMPL	#SS$_ITEMNOTFOUND,R0	; Rec did not exist?              
+	BEQL	20$			; Br if so
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_LOCATE_RELATER_BOXID,(R1)+   ; Fron routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+	CMPL	#SS$_INVARG,R0          ; Not fatal
+	BEQL	17$				
+	RET                             ; else fatal
+17$:
+	BRW	DONE			; Abandon
+20$:
+	ADDL3	#RLT_FRM_L_SENDER,R7,-(SP)	; This entry
+	ADDL3	#RLT_FRM_L_BOXID,R7,-(SP)	; Boxid 
+	PUSHL	R1
+	CALLS	#3,G^CREATE_RELREC	; Make new record
+50$:
+	MOVL	R1,R6				; Current rec
+60$:
+;++
+;2 Description
+; For each entry in the frame:
+; Locate the addr specified in the PSRdb specified. If not found, create.
+; Check if the resulting BOXID is in relater db.
+; If not: ADD_BOXID (below)
+; If so : Merge_boxids (below
+; ADD_BOXID:
+; If a boxid exists at the intended target it means that the exiting 
+; boxid and the  new one are on the same device. Change the old boxid 
+; in the PSR db so they match. Locate the old boxid and clear the location.
+; If there are no other locations delete the record else call MERGE_BOXIDS.
+; 
+; MERGE_BOXIDS
+; 
+; Move existing relater PTYBITS to tempbits.
+; Add the sender's and all target's PTYBITS to tempbits.
+; Ensure that each addr specified in the frame exists in the specified
+; database. Create any that do not exist.
+; 
+; PTYBITS:
+; At end, scan boxtbl and for each location .ne. 0 set corresponding
+; bit. Copy result to each boxid in each tbl. This has 2 functions:
+;	Informs PSR relation is made (stop sending relater frames)
+;	Sanity check. This field should match in relater and all
+;	PSRdbs with boxids in this table.
+;--
+; Determine action: 
+	BLBS	RLT_FRM_L_MTYPE(R7),ADD_TARGETS		; Br if add frame
+	BRW	DELETE_TARGETS				; Else delete
+	
+ADD_TARGETS: 
+; Registers set before entry:
+; R6 = addr of current (target) rel db rec
+; R7 = addr of input frame
+;
+; R8 = current target
+; R9 = count of targets
+; R10 current psrdb
+
+; Validate header
+;       Reject if:
+;       Boxid = 0 or > SYS_COM_C_MAXBOXID
+        TSTL    RLT_FRM_L_BOXID(R7)
+        BEQL    10$
+        CMPL    RLT_FRM_L_BOXID(R7),#SYS_COM_C_MAXBOXID
+        BLSSU   50$
+10$:
+        BRW     RETURN_BUFF                            ; Abandon
+
+50$:
+  
+
+
+	ADDL3	#RLT_FRM_C_1STTGT,R7,R8 	; Point to 1st target
+	MOVL	RLT_FRM_L_TARGETS(R7),R9        ; Number of targets
+
+; Ensure address exists in specified db
+; Locate the db entry for this db
+; Disable asts to prevent DB from unmapping during access
+	CLRL	-(SP)			; Disable
+	CALLS	#1, G^SYS$SETAST	;  ASTs
+100$:
+; Make sure we can access db
+	PUSHL	RLT_FRM_L_TGTID(R8)	; This db
+	CALLS	#1,G^REL_GETDB          ; Returns pointer in r1
+        MOVL	R1,R10			; Store PSRDB
+	BLBS	R0,150$
+;
+        MOVL	#MSG_RELATR_GETDB,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	RLT_FRM_L_TGTID(R8),(R1)+   	     	     ; DB
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+
+	PUSHL	#CNT_RLT_L_ERR		     ; Count internal error
+	CALLS	#1,G^COUNT_RLT_EVENT
+	BRW	RETURN_BUFF				; Abandon
+150$:
+; Verify the address is valid
+; Skip if this is a name
+	CMPL	#SYS_PID_C_NAMER,RLT_FRM_L_TGTID(R8) ; Name?
+	BEQLU	160$
+
+	MOVL	RLT_FRM_L_TGTLEN(R8),TEMPDESC       ; Addr len
+	ADDL3	#RLT_FRM_L_TGTADDR,R8,TEMPDESC+4    ; (addr)
+	PUSHL	RLT_FRM_L_TGTID(R8) 		    ; This db
+        PUSHAL	TEMPDESC                            ; addr desc
+	CALLS	#2,G^VERIFY_ADDRESS
+	BLBS	R0,160$                      ; Br OK
+; Log and count error
+        MOVL	#MSG_RELATR_VERADDR,MSGCDE    ; General VMS error
+	MOVL	#3,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	RLT_FRM_L_TGTADDR(R8),(R1)+  ; Addr of addr
+	MOVL	RLT_FRM_L_TGTID(R8),(R1)+    ; Target
+	MOVL	RLT_FRM_L_OWNER(R8),(R1)+    ; Sender
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	PUSHL	#CNT_RLT_L_ERR		     ; Count internal error
+	CALLS	#1,G^COUNT_RLT_EVENT
+	BRW	DONE				; Abandon
+
+160$:
+	CLRL	BOXID				; Always create new ID
+	PUSHL	#1				; Create if not found
+	PUSHL	RLT_FRM_L_TGTID(R8)   		; This process is creator
+	PUSHAL	BOXID				; Create New Boxid 
+	PUSHL	R10				; Section
+	ADDL3	#RLT_FRM_L_TGTADDR,R8,-(SP)	; Push addr
+	PUSHL	SYS_MAP_L_KEY(R10)		; Offset to addr
+	PUSHL	RLT_FRM_L_TGTLEN(R8)		; Addr len
+	CALLS	#7,G^LOCATE_PSRREC
+        CMPL	#SS$_CREATED,R0         	; Created?
+	BEQLU	200$                     	; Br if so
+	BLBS	R0,300$                         ; Br if no err
+        MOVL	#MSG_EMUSYS_LOCPSR,MSGCDE    	; error
+	MOVL	#2,PARCNT                    	; 2 params
+	MOVAL	MSGPARAMS,R1                 	; Plist
+	MOVL	R0,(R1)+                     	; VMS error
+	PUSHL	RLT_FRM_L_TGTID(R8)   		; Section accessed
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	DONE
+170$:
+	MOVL	RLT_FRM_L_TGTLEN(R8),R4	; Len this target
+	ADDL	#8,R4			; Include header
+	ADDL	R4,R8			; Next target
+	SOBGTR	R9,180$			; Loop for all
+	BRW	DONE			; End
+180$:
+	BRW	100$	
+200$:
+; Relater entry for this boxid did not exist
+; Check target in relater rec.
+; if blank just add, if not change new rec boxid to match existing boxid
+	ADDL3	#RLT_DB_TL_BOXIDS,R6,R2			; PID TBL
+	MOVL	RLT_FRM_L_TGTID(R8),R3			; pid
+	TSTL	(R2)[R3]				; 
+	BEQLU	210$
+	MOVL	(R2)[R3],COM_HDR_L_BOXID(R1)
+	BRW	170$
+210$:
+	MOVL	COM_HDR_L_BOXID(R1),(R2)[R3]
+	BRW	170$
+
+	
+300$:
+; The record @r1 previously existed. Merge all boxids in that rec with 
+; with the ones in the current target. If relater entry does not exist
+; handle as if we created the record.
+;
+; Get target rec - the relater rec for rec @r1
+	MOVL	R1,R5				; Save PSR REC
+	ADDL3	#COM_HDR_L_FLAGS,R1,-(SP)	; This entry
+	PUSHAL	RELATER_A                       ; Sea our DB
+	ADDL3	#COM_HDR_L_BOXID,R1,-(SP)	; Boxid 
+	CALLS	#3,G^LOCATE_RELATER_BOXID
+        BLBS	R0,310$				; Br if found
+	MOVL	R5,R1				; Restore
+	CMPL	#SS$_ITEMNOTFOUND,R0		; Other error?
+	BEQL	200$
+;
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_LOCATE_RELATER_BOXID,(R1)+   ; From routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	DONE				; Abandon
+310$:
+	CMPL	R1,R6
+	BEQLU	320$				; Br if tgt=src
+	PUSHL	R1                              ; Source
+	PUSHL	R6				; Target
+	CALLS	#2,G^REL_MERGE_BOXIDS
+	BLBS	R0,320$
+
+
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_MERGE_BOXIDS,(R1)+   ; Fron routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+320$:
+	BRW	170$
+
+
+
+
+DELETE_TARGETS:
+; Not yet implemented
+DONE:
+; Set ptybits in relater rec and propogate to all present boxids
+	PUSHL	R6
+	CALLS	#1,REL_SETPTYBITS
+RETURN_BUFF:
+	PUSHL	#1			; Enable
+	CALLS	#1, G^SYS$SETAST	;  ASTs
+	CLRQ	(R7)                    ; Set buff free and idle
+	PUSHL	#CNT_RLT_L_RET		; Count Returned buffer
+	CALLS	#1,G^COUNT_RLT_EVENT
+
+	BRW	MAIN
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REL_VALIDATE_FRAME 
+;++
+;2 REL_VALIDATE_FRAME
+; Routine to ensure frame is valid before processing.
+; Tests done:
+;--	
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REL_START_PSR 
+;++
+;2 REL_START_PSR
+; Routine to:
+;	Verify PSR db contents and:
+;		If number of recs = 0 then delete all relationships
+;		with this PSR from all others
+;	Enable PSR to recieve frames
+;3 Input
+;  Relater frame with msg type = start
+;3 Output
+;  If the PSR specified by the input has no recs in it's database
+;	then all other PSR recs are scanned and the PTYBIT corresponding
+;	to this PSR is cleared.
+; A message indicating PSR startup is logged
+;3 Return
+; SS$_NORMAL
+; Any from REL_MAPDB,
+;3 Description
+; A .long (tracker) initialised to 0 tracks the PSRs as they come up. 
+; Any PSR comming up with 0 recs has the corresponding bit in this 
+; long set. IF a PSR comes up with recs .ne. 0 then the corresponding 
+; bit is cleared. As other PSRs come up (any order) this long is checked 
+; and if not 0 (at least 1 bit set) then this .long is used and a mask 
+; in a Bit clear operation on each rec in each PSR. This clears all 
+; databases of relationships that no longer exist.
+;
+; An array of 32 .longs (1 per possible PSR) is initialised at
+; startup to contain a 'history' of activity taken on each PSR. 
+; Each long is a bit pattern wherein a bit set is interpreted as:
+; 'The PSR corresponding to this bit has started with 0 recs and this PSR
+; has been processed.'
+; As each PSR database is processed the 'traker' .long is coppied to the 
+; position corresponding to this PSR in the table.
+; NOte that the 'tracker' is actualy position 0 in the table. There
+; no PSR 0 nor can there ever be.
+; This arrangement allows for various possibilities:
+; If a PSR comes up with 0 recs all other existing PSRs which have 
+; relationships with this one are removed. 
+; If a PSR with relationships comes up later than the 0 rec one, this 
+; is still detected and resolved.
+; If a PSR goes down and comes back up, the operation will not be repeated - 
+; thus deleteing 'good' relationships.
+;--
+; Locate this PSRdb
+	MOVL	4(AP),R6		; RELATER frame
+	MOVAL	DBTBL,R7
+	MULL3	RLT_FRM_L_OWNER(R6),#SYS_MAP_C_MAPSIZ,R1
+	ADDL	R1,R7
+	TSTL	SYS_MAP_Q_ADDR(R7)
+	BNEQ	100$
+	CALLS	#0,G^REL_MAPDB 		; Attempt to map
+	TSTL	SYS_MAP_Q_ADDR(R7)	; Active?
+	BNEQ	100$
+	RET
+100$:
+	MOVAL	TRACKERTBL,R10
+	BICL	SYS_MAP_L_FLG(R7),(R10)  ; Set expected (PSR OK)
+; Does this db have recs = 0?
+	MOVL	SYS_MAP_Q_ADDR(R7),R8	; Top of db
+	TSTL	COM_DBHDR_L_ENTRIES(R8) ; 
+	BNEQ	200$                    
+	BISL	SYS_MAP_L_FLG(R7),(R10)  ; PSR not OK
+; Delete all EMUDB recs for this PID (Protocol)
+        MOVAL	RECBUF,R1
+	MOVL	RLT_FRM_L_OWNER(R6),DB_REC_L_PROTO(R1)
+	CLRL	RECCNT
+	MOVL	#DB_REC_C_MRS,RECBUF_DESC
+	PUSHAL	RECCNT			; Record count
+	PUSHAL	RECBUF_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_PROTO	; Key of ref (all this protocol)
+	CALLS	#3,G^EMUDB_DELETE_ALL
+; Write status 
+        MOVL	#MSG_EMUSYS_DELETE,MSGCDE    	; error
+	MOVL	#2,PARCNT                    	; 2 params
+	MOVAL	MSGPARAMS,R1                 	; Plist
+	MOVL	RECCNT,(R1)+                    ; Count of deleted recs
+	MOVL	R0,(R1)    			; returned status
+	PUSHAL	ERRORMSG                     	; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+200$:
+	TSTL	(R10) 			; Any 'bad' PSRs?
+	BEQL	205$                    ; Br none
+; write log
+	PUSHL	R10     		; Tracker table
+	CALLS	#1,G^REL_CLEAR_PTY      ; Do the fix
+205$:
+; Convert psrflg (vector) to psrid (Mask)
+	CLRL	R11
+	BBCS	RLT_FRM_L_OWNER(R6),R11,206$
+206$:
+; Locate this/these PSR(s) in the PSR table and enable 
+        MOVL	PSRTBL_A,R9			; 
+	MOVL	PSRTBLCNT,R3			; Count of entries
+210$:
+	CMPL	R11,PSR_TBL_L_PSRID(R9)
+        BNEQU	235$
+	BISL	#PSR_CFLG_M_DISAB,PSR_TBL_L_CFLGS(R9)  ; Enable
+235$:
+	ADDL	#PSR_TBL_C_SIZE,R9   	; Next entry
+	SOBGTR	R3,210$			; Loop for all
+
+        MOVL	#MSG_RELATR_ENADB,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	RLT_FRM_L_OWNER(R6),(R1)+      ; DB
+	MOVL	COM_DBHDR_L_ENTRIES(R8),(R1) ; Reccnt
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REL_CLEAR_PTY 
+;++
+;2 REL_CLEAR_PTY
+; Routine called when PSR starts up with no records
+; All other PSRdbs are scanned and the PTYBIT associated with 
+; the starting PSR is cleared in all records. 
+; This allows any PSRdb to be missing at start and still maintain
+; all other relationships.
+;3 Input
+;  .address TRACKERTBL	
+;3 Output
+; All PSRDB recs are scanned and the input .long is used as a mask
+; wherein a bit set in the mask is cleared in each PTYBITs field
+;3 Return
+; SS$_NORMAL
+;--
+; Ensure all PSRs are mapped
+	CALLS	#0,G^REL_MAPDB 		; Attempt to map ALL
+	MOVL	4(AP),R6                ; Mask
+        MOVAL	DBTBL,R9
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R7   ; ENd of table
+	
+40$:
+	TSTL	SYS_MAP_Q_ADDR(R9)  	; Access this DB?     
+	BGTR	60$                     ; Br if So
+50$:
+	ADDL	#SYS_MAP_C_MAPSIZ,R9    ; Next
+	CMPL	R9,R7                   ; AT END?
+	BLSS	40$			; Br if not
+	MOVL	#SS$_NORMAL,R0
+	RET
+60$:
+	MOVL	SYS_MAP_L_PID(R9),R1
+	BICL3	(R10)[R1],(R6),R4	; ANy new 'bad'?
+	BEQL    50$			; None - skip
+; Clear bit(s) in each record
+	MOVL	(R9),R2			; 1st rec
+	MOVL	COM_DBHDR_L_RECSIZE(R2),R3	; Rec size
+	MOVL	COM_DBHDR_L_ENTRIES(R2),R11	; Entries
+	BEQL	50$			; br if None
+	ADDL3	R3,R2,R8                ; 1st entry
+70$:
+	BICL	R4,COM_HDR_L_PTYBITS(R8)
+	ADDL	R3,R8			; Next  rec
+	SOBGTR	R11,70$                 ; Loop for all
+	MOVL	SYS_MAP_L_PID(R9),R1
+	MOVL	(R6),(R10)[R1]		; Mark this PSR done
+	BRW	50$                     ; Next DB
+
+ 
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REL_SETPTYBITS 
+;++
+;2 REL_SETPTYBITS
+; Routine to scan the BOXIDTBL and set coresponding bit for each 
+; boxid present. The resulting pattern is propogated to all PSRDB
+; record's PTYBITS field. Used to confirm back to the PSR that the
+; indicated relationships are stored and it need no longer send
+; this info to the relater.
+;3 Input
+; .address of relater record
+;3 Output
+;  The bit field is generated from scratch each time in a temp location
+; and compared to the previous generation. If .ne. the temp replaces
+; the previous and result is propogated to all PSR recs pointed to 
+; by the table.
+;3 Return
+;
+;--
+	MOVL	4(AP),R6		; Inpt rec
+	ADDL3	#RLT_DB_TL_BOXIDS,R6,R7	; Table
+	CLRL	R8			; Build pattern here
+	CLRL	R11			; Index/loop control
+10$:
+	TSTL	(R7)[R11]		; boxid?
+	BNEQ	50$			; Br if present
+20$:
+	AOBLSS	#RLT_DB_C_MAXBOXID,R11,10$
+; Temp pattern now built. Compare with stored (previous)
+; ********** TEMP FIX **************
+; Sometimes the relater ptybits and all the psrrec ptybits do not match. 
+; Until something a bit more clever is created, propogate them every time
+; here
+;******************************************************
+	BRB 100$
+	CMPL	R8,COM_HDR_L_PTYBITS(R6)
+	BNEQU	100$     		; Br if ne
+	MOVL	#SS$_NORMAL,R0          ; else done
+	RET
+50$:
+	BBCS	R11,R8,20$  		; Set bit (br if was clear)
+	BRB	20$                     ; Br either case
+100$:
+; propogate new pattern to all boxids
+	MOVL	R8,COM_HDR_L_PTYBITS(R6)
+	CLRL	R11			; Index/loop control
+110$:
+	TSTL	(R7)[R11]		; boxid?
+	BNEQ	130$			; Br if present
+120$:
+	AOBLSS	#RLT_DB_C_MAXBOXID,R11,110$
+	MOVL	#SS$_NORMAL,R0          ; else done
+	RET
+130$:
+	MULL3	#4,R11,R5			; Calc addr this boxid
+	ADDL	R7,R5
+140$:
+; Find the db_struct this relates to
+	PUSHL	R11
+	CALLS	#1,G^REL_GETDB
+	BLBC	R0,120$
+150$:
+	MOVL	R1,R3 				; DB addr
+	CLRL	CONTEXT
+160$:
+	PUSHAL	CONTEXT
+	PUSHL	R3				; This db
+	PUSHL	R5				; Boxid 
+	CALLS	#3,G^LOCATE_BOXID
+	BLBC	R0,120$				; Error = not found
+	MOVL	R8,COM_HDR_L_PTYBITS(R1)
+	BRB	160$
+
+	.CALL_ENTRY	MAX_ARGS=2, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REL_MERGE_BOXIDS 
+;++
+;2 REL_MERGE_BOXIDS
+; Routine to merge the boxids in 2 records into 1. Called when
+; relationship is found between 2 existing relater records. 
+;3 Input
+; .address of target relater record. This is the record that will
+;          contain the merged boxids
+; .address of source relater record. These boxids will be changed and 
+;          /or moved into the target and this record will be deleted.
+;3 Output
+;	1 merged record
+;	1 record deleted
+;3 Return
+; 	SS$_NORMAL	OK
+;3 Description
+;  Boxids from the source are either moved to the target or the underlying
+;  boxids are made to match the target. As an example consider the 
+; following 2 partial records:
+;	IP	DECnet	LAT	MOP
+; TGT	0	1	3	56
+; SRC	1	5	0	0
+; The result:
+; TGT	1	5	3	56
+; SRC	(deleted)
+; And all records in DECnet db with boxid = 1 are changed to boxid=5.
+;--
+	MOVL	4(AP),R6	; Target
+	MOVL	8(AP),R7	; Source
+	ADDL	#RLT_DB_TL_BOXIDS,R6
+	ADDL	#RLT_DB_TL_BOXIDS,R7
+	CLRL	R11		; Loop control
+100$:
+	TSTL	(R7)[R11]	; Any source?
+	BNEQU	150$
+120$:
+	AOBLSS	#RLT_DB_C_MAXBOXID,R11,100$
+	MOVL	8(AP),R7	; Source
+	BISL	#SYS_COM_M_DELETE,COM_HDR_L_SYSCTL(R7)	; Delete source
+	MOVL	#SS$_NORMAL,R0
+	RET
+150$:
+	TSTL	(R6)[R11]	; Target already set?
+	BNEQU	200$		; Br if so
+	MOVL	(R7)[R11],(R6)[R11] 	; Set target = source
+	BRB	120$
+200$:
+	CMPL	(R7)[R11],(R6)[R11]
+	BEQLU	120$	
+	PUSHL	R11                     ; Pid (DB)
+	PUSHL	(R6)[R11]               ; Old
+	PUSHL	(R7)[R11]		; New
+	CALLS	#3,G^CHANGE_BOXID
+	MOVL	(R7)[R11],(R6)[R11] 	; Set target = source
+	BRW	120$
+	
+;--
+ 
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REL_GETDB 
+;++
+;2 REL_GETDB
+; Returns pointer to the mapped db entry specified by the input pid
+;3 Input
+; .long of PID of db to check/map
+; The table used for lookup is hard coded in this routine (DBTBL)
+;3 Output
+;  The address of the entry is returned in R1 if mapped successfuly.
+;3 Return
+;  SS$_NORMAL		OK
+;  SS$_ITEMNOTFOUND     Unknown db specified
+;  SS$_INSFMAP		Could not map specified db
+;--
+	MOVL	4(AP),R6
+        MOVAL	DBTBL,R9
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R7   ; ENd of table
+	
+40$:
+	CMPL	R9,R7                         ; AT END?
+	BGTR	100$			      ; Br if end
+
+	CMPL	SYS_MAP_L_PID(R9),R6
+	BEQLU	60$			; br if this DB
+	ADDL	#SYS_MAP_C_MAPSIZ,R9    ; Next
+	BRB	40$                     ; Loop
+60$:
+	TSTL	SYS_MAP_Q_ADDR(R9)  	; Access this DB?     
+	BNEQ	70$                     ; Br if OK
+	CALLS	#0,G^REL_MAPDB 		; Attempt to map
+	TSTL	SYS_MAP_Q_ADDR(R9)	; Active?
+	BNEQ	70$                     ; Br if OK
+	MOVL	#SS$_INSFMAP,R0
+	RET
+70$:
+	MOVL	#SS$_NORMAL,R0
+	MOVL	R9,R1
+	RET
+100$:
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REL_MAPDB 
+;++
+;2 REL_MAPDB
+; Maps all known DBs in the table. If the section is already
+; mapped the entry is skipped.
+;3 Inputs
+;	None. The input table is hard coded here.
+;3 Outputs
+;	Any section newly mapped has it's 1st and last addr written
+;	to the map structure.
+;3 Returns
+; 	None
+;--
+
+	MOVAL	DBTBL,R9
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R10	; Last addr to map
+60$:
+	TSTL	SYS_MAP_Q_ADDR(R9)		; ALready mapped?
+	BNEQ	70$				; Skip if so
+	PUSHL	R9				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+
+70$:
+	ADDL	#SYS_MAP_C_MAPSIZ,R9
+	CMPL	R9,R10				; Done mapping?
+	BLSSU	60$                             ; Br if more
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CHANGE_BOXID
+;++
+;2 CHANGE_BOXID
+; Subroutine to change boxids in the specified db. This routine overwrites  
+; all occurences of old boxid with new boxid 
+;3 Inputs
+;  1  .long of NEW boxid
+;  2  .long of OLD boxid
+;  3  .long sys_pid of db to change
+;3 Outputs
+;  All occurences of OLD boxid in the specified protocol are changed to NEW.
+;  This routine also changes BOXIDs in EMUDB
+;3 Returns
+;  SS$_NORMAL	- OK
+;--
+
+	MOVL	4(AP),R6	; new boxid
+	MOVL	8(AP),R7       	; old
+;
+	PUSHL	12(AP)
+	CALLS	#1,G^REL_GETDB
+	BLBS	R0,100$
+        MOVL	#MSG_RELATR_GETDB,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	12(AP),(R1)+   	     	     ; DB
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+100$:
+; Find each occurence of the boxid in this db
+	MOVL	R1,R10
+	CLRL	CONTEXT				; No context
+	MOVL	R7,BOXID
+110$:
+	PUSHAL	CONTEXT
+	PUSHL	R10                      	; Sea THIS DB
+	PUSHAL	BOXID				; Boxid 
+	CALLS	#3,G^LOCATE_BOXID
+	BLBS	R0,120$				; Br if found
+	BRW	200$
+120$:
+	MOVL	R6,COM_HDR_L_BOXID(R1)
+	BRB	110$
+200$:
+	MOVL	R6,NEWBOX
+	PUSHL	12(AP)			; This pid
+	PUSHAL	BOXID
+	PUSHAL	NEWBOX
+	CALLS	#3,G^CHANGE_BOXID_DB
+	BLBS	R0,210$
+
+        MOVL	#MSG_RELATR_CHGBOX,MSGCDE    ; General VMS error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)                      ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+210$:
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CHANGE_BOXID_DB
+;++
+;2 CHANGE_BOXID_DB
+; Subroutine to change boxids in EMUDB. 
+; This routine locates and changes all occurences of the OLD BOXID to the 
+; NEW BOXID. 
+;
+;3 Inputs
+;  1  .address of .long NEW boxid
+;  2  .address of .long OLD BOXID 
+;  3  .long SYSPID of protocol to change
+;3 Outputs
+;  All OLD boxids found in EMUDB are changed to NEW
+;  If a duplicate record results, the original record is deleted.
+;3 Returns
+;  SS$_NORMAL	- OK
+;	Any from EMUDB access routines
+;--
+
+	MOVL	4(AP),R6	; new 
+	MOVL	8(AP),R7        ; old
+	MOVAL	RECBUF,R10
+	MOVL	12(AP),(R10)	; Protocol
+	MOVL	(R7),4(R10)      ; BOXID
+	CLRL	RECCNT			; Record count
+10$:	
+	MOVL	#DB_REC_C_MRS,RECBUF_DESC
+	PUSHL	#2			; Do not unlock after read, skip map
+	PUSHAL	RECCNT			; Record count
+	PUSHL	#8			; Report level
+	CLRL	-(SP)			; Search direction
+	PUSHAL	RECBUF_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_PRO_BOX	; Key of ref
+	CALLS	#6,G^EMUDB_READ
+	BLBS	R0,20$
+15$:
+	CMPL	#RMS$_RNF,R0		; If record not found...
+	BEQLU	17$
+	CMPL	#RMS$_EOF,R0		; If End of file...
+	BEQLU	17$
+	RET                             ; Return any other error
+
+17$:
+	MOVL	#SS$_NORMAL,R0		; ... Then OK
+	RET
+20$:
+	MOVAL	RECBUF,R10            	; 
+	CMPL	(R7),DB_REC_L_BOXID(R10) ; Is old boxid?
+	BNEQ	15$                     ; Br not
+	CMPL	12(AP),DB_REC_L_PROTO(R10) ; Is this pid?
+	BNEQ	15$                     ; Br not
+	MOVL	(R6),DB_REC_L_BOXID(R10) ; Change it
+;
+	CALLS	#0,G^EMUDB_UPDATE        ; update
+	BLBS	R0,30$                  ; br no err
+	CMPL	#RMS$_DUP,R0            ; If err is duplicate rec
+	BEQLU	40$                     ; ... then branch
+	RET                             ;     ... else return error
+30$:
+	BRW	10$
+40$:
+; We have just changed a record and it is now a duplicate. This means that 
+; prior to finding this relationship the address was probed and updated
+; under the old boxid - effectively, this box has been updated multiple
+; times. Simply delete the original record as it is in fact a duplicate
+; copy with the old id.
+	CALLS	#0,G^EMUDB_DELETE        ; delete
+	BRW	10$
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=MAP_RELATERDB   
+;++
+;2 MAP_RELATERDB   
+; Routine to create and initialise the RELATER db. This is a standard routine
+; that any DB creator executes on it's own DB:
+;	Acquire exclusive lock on this database. 
+;		Fatal error if not granted.
+;	Open file - if file not opened used hardcoded defaults.
+;	Create section. Fatal error ir we did not CREATE.
+;	Initalise with either file contents or defaults
+;	Write section size (in pages) to LVB
+;	Convert lock to CW
+;	That's it!
+;--
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	$ENQW_G	RELATDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	RELATLVBSTA,10$            ; Br if got it
+	CMPW	#SS$_VALNOTVALID,RELATLVBSTA  ;  Ignore LVB not valid error
+	BEQLU	10$
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_$ENQ,(R1)+	   	     ; From routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+10$:
+	$OPEN	FAB= RELATSECFAB			; Attempt to open
+	BLBS	R0,20$                          ; Br if OK
+	BRW	1000$				; Use defaults
+20$:
+	$CONNECT RAB=RELATSECRAB
+	BLBS	R0,30$
+	BRW	280$			; Abandon and use defaults
+30$:
+	$GET	RAB=RELATSECRAB		; Get 1st rec
+	BLBS	R0,40$
+	BRW	280$			; Abandon and use defaults
+40$:
+; Calc memory/file size, Get memory & Map section
+       	MOVAL	RELATSECREC,R7
+	MULL3	COM_DBHDR_L_MAXENTRIES(R7),COM_DBHDR_L_RECSIZE(R7),GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+100$:	clrq	-(sp)			; p0 space, access mode
+	pushal	inaddr		; returned address
+	pushl	gblsiz          	; no. of pages
+	calls	#4, g^sys$expreg	; Expand process space
+	blbs	r0,110$
+	ret
+; map section	
+110$:
+	clrq	-(sp)			; pfc, protection
+	clrl	-(sp)			; virtual block number
+	pushl	gblsiz			; no. of pages
+	clrq	-(sp)			; channel, rel page no.
+	clrl	-(sp)			; version id
+	pushal	RELATSECNAM		; section name
+	pushl	#<sec$m_gbl!sec$m_dzro!sec$m_wrt!sec$m_pagfil!sec$m_sysgbl>
+	clrl	-(sp)			; access mode
+	pushal	relater_a			; returned address
+	pushal	inaddr			; in address
+	calls	#12, g^sys$crmpsc	; create section
+	blbs	r0,120$
+	ret
+120$:
+	CMPL	#SS$_CREATED,R0
+	BEQL	200$
+	$CLOSE	FAB=RELATSECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	RET
+200$:
+; We created the section. Load it with file contents
+; Move the 1st rec to rec header
+; 1st rec cannot exceed common header size...
+	MOVAL	RELATER_A,R11			; Start of section
+	MOVL	(R11),R7                        ;
+	MOVC3	#COM_HDR_C_SIZE,RELATSECREC,(R7)     ; Init header
+	ADDL3	COM_DBHDR_L_RECSIZE(R7),R7,R8       ; Location of 1st rec
+	CLRL	COM_DBHDR_L_ENTRIES(R7)		; No entries yet
+	MOVL	COM_DBHDR_L_RECSIZE(R7),R9    ; rec size
+210$:
+	MOVL	R8,RELATSECRAB+RAB$L_UBF    ; Write rec here
+	MOVW	R9,RELATSECRAB+RAB$W_RSZ		; Record size
+	MOVW	R9,RELATSECRAB+RAB$W_USZ		; Record size
+	$GET	RAB = RELATSECRAB		; Get a record
+	BLBC	R0,260$			; BR IF  error 
+	INCL	COM_DBHDR_L_ENTRIES(R7)			; Count
+	ADDL	R9,R8     		; Next slot
+	ADDL3	R9,R8,R10		; Check if enough room
+	CMPL	R10,4(R11)		; OK?
+	BLEQU	210$			; OK
+	BRW	280$			; Undo
+	
+260$:
+	CMPL	R0,#RMS$_EOF		; Was error end of file
+	BEQLU	270$			; Yes - OK
+	RET				; No - Die
+270$:
+	$CLOSE	FAB=RELATSECFAB
+	BRW	2000$
+280$:
+; Undo and set to default
+	$CLOSE	FAB=RELATSECFAB
+	CLRQ	-(SP)
+	pushal	relater_a			; returned address
+	CALLS	#3,G^SYS$DELTVA
+	BLBS	R0,1000$
+	RET
+	
+1000$:
+; File was not found, or otherwise unloadable
+; Use defaults
+	MULL3	#RLT_C_RECSIZE,DEFRECCNT,GBLSIZ
+	DIVL	#512,GBLSIZ                             ; Pages
+	INCL	GBLSIZ                                  ; Round up
+
+; Get Memory
+	clrq	-(sp)			; p0 space, access mode
+	pushal	inaddr			; returned address
+	pushl	gblsiz          	; no. of pages
+	calls	#4, g^sys$expreg	; Expand process space
+	blbs	R0,1010$
+	ret
+; map section	
+1010$:
+	clrq	-(sp)			; pfc, protection
+	clrl	-(sp)			; virtual block number
+	pushl	gblsiz			; no. of pages
+	clrq	-(sp)			; channel, rel page no.
+	clrl	-(sp)			; version id
+	pushal	RELATSECNAM		; section name
+	pushl	#<sec$m_gbl!sec$m_dzro!sec$m_wrt!sec$m_pagfil!sec$m_sysgbl>
+	clrl	-(sp)			; access mode
+	pushal	RELATER_a			; returned address
+	pushal	inaddr			; in address
+	calls	#12, g^sys$crmpsc	; create section
+	CMPL	#SS$_CREATED,R0
+	BEQL	1100$
+	$CLOSE	FAB=RELATSECFAB
+	MOVL	#SS$_INVEVENT,R0	; We MUST create the section
+	RET
+; init header rec
+1100$:
+	MOVL	RELATER_A,R6
+	MOVL	#RLT_C_RECSIZE,COM_DBHDR_L_RECSIZE(R6)   ; write recsize 
+	MOVL	#THIS_PROCESS,COM_DBHDR_L_FLAG(R6)          ; Write flag
+	MOVL	DEFRECCNT,COM_DBHDR_L_MAXENTRIES(R6)
+2000$:
+	$ERASE	FAB= RELATSECFAB		; Delete all versions
+	BLBS	R0,2000$                        ; Br until no more
+	SUBL3	RELATER_A,RELATER_A+4,R10 	; Size if section (bytes)
+	DIVL3	#512,R10,RELATLVBSIZ            ; Size (Pages) in LVB
+	INCL	RELATLVBSIZ			; Real number
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	MOVL	#LCK$K_CWMODE,LKMODE		; COnvert to CW
+	$ENQW_G	RELATDBLOCK 			; Convert DB lock 
+	MOVW	RELATLVBSTA,R0
+	RET					; Return with any errors
+
+	
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=REL_UNMAP   
+;++
+;2 REL_UNMAP 
+; Unmap specific database and release lock. This routine is called
+; by the MAP Blast routine.
+;3 Input
+; The .long param suppied as the AST param to the MAP request. This is 
+; the address of the MAP_STRUCTURE that has has the blocking AST delivered
+; by VMS.
+	PUSHL	4(AP)
+	CALLS	#1,G^UNMAPLVB_DB
+	BLBS	R0,10$
+	RET
+10$:
+ ; re-request lock
+	PUSHL	4(AP)				; Blast param
+	PUSHAL	REL_UNMAP			; Our unmap routine
+	PUSHL	4(AP)				; Map this db
+        CALLS	#3,G^MAPLVB_DB  
+	BLBS	R0,20$
+20$:
+	RET
+
+
+
+
+	
+.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=CREATE_RELREC   
+;++
+;2 CREATE_RELREC 
+; Initalise new record in RELATER database
+;3 Input
+;  .address of location to create record
+;  Address of new BOXID. 
+;  address of sys_pid_xxxx showing PSRdb this belongs to.
+; The PID agrument is an offset into a table of boxids that exist on the 
+; same device. Within each PSRdb the boxid is repeated for as many times
+; as there are addresses on this device on this protocol. Thus if IP has
+; 3 address on this device, there are 3 entries in the IP database all with
+; the same boxid. This boxid then is inserted into the IP 'column' on the 
+; relater db.
+; 
+;3 Output
+;  R1 = Restored to input address (created record)
+;  Entire record is cleared then the following 
+;  fields are written:
+;   Field		Writen with
+;  FLAGS		THIS_PROCESS
+;  FSTHRD		current time
+;  LSTHRD		current time
+;  ACNT			1
+;  HOWSET		THIS_PROCESS
+;  BOXID		Set in table position dictated by p3
+; If a new record is created the physical record count in the header rec
+; is incremented. If a deleted rec is overwritten there is no increment.
+;3 Returns
+;	#SS$_NORMAL	OK - deleted record used
+;	#SS$_CREATED	OK - new record created
+;	#SS$_INSFMEM	Specified address will create outside RELATER space
+; Any return from Lock/Unlock
+;--
+	MOVL	@8(AP),R7       	; BOXID
+        MOVL	RELATER_A,R9		; Top of table
+	MOVL	4(AP),R6		; Where to create (from LOCATE_BOXID)
+; Test supplied address is in RELATER space
+	ADDL3	#RLT_C_RECSIZE,R6,R1    ; Space to write to
+	CMPL	R1,RELATER_A+4		; Last possible addr
+	BLEQ	1$
+	MOVL	#SS$_INSFMEM,R0
+	RET
+1$:
+	CMPL	R6,RELATER_A		; 1ST possible addr
+	BGTR	10$
+	MOVL	#SS$_INSFMEM,R0
+	RET
+	
+10$:
+; Set return code before init rec
+	MOVL	#SS$_NORMAL,R10			; Assume not created
+	BBSC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),20$ ; Br if deleted
+        MOVL    #SS$_CREATED,R10
+	INCL	COM_DBHDR_L_ENTRIES(R9)		; Count new
+
+20$:
+; loc this rec for exclusive access
+	PUSHL	#SYS_COM_C_EXCLOCK
+	ADDL3	#COM_HDR_Q_LOCKFIELD,R6,-(SP)
+	CALLS	#2,G^LOCREC
+	BLBS	R0,30$
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_LOCREC,(R1)+   ; Fron routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+30$:
+	MOVC5	#0,#0,#0,#RLT_C_DATSIZE,COM_HDR_C_SIZE(R6)	; Clear data
+	CLRL	COM_HDR_L_PTYBITS(R6)
+	CLRL	COM_HDR_L_SYSCTL(R6)
+	CLRL	COM_HDR_L_STATUS(R6)
+	CLRL	COM_HDR_L_LEN(R6)
+; Write indicated fields
+	MOVL	#THIS_PROCESS,COM_HDR_L_FLAGS(R6)
+	ADDL3	#RLT_DB_TL_BOXIDS,R6,R1			; PID TBL
+	MOVL	@12(AP),R2				; pid
+	MOVL	R7,(R1)[R2]				; 
+	MOVL	#THIS_PROCESS,COM_HDR_L_HOWSET(R6) 
+        MOVQ	EXE$GQ_SYSTIME,COM_HDR_Q_FSTHRD(R6) 
+        MOVQ	EXE$GQ_SYSTIME,COM_HDR_Q_LSTHRD(R6) 
+	CLRQ	COM_HDR_Q_LSTALT(R6) 
+        MOVL    #1,COM_HDR_L_ACNT(R6) 
+; Unlock
+	PUSHL	#SYS_COM_C_EXCLOCK
+	ADDL3	#COM_HDR_Q_LOCKFIELD,R6,-(SP)
+	CALLS	#2,G^UNLOCREC
+	BLBS	R0,40$
+        MOVL	#MSG_RELATR_GENVMS,MSGCDE    ; General VMS error
+	MOVL	#2,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	MOVAL	RTN_LOCREC,(R1)+   ; Fron routine
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	RET
+40$:
+	MOVL	R10,R0			; Set previously set return
+	MOVL	R6,R1
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TRC_RELATER   
+
+; Write a trace record to the trace mailbox
+; Inputs:
+;	Record type by val
+;	Event type by val
+;	data to write by addr
+; Outputs:
+; Trace rec written to trace mailbox   
+; Returns:
+; None
+; This is 'cased' for future additional rec types
+        CASEL   4(AP),#1,#2		; Select routine to write trace rec
+150$:
+        .WORD   1000$-150$       ; Ethernet heads
+        .WORD   2000$-150$       ; relater frame
+        .WORD   3000$-150$       ; PSR Header
+        RET
+1000$:				; Ethernet buffs
+; write out:
+; 	Rec type  
+;	Event type 
+;	Process name - This is set in the mbxframe
+;	Ebuff header - This is the entire buffer up to ethernet data
+
+	MOVL	4(AP),TRCRECTYP			; Record type
+	MOVL	8(AP),TRCEVTTYP			; Event
+        MOVC3	#IPC_ETH_1500_DATA,@12(AP),TRCDATA ; Move data
+	ADDL3	#8,#IPC_ETH_1500_DATA,TRCMBXLEN	   ; Set len
+	BRW	10000$				; Write trace rec
+2000$:
+; Determine len of this relater frame. If longer than relater Mbx then
+; truncate.
+	MOVL	12(AP),R6		; Relater frame
+	MOVL	#RLT_FRM_C_1STTGT,R11	; Init with smallest possible
+	ADDL3	#RLT_FRM_C_1STTGT,R6,R7	; 1st target
+	MOVL	RLT_FRM_L_TARGETS(R6),R3 ; Number of targets
+	BEQL	2100$			; Br if none
+2010$:
+	MOVL	RLT_FRM_L_TGTLEN(R7),R4	; Len this target
+	ADDL	#8,R4			; Include header
+	ADDL	R4,R11			; add to Total frame len
+	ADDL	R4,R7			; Next target
+	SOBGTR	R3,2010$		; Loop for all
+2100$:
+	CMPL	R11,#TRC_HDR_C_MAXDATA   
+	BLEQ	2110$
+	MOVL	#TRC_HDR_C_MAXDATA,R11
+2110$:
+	MOVL	4(AP),TRCRECTYP			; Record type
+	MOVL	8(AP),TRCEVTTYP			; Event
+        MOVC3	R11,(R6),TRCDATA		; Move data (skip que heads)
+	ADDL3	#TRCHEAD_LEN,R11,TRCMBXLEN	; Add header len
+	BRW	10000$				; Write trace rec
+3000$:
+; PSR header
+	MOVL	4(AP),TRCRECTYP			; Record type
+	MOVL	8(AP),TRCEVTTYP			; Event
+        MOVC3	#COM_HDR_C_SIZE,@12(AP),TRCDATA	; Move data
+	ADDL3	#TRCHEAD_LEN,#COM_HDR_C_SIZE,TRCMBXLEN	; Add header len
+	BRW	10000$				; Write trace rec
+
+
+10000$:
+        $QIO_G	WRITETRC
+	BLBS	R0,10010$		   ; Br no error
+; Increment 'lost trace rec' count
+	MOVL	CONTROL_A,R11
+	INCL	CTL_TRC_L_LOST(R11)
+	CMPL	#SS$_MBFULL,R0                  ; Don't log MBX full messages
+	BNEQU	10020$
+10010$:
+	RET
+10020$:
+	RET
+
+        .CALL_ENTRY     MAX_ARGS=1, -
+                        HOME_ARGS=TRUE, -
+                        INPUT   =<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=COUNT_RLT_EVENT
+;++
+;2 COUNT_RLT_EVENT
+; Routine to increment the counter set by input.
+;3 Input:
+;	.long value of counter name. This is an offset from COUNTERS_A
+;3 Outputs:
+;  	The counter is incremented
+;3 Returns:
+;	None 
+;--
+	MOVL	COUNTERS_A,R1
+	ADDL	4(AP),R1
+	INCL	(R1)
+	RET
+	.sbttl	exit_hdlr ()
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=RELATER_INIT   
+;++
+;2 RELATER_INIT
+; This routine is called at Relater startup to verify startup is correct.
+; At completion it sets the SYS_STU_V_PH2FLG flag thus ending phase 1
+; of the system startup and allowing phase 2 to start
+;2 Description
+; The continue flag is set and the routine exits.
+;--
+; Ensure next assigned boxid is higher than any previously assigned.
+; Get stored number
+	MOVL	CONTROL_A,R9			; Control section
+	MOVL	CTL_L_BOXID(R9),R10		; Stored value
+        MOVAL	DBTBL,R9
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R7   ; ENd of table
+	
+40$:
+	TSTL	SYS_MAP_Q_ADDR(R9)  	; Access this DB?     
+	BGTR	60$                     ; Br if So
+50$:
+	ADDL	#SYS_MAP_C_MAPSIZ,R9    ; Next
+	CMPL	R9,R7                   ; AT END?
+	BLSS	40$			; Br if not
+	BRW	1000$			; Next phase
+60$:
+	MOVL	(R9),R2			; 1st rec
+	MOVL	COM_DBHDR_L_RECSIZE(R2),R3	; Rec size
+	MOVL	COM_DBHDR_L_ENTRIES(R2),R11	; Entries
+	BEQL	50$			; br if None
+	ADDL3	R3,R2,R8                ; 1st entry
+70$:
+
+	CMPL	R10,COM_HDR_L_BOXID(R8) 
+	BLSSU	80$			; Next  rec
+	SOBGTR	R11,70$                 ; Loop for all
+	BRW	50$                     ; Next DB
+80$:
+	ADDL3	#1,COM_HDR_L_BOXID(R8),R10
+	SOBGTR	R11,70$                 ; Loop for all
+	BRW	50$                     ; Next DB
+
+
+
+1000$:
+; Set next boxid
+	MOVL	CONTROL_A,R9			; Control section
+	MOVL	R10,CTL_L_BOXID(R9)		; Set value
+
+; Set continue CEF.
+   	ADDL3	#96,#SYS_STU_V_PH2FLG,-(SP)	; Set continue flag
+	CALLS	#1,G^SYS$SETEF
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=RELATEREXIT_HDLR 
+;++
+;2 RELATEREXIT_HDLR  
+; Routine called upon exit to:
+;	Write out the current PSR Table.
+;	Analyse and write Relater database
+;--
+; If process fails before this flag is set, system hangs. This is not the
+; most sure way, but it is a start...
+;
+   	ADDL3	#96,#SYS_STU_V_PH2FLG,-(SP)	; Set continue flag
+	CALLS	#1,G^SYS$SETEF
+10$:
+	$ERASE	FAB= PSRFAB			  ; Delete all versions
+	BLBS	R0,10$                          ; Br until no more
+	$CREATE	FAB = PSRFAB		; New file
+	BLBS	R0,20$
+	BRW	100$	
+20$:
+ 	$CONNECT RAB = PSRRAB		; Connect input stream
+	BLBS	R0,30$
+	BRW	100$	
+30$:
+	MOVL	PSRTBL_A,R6		; Table top
+	MOVL	PSRTBLCNT,R9		; Entry count
+	MOVW	#PSR_TBL_C_SIZE,PSRRAB+RAB$W_USZ
+	MOVW	#PSR_TBL_C_SIZE,PSRRAB+RAB$W_RSZ
+40$:
+	MOVL	R6,PSRRAB+RAB$L_RBF	; Rec to write
+	MOVL	R6,PSRRAB+RAB$L_UBF	; Rec to write
+	$PUT	RAB=PSRRAB
+	BLBS	R0,50$
+	BRW	100$	
+50$:
+	ADDL	#PSR_TBL_C_SIZE,R6	; Next entry
+	SOBGTR	R9,40$
+	$CLOSE	FAB=PSRFAB
+	BRW	1000$
+100$:
+	$ERASE	FAB= PSRFAB			; Delete all versions
+	BLBS	R0,100$                          ; Br until no more
+1000$:	 
+; Write RELATER DB out to file
+	MOVL	#LCK$K_EXMODE,LKMODE	; EXCLUSIVE
+	BISL	#LCK$M_CONVERT,LKFLGS		; Set lock to convert
+	$ENQW_G	RELATDBLOCK 		; Get DB lock in exclusive mode
+	BLBS	RELATLVBSTA,1020$
+	CMPW	#SS$_VALNOTVALID,RELATLVBSTA  ;  Ignore LVB not valid error
+	BEQLU	1020$
+	RET	
+1020$:
+; create new file
+	$CREATE	FAB=RELATSECFAB
+	BLBS	R0,1030$
+	RET
+1030$:
+	$CONNECT RAB=RELATSECRAB
+	BLBS	R0,1040$
+1040$:
+; analyse section, dec entry count for any deleted recs
+	MOVL	RELATER_A,R10			; Top of section
+        MOVL	COM_DBHDR_L_ENTRIES(R10),R6      ; Number of entries
+	BEQL	1065$				; Br if none
+        MOVL	COM_DBHDR_L_RECSIZE(R10),R7      ; Size of entries
+	ADDL3	R7,R10,R8				; 1st rec
+1050$:
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R8),1060$ ; Br if not deleted
+	DECL	COM_DBHDR_L_ENTRIES(R10)			   ; uncount
+1060$:
+	ADDL	R7,R8 
+	SOBGTR	R6,1050$
+; The count is now the count of valid recs
+; Calc a new MAXENTRY
+1065$:
+	MULL3	#100,COM_DBHDR_L_ENTRIES(R10),R1
+        DIVL	#15,R1			; increase by 15 %
+	CMPL	#100,R1			; must be > 10
+	BLSS	1070$
+	MOVL	#100,R1			; Set min
+	BRB	1100$
+1070$:
+	CMPL	#1000,R1			; must be < 100
+	BGTR	1100$
+	MOVL	#1000,R1			; Set min
+1100$:
+; Set header and write it
+; 
+	MOVW	COM_DBHDR_L_RECSIZE(R10),RELATSECRAB+RAB$W_RSZ     ; rec size
+	ADDL3	R1,COM_DBHDR_L_ENTRIES(R10),COM_DBHDR_L_MAXENTRIES(R10); Set new max size
+	MOVL	#-1,COM_HDR_L_ACNT(R10)	; Set this field Max count (FOR SORT)
+	MOVL	R10,RELATSECRAB+RAB$L_RBF    ; Write this rec 
+	$PUT	RAB = RELATSECRAB		; Write a record
+	BLBS	R0,1110$			; BR IF no error 
+	RET
+
+1110$:
+; Write out all recs (skip deletes)
+        MOVL	COM_DBHDR_L_ENTRIES(R10),R6      ; Number of entries
+	BEQL	1200$				; Br if none
+        MOVL	COM_DBHDR_L_RECSIZE(R10),R7      ; Size of entries
+        MOVW	COM_DBHDR_L_RECSIZE(R10),RELATSECRAB+RAB$W_RSZ    ; Size of record
+	ADDL3	R7,R10,R8			; 1st rec
+1120$:
+	MOVL	R8,RELATSECRAB+RAB$L_RBF    ; Write this rec 
+	$PUT	RAB = RELATSECRAB		; Write a record
+	BLBC	R0,1210$			; BR IF  error 
+	ADDL	R7,R8 
+	SOBGTR	R6,1120$
+1200$:
+	$CLOSE	FAB= RELATSECFAB	; 
+	BRW	2000$
+1210$:
+	$CLOSE	FAB= RELATSECFAB	; 
+	$ERASE	FAB= RELATSECFAB			; Delete Partial
+; Write control section
+
+2000$:
+
+	$CREATE	FAB = CTLFAB		;Open input file
+	BLBS	R0,2010$			;OK ?
+	RET				; Die
+2010$: 	
+	$CONNECT RAB = CTLRAB		;Connect input stream
+ 	BLBS	R0,2020$			;Branch if OK
+	RET				; Die
+2020$:
+; Load Table
+2030$:
+	MOVL	CONTROL_A,R11           	; Pointer
+2050$:	
+	MOVL	R11,CTLRAB+RAB$L_RBF    ; Write This rec
+	MOVL	R11,CTLRAB+RAB$L_UBF    ; Write This rec
+	MOVW	#CTL_C_RECSIZE,CTLRAB+RAB$W_RSZ
+	MOVW	#CTL_C_RECSIZE,CTLRAB+RAB$W_USZ
+	$PUT	RAB = CTLRAB		; write THE record (only 1 rec)
+	BLBS	R0,2060$		; Br if no error
+	MOVL	R0,R6
+	$CLOSE	FAB=CTLFAB
+	$ERASE	FAB=CTLFAB              ; Erase version
+	MOVL	R6,R0
+	RET				; No - Die
+2060$:	
+	$CLOSE	FAB=CTLFAB
+	MOVL	#SS$_NORMAL,R0
+	RET
+	.END	RELATER

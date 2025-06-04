@@ -1,0 +1,441 @@
+$!                             COPYRIGHT (C) 1996, 2000 BY
+$!                       COMPAQ COMPUTER CORPORATION, HOUSTON
+$!                        TEXAS.  ALL RIGHTS RESERVED.
+$!
+$!     THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+$!     ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+$!     OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+$!     THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+$!     PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+$!
+$!     THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+$!     SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+$!     SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+$!
+$!     NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+$!     ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+$!
+$!     SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+$!     PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+$!     CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+$!
+$!
+$!     This article contains a program contained in the command procedure to
+$!     perform RMS sequential file copies. Wildcards are accepted in both the
+$!     source and destination file specifications. This program is to be used
+$!     as an example of programming at (RMS) level and does not reflect the
+$!     insight of the actual Digital Command Language (DCL) copy code. Further-
+$!     more, DCL COPY uses block mode when both the input device and the output
+$!     device are block-oriented, whereas this program copies the data using
+$!     the record access services $GET and $PUT. Therefore, when applied to
+$!     index sequential files, the newly created file or files will have
+$!     different INTERNAL characteristics like bucket fill factors etc., which
+$!     might negatively impact an application's performance on that file.
+$!     
+$!     This program makes uses of the following system services:
+$!     
+$!          + sys$putmsg - error condition to fao message system service.
+$!          + sys$parse  - RMS system service
+$!          + sys$search - RMS system service
+$!          + sys$open   - RMS system service
+$!          + sys$connect - RMS system service
+$!          + sys$create - RMS system service
+$!          + sys$get    - RMS system service
+$!          + sys$put    - RMS system service
+$!          + sys$close  - RMS system service
+$!     
+$!     Also the following utility routines are used:
+$!     
+$!          + cli$get_value - CLI utility routine
+$!          + cli$present  - CLI utility routine
+$!     
+$!     and the library routine:
+$!     
+$!          + lib$signal
+$!     
+$!     The command definition accepts the following syntax:
+$!     
+$!          $ RMS_COPY[/LOG] IN_FILE.EXT OUT_FILE.EXT
+$!     
+$!     Parts or all of the file specifications can be wildcarded.
+$!
+$!
+$ create rms_copy_msg.msg
+        .TITLE rms_copy
+
+        .FACILITY   COPY,1/PREFIX=COPY$_
+        .SEVERITY   SUCCESS
+SUCCESS/fao=5 <file !AD successfully copied to !AD (!UL blocks)>
+        .END
+$ message rms_copy_msg
+$ create rms_copy.c
+/*
+ * This program is functionally equivalent to the VMS command:
+ * $ COPY[/LOG] FILE_IN.EXT FILE_OUT.EXT
+ * FILE_IN.EXT can be of any organization
+ * Wildcards are accepted.
+ * Be careful when dealing with indexed files, as mentioned above
+ * in the Overview section!
+ */
+
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <ssdef.h>
+#include <rms.h>
+#include <lib$routines.h>    /* for the usage of lib$signal */
+#include <chfdef.h>
+#include <starlet.h>
+#include <descrip.h>
+#include <cli$routines.h>
+
+#define DEFAULT_FILE_NAME ".dat"
+#define MAX_REC_SIZE 32767
+
+#ifdef __DECC
+#pragma extern_model globalvalue
+extern const int COPY$_SUCCESS,CLI$_ABSENT,CLI$_NEGATED;
+#else
+globalvalue int COPY$_SUCCESS,CLI$_ABSENT,CLI$_NEGATED;
+#endif
+
+unsigned int copy_handler (void *sigarr, void *mecharr)
+{
+#ifdef __NEW_STARLET
+   CHFDEF1 *signal_args;
+#else
+   struct chfdef1 *signal_args;
+   typedef struct chfdef1 CHFDEF1;
+#endif
+   unsigned int facility;
+   $DESCRIPTOR(prefix_descr,"COPY");
+   int number_of_args;
+
+   signal_args = (CHFDEF1 *)sigarr;
+   if (signal_args->chf$is_sig_name != SS$_UNWIND) {
+          /*
+             Get error text and output it.
+          */
+          number_of_args = signal_args->chf$is_sig_args;
+          facility = (signal_args->chf$is_sig_name & 0xfff0000) >> 16;
+          if (facility != 0)         /* Not SYSTEM message */
+              signal_args->chf$is_sig_args = signal_args->chf$is_sig_args - 2;
+          (void)sys$putmsg (signal_args,NULL,&prefix_descr);
+          signal_args->chf$is_sig_args = number_of_args;
+          if (signal_args->chf$is_sig_name & 1)
+                return (SS$_CONTINUE);
+          else  sys$exit(signal_args->chf$is_sig_name);
+    }
+}
+
+int rms_copy  (struct dsc$descriptor_s *file_in,
+                struct dsc$descriptor_s *file_out,
+                int log)
+{
+  int rms_status;
+  int str_len;
+  int i;
+  struct FAB fab_in;
+  struct RAB rab_in;
+  struct FAB fab_out;
+  struct RAB rab_out;
+  struct NAM nam_in;
+  struct NAM nam_out;
+  struct XABSUM xabsum_in;
+  struct XABALL *xaball_in;
+  struct XABALL *xaball_out;
+  struct XABKEY *xabkey_in;
+  struct XABKEY *xabkey_out;
+  char esa_in[NAM$C_MAXRSS];
+  char rsa_in[NAM$C_MAXRSS];
+  char outfilspec[NAM$C_MAXRSS];
+  char rsa_out[NAM$C_MAXRSS];
+  char esa_out[NAM$C_MAXRSS];
+  char *user_buffer;
+
+   VAXC$ESTABLISH (copy_handler) ;
+   user_buffer = malloc(MAX_REC_SIZE);
+
+   /*
+    * Set up RMS structures for the input file
+    */
+
+   fab_in = cc$rms_fab;
+   nam_in = cc$rms_nam;
+   fab_in.fab$l_nam = &nam_in;
+   nam_in.nam$l_esa = esa_in;
+   nam_in.nam$b_ess = NAM$C_MAXRSS;
+   memcpy(rsa_in,file_in->dsc$a_pointer,file_in->dsc$w_length);
+   nam_in.nam$l_rsa = rsa_in;
+   nam_in.nam$b_rss = NAM$C_MAXRSS;
+   nam_in.nam$b_rsl = file_in->dsc$w_length;
+   nam_in.nam$b_nop = NAM$V_NOCONCEAL;
+
+   fab_in.fab$l_fop = FAB$M_NAM;
+   fab_in.fab$l_fna = file_in->dsc$a_pointer;
+   fab_in.fab$b_fns = file_in->dsc$w_length;
+   fab_in.fab$b_fac = FAB$M_GET;
+
+   /*
+    * Parse input file.
+    */
+   rms_status = sys$parse (&fab_in, 0, 0);
+   if (! (rms_status&1))
+        lib$signal (fab_in.fab$l_sts,fab_in.fab$l_stv);
+
+   /*
+    * Loop if wildcard operation.
+    */
+   for (;;) {
+
+        /*
+         * Search all files and exit loop when no-more-files.
+         */
+        rms_status = sys$search (&fab_in, 0, 0);
+        if (rms_status == RMS$_NMF)
+            break;
+
+        xabsum_in = cc$rms_xabsum;
+        fab_in.fab$l_xab = (char *)&xabsum_in;
+        /*
+         * Open input file.
+         */
+        rms_status = sys$open(&fab_in);
+        if (!(fab_in.fab$l_sts&1))
+                 lib$signal(fab_in.fab$l_sts,fab_in.fab$l_stv);
+
+        if (fab_in.fab$b_org == FAB$C_IDX) {
+            /*
+             * allocate as many XABALLs for allocation areas
+             * for indexed files.
+             */
+            xaball_in = calloc(xabsum_in.xab$b_noa,sizeof(struct XABALL));
+            xaball_out = xaball_in;
+            for (i=0;i<xabsum_in.xab$b_noa;i++) {
+                   *xaball_out = cc$rms_xaball;
+                    xaball_out->xab$b_aid = i;
+                    xaball_out->xab$l_nxt = (char *)xaball_out +
+                                                sizeof (struct XABALL);
+                    xaball_out++;
+            }
+            xaball_out--;
+            xabsum_in.xab$l_nxt = (char *)xaball_in;
+            /*
+             * allocate as many XABKEYs for primary and secondary keys
+             * for indexed files.
+             */
+            xabkey_in = calloc(xabsum_in.xab$b_nok,sizeof(struct XABKEY));
+            xabkey_out = xabkey_in;
+            for (i=0;i<xabsum_in.xab$b_nok;i++) {
+                   *xabkey_out = cc$rms_xabkey;
+                    xabkey_out->xab$b_ref = i;
+                    xabkey_out->xab$l_knm = malloc(33);
+                    xabkey_out->xab$l_nxt = (char *)xabkey_out +
+                                                sizeof (struct XABKEY);
+                    xabkey_out++;
+            }
+            xaball_out->xab$l_nxt = (char *)xabkey_in;
+            xabkey_out--;
+            xabkey_out->xab$l_nxt = 0;
+
+            /*
+             * Lookup for input file attributes.
+             */
+            rms_status = sys$display(&fab_in,0,0);
+            if (!(fab_in.fab$l_sts&1))
+                      lib$signal(fab_in.fab$l_sts,fab_in.fab$l_stv);
+            }/* end if organization indexed */
+
+        /*
+         * Set up RMS structures for the output file. We only copy the
+         * most important ones to reflect the overall characteristics
+         * of the file. Other options can easily be added by copying the
+         * related fields from the input fab to the output fab.
+         */
+        fab_out = fab_in;
+        fab_out.fab$l_dna = file_out->dsc$a_pointer;
+        fab_out.fab$b_dns = file_out->dsc$w_length;
+        fab_out.fab$l_fop = FAB$M_SUP | FAB$M_OFP | FAB$M_NAM;
+        fab_out.fab$b_fac = FAB$M_PUT;
+        fab_out.fab$l_xab = 0;
+        fab_out.fab$w_ifi = 0;
+        fab_out.fab$b_fns = 0;
+        nam_out = cc$rms_nam;
+        fab_out.fab$l_nam = &nam_out;
+        nam_out.nam$l_esa = esa_out;
+        nam_out.nam$b_ess = NAM$C_MAXRSS;
+        memcpy(rsa_out,rsa_in,nam_in.nam$b_rsl);
+        nam_out.nam$l_rsa = rsa_out;
+        nam_out.nam$b_rsl = nam_in.nam$b_rsl;
+        nam_out.nam$b_rss = NAM$C_MAXRSS;
+        nam_out.nam$b_nop = NAM$V_NOCONCEAL;
+        /*
+         * Parse output file.
+         */
+        rms_status = sys$parse (&fab_out, 0, 0);
+        if (! (rms_status&1))
+                lib$signal (fab_in.fab$l_sts,fab_in.fab$l_stv);
+
+        /*
+         * Locate wildcard characters and complete output file name.
+         */
+         outfilspec[0] = 0;
+         str_len = nam_out.nam$b_node;
+         strncat (outfilspec,nam_out.nam$l_node,nam_out.nam$b_node);
+         outfilspec[str_len] = 0;
+         if (nam_out.nam$l_fnb & NAM$M_EXP_DIR) {
+                str_len = strlen(outfilspec) + nam_out.nam$b_dir;
+                strncat (outfilspec,nam_out.nam$l_dir,nam_out.nam$b_dir);
+                outfilspec[str_len] = 0;
+                }
+         if (nam_out.nam$l_fnb & NAM$M_EXP_NAME){
+                str_len = strlen(outfilspec) + nam_out.nam$b_name;
+                strncat (outfilspec,nam_out.nam$l_name,nam_out.nam$b_name);
+                outfilspec[str_len] = 0;
+                }
+         else   {
+                str_len = strlen(outfilspec) + nam_in.nam$b_name;
+                strncat (outfilspec,nam_in.nam$l_name,nam_in.nam$b_name);
+                outfilspec[str_len] = 0;
+                }
+         if (nam_out.nam$l_fnb & NAM$M_EXP_TYPE){
+                str_len = strlen(outfilspec) + nam_out.nam$b_type;
+                strncat (outfilspec,nam_out.nam$l_type,nam_out.nam$b_type);
+                outfilspec[str_len] = 0;
+                }
+         else   {
+                str_len = strlen(outfilspec) + nam_in.nam$b_type;
+                strncat (outfilspec,nam_in.nam$l_type,nam_in.nam$b_type);
+                outfilspec[str_len] = 0;
+                }
+        /*
+         * Create output file. Setup first missing XAB and FAB fields which
+         * important for creating indexed files.
+         */
+        fab_out.fab$b_fns = strlen(outfilspec);
+        fab_out.fab$l_fna = outfilspec;
+        if (fab_out.fab$b_org == FAB$C_IDX)
+             fab_out.fab$l_xab = (char *)xaball_in;
+        else fab_out.fab$l_xab = 0;
+        rms_status = sys$create(&fab_out);
+        if (!(fab_out.fab$l_sts&1)) lib$signal(fab_out.fab$l_sts,fab_in.fab$l_stv);
+
+        /*
+         * connect the 2 RABs to their FABs
+         */
+        rab_in = cc$rms_rab;               /* initialize the rab */
+        rab_in.rab$l_fab = &fab_in;           /* Point the rab to the fab */
+        rab_in.rab$l_ubf = user_buffer;
+        rab_in.rab$w_usz = MAX_REC_SIZE;
+        rms_status = sys$connect(&rab_in,0,0);
+        if (!(rab_in.rab$l_sts&1)) lib$signal(rab_in.rab$l_sts,rab_in.rab$l_stv);
+
+        rab_out = cc$rms_rab;               /* initialize the rab */
+        rab_out.rab$l_fab = &fab_out;           /* Point the rab to the fab */
+        rab_out.rab$l_rbf = user_buffer;
+        rms_status = sys$connect(&rab_out,0,0);
+        if (!(rab_out.rab$l_sts&1))
+                 lib$signal(rab_out.rab$l_sts,rab_out.rab$l_stv);
+
+        /* Get each record until End-Of-File and put each record in new file */
+        while (1) {
+                rms_status = sys$get(&rab_in,0,0);
+                if (rms_status == RMS$_EOF) break;
+                if (!(rab_in.rab$l_sts&1))
+                         lib$signal(rab_in.rab$l_sts,rab_in.rab$l_stv);
+                /*
+                 * Copy the record with output length = input length
+                 */
+                rab_out.rab$w_rsz = rab_in.rab$w_rsz;
+                rms_status = sys$put(&rab_out,0,0);
+                if (!(rab_out.rab$l_sts&1))
+                         lib$signal(rab_out.rab$l_sts,rab_out.rab$l_stv);
+        }
+
+        /*
+         * Close input and output files.
+         */
+        rms_status = sys$close(&fab_in);
+        if (!(fab_in.fab$l_sts&1))
+                lib$signal(fab_in.fab$l_sts,fab_in.fab$l_stv);
+        rms_status = sys$close(&fab_out);
+        if (!(fab_out.fab$l_sts&1))
+                lib$signal(fab_out.fab$l_sts,fab_in.fab$l_stv);
+        if (fab_in.fab$b_org == FAB$C_IDX) {
+              for (i=0;i<xabsum_in.xab$b_nok;i++) {
+                    free(xabkey_in->xab$l_knm);
+                    xabkey_out = xabkey_in;
+                    free (xabkey_out);
+                    xabkey_in++;
+             }
+              for (i=0;i<xabsum_in.xab$b_noa;i++) {
+                    xaball_out = xaball_in;
+                    free (xaball_out);
+                    xaball_in++;
+             }
+        }
+        /*
+         * Display the successful operation.
+         */
+        if (log) lib$signal(COPY$_SUCCESS,5,nam_in.nam$b_rsl,nam_in.nam$l_rsa,
+                                          nam_out.nam$b_rsl,nam_out.nam$l_rsa,
+                                          fab_out.fab$l_alq);
+   } /* end for (;;) */
+   free(user_buffer);
+   return SS$_NORMAL;
+}
+main()
+{
+   int cli_status;
+   struct dsc$descriptor_s file_in = {NAM$C_MAXRSS,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+   struct dsc$descriptor_s file_out = {NAM$C_MAXRSS,DSC$K_DTYPE_T,DSC$K_CLASS_S,0};
+   $DESCRIPTOR (indsc,"IN_FILE");
+   $DESCRIPTOR (outdsc,"OUT_FILE");
+   $DESCRIPTOR (logdsc,"LOG");
+   int log = 0;
+
+   /*
+    * Get input file name.
+    */
+   file_in.dsc$a_pointer = malloc(NAM$C_MAXRSS);
+   cli_status = cli$get_value (&indsc,&file_in,
+                                      &file_in.dsc$w_length) ;
+   if (!(cli_status&1)) lib$signal (cli_status) ;
+   /*
+    * Get output file name.
+    */
+   file_out.dsc$a_pointer = malloc(NAM$C_MAXRSS);
+   cli_status = cli$get_value (&outdsc,&file_out,
+                                      &file_out.dsc$w_length) ;
+   if (!(cli_status&1)) lib$signal (cli_status) ;
+   /*
+    * Get qualifier if present.
+    */
+   cli_status = cli$present (&logdsc);
+   if ((cli_status != CLI$_ABSENT) && (cli_status != CLI$_NEGATED)) log = 1;
+   return (rms_copy(&file_in,&file_out,log));
+}
+$ if f$search ("rms_copy.EXE") .nes. "" then delete rms_copy.exe;*
+$ cc rms_copy
+$ link rms_copy,rms_copy_msg
+$ delete rms_copy.c;*
+$ delete rms_copy_msg.msg;*
+$ delete rms_copy.obj;*
+$ delete rms_copy_msg.obj;*
+$ open/write fred rms_copy.cld
+$ write fred "DEFINE VERB RMS_COPY"
+$ this_proc = f$env("procedure")
+$ this_dev=f$parse(this_proc,,,"DEVICE")
+$ this_dir=f$parse(this_proc,,,"DIRECTORY")
+$ write fred "IMAGE ''this_dev'''this_dir'rms_copy.exe"
+$ write fred "QUALIFIER log,NEGATABLE,VALUE (DEFAULT = 'NOLOG')"
+$ write fred "PARAMETER p1, LABEL=in_file,PROMPT=""From"","
+$ write fred "                  VALUE (REQUIRED,type=$file)"
+$ write fred "PARAMETER p2, LABEL=out_file, PROMPT = ""To"","
+$ write fred "                  VALUE (REQUIRED,type=$file)"
+$ close fred
+$ set command rms_copy
+$ delete rms_copy.cld;*
+$ exit

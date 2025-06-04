@@ -1,0 +1,468 @@
+	.TITLE MIB_DELETE  
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications
+; 001 	May 1998 		PB	Creation		
+;				     in the hierarchy dictated in MAPPER.DAT
+;++
+;1 MIB_DELETE  
+; Interactive programme to delete Compiled mibs from MAPPER.DAT
+;2 Inputs  
+;  User input - MIB number. This is the number that was assigned at
+;  register time.
+;2 Output
+; Each MIB record with the encoded mib number and all it's decendants found 
+; are deleted from MAPPER.DAT. 
+;--
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+
+	$RMSDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	EMUCTRLDEF
+	EMUSYSDEF
+	EMUDBDEF
+	EMUSNMPDEF
+;
+
+	.PSECT MIB_DELETE_DATA,WRT,NOEXE,QUAD,pic
+
+	.ALIGN	LONG
+MAPPERFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		FOP = CIF,-			; Create if doesn't exist
+		ORG = IDX,-			; Keyed file (Finally)
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <EMU5_DAT:MIB_DELETE.DAT>,-	; Default Filename 
+		FNM = <MAPPER>,-			; Filename 
+		XAB = MAPPERXAB0                  ; Keys
+
+MAPPERRAB:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = MAPPERREC_BUF,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = MAPPERREC_BUF,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		KBF = KEY_BUF,-			; Key location
+		KSZ = 8
+MAPPERRAB2:	$RAB	FAB = MAPPERFAB,-		; pointer to FAB
+		RBF = MAPPERREC_BUF2,-		; i/o buffer 
+		RSZ = MAPPERREC_SIZE,-		; Write this many bytes
+		UBF = MAPPERREC_BUF2,-		; i/o buffer 
+		USZ = MAPPERREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		KBF = KEY_BUF,-			; Key location
+		KSZ = 8
+
+MAPPERXAB0:	$XABKEY	REF = 0,-  		; TBL,PARAM
+		DTP = BN8,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+		NXT = MAPPERXAB1
+
+MAPPERXAB1:	$XABKEY	REF = 1,-  	; TBL
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP,-
+		NXT = MAPPERXAB2
+
+MAPPERXAB2:	$XABKEY	REF = 2,-  	; PARAM
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+;
+MAPPERREC_BUF:	
+KEY_BUF:	
+MAPPER_TBL:		.LONG	0	; Table 
+MAPPER_PARAM:		.LONG	0	; Paramater
+MAPPER_SEC:		.QUAD	0	; Prives req'ed to detect. VMS sec
+MAPPER_KEYW_LEN:	.LONG	0	; Len of following string
+MAPPER_KEYW:		.BLKB	64      ; Standard keyword this param
+MAPPER_FMTTYP:		.LONG	0	; Either len of following of rtn num.
+MAPPER_FMTSTR:		.BLKB	32	; FAO directive str
+MAPPER_POLFLG:		.LONG	0       ; Poll flags
+MAPPER_RPTLVL:		.LONG	0       ; Report level
+MAPPERREC_SIZE = .-MAPPERREC_BUF        ; = 128
+MAPPERREC_BUF2:	 	.BLKB	MAPPERREC_SIZE
+
+
+FILENAME:	.BLKB	32
+FILENAME_DESC:	.LONG	.-FILENAME
+		.ADDRESS  FILENAME
+
+
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 	30      ; 
+VD_COLS: 	.LONG 	60      ;
+VD_DISP2:	.LONG		; Display 2
+VD_ROW2:	.LONG 	3
+VD_COL2:	.LONG  	80      ; Position for DISP2
+VD_DISP3:	.LONG		; Display 3
+VD_ROW3:	.LONG 	30
+VD_COL3:	.LONG	20      ; Position for DISP3
+;
+;
+; Optional Display Characteristics
+;
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 2
+W3:    		.LONG 3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+UPCASE:		.LONG	TRM$M_TM_CVTLOW 	;Convert lower to upper case
+DELITM:		.LONG	SMG$M_REMOVE_ITEM       ; Remove selected item from menu
+CHOICE:		.WORD
+MAIN_TBL_CHOICE: .WORD	0
+SEC_TBL_CHOICE: .WORD	0
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	5
+PB_COL2:	.LONG	1      ; Position for DISP2
+PB_ROW2:	.LONG 	1
+PB_COL3:	.LONG	60      ; Position for DISP3
+PB_ROW3:	.LONG 	5
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+;
+; Prompt strings and parameters
+; FAO
+STRINGOUT:	.BLKB	256
+STRINGOUT2:	.BLKB	256
+FAOBUF:		.BLKB	132
+FAODESC:
+FAOLEN: 	.LONG		.-FAOBUF
+        	.ADDRESS        FAOBUF
+
+;
+MIBDIR:		.ASCII	/EMU5_MIB:.MC2/
+MIBDIR_SIZE = .-MIBDIR
+EXITMSG:	.ASCID	/Press Return/
+REPLMSG: 	.ASCID	/ Delete? [N]/
+FILEPRMPT:	.ASCID	/ MIB to Delete > /
+DUPMIBMSG:	.ASCID	/ Delete MIB !AD (^Z to abort)? /
+ENDMSG:		.ASCID	/ Exit status = !XL/
+;
+; Misc data areas
+	.ALIGN	LONG
+;
+CURTBL:		.LONG	0
+MIBNUM:		.LONG	^X03000000
+SNMPTBL:	.LONG	^X02000007
+MIBID:		.LONG	0
+BYTCNT:		.WORD
+
+;
+;	.End data definitions
+;
+	.PSECT MIB_DELETE_CODE,EXE,pic
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MIB_DELETE
+;
+; Open file 
+;
+	BSBW	CREATE_ENVIRONMENT
+;
+; Display Menu
+;
+
+START:
+; Open outp file
+	$OPEN	FAB=MAPPERFAB
+	BLBS	R0,1$
+	RET
+1$:
+	$CONNECT RAB=MAPPERRAB	
+	BLBS	R0,2$
+	RET
+2$:
+	$CONNECT RAB=MAPPERRAB2	
+	BLBS	R0,5$
+	RET
+5$:
+
+; Get MIB to process.
+	PUSHAL	FILEPRMPT
+	CALLS	#1,G^MD_READ_PROMPT
+	BLBS	R0,10$
+	RET
+
+
+10$:
+; Get filename from string
+	MOVL	#32,FILENAME_DESC
+	PUSHAL	FILENAME_DESC
+	PUSHAL	KB_BUF
+	MOVZWL 	BYTCNT,-(SP)
+	CALLS	#3,G^STRIP_FILSPEC	
+        BLBC	R0,5$			; Retry on err
+	TSTL	FILENAME_DESC
+	BEQL	5$			; Retry on no filename
+
+30$:
+; Find the associated mib number 
+	MOVL	MIBNUM,KEY_BUF+4		; Lowest possible (0)
+	MOVL	SNMPTBL,KEY_BUF
+40$:
+	INCL	KEY_BUF+4
+	$GET	RAB=MAPPERRAB
+	BLBS	R0,50$				;
+	CMPL	R0,#RMS$_RNF
+	BNEQU	45$
+	BRW	70$
+45$:
+	RET
+50$:
+; Check if this mib 
+	MOVQ	FILENAME_DESC,R7
+	MOVAL	MAPPERREC_BUF,R6
+	CMPL	R7,DB_MAP_L_KEYWLEN(R6)		; Same Size?
+	BNEQ	40$
+	ADDL	#DB_MAP_A64_KEYW,R6		; Stored name
+	SUBL3	#1,R7,R4			; Make index
+60$:
+	CMPB	(R8)[R4],(R6)[R4]
+	BNEQ	40$
+	SOBGEQ	R4,60$
+; Found this mib - inform user
+	MOVAL	MAPPERREC_BUF,R6
+	MOVL	#80,FAODESC
+	MOVZWL	DB_MAP_L_PARAM(R6),-(SP)
+	ADDL3	#DB_MAP_A64_KEYW,R6,-(SP)	; Location of name
+	PUSHL	DB_MAP_L_KEYWLEN(R6)		; Size of name
+	PUSHAL	FAODESC			
+	PUSHAL	FAODESC			
+	PUSHAL	DUPMIBMSG
+	CALLS	#6,G^SYS$FAO
+	MOVAL	FAODESC,R1
+	BSBW	PRINT
+	PUSHAL	REPLMSG
+	CALLS	#1,G^MD_READ_PROMPT
+	BLBS	R0,65$			
+	RET		; Exit on ^z
+65$:
+	CMPB	#^A/Y/,KB_BUF		
+	BEQLU	70$
+	RET
+70$:
+90$:
+	MOVL	MAPPER_PARAM,MIBID			; SAVE ID
+; Get each rec starting with MIBID in the tbl param.
+; find all recs with this rec's param valus in the tabl param
+; That is:
+;	Top level rec:
+;	TBL	- MIB number
+; 	PARAM	- Table
+;       Lower level
+;	TBL	Table (from top level)
+;	PARAM	Paramater
+	MOVB	#1,MAPPERRAB+RAB$B_KRF		; Key
+	MOVB	#4,MAPPERRAB+RAB$B_KSZ		; Size
+	MOVB	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC   ; Indexed read
+
+100$:
+	MOVL	MIBID,KEY_BUF
+	$GET	RAB=MAPPERRAB
+	BSBW	ERROR_CHK
+110$:
+	MOVB	#RAB$C_SEQ,MAPPERRAB+RAB$B_RAC   ; Seq read
+	CMPL	MAPPER_TBL,MIBID
+	BEQLU	150$
+	RET
+150$:
+	MOVB	#1,MAPPERRAB2+RAB$B_KRF		; Key
+	MOVB	#4,MAPPERRAB2+RAB$B_KSZ		; Size
+	MOVB	#RAB$C_KEY,MAPPERRAB2+RAB$B_RAC   ; Indexed read
+	
+190$:
+        MOVL	MAPPER_PARAM,KEY_BUF			; All recs this tbl
+        MOVL	MAPPER_PARAM,CURTBL			; All recs this tbl
+
+200$:
+	$GET	RAB=MAPPERRAB2
+	BLBS	R0,210$
+205$:
+	$DELETE	RAB=MAPPERRAB
+	BSBW	ERROR_CHK
+	BRW	100$
+210$:
+	CMPL	MAPPERREC_BUF2,CURTBL
+	BNEQU	205$
+	$DELETE	RAB=MAPPERRAB2
+	BSBW	ERROR_CHK
+	MOVB	#RAB$C_SEQ,MAPPERRAB2+RAB$B_RAC   ; Seq read
+	BRW	200$
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBC	R0,10$
+	RSB
+10$:
+; Delete top level record
+	MOVB	#0,MAPPERRAB+RAB$B_KRF		; Key
+	MOVB	#8,MAPPERRAB+RAB$B_KSZ		; Size
+	MOVB	#RAB$C_KEY,MAPPERRAB+RAB$B_RAC   ; Indexed read
+
+	MOVL	SNMPTBL,KEY_BUF
+	MOVL	MIBID,KEY_BUF+4
+	$GET	RAB=MAPPERRAB
+	BLBC	R0,20$
+	$DELETE	RAB=MAPPERRAB
+20$:
+
+	MOVL	#80,FAODESC
+	PUSHL	R0
+	PUSHAL	FAODESC			
+	PUSHAL	FAODESC			
+	PUSHAL	ENDMSG
+	CALLS	#4,G^SYS$FAO
+	PUSHAL	FAODESC
+	CALLS	#1,G^MD_READ_PROMPT
+        RET
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MD_READ_PROMPT  
+;++
+;2 MD_READ_PROMPT  
+; Routine to write prompt on screen and get the input in KB_DES
+;3 Inputs	.address of .ascid prompt
+;		.addr of input conversion. Optional. If not present
+;		input is not forced to uppercase
+;3 Outputs:
+;	In KB_DES any user input
+;3 Returns:
+;	Any return from SMG$READ_STRING
+;--
+; Check if options param present
+	CLRL	UPCASE			; Assume not present
+	CMPL	#2,(AP)
+	BNEQ	10$
+	MOVL	#TRM$M_TM_CVTLOW,UPCASE ; Force to upper
+10$:
+	PUSHAL	VD_DISP                 ; Output display
+	CLRL	-(SP)                   ; Blank 
+	PUSHAL	BYTCNT                  ; Bytes to display
+	CLRL	-(SP)                   ; Blank 
+	CLRL	-(SP)                   ; Blank 
+	PUSHAL	UPCASE                  ; Make input UPCASE 
+	CLRL	-(SP)                   ; Blank 
+	PUSHL	4(AP)                      ; Output DSC
+	PUSHAL	KB_DES                  ; Input buf
+	PUSHAL	KB_BOARD                ; Input ID
+	CALLS	#10,G^SMG$READ_STRING
+	RET
+;
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHL	R1
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+PRINT2:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHL	R1
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+10$:		RSB
+;
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Virtual Display
+;
+CR_DISP:
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK            		; Error Check
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP2
+	PUSHAL	VD_COL2
+        PUSHAL	VD_ROW2
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP3
+	PUSHAL	VD_COL3
+        PUSHAL	VD_ROW3
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL2		;Column
+	PUSHAL	PB_ROW2		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP2
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL3		;Column
+	PUSHAL	PB_ROW3		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP3
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+50$:	RSB
+
+		.END MIB_DELETE

@@ -1,0 +1,397 @@
+/*
+ *                            COPYRIGHT (C) 1999 BY
+ *                      COMPAQ COMPUTER CORPORATION, HOUSTON
+ *                       TEXAS.  ALL RIGHTS RESERVED.
+ *
+ *    THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+ *    ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+ *    OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+ *    THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+ *    PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+ *
+ *    THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+ *    SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+ *    SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+ *
+ *    NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+ *    ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+ *    PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+ *    CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+ */
+/*
+ *    
+ *    This article contains a program that shows how to create a detached
+ *    process with LOGINOUT.EXE and runs in a target User Login environment.
+ *    It uses the sys$persona_(create, assume, delete) system services and
+ *    the sys$creprc routine with the user UIC to achieve this.
+ *    
+ *    This program requires the BYPASS and IMPERSONA privileges. To exit the
+ *    program, type CTRL-Z.
+ *    
+ *    NOTE: This program CANNOT be debugged using the OpenVMS Debugger because
+ *          of the modification of the persona.
+ *    
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <types.h>
+#include <ctype.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <string.h>
+#include <stsdef.h>
+#include <time.h>
+
+#include <descrip.h>
+#include <unixio.h>
+
+#include <ssdef.h>
+#include <starlet.h>
+#include <lib$routines.h>
+#include <prcdef.h>
+#include <dvidef.h>
+#include <uaidef.h>
+#include <jpidef.h>
+#include <fscndef.h>
+#include <iodef.h>
+#include <accdef.h>
+#if (__VMS_VER >= 60200022)
+#include <impdef.h>             /* For IMP$ symbols */
+#endif
+
+#define MAX_BUF_VMS 256
+
+#ifdef __alpha
+#pragma member_alignment save
+#pragma nomember_alignment
+#endif
+typedef struct{
+        unsigned short buflen;
+        unsigned short itemcode;
+        void *buffer;
+        unsigned short *retlen;
+} itmlst_t;
+#ifdef __alpha
+#pragma member_alignment restore
+#endif
+#if (__VMS_VER >=60200022)
+static unsigned int previous;
+static char *current_user;
+#endif
+
+$DESCRIPTOR(MBX_JOBS_name,"MBX_JOBS");  /* Mailbox name End of jobs  */
+short           channel_MBX_JOBS;       /* Mailbox channel - end of jobs */
+int             MBX_JOBS_unit;          /* Mailbox unit               */
+
+/*
+ * Returns a pointer to a static string contains the day time.
+ */
+char *GetHourString (time_t t)
+{
+static  char    buf [10];
+struct  tm      *today;
+
+if (!t)
+        time(&t);
+today = localtime (&t);
+strftime (buf, sizeof(buf) -1, "%H%M%S", today);
+        return buf;
+}
+
+/*
+ * This routine returns the UIC and login_directory of a given user.
+ * It calls sys$getuai to fetch the information from the AUTHORIZE.DAT
+ * file.
+ */
+unsigned long get_user_uic(char *user,char *login_directory){
+    struct dsc$descriptor_s  userdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,NULL};
+    itmlst_t *itmlst;
+    unsigned int context = -1;
+    unsigned long uic = 0;
+    int status;
+    char defdev[32];
+    unsigned short defdevlen=0,defdirlen=0;
+    char defdir[64];
+    char *cp;
+
+    userdsc.dsc$w_length = strlen(user);
+    userdsc.dsc$a_pointer = user;
+/*
+ * Build the itemlist.
+ */
+    itmlst = calloc(4,sizeof(itmlst_t));
+    itmlst[0].buflen = sizeof(defdev);
+    itmlst[0].itemcode = UAI$_DEFDEV;
+    itmlst[0].buffer = defdev;
+    itmlst[0].retlen = &defdevlen;
+    itmlst[1].buflen = sizeof(defdir);
+    itmlst[1].itemcode = UAI$_DEFDIR;
+    itmlst[1].buffer = defdir;
+    itmlst[1].retlen = &defdirlen;
+    itmlst[2].buflen = sizeof(uic);
+    itmlst[2].itemcode = UAI$_UIC;
+    itmlst[2].buffer = &uic;
+    status = sys$getuai(0,&context,&userdsc,itmlst,NULL,NULL,0);
+    if (!$VMS_STATUS_SUCCESS(status)) lib$stop(status);
+    free(itmlst);
+    defdevlen = (unsigned short) defdev[0];
+    strncpy(login_directory,&defdev[1],defdevlen);
+    login_directory[defdevlen]=0;
+    defdirlen = (unsigned short) defdir[0];
+    strncat(login_directory,&defdir[1],defdirlen);
+    login_directory[defdirlen+defdevlen] = 0;
+    printf (" User Login Directory = %s\n",login_directory);
+    return(uic);
+}
+
+/*
+ * The sys$persona routines were implemented starting from VMS V6.2.
+ * Hence the presence of a conditional compilation based on VMS version.
+ */
+#if (__VMS_VER >=60200022)
+unsigned int set_persona(char *user){
+        unsigned int    persona;
+        unsigned int    persona_flags;
+        unsigned int    previous_persona;
+        struct dsc$descriptor_s  userdsc = {0,DSC$K_DTYPE_T,DSC$K_CLASS_S,NULL};
+        int status;
+
+        userdsc.dsc$w_length = strlen(user);
+        userdsc.dsc$a_pointer = user;
+        /* create the persona */
+        status = sys$persona_create(&persona,&userdsc,IMP$M_ASSUME_DEFPRIV);
+        if (!$VMS_STATUS_SUCCESS(status)) lib$stop(status);
+        status = sys$persona_assume(&persona,IMP$M_ASSUME_SECURITY,
+                                        &previous_persona);
+        if (!$VMS_STATUS_SUCCESS(status)) lib$stop(status);
+        return(persona);
+}
+#endif
+/*
+ * This routine is the one that creates the target detached process and
+ * waits for the completion of this detached process by listening on the
+ * termination mailbox.
+ */
+void exec_external (char *command, char *user)
+{
+        struct dsc$descriptor_s  prc_nam,prc_inp,prc_out,prc_err;
+
+        $DESCRIPTOR (prc_image, "SYS$SYSTEM:LOGINOUT.EXE");
+
+        long            prc_stsflg;
+        long            prc_pid;
+        char            prc_prcnam[16],tmp[MAX_BUF_VMS],
+                        prc_input [MAX_BUF_VMS],
+                        prc_output[MAX_BUF_VMS],
+                        login_directory[32+64];
+        long            status;
+        unsigned long   prc_uic=0;
+        time_t          current_time;
+        FILE            *fp;                    /* DCL procedure to execute */
+#if (__VMS_VER >=60200022)
+        unsigned int    persona = 0;
+#endif
+        int priority = 4; /* default priority */
+struct  iosb_struct
+{
+        short       status;
+        short       dummy;
+        int         pid;
+} iosb;                                     /* I/O status block */
+
+struct  accdef      buf_tmp;                /* Buffer containing job status */
+        char        buf[ACC$K_TERMLEN];
+
+struct  dsc$descriptor_s    msg_text;       /* Error Message */
+        char        msg_buffer[256];        /* Message code to retrieve */
+
+        /*
+         * Get User UIC.
+         */
+        prc_uic = get_user_uic(user,login_directory);
+        time (¤t_time);
+        sprintf (prc_prcnam, "JOB_%s",GetHourString (current_time));
+        sprintf (prc_input, "%s%s.COM",login_directory,
+                                GetHourString(current_time));
+        sprintf (prc_output, "%s%s.LOG",login_directory,
+                                GetHourString(current_time));
+        /*
+         * Open and fill in detached process input command file.
+         */
+        fp = fopen(prc_input,"w");
+        fputs ("$ SET NOVERIFY\n", fp);
+        fputs ("$ WAIT 00:00:02\n", fp);
+        fputs ("$ PID = F$GETJPI(0,\"PID\")\n", fp);
+        if (strstr (command, ".EXE")) strncpy (tmp, "$ RUN ",6);
+        else if (strstr (command, ".exe")) strncpy (tmp, "$ RUN ",6);
+        else strcpy (tmp, "$ @");
+        strncat (tmp, command, strlen(command));
+        strcat  (tmp, "\n");
+        fputs   (tmp, fp);
+        fputs ("$ EXIT $STATUS\n",fp);
+        fclose  (fp);
+        /*
+         * Modify detached process input file protection, so that
+         * the target user account only require TMPMBX and NETMBX
+         * privileges. Note the process running this program MUST
+         * have the BYPASS privilege to perform these file operations
+         * and the IMPERSONA (ex DETACH) privilege to create the detached
+         * process.
+         */
+        if (chmod(prc_input,0777)== -1){
+            printf("%s\n",strerror(errno));
+            exit(0);
+        }
+
+        /*
+         * Set up sys$creprc required parameters flag and descriptors.
+         */
+        prc_stsflg = PRC$M_DETACH;
+        prc_nam.dsc$a_pointer   = prc_prcnam;
+        prc_nam.dsc$w_length    = strlen (prc_prcnam);
+        prc_inp.dsc$a_pointer   = prc_input;
+        prc_inp.dsc$w_length    = strlen (prc_input);
+        prc_out.dsc$a_pointer   = prc_output;
+        prc_out.dsc$w_length    = strlen (prc_output);
+        prc_err.dsc$a_pointer   = prc_output;
+        prc_err.dsc$w_length    = strlen (prc_output);
+#if (__VMS_VER >=60200022)
+        /*
+         * Setup this process persona equal to the target user persona
+         * before creating the detached process.
+         */
+        if (strlen(user) != 0)
+            persona = set_persona(user);
+#endif
+        /*
+         * Create the detached process which will run in target user
+         * context. Note that the image is SYS$SYSTEM:LOGINOUT and
+         * that in the prc_stsflg we only specified PRC$M_DETACH.
+         */
+        status = sys$creprc (&prc_pid, &prc_image, &prc_inp, &prc_out,
+                                 &prc_err, 0, 0, &prc_nam,
+                                 priority, prc_uic, MBX_JOBS_unit,
+                                 prc_stsflg,NULL,NULL);
+#if (__VMS_VER >=60200022)
+        if (strlen(user) != 0){
+            sys$persona_delete(&persona);
+            sys$persona_assume(&previous,IMP$M_ASSUME_ACCOUNT,NULL);
+        }
+#endif
+        if (status != SS$_NORMAL)
+            lib$stop(status);
+        /*
+         * Get process termination code.
+         */
+        status = sys$qiow(3,            /* Event flag */
+                          channel_MBX_JOBS,     /* Channel number */
+                          IO$_READVBLK,         /* I/O function */
+                          &iosb,                        /* I/O status block */
+                          0,
+                          0,
+                          &buf,                 /* P1 buffer */
+                          ACC$K_TERMLEN,                /* P2 buffer length */
+                          0,
+                          0,
+                          0,
+                          0);
+        if $VMS_STATUS_SUCCESS(status) status = iosb.status;
+        if (!$VMS_STATUS_SUCCESS(status))
+            lib$stop(status);
+        /*
+         * Turn the competion code into a text message.
+         */
+        msg_text.dsc$w_length  = sizeof(msg_buffer);
+        msg_text.dsc$a_pointer = msg_buffer;
+        status = sys$getmsg(buf_tmp.acc$l_finalsts, /* Error message number */
+                              &msg_text.dsc$w_length,       /* Length of retrived message   */
+                              &msg_text,    /* Descriptor for output buffer */
+                              2,            /* Message options flag         */
+                              0);           /* Return information area      */
+        if (!$VMS_STATUS_SUCCESS(status))
+            lib$stop(status);
+        /*
+         * Open the detached process log file and print out its content.
+         */
+        fp = fopen (prc_output,"r");
+        if (fp == NULL){
+            printf("error: can't read output file %s, error : %s\n",
+                        prc_output,strerror(errno));
+            exit(1);
+        }
+        while ((!feof(fp)) && (!ferror(fp)) ){
+                fgets (msg_buffer,sizeof(msg_buffer),fp);
+                printf("%s\n",msg_buffer);
+        }
+        fclose(fp);
+}
+
+
+int main (int argc, char *argv [])
+{
+        int status;
+        short   iosb[4];                            /* I/O status block       */
+        char user[100],command[100];
+struct
+{
+        short int       buff_len;
+        short int       code;
+        int             *ret_info;
+        int             ret_len;
+        int             terminator;
+} getdvi_itm = { 4, DVI$_UNIT, &MBX_JOBS_unit, 0, 0 };/* Item list sys$getdvi */
+
+/* Create the mailbox that will handle the end of the jobs. */
+
+        status = sys$crembx (1,
+                        &channel_MBX_JOBS,
+                        0,
+                        0,
+                        0,
+                        0,
+                        &MBX_JOBS_name);
+        if (!$VMS_STATUS_SUCCESS(status))
+              lib$stop(status);
+        /* Complete setting up the getdviw  item list */
+
+        getdvi_itm.ret_info = &MBX_JOBS_unit;
+
+        /* Convert channel number to a unit number */
+
+        status = sys$getdviw (0,
+                        channel_MBX_JOBS,
+                        0,
+                        &getdvi_itm,
+                        &iosb,
+                        0,
+                        0,
+                        0 );
+        if $VMS_STATUS_SUCCESS(status) status = iosb[0];
+        if (!$VMS_STATUS_SUCCESS(status))
+            lib$stop(status);
+
+/*
+ * 'previous' gets used as input for another $persona_assume.
+ * If this points to a context being 1 (as set below), $persona_assume
+ * will restore our own process settings to those before any calls to
+ * $persona services.
+ */
+        previous = 1;
+
+        while(1){
+            printf("Username : ");
+            if (gets(user) == NULL)
+                /*
+                 * On CTRL-Z exit.
+                 */
+                exit(1);
+            printf ("Enter file to execute (COM or EXE) : ");
+            if (gets(command) == NULL)
+                exit(1);
+            exec_external (command,user);
+        }
+}

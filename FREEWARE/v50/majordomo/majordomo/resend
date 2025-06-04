@@ -1,0 +1,766 @@
+#!/usr/local/bin/perl -U
+
+# Copyright 1992, D. Brent Chapman.  See the Majordomo license agreement
+#     for usage rights.
+#
+# $Source: /sources/cvsrepos/majordomo/resend,v $
+# $Revision: 1.28.2.2.2.3 $
+# $Date: 1995/01/07 17:31:43 $
+# $Author: rouilj $
+# $State: Exp $
+#
+# $Locker:  $
+#
+
+# updated to
+# Revision: 1.19 
+# Date: 1993/11/11 02:23:37 
+#
+
+# set our path explicitly
+# $ENV{'PATH'} = "/bin:/usr/bin:/usr/ucb";
+
+print "The time is ";
+$xxxxxxx = `SHOW TIME`;
+print "$xxxxxxx\n";
+
+# What shall we use for temporary files?
+# $tmp = "/tmp/majordomo.$$";
+$tmp = "/SYS\$SCRATCH/RESEND_$$";
+
+
+# Before doing anything else tell the world I am resend
+# The mj_ prefix is reserved for tools that are part of majordomo proper.
+$main'program_name = 'mj_resend';
+
+
+# If the first argument is "@filename", read the real arguments
+# from "filename", and shove them onto the ARGV for later processing
+# by &Getopts()
+
+if ($ARGV[0] =~ /^@/) {
+    $fn = shift(@ARGV);
+    $fn =~ s/^@//;
+    open(AV, $fn) || die("open(AV, \"$fn\"): $!\nStopped");
+    undef($/);	# set input field separator
+    $av = <AV>;	# read whole file into string
+    close(AV);
+    @av = split(/\s+/, $av);
+    unshift(@ARGV, @av);
+    $/ = "\n";
+}
+    
+# Read and execute the .cf file
+$cf = $ENV{'UCX$MAJORDOMO_CF'} || (getpwuid($<))[7] . "MAJORDOMO.CF";
+if ($ARGV[0] eq "-C") {
+    $cf = $ARGV[1];
+    shift(@ARGV); 
+    shift(@ARGV); 
+}
+if (! -r $cf) {
+    die("$cf not readable; stopped");
+}
+eval(`type $cf`) || die "eval of majordomo.cf failed $@";
+
+chdir($homedir) || die("Can't chdir(\"$homedir\"): $!");
+unshift(@INC, $homedir);
+require "majordomo.pl";
+require "majordomo_version.pl";
+require "getopts.pl";
+require "config_parse.pl";
+
+%mail_tmpfile_names = ();
+$my_system_name = &systemname;
+$hostname = &hostname;
+
+if ($majordomo_debug) {print "hostname is $hostname\n";}
+
+# Set up the log file
+&set_log($log, $hostname, "resend"); # Not passing last param - log_session
+&Getopts("Aa:d:f:h:I:l:m:M:p:Rr:s") || die("resend: Getopts() failed: $!");
+
+#if (! defined($opt_l) || ! defined($opt_h)) {
+#    die("resend: must specify both '-l list' and '-h host' arguments");
+#}
+if (! defined($opt_l))
+  {die("resend: must specify '-l list' argument");}
+if (! defined($opt_h))
+  {
+  $opt_h = $whereami;
+  if ($majordomo_debug) {print "No -h argument so using \$whereami ($whereami)\n";}
+  }
+
+#
+# For VMS Majordomo -d on the resend command line has been hijacked for the name
+# of the digest list. We undefine $opt_d so that later on we can still set it
+# from the config file. Ie. all the rest of the code still uses $opt_d as the
+# Unix Majordomo resend debug option. 
+if (defined($opt_d))
+  {$digest_name = $opt_d;}
+undef($opt_d);
+
+# smash case for the list name
+$opt_l =~ tr/A-Z/a-z/;
+
+if ( ! @ARGV) {
+    die("resend: must specify outgoing list as last arg(s)");
+}
+
+$opt_r = "$opt_r@$opt_h" if ( defined($opt_r) );
+
+&get_config($listdir, $opt_l);
+
+$opt_A = &cf_ck_bool($opt_l,"moderate") if &cf_ck_bool($opt_l,"moderate");
+$opt_h = $config_opts{$opt_l,"resend_host"} 
+			if($config_opts{$opt_l,"resend_host"} ne '');
+$opt_a = $config_opts{$opt_l,"approve_passwd"}
+			if ($config_opts{$opt_l,"approve_passwd"} ne '');
+$opt_M = $config_opts{$opt_l,"maxlength"} 
+			if ($config_opts{$opt_l,"maxlength"} ne '');
+
+$opt_f = $config_opts{$opt_l,"sender"}
+			if ($config_opts{$opt_l,"sender"} ne '');
+$opt_p = $config_opts{$opt_l,"precedence"}
+			if ($config_opts{$opt_l,"precedence"} ne '');
+$opt_r = $config_opts{$opt_l,"reply_to"}
+			if ($config_opts{$opt_l,"reply_to"} ne '');
+$opt_I = $config_opts{$opt_l,"restrict_post"} 
+			if ($config_opts{$opt_l,"restrict_post"} ne '');
+$opt_R = &cf_ck_bool($opt_l,"purge_received")
+			 if &cf_ck_bool($opt_l,"purge_received");
+$opt_s = &cf_ck_bool($opt_l,"administrivia")
+			if &cf_ck_bool($opt_l,"administrivia");
+$opt_d = &cf_ck_bool($opt_l,"debug") 
+			if &cf_ck_bool($opt_l,"debug");
+
+if (defined($opt_f)) {
+    $sendmail_sender = $opt_f;
+} else {
+    $sendmail_sender = "$opt_l-request";
+}
+
+if (defined($opt_a)) {
+    if ($opt_a =~ /^\//) {
+	open(PWD, $opt_a) || die("resend: open(PWD, \"$opt_a\"): $!");
+	$opt_a = &chop_nl(<PWD>);
+    }
+}
+
+if (defined($opt_A) && ! defined($opt_a)) {
+    die("resend: must also specify '-a passwd' if using '-A' flag");
+}
+
+$sender = "$sendmail_sender\@$opt_h";
+
+&open_temp(OUT, "$tmp\_$my_system_name.out") ||
+    &abort("resend:1 Can't open $tmp\_$my_system_name.out: $!");
+
+&open_temp(IN, "$tmp\_$my_system_name.in") ||
+    &abort("resend: Can't open $tmp\_$my_system_name.in: $!");
+
+while (<STDIN>) {
+    print IN $_;
+}
+
+close(IN);
+
+open(IN, "$tmp\_$my_system_name.in") || 
+    die("resend: Can't open $tmp\_$my_system_name.in: $!");
+
+if ($majordomo_debug) {&dump_opts;}
+
+# In VMS land we have the four VMS mail headers and a blank line before the
+# SMTP headers so we need to process them first.
+&ParseVMSMailHeader(IN, *vmshdrs);
+if ($majordomo_debug)
+  {
+  print "Back from ParseVMSMailHeader\n";
+  while (($key, $val) = each(%vmshdrs))
+    {
+    print "\$key is $key\n";
+    print "\$val is $val\n";
+    }
+  }
+
+do {
+    if ($majordomo_debug) {print "At top of main loop\n";}
+    $restart = 0;
+    $pre_hdr = 1;
+    while (<IN>) {
+#        if ($majordomo_debug) {print "\nLine from input is: $_";}
+	if ($pre_hdr) {
+	    if (/^\s*$/) {
+		# skip leading blank lines; usually only there if this is a
+		# restart after an in-body "Approved:" line
+		next;
+	    } else {
+		$pre_hdr = 0;
+		$in_hdr = 1;
+		$kept_last = 0;
+	    }
+	}
+	if ($in_hdr) {
+	    if (/^\s*$/) {
+		# end of header; add new header fields
+		print OUT "Sender: $sender\n";
+                if ($majordomo_debug) {print "Adding header to output>>>Sender: $sender\n";}
+		if (defined($opt_p)) {
+		    print OUT "Precedence: $opt_p\n";
+                    if ($majordomo_debug) {print "Adding header to output>>>Precedence: $opt_p\n";}
+		}
+		if (defined($opt_r)) {
+		    print OUT "Reply-To: ", &config'substitute_values($opt_r),
+				 "\n";
+if ($majordomo_debug) {print "Adding header to output>>>Reply-To: &config'substitute_values($opt_r)\n";}
+		}
+
+		# print out additonal headers
+		if ( $config_opts{$opt_l,"message_headers"} ne '' ) {
+			local($headers) = &config'substitute_values (
+			$config_opts{$opt_l,"message_headers"}, $opt_l);
+			$headers =~ s/\001/\n/g;
+			print OUT $headers;
+		}
+
+		$in_hdr = 0;
+		print OUT $_;
+
+		# print out front matter
+		if ( $config_opts{$opt_l,"message_fronter"} ne '' ) {
+			local($fronter) = &config'substitute_values (
+			$config_opts{$opt_l,"message_fronter"}, $opt_l);
+			$fronter =~ s/\001|$/\n/g;
+			print OUT $fronter;
+		}		
+	    } elsif (/^approved:\s*(.*)/i && defined($opt_a)) {
+		$approved = &chop_nl($1);
+		if ($approved ne $opt_a && 
+			!(&main'valid_passwd($listdir, $opt_l, $approved))) {
+		    &bounce("Invalid 'Approved:' header");
+		}
+	    } elsif (/^from /i		# skip all these headers
+		|| /^sender:/i
+		|| /^return-receipt-to:/i
+		|| /^errors-to:/i
+		|| /^return-path:/i
+		|| (/^reply-to:/i && defined($opt_r))	# skip only if "-r" set
+		|| (/^precedence:/i && defined($opt_p))	# skip only if "-p" set
+		|| (/^received:/i && defined($opt_R))	# skip only if "-R" set
+		|| (/^\s/ && ! $kept_last)		# skip if skipped last
+	    ) {
+		# reset $kept_last in case next line is continuation
+		$kept_last = 0;
+	    } else {
+ 		   # check for administrivia requests 
+		   if (defined($opt_s) && ! defined($approved)
+		       && (/^subject:\s*subscribe\b/i ||
+			   /^subject:\s*unsubscribe\b/i ||
+			   /^subject:\s*help\b/i ||
+			   /^subject:\s*RCPT:\b/ ||
+			   /^subject:\s*Delivery Confirmation\b/ ||
+			   /^subject:\s*NON-DELIVERY of:/ ||
+			   /^subject:\s*Undeliverable Message\b/ ||
+			   /^subject:\s*Receipt Confirmation\b/ ||
+			   /^subject:\s*Failed mail\b/ ||
+			   /^subject:\s.*\bchange\b.*\baddress\b/ ||
+			   /^subject:\s*request\b.*\baddition\b/i)) {
+		       &bounce("Admin request");
+		       } 
+
+		    # prepend subject prefix
+		    if (   (/^subject:\s*/i) &&
+			   ($config_opts{$opt_l,"subject_prefix"} ne '') 
+		       ) {
+			 local($foo) = &config'substitute_values(
+			    $config_opts{$opt_l,"subject_prefix"}, $opt_l);
+			 local($foo_pat) = $foo;
+			 $foo_pat =~ s/(\W)/\\$1/g;
+			 s/^subject:\s*/Subject: $foo /i if !/$foo_pat/; 
+			}
+
+		    if ( /^from:\s*(.+)/i )
+		    {
+			$from = $1;
+			$from_last = 1;
+		    }
+		    elsif ( defined($from_last) )
+		    {
+			if ( /^\s+(.+)/ )
+			{
+			    $from .= " $1";
+			}
+			else
+			{
+			    undef($from_last);
+			}
+		    }
+		&check_hdr_line($_);	# check for length & balance
+		$kept_last = 1;
+		print OUT $_;
+	    }
+	} else {
+	    # this isn't a header line, so print it (maybe)
+	    # first, though, is the first line of the body an "Approved:" line?
+#            if ($majordomo_debug) {print "inside body of message\n";}
+	    if (($body_len == 0) && /^approved:\s*(.*)/i && defined($opt_a)) {
+		# OK, is it a valid "Approved:" line?
+		$approved = &chop_nl($1);
+		if ($approved ne $opt_a &&
+			!(&main'valid_passwd($listdir, $opt_l, $approved))) {
+		    &bounce("Invalid 'Approved:' header");
+		} else {
+		    # Yes, it's a valid "Approved:" line...
+		    # So, we start over
+		    $restart = 1;
+		    close(OUT);
+		    unlink("$tmp\_$my_system_name.out");
+		    &open_temp(OUT, "$tmp\_$my_system_name.out") ||
+			&abort("resend:2 Can't open $tmp\_$my_system_name.out: $!");
+		    last;
+		}
+	    }
+	    $body_len += length($_);
+#            if ($majordomo_debug) {print "\$body_len is $body_len \n";}
+	    # make sure it doesn't make the message too long
+	    if (defined($opt_M) && ! defined($approved)
+		    && ($body_len > $opt_M)) {
+		&bounce("Message too long (>$opt_M)");
+	    }
+	    # add admin-request recognition heuristics here... (body)
+#            if ($majordomo_debug) {print "Doing admin-request recognition heuristics (if configured)\n";}
+	    if (defined($opt_s) && ! defined($approved) && ($body_line++ < 5) && (
+		/\badd me\b/i
+		|| /\bdelete me\b/i || /\bremove\s+me\b/i
+		|| /\bchange\b.*\baddress\b/
+		|| /\bsubscribe\b/i || /^sub\b/i
+		|| /\bunsubscribe\b/i || /^unsub\b/i
+		|| /^\s*help\s*$/i		# help
+		|| /^\s*info\s*$/i		# info
+		|| /^\s*info\s+\S+\s*$/i	# info list
+		|| /^\s*lists\s*$/i		# lists
+		|| /^\s*which\s*$/i		# which
+		|| /^\s*which\s+\S+\s*$/i	# which address
+		|| /^\s*index\s*$/i		# index
+		|| /^\s*index\s+\S+\s*$/i	# index list
+		|| /^\s*who\s*$/i		# who
+		|| /^\s*who\s+\S+\s*$/i		# who list
+		|| /^\s*get\s+\S+\s*$/i		# get file
+		|| /^\s*get\s+\S+\s+\S+\s*$/i	# get list file
+		|| /^\s*approve\b/i
+		|| /^\s*passwd\b/i
+		|| /^\s*newinfo\b/i
+		|| /^\s*config\b/i
+		|| /^\s*newconfig\b/i
+		|| /^\s*writeconfig\b/i
+		|| /^\s*mkdigest\b/i
+		)) {
+		  &bounce("Admin request");
+	    }
+#            if ($majordomo_debug) {print "body line to output>>>$_";}
+	    print OUT $_;
+	}
+    }
+} while ($restart);
+
+#if ($majordomo_debug) {print "Main loop done\nAdding footer (if configured)\n";}
+if ( $config_opts{$opt_l,"message_footer"} ne '' ) {
+	local($footer) = &config'substitute_values(
+	$config_opts{$opt_l,"message_footer"}, $opt_l);
+	$footer =~ s/\001/\n/g;
+	print OUT $footer;
+}
+
+close(OUT);
+
+if ( defined($opt_I) && defined($from) && ! defined($approved) ) {
+    if ($majordomo_debug) {print "Posting restricted. Checking file(s)\n";}
+    local($infile) = 0;
+ 
+    @files = split (/[:\t\n]+/, $opt_I);
+ 
+    foreach $file (@files) {
+	if ($file !~ /^\//) {
+	    $file = "$listdir/$file";
+	}
+        if ( open (LISTFD, "<${file}") != 0 ) {
+	    @output = grep (&addr_match($from, $_), <LISTFD>);
+            close (LISTFD);
+   
+            if ( $#output != -1 ) {
+                $infile = 1;
+                last;
+            }
+        } else {
+	    die("resend:a Can't open $file: $!");
+	}
+    }
+ 
+    if ( $infile == 0 ) {
+        &bounce ("Non-member submission from [$from]");
+    }
+}
+
+if (defined($opt_A) && ! defined($approved)) {
+    &bounce("Approval required");
+}
+ 
+$sendmail_cmd = "/usr/lib/sendmail $opt_m -f$sendmail_sender " .
+    join(" ", @ARGV);
+
+#if ($majordomo_debug) {print "Getting ready to send mail message\n\$sendmail_cmd is $sendmail_cmd\n";}
+if (defined($opt_d)) {
+    if ($majordomo_debug) {print "In debug mode. Not really sending message...\n";}
+    $| = 1;
+    print "Command: $sendmail_cmd\n";
+    $status = (system("type $tmp\_$my_system_name.out") >> 8);
+    unlink(<$tmp\_$my_system_name.*>);
+    exit($status);
+} else {
+    if ($majordomo_debug) {print "Sending mail to outgoing list to be exploded.\n";}
+
+    # Explode it.
+    &rote_sendmail("$tmp\_$my_system_name.out", $sender, @ARGV);
+
+    # Send it to digest if any
+    if ($digest_name)
+      {
+      if ($majordomo_debug) {print "Sending mail to be digested.\n";}
+      &rote_sendmail("$tmp\_$my_system_name.out", $sender, $digest_name);
+      }
+
+    if ($majordomo_debug < 20)
+      {unlink(<$tmp\_$my_system_name.*>);}
+    exit(0);
+}
+
+
+sub dump_opts
+{
+print "\$opt_A is $opt_A\n";
+print "\$opt_a is $opt_a\n";
+print "\$opt_d is $opt_d\n";
+print "\$opt_f is $opt_f\n";
+print "\$opt_h is $opt_h\n";
+print "\$opt_I is $opt_I\n";
+print "\$opt_l is $opt_l\n";
+print "\$opt_m is $opt_m\n";
+print "\$opt_M is $opt_M\n";
+print "\$opt_p is $opt_p\n";
+print "\$opt_R is $opt_R\n";
+print "\$opt_r is $opt_r\n";
+print "\$opt_s is $opt_s\n";
+}
+
+
+sub check_balance {
+    # set a temporary variable
+    local($t) = shift;
+    # strip out all nested parentheses
+    1 while $t =~ s/\([^\(\)]*\)//g;
+    # strip out all nested angle brackets
+    1 while $t =~ s/\<[^\<\>]*\>//g;
+    # if any parentheses or angle brackets remain, were imbalanced
+    if ($t =~ /[\(\)\<\>]/ && ! defined($approved)) {
+	&bounce("Imbalanced parentheses or angle brackets");
+	return(undef);
+    }
+    return(1);
+}
+
+
+sub check_hdr_line {
+
+    local($_) = shift;
+
+    if (! /^\s/) {	# is this a continuation line?
+	# Not a continuation line.
+	# If $balanced_fld is defined, it means the last field was one
+	# that needed to have balanced "()" and "<>" (i.e., "To:", "From:",
+	# and "Cc:", so check it.  We do it here in case the last field was
+	# multi-line.
+
+	if (defined($balanced_fld)) {
+	    &check_balance($balanced_fld);
+	}
+
+	# we undefine $balanced_fld and reset $field_len; these may be set below
+
+	undef($balanced_fld);
+	$field_len = 0;
+    }
+
+    # is this a field that must be checked for balanced "()" and "<>"?
+    if (defined($balanced_fld) || /^from:/i || /^cc:/i || /^to:/i) {
+	# yes it is, but we can't check it yet because there might be
+	# continuation lines.  Buffer it to be checked at the beginning
+	# of the next non-continuation line.
+
+	# is this line too long?
+	if ((length($_) > 128) && ! defined($approved)) {
+	    &bounce("Header line too long (>128)");
+	    return(undef);
+	}
+
+	# is this field too long?
+	if ((($field_len += length($_)) > 1024) && ! defined($approved)) {
+	    &bounce("Header field too long (>1024)");
+	    return(undef);
+	}
+
+	$balanced_fld .= $_;
+	chop($balanced_fld);
+    }
+
+    # if we get here, everything was OK.
+    return(1);
+}
+
+
+sub bounce {
+    local($reason) = shift;
+    local($_);
+
+    &resend_sendmail(BOUNCE, $sender, "BOUNCE $opt_l@$opt_h: $reason");
+    
+    seek(IN, 0, 0);
+    &ParseVMSMailHeader(IN, *vmshdrs);
+
+    while (<IN>) {
+	print BOUNCE $_;
+    }
+    &resend_close_and_send(BOUNCE);
+
+    #
+    # Close before deleting
+    close(IN);
+    close(OUT);
+    unlink(<$tmp\_$my_system_name.*>);
+    exit(0);
+}
+
+
+sub resend_dump_tmpfile_array {
+local($mykey);
+local($myval);
+print "Dump of mail_tmpfile_names associative array:\n";
+while (($mykey,$myval) = each(%mail_tmpfile_names))
+  {
+  print "key is $mykey value is $myval\n";
+  }
+}
+
+
+sub resend_sendmail {
+    local($MAIL) = shift;
+    local($to) = shift;
+    local($subject) = shift;
+    local($tmpfile_name);
+    local($save_mail) = $MAIL;
+
+    if ($main'majordomo_debug)
+      {
+      print "resend_sendmail entered.\n";
+      print "\$MAIL is $MAIL.\n";
+      print "\$to is $to.\n";
+      print "\$subject is $subject.\n";
+      print "\$save_mail is $save_mail.\n";
+      }
+
+    # clean up the addresses, for use on the sendmail command line
+    local(@to) = &ParseAddrs($to);
+    for (@to) {
+        $_ = join(", ", &ParseAddrs($_));
+    }
+    $to = join(", ", @to);
+
+    # open the process
+    $tmpfile_name = $tmp  . "_" . $my_system_name . "_" . $save_mail . ".TMP";
+    $mail_tmpfile_names{$save_mail} = $tmpfile_name;
+
+    if ($main'majordomo_debug)
+      {
+      print "Opening $tmpfile_name for write access.\n";
+      &resend_dump_tmpfile_array;
+      }
+
+    open($MAIL, ">$tmpfile_name");
+    #
+    # Before we write this need to add in MAIL FROM, RCPT TO and DATA lines
+    # What about date:, and message-id headers? Maybe unix puts them in
+    # automatically in which case we're going to need to enhance sff to do the
+    # same.
+    print $MAIL "MAIL FROM:<$sender>\n";
+    print $MAIL "RCPT TO:<$to>\n";
+    print $MAIL "DATA\n";
+
+    # generate the header
+    print $MAIL <<"EOM";
+To: $to
+From: $sender
+Subject: $subject
+
+EOM
+
+    return;
+}
+
+
+#
+# New routine for VMS port
+#++
+#   FUNCTION NAME:
+#
+#     rote_sendmail
+#
+#  FUNCTIONAL DESCRIPTION:
+#
+#      Passes mail to the SFF code directly from a file.
+#
+#  FORMAL PARAMETERS
+#
+#     $fn	(I)	Filename
+#     $retpath	(I)	Return path address for envelope (MAIL FROM)
+#     $rcptto	(I)	Forward path address for envelope (RCPT TO)
+#
+#  IMPLICIT INPUTS:
+#
+#      none
+#
+#  IMPLICIT OUTPUTS:
+#
+#      none
+#
+#  SIDE EFFECTS:
+#
+#      none
+#
+#  RETURN VALUE:
+#
+#      none
+#--
+sub rote_sendmail {
+    local($fn) = shift;
+    local($retpath) = shift;
+    local($rcptto) = shift;
+    local($tmpfile_name);
+    local(*MAILOUT, *MAILIN);		# If you rename MAILOUT
+    local($save_mail) = "MAILOUT";	# make same change here.
+
+    if (!$fn) {die("resend: rote_sendmail called with no filename parameter");}
+    if (!$retpath) {die("resend: rote_sendmail called with no return path parameter");}
+    if (!$rcptto) {die("resend: rote_sendmail called with no forward path parameter");}
+
+    #
+    # If RCPT TO has no domain then make it $whereami. HACK Alert.
+    # The only reason doing this is so that everything is in same domain. Gets
+    # around bug in SMTP where it can get confused. When smtp$do_task rewrite is
+    # is done this problem should go away.
+    if (!($rcptto =~ "\@"))		# Assume no domain if no "@"
+      {$rcptto .= "\@$whereami";}
+
+    # Set up and save filename
+    $tmpfile_name = $tmp  . "_" . $my_system_name . "_" . $save_mail . ".TMP";
+    $mail_tmpfile_names{$save_mail} = $tmpfile_name;
+
+    if ($main'majordomo_debug)
+      {
+      print "rote_sendmail: \$fn is $fn\n";
+      print "rote_sendmail: \$retpath is $retpath\n";
+      print "rote_sendmail: \$rcptto is $rcptto\n";
+      print "Opening $tmpfile_name for write access.\n";
+#      &resend_dump_tmpfile_array;
+      }
+
+    open(MAILOUT, ">$tmpfile_name");
+    #
+    # Before we write this need to add in MAIL FROM, RCPT TO and DATA lines
+    # What about date:, and message-id headers? Maybe unix puts them in
+    # automatically in which case we're going to need to enhance sff to do the
+    # same.
+    print MAILOUT "MAIL FROM:<$retpath>\n";
+    if ($main'majordomo_debug) {print "MAIL FROM:<$retpath>\n"}
+    print MAILOUT "RCPT TO:<$rcptto>\n";
+    if ($main'majordomo_debug) {print "RCPT TO:<$rcptto>\n"}
+    print MAILOUT "DATA\n";
+    if ($main'majordomo_debug) {print "DATA\n"}
+
+    open(MAILIN, $fn);
+    while (<MAILIN>) {
+      if ($main'majordomo_debug) {print "line to SFF file: $_"}
+      print MAILOUT $_;
+    }
+    &resend_close_and_send(MAILOUT);
+    close(MAILIN);
+
+    return;
+}
+
+
+#
+# New routine for VMS port
+sub resend_close_and_send {
+    local($MAIL) = shift;
+    # force unqualified filehandles into callers' package
+    local($package) = caller;
+    local($save_mail) = $MAIL;
+    $MAIL =~ s/^[^']+$/$package'$&/;
+    local($tmpfile_name) = $mail_tmpfile_names{$save_mail};
+
+# begin temporary
+if ($main'majordomo_debug)
+  {
+  print "\$save_mail is $save_mail\n";
+  print "Value in associative array is $mail_tmpfile_names{$save_mail}\n";
+  print "Closing $tmpfile_name\n";
+  }
+# end temporary
+    close($MAIL);
+
+    # Delete element for this file from associative array.
+    delete $mail_tmpfile_names{$save_mail};
+
+if ($main'majordomo_debug) {    &resend_dump_tmpfile_array;}
+
+    # Pass temp msg file to symbiont to be delivered.
+    &resend_pass_to_symbiont($tmpfile_name);
+
+    # Delete this temp file
+    if ($majordomo_debug < 20)
+      {unlink($tmpfile_name);}
+}
+
+
+#
+# New routine for VMS port
+# Pass the mail to the symbiont using the SFF foreign command in a subprocess.
+# It would be better to do ths with Perl extension I think.
+sub resend_pass_to_symbiont {
+    local($mail_tmpfile_name) = shift;
+local($status_str);
+if ($main'majordomo_debug) {print "Passing temp file $mail_tmpfile_name to symbiont with SFF and backticks.\n";}
+
+if ($main'majordomo_debug)
+  {
+  $status_str = `SFF $mail_tmpfile_name -logfile majordomo_sff.log -loglevel 1`;
+  }
+else
+  {
+  $status_str = `SFF $mail_tmpfile_name`;
+  }
+if ($main'majordomo_debug)
+  {
+  if (defined($status_str))
+    {
+    if ($status_str eq "")
+      {print "\$status_str is empty string.\n";}
+    else
+      {print "\$status_str is >>>$status_str<<<\n";}
+    }
+  else
+    {print "\$status_str is not defined.\n";}
+  }
+#
+# Need to check for errors here.
+#    &main'log("Failed to exec mailer \"@_\": $!");
+#    die("Failed to exec mailer \"@_\": $!");
+}

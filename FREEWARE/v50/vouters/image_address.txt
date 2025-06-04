@@ -1,0 +1,97 @@
+/*
+ *                            COPYRIGHT (C) 2000 BY
+ *                      COMPAQ COMPUTER CORPORATION, HOUSTON
+ *                       TEXAS.  ALL RIGHTS RESERVED.
+ *
+ *    THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+ *    ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+ *    OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+ *    THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+ *    PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+ *
+ *    THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+ *    SHOULD NOT BE CONSTRUED AS A COMMITMENT BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    COMPAQ ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+ *    SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ.
+ *
+ *    NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+ *    ON EQUIPMENT THAT IS NOT SUPPLIED BY COMPAQ COMPUTER CORPORATION.
+ *
+ *    SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY COMPAQ SOFTWARE
+ *    PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+ *    CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+ */
+/*
+ *                              W A R N I N G
+ *    ------------------------------------------------------------------
+ *    This program uses UNDOCUMENTED and UNSUPPORTED OpenVMS interfaces.
+ *    These interfaces are subject to change or removal without notice!
+ *    ------------------------------------------------------------------
+ *
+ */
+/*
+ * On OpenVMS ALPHA :
+ * $ CC IMAGE+ALPHA$LIBRARY:SYS$LIB_C/LIBRARY
+ * $ LINK/SYSEXE PROG,IMAGE
+ */
+
+#include <stdio.h>
+#include <imcbdef.h>            /* From SYS$LIB_C.TLB */
+#pragma extern_model save
+#pragma extern_model strict_refdef
+/*
+ * Declare as an external global symbol, the start pointer of the images
+ * that compose a program.
+ */
+extern int *iac$gl_image_list;
+#pragma extern_model restore
+
+/*
+ * This routine, for a given PC, locates the image in which this PC is located.
+ * It outputs the start and end addresses for the image and displays its name.
+ */
+int return_image (void *routine_ptr){
+    IMCB *imcbptr;
+    char header = 1;
+
+    /*
+     * Point the start of the search.
+     */
+    imcbptr = (IMCB *)iac$gl_image_list;
+    /*
+     * If no information, immediately return.
+     */
+    if (imcbptr->imcb$l_flink == (IMCB *)iac$gl_image_list) return 0;
+    do  {
+        /*
+         * Compare pointer with start and end addresses.
+         */
+        if ((routine_ptr>=imcbptr->imcb$l_starting_address) &&
+            (routine_ptr<=imcbptr->imcb$l_end_address))
+                break;
+        imcbptr = imcbptr->imcb$l_flink;
+    } while (imcbptr != (IMCB *)iac$gl_image_list);
+    /*
+     * If end of list, this implies not found; so return failure.
+     */
+    if ((imcbptr == (IMCB *)iac$gl_image_list) &&
+                (imcbptr->imcb$w_size != IMCB$K_LENGTH)) return 0;
+    /*
+     * If we must output a header text, then do it.
+     */
+    if (header){
+        printf ("image\tstart\tend\n");
+        header--;
+    }
+    /*
+     * display the information.
+     */
+    printf ("%.*s\t%x\t%x\n",imcbptr->imcb$t_image_name[0],
+                 imcbptr->imcb$t_image_name+1,
+                 imcbptr->imcb$l_starting_address,
+                 imcbptr->imcb$l_end_address);
+    /*
+     * If we get here, everything was allright, so return success.
+     */
+    return 1;

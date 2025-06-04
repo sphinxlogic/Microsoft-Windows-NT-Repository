@@ -1,0 +1,1115 @@
+
+
+                               DSNlink_NEW
+
+                      Installation and Users Guide
+
+
+                              Version V5.8
+                            February 21, 2001
+
+
+        DSNlink_NEW will automatically retrieve titles of new DSN
+        ITS articles from all the ITS databases you'd like to
+        search, based on a schedule you setup (usually daily).
+        The new article titles are mailed to a user or group of
+        users.  The text of the articles can also be retrieved
+        for you automatically (called "Get Processing").
+
+DSNlink_NEW has been tested with DSNlink V3.0, V2.2, and V1.2C, and OpenVMS
+V7.1 and higher, but is expected to work with all versions of DSNlink, and all
+versions of OpenVMS that are supported by DSNlink.  "DSNlink" is also called
+"AES" in some countries.
+
+Contents:
+
+  1.  Setting up DSNlink_NEW
+  2.  Configuration file
+  3.  GET Processing
+  3a. Automating GET Processing using MX, PMDF, or DELIVER
+  4.  DSNlink_NEW's handling of SINCE
+  5.  Compressing history manually
+  6.  DSNlink_NEW wish list
+  7.  Old, boring DSNlink_NEW modification history
+
+
+==============================================================================
+
+If you have questions, comments, bug reports, or enhancement requests for
+DSNlink_NEW, please contact the author at:
+
+        Dan Wing
+        Cisco Systems, Inc.
+        101 Cooper St.
+        Santa Cruz, CA  95060
+
+        Phone:     +1 408 457 5200
+        Internet:  dwing@fuggles.com
+                   dwing@cisco.com
+
+or:
+
+        Info-MadGoat@madgoat.com              (public discussion forum)
+        MadGoat-Bugs@madgoat.com              (bug reports)
+
+DSNlink_NEW is copyright © 1991-1997 by Dan Wing, and Copyright ©
+1997-2001 by MadGoat Software.  All rights reserved.  This code may be
+freely distributed and modified for no commercial gain as long as this
+copyright notice is retained.  This program is supplied 'as-is', and
+with no warranty.
+
+The DECUServe notes conference "VMS", note 1889.*, contains discussions
+about DSNlink_NEW.
+
+The original idea for this code taken from DSNlink article "[DSNlink]
+V1.n How To Get Daily List of New Database Articles" in the DSNLINK
+database.  An early version of DSNlink_NEW can also be found there.  
+
+
+
+==============================================================================
+                       1. Setting up DSNlink_NEW 
+==============================================================================
+
+To get DSNlink_NEW up and running quickly, simply copy all the files to
+a directory on your system, edit the file DSNLINK_NEW_CONFIG.DAT_TEMPLATE
+as necessary for your site, and save the modified version as 
+DSNLINK_NEW_CONFIG.DAT.  
+
+Then execute DSNLINK_NEW.COM, and it will parse the configuration file,
+display information from the configuration file, and ask you if the
+information is correct.  When you are satisfied with the configuration
+settings, answer "yes" to its question, and DSNlink_NEW will submit itself
+to your DSN$BATCH queue and will execute on the schedule specified in the
+configuration file.
+
+Nothing else needs to be done - DSNlink_NEW will notify users in the
+$ERROR$ group if something goes wrong, and users will be notified, per the
+configuration file settings, of new database article titles that are
+found by DSNlink_NEW.
+
+To have DSNlink_NEW retrieve article text for you, see the section on GET 
+processing.
+
+
+
+==============================================================================
+                          2. Configuration file
+==============================================================================
+
+All configuration file settings are prefixed with a single period (with
+the exception of databases).  Most settings can also be specified with a
+logical name.  Settings are used in this order:
+
+        1.  Configuration file
+        2.  Logical name
+        3.  Hard-coded default value
+
+The following chart lists the configuration file settings and their
+corresponding logical names.  Detailed information about the
+configuration file settings can be found in the configuration file
+template (DSNLINK_NEW_CONFIG.DAT_TEMPLATE), or in the text below.
+
+        Configuration file      Logical                  
+        ------------------      --------                 
+        .RETRY                  DSNLINK_NEW_RETRY        
+        .MAIL                   (none)                   
+        .SINCE                  DSNLINK_NEW_SINCE        
+        .MAIL_EMPTY             DSNLINK_NEW_MAIL_EMPTY   
+        .NEXT_EXECUTION         DSNLINK_NEW_AFTER        
+        (none)                  DSNLINK_NEW_DIR          
+        .HISTORY_FILE           DSNLINK_NEW_HISTORY      
+                                                         
+        .HISTORY_AUTO_COMPRESS  DSNLINK_NEW_AUTO_COMPRESS
+                                                         
+        (none)                  DSNLINK_NEW_CONFIG       
+        .RETRY_WAIT_TIME        DSNLINK_NEW_WAIT_TIME    
+        .LOG_FILE               (none)                   
+        .CHECK_OPENCALLS        DSNLINK_NEW_CHECK_OPENCALLS
+        .CHECK_CLOSEDCALLS      DSNLINK_NEW_CHECK_CLOSEDCALLS
+        .CHECK_DATABASES        DSNLINK_NEW_CHECK_DATABASES
+        .GET_FILE               DSNLINK_NEW_GET_FILE
+        .GET_LOG_FILE           DSNLINK_NEW_GET_LOG_FILE
+        .SCRATCH_DIR            DSNLINK_NEW_SCRATCH_DIR
+        .BATCH_PRIORITY         DSNLINK_NEW_BATCH_PRIORITY
+        .WRITE_TITLES           (none)
+        .FAO_SUBJECT            (none)
+        .FAO_PERSONAL           (none)
+        .FAO_GET_SUBJECT        (none)
+        .FAO_GET_PERSONAL       (none)
+        .EXCLUDE                (none)
+        .NOTIFY                 (none)
+        
+        
+If the logical DSNLINK_NEW_DIR is undefined, the directory location is
+assumed to be the location of DSNLINK_NEW.COM.  
+
+
+               Description of configuration file settings
+
+.RETRY number
+        Default:  5
+        Number of attempts to connect to DSNlink host system.  Default is
+        5 attempts.  DSNlink_NEW waits 30 seconds between attempts to
+        allow the modem and DSNlink to "settle."
+
+.MAIL mailgroup user[,user,...]
+        Default:  none
+        The first parameter is the name of the group, the second
+        parameter is the users belonging to the group (each username
+        should be separated by commas, and distribution lists ("@") are
+        allowed).  The name of the group can only contain characters that
+        are legal as a DCL symbol.  If you are using a foreign mail
+        protocol (MX, PMDF, or some other mailer), you will need to use a
+        distribution list, logical, or setup a forwarding address for a
+        pseudo-user within VMSmail, as the quotes necessary for a foreign
+        protocol aren't handled by DSNlink_NEW.  To setup a forwarding
+        address (requires SYSNAM privilege):  
+
+          MAIL> SET FORWARD/USER=DSNLINK_NEW_user  "MX%""user@host""" 
+        example:
+          MAIL> SET FORWARD/USER=DSNLINK_NEW_DAN 
+          _Address:  "MX%""dwing@uh01.colorado.edu"""
+
+        DSNlink_NEW does not perform any validation to ensure the mail
+        addresses exist or are functional.  In fact, DSNlink_NEW's mail
+        routine specifically disregards any errors during mail delivery
+        (some sites prefer to have mail delivered to all recipients that
+        can receive mail instead of failing delivery because one user
+        couldn't receive mail).
+
+        The special mail group $ERROR$ is used when errors are
+        encountered by DSNlink -- either internal errors or problems
+        connecting to the DSNlnk host system, accessing specific
+        databases, etc.  If you are using GET processing, the $ERROR$
+        group is always re-written to be the user running DSNlink_NEW (or 
+        the user specified in the parameters when using MX SITE or
+        DELIVER -- see below for more information); the setting with the
+        configuration file is ignored (further information on GET
+        processing is located elsewhere in this documentation).
+
+        Upper- and lowercase are permitted in the mail group name and the
+        usernames.  No spaces are allowed between the usernames.  
+
+        NOTE:  You must use the same case in subsequent references to
+               mailgroup names.  That is, if you define a mail group
+               "pRoGrAmMeRs", you must use "pRoGrAmMeRs" in all
+               subsequent database settings:  you cannot intermix
+               "pRoGrAmMeRs" or "Programmers" or "PROGRAMMERS".
+               DSNlink_NEW will display an error message if the
+               configuration file contains different upper/lowercase for
+               mail group names.
+
+.MAIL_LOGICAL name equiv
+        Default:  none
+        The logical "name" is defined to "equiv" whenever a 'normal'
+        DSNlink_NEW message is mailed to the users defined with ".MAIL".
+        This can be useful with SMTP mailers which allow setting the
+        Reply-To: or From: address so that you can set it to the
+        special address you've setup with the MX SITE or PMDF DELIVER
+        mechanism with GET Processing.  
+        
+        Examples:
+          .MAIL_LOGICAL MULTINET_SMTP_REPLY_TO DSNlink_NEW_GET@TGV.COM
+          .MAIL_LOGICAL MX_REPLY_TO DSNlink_NEW_GET@TGV.COM
+          .MAIL_LOGICAL PMDF_REPLY_TO DSNlink_NEW_GET@TGV.COM
+
+database [FLASH | NOFLASH] mailgroup[,mailgroup,...]
+        Default:  none
+        This is the only configuration setting that doesn't have a period
+        as the first character.  This setting is used to define a DSNlink
+        database you'd like DSNlink_NEW to check for new articles.  The
+        first parameter is the database name, second parameter is the
+        word FLASH or the word NOFLASH, and the third parameter is a
+        previously-defined mail group (see .MAIL).
+
+        NOTE:  Please don't abuse the FLASH setting; using FLASH causes
+               the database to be checked twice (once for flash articles, 
+               another time for non-flash articles).  Some databases will
+               never have flash articles, and it is best to not check
+               them for flash articles (VMS-RN-NF-DOC for example).
+
+        DSNlink_NEW does not, and cannot, validate the database name (the
+        list of databases is country-specific, and changes often).
+        However, if a database doesn't exist when DSNlink_NEW connects to
+        the DSNlink host system, or the database isn't accessible to your
+        CSC access number, a message will be sent to the $ERROR$ group
+        showing the database that couldn't be opened.
+        
+        Specifying a database more than once may cause unpredictable 
+        behavior -- specifically, history functions may not work as
+        expected.
+        
+        Upper- and lowercase are permitted in the database name,
+        FLASH/NOFLASH setting, and mailgroup name.  No spaces are allowed
+        in the list of mailgroups.  See the note (in .MAIL, above) which
+        describes restrictions on upper/lowercase with mail-group names.
+
+.SINCE delta-time
+        Default:  TODAY-10-00:00
+        This specifies how far back the search should be performed.
+        Because there is a lag (on the DSNlink host system) between the
+        date in the article (searched for by /SINCE) and the date the
+        article is available through DSN ITS, you need to search farther
+        back than /SINCE=YESTERDAY.  However, searching farther back than
+        necessary wastes resources (on the DSNlink host system and your
+        system).  Ten days seems to catch all articles.  DEC's current
+        (April 1993) recommendation is two days (TODAY-2-00:00).  
+        
+        You should specify a delta time (such as TODAY-7-00:00:00 for a
+        week ago).
+
+.MAIL_EMPTY [TRUE | FALSE]
+        Default:  FALSE
+        If TRUE, send Email if there are no new articles.  Some sites may
+        prefer this setting for its "comfort factor".  The default value
+        (False) causes no mail to be sent to users if there aren't new
+        articles in the databases they have been assigned to.
+
+.NEXT_EXECUTION delta-time
+        Default:  TOMORROW+01:00 (1:00am tomorrow morning)
+        Specifies when you'd like DSNlink_NEW to resubmit itself.  Use
+        "ONE" if you only want it to execute once and not resubmit
+        itself; this can be useful if you are having DECscheduler, CRON,
+        or some other self-submitting job execute DSNlink_NEW.
+        
+        NOTE:  Digital recommends that North American users 
+               execute DSNlink_NEW between 9pm and 3am Mountain 
+               Time to lessen the load on the DSNlink host system.
+
+.HISTORY_FILE [filename | NONE]
+        Default:  DSNLINK_NEW_DIR:DSNLINK_NEW_HISTORY.DAT
+        DSNlink_NEW history filename.  This file is used to store all
+        article titles that were retrieved with DSNlink_NEW.  When
+        DSNlink_NEW is executed, new articles are compared to the history
+        file to prevent mailing articles you've already seen.  However,
+        if an article is retrieved from DSNlink, and the last time it was
+        seen (according to the history file) was SINCE-2 (two days before
+        your SINCE date), the article will be re-displayed -- this is
+        based on the assumption that DEC actually changed the text of the
+        article.  
+
+        To disable the history feature, specify NONE as the filename.
+
+        If debugging is enabled, records found in history are still
+        mailed to users, but are flagged as being found in history.
+
+.HISTORY_AUTO_COMPRESS blocks
+        Default:  300 blocks
+        This controls history file auto compression.  Auto compression is
+        triggered when the history file's size (in used blocks, not allocated 
+        blocks) exceeds this value.  When the compression is performed, a 
+        single line message is affixed to any outgoing DSNlink_NEW mail 
+        messages; if no DSNlink_NEW mail message is generated, the 
+        compression is still performed, but the only indication will be in 
+        the log file.
+
+        History file auto compression can be disabled by specifying 0.
+
+        You can also manually compress the history file by specifying
+        COMPRESS as P2 when you run DSNlink_NEW, and the file will be
+        compressed no matter what its relationship to the value specified
+        with .HISTORY_AUTO_COMPRESS.  See section titled "Compressing
+        history."
+
+        The code has been written to be fairly tight (to prevent problems
+        if another program is accessing the history file), but it is
+        desirable to prevent any other processes (including DSNlink_NEW
+        executing in other process) from accessing the history file
+        during compression.  
+
+.RETRY_WAIT_TIME delta-time
+        Default:  30 seconds (00:00:30)
+        If a connection (or connection attempt) to the DSNlink host
+        system fails, this value specifies the time to wait before the
+        next connection attempt.  If you notice your modem and/or
+        DECserver don't 'settle' after the default retry wait time, you
+        may need to increase this value at your site.  30 seconds seems
+        to be sufficient for most sites.
+
+.CHECK_OPENCALLS schedule [username]
+        Default: schedule = Never
+                 username = current user
+        Specifies how often to check for open DSNlink calls.  This works
+        by sending a mail message to DSN%OPENCALLS -- note that only one
+        user can get the list of open calls from the DSNlink host system.
+        You can specify an integer value (which implies the day of the
+        month), or a weekday value, or a comma-separated list of any
+        combination of either.  Use the value "Never" to disable checking.
+        Use the value "Always" to check every time DSNlink_NEW is run.
+
+        The schedule cannot contain spaces; some validation is performed
+        on the values entered in the schedule.
+
+        If the username is specified and it is different from the username
+        running DSNlink_NEW.com, CMKRNL or SETPRV privilege is required for
+        it to function -- this is because DSNLINK_NEW.COM uses SUBMIT/USER
+        to perform the submit using another username.  DSNlink_NEW will
+        enable CMKRNL to perform this function.  If you don't have CMKRNL
+        or SETPRV, DSNlink_NEW will ignore your username setting (if you
+        are running interactively, no warning will be displayed [this is
+        to allow non-privileged users, who might receive DSNlink_NEW
+        messages, to use the same configuration file when performing GET
+        processing).  Unfortunately, DSNlink_NEW can't safely assume the
+        user has write access to either DSNLINK_NEW_DIR or the SYS$LOGIN
+        of the current user, and, because OpenVMS VAX V5.5 translates
+        SYS$LOGIN when the SUBMIT command is executed, by default
+        DSNlink_NEW will not create a log file for a job that is
+        submitted under another username;  however, if debugging is
+        enabled, an *attempt* will be made to create a log file in the
+        directory specified by .DSN_SCRATCH in the configuration file.
+
+.CHECK_CLOSEDCALLS schedule [username]
+        Default: schedule = Never
+                 username = current user
+        Functions exactly like .CHECK_OPENCALLS, except this sends mail
+        to the username DSN%CLOSEDCALLS.  
+        
+        DSNlink in some geographic areas may not have a DSN%CLOSEDCALLS
+        mailing address.
+
+        NOTE:  Some sites can have a very large closed call list, thus
+               using .CHECK_CLOSEDCALLS isn't highly recommended.
+
+.CHECK_DATABASES schedule [mailgroup] [filename]
+        Default: schedule  = Never
+                 mailgroup = $ERROR$
+                 filename  = DSNLINK_NEW_DATABASES.DAT
+        Checks for new or missing databases (using the information from
+        the last database check, which is stored in
+        DSNLINK_NEW_DATABASES.DAT), and mails a message to the mailgroup
+        you specify.  The filename can be specified, but is mostly useful
+        for debugging DSNlink_NEW.
+        
+        NOTE: To reduce the length of time the modem to the DSN host
+              is used, it is recommended to have a job limit of at least
+              2 for your DSN$BATCH queue if you use .CHECK_DATABASES.
+              When a database check is started, a separate batch job is
+              started, to attempt to use the same modem connection the
+              primary DSNlink_NEW job is already (or will soon) use.  
+
+.LOG_FILE file-specification
+        Default:  DSNLINK_NEW_DIR:DSNLINK_NEW.LOG     
+        File specification for your log file.  Normally you'd only
+        specify the directory, and DSNlink_NEW would use DSNLINK_NEW.LOG
+        as the filename.  .LOG_FILE is used for normal processing
+        (article title retrieval), and .GET_LOG_FILE is used for GET 
+        processing (article text retrieval).
+
+.GET_FILE file-specification
+        Default:  SYS$LOGIN:DSNLINK_GET.DAT
+        Filename containing titles of articles that should be retrieved
+        from the DSNlink host system.  This is called "GET processing".
+        If this file exists when DSNlink_NEW is executed interactively,
+        DSNlink_NEW will ask a few questions about where to mail the
+        article text, and when to begin retrieving articles, and then GET
+        processing will be performed in batch.
+
+        It is recommended to use SYS$LOGIN as the location of the
+        GET file to prevent multiple users from interfering with each
+        other if they use a public area such as DSNLINK_NEW_DIR
+        (depending on how you've installed DSNlink_NEW, the location of
+        the GET file may not make any difference).
+
+.GET_LOG_FILE file-specification
+        Default:  SYS$LOGIN:DSNLINK_NEW_GET.LOG
+        Log file for GET processing batch job.  .GET_LOG_FILE is used for
+        GET processing (article text retrieval), and .LOG_FILE is used
+        for normal processing (article title retrieval).
+
+.GET_DELETE_TYPE type
+        Controls default for deletion of Get Processing input file.  Defaults
+        to Success, which only deletes the GET Processing input file if
+        the article text was successfully retrieved.
+
+.BATCH_PRIORITY priority
+        Specifies the process base priority to be used when DSNlink_NEW is
+        running in batch.  This is useful on slower systems that need all
+        their CPU horsepower in the middle of the night, especially if
+        you've got a lot of DSNlink_NEW history data or a lot of
+        DSNlink_NEW groups that must be processed.  Note that during the
+        DSN ITS conversation (when DSNlink_NEW is communicating with the
+        DSNlink host), the base priority is always set to the greater of
+        the original base priority or the value specified in
+        BATCH_PRIORITY (if the process has ALTPRI privilege) -- this is to
+        help ensure the connection to the remote DSNlink host is completed
+        as fast as possible.  ALTPRI is required to set a priority higher
+        than authorized base priority.
+
+.WRITE_TITLES file-specification
+        Default:  <no action - titles aren't appended to any file>
+        If specified, all article titles retrieved (by normal processing)
+        will be appended to this file.  This can be used to simplify
+        GET processing if you desire, but isn't commonly used.
+
+.SCRATCH_DIR directory
+        Default:  DSN$SCRATCH:          if defined
+                  SYS$SCRATCH:          if defined
+                  SYS$LOGIN:            if defined
+                  DSNLINK_NEW_DIR:      
+        Specifies location for DSNlink_NEW scratch files.
+        
+.FAO_SUBJECT "fao-controlstring"
+        Default:  "!+!+!UL new !AS DSNlink article!%S in !UL database!%S"
+        This controls the subject-line used for DSNlink_NEW mail
+        messages, and allows custom tailoring of the information
+        presented in the subject line.  The FAO control string *must* be
+        enclosed in quotes, and there cannot be quotation marks within
+        the FAO string.  No matter what you specify for the FAO string,
+        the following five fields need to be handled in this order:
+          numeric        number of flash articles 
+          numeric        number of normal (non-flash) articles 
+          numeric        total number of articles (flash + normal)
+          string         mailgroup name
+          numeric        number of databases
+
+        You can invent any FAO control string that will work with the
+        above arguments.  Sample FAO control strings:
+          a. "!+!+!0ULNew DSNlink article!%S"
+          b. "!+!+!UL new DSNlink article!%S"
+          c. "!+!+!+!AS - !-!-!UL new DSNlink article!%S"
+          d. "!+!+!+!AS - !-!-!UL new DSNlink article!%S in !+!UL database!%S"
+          e. "!+!+!+!AS - !-!-!2UL new DSNlink article!%S in !+!UL database!%S"
+          f. "!+!+!UL new !AS DSNlink article!%S in !UL database!%S"
+          g. "!+!+!UL new DSNlink article!%S (!AS)"
+          h. "!+!+!UL hit!%S in !+!UL DSNlink database!%S"
+          i. "!UL flash, !UL normal DSNlink articles in !+!+!UL database!%S"
+          j. "!+!+!UL !AS articles (!-!-!-!-!UL flash, !UL normal in !+!+!UL 
+              database!%S)"
+
+        Output from above FAO strings:
+          a.  New DSNlink articles
+          b.  5 new DSNlink articles
+          c.  Programmer - 3 new DSNlink articles
+          d.  Programmer - 7 new DSNlink articles in 3 databases
+          e.  Programmer -  7 new DSNlink articles in 4 databases
+          f.  9 new Programmer DSNlink articles in 2 databases
+          g.  6 new DSNlink articles (Programmer)
+          h.  7 hits in 5 DSNlink databases
+          i.  3 flash, 8 normal DSNlink articles in 4 databases
+          j.  23 Programmer articles (2 flash, 21 normal in 7 databases)
+
+        Sample f. is the default FAO control string.  Note that this FAO
+        string only controls normal DSNlink_NEW processing -- it doesn't
+        affect GET processing, error handling, or exception processing.
+        Enabling debugging will display sample output.  Note that 
+        the fao control string cannot wrap to another line, and it is only
+        wrapped in this documentation to fit on the page.
+
+.FAO_PERSONAL "fao-controlstring"
+        Default:  "!+!+DSNlink article!0UL!%S, !AS"
+        Has the same arguments as .FAO_SUBJECT.  This setting controls
+        the VMSmail personal name of normal DSNlink_NEW mail messages.
+        Enabling debugging will display sample output.  The FAO control
+        string must be enclosed in quotes.
+        
+        NOTE:  The VMSmail personal name cannot begin with a number, and
+               certain other combinations of strings are invalid (such as
+               multiple spaces).
+        
+.FAO_GET_SUBJECT "fao-controlstring"
+        Default:  "!AS: !AS"
+        Functions similar to .FAO_SUBJECT, except .FAO_GET_SUBJECT
+        is used during GET processing, when article text is mailed to
+        a user.  There are always exactly two arguments:
+          string        database name
+          string        title
+
+        sample FAO control strings:
+          1.  "!AS database, !AS"
+          2.  "!+!AS"
+          3.  "(!AS) !AS"
+                    
+        sample output from above FAO strings:
+          1.  VMS database, FASTLANE for OA - A DSIN/DSNlink Database Tool
+          2.  FASTLANE for OA - A DSIN/DSNlink Database Search Tool
+          3.  (VMS) FASTLANE for OA - A DSIN/DSNlink Database Search Tool
+          
+        If the total length of the subject line exceeds 71 characters, it
+        is truncated at 71 characters and a tilde (~) is placed on the 71st
+        character; this prevents line wrapping caused by a long VMSmail
+        subject line.  Note that .FAO_GET_PERSONAL is not handled in this
+        manner (no truncation is performed).  Enabling debugging will
+        display sample output.  The FAO control string must be enclosed in
+        quotes.  You can achieve simple truncation by using "!71<...>" as
+        the FAO control string, where "..." is the contents of the control
+        string.
+                
+.FAO_GET_PERSONAL "fao-controlstring"
+        Default:  "!AS database article"
+        Takes the same arguments as .FAO_GET_SUBJECT, but controls the
+        VMSmail personal name of GET processing mail messages.  The
+        FAO control string must be enclosed in quotes.
+        
+        NOTE:  The VMSmail personal name cannot begin with a number, and
+               certain other combinations of strings are invalid (such as
+               multiple spaces).  This is a restriction of VMSmail.
+
+.EXCLUDE database-name article-title
+        Never display <article-title> in DSNlink_NEW mail messages.
+        This is used no matter if History is enabled or disabled.  The
+        database-name can be "*" (without quotes) to indicate all
+        databases.  Quotes are allowed (as some article titles contain
+        quotes), but quotes will earn a warning message.  To suppress the
+        warning message, use .EXCLUDE_WARNING FALSE (below).  
+
+.EXCLUDE_WARNING TRUE | FALSE
+        Default:  FALSE
+        Set to TRUE to disable the warning if quotes are used in the
+        article title in an .EXCLUDE directive.
+
+.NOTIFY  TRUE | FALSE
+        All Submit commands include /NOTIFY by default.  To change this
+        behavior, include the line:
+          .NOTIFY FALSE
+        in the configuration file.
+
+
+The following settings can be specified *ONLY* as logical names:
+================================================================
+
+DSNLINK_NEW_VERIFY
+        Default:  FALSE
+        If the evaluates to a TRUE value, then DCL verification is turned on.
+
+DSNLINK_NEW_DEBUG     
+        Default:  FALSE
+        If TRUE, debugging is enabled.  This displays lots of extra output
+        useful when debugging DSNlink_NEW.  This also changes the actual
+        operation of the history function by displaying "Hist:yyyy-mm-dd"
+        in front of any articles that were retrieved from the DSN ITS
+        query, and were already in DSNlink_NEW's history database.  There
+        are also a few other differences in behavior that happen when
+        debugging is enabled.
+
+
+
+
+==============================================================================
+                            3. GET Processing
+==============================================================================
+
+
+DSNlink_NEW's ability to get article text (instead of just titles) is
+termed "Get Processing" for lack of a better name.  This feature was
+introduced with version 5.0 of DSNlink_NEW.  Thanks to Joel "M-for-VNEWS"
+Snyder, jms@Opus1.COM, for the original concept.
+
+To utilize this feature:
+
+  1. Extract a normal mail message from DSNlink_NEW (containing database
+     names and article titles) to a file called SYS$LOGIN:DSNLINK_GET.DAT
+  2. Edit the file SYS$LOGIN:DSNLINK_GET.DAT, using any editor, so only
+     the "interesting" article titles and database names are in the file
+     (see below for examples).
+  3. Execute DSNlink_NEW.COM:
+       $ @DSNLINK_NEW
+     (DSNlink_NEW will see the file SYS$LOGIN:DSNLINK_GET.DAT and will
+      automatically initiate Get Processing.  You can change the name 
+      of the file it looks for with .GET_FILE in your configuration
+      file).
+  4. Answer the prompts.
+  5. DSNlink_NEW will submit a batch job that will retrieve the articles.  
+
+  Notes on formatting the GET file (or mail message if you're using
+  automatic GET processing (see another section for details)):
+ 
+    o  These examples are set to spaces from the left margin for clarity;
+       the actual text should be directly on the left margin, just as you
+       receive the message.
+        
+    o  If you choose, you can leave the VMSmail "From:", "To:", "CC:", and
+       "Subj:" headers in the file -- they will be ignored.
+        
+    o  If you choose, you can leave the DSNlink_NEW "trailer" (the stuff
+       after the line of five dashes) in the file -- it will be ignored.
+
+For example, SYS$LOGIN:DSNLINK_GET.DAT could be edited to contain:
+
+(example #1):
+  
+  VMS database, 4 articles:
+    [OpenVMS] AUTOGEN Returns %AUTOGEN-W-SVAEXCEED Error And Refers To BALSETCNT
+  LAT-DECserver database, 1 article:
+    *DECserver 250] CSCPAT_0521: DS250 V2.0 BL2905 ECO Summary
+
+(example #2:)
+
+  ECO-Summary database, 6 articles:
+    *OpenVMS] CSCPAT_0180 RMS (V5.2-1-V5.5-2) ECO Summary
+  VMS database, 43 articles:
+    [OpenVMS] R5 Value Is Ignored In The Console Command ">>> B/R5:n"
+    *OpenVMS] CSCPAT_0180 RMS (V5.2-1-V5.5-2) ECO Summary
+    [OpenVMS] V6.0 AUTOGEN Miscalculates LOCKDIRWT and SHADOW_MAX_COPY
+    [OpenVMS] Escape Sequences Ignored By Printer on Terminal Queue
+    [OpenVMS] MOUNT Returns NOOBJSRV Error If AUDIT_SERVER Is Not Running
+    [OpenVMS] Job Controller Using Unmodified LATSYM Logs %QMAN-I-INVSMBMSG
+    [OpenVMS] List Of VMS RTL And System Service Routines, Updated For V6.0
+  LAT-DECserver database, 3 articles:
+    [DECserver] RS-232-C Line Signals Supported by DECserver 200 V1.0
+  Shadow database, 8 articles:
+    [SHADOW] Phase II Shadow Copy Runs Extremely Slow on RF36 Disk Drives
+  DECnet-VMS database, 1 article:
+    [DECnet/OSI] OpenVMS VAX: X.25 & X.29 File Transfers Methods
+  DECW-Motif database, 1 article:
+    [Motif] Print From DECterm Hangs Or Prints Garbage
+  Cobol database, 1 article:
+    [OpenVMS] List Of VMS RTL And System Service Routines, Updated For V6.0
+
+
+
+NOTES ON GET PROCESSING:
+
+o  Don't use messages from versions of DSNlink_NEW prior to V5.0.
+     Don't extract a mail message from a version of DSNLINK_NEW prior to
+     DSNlink_NEW version V5.0 and expect DSNlink_NEW's GET Processing to
+     work.  Versions of DSNlink_NEW prior to V5.0 use a different
+     database name format.  (Well, you CAN use an old mail message, but
+     you must edit it to match the format of the new mail message from
+     DSNLINK_NEW.)
+                    
+o  Database count isn't used:
+     The database count in the DSNLINK_GET.DAT file ("4 articles", "14
+     articles") does *not* need to be accurate, as the value isn't used
+     when DSNlink_NEW parses the GET file.  The GET processing code looks
+     for the strings "database," and "article:" on the same line to
+     indicate that a new database should be used.
+
+o  $ERROR$ group is modified:
+     When performing GET processing, the $ERROR$ group (defined in the
+     configuration file) is modified so it contains only the user running
+     DSNlink_NEW -- this is to prevent the system manager or whoever is
+     "managing" DSNlink_NEW from being bothered by errors generated when 
+     someone else is using DSNlink_NEW's GET processing facility.
+     
+o  Pseudo-mail groups "Retain" and "Self":
+     When using GET processing, a list of mail groups is displayed.  The
+     $ERROR$ group is never displayed in this list, and two additional
+     groups are always shown:  "Self" and "Retain".  The "Self" group is
+     used to mail the articles to yourself, and the "Retain" group is used
+     to mail the articles to all users that would normally receive the
+     article titles per the configuration file.
+
+     For example, if your configuration file contains:
+     
+       .MAIL Programmers DR_DOBBS,NWIRTH
+       .MAIL Analysts    CSTOLL
+       .MAIL Systems     SYSTEM
+       VMS     NOFLASH  Programmers,Systems
+       RdbVMS  NOFLASH  Analysts
+       
+     and you selected group "Retain", then Programmers and Systems
+     (DR_DOBBS, NWIRTH, and SYSTEM) would receive articles retrieved from
+     the VMS database, and Analysts (CSTOLL) would receive any articles
+     retrieved from the RdbVMS database.
+
+o  Retrieving incorrect article:
+     A new feature introduced in DSNlink_NEW version V5.5 by Alberto
+     Meregalli, meregalli@cesi.it, eliminates almost all cases where
+     DSNlink_NEW's "Get Processing" could fetch the incorrect article.
+     
+     If the Get Processing retrieves the incorrect article, another
+     DSNlink_NEW Get Processing job will be started and will fetch the
+     first ten articles that were found in the SEARCH, retrieve all ten
+     to the local machine, and mail the article that has the matching
+     title.  If you find you need to increase this value, modify the
+     source code which sets the value of the DSNLINK_GET_ARTICLE_COUNT
+     symbol (please let me know if you need to do this and I'll add
+     a configuration file setting, but I don't expect adjusting this
+     will ever be necessary).
+
+o  Retrieval Method (DSNlink V1.2 and above):
+     If you are running DSNlink V1.2 or higher, DSNlink_NEW uses a
+     technique which takes advantage of line-mode EDT so the file is only
+     transferred over the modem one time.  This technique uses the
+     DSN$ITS_EDIT logical, and requires DSNlink V1.2 or higher
+     (unfortunately, a bug in DSNlink V1.1 and V1.1-1 doesn't properly
+     implement this feature - see Alternate Retrieval Method, below).
+     This technique uses DSN ITS commands like:
+     
+       OPEN database                         ! DSN ITS command
+       SEARCH/ENGLISH article-title          ! DSN ITS command
+       NEXT/EDIT 1                           ! DSN ITS command
+       EXIT temporary-filename               ! EDT command 
+       ...                                   ! DSN ITS commands ...
+
+     to retrieve the articles.
+
+     This retrieval method is indicated by the message:
+        %DSNlink_NEW-I-GET, Get style: EDT
+     which is displayed in the DSNLINK_NEW_GET.LOG file when DSNlink_NEW is 
+     executing in batch during GET Processing.
+
+o  Alternate Retrieval Method (DSNlink versions prior to V1.2)
+     Due to a bug in DSNlink V1.1 and V1.1-1, these versions of DSNlink
+     do not work with EDT, and hence don't work with the above method of
+     article retrieval (see the article titled "[DSNlink/VMS] V1.1-n ITS
+     Edit Fails with EDT-F-OPENIN, RMS-E-FLK" in the DSNLINK database for
+     a full description of this problem).  DSNlink_NEW V5.1-1 and above
+     will automatically determine the version of DSNlink that is being
+     used (using the undocumented DSN$VERSION symbol which is created
+     after performing a "$ DSN SHOW VERSION" command), and, if the
+     version of DSNlink is prior to V1.2, a different mechanism to
+     retrieve articles is used:
+     
+       OPEN database
+       SEARCH/ENGLISH article-title
+       NEXT
+       EXTRACT temporary-filename
+       ...
+       
+     Note that this method causes the article text to be transmitted over
+     the DSNlink modem two times -- once for the "NEXT" command, and
+     another time for the "EXTRACT temporary-filename" command.  
+
+     This retrieval method is indicated by the message:
+        %DSNlink_NEW-I-GET, Get style: EXTRACT
+     which is displayed in the DSNLINK_NEW_GET.LOG file when DSNlink_NEW is 
+     executing in batch.
+          
+     The preferred solution to this problem is to upgrade to DSNlink V1.2
+     at your earliest convenience, as the built-in workaround increases the
+     connect time to the DSNlink host system.
+
+
+
+
+==============================================================================
+                   3a. Automating GET Processing
+==============================================================================
+
+If you have MX, PMDF, or DELIVER installed on your system, you can automate
+the GET Processing so you never need to exit Mail to cause DSNlink articles
+to be automatically retrieved.  When you are reading a message sent by
+DSNlink_NEW, you only need to type FORWARD/EDIT, edit your message to
+remove uninteresting titles (you need to leave the "xxx database, nnn
+titles:" line above the titles you want -- see examples above), and exit
+your editor -- DSNlink_NEW will automatically be activated and will
+retrieve articles on your behalf.
+
+Note that setting up the MX SITE agent or standalone DELIVER will require
+privileges.  However, you will not need special VMS privileges to use it
+after it has been setup.
+
+
+o  Using MX's SITE agent:
+        (If you have PMDF or DELIVER already installed on your
+         system, please read the section below on using DELIVER.)
+     
+     A sample MX_SITE_DELIVER.COM_TEMPLATE is included with the
+     DSNlink_NEW distribution, and this can be used as a starting point.
+     First, ensure that you installed the SITE agent when you installed
+     MX (you may need to re-install MX if the site agent isn't
+     installed).
+
+     After the SITE agent is installed, you need to add a SITE path.  The
+     MCP command would be something like:
+     
+       DEFINE PATH DSNLINK_NEW_GET SITE
+       
+     this path should be before any non-local paths; specifying it as your
+     first path works well.  You should modify your MX configuration file
+     and then RESET all agents.  Basically, the SITE agent is activated
+     whenever an outgoing mail address has a "host" portion which matches
+     the path DSNLINK_NEW_GET (in the above example #1 and example #2).
+
+     After this point, any mail sent through MX that has a host-part of
+     DSNLINK_NEW_GET will get routed to the SITE agent.  To make using
+     this easier (to reduce typing), you can setup mail forwarding using:
+     
+       MAIL> SET FORWARD/USER=GET MX%"""USER@DSNLINK_NEW_GET"""
+
+     or, if you prefer, setup an alias within MX (MCP> DEFINE ALIAS) --
+     anything that causes the message to be processed by MX and routed
+     through to the SITE agent will work.
+
+     The file MX_SITE_DELIVER.COM_TEMPLATE should be copied to MX_EXE:
+     and named SITE_DELIVER.COM.  This file shouldn't require too much
+     modification to work at your site other than changing the list of
+     authorized users.  The file includes documentation showing where the
+     changes need to be made.
+
+     After you've got all of this setup, when you receive a mail message
+     sent by DSNlink_NEW, you only need to FORWARD/EDIT the message to
+     the username GET, put anything in the subject line (or leave it
+     blank), edit the file to remove uninteresting database titles, and
+     exit your editor.  You will receive a REPLY message (from
+     SITE_DELIVER.COM) when the batch job is submitted.  All articles and
+     errors are mailed to your account.  Note that the batch job isn't 
+     owned by your username, but by the user specified in the
+     SITE_DELIVER.COM file with the /USER=username qualifier (which is
+     DSN$SERVER with the included template file).
+     
+     If errors are mailed to your account, you'll have to check the log
+     file (the log file name is indicated at the end of the message sent
+     by DSNlink_NEW -- non privileged users may not have access to that
+     area, depending on how it was setup in SITE_DELIVER.COM -- the
+     template SITE_DELIVER places the log file into SYS$SCRATCH).  If you
+     get a bounce from Postmaster, you (or your system manager) probably
+     need to enable MX SITE debugging to diagnose the problem; see the MX
+     manuals for information on enabling MX debugging.
+
+o  Using DELIVER (part of PMDF, and also available standalone)
+     DELIVER allows you to execute any arbitrary .COM file when you
+     receive an Email message.  By passing the correct values to
+     DSNLINK_NEW.COM, you can use DELIVER in conjunction with
+     DSNlink_NEW.  
+     
+     PMDF_DELIVER.COM_TEMPLATE provides sufficient pieces to get GET
+     Processing working with PMDF's DELIVER.  Simply follow the
+     directions in the file for editing your MAIL.DELIVERY file.  If you
+     enhance DELIVER.COM, please let me know so that I may include the
+     enhancements in a future version of DSNlink_NEW.
+     
+Notes:
+  
+  o  If your mail user agent automatically prefixes lines with a ">" or
+     "#" character when you forward mail for GET processing, these 
+     characters in column 1 will be automatically ignored by DSNlink_NEW's 
+     GET Processing code.
+  o  You can use the configuration file setting .MAIL_LOGICAL to
+     define a logical (such as MULTINET_SMTP_REPLY_TO, PMDF_REPLY_TO,
+     or MX_REPLY_TO) which can be used to set the SMTP Reply-To: address
+     for mail sent by DSNlink_NEW -- this makes Get Processing a simple
+     matter of replying to a mail message.
+
+     
+==============================================================================
+                   4. DSNlink_NEW's handling of SINCE
+==============================================================================
+
+Due to DSNlink's implementation of DIR/SINCE, DSNlink_NEW will, by default,
+attempt to retrieve articles that are up to ten days old.  Unfortunately,
+/SINCE=YESTERDAY doesn't work as expected, and using /SINCE=TODAY-2 (the
+day before yesterday) causes some new DSNlink articles to be missed.
+
+The following articles in the "DSNLINK" database help describe how /SINCE
+functions.  DSNlink_NEW is written to attempt to get around these side
+effects of the DSNlink host and client software.
+
+  [DSNlink/VMS] FLASH Articles Not Included In LIST/SINCE Title List
+  [DSNlink/VMS] ITS /SINCE Now Produces Shorter Article Title Lists  
+
+To prevent sending the same article titles over and over, DSNlink_NEW
+uses a history datafile, which contains all article titles that have been
+retrieved by DSNlink_NEW.  However, to ensure that DSNlink_NEW displays
+articles that have actually been modified by DEC, DSNlink_NEW will
+re-send an article if the last time it appeared was two days prior to
+your SINCE time.
+
+The history function is basically a set-it-and-forget-it feature:
+DSNlink_NEW will automatically compress the history file (purging old
+records and performing some simple-minded tuning) after it reaches a
+certain size (300 blocks by default).
+
+
+==============================================================================
+                     5. Compressing history manually
+==============================================================================
+
+You can manually compress the history file, which will eliminate old
+records and perform optimization, by entering COMPRESS as P2 when you
+execute DSNlink_NEW.COM:
+
+      $ @DSNLINK_NEW_DIR:DSNLINK_NEW configuration-filename COMPRESS
+  or  $ @DSNLINK_NEW_DIR:DSNLINK_NEW "" COMPRESS
+
+This goes through a small routine which uses EDIT/FDL to automatically
+determine a better size for your history file, and uses MERGE to
+eliminate old history records from the file (those older than two days
+prior to your SINCE date).
+
+This compression is also automatically done during normal processing when
+the history file grows larger than the value specified by
+.HISTORY_AUTO_COMPRESS in your configuration file (see section 4, above).
+
+
+
+==============================================================================
+                        6. DSNlink_NEW wish list
+==============================================================================
+
+Always get full article text, each night:
+     Due to the excessive load this would place on the DSNlink host
+     system, and the likelihood that large volume of retrieved text
+     wouldn't be read, this will not be implemented in DSNlink_NEW.  This
+     functionality would be similar to printing EVERY message that comes
+     across INFO-VAX/comp.os.vms.
+
+     The code that currently exists in DSNlink_NEW allows you to edit the
+     list of article titles down to the "interesting" titles, and have
+     DSNlink_NEW retrieve the text of these articles for you.
+
+
+Inform users of new DSNlink databases:
+     DSNlink_NEW currently informs the $ERROR$ group if a database (which
+     is in DSNlink_NEW's list of databases to search) is missing.  The
+     desired enhancement would add functionality so DSNlink_NEW would
+     inform users if a database was added or removed.  Implementation
+     would probably be by sending output of SHOW DATABASES to a file and
+     performing a DIFFERENCES between each execution of DSNlink_NEW.
+     There is no expected timeframe for implementing this feature (and so
+     far, only one request for this feature).
+
+     Update:  As of DSNlink V1.2, SHOW DATABASES/OUTPUT isn't a command; 
+              however, it might be possible to do a SHOW DATABASES and
+              then parse the information from DSN ITS's SYS$OUTPUT file.
+                 
+
+Check VTX patch 9999 for new patch:
+     Until/if DEC gets the PATCHES database going, could DSNlink_NEW have
+     an option to get the description of CSCPATCH_9999 out of the VTX
+     function and mail new patch descriptions? There seems to be a pretty
+     consistent format, w/2 lines per patch, which should fit nicely into
+     the existing DSNlink_NEW history, etc.  
+
+     Update:  This could be implemented using DSNlink V1.2's INVOKE_FUNCTION 
+              capability, and would base most of its operation on DEC not
+              modifying the prompts sent by the DSNlink host system in
+              response to INVOKE_FUNCTION.
+                
+              DEC has also gently hinted that DSN VTX would disappear at
+              some future date.
+
+              DEC has created a PATCHES database (ECO-SUMMARY).
+
+Notify of changes to DSNlink mail addresses:
+     When mail is sent to DSN%HELP, the reply (from the DSNlink host
+     system) contains instructions for using DSNlink mail and a list of
+     DSNlink (DSN%) addresses that are valid for your access number.
+
+     Because of the difficulty in intercepting this information (as it
+     is only obtainable via mail), it would be very difficult to
+     implement an automatic check to determine if the list of valid
+     addresses has changed.
+
+
+==============================================================================
+             7. Old, boring DSNlink_NEW modification history
+==============================================================================
+
+Newer history information is in the DSNlink_NEW.COM file itself.
+
+  4.1-8   17-APR-1993  Dan Wing, dwing@uh01.colorado.edu
+     Use symbol DSNLINK_DIRECTORY for location of DSNLINK_NEW default 
+     directory.  Change handling of errors so we always retry if there
+     were any errors during DSNlink connection.  Update documentation and
+     add comments to code.
+  4.1-6  15-APR-1993  Dan Wing, dwing@uh01.colorado.edu
+     Corrected bugs when history was disabled.  
+  4.1-5  12-APR-1993  Dan Wing, dwing@uh01.colorado.edu
+     Disregard upper-/lower-case in config file where appropriate.
+  4.1-4  10-APR-1993  Dan Wing, dwing@uh01.colorado.edu
+     All messages now use %DSNlink_NEW facility code, other cleanups.  Set
+     DSNLINK_DIRECTORY to location of DSNLINK_NEW.COM
+  4.1-3   8-APR-1993  Dan Wing, dwing@uh01.colorado.edu
+     Show flash/normal in HISTSUMMARY.  Support for DSNLINK_NEW_DIR logical
+     and for .LOG_FILE setting in configuration file.  Corrected 
+     misspellings in documentation.  
+  4.1-2   5-APR-1993  Dan Wing, dwing@uh01.colorado.edu
+     More information in .LOG file about 'accepted' articles, removed "r "
+     as title prefix in mail (was used for previously-retrieved articles)
+  4.1-1   1-APR-1993  Dan Wing, dwing@uh01.colorado.edu
+     Fixed missing ";" within compress routine.
+  4.1     1-APR-1993  Dan Wing, dwing@uh01.colorado.edu
+     History COMPRESS now deletes old history records older than two
+     days before SINCE date.
+
+  4.0-10  30-MAR-1993  Dan Wing, dwing@uh01.colorado.edu
+     Configuration file for all configuration information, which eliminates
+     all prompting.  Support for mailing to groups of users based on 
+     interest in certain ITS databases.  Fix bug with error handling if 
+     ITS session is interrupted before it completes.
+
+  3.0     20-JAN-1993  Dan Wing, dwing@uh01.colorado.edu
+     Added history function to eliminate topics we've already seen.  This
+     allows using /SINCE=TODAY-5 as the default, which will let fewer
+     articles 'slip through'.  Also added COMPRESS for use with the new
+     history function.  Search for FLASH articles, and put them at the top
+     of the mail message.  (This version was never 'released.')
+
+  2.22b   19-JAN-1993  Dan Wing, dwing@uh01.colorado.edu
+     Change default to /SINCE=TODAY-3.  Some articles aren't getting
+     selected using /SINCE=TODAY-2.  (DEC still recommends TODAY-2).
+     Also specify today's date on this system, as it may be different
+     than "today" on the DSNlink host system.
+
+  2.22     8-JAN-1993  Dan Wing, dwing@uh01.colorado.edu
+     Fix bug in mail suppress code.  Use different scheme for extracting
+     article titles to prevent problems with P.S.I. and WPS-Plus/DOS
+     databases.  Don't exceed WIDTH when displaying database names (was
+     causing %RMS-F-RSZ errors).  Inform user of 'Unknown Database'
+     errors (for when the CSC drops one of your DSNlink databases).
+
+  2.20   25-NOV-1992  Dan Wing
+   Store database names in separate symbols (to avoid problems when list of 
+   databases exceeds 255 characters).  Allow list of databases to be in a 
+   file, and removed ability to add to a list of data-bases using "+".  
+   Don't allow output of DSNlink DIR command to exceed 80 characters (to 
+   avoid wrapping in Mail).  Changed logicals to the form DSNLINK_NEW_xxx 
+   instead of DSNlinkNEW_xxx.
+  
+  2.10   24-NOV-1992  Dan Wing
+   Remove all checking to see if DSNlink is running on the DCN - too much 
+   code, and too many scenarios.  
+
+  2.02   23-NOV-1992  Dan Wing
+   Include converted time in mail message for SINCE.  Default to 
+   /SINCE=TODAY-2.  See DSNlink article "[DSNlink/VMS] ITS /SINCE Now 
+   Produces Shorter Article Title Lists" in the DSNLINK database.  Use TRUE 
+   and FALSE for clarity.
+  
+  2.01   18-NOV-1992  Dan Wing
+   Use F$SEARCH(file,number) when using wildcards, and delete all of the 
+   little extracted directory files as part of cleanup.
+  
+  2.00b  17-NOV-1992  Dan Wing
+   Handle auto-resubmit time <> default.  Quote list of usernames which 
+   allows "@" in distribution lists.
+  2.00   13-NOV-1992  Dan Wing
+    List articles broken out by database name.  Support for DSNlink V1.1-2 
+    (EDSNlink) which uses the logical DSN$EADDR_DIGITAL to indicate the 
+    connection type (M=modem, D=DECnet, X=X.25).  Add DEBUG logical and 
+    some debugging output.
+
+  13-NOV-92  136a  DGW  Look for DSN$SCRATCH logical instead of 
+                        DSN$COPY_DIRECTORY (only DCN has the second logical)
+                        Also fix syntax error on error-message creation.
+   6-NOV-92  136   DGW  Provide more information when running as to 
+                        success/failure.
+   4-NOV-92  135   DGW  Correct automatic-resubmit code to resubmit after
+                        the first time.
+   3-NOV-92  134   DGW  Send Email if DSNlink isn't available when the batch
+                        job runs.
+  31-OCT-92  133   DGW  Allow DETACHED execution (for DECscheduler)
+   6-OCT-92  132   DGW  Only prompt user if necessary.
+   5-OCT-92  131   DGW  Allow auto-submit if logical DSNlinkNEW_AFTER is
+                        defined, or if user specifies a time when prompted.
+   1-OCT-92  1302b DGW  Invalid syntax on SUBMIT corrected.  Handle case 
+                        where DAN isn't clustered with the DCN.
+  26-SEP-92  130   DGW  Fixed to operate correctly if we're running on a DAN
+                        instead of the DCN, and still sense if DSNlink is 
+                        operating on the DCN.  Handle DSNlink error 'unknown
+                        database' as a special case.  Logical names added.
+                        Don't Email if there's no new articles.  (From Andy
+                        Harper, <udaa055@elm.cc.kcl.ac.uk>).  Also cosmetic 
+                        changes, error handling, parameter validation, and
+                        documentation.
+  14-SEP-92  120   DGW  Break list of databases at 80 columns (symbol WIDTH)
+                        Some cosmetic changes.
+   6-JUL-92  111   DGW  Only need edit 110 if INTERACTIVE.
+  30-JUN-92  110   DGW  Added SET SCREEN/noPAGE, as DIR would loop forever
+                        if more than a screenful of subjects was displayed
+                        (from Rand Hall, <rand@merrimack.edu>)
+   2-FEB-92  006   DGW  Use RESTART_VALUE to indicate how many 
+                        retries have been done.
+  27-JAN-92  005   DGW  If interactive, prompt for all parameters, and 
+                        allow user to submit to batch.
+  17-JAN-92  004   DGW  Retry limit = 5
+   5-JAN-92  003   DGW  The "NO" after the "DSN ITS" must be there in case 
+                        DSNlink enters its question-mode.  DSNlink was 
+                        returning "Your response is ambiguous. Please 
+                        re-enter" if the "NO" was in the DSN$ITS_INIT file.
+   4-JAN-92  002   DGW  Add check for "%DSN-E-" errors as well as "%DSN-F-" 
+                        errors to decide to retry.
+  31-DEC-91  001   DGW  Created.

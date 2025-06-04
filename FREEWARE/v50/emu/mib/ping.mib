@@ -1,0 +1,398 @@
+
+
+-- MIB created 1/17/96 13:42:08, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-PING-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-PING-MIB.my"
+
+IMPORTS
+    Integer32, Counter32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215
+    TruthValue, RowStatus
+            FROM SNMPv2-TC-v1
+    OwnerString
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    CiscoNetworkProtocol, CiscoNetworkAddress
+            FROM CISCO-TC;
+
+ciscoPingMIB OBJECT IDENTIFIER ::= { ciscoMgmt 16 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9411110000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  RevDate
+--    9411110000Z
+--  RevDescr
+--    Redefined Ping completion trap.
+--  RevDate
+--    9407220000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoPingMIBObjects OBJECT IDENTIFIER ::= { ciscoPingMIB 1 }
+ciscoPingMIBTrapPrefix OBJECT IDENTIFIER ::= { ciscoPingMIB 2 }
+ciscoPingMIBTraps OBJECT IDENTIFIER ::= { ciscoPingMIBTrapPrefix 0 }
+ciscoPingMIBConformance OBJECT IDENTIFIER ::= { ciscoPingMIB 3 }
+ciscoPingMIBCompliances OBJECT IDENTIFIER ::= { ciscoPingMIBConformance 1 }
+ciscoPingMIBGroups OBJECT IDENTIFIER ::= { ciscoPingMIBConformance 2 }
+
+ciscoPingTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoPingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of ping request entries."
+    ::= { ciscoPingMIBObjects 1 }
+
+ciscoPingEntry OBJECT-TYPE
+    SYNTAX CiscoPingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A ping request entry.
+        
+        A management station wishing to create an entry should
+        first generate a pseudo-random serial number to be used
+        as the index to this sparse table.  The station should
+        then create the associated instance of the row status
+        and row owner objects.  It must also, either in the same
+        or in successive PDUs, create the associated instance of
+        the protocol and address objects.  It should also modify
+        the default values for the other configuration objects
+        if the defaults are not appropriate.
+        
+        Once the appropriate instance of all the configuration
+        objects have been created, either by an explicit SNMP
+        set request or by default, the row status should be set
+        to active to initiate the request.  Note that this entire
+        procedure may be initiated via a single set request which
+        specifies a row status of createAndGo as well as specifies
+        valid values for the non-defaulted configuration objects.
+        
+        Once the ping sequence has been activated, it cannot be
+        stopped -- it will run until the configured number of
+        packets have been sent.
+        
+        Once the sequence completes, the management station should
+        retrieve the values of the status objects of interest, and
+        should then delete the entry.  In order to prevent old
+        entries from clogging the table, entries will be aged out,
+        but an entry will never be deleted within 5 minutes of
+        completing."
+    INDEX { ciscoPingSerialNumber }
+    ::= { ciscoPingTable 1 }
+
+CiscoPingEntry ::= SEQUENCE {
+    ciscoPingSerialNumber Integer32,
+    ciscoPingProtocol CiscoNetworkProtocol,
+    ciscoPingAddress CiscoNetworkAddress,
+    ciscoPingPacketCount Integer32,
+    ciscoPingPacketSize Integer32,
+    ciscoPingPacketTimeout Integer32,
+    ciscoPingDelay Integer32,
+    ciscoPingTrapOnCompletion TruthValue,
+    ciscoPingSentPackets Counter32,
+    ciscoPingReceivedPackets Counter32,
+    ciscoPingMinRtt Integer32,
+    ciscoPingAvgRtt Integer32,
+    ciscoPingMaxRtt Integer32,
+    ciscoPingCompleted TruthValue,
+    ciscoPingEntryOwner OwnerString,
+    ciscoPingEntryStatus RowStatus
+    }
+
+ciscoPingSerialNumber OBJECT-TYPE
+    SYNTAX Integer32(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Object which specifies a unique entry in the
+        ciscoPingTable.  A management station wishing
+        to initiate a ping operation should use a
+        pseudo-random value for this object when creating
+        or modifying an instance of a ciscoPingEntry.
+        The RowStatus semantics of the ciscoPingEntryStatus
+        object will prevent access conflicts."
+    ::= { ciscoPingEntry 1 }
+
+ciscoPingProtocol OBJECT-TYPE
+    SYNTAX CiscoNetworkProtocol
+--    Rsyntax INTEGER {
+--        ip(1),
+--        decnet(2),
+--        pup(3),
+--        chaos(4),
+--        xns(5),
+--        x121(6),
+--        appletalk(7),
+--        clns(8),
+--        lat(9),
+--        vines(10),
+--        cons(11),
+--        apollo(12),
+--        stun(13),
+--        novell(14),
+--        qllc(15),
+--        snapshot(16),
+--        bstun(17),
+--        x25pvc(18)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The protocol to use.
+        Once an instance of this object is created, its
+                      value can not be changed."
+    ::= { ciscoPingEntry 2 }
+
+ciscoPingAddress OBJECT-TYPE
+    SYNTAX CiscoNetworkAddress
+--    Rsyntax OCTET STRING
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The address of the device to be pinged.
+        An instance of this object cannot be created until the
+        associated instance of ciscoPingProtocol is created.
+        Once an instance of this object is created, its
+                      value can not be changed."
+    ::= { ciscoPingEntry 3 }
+
+ciscoPingPacketCount OBJECT-TYPE
+    SYNTAX Integer32(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the number of ping packets to send to the target
+        in this sequence."
+    DEFVAL { 5 }
+    ::= { ciscoPingEntry 4 }
+
+ciscoPingPacketSize OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the size of ping packets to send to the target
+        in this sequence.  The lower and upper boundaries of this
+        object are protocol-dependent.
+        An instance of this object cannot be modified unless the
+        associated instance of ciscoPingProtocol has been created
+        (so as to allow protocol-specific range checking on the
+        new value)."
+    DEFVAL { 100 }
+    ::= { ciscoPingEntry 5 }
+
+ciscoPingPacketTimeout OBJECT-TYPE
+    SYNTAX Integer32(0..3600000)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the amount of time to wait for a response to a
+        transmitted packet before declaring the packet 'dropped.'"
+    DEFVAL { 2000 }
+    ::= { ciscoPingEntry 6 }
+
+ciscoPingDelay OBJECT-TYPE
+    SYNTAX Integer32(0..3600000)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the minimum amount of time to wait before sending
+        the next packet in a sequence after receiving a response or
+        declaring a timeout for a previous packet.  The actual delay
+        may be greater due to internal task scheduling."
+    DEFVAL { 0 }
+    ::= { ciscoPingEntry 7 }
+
+ciscoPingTrapOnCompletion OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies whether or not a ciscoPingCompletion trap should
+        be issued on completion of the sequence of pings.  If such a
+        trap is desired, it is the responsibility of the management
+        entity to ensure that the SNMP administrative model is
+        configured in such a way as to allow the trap to be delivered."
+    DEFVAL { false }
+    ::= { ciscoPingEntry 8 }
+
+ciscoPingSentPackets OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of ping packets that have been sent to the target
+        in this sequence."
+    ::= { ciscoPingEntry 9 }
+
+ciscoPingReceivedPackets OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of ping packets that have been received from the
+        target in this sequence."
+    ::= { ciscoPingEntry 10 }
+
+ciscoPingMinRtt OBJECT-TYPE
+    SYNTAX Integer32
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum round trip time of all the packets that have
+        been sent in this sequence.
+        
+        This object will not be created until the first ping
+        response in a sequence is received."
+    ::= { ciscoPingEntry 11 }
+
+ciscoPingAvgRtt OBJECT-TYPE
+    SYNTAX Integer32
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The average round trip time of all the packets that have
+        been sent in this sequence.
+        
+        This object will not be created until the first ping
+        response in a sequence is received."
+    ::= { ciscoPingEntry 12 }
+
+ciscoPingMaxRtt OBJECT-TYPE
+    SYNTAX Integer32
+--  Units
+--    milliseconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum round trip time of all the packets that have
+        been sent in this sequence.
+        
+        This object will not be created until the first ping
+        response in a sequence is received."
+    ::= { ciscoPingEntry 13 }
+
+ciscoPingCompleted OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Set to true when all the packets in this sequence have been
+        either responed to or timed out."
+    ::= { ciscoPingEntry 14 }
+
+ciscoPingEntryOwner OBJECT-TYPE
+    SYNTAX OwnerString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The entity that configured this entry."
+    ::= { ciscoPingEntry 15 }
+
+ciscoPingEntryStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this table entry.  Once the entry status is
+        set to active, the associate entry cannot be modified until
+        the sequence completes (ciscoPingCompleted is true)."
+    ::= { ciscoPingEntry 16 }
+
+ciscoPingCompletion TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPingMIBTrapPrefix
+    VARIABLES {
+        ciscoPingCompleted, ciscoPingSentPackets, 
+        ciscoPingReceivedPackets }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ciscoPingCompleted trap is sent at the completion
+        of a sequence of pings if such a trap was requested
+        when the sequence was initiated.  In addition to the
+        above listed objects (which are always present),
+        the message will also contain the following objects
+        if any responses were received:
+         ciscoPingMinRtt
+         ciscoPingAvgRtt
+         ciscoPingMaxRtt"
+    ::= 1
+
+ciscoPingMIBGroup OBJECT IDENTIFIER ::= { ciscoPingMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing ping (echo) ability to a
+--    Cisco agent.
+--  objects
+--    ciscoPingProtocol, ciscoPingAddress, ciscoPingPacketCount, 
+--    ciscoPingPacketSize, ciscoPingPacketTimeout, ciscoPingDelay, 
+--    ciscoPingTrapOnCompletion, ciscoPingSentPackets, 
+--    ciscoPingReceivedPackets, ciscoPingMinRtt, ciscoPingAvgRtt, 
+--    ciscoPingMaxRtt, ciscoPingCompleted, ciscoPingEntryOwner, 
+--    ciscoPingEntryStatus
+
+ciscoPingMIBCompliance OBJECT IDENTIFIER ::= { ciscoPingMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Ping MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoPingMIBGroup
+
+
+END
+

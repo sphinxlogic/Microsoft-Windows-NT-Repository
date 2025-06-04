@@ -1,0 +1,454 @@
+	.TITLE	VALIDATE_VEC - Make sure pointers in UCB are ok
+	.IDENT	'X-1'
+
+;
+;****************************************************************************
+;*									    *
+;*  COPYRIGHT (c) 1988                                 			    *
+;*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+;*  ALL RIGHTS RESERVED.						    *
+;* 									    *
+;*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+;*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+;*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+;*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+;*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+;*  TRANSFERRED.							    *
+;* 									    *
+;*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+;*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+;*  CORPORATION.							    *
+;* 									    *
+;*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+;*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+;* 									    *
+;*									    *
+;****************************************************************************
+;
+;++
+; FACILITY:
+;
+;	VAX/VMS TERMINAL DRIVER
+;
+; ABSTRACT:
+;
+;	This routine will make sure that the class driver pointers really point
+;	at the VMS class driver.  If they do not then it will look to see if
+;	they point into a couple of trusted drivers.
+;
+; AUTHOR:
+;
+;	F. Kenney		13-December-1988
+;
+; Revision history:
+;
+;	X-XX	XXXnnn		Xxxxxxx X. Xxxxxx	DD-MMMMMMM-YYYY
+;		Explain change
+;
+;--
+;
+
+	.SBTTL	Declarations
+
+;
+; EXTERNAL SYMBOLS
+;
+	$DDTDEF				; DEFINE DDT OFFSETS
+	$DPTDEF				; DEFINE DPT OFFSETS
+	$IPLDEF				; IPL definitions
+	$IRPDEF				; I/O request packet size
+	$SPLCODDEF			; SPINLOCK definitions
+	$TTYDEFS			; DEFINE TERMINAL DEFINITIONS
+	$TTYMACS			; DEFINE TERMINAL MACROS
+	$UCBDEF				; DEFINE UCB
+	$VECDEF				; DEFINE CRB VECTOR OFFSETS
+
+	P1 = 0				; First argument off of the AP 
+	P2 = 4				; Second argument off of the AP 
+	P3 = 8				; Third argument off of the AP 
+	P4 = 12				; Fourth argument off of the AP 
+	P5 = 16				; Fifth argument off of the AP 
+	P6 = 20				; Sixht argument off of the AP 
+	DRIVER_NAME_LEN	= 13		; Size of a driver name slot
+	TABLE_SIZE = 12			; Number of optional MID drivers
+
+
+	.PSECT	_CODE	LONG,RD,NOWRT,EXE,PIC
+
+	.SBTTL	LOOKUP_DPT - Find specified DPT
+;++
+; LOOKUP_DPT - Find specified DPT 
+;
+; FUNCTIONAL DESCRIPTION:
+;
+;	This routine will look up the specified DPT and and compute the driver
+; start and points.  
+;
+; INPUTS:
+;
+;	P1(AP)	- Number of arguments (not used)
+;	P2(AP)	- Number of driver to look for
+;	P3(AP)	- Address of list of names		(13 byte strings)
+;	P4(AP)	- Address of list of name lengths	(longwords)
+;	P5(AP)	- Address of list of driver addresses	(two longword per entry 12)
+;
+; OUTPUTS:
+;
+;	P4(AP)	- Driver whoes names are not found will be zeroed
+;	P5(AP)	- List of driver addresses pairs filled in one per entry
+;
+; IMPLICIT INPUTS:
+;
+;	Must be in KERNEL mode with R4 -> PCB
+;--
+
+	.ENTRY	GET_DRIVER_ADDRESSES, -	; Save registers used by routine
+		^M<R2,R3,R5,R6, - 	;
+		   R7,R8,R9>		;
+	PUSHL	R4			; Save PCB address
+	JSB	G^SCH$IOLOCKW		; Lock the I/O database for write access
+	MOVL	P2(AP),R4		; Get count of entries
+	MOVL	P3(AP),R5		; Get address of strings
+	MOVL	P4(AP),R6		; Get address of name string
+	MOVL	P5(AP),R7		; Get address of driver table
+	MOVAL	G^IOC$GL_DPTLIST,R8	; Get DPT list head address
+10$:
+	MOVL	(R8),R9			; Get first element
+20$:
+	CMPC3	(R6),(R5),	-	; Compare names
+		DPT$T_NAME+1(R9)	;
+	BEQL	30$			; EQL go compute addresses
+	MOVL	(R9),R9			; Find next entry
+	CMPL	(R9),R8			; See if list done
+	BNEQ	20$			; Try next entry
+	CLRW	(R6)+			; Signal no driver of this name
+	ADDL	#DRIVER_NAME_LEN,R5	; Point to next driver name
+	SOBGTR	R4,10$			; See if another driver to look for
+	BRB	40$			; Exit
+30$:
+	MOVL	R9,(R7)+		; Store starting Address
+	CVTWL	DPT$W_SIZE(R9),R2	; Get driver length
+	ADDL3	R2,R9,(R7)+		; Compute ending address
+	ADDL	#2,R6			; Point to next string length
+	ADDL	#DRIVER_NAME_LEN,R5	; Point to next string
+	SOBGTR	R4,10$			; See if another driver to look for
+40$:
+	POPL	R4
+	JSB	G^SCH$IOUNLOCK		; Unlock I/O database
+	MOVL	#SS$_NORMAL,R0		; Signal success
+	RET
+
+	.SBTTL	LOCK_CODE - Lock HIGH IPL code into memory
+;++
+; LOCK_CODE - Lock the code that needs to run at IPL 8 into memory
+;
+; FUNCTIONAL DESCRIPTION:
+;
+;	This routine will lock the enable_tt_watching, diable_tt_watching,
+; and validate_vec routines into memory.  This is necessary to prevent a 
+; pagefault at high IPL crash.
+;
+; INPUTS:
+;
+;	None
+;
+; OUTPUTS:
+;
+;	None
+;
+; IMPLICIT INPUTS:
+;
+;	Starting address to be locked down
+;	Ending address to be locked down
+;
+;--
+	.ENTRY	LOCK_CODE,^M<>
+	PUSHAL	LOCK_END		; Ending address lock down
+	PUSHAL	LOCK_BEGIN		; Stating address to lock down
+	MOVL	SP,R0			; Save addresses used
+	CLRQ	-(SP)			; Clear off top of stack
+	PUSHL	R0			; Pointer to pages to lock down
+	CALLS	#3,G^SYS$LCKPAG		; Lock pages down
+	RET
+
+	.SBTTL	ENABLE_TT_WATCHING - Put in place watching code
+;++
+; ENABLE_TT_WATCHING - Place code in place to prevent terminal watching
+;
+;FUNCTIONAL DESCRIPTION:
+;
+;	This routine will load a piece of code into pool that prevents
+; MID drivers and MID driver like code from working.  It works by replacing
+; the STARTIO pointer in the DDT.  This routine will first check that 
+; a copy of itself is not already loaded.  While having two copies in 
+; place is not fatal it is dumb.  
+;
+; INPUTS:
+;
+;	P1(AP)	- Number arguments not used
+;	P2(AP)	- Number of entries in MID driver table
+;	P3(AP) - Address of MID driver table
+;
+; OUTPUTS:
+;
+;	R0	- SS$_NORMAL all worked ok
+;		  SS$_DEVACTIVE watching already active
+;
+; NOTES:
+;	This code assumes that all users of TTDRIVER use IO_LOCK8
+;	for forking.
+;
+;--
+	.PSECT	LOCK_CODE	PAGE,RD,NOWRT,EXE,PIC
+LOCK_BEGIN:
+
+
+	.ENTRY	ENABLE_TT_WATCHING, -	; Entry mask 
+		^M<R2,R3>		;
+	MOVL	#TABLE_SIZE,R0		; Store size of table of alternate drivers
+	MOVAL	TABLE,R2		; Get address of loaded MID driver tables
+10$:
+	CLRQ	(R2)+			; Zero the entries
+	SOBGTR	R0,10$			; Loop until table is zeroed
+	MOVL	P2(AP),R0		; Get number of entries in user table
+	BEQL	30$			; EQL no table entries
+	MOVL	P3(AP),R1		; Get address of users MID driver table
+	BEQL	30$			; Programmers error no use table
+	MOVAL	TABLE,R2		; Get address of STATIC table
+20$:
+	MOVQ	(R1)+,(R2)+		; Move user table to static table
+	SOBGTR	R0,20$			; Loop until done
+30$:
+	MOVL	G^TTY$GL_DPT,R1		; Get TTDRIVER DPT address
+	CVTWL	DPT$W_VECTOR(R1),R0	; Get VECTOR offset
+	ADDL3	R0,R1,R2		; Compute TABLE offset
+	MOVL	R2,CLASS_VEC		; Fill in class vector offset
+	MOVL	CLASS_GETNXT(R2),GETNXT	; Fill in class GETNXT routine address
+	MOVL	CLASS_PUTNXT(R2),PUTNXT	; Fill in class PUTNXT routine address
+	MOVL	CLASS_DDT(R2),R3	; Get DDT address
+;+
+; This code must be done whild holding the FORKLOCK to prevent any changes
+; while we are fiddeling around.
+;-
+	FORKLOCK LOCK=#SPL$C_IOLOCK8, -	; Take I/O lock 8
+		LOCKIPL=#IPL$_IOLOCK8,-	; 
+		SAVIPL=-(SP),	-	;
+		PRESERVE=NO		;
+	CMPL	DDT$L_START(R3),R2	; See if start address is after DDT
+	BLSSU	40$			; LSS error exit
+	CVTWL	DPT$W_SIZE(R1),R0	; Get Driver size
+	ADDL	R0,R1			; Compute end of driver address
+	CMPL	DDT$L_START(R3),R1	; Is start address before end of driver
+	BGTRU	40$			; GTR error exit
+	MOVL	DDT$L_START(R3),STARTIO	; Store TTDRIVER STARTIO address
+	MOVL	#LOAD_LEN,R1		; Size of loaded code
+	JSB	G^EXE$ALONPAGVAR	; Allocate block of memory to hold loaded code
+	BLBC	R0,50$			; LBC signal error
+	PUSHR	#^M<R2,R3,R4,R5>	; Save registes we care about
+	MOVL	R1,LOAD_SIZE		; Save size of block allocated
+	MOVC3	#LOAD_LEN,LOAD_START, -	; Move code into block
+		(R2)			;
+	POPR	#^M<R2,R3,R4,R5>	; Restore registers
+	ADDL3	#NEW_STARTIO_OFFSET, -	; Store new STARTIO address in DDT
+		R2,DDT$L_START(R3)	;
+	FORKUNLOCK 		-	; Release I/O lock 8
+		LOCK=#SPL$C_IOLOCK8, -	;
+		NEWIPL=(SP)+,	-	;
+		CONDITION=RESTORE, -	;
+		PRESERVE=NO		; 
+	MOVZWL	#SS$_NORMAL,R0		; Signal success
+	RET
+
+40$:
+	MOVZWL	#SS$_DEVACTIVE,R0	; Signal that watching is already active
+50$:
+	FORKUNLOCK 		-	; Release I/O lock 8
+		LOCK=#SPL$C_IOLOCK8, -	;
+		NEWIPL=(SP)+,	-	;
+		CONDITION=RESTORE, -	;
+		PRESERVE=YES		; 
+	RET
+
+	.SBTTL	DISABLE_TT_WATCHING - Remove watching code from STARTIO path
+;++
+; DISABLE_TT_WATCHING - Remove watching code from STARTIO path
+;
+; FUNCTIONAL DESCRIPTION:
+;
+;	This routine will examine the the STARTIO address to see if it points to
+; the TTDRIVER.  If the STARTIO address in the DDT is not inside the driver then
+; additional checks will be made.  If it is detemined that the TT vector
+; validation code is loaded it will be removed.
+;
+; INPUTS:
+;
+;	None
+;
+; OUTPUTS:
+;
+;	R0 - SS$_NORMAL removed watching code
+;	   - SS$_NOTINSTALL watching code not enables this could occur for
+;	                    a number of reasons.
+;
+; IMPLICIT INPUTS:
+;
+;	None
+;
+; NOTE:
+;	This code assumes that all users of the terminal driver use IO_LOCK8 
+;	for forking.  
+;
+;--
+	.ENTRY	DISABLE_TT_WATCHING, -	;
+		^M<R2,R3,R5,R6>		;
+	MOVL	G^TTY$GL_DPT,R1		; Get DPT address
+	CVTWL	DPT$W_VECTOR(R1),R2	; Get the VECTOR size
+	ADDL	R1,R2			; Get vector address
+	MOVL	CLASS_DDT(R2),R6	; Get DDT address
+	CVTWL	DPT$W_SIZE(R1),R2	; Get driver size
+	ADDL	R1,R2			; Compute driver ending address
+;+
+; We need to block out access to TTDRIVER DDT, use FORKLOCK to do this
+;-
+	FORKLOCK LOCK=#SPL$C_IOLOCK8, -	; Take I/O lock 8
+		LOCKIPL=#IPL$_IOLOCK8,-	; 
+		SAVIPL=-(SP),	-	;
+		PRESERVE=NO		;
+	CMPL	DDT$L_START(R6),R1	; Is STARTIO inside TTDRIVER
+	BLSS	20$			; LSS no assume watching enabled
+	CMPL	DDT$L_START(R6),R2	; 
+	BGTR	20$			; GTR no assume watching enabled
+10$:
+	FORKUNLOCK 		-	; Release I/O lock 8
+		LOCK=#SPL$C_IOLOCK8, -	;
+		NEWIPL=(SP)+,	-	;
+		CONDITION=RESTORE, -	;
+		PRESERVE=NO		; 
+	MOVZWL	#SS$_NOTINSTALL,R0	; Signal not able to disable
+	RET
+
+;+
+; STARTIO points outside of TTDRIVER see if it points to our code.  If not
+; signal inability to disable.  Otherwise remove it.
+;-
+20$:
+	MOVL	DDT$L_START(R6),R5	; Get STARTIO address
+	CMPC3	#LOAD_CODE_LEN,	-	; Compare loaded code against expected
+		VALIDATE_VEC,(R5)	; code
+	BNEQ	10$			; NEQ cannot match exit
+	SUBL3	#SAVED_STARTIO_LOC, -	; Find location of saved STARTIO routine
+		R5,R0			; 
+	MOVL	(R0),DDT$L_START(R6)	; Restore STARTIO address
+	FORKUNLOCK 		-	; Release I/O lock 8
+		LOCK=#SPL$C_IOLOCK8, -	;
+		NEWIPL=(SP)+,	-	;
+		CONDITION=RESTORE, -	;
+		PRESERVE=NO		;
+	SUBL3	#NEW_STARTIO_OFFSET, -	; Get starting address of loaded code
+		R5,R0			; block
+	MOVL	(R0),IRP$W_SIZE(R0)	; Fill in size of block where deallocate code want it
+	JSB	G^EXE$DEANONPAGED	; Return block to pool
+	MOVZWL	#SS$_NORMAL,R0		; Signal success
+	RET				;
+
+	.SBTTL	VALIDATE_VEC - Validate UCB
+;++
+; VALIDATE_VEC - Validate the pointers in the UCB 
+;
+; FUNCTIONAL DESCRIPTION:
+;
+;	This routine will exampine the CLASS, GETNXT, and the PUTNXT pointers
+; in the UCB.  If the CLASS, PUTNXT, or the GETNXT pointers point to the class 
+; driver.  IF these tests fail it will then check against a list of trusted
+; drivers.  If it fails this test then it will BUGCHECK the system with the
+; reason TTDRVR1 bugcheck.
+;
+;	This code will be loaded into NONPAGED Pool and will be called in place 
+; of the normal TTDRIVER STARTIO routine.  It will then validate the request and
+; jump to the real terminal driver STARTIO routine.  This approach was choosen to
+; minimize the impact on overall system performance.  Ideally it should add only 
+; ten or eleven instructions to the normal STARTIO path.
+;
+; INPUTS:
+;
+;	R3 = IRP
+;	R5 = LOGUCB
+;
+; OUTPUTS:
+;
+;	None
+;
+; IMPLICIT IMPUTS:
+;
+;	The fork lock must be held.
+;
+; NOTE:
+;	This code assumes that all users of the terminal driver use IO_LOCK8 
+;	for forking.  
+;
+;--
+	.PSECT	_LOAD$CODE      PAGE,RD,WRT,EXE,PIC
+
+LOAD_START:
+
+LOAD_SIZE:				; Size of block to be returned
+	.LONG	0			;
+STARTIO:				; TTDRIVER STARTIO address
+	.LONG	0			;
+CLASS_VEC:				; Address of CLASS driver VECTOR
+	.LONG	0			; table
+GETNXT:					; Address of CLASS driver GET NEXT
+	.LONG	0			; routine
+PUTNXT:					; Address of CLASS driver PUT NEXT 
+	.LONG	0			; routine
+TABLE:					; Table of alternate GET and PUT NEXT
+	.BLKL	<TABLE_SIZE*2>		; routines
+	.LONG	0			; End of table slot
+
+VALIDATE_VEC::
+	PUSHL	R5			; Save LOGUCB address
+	MOVL	UCB$L_TL_PHYUCB(R5),R5	; Get PHYUCB address
+	CMPL	CLASS_VEC,	-	; Compare CLASS vector table address
+		UCB$L_TT_CLASS(R5)	;
+	BNEQ	20$			; NEQ next level test
+	CMPL	GETNXT, 	-	; Compare GETNXT address
+		UCB$L_TT_GETNXT(R5)	;
+	BNEQ	20$			; NEQ next level test
+	CMPL	PUTNXT, 	-	; Compare PUTNXT address
+		UCB$L_TT_PUTNXT(R5)	;
+	BNEQ	20$			; NEQ next level test
+10$:
+	POPL	R5			; Restore LOGUCB address
+	JMP	@STARTIO		; Jump to real TTDRIVER startio
+
+20$:
+	MOVAL	TABLE,R2		; Get address of alternate drivers
+30$:
+	MOVL	(R2)+,R0		; Get driver start address
+	BEQL	40$			; EQL enpty table
+	MOVL	(R2)+,R1		; Get driver ending address
+	BEQL	40$			; EQL enpty table
+
+	CMPL	UCB$L_TT_GETNXT(R5),R0	; See if GETNXT is in driver
+	BLSS	30$			; LSS no try next driver
+	CMPL	UCB$L_TT_GETNXT(R5),R1	; See if GETNXT is in driver
+	BGTR	30$			; GTR no try next driver
+	CMPL	UCB$L_TT_PUTNXT(R5),R0	; See if PUTNXT is in driver
+	BLSS	30$			; LSS try next driver
+	CMPL	UCB$L_TT_PUTNXT(R5),R1	; See if PUTNXT is in driver
+	BGTR	30$			; GTR no try next entry
+	BRB	10$			; Match so use TTDRIVER STARTIO 
+
+40$:
+	POPL	R5			; Restore LOGUCB address
+	BUG_CHECK	TTDRVR1,FATAL	; Crash with TTDRVR fatal error
+
+LOAD_END:
+LOCK_END:
+LOAD_CODE_LEN = . - VALIDATE_VEC
+LOAD_LEN = .- LOAD_START
+
+NEW_STARTIO_OFFSET = VALIDATE_VEC - LOAD_SIZE
+SAVED_STARTIO_LOC = VALIDATE_VEC - STARTIO
+
+	.END

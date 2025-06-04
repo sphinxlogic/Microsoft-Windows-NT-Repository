@@ -1,0 +1,200 @@
+VIM, UTILITIES, Vi-compatible text editor for Vax and Alpha
+
+This saveset contains deploy ready VIM version 5.6 for VAX and Alpha systems
+with executables, complete documentetion and runtime files.
+
+<.ALPHA>  VIM 5.6 for Alpha
+<.VAX>    VIM 5.6 for VAX 
+<.SRC>    source files
+
+*os_vms.txt*    For Vim version 5.6.  Last change: 2000 Jan 12
+
+
+		  VIM REFERENCE MANUAL
+
+
+							*VMS* *vms*
+This file contains the particularities for the VMS version of Vim.
+
+1. Getting started	|vms-started|
+2. Download files	|vms-download|
+3. Compiling		|vms-compiling|
+4. Problems		|vms-problems|
+5. Deploy		|vms-deploy|
+6. Practical usage	|vms-usage|
+7. GUI mode questions	|vms-gui|
+8. Useful notes		|vms-notes|
+9. Authors 		|vms-authors|
+
+==============================================================================
+1. Getting started					*vms-started*
+
+VIM (Vi IMproved) is a vi-compatible text editor that runs on nearly every
+operating system known to humanity.  Now use Vim on Open VMS too, in character
+or X/Motif environment.  It is fully featured and absolutely compatible with
+VIM on other operating systems.
+==============================================================================
+2. Download files					*vms-download*
+
+You can download the VIM source code by ftp from the official VIM site:
+	ftp://ftp.vim.org/pub/vim/
+Or use one of the mirrors:
+	ftp://ftp.vim.org/pub/vim/MIRRORS
+
+You will need both the Unix and Extra archives to build vim.exe for VMS.
+For using VIM's full power you will need the runtime files as well.
+
+You can download precompiled executables from:
+	http://www.polarfox.com/vim/
+
+==============================================================================
+3. Compiling						*vms-compiling*
+
+Unpack the Unix and Extra archives together into one directory.  In the <.SRC>
+subdirectory you should find the make file OS_VMS.MMS.  By editing this file
+you may choose between building the character, GUI and debug version.
+
+You will need either the DECSET mms utility or the freely available clone of
+it called mmk (VMS has no make utility in the standard distribution).  I found
+a binary of 'mmk' which worked well.
+
+If you have MSS on your system, the command
+>	MMS /DESCRIP=OS_VMS.MMS
+will start building your own customized version of VIM.
+
+==============================================================================
+4. Problems						*vms-problems*
+
+The code has been tested under Open VMS 6.2-7.1 and with the DECC compiler.
+It should work without bigger problems.  If it happened that your system does
+not have some include libraries you can tune up in OS_VMS_CONF.H file.
+Note: Under VAX it should work with DECC compiler without problem, but the
+code is not compilable with the old VAXC compiler.
+==============================================================================
+5. Deploy						*vms-deploy*
+
+Vim uses a special directory structure to hold the document and runtime files:
+
+   vim (or wherever)
+    |- tmp
+    |- vim56
+    |----- doc
+    |----- syntax
+
+Use:
+>	assign/nolog dev:[leading-path-here.vim56] vimruntime
+>	assign/nolog dev:[leading-path-here.vim56.tmp] tmp
+
+to get vim.exe to find its document, filetype, and syntax files, and to
+specify a directory where temporary files will be located.  Copy the "runtime"
+subdirectory of the vim distribution to vimruntime.
+
+==============================================================================
+6. Practical usage					*vms-usage*
+
+Copy all VIM runtime directory structure to the deployment position.
+Add the following things to your LOGIN.COM (in SYS$LOGIN directory).
+Set up logical $VIM as:
+
+>	$ define vim device:<path>
+
+Set up some symbols:
+
+>	$ ! vi starts vim in chr. mode.
+>	$ vi*m  :== mcr device:<path>VIM.EXE
+
+>	$ gvi starts vim in GUI mode.
+>	$ gv*im :== spawn/nowait mcr device:<path>VIM.EXE -g
+
+>	$ ! normal vt300-80 is not defined. let us use ansi instead.
+>	$ define term "ansi"
+
+Create .vimrc and .gvimrc files in your home directory (SYS$LOGIN).
+The easiest way is just rename example files.  You may leave the menu file
+(MENU.VIM) in the original $VIM directory.
+
+It should work without any problem. Example LOGIN.COM:
+
+>	$ vi*m  :== mcr RF10:[UTIL.VIM]VIM.EXE
+>	$ gv*im :== spawn/nowait mcr RF10:[UTIL.VIM]VIM.EXE -g
+>	$ define vim RF10:[UTIL.VIM]
+>	$ define term "ansi"
+>	$ set disp/create/node=192.168.5.159/trans=tcpip
+
+==============================================================================
+7. GUI mode questions					*vms-gui*
+
+VMS is not a native X window environment so you can not start VIM in GUI mode
+"just like that".
+1) If you are working on the VMS X console:
+   Start VIM with the command:
+>	$ mc device:<path>VIM.EXE -g
+   or type :gui as a command to the VIM command prompt.
+
+2) If you are working on other X window environment
+   Set up display to your host with:
+>	$ set disp/create/node=<your IP address>/trans=tcpip
+   and start VIM as in point 1.
+
+3) If you are working on MS Windows or other non X window environment
+   You need to set up one X server and run VIM as in point 2.
+   For MS Windows there are available free X servers as MIX , Omni X etc.
+
+==============================================================================
+8. Useful notes						*vms-notes*
+
+8.1 backspace/delete.
+
+There are backspace/delete key inconsistencies with VMS.
+:fixdel doesn't do the trick, but the solution is:
+
+>	" for terminal mode
+>	inoremap ^? ^H
+
+>	" for gui modE
+>	inoremap <Del> ^H
+
+(Bruce Hunsaker <BNHunsaker@chq.byu.edu> VIM 5.3)
+
+8.2 Filters.
+
+VIM supports filters; ie. if you have a sort program that can handle
+input/output redirection like Unix (<infile >outfile), you could use
+
+>	map \s 0!'aqsort<CR>
+
+(Charles E. Campbell, Jr. <cec@gryphon.gsfc.nasa.gov> VIM 5.4)
+
+8.3 VMS file version numbers.
+
+If you want VIM to save into a new file with the next higher file version
+number, try these settings.
+>	set nobackup
+>	set nowritebackup
+
+(Claude Marinier <ClaudeMarinier@xwavesolutions.com> VIM 5.5 )
+
+8.4 Directory conversion.
+
+VIM will internally convert any unix-style paths and even mixed unix/VMS
+paths into VMS style paths. Some typical conversions resemble:
+
+	/abc/def/ghi	      -> abc:[def]ghi.
+	/abc/def/ghi.j	      -> abc:[def]ghi.j
+	/abc/def/ghi/jkl/mno  -> abc:[def.ghi.jkl]mno.
+	abc:[def.ghi]jkl/mno  -> abc:[def.ghi.jkl]mno.
+	  ./				-> current directoty
+	  ../				-> relative parent directory
+	  <.def.ghi>		-> relative child directory
+
+(David Elins <delins@foliage.com>, Jerome Lauret
+<JLAURET@mail.chem.sunysb.edu> VIM 5.6 )
+
+==============================================================================
+9. Authors 						*vms-authors*
+
+In alphabetical order:
+	Zoltan Arpadffy <arpadffy@altavista.net>
+	Charles E. Campbell, Jr. <cec@gryphon.gsfc.nasa.gov>
+	Bruce Hunsaker <BNHunsaker@chq.byu.edu>
+	Sandor kopanyi <sandor.kopanyi@altavista.net>

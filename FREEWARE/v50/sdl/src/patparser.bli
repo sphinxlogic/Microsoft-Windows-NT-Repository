@@ -1,0 +1,2825 @@
+!<BLF/REQUIRE'ADABLF_INI'>
+!
+module PATPARSER (ident = 'X2-001'%REQUIRE ('PATSWITCH_REQ')
+		) =
+begin
+!
+!			  COPYRIGHT (c) 1982 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:	PAT Parser
+!
+! ABSTRACT:
+!
+! 	PATPARSER.BLI is the parser.
+!
+! ENVIRONMENT:	VAX/VMS user mode
+!
+! AUTHORS:  C. Mitchell, H. Alcabes, CREATION DATE:  25-Feb-80
+!
+! ACKNOWLEDGEMENT: The local error recovery algorithm used in this module
+!	is based in part on an algorithm developed by Dr. Gerald Fisher as part
+!	of the Ada project at the Courant Institute at New York Univerisity.
+!
+! MODIFIED BY:
+!
+!	Charlie Mitchell, 02-Nov-1981 : VERSION x2-001
+! 001 -	Final packaging and modification to use PATDATA.
+!--
+
+!<BLF/PAGE>
+
+!
+! INCLUDE FILES:
+!
+
+require 'PATPROLOG_REQ';
+
+library 'PATPARSER_LIB';
+
+library 'PATDATA_LIB';				! PAT interface
+
+library 'PAT_LANGSP_LIBRARY';			! Language Specific functions
+
+library 'PATERROR_LIB';				! Error recovery
+
+library 'PATTOKEN_LIB';
+
+library 'PAT_LRTUNE_LIBRARY';
+
+library 'DEB_LIB';				! Debugging
+
+library 'PATDEB_LIB';				! Parser debugging
+
+!<BLF/PAGE>
+
+!
+! TABLE OF CONTENTS OF INTERNAL ROUTINES:
+!
+
+forward routine
+    PARSE,					! PAT parser
+    ERROR_RECOVERY : novalue;			! Main error recovery driver
+
+global
+   sdl$shr_address;				! pointer to sdl shared structure
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+
+forward routine
+    LOCAL_RECOVERY,				! Main local/scope recovery driver
+    PARSE_AHEAD,				! Try parsing ahead
+    PARSE_AHEAD_INIT : novalue,			! Initialize for parse ahead
+    STRONG_LOCAL_RECOVERY,			! Strong local error recovery
+    WEAK_LOCAL_RECOVERY,			! Weak local error recovery
+    TRY_EOL_CORRECTION,				! End Of Line correction
+    TRY_MERGE,					! Try merging tokens
+    MERGE_TOKENS,				! What do tokens merge to
+    TRY_CORRECT_SPELLING,			! Try correcting spelling
+    TRY_SUBSTITUTE,				! Try substituting new token
+    TRY_INSERT,					! Try inserting a token
+    NEVER_INSERT_BEFORE,			! When not to insert a token
+    TRY_DELETE,					! Try deleting a token
+    SCOPE_RECOVERY,				! Try insertions to close scope
+    FIND_BACKUP_ORDER,				! Determine order of corrections
+    SYNTHESIZE_TOKEN,				! Create synthetic token
+    SAVE_STATE : novalue,			! Save parse state
+    RESTORE_STATE : novalue,			! Restore parse state
+    DOWN_CASE : novalue;			! Convert string to lowercase
+
+%fi
+
+!
+! MACROS:
+!
+
+macro
+    CLEAR (START, BYTES) =
+	ZEROBYTE (BYTES, START) %;
+
+macro
+    BLOCK_COPY (SRC, DST, BYTES) =
+	begin
+
+	bind
+	    SBV = SRC : vector [, byte],
+	    DBV = DST : vector [, byte];
+
+	incr OFFSET from 0 to (BYTES - 1) do
+	    DBV [.OFFSET] = .SBV [.OFFSET];
+
+	end
+    %;
+
+macro
+    COUNT (START, BITS) =
+	begin
+
+	local
+	    TOT;
+
+	TOT = 0;
+
+	incr LOOP_INDEX from 0 to (BITS - 1) do
+
+	    if .START [.LOOP_INDEX] then TOT = .TOT + 1;
+
+	.TOT
+	end
+    %;
+
+macro
+    BLOCK_AND (SRC1, SRC2, DST, BYTES) =
+	begin
+
+	bind
+	    SBV1 = SRC1 : vector [, byte],
+	    SBV2 = SRC2 : vector [, byte],
+	    DBV = DST : vector [, byte];
+
+	incr OFFSET from 0 to (BYTES - 1) do
+	    DBV [.OFFSET] = .SBV1 [.OFFSET] and .SBV2 [.OFFSET];
+
+	end
+    %;
+
+macro
+    WHICH_TERM (START, BITS) =
+	begin
+
+	incr LOOP_INDEX from 0 to (BITS - 1) do 	!
+
+	    if .START [.LOOP_INDEX] then exitloop .LOOP_INDEX
+
+	end
+    %;
+
+!
+! EQUATED SYMBOLS:
+!
+
+literal
+    NUM_BYTES = ((PAT$DATA_NUM_TERM + (%bpval - 1))/%bpval)*%upval,
+    NO_MERGE = -1,
+    NO_INITIAL_SYMBOL = -4,
+    VALUE_TO_BE_IGNORED = -99,
+    MAX_NUM_SYN_TOKS = 10;
+
+!
+! OWN STORAGE:
+!
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+
+own
+    SAVED_PAR_LOOKAHEAD_F,
+    SAVED_STACK_PTR,
+    SAVED_REDUCTION_CODE,
+    LOCAL_ATTEMPT_STATUS,
+    SYN_TOK_STORAGE : blockvector [MAX_NUM_SYN_TOKS, LS_TKN_SIZE],
+    NEXT_SYN_TOK_INDEX;
+
+%fi
+
+global
+    PAT$STACK_P : ref PATSTK_STR;
+
+own
+    CURRENT_SYMBOL,
+    CURRENT_SYMBOL_IS_TERMINAL,
+    PAR_LOOKAHEAD_F,
+    STACK_PTR,
+    REDUCTION_CODE,
+    REF_PARSE_STACK : ref PATSTK_STR,
+    PREV_STACK_PTR,
+    PREV_STACK_RECORD : block [PATSTK_STR_SIZE/%upval] field (PATSTK_FIELDS),
+    PREV_STATUS,
+    PREV_WILL_BE_VALID,
+    GLOBAL_MSG_STATUS,
+    GLOBAL_MSG_SYMBOL,
+    GLOBAL_MSG_INIT_STATE,
+    HAVE_INITIAL_SYMBOL,
+    INITIAL_SYMBOL,
+    LATEST_TOKEN_PTR,
+    PRIOR_TOKEN_PTR,
+    ORIGINAL_STACK_PTR;
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+
+own
+    REF_ALT_PARSE_STACK : ref PATSTK_STR,
+    PREV_PREV_STACK_PTR,
+    PREV_PREV_STACK_RECORD : block [PATSTK_STR_SIZE/%upval] field (PATSTK_FIELDS),
+    PREV_PREV_STATUS;
+
+%fi
+
+ENUMERATION ('backup_order', 1, ORDER_A, 	!
+    ORDER_B, 					!
+    ORDER_BC);
+
+literal
+    MAX_BUFFERED_TOKENS = 12;
+
+
+global routine PAT$PARSER (STARTING_TOKEN_PTR, ANNOUNCE_ABBREVIATIONS, 
+				sdl$_shr_data) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	PAT$PARSER is the parser.
+!
+! FORMAL PARAMETERS:
+!
+!	STARTING_TOKEN_PTR	- Pointer to initial token; if NULL
+!				  then initial token is to be obtained
+!				  from the lexical analyzer
+!
+!	ANNOUNCE_ABBREVIATIONS	- TRUE iff an error message should be
+!				  printed when an abbreviation is corrected
+!				  during error recovery.
+!
+!	sdl$_shr_data		- The structure containing all the sdl data
+!				  that is shared with the backends, the driver,
+!				  and the parser.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! ROUTINE VALUE:
+!
+!	TRUE	- A compilation unit was parsed.
+!	FALSE	- A compilation unit wasn't parsed.  At end of file.
+!
+! SIDE EFFECTS:
+!
+!	PAT$PARSER calls the lexical analyzer which reads the source
+!	file.  PAR_ABST is called to build the abstract syntax tree.
+!
+!--
+
+    begin
+
+    LS_PARSE_STACK_DECL				! Normally expands to local
+	PARSE_STACK : PATSTK_STR;		! Normal parse stack
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+
+    local
+	ALT_PARSE_STACK : PATSTK_STR;		! Alternate parse stack used for local error recovery
+
+%fi
+
+
+    !+
+    ! Initialize own and local variables
+    !-
+
+    PAR_LOOKAHEAD_F = FALSE;
+    PREV_STATUS = SAVED_INFO_NOT_VALID;
+    PREV_WILL_BE_VALID = FALSE;
+    GLOBAL_MSG_STATUS = SAVED_INFO_NOT_VALID;
+    LATEST_TOKEN_PTR = NULL;
+    PRIOR_TOKEN_PTR = NULL;
+    CURRENT_SYMBOL_IS_TERMINAL = TRUE;
+    PAT$TOKEN_INIT_BUFFER ();
+    REF_PARSE_STACK = PARSE_STACK;
+
+    sdl$shr_address = sdl$_shr_data;		!first set the address of the
+						!shared structure = to a global
+						!variable.
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+    PREV_PREV_STATUS = SAVED_INFO_NOT_VALID;
+    REF_ALT_PARSE_STACK = ALT_PARSE_STACK;
+%fi
+
+    if .STARTING_TOKEN_PTR eql NULL
+    then
+	begin					! Read in initial token
+	PAT$TOKEN_GET (TRUE);
+
+%if PATBLSEXT_DEBUGGING
+%then
+	PAT$DEB_TOKEN (TRUE);
+%fi
+
+	end
+    else
+	PAT$TOKEN_CURRENT_PTR = .STARTING_TOKEN_PTR;	! Called with initial token
+
+    LATEST_TOKEN_PTR = .PAT$TOKEN_CURRENT_PTR;
+    CURRENT_SYMBOL = LS_LEX_TERM (PAT$TOKEN_CURRENT_PTR);
+						! Current symbol comes from the current lexical token
+    REDUCTION_CODE = -1;			! Haven't done a reduction
+    PAT$STACK_P = PARSE_STACK;			! Point at normal parse stack
+
+%if PATBLSEXT_EXTRA_STACK_FIELD
+%then
+
+    incr I from 0 to LS_PARSE_STACK_SIZE - 1 do
+	PARSE_STACK [.I, PATSTK_EXTRA_INFO] = 0;	! Clear extra info field
+
+%fi
+
+    STACK_PTR = 0;				! Set parse stack pointer and
+    PAT$STACK_P [.STACK_PTR, PATSTK_STATE] = 0;	! stack initial state
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+
+    !+
+    !Initialize scope recovery
+    !-
+
+    SCOPE_RECOVERY (TRUE);
+%fi
+
+    while TRUE do
+	begin
+
+	if PARSE ()
+	then
+	    begin
+	    DEB_EVENT ('PAR_RECOVERY_INFO', 	!
+		PUT_MSG_EOL ('Compilation unit successfully parsed.'), 	!
+		PUT_EOL ());
+	    return TRUE;			! Have parsed a compilation unit
+	    end
+	else 					! Invoke parser error recovery
+	    ERROR_RECOVERY (.ANNOUNCE_ABBREVIATIONS);
+
+	end
+
+    end;					! Of routine PAT$PARSER
+
+
+routine PARSE =
+    begin
+
+    local
+	R,
+	STATUS,
+	ACTION_CODE,
+	ACTION_ROUTINE_ALLOWS_BACKUP,
+	RIGHT_TOKEN_PTR,
+	LHS_SYMBOL,
+	RHS_COUNT,
+	SEMACT,
+	NEW_PTR;
+
+    while TRUE do
+	begin
+
+%if PATBLSEXT_DEBUGGING
+%then
+	PAT$DEB_STATE (.PAT$STACK_P [.STACK_PTR, PATSTK_STATE], TRUE);
+%fi
+
+	if .CURRENT_SYMBOL eql LS_STOP_PARSING_NT then return TRUE;
+
+	ACTION_CODE = PAT$DATA_MOVE_ACTION (.PAT$STACK_P [.STACK_PTR, PATSTK_STATE], .CURRENT_SYMBOL);
+
+	if PAT$DATA_ACTION_IS (.ACTION_CODE, 'ERROR')
+	then begin
+	    if .CURRENT_SYMBOL geq T_AGGREGATE and .CURRENT_SYMBOL leq
+			T_LINKAGE or .CURRENT_SYMBOL geq T_INCLUDE and
+			.CURRENT_SYMBOL leq T_MARKER
+	    then CURRENT_SYMBOL = T_NAME
+	    else return FALSE;
+	    end
+	else
+	    begin
+
+	    if PAT$DATA_ACTION_IS (.ACTION_CODE, 'SHIFT')
+	    then
+		begin
+
+		!+
+		! Save the symbol that was found on the stack and push the
+		! new state on the stack.
+		!-
+
+		PAT$STACK_P [.STACK_PTR, PATSTK_SYMBOL] = .CURRENT_SYMBOL;
+
+		if .CURRENT_SYMBOL_IS_TERMINAL
+		then
+		    begin
+		    STATUS = CONSUME_TERM_ON_SHIFT;
+		    PREV_WILL_BE_VALID = TRUE;
+
+%if PATBLSEXT_EXTRA_STACK_FIELD
+%then
+		    PAT$STACK_P [.STACK_PTR, PATSTK_EXTRA_INFO] = LS_LEX_EXTRA_INFO (PAT$TOKEN_CURRENT_PTR);
+%fi
+
+		    PAT$STACK_P [.STACK_PTR, PATSTK_LOCATOR] = LS_LEX_LOCATOR (PAT$TOKEN_CURRENT_PTR);
+		    end;
+
+		if .STACK_PTR geq (LS_PARSE_STACK_SIZE - 1)
+		then
+		    begin
+		    LS_ERROR_PARSE_STACK_OVERFLOW (LS_LEX_LOCATOR (PAT$TOKEN_CURRENT_PTR));
+		    return FALSE
+		    end
+		else
+		    begin
+		    STACK_PTR = .STACK_PTR + 1;
+		    PAT$STACK_P [.STACK_PTR, PATSTK_STATE] = PAT$DATA_AC_TO_SHIFT_STATE (.ACTION_CODE);
+						! Now this is the current state
+		    end;
+
+		CURRENT_SYMBOL = PAT$TOKEN_GET_CONSUME;
+
+		if .PAT$TOKEN_CURRENT_PTR neq .LATEST_TOKEN_PTR
+		then
+
+		!+
+		! A token has been read that was not read (for a look
+		! ahead reduction) earlier. Keep track of the new token
+		! and the one read prior to it for use by local error
+		! recovery backup.
+		!-
+
+		    begin
+		    PRIOR_TOKEN_PTR = .LATEST_TOKEN_PTR;
+		    LATEST_TOKEN_PTR = .PAT$TOKEN_CURRENT_PTR;
+		    end;
+
+%if PATBLSEXT_DEBUGGING
+%then
+		PAT$DEB_TOKEN (TRUE);
+%fi
+
+		CURRENT_SYMBOL_IS_TERMINAL = TRUE;
+		end
+	    else 				! action is reduce or look-ahead
+		begin
+
+		if PAT$DATA_ACTION_IS (.ACTION_CODE, 'LOOK_AHEAD')
+		then
+
+		!+
+		! This is a look ahead reduction.
+		!-
+
+		    begin
+
+		    if .CURRENT_SYMBOL_IS_TERMINAL
+		    then
+			begin
+
+%if PATBLSEXT_EXTRA_STACK_FIELD
+%then
+			PAT$STACK_P [.STACK_PTR, PATSTK_EXTRA_INFO] = 0;
+%fi
+
+			PAT$STACK_P [.STACK_PTR, PATSTK_LOCATOR] = LS_LEX_LOCATOR (PAT$TOKEN_CURRENT_PTR);
+			end;
+
+		    RIGHT_TOKEN_PTR = .PRIOR_TOKEN_PTR;
+		    REDUCTION_CODE = PAT$DATA_AC_TO_LA_PRODUCTION_NO (.ACTION_CODE);
+		    PAT$DATA_GET_REDUCTION_INFO (.REDUCTION_CODE, LHS_SYMBOL, RHS_COUNT, SEMACT);
+		    PAR_LOOKAHEAD_F = TRUE;
+		    PAT$TOKEN_SAVE_PERMANENT (.PAT$TOKEN_CURRENT_PTR);
+		    NEW_PTR = .STACK_PTR - .RHS_COUNT;
+
+		    if .RHS_COUNT eql 0 then R = .NEW_PTR else R = .NEW_PTR + .RHS_COUNT - 1;
+
+		    end
+		else 				! action is reduce
+		    begin
+		    PAT$STACK_P [.STACK_PTR, PATSTK_SYMBOL] = .CURRENT_SYMBOL;
+						! Save the right-most symbol on the rhs
+
+		    if .CURRENT_SYMBOL_IS_TERMINAL
+		    then
+			begin
+			PREV_WILL_BE_VALID = TRUE;
+			STATUS = CONSUME_TERM_ON_REDUCTION;
+
+%if PATBLSEXT_EXTRA_STACK_FIELD
+%then
+			PAT$STACK_P [.STACK_PTR, PATSTK_EXTRA_INFO] = LS_LEX_EXTRA_INFO (PAT$TOKEN_CURRENT_PTR
+			);
+%fi
+
+			PAT$STACK_P [.STACK_PTR, PATSTK_LOCATOR] = LS_LEX_LOCATOR (PAT$TOKEN_CURRENT_PTR);
+			end;
+
+		    RIGHT_TOKEN_PTR = .PAT$TOKEN_CURRENT_PTR;
+		    REDUCTION_CODE = PAT$DATA_AC_TO_PRODUCTION_NO (.ACTION_CODE);
+		    PAT$DATA_GET_REDUCTION_INFO (.REDUCTION_CODE, LHS_SYMBOL, RHS_COUNT, SEMACT);
+		    PAR_LOOKAHEAD_F = FALSE;
+		    NEW_PTR = .STACK_PTR - .RHS_COUNT + 1;
+		    R = .NEW_PTR + .RHS_COUNT - 1;
+		    end;
+
+%if PATBLSEXT_DEBUGGING
+%then
+		PAT$DEB_REDUCE (.LHS_SYMBOL, .SEMACT, TRUE);
+%fi
+
+		if .SEMACT eql PAT$DATA_NULL_SEMACT
+		then
+		    ACTION_ROUTINE_ALLOWS_BACKUP = (if .RHS_COUNT gtr 1 then LS_REDUCE_NO_ACTION (.NEW_PTR,
+			    .R) else TRUE)
+		else
+		    ACTION_ROUTINE_ALLOWS_BACKUP = LS_REDUCE_ACTION (.SEMACT, .NEW_PTR, .R,
+			.PAT$STACK_P [.NEW_PTR, PATSTK_LOCATOR], .RIGHT_TOKEN_PTR);
+
+		CURRENT_SYMBOL = .LHS_SYMBOL;
+		REDUCTION_CODE = -1;
+
+		if (.NEW_PTR lss .PREV_STACK_PTR) or ( not .ACTION_ROUTINE_ALLOWS_BACKUP)
+		then 				! May not back up past this point
+		    begin
+
+		    if .PREV_STATUS neq REDUCT_AFTER_BACKUP_NOT_ALLOWED
+		    then
+
+		    !+
+		    ! This code saves information to be used (only) for the
+		    ! global error message.  It is executed the first time
+		    ! a reduction that can not be backed up over occurs
+		    ! after a terminal has been consumed.  Its purpose
+		    ! is to save enough info so that the list of symbols
+		    ! that were expected before the reduction could be
+		    ! reconstructed.  If a terminal is actually being
+		    ! consumed (as opposed to being seen by look ahead)
+		    ! then the state of the parse when it was consumed is
+		    ! saved.  Otherwise the state when the last terminal
+		    ! was consumed is saved.
+		    !-
+
+			if .CURRENT_SYMBOL_IS_TERMINAL and not .PAR_LOOKAHEAD_F
+			then
+			    begin
+			    GLOBAL_MSG_STATUS = CONSUME_TERM_ON_REDUCTION;
+			    GLOBAL_MSG_SYMBOL = .CURRENT_SYMBOL;
+			    GLOBAL_MSG_INIT_STATE = .PAT$STACK_P [.STACK_PTR, PATSTK_STATE];
+			    end
+			else
+			    begin
+			    GLOBAL_MSG_STATUS = .PREV_STATUS;
+			    GLOBAL_MSG_SYMBOL = .PREV_STACK_RECORD [PATSTK_SYMBOL];
+			    GLOBAL_MSG_INIT_STATE = .PREV_STACK_RECORD [PATSTK_STATE];
+			    end;
+
+		    PREV_WILL_BE_VALID = TRUE;
+		    PREV_STATUS = SAVED_INFO_NOT_VALID;
+		    STATUS = REDUCT_AFTER_BACKUP_NOT_ALLOWED;
+		    end
+		else
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+
+		    if .NEW_PTR lss .PREV_PREV_STACK_PTR then PREV_PREV_STATUS = SAVED_INFO_NOT_VALID;
+
+%else
+		0;
+%fi
+
+		STACK_PTR = .NEW_PTR;	! Now the current state is .PAT$STACK_P [.STACK_PTR, PATSTK_STATE]
+		PAT$STACK_P [.STACK_PTR, PATSTK_SYMBOL] = .CURRENT_SYMBOL;	! The lhs symbol
+		CURRENT_SYMBOL_IS_TERMINAL = FALSE;
+		end;
+
+	    end;
+
+	if .PREV_WILL_BE_VALID
+	then
+	    begin
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+	    PREV_PREV_STATUS = .PREV_STATUS;
+
+	    if .PREV_PREV_STATUS neq SAVED_INFO_NOT_VALID
+	    then
+		begin
+		PREV_PREV_STACK_PTR = .PREV_STACK_PTR;
+		ch$move (PATSTK_STR_SIZE, PREV_STACK_RECORD, PREV_PREV_STACK_RECORD);
+		end;
+
+%fi
+
+	    PREV_STATUS = .STATUS;
+	    PREV_STACK_PTR = .STACK_PTR;
+	    ch$move (PATSTK_STR_SIZE, PAT$STACK_P [.STACK_PTR, PATSTK_BASE], PREV_STACK_RECORD);
+	    PREV_WILL_BE_VALID = FALSE;
+	    end;
+
+	end;
+
+    0
+    end;					! Of routine PARSE
+
+routine ERROR_RECOVERY (ANNOUNCE_ABBREVIATIONS) : novalue =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	ERROR_RECOVERY causes parser error recovery to occur.
+!	It is called when a parse error has been
+!	encountered.  It uses information about the state of the parse
+!	to recover from the error, but the only data items that may be
+!	altered are the token buffer and the stack pointer.
+!	One of the macros LS_LOCAL_RECOVERY_INFORM or
+!	LS_GLOBAL_RECOVERY_INFORM will be called to make any other
+!	adjustments that are required by the recovery.	Thus the parse
+!	can be resumed after this routine resumes by reading from the
+!	token buffer (which the parser does anyway).
+!
+! FORMAL PARAMETERS:
+!
+!	ANNOUNCE_ABBREVIATIONS	- TRUE iff an error message should be printed
+!				  when an abbreviation is corrected.
+!
+! IMPLICIT INPUTS:
+!
+!	Token buffer
+!
+!	Stack pointer
+!
+!	Parse stack
+!
+!	State information
+!
+! IMPLICIT OUTPUTS:
+!
+!	Token buffer
+!
+!	Stack pointer
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! SIDE EFFECTS:
+!
+!	The token buffer will be altered to correct the error.
+!	LS_*_RECOVERY_INFORM may cause other side effects.
+!
+!--
+
+    begin
+
+    local
+	SUCCESS;
+
+    DEB_EVENT ('PAR_RECOVERY_START', 		!
+	PUT_MSG_EOL ('Starting parser error recovery')
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+    ,
+	PAT$DUMP_BACKUP_INFO ()
+%fi
+
+    );
+    LS_SAVE_TOKEN (.PAT$TOKEN_CURRENT_PTR);	! Save the error token
+    ORIGINAL_STACK_PTR = .STACK_PTR;
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+    SUCCESS = LOCAL_RECOVERY (.ANNOUNCE_ABBREVIATIONS);
+%else
+    SUCCESS = FALSE;
+%fi
+
+    if not .SUCCESS
+    then
+	begin
+	PAT$ERROR_GLOBAL_RECOVERY (
+	! Input parameters
+	    PREV_STACK_RECORD, 			!
+	    .PREV_STATUS, 			!
+	    .GLOBAL_MSG_STATUS, 		!
+	    .GLOBAL_MSG_SYMBOL, 		!
+	    .GLOBAL_MSG_INIT_STATE, 		!
+	    LS_RETURN_SAVED_TOKEN, 		!
+	! Output parameters
+	    STACK_PTR, CURRENT_SYMBOL);
+	LS_GLOBAL_RECOVERY_INFORM (.STACK_PTR, .ORIGINAL_STACK_PTR);
+	end;
+
+    PREV_STATUS = SAVED_INFO_NOT_VALID;
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+    PREV_PREV_STATUS = SAVED_INFO_NOT_VALID;
+%fi
+
+    DEB_EVENT ('PAR_RECOVERY_END', 		!
+	PUT_MSG ('Ending parser error recovery.  Resume parse on:  '), 	!
+	PUT_STRING (PAT$DATA_SYMBOL_TEXT (.CURRENT_SYMBOL)), 	!
+	PUT_EOL (), 				!
+	PUT_EOL ());
+    end;					! Of routine ERROR_RECOVERY
+!<blf/page>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine LOCAL_RECOVERY (ANNOUNCE_ABBREVIATIONS) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	LOCAL_RECOVERY is the main driver for local and scope
+!	recovery.
+!
+! FORMAL PARAMETERS:
+!
+!	ANNOUNCE_ABBREVIATIONS	- TRUE iff an error message should be printed
+!				  when an abbreviation is corrected.
+!
+! IMPLICIT INPUTS:
+!
+!	Token buffer
+!
+!	Stack pointer
+!
+!	Parse stack
+!
+!	State information
+!
+! IMPLICIT OUTPUTS:
+!
+!	Token buffer
+!
+!	Stack pointer
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! SIDE EFFECTS:
+!
+!	The token buffer will be altered to correct the error.
+!	LS_*_RECOVERY_INFORM may cause other side effects.
+!
+!--
+
+    begin
+
+    local
+	ORDER,
+	SUCCESS,
+	SAVED_STACK_RECORD : block [PATSTK_STR_SIZE/%upval] field (PATSTK_FIELDS);
+
+    SUCCESS = FALSE;
+    ORDER = FIND_BACKUP_ORDER (.PREV_STATUS, .PREV_PREV_STATUS);
+
+    !+
+    ! Attempt strong local error recovery (types of corrections
+    ! that have a strong chance of being correct)
+    !-
+
+    selectone .ORDER of
+	set
+
+	[ORDER_A] :
+	    ! Start from state A (state when error was encountered--no backup)
+	    begin
+	    LOCAL_ATTEMPT_STATUS = ERROR_ENCOUNTERED;
+	    PARSE_AHEAD_INIT (NO_INITIAL_SYMBOL);
+	    SUCCESS = STRONG_LOCAL_RECOVERY (FALSE, .ANNOUNCE_ABBREVIATIONS);
+
+	    if .SUCCESS
+	    then
+		LS_LOCAL_RECOVERY_INFORM (FALSE, FALSE, FALSE, VALUE_TO_BE_IGNORED,
+		    VALUE_TO_BE_IGNORED);
+
+	    end;
+
+	[otherwise] :
+	;
+	tes;
+
+    if not .SUCCESS
+    then
+
+	selectone .ORDER of
+	    set
+
+	    [ORDER_B, ORDER_BC] :
+		! Try from state B (error state, before default reductions)
+		begin
+		LOCAL_ATTEMPT_STATUS = .PREV_STATUS;
+		STACK_PTR = .PREV_STACK_PTR;
+		ch$move (PATSTK_STR_SIZE, PAT$STACK_P [.STACK_PTR, PATSTK_BASE],
+		    SAVED_STACK_RECORD [PATSTK_BASE]);
+		ch$move (PATSTK_STR_SIZE, PREV_STACK_RECORD, PAT$STACK_P [.STACK_PTR, PATSTK_BASE]);
+
+		selectone .PREV_STATUS of
+		    set
+
+		    [CONSUME_TERM_ON_REDUCTION, REDUCT_AFTER_BACKUP_NOT_ALLOWED] :
+			PARSE_AHEAD_INIT (.PREV_STACK_RECORD [PATSTK_SYMBOL]);
+
+		    [otherwise] :
+			PARSE_AHEAD_INIT (NO_INITIAL_SYMBOL);
+		    tes;
+
+		SUCCESS = STRONG_LOCAL_RECOVERY (FALSE, .ANNOUNCE_ABBREVIATIONS);
+
+		if .SUCCESS
+		then
+		    LS_LOCAL_RECOVERY_INFORM (FALSE, TRUE, (.STACK_PTR neq .ORIGINAL_STACK_PTR),
+			.STACK_PTR, .ORIGINAL_STACK_PTR)
+		else
+		    ch$move (PATSTK_STR_SIZE, SAVED_STACK_RECORD [PATSTK_BASE],
+			PAT$STACK_P [.STACK_PTR,
+			    PATSTK_BASE]);
+
+		end;
+
+	    [otherwise] :
+	    ;
+	    tes;
+
+    if not .SUCCESS and .PRIOR_TOKEN_PTR neq null
+    then
+
+	selectone .ORDER of
+	    set
+
+	    [ORDER_BC] :
+		! Try from state C (token before error, before default reductions)
+		begin
+		LOCAL_ATTEMPT_STATUS = .PREV_PREV_STATUS;
+		PAT$TOKEN_SAVE (.LATEST_TOKEN_PTR, TRUE);	! Save error token in token buffer
+		PAT$TOKEN_CURRENT_PTR = .PRIOR_TOKEN_PTR;
+		CURRENT_SYMBOL = LS_LEX_TERM (PAT$TOKEN_CURRENT_PTR);
+		STACK_PTR = .PREV_PREV_STACK_PTR;
+		ch$move (PATSTK_STR_SIZE, PAT$STACK_P [.STACK_PTR, PATSTK_BASE],
+		    SAVED_STACK_RECORD [PATSTK_BASE]);
+		ch$move (PATSTK_STR_SIZE, PREV_PREV_STACK_RECORD, PAT$STACK_P [.STACK_PTR, PATSTK_BASE]);
+
+		selectone .PREV_PREV_STATUS of
+		    set
+
+		    [CONSUME_TERM_ON_REDUCTION, REDUCT_AFTER_BACKUP_NOT_ALLOWED] :
+			PARSE_AHEAD_INIT (.PREV_PREV_STACK_RECORD [PATSTK_SYMBOL]);
+
+		    [otherwise] :
+			PARSE_AHEAD_INIT (NO_INITIAL_SYMBOL);
+		    tes;
+
+		SUCCESS = STRONG_LOCAL_RECOVERY (TRUE, .ANNOUNCE_ABBREVIATIONS);
+
+		if .SUCCESS
+		then
+		    LS_LOCAL_RECOVERY_INFORM (TRUE, TRUE, TRUE, .STACK_PTR, .ORIGINAL_STACK_PTR)
+		else
+		    begin
+		    ch$move (PATSTK_STR_SIZE, SAVED_STACK_RECORD [PATSTK_BASE],
+			PAT$STACK_P [.STACK_PTR,
+			    PATSTK_BASE]);
+		    PAT$TOKEN_GET (TRUE);	! Get error token back from token buffer
+		    end;
+
+		end;
+
+	    [otherwise] :
+	    ;
+	    tes;
+
+    if not .SUCCESS
+    then
+
+    !+
+    ! Attempt weak local error recovery (types of corrections
+    ! that have a weak chance of being correct)
+    !-
+
+	selectone .ORDER of
+	    set
+
+	    [ORDER_A] :
+		! Start from state A (state when error was encountered--no backup)
+		begin
+		LOCAL_ATTEMPT_STATUS = ERROR_ENCOUNTERED;
+		PARSE_AHEAD_INIT (NO_INITIAL_SYMBOL);
+		SUCCESS = WEAK_LOCAL_RECOVERY (FALSE);
+
+		if .SUCCESS
+		then
+		    LS_LOCAL_RECOVERY_INFORM (FALSE, FALSE, FALSE, VALUE_TO_BE_IGNORED,
+			VALUE_TO_BE_IGNORED);
+
+		end;
+
+	    [otherwise] :
+	    ;
+	    tes;
+
+    if not .SUCCESS
+    then
+
+	selectone .ORDER of
+	    set
+
+	    [ORDER_B, ORDER_BC] :
+		! Try from state B (error state, before default reductions)
+		begin
+		LOCAL_ATTEMPT_STATUS = .PREV_STATUS;
+		STACK_PTR = .PREV_STACK_PTR;
+		ch$move (PATSTK_STR_SIZE, PAT$STACK_P [.STACK_PTR, PATSTK_BASE],
+		    SAVED_STACK_RECORD [PATSTK_BASE]);
+		ch$move (PATSTK_STR_SIZE, PREV_STACK_RECORD, PAT$STACK_P [.STACK_PTR, PATSTK_BASE]);
+
+		selectone .PREV_STATUS of
+		    set
+
+		    [CONSUME_TERM_ON_REDUCTION, REDUCT_AFTER_BACKUP_NOT_ALLOWED] :
+			PARSE_AHEAD_INIT (.PREV_STACK_RECORD [PATSTK_SYMBOL]);
+
+		    [otherwise] :
+			PARSE_AHEAD_INIT (NO_INITIAL_SYMBOL);
+		    tes;
+
+		SUCCESS = WEAK_LOCAL_RECOVERY (FALSE);
+
+		if .SUCCESS
+		then
+		    LS_LOCAL_RECOVERY_INFORM (FALSE, TRUE, (.STACK_PTR neq .ORIGINAL_STACK_PTR),
+			.STACK_PTR, .ORIGINAL_STACK_PTR)
+		else
+		    ch$move (PATSTK_STR_SIZE, SAVED_STACK_RECORD [PATSTK_BASE],
+			PAT$STACK_P [.STACK_PTR,
+			    PATSTK_BASE]);
+
+		end;
+
+	    [otherwise] :
+	    ;
+	    tes;
+
+    if not .SUCCESS and .PRIOR_TOKEN_PTR neq null
+    then
+
+	selectone .ORDER of
+	    set
+
+	    [ORDER_BC] :
+		! Try from state C (token before error state, before any default reductions)
+		begin
+		LOCAL_ATTEMPT_STATUS = .PREV_PREV_STATUS;
+		PAT$TOKEN_SAVE (.LATEST_TOKEN_PTR, TRUE);	! Save error token in token buffer
+		PAT$TOKEN_CURRENT_PTR = .PRIOR_TOKEN_PTR;
+		CURRENT_SYMBOL = LS_LEX_TERM (PAT$TOKEN_CURRENT_PTR);
+		STACK_PTR = .PREV_PREV_STACK_PTR;
+		ch$move (PATSTK_STR_SIZE, PAT$STACK_P [.STACK_PTR, PATSTK_BASE],
+		    SAVED_STACK_RECORD [PATSTK_BASE]);
+		ch$move (PATSTK_STR_SIZE, PREV_PREV_STACK_RECORD, PAT$STACK_P [.STACK_PTR, PATSTK_BASE]);
+
+		selectone .PREV_PREV_STATUS of
+		    set
+
+		    [CONSUME_TERM_ON_REDUCTION, REDUCT_AFTER_BACKUP_NOT_ALLOWED] :
+			PARSE_AHEAD_INIT (.PREV_PREV_STACK_RECORD [PATSTK_SYMBOL]);
+
+		    [otherwise] :
+			PARSE_AHEAD_INIT (NO_INITIAL_SYMBOL);
+		    tes;
+
+		SUCCESS = WEAK_LOCAL_RECOVERY (TRUE);
+
+		if .SUCCESS
+		then
+		    LS_LOCAL_RECOVERY_INFORM (TRUE, TRUE, TRUE, .STACK_PTR, .ORIGINAL_STACK_PTR)
+		else
+		    begin
+		    ch$move (PATSTK_STR_SIZE, SAVED_STACK_RECORD [PATSTK_BASE],
+			PAT$STACK_P [.STACK_PTR,
+			    PATSTK_BASE]);
+		    PAT$TOKEN_GET (TRUE);	! Get error token back from token buffer
+		    end;
+
+		end;
+
+	    [otherwise] :
+	    ;
+	    tes;
+
+    if not .SUCCESS
+    then
+	begin
+	PAT$TOKEN_CURRENT_PTR = .LATEST_TOKEN_PTR;
+	CURRENT_SYMBOL = LS_LEX_TERM (PAT$TOKEN_CURRENT_PTR);
+	STACK_PTR = .ORIGINAL_STACK_PTR;
+	end;
+
+    return .SUCCESS
+    end;					! Of routine LOCAL_RECOVERY
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine PARSE_AHEAD (TOKENS_TO_TRY) =
+    begin
+
+    macro
+	RESET_STACK =
+	    STACK_PTR = .SAVED_STACK_PTR;
+	    ch$move ((.STACK_PTR + 1)*PATSTK_STR_SIZE, .REF_PARSE_STACK, .REF_ALT_PARSE_STACK) %;
+
+    local
+	CURRENT_SYMBOL_IS_TERMINAL,
+	SAVED_TEMP_HEAD,
+	ACTION_CODE,
+	TOKENS_TRIED,
+	HOLDING_SECOND_TOKEN,
+	SECOND_TOKEN_PTR,
+	LHS_SYMBOL,
+	RHS_COUNT,
+	SEMACT,
+	NEW_PTR;
+
+    SAVED_TEMP_HEAD = PAT$TOKEN_TEMP_HEAD ();
+    TOKENS_TRIED = 0;
+
+    if .HAVE_INITIAL_SYMBOL
+    then
+	begin
+	SECOND_TOKEN_PTR = .PAT$TOKEN_CURRENT_PTR;
+	HOLDING_SECOND_TOKEN = TRUE;
+	CURRENT_SYMBOL = .INITIAL_SYMBOL;
+	CURRENT_SYMBOL_IS_TERMINAL = FALSE;
+	end
+    else
+	begin
+	HOLDING_SECOND_TOKEN = FALSE;
+	CURRENT_SYMBOL_IS_TERMINAL = TRUE;
+	end;
+
+    while (.TOKENS_TO_TRY gtr .TOKENS_TRIED) do
+	begin
+
+%if PATBLSEXT_DEBUGGING
+%then
+	PAT$DEB_STATE (.PAT$STACK_P [.STACK_PTR, PATSTK_STATE], FALSE);
+%fi
+
+	if .CURRENT_SYMBOL eql LS_STOP_PARSING_NT
+	then 					! Compilation complete
+	    begin
+	    PAT$TOKEN_SET_TEMP_HEAD (.SAVED_TEMP_HEAD);
+	    RESET_STACK;
+	    return TRUE;
+	    end;
+
+	ACTION_CODE = PAT$DATA_MOVE_ACTION (.PAT$STACK_P [.STACK_PTR, PATSTK_STATE], .CURRENT_SYMBOL);
+
+	if PAT$DATA_ACTION_IS (.ACTION_CODE, 'ERROR')
+	then
+	    begin
+	    PAT$TOKEN_SET_TEMP_HEAD (.SAVED_TEMP_HEAD);
+	    RESET_STACK;
+	    return FALSE;
+	    end
+	else
+	    begin
+
+	    if PAT$DATA_ACTION_IS (.ACTION_CODE, 'SHIFT')
+	    then
+		begin
+
+		!+
+		! Save the symbol that was found on the stack and push the
+		! new state on the stack.
+		!-
+
+		PAT$STACK_P [.STACK_PTR, PATSTK_SYMBOL] = .CURRENT_SYMBOL;
+
+		if .CURRENT_SYMBOL_IS_TERMINAL
+		then
+		    PAT$STACK_P [.STACK_PTR, PATSTK_LOCATOR] = LS_LEX_LOCATOR (PAT$TOKEN_CURRENT_PTR);
+
+		if .STACK_PTR geq (LS_PARSE_STACK_SIZE - 1)
+		then
+		    begin
+
+		    !+
+		    ! Stack overflow so parse ahead not successful.
+		    !-
+
+		    PAT$TOKEN_SET_TEMP_HEAD (.SAVED_TEMP_HEAD);
+		    RESET_STACK;
+		    return TRUE;
+		    end
+		else
+		    begin
+		    STACK_PTR = .STACK_PTR + 1;
+		    PAT$STACK_P [.STACK_PTR, PATSTK_STATE] = PAT$DATA_AC_TO_SHIFT_STATE (.ACTION_CODE);
+						! Now this is the current state
+		    end;
+
+		if .HOLDING_SECOND_TOKEN
+		then
+		    begin
+		    PAT$TOKEN_CURRENT_PTR = .SECOND_TOKEN_PTR;
+		    CURRENT_SYMBOL = LS_LEX_TERM (PAT$TOKEN_CURRENT_PTR);
+		    HOLDING_SECOND_TOKEN = FALSE;
+		    end
+		else
+		    begin
+		    CURRENT_SYMBOL = PAT$TOKEN_GET (FALSE);
+		    TOKENS_TRIED = .TOKENS_TRIED + 1;
+		    end;
+
+%if PATBLSEXT_DEBUGGING
+%then
+		PAT$DEB_TOKEN (FALSE);
+%fi
+
+		CURRENT_SYMBOL_IS_TERMINAL = TRUE;
+		end
+	    else 				! action is reduce or look-ahead
+		begin
+
+		if PAT$DATA_ACTION_IS (.ACTION_CODE, 'LOOK_AHEAD')
+		then
+
+		!+
+		! This is a look ahead reduction.
+		!-
+
+		    begin
+
+		    if .CURRENT_SYMBOL_IS_TERMINAL then PAT$STACK_P [.STACK_PTR, PATSTK_LOCATOR] = 0;
+
+		    REDUCTION_CODE = PAT$DATA_AC_TO_LA_PRODUCTION_NO (.ACTION_CODE);
+		    PAT$DATA_GET_REDUCTION_INFO (.REDUCTION_CODE, LHS_SYMBOL, RHS_COUNT, SEMACT);
+		    PAR_LOOKAHEAD_F = TRUE;
+		    DEB_ASSERT (( not .HOLDING_SECOND_TOKEN), 	!
+			'Trying to save token while holding second token.');
+		    PAT$TOKEN_SAVE (.PAT$TOKEN_CURRENT_PTR, FALSE);
+		    TOKENS_TRIED = .TOKENS_TRIED - 1;
+		    NEW_PTR = .STACK_PTR - .RHS_COUNT;
+		    end
+		else 				! action is reduce
+		    begin
+		    PAT$STACK_P [.STACK_PTR, PATSTK_SYMBOL] = .CURRENT_SYMBOL;
+						! Save the right-most symbol on the rhs
+
+		    if .CURRENT_SYMBOL_IS_TERMINAL
+		    then
+			PAT$STACK_P [.STACK_PTR, PATSTK_LOCATOR] = LS_LEX_LOCATOR (PAT$TOKEN_CURRENT_PTR);
+
+		    REDUCTION_CODE = PAT$DATA_AC_TO_PRODUCTION_NO (.ACTION_CODE);
+		    PAT$DATA_GET_REDUCTION_INFO (.REDUCTION_CODE, LHS_SYMBOL, RHS_COUNT, SEMACT);
+		    PAR_LOOKAHEAD_F = FALSE;
+		    NEW_PTR = .STACK_PTR - .RHS_COUNT + 1;
+		    end;
+
+%if PATBLSEXT_DEBUGGING
+%then
+		PAT$DEB_REDUCE (.LHS_SYMBOL, .SEMACT, FALSE);
+%fi
+
+		CURRENT_SYMBOL = .LHS_SYMBOL;
+		REDUCTION_CODE = -1;
+		STACK_PTR = .NEW_PTR;	! Now the current state is .PAT$STACK_P [.STACK_PTR, PATSTK_STATE]
+		PAT$STACK_P [.STACK_PTR, PATSTK_SYMBOL] = .CURRENT_SYMBOL;	! the lhs symbol
+		CURRENT_SYMBOL_IS_TERMINAL = FALSE;
+		end;
+
+	    end
+
+	end;
+
+    PAT$TOKEN_SET_TEMP_HEAD (.SAVED_TEMP_HEAD);
+    RESET_STACK;
+    return TRUE
+    end;					! Of routine PARSE_AHEAD
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine PARSE_AHEAD_INIT (INIT_SYMBOL) : novalue =
+    begin
+    HAVE_INITIAL_SYMBOL = (.INIT_SYMBOL neq NO_INITIAL_SYMBOL);
+    INITIAL_SYMBOL = .INIT_SYMBOL;
+    end;					! Of routine PARSE_AHEAD_INIT
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine STRONG_LOCAL_RECOVERY (HAVE_BACKED_UP_OVER_A_TOKEN, ANNOUNCE_ABBREVIATIONS) =
+    begin
+
+    local
+	SUCCESS;
+
+    label
+	TRYS;
+
+    PAT$TOKEN_SAVE (.PAT$TOKEN_CURRENT_PTR, TRUE);	! Save error token
+    SAVE_STATE ();				! Save state of the parse
+    PAT$STACK_P = .REF_ALT_PARSE_STACK;		! Use alternate parse stack
+    DEB_EVENT ('PAR_RECOVERY_LOCAL', 		!
+	PUT_MSG_EOL ('-----------------------------------------------------'), 	!
+	PUT_MSG ('Starting strong local recovery - the current state is '), 	!
+	PUT_NUMBER (.PAT$STACK_P [.STACK_PTR, PATSTK_STATE]), 	!
+	PUT_MSG_EOL ('.'), 			!
+	PUT_MSG ('Current symbol is '), 	!
+	PUT_STRING (PAT$DATA_SYMBOL_TEXT (.CURRENT_SYMBOL)), 	!
+	PUT_MSG_EOL ('.'));
+TRYS :
+    begin
+
+    if LS_LEX_START_LINE (PAT$TOKEN_CURRENT_PTR)
+    then
+	begin
+
+	if (SUCCESS = TRY_EOL_CORRECTION ()) then leave TRYS;
+
+	RESTORE_STATE ();
+	end;
+
+    if (SUCCESS = TRY_MERGE ()) then leave TRYS;
+
+    RESTORE_STATE ();
+
+    if (SUCCESS = TRY_CORRECT_SPELLING (.ANNOUNCE_ABBREVIATIONS)) then leave TRYS;
+
+    RESTORE_STATE ();
+    end;					! Of loop TRYS
+!
+    DEB_EVENT ('PAR_RECOVERY_LOCAL', 		!
+	PUT_EOL (), 				!
+
+	if .SUCCESS				!
+	then 					!
+	    PUT_MSG_EOL ('Strong local error recovery successful')	!
+	else 					!
+	    PUT_MSG_EOL ('Strong local error recovery not successful'), 	!
+
+	PUT_MSG_EOL ('-----------------------------------------------------'), 	!
+	PUT_EOL ());
+    RESTORE_STATE ();
+    PAT$STACK_P = .REF_PARSE_STACK;		! Use normal parse stack
+
+    if (.HAVE_INITIAL_SYMBOL and .SUCCESS)
+    then
+	begin
+	CURRENT_SYMBOL = .INITIAL_SYMBOL;
+	CURRENT_SYMBOL_IS_TERMINAL = FALSE;
+	end
+    else
+	begin
+	CURRENT_SYMBOL = PAT$TOKEN_GET (TRUE);
+	CURRENT_SYMBOL_IS_TERMINAL = TRUE;
+	end;
+
+    return .SUCCESS
+    end;					! Of routine STRONG_LOCAL_RECOVERY
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine WEAK_LOCAL_RECOVERY (HAVE_BACKED_UP_OVER_A_TOKEN) =
+    begin
+
+    local
+	SUCCESS;
+
+    label
+	TRYS;
+
+    PAT$TOKEN_SAVE (.PAT$TOKEN_CURRENT_PTR, TRUE);	! Save error token
+    SAVE_STATE ();				! Save state of the parse
+    PAT$STACK_P = .REF_ALT_PARSE_STACK;		! Use alternate parse stack
+    DEB_EVENT ('PAR_RECOVERY_LOCAL', 		!
+	PUT_MSG_EOL ('-----------------------------------------------------'), 	!
+	PUT_MSG ('Starting weak local recovery - the current state is '), 	!
+	PUT_NUMBER (.PAT$STACK_P [.STACK_PTR, PATSTK_STATE]), 	!
+	PUT_MSG_EOL ('.'), 			!
+	PUT_MSG ('Current symbol is '), 	!
+	PUT_STRING (PAT$DATA_SYMBOL_TEXT (.CURRENT_SYMBOL)), 	!
+	PUT_MSG_EOL ('.'));
+TRYS :
+    begin
+
+    incr PRIORITY from 1 to 4 do
+	begin
+
+	if LR_SUB_PRIORITY eql .PRIORITY
+	then
+	    begin
+
+	    if (SUCCESS = TRY_SUBSTITUTE ()) then leave TRYS;
+
+	    RESTORE_STATE ()
+	    end;
+
+	if LR_INSERT_PRIORITY eql .PRIORITY
+	then
+	    begin
+
+	    if (SUCCESS = TRY_INSERT ()) then leave TRYS;
+
+	    RESTORE_STATE ()
+	    end;
+
+	if (LR_SCOPE_PRIORITY eql .PRIORITY) and not .HAVE_BACKED_UP_OVER_A_TOKEN
+	then
+	    begin
+
+	    if (SUCCESS = SCOPE_RECOVERY (FALSE)) then leave TRYS;
+
+	    RESTORE_STATE ();
+	    end;
+
+	if LR_DELETE_PRIORITY eql .PRIORITY
+	then
+	    begin
+
+	    if (SUCCESS = TRY_DELETE ()) then leave TRYS;
+
+	    RESTORE_STATE ()
+	    end;
+
+	end;
+
+    end;					! Of loop TRYS
+!
+    DEB_EVENT ('PAR_RECOVERY_LOCAL', 		!
+	PUT_EOL (), 				!
+
+	if .SUCCESS				!
+	then 					!
+	    PUT_MSG_EOL ('Weak local error recovery successful')	!
+	else 					!
+	    PUT_MSG_EOL ('Weak local error recovery not successful'), 	!
+
+	PUT_MSG_EOL ('-----------------------------------------------------'), 	!
+	PUT_EOL ());
+    RESTORE_STATE ();
+    PAT$STACK_P = .REF_PARSE_STACK;		! Use normal parse stack
+
+    if (.HAVE_INITIAL_SYMBOL and .SUCCESS)
+    then
+	begin
+	CURRENT_SYMBOL = .INITIAL_SYMBOL;
+	CURRENT_SYMBOL_IS_TERMINAL = FALSE;
+	end
+    else
+	begin
+	CURRENT_SYMBOL = PAT$TOKEN_GET (TRUE);
+	CURRENT_SYMBOL_IS_TERMINAL = TRUE;
+	end;
+
+    return .SUCCESS
+    end;					! Of routine WEAK_LOCAL_RECOVERY
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine TRY_EOL_CORRECTION =
+
+!++
+!   This routine is never called if LS_LEX_START_LINE always returns
+!   FALSE.
+!--
+
+    begin
+
+    local
+	NEW_TOKEN,
+	ERROR_LOC;
+
+    DEB_ASSERT (LS_LEX_START_LINE (PAT$TOKEN_CURRENT_PTR), '[TRY_EOL_CORRECTION]');
+    DEB_EVENT ('PAR_RECOVERY_LOCAL', 		!
+	PUT_EOL (), 				!
+	PUT_MSG_EOL ('Trying end of line correction'));
+    PAT$TOKEN_GET (FALSE);			! Examine error token
+    ERROR_LOC = LS_LEX_LOCATOR (PAT$TOKEN_CURRENT_PTR);
+    PAT$TOKEN_RESET_BUFFER ();
+    NEW_TOKEN = SYNTHESIZE_TOKEN (LS_T_SEMICOLON);
+    PAT$TOKEN_CURRENT_PTR = .NEW_TOKEN;
+    CURRENT_SYMBOL = LS_LEX_TERM (PAT$TOKEN_CURRENT_PTR);
+
+    if PARSE_AHEAD (3)
+    then
+	begin
+	PAT$TOKEN_SAVE (.NEW_TOKEN, TRUE);
+	DEB_EVENT ('PAR_RECOVERY_LOCAL', 	!
+	    PUT_MSG ('Successful insertion of '), PUT_STRING (PAT$DATA_SYMBOL_TEXT (LS_T_SEMICOLON)),
+	    PUT_EOL ());
+	LS_ERROR_EOL (.ERROR_LOC);
+	return TRUE;
+	end;
+
+    return FALSE
+    end;					! Of routine TRY_EOL_CORRECTION
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine TRY_MERGE =
+    begin
+
+    local
+	TERM,
+	ERROR_LOC,
+	NUM_SAVED,
+	FIRST_TOKEN_PTR,
+	SECOND_TOKEN_PTR,
+	NEW_TOKEN;
+
+    DEB_EVENT ('PAR_RECOVERY_LOCAL', 		!
+	PUT_EOL (), 				!
+	PUT_MSG_EOL ('Trying to merge tokens'));
+    NUM_SAVED = PAT$TOKEN_SAVE_BUF (2);
+    PAT$TOKEN_GET (FALSE);			! Get first token
+    FIRST_TOKEN_PTR = .PAT$TOKEN_CURRENT_PTR;
+    PAT$TOKEN_GET (FALSE);			! Get second token
+    SECOND_TOKEN_PTR = .PAT$TOKEN_CURRENT_PTR;
+    TERM = MERGE_TOKENS (.FIRST_TOKEN_PTR, .SECOND_TOKEN_PTR);
+
+    if .TERM neq NO_MERGE
+    then
+	begin
+	NEW_TOKEN = SYNTHESIZE_TOKEN (.TERM);
+	PAT$TOKEN_CURRENT_PTR = .NEW_TOKEN;	! Try replacing 2 tokens with merged token
+	CURRENT_SYMBOL = LS_LEX_TERM (PAT$TOKEN_CURRENT_PTR);
+
+	if PARSE_AHEAD (2)
+	then
+	    begin
+	    PAT$TOKEN_GET (TRUE);		! Drop error token for real
+	    PAT$TOKEN_GET (TRUE);		! Drop next token for real
+	    PAT$TOKEN_SAVE (.NEW_TOKEN, TRUE);	! Insert merged token
+	    					!
+	    DEB_EVENT ('PAR_RECOVERY_LOCAL', 	!
+		PUT_MSG ('Successful merge of '), 	!
+		PUT_STRING (PAT$DATA_SYMBOL_TEXT (LS_LEX_TERM (FIRST_TOKEN_PTR))), 	!
+	    					!
+
+		if LS_IS_IDENTIFIER (LS_LEX_TERM (FIRST_TOKEN_PTR))	!
+		then 				!
+		    begin			!
+		    PUT_MSG (' "');		!
+		    PUT_STRING (LS_LEX_TERM (FIRST_TOKEN_PTR));	!
+		    PUT_MSG ('"');		!
+		    end				!
+	    , 					!
+
+		PUT_MSG (' and '), 		!
+		PUT_STRING (PAT$DATA_SYMBOL_TEXT (LS_LEX_TERM (SECOND_TOKEN_PTR))), 	!
+
+		if LS_IS_IDENTIFIER (LS_LEX_TERM (SECOND_TOKEN_PTR))	!
+		then 				!
+		    begin			!
+		    PUT_MSG (' "');		!
+		    PUT_STRING (LS_LEX_TERM (SECOND_TOKEN_PTR));	!
+		    PUT_MSG ('"');		!
+		    end				!
+	    , 					!
+
+		PUT_MSG (' to form '), 		!
+		PUT_STRING (PAT$DATA_SYMBOL_TEXT (.TERM)), 	!
+		PUT_EOL ());
+	    ERROR_LOC = LS_LEX_LOCATOR (FIRST_TOKEN_PTR);
+	    LS_ERROR_MERGE (.ERROR_LOC, .FIRST_TOKEN_PTR, .SECOND_TOKEN_PTR, .TERM);
+	    return TRUE
+	    end;
+
+	end;
+
+    PAT$TOKEN_RESTORE_BUF (.NUM_SAVED);
+    return FALSE
+    end;					! Of routine TRY_MERGE
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine MERGE_TOKENS (FIRST_TOKEN_PTR, SECOND_TOKEN_PTR) =
+    begin
+
+    map
+	FIRST_TOKEN_PTR,
+	SECOND_TOKEN_PTR;
+
+    if LS_IS_IDENTIFIER (LS_LEX_TERM (FIRST_TOKEN_PTR))
+    then
+	begin
+
+	if LS_IS_IDENTIFIER (LS_LEX_TERM (SECOND_TOKEN_PTR))
+	then
+
+	    incr COUNTER from 0 to (LR_NUM_IM - 1) do
+
+		if SD_STRING_EQUAL (LS_LEX_TEXT (FIRST_TOKEN_PTR),
+			.PAT$LR_IDENTIFIER_MERGE_TABLE [.COUNTER,
+			    LR_IM_FIRST_ID]) and 	!
+		    SD_STRING_EQUAL (LS_LEX_TEXT (SECOND_TOKEN_PTR), 	!
+			.PAT$LR_IDENTIFIER_MERGE_TABLE [.COUNTER, LR_IM_SECOND_ID])	!
+		then
+		    return .PAT$LR_IDENTIFIER_MERGE_TABLE [.COUNTER, LR_IM_MERGED_TERM];
+
+	end
+    else
+
+	incr COUNTER from 0 to (LR_NUM_SM - 1) do
+
+	    if (LS_LEX_TERM (FIRST_TOKEN_PTR) eql .PAT$LR_SYMBOL_MERGE_TABLE [.COUNTER, LR_SM_FIRST_TERM]) and
+						!
+		(LS_LEX_TERM (SECOND_TOKEN_PTR) eql .PAT$LR_SYMBOL_MERGE_TABLE [.COUNTER, LR_SM_SECOND_TERM])
+						!
+	    then
+		return .PAT$LR_SYMBOL_MERGE_TABLE [.COUNTER, LR_SM_MERGED_TERM];
+
+    return NO_MERGE
+    end;
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine TRY_CORRECT_SPELLING (ANNOUNCE_ABBREVIATIONS) =
+    begin
+
+    local
+	TERM,
+	ERROR_LOC,
+	ABBREVIATION,
+	CORRECTION,
+	NUM_SAVED,
+	ID_TOKEN_PTR,
+	ORIG_IDENTIFIER : ref SD_STR,
+	RESERVED_WORD : ref SD_STR,
+	NEW_TOKEN;
+
+    own
+	IDENTIFIER_TEXT : vector [132, byte],
+	IDENTIFIER : SD_STR preset ( [SD_TEXT] = IDENTIFIER_TEXT);
+
+    DEB_EVENT ('PAR_RECOVERY_LOCAL', 		!
+	PUT_EOL (), 				!
+	PUT_MSG_EOL ('Trying spelling correction'));
+    NUM_SAVED = PAT$TOKEN_SAVE_BUF (1);
+    CURRENT_SYMBOL = PAT$TOKEN_GET (FALSE);	! Try dropping error token
+
+    if LS_IS_IDENTIFIER (.CURRENT_SYMBOL) and 	!
+	( not LS_LEX_SYNTHETIC (PAT$TOKEN_CURRENT_PTR))
+    then
+	begin
+	ERROR_LOC = LS_LEX_LOCATOR (PAT$TOKEN_CURRENT_PTR);
+	ID_TOKEN_PTR = .PAT$TOKEN_CURRENT_PTR;
+	ORIG_IDENTIFIER = LS_LEX_TEXT (PAT$TOKEN_CURRENT_PTR);
+	DOWN_CASE (.ORIG_IDENTIFIER, IDENTIFIER);
+	PAT$ERROR_GET_NEXT_TRANS_INIT (.LOCAL_ATTEMPT_STATUS, .PAT$STACK_P [.STACK_PTR, PATSTK_STATE],
+	    .PAT$STACK_P [.STACK_PTR, PATSTK_SYMBOL]);
+
+	while (TERM = PAT$ERROR_GET_NEXT_TRANSITION (TRUE)) neq PAT$ERROR_NO_MORE_TRANSITIONS do
+	    begin
+
+	    if LS_IS_RESERVED_WORD (.TERM)	! Reserved word
+	    then
+		begin
+		NEW_TOKEN = SYNTHESIZE_TOKEN (.TERM);
+		PAT$TOKEN_CURRENT_PTR = .NEW_TOKEN;	! Try inserting reserved word
+		CURRENT_SYMBOL = LS_LEX_TERM (PAT$TOKEN_CURRENT_PTR);
+
+		if PARSE_AHEAD (3)
+		then
+		    begin
+		    ABBREVIATION = FALSE;
+		    CORRECTION = FALSE;
+		    RESERVED_WORD = PAT$DATA_SYMBOL_TEXT (.TERM);
+
+		    !+
+		    ! Check for same spelling (error could be due to incorrect
+		    ! capitalization.
+		    !-
+
+		    if ch$eql (.RESERVED_WORD [SD_LENGTH], .RESERVED_WORD [SD_TEXT], .IDENTIFIER [SD_LENGTH],
+			    .IDENTIFIER [SD_TEXT])
+		    then
+			CORRECTION = TRUE
+		    else
+
+		    !+
+		    ! Check for abbreviation
+		    !-
+
+			if (.IDENTIFIER [SD_LENGTH] gtr 2) and 	!
+			    (.IDENTIFIER [SD_LENGTH] lss .RESERVED_WORD [SD_LENGTH]) and 	!
+			    ch$eql (.IDENTIFIER [SD_LENGTH], .RESERVED_WORD [SD_TEXT],
+				.IDENTIFIER [SD_LENGTH], .IDENTIFIER [SD_TEXT])
+			then
+			    begin
+			    ABBREVIATION = TRUE;
+			    CORRECTION = TRUE;
+			    end;
+
+		    if not .CORRECTION and 	!
+			(.RESERVED_WORD [SD_LENGTH] + 1) geq (.IDENTIFIER [SD_LENGTH])
+		    then
+			begin
+
+			local
+			    POSSIBILITIES,
+			    MATCHES;
+
+			MATCHES = 0;
+
+			if ch$eql (1, .RESERVED_WORD [SD_TEXT], 1, .IDENTIFIER [SD_TEXT])
+			then
+			    MATCHES = .MATCHES + 1;
+
+			incr RW_PTR from .RESERVED_WORD [SD_TEXT] to 	!
+				(.RESERVED_WORD [SD_TEXT] + .RESERVED_WORD [SD_LENGTH] - 2) do
+
+			    incr ID_PTR from .IDENTIFIER [SD_TEXT] to 	!
+				    (.IDENTIFIER [SD_TEXT] + .IDENTIFIER [SD_LENGTH] - 2) do
+
+				if ch$eql (2, .RW_PTR, 2, .ID_PTR) then MATCHES = .MATCHES + 1;
+
+			if ch$eql (1, (.RESERVED_WORD [SD_TEXT] + .RESERVED_WORD [SD_LENGTH]), 1,
+				(.IDENTIFIER [SD_TEXT] + .IDENTIFIER [SD_LENGTH]))
+			then
+			    MATCHES = .MATCHES + 1;
+
+			POSSIBILITIES = max (.RESERVED_WORD [SD_LENGTH], .IDENTIFIER [SD_LENGTH]) + 1;
+
+			if ((.MATCHES*100)/.POSSIBILITIES) gtr 40	!
+			then 			!
+			    CORRECTION = TRUE;
+
+			end;
+
+		    if .CORRECTION
+		    then
+			begin
+			RESTORE_STATE ();
+			PAT$TOKEN_GET (TRUE);	! Drop error token
+			PAT$TOKEN_SAVE (.NEW_TOKEN, TRUE);
+
+			if .ABBREVIATION
+			then
+			    begin
+
+			    if .ANNOUNCE_ABBREVIATIONS
+			    then
+				begin
+				DEB_EVENT ('PAR_RECOVERY_LOCAL', 	!
+				    PUT_MSG_EOL ('Successful abbreviation correction:'), 	!
+				    PUT_MSG ('replaced '), 	!
+				    PUT_STRING (.ORIG_IDENTIFIER), 	!
+				    PUT_MSG (' with '), 	!
+				    PUT_STRING (.RESERVED_WORD), 	!
+				    PUT_EOL ());
+				LS_ERROR_ABBREV (.ERROR_LOC, .ID_TOKEN_PTR, .NEW_TOKEN);
+				end
+			    else
+				DEB_EVENT ('PAR_RECOVERY_LOCAL', 	!
+				    PUT_MSG_EOL ('Successful unannounced abbreviation correction:'), 	!
+				    PUT_MSG ('replaced '), 	!
+				    PUT_STRING (.ORIG_IDENTIFIER), 	!
+				    PUT_MSG (' with '), 	!
+				    PUT_STRING (.RESERVED_WORD), 	!
+				    PUT_EOL ())
+
+			    end
+			else 			! Spelling error
+			    begin
+			    DEB_EVENT ('PAR_RECOVERY_LOCAL', 	!
+				PUT_MSG_EOL ('Successful spelling correction:'), 	!
+				PUT_MSG ('replaced '), 	!
+				PUT_STRING (.ORIG_IDENTIFIER), 	!
+				PUT_MSG (' with '), 	!
+				PUT_STRING (.RESERVED_WORD), 	!
+				PUT_EOL ());
+			    LS_ERROR_SPELL (.ERROR_LOC, .ID_TOKEN_PTR, .NEW_TOKEN);
+			    end;
+
+			return TRUE
+			end;
+
+		    end;
+
+		end;
+
+	    end;
+
+	end;
+
+    PAT$TOKEN_RESTORE_BUF (.NUM_SAVED);
+    return FALSE
+    end;					! Of routine TRY_CORRECT_SPELLING
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine TRY_SUBSTITUTE =
+    begin
+
+    local
+	TERM,
+	ERROR_LOC,
+	NUM_SUBS,
+	NUM_SAVED,
+	INITIAL_TOKEN_PTR,
+	NEW_TOKEN_PTR,
+	POSS_SUBS : bitvector [PAT$DATA_NUM_TERM],
+	PREF_SUBS : bitvector [PAT$DATA_NUM_TERM];
+
+    DEB_EVENT ('PAR_RECOVERY_LOCAL', 		!
+	PUT_EOL (), 				!
+	PUT_MSG_EOL ('Trying token substitution'));
+    NUM_SAVED = PAT$TOKEN_SAVE_BUF (1);
+    CLEAR (POSS_SUBS, NUM_BYTES);
+    PAT$TOKEN_GET (FALSE);			! Find type of error token
+    INITIAL_TOKEN_PTR = .PAT$TOKEN_CURRENT_PTR;
+    PAT$TOKEN_RESET_BUFFER ();
+
+    if ( not .PAT$LR_NEVER_SUBSTITUTE_FOR [LS_LEX_TERM (INITIAL_TOKEN_PTR)]) and 	!
+	( not LS_IS_EOF (LS_LEX_TERM (INITIAL_TOKEN_PTR)))	! Don't substitute for EOF
+    then
+	begin
+	PAT$ERROR_GET_NEXT_TRANS_INIT (.LOCAL_ATTEMPT_STATUS, .PAT$STACK_P [.STACK_PTR, PATSTK_STATE],
+	    .PAT$STACK_P [.STACK_PTR, PATSTK_SYMBOL]);
+
+	while (TERM = PAT$ERROR_GET_NEXT_TRANSITION (TRUE)) neq PAT$ERROR_NO_MORE_TRANSITIONS do
+
+	    if (.TERM neq LS_T_ERRORMARK) and 	! Don't replace with errormark
+		( not LS_IS_EOF (.TERM)) and 	! Don't replace with end-of-file
+		( not LS_IS_RESERVED_WORD (.TERM))	! Don't replace with reserved word
+	    then
+		begin
+		PAT$TOKEN_GET (FALSE);		! Try dropping error token
+		PAT$TOKEN_CURRENT_PTR = SYNTHESIZE_TOKEN (.TERM);	! Try replacement for error token
+		CURRENT_SYMBOL = LS_LEX_TERM (PAT$TOKEN_CURRENT_PTR);
+
+		if PARSE_AHEAD (3) then POSS_SUBS [.TERM] = TRUE;
+
+		RESTORE_STATE ();
+		end;
+
+	NUM_SUBS = COUNT (POSS_SUBS, PAT$DATA_NUM_TERM);
+
+	if .NUM_SUBS gtr 1
+	then
+	    begin
+	    BLOCK_AND (POSS_SUBS, PAT$LR_PREFERRED_INSERTIONS, PREF_SUBS, NUM_BYTES);
+	    NUM_SUBS = COUNT (PREF_SUBS, PAT$DATA_NUM_TERM);
+	    end
+	else
+	    BLOCK_COPY (POSS_SUBS, PREF_SUBS, NUM_BYTES);
+
+	if (.NUM_SUBS neq 1) and 		!
+	    (.POSS_SUBS [LS_T_IDENTIFIER]) and 	!
+	    LS_IS_RESERVED_WORD (LS_LEX_TERM (INITIAL_TOKEN_PTR))
+	then
+	    begin
+	    CLEAR (PREF_SUBS, NUM_BYTES);
+	    PREF_SUBS [LS_T_IDENTIFIER] = TRUE;
+	    NUM_SUBS = 1;
+	    end;
+
+	if .NUM_SUBS eql 1
+	then
+	    begin
+	    PAT$TOKEN_GET (TRUE);		! Really drop error token
+	    NEW_TOKEN_PTR = SYNTHESIZE_TOKEN (WHICH_TERM (PREF_SUBS, PAT$DATA_NUM_TERM));
+						! Get terminal selected
+	    PAT$TOKEN_SAVE (.NEW_TOKEN_PTR, TRUE);	! Substitute correction token
+	    DEB_EVENT ('PAR_RECOVERY_LOCAL', 	!
+		PUT_MSG ('Successfully substituted '), 	!
+		PUT_STRING (PAT$DATA_SYMBOL_TEXT (LS_LEX_TERM (NEW_TOKEN_PTR))), 	!
+		PUT_MSG (' for '), 		!
+		PUT_STRING (PAT$DATA_SYMBOL_TEXT (LS_LEX_TERM (INITIAL_TOKEN_PTR))), 	!
+		PUT_EOL ());
+	    ERROR_LOC = LS_LEX_LOCATOR (INITIAL_TOKEN_PTR);
+	    LS_ERROR_SUBST (.ERROR_LOC, .INITIAL_TOKEN_PTR, .NEW_TOKEN_PTR);
+	    return TRUE
+	    end;
+
+	end
+    else
+	DEB_EVENT ('PAR_RECOVERY_LOCAL', 	!
+	    PUT_MSG ('No substitutions are allowed for the token '), 	!
+	    PUT_STRING (PAT$DATA_SYMBOL_TEXT (LS_LEX_TERM (INITIAL_TOKEN_PTR))), 	!
+	    PUT_EOL ());
+
+    PAT$TOKEN_RESTORE_BUF (.NUM_SAVED);
+    return FALSE
+    end;					! Of routine TRY_SUBSTITUTE
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine TRY_INSERT =
+    begin
+
+    local
+	TERM,
+	ERROR_LOC,
+	NUM_INSERT,
+	FOLLOW_TOKEN_1,
+	FOLLOW_TOKEN_2,
+	ENCOUNTERED_TOKEN_PTR,
+	NEW_TOKEN_PTR,
+	POSS_INSERT : bitvector [PAT$DATA_NUM_TERM],
+	PREF_INSERT : bitvector [PAT$DATA_NUM_TERM];
+
+    DEB_EVENT ('PAR_RECOVERY_LOCAL', 		!
+	PUT_EOL (), 				!
+	PUT_MSG_EOL ('Trying token insertion'));
+!
+    CLEAR (POSS_INSERT, NUM_BYTES);
+    FOLLOW_TOKEN_1 = PAT$TOKEN_GET (FALSE);	! Find type of error token
+    ENCOUNTERED_TOKEN_PTR = .PAT$TOKEN_CURRENT_PTR;
+    FOLLOW_TOKEN_2 = PAT$TOKEN_GET (FALSE);	! Find type of following token
+    PAT$TOKEN_RESET_BUFFER ();
+    PAT$ERROR_GET_NEXT_TRANS_INIT (.LOCAL_ATTEMPT_STATUS, .PAT$STACK_P [.STACK_PTR, PATSTK_STATE],
+	.PAT$STACK_P [.STACK_PTR, PATSTK_SYMBOL]);
+
+    while (TERM = PAT$ERROR_GET_NEXT_TRANSITION (TRUE)) neq PAT$ERROR_NO_MORE_TRANSITIONS do
+
+	if ( not NEVER_INSERT_BEFORE (.TERM, .FOLLOW_TOKEN_1, .FOLLOW_TOKEN_2)) and
+						! Don't insert if in table
+	    (.TERM neq LS_T_ERRORMARK) and 	! Don't insert ERRORMARK
+	    ( not LS_IS_EOF (.TERM))		! Don't insert end-of-file
+	then
+	    begin
+	    PAT$TOKEN_CURRENT_PTR = SYNTHESIZE_TOKEN (.TERM);	! Try inserting new token
+	    CURRENT_SYMBOL = LS_LEX_TERM (PAT$TOKEN_CURRENT_PTR);
+
+	    if PARSE_AHEAD (3) then POSS_INSERT [.TERM] = TRUE;
+
+	    RESTORE_STATE ();
+	    end;
+
+    NUM_INSERT = COUNT (POSS_INSERT, PAT$DATA_NUM_TERM);
+
+    if .NUM_INSERT gtr 1
+    then
+	begin
+	BLOCK_AND (POSS_INSERT, PAT$LR_PREFERRED_INSERTIONS, PREF_INSERT, NUM_BYTES);
+	NUM_INSERT = COUNT (PREF_INSERT, PAT$DATA_NUM_TERM);
+	end
+    else
+	BLOCK_COPY (POSS_INSERT, PREF_INSERT, NUM_BYTES);
+
+    if .NUM_INSERT eql 1
+    then
+	begin
+	NEW_TOKEN_PTR = SYNTHESIZE_TOKEN (WHICH_TERM (PREF_INSERT, PAT$DATA_NUM_TERM));
+						! Get terminal selected
+	PAT$TOKEN_SAVE (.NEW_TOKEN_PTR, TRUE);	! Insert correcting token
+	DEB_EVENT ('PAR_RECOVERY_LOCAL', 	!
+	    PUT_MSG ('Successful insertion of '), 	!
+	    PUT_STRING (PAT$DATA_SYMBOL_TEXT (LS_LEX_TERM (NEW_TOKEN_PTR))), 	!
+	    PUT_EOL ());
+	ERROR_LOC = LS_LEX_LOCATOR (ENCOUNTERED_TOKEN_PTR);
+	LS_ERROR_INSERT (.ERROR_LOC, .NEW_TOKEN_PTR, .ENCOUNTERED_TOKEN_PTR);
+	return TRUE
+	end;
+
+    return FALSE
+    end;					! Of routine TRY_INSERT
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine NEVER_INSERT_BEFORE (INSERTION, FIRST_FOLLOWING, SECOND_FOLLOWING) =
+    begin
+
+    incr COUNTER from 0 to (LR_NUM_NIB - 1) do
+
+	if (.INSERTION eql .PAT$LR_NEVER_INSERT_BEFORE [.COUNTER, LR_NIB_INSERTION]) and 	!
+	    (.FIRST_FOLLOWING eql .PAT$LR_NEVER_INSERT_BEFORE [.COUNTER, LR_NIB_CURTOK]) and 	!
+	    (.SECOND_FOLLOWING eql .PAT$LR_NEVER_INSERT_BEFORE [.COUNTER, LR_NIB_NEXTTOK])
+	then
+	    return TRUE;
+
+    return FALSE
+    end;
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine TRY_DELETE =
+    begin
+    local ERROR_LOC;
+    DEB_EVENT ('PAR_RECOVERY_LOCAL', 		!
+	PUT_EOL (), 				!
+	PUT_MSG_EOL ('Trying token deletion'));
+    CURRENT_SYMBOL = PAT$TOKEN_GET (FALSE);	! Try dropping error token
+    CURRENT_SYMBOL = PAT$TOKEN_GET (FALSE);	! Start with following token
+    ! Add check to NEVER_DELTE (for generality) and
+    ! PAT$LR_NEVER_DEL_UNLESS_ERR_TOK (for backtracking)
+
+    if PARSE_AHEAD (3)
+    then
+	begin
+	CURRENT_SYMBOL = PAT$TOKEN_GET (TRUE);	! Drop error token for real
+						!
+	DEB_EVENT ('PAR_RECOVERY_LOCAL', 	!
+	    PUT_MSG ('Successful deletion of '), 	!
+	    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.CURRENT_SYMBOL)), 	!
+	    PUT_EOL ());
+	ERROR_LOC = LS_LEX_LOCATOR (PAT$TOKEN_CURRENT_PTR);
+	LS_ERROR_DELETED (.ERROR_LOC, .PAT$TOKEN_CURRENT_PTR);
+	return TRUE
+	end
+    else
+	return FALSE
+
+    end;					! Of routine TRY_DELETE
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine SCOPE_RECOVERY (INIT_ONLY) =
+    begin
+
+    local
+	SAVED_TEMP_HEAD,
+	NUM_TOKENS,
+	MATCH_LOC,
+	ERROR_LOC,
+	ENCOUNTERED_TOKEN_PTR,
+	PREVIOUS_TOKEN_PTR,
+	TEMP_STACK_PTR;
+
+    own
+	LAST_ERROR_LOCATOR;
+
+    !+
+    ! If only initializing, then initialize LAST_ERROR_LOCATOR.
+    ! If there are two consecutive scope recoveries, the locator
+    ! of the last error is used since the current token is a
+    ! synthetic one.
+    !-
+
+    if .INIT_ONLY
+    then
+	begin
+	LAST_ERROR_LOCATOR = 0;
+	return FALSE
+	end;
+
+    !+
+    ! If don't have a prior token, must be at the start of the source
+    ! file so it's silly to try scope recovery.
+    !-
+
+    if .PRIOR_TOKEN_PTR eql NULL then return FALSE;
+
+    DEB_EVENT ('PAR_RECOVERY_LOCAL', 		!
+	PUT_EOL (), 				!
+	PUT_MSG_EOL ('Trying scope recovery'));
+    PAT$TOKEN_GET (FALSE);			! Get error token for locator info
+    ENCOUNTERED_TOKEN_PTR = .PAT$TOKEN_CURRENT_PTR;
+    PREVIOUS_TOKEN_PTR = .PRIOR_TOKEN_PTR;
+    PAT$TOKEN_RESET_BUFFER ();
+
+    incr CLOSER from FIRST_LR_CLOSER to LAST_LR_CLOSER do
+
+	if .PAT$LR_ONLY_CLOSE_BEFORE [.CLOSER, LS_LEX_TERM (ENCOUNTERED_TOKEN_PTR)]
+	then
+	    begin
+
+	    decr COUNTER from .PAT$LR_CLOSER_TOKENS [.CLOSER, LR_NUM_TOKS_INDEX] to 1 do
+		PAT$TOKEN_SAVE			!
+		(SYNTHESIZE_TOKEN (.PAT$LR_CLOSER_TOKENS [.CLOSER, .COUNTER]), 	!
+		    FALSE);
+
+	    SAVED_TEMP_HEAD = PAT$TOKEN_TEMP_HEAD ();
+	    CURRENT_SYMBOL = PAT$TOKEN_GET (FALSE);
+
+	    !+
+	    ! Don't use closer if it's meant for providing an error message
+	    ! indicating an insertion before the token preceding the error
+	    ! AND that token is not the same terminal as the last symbol
+	    ! in the closer.
+	    !-
+
+	    if not (.PAT$LR_POINT_AT_PREV_TOKEN [.CLOSER] and 	!
+		(LS_LEX_TERM (PREVIOUS_TOKEN_PTR) neq 	!
+		.PAT$LR_CLOSER_TOKENS [.CLOSER, 	!
+		    .PAT$LR_CLOSER_TOKENS [.CLOSER, LR_NUM_TOKS_INDEX]]))
+	    then
+
+		if PARSE_AHEAD (.PAT$LR_CLOSER_TOKENS [.CLOSER, LR_NUM_TOKS_INDEX])
+		then
+		    begin
+
+		    !+
+		    ! Change the effect to the above calls to
+		    ! PAT$TOKEN_SAVE (..., FALSE) to
+		    ! PAT$TOKEN_SAVE (..., TRUE) by modifying the
+		    ! head of the token buffer.
+		    !-
+
+		    PAT$TOKEN_SET_HEAD (.SAVED_TEMP_HEAD);
+		    ERROR_LOC = LS_LEX_LOCATOR (ENCOUNTERED_TOKEN_PTR);
+
+		    if .PAT$LR_POINT_AT_PREV_TOKEN [.CLOSER]
+		    then
+			ERROR_LOC = LS_LEX_LOCATOR (PREVIOUS_TOKEN_PTR);
+
+		    if .ERROR_LOC eql 0
+		    then
+			begin
+			DEB_ASSERT (.LAST_ERROR_LOCATOR neq 0, 'LAST_ERROR_LOCATOR is 0');
+			ERROR_LOC = .LAST_ERROR_LOCATOR;
+			end
+		    else
+			LAST_ERROR_LOCATOR = .ERROR_LOC;
+
+		    if .PAT$LR_CLOSER_MATCH [.CLOSER] eql LR_NOT_MATCHED
+		    then
+			LS_ERROR_SCOPE_NO_MATCH (.ERROR_LOC, .PAT$LR_CLOSER_MESSAGE [.CLOSER],
+			    .ENCOUNTERED_TOKEN_PTR)
+		    else
+			begin
+			TEMP_STACK_PTR = .STACK_PTR;
+
+			while ((TEMP_STACK_PTR = .TEMP_STACK_PTR - 1) neq -1) do
+
+			    if .PAT$STACK_P [.TEMP_STACK_PTR, PATSTK_SYMBOL] eql .PAT$LR_CLOSER_MATCH [.CLOSER
+				]
+			    then
+				begin
+				MATCH_LOC = .PAT$STACK_P [.TEMP_STACK_PTR, PATSTK_LOCATOR];
+				exitloop;
+				end;
+
+			!+
+			! It's possible that there isn't a scope
+			! opener on the stack since sometimes there
+			! isn't a begin that goes with "end".  e.g.
+			!
+			!	package foo x:integer;
+			!	<end-of-file>	-- missing "end;"
+			!-
+
+			if .TEMP_STACK_PTR eql -1 then return FALSE;
+
+			LS_ERROR_SCOPE_MATCH (.ERROR_LOC, .PAT$LR_CLOSER_MESSAGE [.CLOSER], 	!
+			    .PAT$LR_CLOSER_MATCH [.CLOSER], .MATCH_LOC);
+			end;
+
+		    return TRUE;
+		    end;
+
+	    RESTORE_STATE ();
+	    end;
+
+    return FALSE
+    end;					! Of routine SCOPE_RECOVERY
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine FIND_BACKUP_ORDER (P_STATUS, P_P_STATUS) =
+    begin
+
+    selectone .P_STATUS of
+	set
+
+	[CONSUME_TERM_ON_SHIFT, CONSUME_TERM_ON_REDUCTION] :
+
+	    if .P_P_STATUS eql SAVED_INFO_NOT_VALID	!
+	    then 				!
+		return ORDER_B			!
+	    else 				!
+		return ORDER_BC;		!
+
+	[REDUCT_AFTER_BACKUP_NOT_ALLOWED] :
+	    return ORDER_B;
+
+	[SAVED_INFO_NOT_VALID] :
+	    return ORDER_A;
+	tes;
+
+    DEB_ASSERT (FALSE, 'Previous status is of illegal status type');
+    0
+    end;					! Of routine FIND_BACKUP_ORDER
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine SYNTHESIZE_TOKEN (TERM_TYPE) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	SYNTHESIZE_TOKEN creates a synthetic lexical token.
+!
+! FORMAL PARAMETERS:
+!
+!	TERM_TYPE	Initial terminal symbol for the token.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! ROUTINE VALUE:
+!
+!	NEW_TOKEN_PTR	Pointer to synthetic token created by this routine.
+!
+! SIDE EFFECTS:
+!
+!	The TKN_TERM and TKN_SYNTHETIC fields of NEW_TOKEN_PTR are set.
+!
+!--
+
+    begin
+
+    local
+	NEW_TOKEN_PTR;
+
+    NEW_TOKEN_PTR = SYN_TOK_STORAGE [.NEXT_SYN_TOK_INDEX, 0, 0, 0, 0];
+    LS_LEX_SET_SYNTHETIC (NEW_TOKEN_PTR);
+    LS_LEX_SET_TERM (NEW_TOKEN_PTR, .TERM_TYPE);
+    NEXT_SYN_TOK_INDEX = .NEXT_SYN_TOK_INDEX + 1;
+
+    if .NEXT_SYN_TOK_INDEX eql MAX_NUM_SYN_TOKS then NEXT_SYN_TOK_INDEX = 0;
+
+    return .NEW_TOKEN_PTR
+    end;
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine SAVE_STATE : novalue =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Save the state of the parse stack.  This state can be restored
+!	by the routine RESTORE_STATE.
+!
+! FORMAL PARAMETERS:
+!
+!	NONE
+!
+! IMPLICIT INPUTS:
+!
+!	STACK_PTR
+!
+!	PAR_LOOKAHEAD_F
+!
+!	REDUCTION_CODE
+!
+! IMPLICIT OUTPUTS:
+!
+!	SAVED_STACK_PTR
+!
+!	SAVED_PAR_LOOKAHEAD_F
+!
+!	SAVED_REDUCTION_CODE
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+    begin
+    SAVED_STACK_PTR = .STACK_PTR;
+    ch$move ((.STACK_PTR + 1)*PATSTK_STR_SIZE, .REF_PARSE_STACK, .REF_ALT_PARSE_STACK);
+    SAVED_PAR_LOOKAHEAD_F = .PAR_LOOKAHEAD_F;
+    SAVED_REDUCTION_CODE = .REDUCTION_CODE;
+    PAT$TOKEN_RESET_BUFFER ();
+    end;					! Of routine SAVE_STATE
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine RESTORE_STATE : novalue =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Restore the state that the parse stack was in before SAVE_STATE
+!	was last called.
+!
+! FORMAL PARAMETERS:
+!
+!	NONE
+!
+! IMPLICIT INPUTS:
+!
+!	SAVED_STACK_PTR
+!
+!	SAVED_PAR_LOOKAHEAD_F
+!
+!	SAVED_REDUCTION_CODE
+!
+! IMPLICIT OUTPUTS:
+!
+!	STACK_PTR
+!
+!	PAT$TOKEN_CURRENT_PTR
+!
+!	PAR_LOOKAHEAD_F
+!
+!	REDUCTION_CODE
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+    begin
+    STACK_PTR = .SAVED_STACK_PTR;
+    PAR_LOOKAHEAD_F = .SAVED_PAR_LOOKAHEAD_F;
+    REDUCTION_CODE = .SAVED_REDUCTION_CODE;
+    PAT$TOKEN_RESET_BUFFER ();
+    end;					! Of routine RESTORE_STATE
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_LOCAL_RECOVERY
+%then
+routine DOWN_CASE (IN, OUT) : novalue =
+    begin
+
+    bind
+	DOWNCASE_TABLE = uplit byte(
+		        '$           0123456789      ',	!
+		    ' abcdefghijklmnopqrstuvwxyz    _',	!
+	    ' abcdefghijklmnopqrstuvwxyz') -'$';
+
+    map
+	IN : ref SD_STR,
+	OUT : ref SD_STR;
+
+    OUT [SD_LENGTH] = .IN [SD_LENGTH];
+    ch$translate (DOWNCASE_TABLE, .IN [SD_LENGTH], .IN [SD_TEXT], 0, .OUT [SD_LENGTH], .OUT [SD_TEXT]);
+    end;					! Of routine DOWN_CASE
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_DEBUGGING
+%then
+
+global routine PAT$DUMP_TOKS : novalue =
+    begin
+    PUT_MSG_EOL ('PAT$DUMP_TOKS :');
+    PUT_MSG ('Current symbol:	');
+    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.CURRENT_SYMBOL));
+    PUT_EOL ();
+    PUT_EOL ();
+
+    if .HAVE_INITIAL_SYMBOL
+    then
+	begin
+	PUT_MSG ('Initial symbol:	');
+	PUT_STRING (PAT$DATA_SYMBOL_TEXT (.INITIAL_SYMBOL));
+	PUT_EOL ();
+	end
+    else
+	PUT_MSG_EOL ('No initial symbol');
+
+    PUT_EOL ();
+    PUT_MSG_EOL ('Current lexical token (PAT$TOKEN_CURRENT_PTR):');
+    LS_DUMP_TOK (.PAT$TOKEN_CURRENT_PTR);
+    PUT_EOL ();
+    PUT_MSG_EOL ('Most recently read lexical token (LATEST_TOKEN_PTR):');
+
+    if .LATEST_TOKEN_PTR neq NULL
+    then
+	begin
+	LS_DUMP_TOK (.LATEST_TOKEN_PTR);
+	PUT_EOL ();
+	end
+    else
+	PUT_MSG_EOL ('NULL');
+
+    PUT_EOL ();
+    PUT_MSG_EOL ('Lexical token read prior to one above (PRIOR_TOKEN_PTR):');
+
+    if .PRIOR_TOKEN_PTR neq NULL
+    then
+	begin
+	LS_DUMP_TOK (.PRIOR_TOKEN_PTR);
+	PUT_EOL ();
+	end
+    else
+	PUT_MSG_EOL ('NULL');
+
+    PUT_EOL ();
+    end;					! Of PAT$DUMP_TOKS
+
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_DEBUGGING and PATBLSEXT_LOCAL_RECOVERY
+%then
+
+global routine PAT$DUMP_BACKUP_INFO : novalue =
+    begin
+
+    local
+	ORDER;
+
+    macro
+	PUT_STATUS (STAT) =
+
+	    selectone STAT of
+		set
+
+		[CONSUME_TERM_ON_REDUCTION] :
+		    PUT_MSG ('"consuming a terminal on a reduction"');
+
+		[CONSUME_TERM_ON_SHIFT] :
+		    PUT_MSG ('"consuming a terminal on a shift"');
+
+		[REDUCT_AFTER_BACKUP_NOT_ALLOWED] :
+		    PUT_MSG ('"reduction disallowed further backup"');
+
+		[SAVED_INFO_NOT_VALID] :
+		    PUT_MSG ('"saved information is not valid for further backup"');
+
+		[ERROR_ENCOUNTERED] :
+		    PUT_MSG ('"error encountered"');
+		tes %;
+
+    ORDER = FIND_BACKUP_ORDER (.PREV_STATUS, .PREV_PREV_STATUS);
+    PUT_MSG_EOL ('PAT$DUMP_BACKUP_INFO :');
+    PUT_MSG_EOL ('If local error recovery were to begin now, the following');
+    PUT_MSG_EOL ('state(s) would be tried in the order indicated below.');
+    PUT_MSG_EOL ('Strong local recovery would be tried from all of those states,');
+    PUT_MSG_EOL ('then weak local recovery would be tried from the same states.');
+    PUT_EOL ();
+
+    selectone .ORDER of
+	set
+
+	[ORDER_A] :
+	    ! Start from state A (state when error encountered)
+	    begin
+	    PUT_MSG_EOL ('(A)  [State where error was encountered.]');
+	    PUT_MSG ('     The current symbol was ');
+	    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.CURRENT_SYMBOL));
+	    PUT_MSG (' and the state was ');
+	    PUT_NUMBER (.PAT$STACK_P [.STACK_PTR, PATSTK_STATE]);
+	    PUT_EOL ();
+	    PUT_EOL ();
+	    end;
+
+	[otherwise] :
+	;
+	tes;
+
+    selectone .ORDER of
+	set
+
+	[ORDER_B, ORDER_BC] :
+	    ! Try from state B (error state prior to default reductions)
+	    begin
+	    PUT_MSG_EOL ('(B)  [Error state prior to default reductions.]');
+	    PUT_MSG ('     The current symbol was ');
+
+	    selectone .PREV_STATUS of
+		set
+
+		[CONSUME_TERM_ON_REDUCTION, REDUCT_AFTER_BACKUP_NOT_ALLOWED] :
+		    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.PREV_STACK_RECORD [PATSTK_SYMBOL]));
+
+		[otherwise] :
+		    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.CURRENT_SYMBOL));
+		tes;
+
+	    PUT_MSG ('.  At that point the state was ');
+	    PUT_NUMBER (.PAT$STACK_P [.PREV_STACK_PTR, PATSTK_STATE]);
+	    PUT_EOL ();
+	    PUT_MSG ('     and the most recent status was ');
+	    PUT_STATUS (.PREV_STATUS);
+	    PUT_MSG_EOL ('.');
+	    PUT_EOL ();
+	    end;
+
+	[otherwise] :
+	;
+	tes;
+
+    selectone .ORDER of
+	set
+
+	[ORDER_BC] :
+	    ! Try from state C (one token before error token, prior to default reductions)
+	    begin
+	    PUT_MSG_EOL ('(C)  [Before reading latest token, prior to default reductions.]');
+	    PUT_MSG ('     The current symbol was ');
+
+	    selectone .PREV_PREV_STATUS of
+		set
+
+		[CONSUME_TERM_ON_REDUCTION, REDUCT_AFTER_BACKUP_NOT_ALLOWED] :
+		    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.PREV_PREV_STACK_RECORD [PATSTK_SYMBOL]));
+
+		[otherwise] :
+		    PUT_STRING (PAT$DATA_SYMBOL_TEXT (LS_LEX_TERM (PRIOR_TOKEN_PTR)));
+		tes;
+
+	    PUT_MSG ('.  At that point the state was ');
+	    PUT_NUMBER (.PAT$STACK_P [.PREV_PREV_STACK_PTR, PATSTK_STATE]);
+	    PUT_EOL ();
+	    PUT_MSG ('     and the most recent status was ');
+	    PUT_STATUS (.PREV_PREV_STATUS);
+	    PUT_MSG_EOL ('.');
+	    PUT_MSG ('     The token which will be read next is ');
+	    PUT_STRING (PAT$DATA_SYMBOL_TEXT (LS_LEX_TERM (LATEST_TOKEN_PTR)));
+	    PUT_EOL ();
+	    PUT_EOL ();
+	    end;
+
+	[otherwise] :
+	;
+	tes;
+
+    PUT_MSG ('Global error recovery will always begin in state ');
+    PUT_NUMBER (.PAT$STACK_P [.STACK_PTR, PATSTK_STATE]);
+    PUT_EOL ();
+    PUT_MSG ('with the current symbol ');
+    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.CURRENT_SYMBOL));
+    PUT_MSG_EOL ('.  The global recovery');
+    PUT_MSG ('error message will indicate symbols expected in state ');
+
+    if .PREV_STATUS eql SAVED_INFO_NOT_VALID
+    then
+	begin
+	PUT_NUMBER (.PAT$STACK_P [.STACK_PTR, PATSTK_STATE]);
+	PUT_EOL ();
+	PUT_MSG ('with the status ');
+	PUT_STATUS (ERROR_ENCOUNTERED);
+	PUT_EOL ();
+	PUT_MSG ('and the current symbol ');
+	PUT_STRING (PAT$DATA_SYMBOL_TEXT (.CURRENT_SYMBOL));
+	end
+    else
+	begin
+	PUT_NUMBER (.PREV_STACK_RECORD [PATSTK_STATE]);
+	PUT_EOL ();
+	PUT_MSG ('with the status ');
+	PUT_STATUS (.PREV_STATUS);
+	PUT_EOL ();
+	PUT_MSG ('and the current symbol ');
+	PUT_STRING (PAT$DATA_SYMBOL_TEXT (.PREV_STACK_RECORD [PATSTK_SYMBOL]));
+	end;
+
+    PUT_EOL ();
+
+    if .PREV_STATUS eql REDUCT_AFTER_BACKUP_NOT_ALLOWED
+    then
+	begin
+	PUT_MSG ('and state ');
+	PUT_NUMBER (.GLOBAL_MSG_INIT_STATE);
+	PUT_MSG_EOL (' with the status ');
+	PUT_STATUS (.GLOBAL_MSG_STATUS);
+	PUT_MSG (' and the current symbol ');
+	PUT_STRING (PAT$DATA_SYMBOL_TEXT (.GLOBAL_MSG_SYMBOL));
+	PUT_EOL ();
+	end;
+
+    end;					! Of PAT$DUMP_BACKUP_INFO
+
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_DEBUGGING
+%then
+
+global routine PAT$DUMP_PARSE_STACK : novalue =
+    begin
+
+    macro
+	SPACE =
+	    ' ' %;
+
+    macro
+	TAB =
+	    '	' %;
+
+    local
+	S_PTR,
+	SYMBOL,
+	ACTION_NUM,
+	LHS_SYMBOL,
+	RHS_COUNT,
+	SEMACT,
+	NEW_PTR;
+
+    if .REDUCTION_CODE lss 0
+    then
+	NEW_PTR = -1
+    else
+	begin
+	PAT$DATA_GET_REDUCTION_INFO (.REDUCTION_CODE, LHS_SYMBOL, RHS_COUNT, SEMACT);
+
+	if .PAR_LOOKAHEAD_F then NEW_PTR = .STACK_PTR - .RHS_COUNT else NEW_PTR = .STACK_PTR - .RHS_COUNT + 1;
+
+	end;
+
+    PUT_MSG_EOL ('PAT$DUMP_PARSE_STACK:');
+    PUT_MSG_EOL ('stack	state');
+
+%if PATBLSEXT_EXTRA_STACK_FIELD
+%then
+    PUT_MSG_EOL ('index	index	locator  comment  symbol');
+%else
+    PUT_MSG_EOL ('index	index	locator  symbol');
+%fi
+
+    incr I from 0 to .STACK_PTR - 1 do
+	begin
+	PUT_NUMBER (.I);
+	PUT_MSG (TAB);
+	S_PTR = .I;
+	SYMBOL = .PAT$STACK_P [.S_PTR, PATSTK_SYMBOL];
+	PUT_NUMBER (.PAT$STACK_P [.S_PTR, PATSTK_STATE]);
+	PUT_MSG (TAB);
+	PUT_HEX_LONG (.PAT$STACK_P [.S_PTR, PATSTK_LOCATOR]);
+	PUT_MSG (SPACE);
+
+%if PATBLSEXT_EXTRA_STACK_FIELD
+%then
+	PUT_HEX_LONG (.PAT$STACK_P [.S_PTR, PATSTK_EXTRA_INFO]);
+	PUT_MSG (SPACE);
+%fi
+
+	PUT_STRING (PAT$DATA_SYMBOL_TEXT (.SYMBOL));
+
+	if .I eql .NEW_PTR
+	then
+	    begin
+	    PUT_MSG ('	Reduce to:  ');
+	    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.LHS_SYMBOL));
+	    end;
+
+	PUT_EOL ();
+	end;
+
+    PUT_NUMBER (.STACK_PTR);
+    PUT_MSG (TAB);
+    PUT_NUMBER (.PAT$STACK_P [.STACK_PTR, PATSTK_STATE]);
+
+    if .REDUCTION_CODE geq 0
+    then
+
+    !+
+    ! Process the top-most stack entry for a reduction.
+    !-
+
+	begin
+	PUT_MSG (TAB);
+	PUT_HEX_LONG (.PAT$STACK_P [.STACK_PTR, PATSTK_LOCATOR]);
+
+%if PATBLSEXT_EXTRA_STACK_FIELD
+%then
+	PUT_MSG (SPACE);
+	PUT_HEX_LONG (.PAT$STACK_P [.STACK_PTR, PATSTK_EXTRA_INFO]);
+%fi
+
+	if .NEW_PTR eql .STACK_PTR
+	then
+
+	!+
+	! NEW_PTR is the same as STACK_PTR if this is a lookahead
+	! epsilon reduction or if it's a non-lookahead reduction
+	! with one symbol on the right hand side.
+	!-
+
+	    if .RHS_COUNT eql 0
+	    then
+		begin
+		! This is a lookahead epsilon reduction.
+		PUT_MSG (SPACE);
+		PUT_STRING (PAT$DATA_SYMBOL_TEXT (.LHS_SYMBOL));
+		PUT_MSG ('	Reduction:  ');
+		PUT_STRING (PAT$DATA_SYMBOL_TEXT (.LHS_SYMBOL));
+		PUT_MSG (' = epsilon');
+		end
+	    else
+
+		if .RHS_COUNT eql 1
+		then
+		    begin
+		    ! This is a non-lookahead reduction with one symbol on the rhs
+		    PUT_MSG (SPACE);
+		    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.PAT$STACK_P [.STACK_PTR, PATSTK_SYMBOL]));
+		    PUT_MSG ('	Reduce to:  ');
+		    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.LHS_SYMBOL));
+		    end
+		else
+		    PUT_MSG_EOL ('PAT$DUMP_PARSE_STACK makes an incorrect assumption about the parse stack!')
+
+	else
+
+	!+
+	! This is a another kind of reduction.
+	!-
+
+	    if not .PAR_LOOKAHEAD_F
+	    then
+		begin
+		PUT_MSG (SPACE);
+		PUT_STRING (PAT$DATA_SYMBOL_TEXT (.PAT$STACK_P [.STACK_PTR, PATSTK_SYMBOL]));
+		end;
+
+	end;
+
+    PUT_EOL ();
+    end;					! Of routine PAT$DUMP_PARSE_STACK
+
+%fi
+
+!<BLF/PAGE>
+
+
+%if PATBLSEXT_DEBUGGING
+%then
+
+global routine PAT$DUMP_REDUCTION : novalue =
+    begin
+
+    literal
+	CONT_INDENT = 17;
+
+    local
+	S_PTR,
+	L_PTR,
+	R_PTR,
+	SYMBOL,
+	LHS_SYMBOL,
+	RHS_COUNT,
+	SEMACT,
+	ACTION_NUM;
+
+    if .REDUCTION_CODE lss 0
+    then
+	begin
+	PUT_MSG_EOL ('PAT$DUMP_REDUCTION:  There is no current reduction.');
+	return
+	end;
+
+    PAT$DATA_GET_REDUCTION_INFO (.REDUCTION_CODE, LHS_SYMBOL, RHS_COUNT, SEMACT);
+
+    if .PAR_LOOKAHEAD_F
+    then
+	begin
+	L_PTR = .STACK_PTR - .RHS_COUNT;
+	R_PTR = .STACK_PTR - 1;
+	end
+    else
+	begin
+	L_PTR = .STACK_PTR - .RHS_COUNT + 1;
+	R_PTR = .STACK_PTR;
+	end;
+
+    PUT_MSG ('  Reduction:    ');
+    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.LHS_SYMBOL));
+    PUT_MSG (' = ');
+
+    if .RHS_COUNT eql 0
+    then
+	PUT_MSG ('epsilon')
+    else
+	begin
+	PUT_START_AUTOEOL (CONT_INDENT, SD_VAL (' '));
+
+	incr I from .L_PTR to .R_PTR do
+	    begin
+	    S_PTR = .I;
+	    SYMBOL = .PAT$STACK_P [.S_PTR, PATSTK_SYMBOL];
+	    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.SYMBOL));
+	    end;
+
+	PUT_END_AUTOEOL ();
+	end;
+
+    PUT_EOL ();
+    PUT_MSG ('  Parse stack:  ');
+    PUT_START_AUTOEOL (CONT_INDENT, SD_VAL (' '));
+
+    incr I from 0 to .L_PTR - 1 do
+	begin
+	S_PTR = .I;
+	SYMBOL = .PAT$STACK_P [.S_PTR, PATSTK_SYMBOL];
+	PUT_STRING (PAT$DATA_SYMBOL_TEXT (.SYMBOL));
+	end;
+
+    PUT_STRING (PAT$DATA_SYMBOL_TEXT (.LHS_SYMBOL));
+    PUT_END_AUTOEOL ();
+    PUT_EOL ();
+    end;					! Of routine PAT$DUMP_REDUCTION
+
+%fi
+
+end						! End of module
+
+eludom

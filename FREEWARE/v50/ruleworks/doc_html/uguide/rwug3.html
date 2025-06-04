@@ -1,0 +1,753 @@
+<HTML>
+<HEAD>
+<TITLE>RuleWorks</TITLE>
+</HEAD>
+<BODY>
+
+<FONT FACE="Arial" SIZE=6 color="navy"><P ALIGN="RIGHT">RuleWorks</P></FONT>
+
+<B><I><FONT FACE="HELVETICA" SIZE=6 color="RED"><P ALIGN="RIGHT">
+Rules' Left-Hand Sides: Condition Elements</P></B></I></FONT>
+
+<P>The left-hand side (LHS) is the "if" part of a rule. It specifies the 
+conditions in working memory that must be true before the rule can fire. The 
+LHS is composed of <B>condition elements</B>, each of which can match objects 
+of a particular class (and its subclasses, if any). Condition elements can 
+also test for particular attribute values, and bind variables to those values.
+The variables can be used only later in the same rule.</P>
+
+<P>Condition elements (CEs) must be enclosed in parentheses. CEs can be 
+positive, stating that certain conditions are true; or negative, stating 
+that certain conditions are false.  A negative CE has a minus sign (-) 
+before its opening parenthesis.  The first CE on an LHS must be positive.</P>
+
+<P>RuleWorks performs an implicit conjunction (a logical AND operation) on 
+all the CEs on an LHS. A rule is eligible to fire when there are objects 
+that match all of its positive CEs, and there are no objects that match any 
+of its negative CEs.   It is also possible to specify a disjunction (a 
+logical OR operation) of CEs.</P>
+
+<B><FONT FACE="HELVETICA" SIZE=5>Matching the Object Class</B></FONT>
+<P>The first item in each CE must be the name of a declared object class. 
+The class name is the only required item. In the example below, the CE 
+(start) matches the object made in the ON-ENTRY statement.</P>
+
+<B><P>Example 3-1.  Object Class - ON-ENTRY</P></B>
+<FONT FACE="Courier" SIZE=1>
+<P>(entry-block main)</P>
+<UL>(object-class start)
+<P>(on-entry (make start))
+<P>(rule say-hello
+<UL><P>(start)
+<P>--&gt;
+<P>(write |Hello, world!|)
+</UL>)
+</UL>
+<P>(end-block main)
+</FONT>
+
+<P>Example 3-2 shows some OBJECT-CLASS declarations from the sample 
+configuration program, KIWI.RUL.</P>
+<P><B>Example 3-2. Sample OBJECT-CLASS Declarations</P></B>
+<FONT FACE="Courier" SIZE=1><P>(object-class part</P>
+<UL>
+<P>          ^part-number</P>
+<P>          ^name</P>
+<P>          ^price</P>
+<P>          ^is-expanded</P>
+</UL>
+<P>)</P>
+
+<P>(object-class option</P>
+<UL>
+<P>          (inherits-from part)</P>
+</UL>
+<P>)</P>
+
+<P>(object-class hardware-option</P>
+<UL>
+<P>          (inherits-from option)</P>
+<P>          ^takes-slot</P>
+<P>          ^in-slot</P>
+<P>          ^is-placed</P>
+</UL>
+<P>)</P>
+
+<P>(object-class memory</P>
+<UL>
+(inherits-from hardware-option)
+</UL>
+)
+</FONT>
+
+<P>When the class name in a CE is a parent class, objects of any of its inheriting subclasses can also match the CE. Given the OBJECT-CLASS declarations in Example 3-2, Table 3-1 shows which objects match each class. For example, an object of class MEMORY can match a CE that specifies any of the declared class names shown, but only an object of class PART can match a CE that specifies the class name PART.</P>
+<B><P>Table 3-1. Matching Object Classes</P>
+
+<TABLE border=1>
+<TR>
+<TD><B>An Object of Class</B></TD>
+<TD colspan=4><B>Matches a Condition Element of Class</B></TD>
+</TR>
+</B>
+<TR>
+<TD></TD>
+<TD><B>PART</B></TD><TD><B>OPTION</B></TD><TD><B>HARDWARE<BR>-OPTION</B></TD><TD><B>MEMORY</B></TD>
+</TR>
+<TR>
+<TD>PART</TD><TD>Yes</TD><TD>No</TD><TD>No</TD><TD>No</TD>
+</TR>
+<TR>
+<TD>OPTION</TD><TD>Yes</TD><TD>Yes</TD><TD>No</TD><TD>No</TD>
+</TR>
+<TR>
+<TD>HARDWARE-OPTION</TD><TD>Yes</TD><TD>Yes</TD><TD>Yes</TD><TD>No</TD>
+</TR>
+<TR>
+<TD>MEMORY</TD><TD>Yes</TD><TD>Yes</TD><TD>Yes</TD><TD>Yes</TD>
+</TR>
+</TABLE>
+
+<P>An object of any visible user-declared class matches a CE that specifies the built-in  top-level class $ROOT.</P>
+
+<P>Rules can refer only to classes that are visible to the entry block or rule block that contains them. See Chapter 5 for information on making object classes visible to more than one block.</P>
+
+<P>Rules can refer to a parent class or to a specific subclass. In Example 3-3, the rule VERIFY-CONFIGURATION:APPLICATION-NEEDS-KIWOS applies to any one of the software applications: KiWindows, KiwiCalc, or KiwiTalk. Conversely, rule VERIFY-CONFIGURATION:KIWITALK-NEEDS-NETWORK applies only to KiwiTalk, not to KiWindows or KiwiCalc.</P>
+
+<B><P>Example 3-3. Object Class Match Rules</P></B>
+<FONT FACE="Courier" SIZE=1><P>(rule verify-configuration:application-needs-kiwos</P>
+<UL>
+<P>   (active-context ^name verify-configuration)</P>
+<P>   (kiwos-application ^$instance-of &lt;applic&gt;)</P>
+<P>   - (kiwos)</P>
+<P>--&gt;</P>
+<P>   (make error ^severity warning ^message |Missing operating system|)</P>
+<P>   (write  (crlf) |Caution: to run application:| &lt;applic&gt;</P>
+<UL>
+<P>           (crlf) |you need to have KIWOS, but you don't have KIWOS.|</P>
+<P>           (crlf) |Fixup:  adding KIWOS to your order.|</P>
+<P>           (crlf)</P>
+</UL>
+<P>)</P>
+<P>   (make kiwos)</P>
+</UL>
+<P>)</P>
+
+<P>(rule verify-configuration:kiwitalk-needs-network</P>
+<UL>
+<P>   (active-context ^name verify-configuration)</P>
+<P>   (kiwitalk)</P>
+<P>   - (network-interface)</P>
+<P>--&gt;</P>
+<P>   (make error ^severity warning ^message |Missing network interface|)</P>
+<P>   (write  (crlf) |Caution: you ordered KiwiTalk, but don't have|</P>
+<UL>
+<P>           (crlf) |the network interface hardware to use KiwiTalk.|</P>
+<P>           (crlf) |Fixup: adding a network interface to your order.|</P>
+<P>           (crlf) </P>
+</UL>
+<P>)</P>
+<P>   (make network-interface)</P>
+</UL>
+<P>)</P></FONT>
+
+<B><P>Note: </B><i>Any attribute accessed in a rule must either be declared in the class itself or be inherited from a parent class.  RuleWorks generates a compile-time error if this requirement is not followed.</i></P>
+
+<B><P><FONT FACE="HELVETICA" SIZE=5>Writing Attribute-Value Tests</P></B></FONT>
+<P>After the required class name, a CE can contain any number of <B>attribute-value tests</B>. These are the patterns that objects in working memory must match in order for the rule to fire. Attribute-value tests consist of an attribute name, a predicate, and a value. You can make combinations of tests on a single attribute by using conjunctions and disjunctions, which are similar to AND and OR operators.</P>
+<P>The number of attribute-value tests on the LHS determines the test specificity of a rule. Test specificity is one of the principles used during conflict resolution (see Test Specificity).</P>
+
+<B><P><FONT FACE="HELVETICA" SIZE=4>Attribute Names</P></B>
+</FONT>
+<P>The attribute name in an attribute-value test must be one of the following constructs:  </P>
+<UL>
+<LI>the name of an attribute declared in the CE's object class (or declared in an ancestor of that object class) </LI>
+<LI>the name of a built-in attribute</LI>
+</UL>
+
+<P>The attribute operator (^) must precede the attribute name.</P>
+
+<P>Given the declarations in Example 3-2, the following are valid CEs:</P>
+
+<FONT FACE="Courier" SIZE=1>
+<UL>
+<P>(part ^part-number KI-9200)</P>
+<P>(option ^part-number KI-9200)</P>
+<P>(hardware-option ^part-number KI-9200 ^takes-slot yes)</P>
+<P>(memory ^part-number KI-9200 ^takes-slot yes)</P>
+</UL>
+</FONT>
+
+<P>The following CEs are not valid because the attributes have not been declared for the object classes:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL>
+<P>(part ^takes-slot no)</P>
+<P>(option ^is-placed yes)</P>
+</UL>
+</FONT>
+
+<P>The built-in attribute names are ^$INSTANCE-OF (see Matching the Exact Class and Matching the Instance Identifier).</P>
+
+
+<B><P><FONT FACE="HELVETICA" SIZE=3>Matching the Exact Class</P></B></FONT>
+<P>If you want to match, or bind a variable to, the exact subclass of which an object is an instance, you can use the built-in, read-only attribute ^$INSTANCE-OF.  In the following code fragment, the second CE binds the value of the ^$INSTANCE-OF attribute to the variable &lt;OPTION&gt;. This variable is then used in the MODIFY action.</P>
+
+<FONT FACE="HELVETICA" SIZE=2><B><P>Example 3-4. Matching the Exact Class</P></B></FONT>
+<FONT FACE="Courier" SIZE=1><P>...</P>
+<UL>
+<P>        (box ^$id &lt;the-box&gt; ^card-in-slot {[=] &lt;len&gt; [&lt;] 8})</P>
+<P>        (hardware-option ^$id &lt;the-option&gt; ^$instance-of &lt;option&gt;</P>
+<UL>
+<P>                         ^takes-slot yes   ^is-placed no )</P>
+</UL>
+<P>     --&gt;</P>
+<P>        (modify &lt;the-box&gt;</P>
+<UL>
+<P>                ^card-in-slot [(&lt;len&gt; + 1)] &lt;option&gt;</P>
+<P>                ^card-in-slot-obj-id [(&lt;len&gt; + 1)] &lt;the-option&gt;)</P>
+</UL>
+<P>...</P>
+</UL>
+</FONT>
+
+<P>In this example, &lt;OPTION&gt; might be bound to the symbol MEMORY.</P>
+
+<B><P><FONT FACE="HELVETICA" SIZE=3>Matching the Instance Identifier</B></P></FONT>
+<P>The built-in, read-only attribute ^$ID stores the INSTANCE-ID value of the object. If you want to copy, modify, or remove an object on the RHS, you usually first bind a variable to its identifier on the LHS. Such a variable is called a $ID variable. $ID variables give you a handle on the object that matched a CE. $ID variables in RuleWorks are similar to element variables in previous versions of OPS.   </P>
+<P>You can use variables bound to values of type INSTANCE-ID as pointers to maintain links between objects.  Example 3-5 shows a RuleWorks program that uses such pointers to build a doubly linked list of objects. Note that the variables &lt;FIRST-DATA&gt; and &lt;LAST-DATA&gt; are $ID variables, but the variable &lt;PREVIOUS-DATA&gt; is not. Variable &lt;NEW-DATA&gt;, which is bound on the right-hand side, is not a $ID variable. Variables &lt;PREVIOUS-DATA&gt; and &lt;NEW-DATA&gt; cannot be used in MODIFY actions as variables &lt;FIRST-DATA&gt; and &lt;LAST-DATA&gt; are.</P>
+
+<P><B><FONT FACE="HELVETICA" SIZE=2><P>Example 3-5. Using $ID Variables as Pointers</P></B></FONT>
+<FONT FACE="Courier" SIZE=1>
+<P>(entry-block pointer-demo)</P>
+<UL>
+<P>(object-class data</P>
+<UL>
+<P>              ^previous                 ; pointer to preceding datum</P>
+<P>              ^next                     ; pointer to following datum</P>
+<P>              ^value)                   ; actual datum</P>
+</UL>
+<P>(object-class pointer</P>
+<UL>
+<P>              ^max-length               ; desired length of list</P>
+<P>              ^list compound)           ; pointers to all DATA objects</P>
+</UL>
+<P>(on-entry</P>
+<UL>
+<P>    (watch all)</P>
+<P>    (make pointer ^max-length 7)         ; arbitrary choice</P>
+<P>    (make data ^previous nil ^next nil)) ; start with null pointers</P>
+</UL>
+<P>(rule  init-list</P>
+<P>;</P>
+<P>; Initialize the list by making a DATA object with pointers to itself</P>
+<P>;</P>
+<UL>
+<P>    (pointer ^$id &lt;the-pointer&gt;)</P>
+<P>    (data ^$id &lt;the-data&gt; ^previous nil ^next nil)</P>
+<P> --&gt;</P>
+<P>    (modify &lt;the-data&gt; ^previous &lt;the-data&gt; ^next &lt;the-data&gt; ^value 1)</P>
+<P>    (modify &lt;the-pointer&gt; ^list (compound &lt;the-data&gt;)))</P>
+</UL>
+<P>(rule  make-list</P>
+<P>;</P>
+<P>; Make a new datum and add it to the list</P>
+<P>;</P>
+<UL>
+<P>    (pointer ^$id &lt;the-pointer&gt;</P>
+<UL>
+<P>             ^max-length &lt;max&gt;</P>
+<P>             ^list {list [&lt;] &lt;max&gt;} ;length of list is less than &lt;MAX&gt;</P>
+<P>             ^list[1] &lt;first-data&gt;       ; bind ID of first DATA</P>
+<P>             ^list[$last] &lt;last-data&gt;)&#9; ; bind ID of last DATA</P>
+</UL>
+<P>    (data ^$id &lt;first-data&gt;           ;test ID of first DATA</P>
+<UL>
+<P>          ^previous &lt;previous-data&gt;)  ;bind backward ptr of first item</P>
+</UL>
+<P>    (data ^$id &lt;last-data&gt;            ; test ID of last DATA</P>
+<UL>
+<P>          ^value &lt;val&gt;                ; bind value of last item</P>
+<P>          ^next &lt;the-data&gt;)           ; bind forward ptr of last item</P>
+</UL>
+<P> --&gt;</P>
+<P>    (bind &lt;new-data&gt;                 ; bind a pointer to a MAKE action</P>
+<P>          (make data ^previous &lt;last-data&gt;</P>
+<UL>
+<P>                     ^next &lt;first-data&gt;</P>
+<P>                     ^value (&lt;val&gt; + 1)))</P>
+</UL>
+<P>    (modify &lt;first-data&gt; ^previous &lt;new-data&gt;)</P>
+<P>;reset pointers to new item</P>
+<P>    (modify &lt;last-data&gt; ^next &lt;new-data&gt;)</P>
+<P>    (modify &lt;the-pointer&gt; ^list (compound list &lt;new-data&gt;)))</P>
+</UL>
+<P>(end-block pointer-demo)</P>
+</FONT>
+
+<B><I>Using a Bound Variable to Select an Attribute</i></B>
+<P>You can use a bound variable to select an attribute on both the LHS and the RHS.  This is useful if a program is treating object data as a look-up table.</P>
+
+<P>RuleWorks allows a variable-selected attribute to be matched against; the variable selecting the attribute must be bound before the match reference is made, and the value must be the name of an attribute in that object class (see Example 3-6).  RuleWorks issues a run-time warning if the attribute binding does not exist in the specified object class.</P>
+<B><FONT FACE="HELVETICA" SIZE=2><P>Example 3-6. Variable Selection of Attributes</A></A></A></A> <A NAME="varattrib_"><A NAME="varattrib"></A>Variable Selection of Attributes</P></B></FONT>
+<FONT FACE="Courier" SIZE=1>
+<P>(OBJECT-CLASS person</P>
+<UL>
+<P>        ^name</P>
+<P>        ^age</P>
+<P>        ^phone_number</P>
+<P>        ^address)</P>
+</UL>
+<P>&nbsp;</P>
+<P>(OBJECT-CLASS seek_slot ^slot_to_find)</P>
+<P>&nbsp;</P>
+<P>(make person</P>
+<UL>
+<P>        ^name |Joe Bloggs|</P>
+<P>        ^phone_number 01292-474382</P>
+<P>        ^address |17 Anderson Crescent|)</P>
+</UL>
+<P>&nbsp;</P>
+<P>(make person</P>
+<UL>
+<P>        ^name |John Doe|</P>
+<P>        ^phone_number 0141-887-2456</P>
+<P>        ^address |56 Alloway Drive|)</P>
+</UL>
+<P>&nbsp;</P>
+<P>(make seek_slot</P>
+<UL>
+<P>        ^slot_to_find phone_number</P>
+<P>        ^name Dorothy)</P>
+</UL>
+<P>&nbsp;</P>
+<P>(rule  find_arbitrary_slot_datum_given_name</P>
+<UL>
+<P>      (seek_slot ^slot_to_find &lt;slot&gt; ^name &lt;person_name&gt;)</P>
+<P>      (person ^name &lt;person_name&gt; ^&lt;slot&gt; &lt;datum&gt;)</P>
+<P>   --&gt;</P>
+<P>      (write (crlf) |Person| &lt;name&gt; |slot| &lt;slot&gt; |has value| &lt;datum&gt;)</P>
+</UL>
+<P>)</P>
+</FONT>
+
+<P><B><FONT FACE="HELVETICA" SIZE=4>Predicates</P></B></FONT>
+<P>The test part of an attribute-value test is a predicate that specifies the comparison to be performed (equal to, greater than, and so on) between the atom or atoms in the attribute and the scalar or compound value in the CE.</P>
+
+<P>Every value specified in a condition element is preceded by a predicate, either implicitly or explicitly. Values that you specify without a predicate are implicitly preceded by the identity predicate (see Identity, Equality, and Similarity Predicates)</P>
+
+<B><I>Predicates and Data Types</B></I>
+<P>Table 3-2 shows the match predicates of RuleWorks, with the types of attributes and values to which they can be applied.  The values referred to in the third column of Table 3-2 can be constants, variables, or other expressions.</P>
+
+<P>While matching condition elements to working memory, RuleWorks performs automatic data type coercion for "reasonable"  attribute-value tests only.  Table 3-2 also shows which data types are reasonable for each match predicate.  All other mixed-type comparisons yield "no match."  "No match" is not an error condition; it merely means that the query "A relation B" will fail, no matter which relation was requested (greater than, less than, equal to, and so on).  For example, the following test, which will never match, produces a warning message at compile time, and no message or error condition at run time:</P>
+<FONT FACE="Courier" SIZE=1><P>^$ID &lt; x</P>
+</FONT>
+<B><FONT FACE="Arial" SIZE=2><P>Table 3-2. RuleWorks Match Predicates*</P></B></FONT>
+<TABLE border=1>
+<TR>
+<TD>
+<B>Attribute<BR>Domain</B></TD><TD><B>Predicate</B></TD>
+<TD><B>Value<BR>Domain</B></TD><TD><B>Test</B></TD>
+</TR>
+<TR>
+<TD>ANY</TD><TD>==</TD><TD>ANY</TD><TD>Identity: Same type as and equal to<BR>
+(This predicate is optional in LHS attribute-value tests. It is required in RHS relational expressions.)</TD>
+</TR>
+<TR>
+<TD>ANY</TD><TD align=middle>&lt;&gt;</TD><TD>ANY</TD><TD>Nonidentity; converse of identity</TD>
+</TR>
+<TR>
+<TD>ANY</TD><TD align=middle>=</TD><TD>ANY</TD><TD>Equality: Identical or equivalent numbers; identical symbols except for case; identical values of all other data types</TD>
+</TR>
+<TR>
+<TD>ANY</TD><TD align=middle>-=</TD><TD>ANY</TD><TD>Inequality; converse of equality</TD>
+</TR>
+<TR>
+<TD>ANY</TD><TD align=middle>~=</TD><TD>ANY</TD><TD>Similarity: Equal or phonetically similar symbols; equal or  approximately equal numbers; identical values of all other data types </TD>
+</TR>
+<TR>
+<TD>ANY</TD><TD align=middle>-~=</TD><TD>ANY</TD><TD>Dissimilarity; converse of similarity</TD>
+</TR>
+<TR>
+<TD>NUMBER</TD><TD align=middle>&gt;</TD><TD>NUMBER</TD><TD>Greater than</TD>
+</TR>
+<TR>
+<TD>SYMBOL</TD><TD align=middle>&gt;</TD><TD>SYMBOL</TD><TD>Lexicographically after   </TD>
+</TR>
+<TR>
+<TD>ANY</TD><TD align=middle>&gt;=</TD><TD>ANY</TD><TD>Greater than or equal numbers; lexicographically after or equal symbols; identical values for all other data types </TD>
+</TR>
+<TR>
+<TD>NUMBER</TD><TD align=middle>&lt;</TD><TD>NUMBER</TD><TD>Less than</TD>
+</TR>
+<TR>
+<TD>SYMBOL</TD><TD align=middle>&lt;</TD><TD>SYMBOL</TD><TD>Lexicographically before </TD>
+</TR>
+<TR>
+<TD>ANY</TD><TD align=middle>&lt;=</TD><TD>ANY</TD><TD>Less than or equal numbers; lexicographically before or equal symbols; identical values for all other data types</TD>
+</TR>
+<TR>
+<TD>ANY</TD><TD align=middle>&lt;=&gt;</TD><TD>ANY</TD><TD>Same type </TD>
+</TR>
+<TR>
+<TD>ANY</TD><TD align=middle>&lt;-&gt;</TD><TD>ANY</TD><TD>Different type</TD>
+</TR>
+<TR>
+<TD>ATOM</TD><TD align=middle>[+]</TD><TD>COMPOUND</TD><TD>Containment; atom is contained within the compound </TD>
+</TR>
+<TR>
+<TD>ATOM</TD><TD align=middle>[-]</TD><TD>COMPOUND</TD><TD>Non-containment; converse of containment </TD>
+</TR>
+<TR>
+<TD>COMPOUND</TD><TD align=middle>[+]</TD><TD>ATOM</TD><TD>Containment; compound contains atom </TD>
+</TR>
+<TR>
+<TD>COMPOUND</TD><TD align=middle>[-]</TD><TD>ATOM</TD><TD>Non-containment; converse of containment </TD>
+</TR>
+<TR>
+<TD>COMPOUND</TD><TD align=middle>[=]</TD><TD>INTEGER</TD><TD>Length equal </TD>
+</TR>
+<TR>
+<TD>COMPOUND</TD><TD align=middle>[&lt;&gt;]</TD><TD>INTEGER</TD><TD>Length not equal </TD>
+</TR>
+<TR>
+<TD>COMPOUND</TD><TD align=middle>[&gt;]</TD><TD>INTEGER</TD><TD>Length greater </TD>
+</TR>
+<TR>
+<TD>COMPOUND</TD><TD align=middle>[&gt;=]</TD><TD>INTEGER</TD><TD>Length greater then or equal </TD>
+</TR>
+<TR>
+<TD>COMPOUND</TD><TD align=middle>[&lt;]</TD><TD>INTEGER</TD><TD>Length less than </TD>
+</TR>
+<TR>
+<TD>COMPOUND</TD><TD align=middle>[&lt;=]</TD><TD>INTEGER</TD><TD>Length less than or equal </TD>
+</TR>
+</TABLE>
+
+<B><P>*&#9; Scalar predicates</B> are those that are valid only for scalar attributes. The exceptions are identity and nonidentity (== and &lt;&gt;), which are also valid for comparing a compound attribute to a compound value. <B>Compound predicates</B> are those that are valid for compound attributes.</P>
+<P>For example, the seventh row in Table 3-2 states that any NUMBER, either FLOAT or INTEGER, can reasonably be tested for being greater than any other NUMBER. Thus, assuming the value of ^LIST-PRICE is the FLOAT 29.95, the following test returns TRUE:</P>
+<FONT FACE="Courier" SIZE=1><P>^list-price &gt; 20</P>
+</FONT>
+<P>The same row also states that the greater-than predicate can be applied to two symbols. For example, the following test is valid, and the symbols are compared according to the lexicographic collating sequence for the target platform (the operating system and hardware where the executable image will run). Assume that ^ANIMAL is bound to the symbol AARDVARK, and the following test produces a match:</P>
+<FONT FACE="Courier" SIZE=1><P>^animal &lt; zebra</P>
+</FONT>
+<P>A mixed type comparison such as the following generates a compile-time warning and fails to match at run time:</P>
+<FONT FACE="Courier" SIZE=1><P>^$ID &lt; 42</P></FONT>
+
+<B><I>Identity, Equality, and Similarity Predicates</I></B>
+<P>The identity predicate tests that values are of the same data type and also equivalent to each other. It executes faster than the equality predicate, which ignores data type and tests only for equivalent value.  Table 3-3 compares results of using the identity, equality, and similarity predicates on a FLOAT of unequal value, a FLOAT of equal value, and an INTEGER of equal value.</P>
+
+<B><FONT FACE="Arial" SIZE=2><P>Table 3-3. Identity, Equality, and Similarity Predicates</P></B>
+<TABLE border=1>
+<TR>
+<TD></TD><TD></TD>
+<TD colspan=3><B>Match if ^X Attribute is...</B></TD>
+</TR>
+<TR>
+<TD><B>Predicate</B></TD><TD><B>Example</B></TD><TD><B>11.9</B></TD><TD><B>12.0</B></TD><TD><B>12</B></TD>
+</TR>
+<TR>
+<TD>Identity</TD><TD>^x 12</TD><TD>No</TD><TD>No</TD><TD>Yes</TD>
+</TR>
+<TR>
+<TD>Equality</TD><TD>^x = 12</TD><TD>No</TD><TD>Yes</TD><TD>Yes</TD>
+</TR>
+<TR>
+<TD>Similarity</TD><TD>^x ~= 12</TD><TD>Yes</TD><TD>Yes</TD><TD>Yes</TD>
+</TR>
+</TABLE>
+
+<P>The identity and nonidentity (&lt;&gt;) predicates are the only ones that can be applied when the attribute and the value are either both scalar or both compound.</P>
+
+<P>The identity and length-equal predicates are the only ones that can precede the first occurrence of a variable, because they can be used to bind a variable to the value of an attribute or to the length of a compound attribute. The first appearance of a variable on an LHS is where it is bound to a value. The identity predicate is the only one that can precede a disjunction of values (see Disjunctions of Values).</P>
+
+<P><B><FONT FACE="HELVETICA" SIZE=4>Specifying Values</B></P></FONT>
+<P>Chapter 2 covers the general rules for specifying values in RuleWorks. This section explains the restrictions on constants, variables, and function calls in value expressions on the LHS.</P>
+
+<B><I>Constants</B></I>
+<P>Constants can be symbols, integers, or floating-point numbers. There are also two special constants: the instance identifier #0, which never refers to an actual WMO; and the opaque value %x0, which corresponds to the null pointer provided by most other programming languages.</P>
+<P>You cannot use any other INSTANCE-ID or OPAQUE constant in source code; use them only in the command interpreter.</P>
+
+<B><I>Variables </B></I>
+<P>The first time a variable appears on an LHS, the variable is bound to the attribute value in the object that matches the CE. All subsequent occurrences of that variable in that rule represent the same value. For example, suppose the LHS of a rule contains the following CEs:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(memory ^price &lt;price&gt;)       ; variable &lt;price&gt; is bound here</P>
+<P>(disk ^price &gt; &lt;price&gt;)       ; variable &lt;price&gt; is tested here</P>
+</UL>
+</FONT>
+<P>If the run-time system finds a match for the first CE, the system binds the variable &lt;PRICE&gt; to the value stored in the ^PRICE attribute of the object of class MEMORY that matches the CE. Suppose the variable &lt;PRICE&gt; is bound to atom 129.95. Then the second CE is matched by an object of class DISK whose ^PRICE attribute has a value greater than 129.95.</P>
+
+<B><I>Function Calls</B></I>
+<P>You can use certain built-in or user-defined functions to specify a value in an attribute-value test. Functions used on the LHS must not change any objects in working memory and must always return the same result when called with the same arguments.</P>
+<P>The built-in RuleWorks functions that can be used on the LHS are listed in Table 3-4 and Table 3-5.</P>
+
+<B><FONT FACE="Arial" SIZE=2><P>Table 3-4. LHS Functions for Scalar Values</P></B>
+<TABLE border=1>
+<TR>
+<TD><B>Name</B></TD><TD><B>Description</B></TD>
+</TR>
+<TR>
+<TD>FLOAT</TD><TD>Converts a numeric value into a floating-point number.</TD>
+</TR>
+<TR>
+<TD>INTEGER</TD><TD>Converts a numeric value into an integer.</TD>
+</TR>
+<TR>
+<TD>SYMBOL</TD><TD>Converts any atom into a symbol. </TD>
+</TR>
+</TABLE>
+
+<B><FONT FACE="Arial" SIZE=2><P>Table 3-5. LHS Functions for Compound Values</P></B></FONT>
+<TABLE border=1>
+<TR>
+<TD><B>Name</B></TD><TD><B>Description</B></TD>
+</TR>
+<TR>
+<TD>LENGTH</TD><TD>Returns the number of elements in a compound value.</TD>
+</TR>
+<TR>
+<TD>NTH</TD><TD>Returns the value of a specified element in a compound value.</TD>
+</TR>
+<TR>
+<TD>POSITION</TD><TD>Finds the first occurrence of an element in a compound value.</TD>
+</TR>
+</TABLE>
+
+<P>You can use the functions shown in Table 3-4 to make sure an attribute-value test does not fail to match because the values are of different types.   For example, assume there is an object of class BOX whose ^CARD-IN-SLOT  attribute is three elements long. Assuming the variable &lt;LIMIT&gt; is bound to  5.5, the following CE does not match this BOX object because 5.5 is a  floating-point number and the length predicates require integer operands:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL>
+<P>(box ^card-in-slot [&lt;=] &lt;limit&gt;)</P>
+</UL></FONT>
+<P>However, the next CE does match:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL>
+<P>(box ^card-in-slot [&lt;=] (integer &lt;limit&gt;))</P>
+</UL></FONT>
+<P>Function calls can include variables, but the variables must be bound to values. That is, the variables must have been used in a previous CE or previously in the same CE.</P>
+<P><B><I>The Quote Operator</B></I></P>
+<P>In attribute-value tests, you can quote values so that they are not evaluated. This allows you to use any symbol, operator, or variable as a constant atom.</P>
+<P>To quote a value, precede it with the quote operator (//). Using this operator is similar to enclosing an atom in vertical bars. For example:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(memory ^price // &lt;price&gt;)</P>
+</UL></FONT>
+<P>The above CE matches an object whose class is MEMORY and whose ^PRICE attribute contains the symbol &lt;PRICE&gt;. If the value is quoted with vertical bars, the symbol is &lt;price&gt; in lowercase letters.  If the quote operator is not there, the CE matches an object whose ^PRICE attribute contains the value bound to the variable &lt;PRICE&gt; (or, if &lt;PRICE&gt; is unbound, binds the variable to the value of the attribute).</P>
+
+<P><B><FONT FACE="HELVETICA" SIZE=4>Accessing Compound Attributes</B></FONT>
+<P>You can test, match, and bind individual elements within a compound attribute, or the entire compound attribute. The attribute name without brackets indicates the entire compound value.</P>
+
+<P><B><I>A Single Element</B></I></P>
+<P>To test a single element of a compound attribute, use brackets ([]) and an index expression after the attribute name. This is called <B>element-wise</B> access into the compound attribute.  The index expression must evaluate to an integer greater than zero.  You cannot use unbound variables in the index into a compound attribute.</P>
+<P>The following example binds the variable &lt;THIRD&gt; to the third element of the compound attribute ^CARD-IN-SLOT:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(box ^card-in-slot[3] &lt;third&gt;)</P>
+</UL></FONT>
+<P>If &lt;THIRD&gt; is already bound to the symbol KEYBOARD, the above example matches the object shown in Figure 2-6.</P>
+<P><B>Caution</B> : When you use element-wise access into a compound attribute, it is possible for the binding instance of a variable to cause the match to fail.  RuleWorks does not bind NIL or the declared FILL value (if any) when the index specified for an element-wise access points past the end of the compound attribute.</P>
+<P>In the above example, the match fails when ^CARD-IN-SLOT has fewer than three elements, even if the variable &lt;THIRD&gt; is unbound.</P>
+
+<P><B><I>The Last Element</B></I>
+<P>The special symbol $LAST represents the index of the last element. $LAST cannot be used as part of an expression. It must stand alone.  The following example binds or tests the last element:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(box ^card-in-slot[$last] &lt;var&gt;)</P>
+</UL></FONT>
+<P>Using $LAST for the index expression is an element-wise access. Therefore, the above CE never matches an empty ^CARD-IN-SLOT attribute.</P>
+
+<P><B><I>The Entire Compound</B></I>
+<P>To specify an entire compound attribute, use the attribute name with no index notation. This is called group-wise access.</P>
+<B><P>Note: </B>When you use group-wise access of a compound attribute, the binding instance of a variable cannot cause the match to fail. If the attribute is empty, the variable is bound to the empty compound value ((COMPOUND)).</P>
+<P>In the following CE, the variable &lt;CARDS&gt; is bound to the entire compound attribute ^CARD-IN-SLOT:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(box ^card-in-slot &lt;cards&gt;)</P>
+</UL></FONT>
+<P>If &lt;CARDS&gt; is already bound to a compound value, the CE above tests ^CARD-IN-SLOT and &lt;CARDS&gt; for identity on an element-by-element basis.</P>
+<P>You must use a compound value for group-wise access of a compound attribute.  You cannot bind or compare an entire compound attribute to a scalar value.</P>
+
+<P><B><I>Predicates for Compound Attributes</B></I></P>
+<P>RuleWorks provides a number of predicates that operate on compound attributes only. These <B>compound predicates</B> allow various aspects of the entire set of values in a compound attribute to be tested within a condition element.</P>
+<P>The compound predicates start and end with brackets ([]).  The characters within the brackets specify which test (greater than, less than, and so on) is used.  Table 3-2 shows which predicates can be applied to compound values.</P>
+
+<P><B><I>Counting the Number of Elements</B></I></P>
+<P>RuleWorks provides six compound predicates for testing the number of values in a compound attribute: [=], [&lt;&gt;], [&gt;], [&gt;=], [&lt;], and [&lt;=]. An example attribute-value test:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>^card-in-slot  [&gt;] 2    ; this test succeeds if the number of</P>
+<UL><UL><UL><UL><P>                        ; values in ^card-in-slot is greater than 2</P>
+</UL></UL></UL></UL></UL></FONT>
+<P>The length-equal-to compound predicate ([=]) allows the exact number of elements in the compound attribute to be either bound or compared for identity.</P>
+<P>Just as for the identity predicate, if the expression following the length-equal-to predicate is an unbound variable, then that variable is bound to the actual number of elements.</P>
+<P>If the expression following the length-equal-to predicate is a bound variable, a constant, or some other kind of expression, then the element count is tested for identity with the resulting value. The value must be an integer equal to or greater than zero.</P>
+<P>The following CE shows both uses of the length-equal-to predicate:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(box  ^card-in-slot  [=] &lt;len&gt;     ; bind the number of values in</P>
+<UL><UL><UL><UL><UL><UL><P>                                 ; ^card-in-slot to the variable &lt;len&gt;</P>
+</UL></UL></UL></UL></UL></UL>
+<P>^card-in-slot-obj-id [=] &lt;len&gt;) ;match only if the number of values 
+<UL><UL><UL><UL><UL><UL>;in ^card-in-slot-obj-id is the same </P>
+</UL></UL></UL></UL></UL></UL>
+<UL><UL><UL><UL><UL><UL><P>;as in ^card-in-slot</P>
+</UL></UL></UL></UL></UL></UL>
+</UL>
+</FONT>
+
+
+<P><B><I>Testing for Emptiness</B></I></P>
+<P>Testing a compound value for emptiness is a common operation for stacks and queues. In RuleWorks this can be done by comparing the length of the compound attribute to zero. The following CE matches if the compound attribute ^CARD-IN-SLOT is empty:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(box ^card-in-slot [=] 0)</P>
+</UL>
+</FONT>
+<P><B><I>Searching for a Value</B></I></P>
+<P>Two predicates, containment ([+]) and non-containment ([-]), allow you to determine whether a compound attribute contains a specified element value. The following CE matches if the compound attribute ^CARD-IN-SLOT contains the value MEMORY:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(box ^card-in-slot [+] memory)  ;match if memory found</P>
+</UL></FONT>
+<P>The next CE uses the opposite test from the previous one:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(box ^card-in-slot [-] memory)  ;match if memory is NOT found</P>
+</UL></FONT>
+<P>The containment predicates, unlike the other compound predicates, can also be used to compare a scalar attribute value and a compound value. For example:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(box ^card-in-slot-obj-id &lt;cards&gt;)</P>
+<P>(memory ^$ID [+] &lt;cards&gt;)</P>
+</UL></FONT>
+<P>In the example above, the CEs match when the identifier of the MEMORY object is contained within the compound value of the BOX object's ^CARD-IN-SLOT-OBJ-ID attribute.</P>
+<P>By default, the containment predicates test for identity of the compound element and the value. You can specify a different test by placing a scalar predicate next to the containment predicate. The compound value is then searched for an element that satisfies the specified test and scalar value.  Consider the following CE:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(box ^power-consumed-per-slot [-] &gt; 20)</P>
+</UL></FONT>
+<P>This could be pronounced as "There is a BOX object whose ^POWER-CONSUMED-PER-SLOT attribute contains no value greater than 20."</P>
+<P>The scalar predicate must be next to the scalar attribute or value.</P>
+
+<P><B><I>Functions for Compound Values</B></I></P>
+<P>You can use three built-in RuleWorks functions, LENGTH, NTH, and POSITION, with compound values on the LHS. You must pass a bound compound variable as the first argument to each of these functions. For example, the following CE matches a compound attribute ^CARD-IN-SLOT that has two consecutive elements equal to MEMORY:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(box ^card-in-slot &lt;cards&gt;</P>
+<UL><P>     ^card-in-slot [((position &lt;cards&gt; memory) + 1)] = memory)</P>
+</UL></UL></FONT>
+
+<P>The POSITION function above finds only the first occurrence of MEMORY in &lt;CARDS&gt;, so a rule that uses this CE fires only once even on a BOX object that has three or more consecutive MEMORY elements.</P>
+<P>It is more efficient to use the length predicates or an index into the compound attribute rather than the LENGTH or NTH functions. For example, the following condition elements are equivalent:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(box ^card-in-slot &lt;cards&gt;                      ; bind a variable</P>
+<UL><P>     ^card-in-slot-obj-id [=] (length &lt;cards&gt;)) ; test with a function</P>
+</UL>
+<P>(box ^card-in-slot [=] &lt;len&gt;                   ; bind a variable</P>
+<UL><P>     ^card-in-slot-obj-id [=] &lt;len&gt;)           ; test with a predicate</P>
+</UL>
+</UL></FONT>
+
+<P>The second CE, using the length-equal predicate to bind the length of the first compound attribute, is more efficient than the first CE.</P>
+
+<B><FONT FACE="HELVETICA" SIZE=5>Conjunctions of Tests</B></FONT>
+<P>A <B>conjunction</B> is a series of tests that must all be true of a single attribute in an object in order for the match to succeed. A conjunction is similar to a logical AND. You specify a conjunction by enclosing the tests in braces ({ }). The following CE matches when there is an object of class HARDWARE-OPTION whose ^PRICE attribute has a value between 100.00 and 500.00:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(hardware-option ^price { &gt; 100.00 &lt; 500.00 } )</P>
+</UL></FONT>
+<P>If you want to bind as well as test the value of an attribute, you can use a conjunction. For example:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(hardware-option ^in-slot { &lt;slot-num&gt; &lt;&gt; nil} )</P>
+</UL></FONT>
+<P>is equivalent to:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(hardware-option ^in-slot &lt;slot-num&gt; ^in-slot &lt;&gt; nil )</P>
+</UL></FONT>
+<P>If there is an object whose class name is HARDWARE-OPTION or any subclass of HARDWARE-OPTION and whose ^IN-SLOT attribute has a value not equal to NIL, a match results. The run-time system then binds the variable &lt;SLOT-NUM&gt; to that value.</P>
+<P>Conjunctions of compound predicates can also be applied to compound attributes. For example:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>^card-in-slot  {&lt;cards&gt; [+] memory [&gt;] 2  [=] &lt;num-cards&gt; }</P>
+</UL></FONT>
+<P>Assuming both variables were unbound, the above conjunction first binds the entire compound value to the variable &lt;CARDS&gt;. The next two tests produce a match if ^CARD-IN-SLOT contains at least one MEMORY and has more than two elements.  Finally, the above binds the number of elements in ^CARD-IN-SLOT to the variable &lt;NUM-CARDS&gt;.</P>
+<P><B><FONT FACE="HELVETICA" SIZE=5>Disjunctions of Values</B></FONT>
+<P>A <B>disjunction</B> is a list of values any one of which can match the value of an attribute in an object in order for the match to succeed.  A disjunction is similar to a logical inclusive OR.  You specify a disjunction by enclosing the list of values between double angle brackets (&lt;&lt;  &gt;&gt;). You must not specify any predicate with a disjunction of values: the implicit identity predicate is the only valid predicate for a disjunction.</P>
+<P>The following CE contains a disjunction:  </P>
+
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(hardware-option ^takes-slot &lt;&lt; no false nil &gt;&gt; )</P>
+</UL></FONT>
+<P>Note that you must put at least one white space character around each side of the double angle brackets.</P>
+<P>Variables or any other value expressions you specify in a disjunction are evaluated. Consider the following disjunction:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>^number &lt;&lt; 45 &lt;number&gt; &gt;&gt;</P>
+</UL></FONT>
+<P>This matches if the ^NUMBER attribute is 45 or it is identical to the binding of &lt;NUMBER&gt;. The next example shows another valid test containing a function call:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>^number &lt;&lt; 45 &lt;number&gt; (length list) &gt;&gt;</P>
+</UL></FONT>
+<B><FONT FACE="HELVETICA" SIZE=5>Negative Condition Elements</B></FONT>
+<P>Negative CEs specify that no object that matches their pattern exists in working memory. Negative CEs can contain any attribute-value test allowed in positive CEs. You specify a negative CE by putting a minus sign (-) in front of it. Consider the rule CHOOSE-SLOTS:PLACE-NONMEMORY from the sample configuration program.</P>
+
+<B><FONT FACE="HELVETICA" SIZE=2><P>Example 3-7.  Negative Condition Elements</B></FONT>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(rule choose-slots:place-nonmemory</P>
+<UL><P>        (active-context ^name choose-slots)</P>
+<P>        (box ^$id &lt;the-box&gt; ^card-in-slot { [=] &lt;len&gt; [&lt;] 8 })</P>
+<P>        (hardware-option ^$id &lt;the-option&gt;</P>
+<UL>
+<P>                ^takes-slot yes</P>
+<P>                ^$instance-of &lt;option&gt;</P>
+<P>                ^is-placed no)</P>
+</UL>
+<P>        - (memory ^$id &lt;the-option&gt;)</P>
+<P>        - (memory ^is-placed no)</P>
+<P>     --&gt;</P>
+<P>        (modify &lt;the-box&gt;</P>
+<UL>
+<P>                ^card-in-slot [(&lt;len&gt; + 1)] &lt;option&gt;</P>
+<P>                ^card-in-slot-obj-id [(&lt;len&gt; + 1)] &lt;the-option&gt;)</P>
+</UL>
+<P>        (modify &lt;the-option&gt; ^is-placed yes ^in-slot (&lt;len&gt; + 1)))</P>
+</UL></UL></FONT>
+
+<P>The purpose of this rule is to assign slots to options that are not memory <I>after</I> all the memory cards have been placed in a slot. The first negative CE specifies that the object that matched the third positive CE is not of class MEMORY. The second negative CE specifies that there exists no object of class MEMORY with ^IS-PLACED attribute equal to NO. In other words, it specifies that all objects of class MEMORY have been placed.</P>
+
+<B><FONT FACE="HELVETICA" SIZE=5>Disjunctions of Condition Elements</B></FONT>
+<P>A disjunction of condition elements is a group of condition elements enclosed in double angle brackets (&lt;&lt;  &gt;&gt;). The entire disjunction matches when any one of the condition elements matches.</P>
+<P>In general, a rule that contains CE disjunctions is equivalent to a collection of rules, each of which corresponds to a particular branch through each disjunction. A rule with a 2-CE disjunction and a 3-CE disjunction has 2 * 3 = 6 possible branches.  Although you could express exactly the same concepts with 6 rules, by using the CE disjunctions your code becomes more compact and more easily maintained.</P>
+<P>The following rule:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(rule test-ce-disjunctions</P>
+<UL><P>    &lt;&lt; (obj-class-1 ^attr-1 &lt;x&gt;)</P>
+<P>       (obj-class-2 ^attr-2 &lt;x&gt;) &gt;&gt;</P>
+<P> --&gt;</P>
+<P>    (write (crlf) |Value of attribute is| &lt;x&gt;))</P>
+</UL></UL></FONT>
+
+<P>is equivalent to the following two simple rules:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(rule |test-ce-disjunctions;1|</P>
+<UL><P>    (obj-class-1 ^attr-1 &lt;x&gt;)</P>
+<P> --&gt;</P>
+<P>    (write (crlf) |Value of attribute is| &lt;x&gt;))</P>
+</UL></UL></FONT>
+<P>and:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(rule |test-ce-disjunctions;2|</P>
+<UL><P>    (obj-class-2 ^attr-2 &lt;x&gt;)</P>
+<P> --&gt;</P>
+<P>    (write (crlf) |Value of attribute is| &lt;x&gt;))</P>
+</UL></UL></FONT>
+<P>There is a restriction on the use of CE disjunctions: if a variable is bound in one branch of a CE disjunction, and the variable appears later on in the rule, then it must be bound in all branches of the CE disjunction. A variable &lt;X&gt; can be bound in only one branch of the disjunction provided that &lt;X&gt; does not subsequently appear elsewhere in the rule.</P>
+<P>It is not recommended that you do not write CE disjunctions such that the same object can match more than one branch. Doing so causes the rule to fire more than once on the same object, a result you probably would not expect.</P>
+<P>When a rule contains a disjunction of CEs (see Disjunctions of Condition Elements) the test specificity of each instantiation is calculated separately (see Test Specificity).  The class specificity of each instantiation is calculated separately, too.  </P>
+
+<B><FONT FACE="HELVETICA" SIZE=5>Test Specificity</B></FONT>
+<P>If two or more instantiations in the conflict set have equal priority after refraction, recency, and class specificity have been applied (see Chapter 1), RuleWorks orders the instantiations according to their test specificity. An instantiation's test specificity is determined by the number of attribute-value tests in the left-hand side of the rule to which the instantiation refers.</P>
+<P>Each of the following items adds one to the test specificity of a rule: </P>
+<UL>
+<LI>An object class name. The class name counts as one even if the condition element is negated.  </LI>
+<LI>A disjunction of values. The entire disjunction counts as one test no matter how many values it contains.</LI>
+<LI>A predicate followed by any value expression, except an unbound variable or within a disjunction of values. This includes the implied identity predicate.</LI>
+</UL>
+
+<P>In a conjunction of tests, each test adds one to the test specificity, subject to the restrictions above. For example, assuming the two variables are not bound, the following CE contains only two tests:</P>
+<FONT FACE="Courier" SIZE=1>
+<UL><P>(box ^$id &lt;the-box&gt; ^card-in-slot { [=] &lt;len&gt; [&lt;] 8 })</P>
+</UL></FONT>
+<P>The two tests in this CE are the class name BOX and the length-equal predicate followed by the value 8.  The two variables are unbound, so their presence does not add to the test specificity.</P>
+<B><FONT FACE="NewCenturySchlbk" SIZE=2><P>Note:</B>  The following items do not count towards test specificity:</P>
+<UL>
+<UL>
+<LI>An explicit attribute name </LI>
+<LI>The binding instance of a variable   </LI></UL>
+</UL>
+</FONT>
+
+</BODY>
+</HTML>

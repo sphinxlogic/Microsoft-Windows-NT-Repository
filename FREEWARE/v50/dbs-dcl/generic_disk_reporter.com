@@ -1,0 +1,123 @@
+$! File created by DCL_DIET at 18-JUL-2000 08:08:39.65 from
+$! DBS0:[OLGA.COM]GENERIC_DISK_REPORTER.COS;
+$__vfy = "VFY_''f$parse(f$environment("procedure"),,,"name")'"
+$if (f$type('__vfy') .eqs. "") then __vfy = 0
+$__vfy_saved = f$verify(&__vfy)
+$set noon
+$procedure = f$element(0,";",f$environment("PROCEDURE"))
+$procedure_name = f$parse(procedure,,,"NAME")
+$facility = procedure_name
+$location = f$parse(procedure,,,"DEVICE","NO_CONCEAL") -
++ f$parse(procedure,,,"DIRECTORY","NO_CONCEAL") - "]["
+$on control_y then goto bail_out
+$say = "write sys$output"
+$dfu = "$SYS$SYSTEM:DFU"
+$utilization = f$integer(f$edit(P1, "collapse, upcase"))
+$selection = f$edit(P2,"collapse, upcase")
+$if ((utilization .le. 0) .or. (utilization .gt. 100)) then utilization = 70
+$run olga$sys:get_disk_devices
+$memory_checker = "OLGA$SYS:CHECK_MEMORY.EXE"
+$scsnode = f$edit(f$getsyi("SCSNODE"),"UPCASE,COLLAPSE")
+$version = f$edit(f$getsyi("VERSION"),"UPCASE,COLLAPSE")
+$interactive = (f$mode() .eqs. "INTERACTIVE")
+$mail_address = f$trnlnm("DISK_REPORTER_ADDRESS")
+$default_transport = f$trnlnm("RSTUFF_DEFAULT_TRANSPORT")
+$default_transport = f$edit(default_transport,"COLLAPSE,UPCASE")
+$if (default_transport .eqs. "") then default_transport = "DECNET"
+$if (default_transport .eqs. "IP")
+$then
+$default_mail_address = "hotline@onl3.on-line"
+$else
+$default_mail_address = "ONL3::HOTLINE"
+$endif
+$if (mail_address .eqs. "") then mail_address = default_mail_address
+$pid = f$getjpi("","PID")
+$report_file = "DISK_REPORT.''pid'"
+$version_file = "VERSION_REPORT.''pid'"
+$dc$_disk = 1
+$dc$_tape = 2
+$unsupported = "/34/53/53/129/130/131/132/133/134/135/136/139/140/"
+$len_unsupported = f$length(unsupported)
+$if (.not. interactive) then define/nolog sys$output 'report_file'
+$header0_fao = "!8* Report for node !AS (!AS) at !5%T on !11%D"
+$header1_fao = "!3SL% Utilization!14* Current     Disk  !3SL% Free    Excess"
+$header2_fao = "!3SL% Free space!17* Free      Size      Count     Usage"
+$additional = "!/!4* Additional disk space requirements are !SL block!%S." -
++ "!/!4* Allowance for free space will require !SL block!%S.!/"
+$excess_fao = "!/!4* You have !SL block!%S available before you reach" -
++ " !UL% utilization.!/"
+$say f$fao(header0_fao, scsnode, version, 0, 0)
+$say ""
+$say f$fao(header1_fao, utilization, 100-utilization)
+$say f$fao(header2_fao, 100-utilization)
+$say " "
+$count = 0
+$total_excess = 0
+$loop:
+$count = count + 1
+$device_name = f$trnlnm("DISK_DEVICE_''count'","LNM$PROCESS_TABLE")
+$if (device_name .eqs. "") then goto end_loop
+$if (.not. f$getdvi(device_name, "EXISTS")) then goto loop
+$if (.not. f$getdvi(device_name, "MNT")) then goto loop
+$if (f$getdvi(device_name, "SHDW_MEMBER")) then goto loop
+$disk_type = f$getdvi(device_name,"DEVTYPE")
+$if (f$locate("/''disk_type'/",unsupported) .lt. len_unsupported) then -
+$goto loop
+$volnam = f$getdvi(device_name, "volnam")
+$if ((selection .nes. "") -
+.and. (f$locate(selection, volnam) .ge. f$length(volnam))) then -
+$goto loop
+$unit_number = f$getdvi(device_name, "unit")
+$devnam = f$getdvi(device_name, "devnam")
+$media_name = f$getdvi(device_name, "media_name")
+$freeblocks = f$getdvi(device_name, "freeblocks")
+$maxblocks = f$getdvi(device_name, "maxblock")
+$inuse = maxblocks - freeblocks
+$free_goal = maxblocks/100*(100 - utilization)
+$percent = inuse*100/maxblocks
+$excess = free_goal - freeblocks
+$total_excess = total_excess + excess
+$say f$fao("!4* !4AS !12AS  !3UL% !9SL !9SL !9SL !9SL" -
+,media_name, volnam, percent, freeblocks, maxblocks -
+,free_goal, excess)
+$define/user/nolog sys$output nla0:
+$define/user/nolog sys$error nla0:
+$dfu search 'device_name'/version=(minimum=20000,maximum=32766) -
+/append='version_file'
+$goto loop
+$end_loop:
+$if (total_excess .gt. 0)
+$then
+$requirement = total_excess/utilization*100
+$say f$fao(additional, total_excess, requirement)
+$else
+$say f$fao(excess_fao, 0-total_excess, utilization)
+$endif
+$if (f$search(memory_checker) .nes. "")
+$then
+$say "    --------- Memory Usage Summary ---------"
+$run 'memory_checker'
+$endif
+$show memory/files
+$if (.not. interactive)
+$then
+$deassign sys$output
+$maill/subject="''scsnode' disk report" 'report_file' "''mail_address'"
+$endif
+$if (f$search(version_file) .nes. "")
+$then
+$if (f$file_attributes(version_file,"EOF") .ne. 0)
+$then
+$maill/subject="''scsnode' version report" 'version_file' "''mail_address'"
+$endif
+$endif
+$bail_out:
+$if (f$search("DISK_REPORT.%%%%%%%%") .nes. "")
+$then
+$deletee/nolog DISK_REPORT.%%%%%%%%;
+$endif
+$if (f$search("VERSION_REPORT.%%%%%%%%") .nes. "")
+$then
+$deletee/nolog VERSION_REPORT.%%%%%%%%;
+$endif
+$exitt 1+(0*'f$verify(__vfy_saved)')

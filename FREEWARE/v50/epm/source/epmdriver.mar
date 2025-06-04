@@ -1,0 +1,1499 @@
+	.Title	EPMDRIVER	Extensible Performance Monitoring Driver
+	.Ident	/V2.0-000/	; Last edit 25-MAR-2000 22:38
+	.Sbttl	HEADING 	Program Description
+;
+;  Copyright © 1991, 1993 by Edward A. Heinrich of The LOKI Group, Inc.  
+;  This code may be freely distributed and modified for non-commercial purposes 
+;  as long as this copyright notice is retained.
+;
+;  Copyright © 2000 by Hunter Goatley.
+;
+;++
+;
+; PROJECT:
+;	Extensible Performance Monitoring
+;
+; PROGRAM:
+;	EPMDRIVER.MAR
+;
+; AUTHOR:			CREATION DATE:
+;	Edward A. Heinrich		October 25, 1990	19:00
+;	The LOKI Group, Inc. 
+;	1957 East Oakshire Lane
+;	Sandy, Utah, 84092
+;	(801)-576-0730
+;	heinrich@BYU.EDU
+;
+; ENVIRONMENT:
+;	Kernel mode, S0 space, standard device driver, VMS V5.0+.
+;
+; DISCLAIMER:
+;	WARNING:  This software is provided as an EXAMPLE of 'how' to write
+;	code to intercept disk I/O request packets.  It is provided only as a
+;	teaching aid to DECUS attendees, and as such, is NOT GUARANTEED to
+;	perform any useful function.
+;
+;	EPMDRIVER HAS NEITHER BEEN TOTALLY DEBUGGED NOR TESTED IN EVERY POSSIBLE
+;	CONFIGURATION.
+;
+;	Neither Edward A. Heinrich nor The LOKI Group, Inc. make any guarantees 
+;	about the usefulness of this code nor take any responsibility for any 
+;	damage, loss, or harm that may arise out of its execution.
+;
+;
+; MODIFICATION HISTORY:
+;
+;	V2.0-00		Hunter Goatley		25-MAR-2000 22:39
+;		Ported to Alpha (Step 2 only).  Port done simply by reading
+;		the manual "Creating a Step 2 Device Driver from a VAX Device
+;		Driver" and looking at a couple of VMS source modules.  Also,
+;		fix VAX V7.0 crash.
+;
+;	V1.3-00		Edward A. Heinrich	06-Apr-1993	14:00
+;		Allow for QIO interface to dynamically define number of files 
+;		to collect statistics on.  Rework EPM_CANCEL routine queue
+;		manipulation logic to fix a day 1 bug that could crash VMS
+;		if EPB was never enqueued as a TQE.
+;
+;	V1.2-00		Edward A. Heinrich	15-May-1992	17:10
+;		Copy EPB to R3 before invoking INVALIDATE_TB, which uses
+;		R2 and was causing crashes upon shutdown by setting DDT$L_START
+;		to 00000000.  Ugly!
+;
+;	V1.1-00		Edward A. Heinrich	21-Jan-1992	11:30
+;		Invalidate TB when replacing addresses in DDT so we don't
+;		cause problems on a SMP box.
+;
+;	V1.0-00		Edward A. Heinrich	25-Oct-1990	19:00
+;		Creation.
+;
+;--
+	.Library "SYS$LIBRARY:LIB.MLB"  ; Define I/O database macros
+	.Link	 "SYS$SYSTEM:SYS.STB"/SELECTIVE_SEARCH
+
+;
+;  Define ALPHA if R22 is a register and not a symbol
+;
+	.NTYPE	...IS_IT_ALPHA,R22		;Get the type of R22
+	...IS_IT_ALPHA = <...IS_IT_ALPHA@-4&^XF>-5
+	.IIF EQ,...IS_IT_ALPHA,	ALPHA=1
+
+.IF NOT_DEFINED ALPHA
+	.Extrn	COM$POST		; Post IRP to completion queue
+	.Extrn	EXE$ABORTIO		; Abnormal I/O termination routine
+	.Extrn	EXE$DEANONPAGED 	; Deallocate non-paged pool
+	.Extrn	EXE$FINISHIO		; Finish the I/O
+	.Extrn	EXE$FINISHIOC		; Finish I/O w/ R1 clear
+	.Extrn	EXE$INSTIMQ		; Insert TQE on queue
+	.Extrn	EXE$QIODRVPKT		; Queue IRP to start I/O routine
+	.Extrn	EXE$AR_TQENOREPT	; NO Repeat TQE address
+.ENDC
+
+	.MACRO	.AXP	inst
+	.IIF DF,ALPHA,	inst
+	.ENDM	.AXP
+
+	.MACRO	.VAX	inst
+	.IIF NDF,ALPHA,	inst
+	.ENDM	.VAX
+
+$CANDEF 				; CANCEL codes
+$CCBDEF 				; Channel Control Block
+$CRBDEF 				; Channel request block
+$DCDEF					; Device classes and types
+$DDBDEF 				; Device data block
+$DEVDEF 				; Device characteristics
+$DYNDEF 				; Dynamic type codes
+$FCBDEF 				; File Control Blocks
+$IDBDEF 				; IDB defs
+$IODEF					; I/O function codes
+$IPLDEF 				; Hardware IPL definitions
+$IRPDEF 				; I/O request packet
+$JIBDEF 				; Job Information Block
+$ORBDEF 				; Object Rights Block
+$PCBDEF 				; Process Control Block
+$PRVDEF 				; Privilege mask bits
+$PSLDEF 				; Processor longword
+$SSDEF					; System status codes
+$TQEDEF 				; Timer Queue Entry
+$UCBDEF 				; Unit Control Block
+$VADEF					; Virtual addressing
+$VECDEF 				; interrupt VECtor block
+$WCBDEF 				; Window Control Blocks
+;
+;	Local program constants
+;
+P1		= 0			; 1st device dependent QIO parameter
+P2		= P1+4			; 2nd device dependent QIO parameter
+P3		= P2+4			; 3rd device dependent QIO parameter
+P4		= P3+4			; 4th device dependent QIO parameter
+IO$_COLLECT	= IO$_MOUNT		; Pseudo I/O function for COLLECT
+IO$_STOP	= IO$_SETMODE		; Pseudo I/O function for STOP
+BLOCK		= 512			; Number of bytes per block
+SECONDS 	= 1000*1000*10		; 1 second
+VMS_S_OVERHEAD	= 12			; Fixed buffer overhead
+;
+;	Define macros for acquiring and releasing the FORK lock
+;
+.Macro	ACQ_FORKLOCK	Register,Save=NO
+	FORKLOCK	-
+		lock	 = UCB$B_FLCK(Register), -
+		preserve = Save, -	; Need to save R0?
+		savipl	 = -(SP)	; Place to save current IPL
+.Endm	ACQ_FORKLOCK
+.Macro	REL_FORKLOCK	Register,Save=NO
+	FORKUNLOCK	-		; Relinquish the fork lock
+		lock	= UCB$B_FLCK(Register), -
+		newipl	= (SP)+,  -	; Original IPL
+		preserve  = Save, -	; Need to save/restore R0?
+		condition = RESTORE	; Only release one invocation of it
+.Endm	REL_FORKLOCK
+;
+;	Define extended UCB for EPM device.
+;
+	$DEFINI UCB,DOT=UCB$K_LENGTH
+.IIF	NE <.&7>, .=.+<8-<.&7>> 	; Quadword align EPB queue header
+$DEF	UCB_Q_EPB	.Blkq	1	; EPB Queue list head
+$DEF	UCB_S_LENGTH			; Length of our UCB
+	$DEFEND UCB
+;
+;	Define EPB & embedded EPF data structure, which is queued off UCB_Q_EPB
+;
+	$DEFINI EPB
+$EQU	EPF_L_FID	0		; FID NUM and FID SEQ fields
+$EQU	EPF_W_FID	4		; FID RVN field
+$EQU	EPF_W_NEXT	6		; UNUSED Field
+$EQU	EPF_L_COUNT	8		; Number of times file was accessed
+$EQU	EPF_S_LENGTH	12		; Size of single EPF entry
+$EQU	EPB_K_FILES	10		; Number of files to collect data on
+$DEF	EPB_L_FLINK	.Blkl	1	; Forward looking link
+$DEF	EPB_L_BLINK	.Blkl	1	; Backward pointing link
+$DEF	EPB_W_SIZE	.Blkw	1	; Size of single EPB entry
+$DEF	EPB_W_TYPE	.Blkw	1	; Type of structure
+$DEF	EPB_L_UCB	.Blkl	1	; Address of monitored UCB
+$DEF	EPB_L_DDT	.Blkl	1	; Device DDT address
+$DEF	EPB_L_STARTIO	.Blkl	1	; Real start I/O address
+$DEF	EPB_L_PID	.Blkl	1	; PID of owner process
+$DEF	EPB_L_IRP	.Blkl	1	; Current IRP address
+$DEF	EPB_L_FILECOUNT	.Blkl	1	; Number of files to collect stats on
+$DEF	EPB_L_FILESIZE	.Blkl	1	; # of longs for split/accessed counts
+$DEF	EPB_L_FILETOTAL	.Blkl	1	; Total space used for file info counts
+$DEF	EPB_L_ZEROTOTAL	.Blkl	1	; Total size to zero out
+$DEF	EPB_L_NEXT	.Blkl	1	; Address of next EPB w/ count of 1
+$DEF	EPB_L_NCOUNT	.Blkl	1	; Next count cell
+;
+;	NOTE:  All cells from EPB_Q_TIME to the end of the EPB are returned
+;	to the monitoring process.  Therefore all internal use cells must be
+;	defined prior to EPB_Q_TIME.
+;
+$DEF	EPB_Q_TIME	.Blkq	1	; Time between intervals
+$DEF	EPB_L_WRITES	.Blkl	1	; Number of write I/O's
+$DEF	EPB_L_READS	.Blkl	1	; Number of read I/O's
+$DEF	EPB_L_SWAPIO	.Blkl	1	; Number of SWAPPER I/O's
+$DEF	EPB_L_PAGIO	.Blkl	1	; Number of page faults satisfied
+$DEF	EPB_L_SPLITIO	.Blkl	1	; Number of split I/O's
+$DEF	EPB_L_1BLOCK	.Blkl	1	; Number of 1 block transfers
+$DEF	EPB_L_4BLOCK	.Blkl	1	; Number of 2-4 block transfers
+$DEF	EPB_L_16BLOCK	.Blkl	1	; Number of 5-16 block transfers
+$DEF	EPB_L_32BLOCK	.Blkl	1	; Number of 17-32 block transfers
+$DEF	EPB_L_64BLOCK	.Blkl	1	; Number of 33-64 block transfers
+$DEF	EPB_L_96BLOCK	.Blkl	1	; Number of 65-96 block transfers
+$DEF	EPB_L_LARGE	.Blkl	1	; Number of 97+ block transfers
+$DEF	EPB_A_FILES			; Base address of file counters
+$DEF	EPB_S_LENGTH			; Size of single EPB entry
+
+$EQU	DYN_K_EPB	14400		; Our unique type code - live EPB
+$EQU	DYN_K_DELEPB	14401		; Our unique type code - deletable EPB
+$EQU	EPB_K_1BLOCK	BLOCK		; Size of 1 block transfer
+$EQU	EPB_K_4BLOCK	BLOCK*4		; 4 block transfer size
+$EQU	EPB_K_16BLOCK	BLOCK*16	; 16 block transfer size
+$EQU	EPB_K_32BLOCK	BLOCK*32	; 32 block transfer size
+$EQU	EPB_K_64BLOCK	BLOCK*64	; 64 block transfer size
+$EQU	EPB_K_96BLOCK	BLOCK*96
+$EQU	EPB_K_LARGE	BLOCK*127
+$EQU	EPR_S_LENGTH	<EPB_S_LENGTH-EPB_Q_TIME>
+					; Size of returned datum
+$EQU	EPB_S_ZERO	<EPB_S_LENGTH-EPB_L_WRITES>
+	$DEFEND EPM
+
+	.Page
+	.Sbttl	DRIVER_TABLES
+.AXP <	DRIVER_DATA>
+.VAX <	.Psect	$$$105_PROLGUE>
+
+.IF DEFINED ALPHA
+;
+;	Generate the Driver Prologue Table
+;
+DPTAB	-				; DPT-creation macro
+	STEP	 = 2,		-	; Step 2 Alpha driver
+	end	 = EPM_END,	-	; Last address in image file
+	adapter  = NULL,	-	; Pseudo-driver hence no adapter
+	maxunits = 1,		-	; Only allow one unit
+	defunits = 1,		-	; Keep it simple here
+	smp	 = YES, 	-	; DRIVER will function in SMP
+	name	 = EPMDRIVER,	-	; Name of our driver
+	ucbsize  = UCB_S_LENGTH 	; Size of our UCB
+					; DPT_END-DPT = Size of pool required
+DPT_STORE	INIT
+DPT_STORE	UCB,UCB$B_FLCK,B,SPL$C_IOLOCK8
+					; Assume the LOWEST fork lock
+DPT_STORE	UCB,UCB$B_DIPL,B,22	; Pseudo-device IPL
+DPT_STORE	UCB,UCB$L_DEVCHAR,L,<-	; Device characteristics
+		DEV$M_AVL  -		; Device is available
+		!DEV$M_IDV!DEV$M_ODV>	; Device in capable of input & output
+
+DPT_STORE	ORB,ORB$B_FLAGS,B, <ORB$M_PROT_16>
+					; SOGW Protection word
+DPT_STORE	ORB,ORB$W_PROT,W,0	; Default protection
+DPT_STORE	UCB,UCB$B_DEVCLASS,B,DC$_REALTIME
+DPT_STORE	UCB,UCB_Q_EPB,L,0	; Initialize the EPB queue header
+DPT_STORE	UCB,UCB_Q_EPB+4,L,0	; Get the entire quadword
+
+DPT_STORE	REINIT
+DPT_STORE	DDB,DDB$L_DDT,D,EPM$DDT ; Our DDT address
+DPT_STORE	END
+;
+;	Generate Driver Dispatch Table
+;
+DDTAB				-	; DDT creation macro
+	devnam	= EPM,		-	; Name of device
+	cancel	= EPM_CANCEL,	-	; Cancel I/O routine
+	functb	= EPM_FUNCTAB,	-	; Function decision table address
+	start	= EPM_STARTIO,	-	; Start I/O routine
+	UNITINIT = EPM_UNIT_INIT, -	; Unit Init routine
+	CTRLINIT = EPM_INIT		; Init routine
+
+;
+;	Generate Function Decision Table
+;
+	FDT_INI	EPM_FUNCTAB
+	FDT_BUF	<COLLECT,READVBLK,STOP>
+	FDT_ACT	EPM_COLLECT,<COLLECT>
+	FDT_ACT	EPM_READ,<READVBLK,READLBLK>
+	FDT_ACT	EPM_STOP,<STOP>
+
+.IFF
+;
+;  VAX definitions
+;
+;
+;	Generate the Driver Prologue Table
+;
+DPTAB	-				; DPT-creation macro
+	end	 = EPM_END,	-	; Last address in image file
+	adapter  = NULL,	-	; Pseudo-driver hence no adapter
+	maxunits = 1,		-	; Only allow one unit
+	defunits = 1,		-	; Keep it simple here
+	smp	 = YES, 	-	; DRIVER will function in SMP
+	name	 = EPMDRIVER,	-	; Name of our driver
+	ucbsize  = UCB_S_LENGTH 	; Size of our UCB
+					; DPT_END-DPT = Size of pool required
+DPT_STORE	INIT
+DPT_STORE	UCB,UCB$B_FLCK,B,SPL$C_IOLOCK8
+					; Assume the LOWEST fork lock
+DPT_STORE	UCB,UCB$B_DIPL,B,22	; Pseudo-device IPL
+DPT_STORE	UCB,UCB$L_DEVCHAR,L,<-	; Device characteristics
+		DEV$M_AVL  -		; Device is available
+		!DEV$M_IDV!DEV$M_ODV>	; Device in capable of input & output
+
+DPT_STORE	ORB,ORB$B_FLAGS,B, <ORB$M_PROT_16>
+					; SOGW Protection word
+DPT_STORE	ORB,ORB$W_PROT,W,0	; Default protection
+DPT_STORE	UCB,UCB$B_DEVCLASS,B,DC$_REALTIME
+DPT_STORE	UCB,UCB_Q_EPB,L,0	; Initialize the EPB queue header
+DPT_STORE	UCB,UCB_Q_EPB+4,L,0	; Get the entire quadword
+
+DPT_STORE	REINIT
+DPT_STORE	DDB,DDB$L_DDT,D,EPM$DDT ; Our DDT address
+DPT_STORE	CRB,CRB$L_INTD+VEC$L_INITIAL,D,EPM_INIT
+DPT_STORE	END
+;
+;	Generate Driver Dispatch Table
+;
+DDTAB				-	; DDT creation macro
+	devnam	= EPM,		-	; Name of device
+	cancel	= EPM_CANCEL,	-	; Cancel I/O routine
+	functb	= EPM_FUNCTAB,	-	; Function decision table address
+	start	= EPM_STARTIO		; Start I/O routine
+;
+;	Generate Function Decision Table
+;
+EPM_FUNCTAB:
+	FUNCTAB ,<collect,readvblk,stop>; Valid I/O codes
+	FUNCTAB ,<collect,readvblk,stop>; Buffered operations
+
+	FUNCTAB EPM_COLLECT	<COLLECT>
+	FUNCTAB EPM_READ	<READVBLK,READLBLK>
+	FUNCTAB EPM_STOP	<STOP>
+
+.ENDC
+
+
+	.ALIGN	LONG
+
+UCB_L_ADDRESS:: .Long	0		; Storage for address of our UCB
+;
+;	Debugging cells
+;
+DBG_L_BEGIN::	.Long	999		; Way to locate this (3E7 hex)
+DBG_L_LOCATION::.Long	0		; Last place we were at
+DBG_L_DISKUCB:: .Long	0		; Disk UCB address
+DBG_L_TQE::	.Long	0		; Address of embedded TQE
+
+
+
+	.Page
+.AXP <	DRIVER_CODE>
+.VAX <	.Psect	$$$115_DRIVER>
+	.Sbttl	EPM_INIT		Controller Initialization Routine
+;+
+;
+; FUNCTIONAL DESCRIPTION:
+;	This is the controller initialization routine for the EPM driver.
+;	It simply makes the current user the owner of the device and sets
+;	the online bit in the UCB.
+;
+; INPUTS:
+;	R4	CSR address
+;	R5	IDB address
+;	R6	DDB address
+;	R8	CRB address
+;
+; OUTPUTS:
+;	R0	address of EPM unit 0 UCB
+;	All other registers are preserved.
+;
+;-
+EPM_INIT:
+.IF DEFINED ALPHA
+	$DRIVER_CTRLINIT_ENTRY
+;	MOVL	IDB$L_UCBLST(R5), R0	; Obtain UCB unit 0 address from IDB
+;	MOVL	R0,IDB$PS_OWNER(R5)
+;	BISL	#UCB$M_ONLINE, UCB$L_STS(R0)
+	RET				; Set on-line bit and exit
+.IFF
+	MOVL	IDB$L_UCBLST(R5), R0	; Obtain UCB unit 0 address from IDB
+	MOVL	R0, IDB$L_OWNER(R5)	;
+	BISW	#UCB$M_ONLINE, UCB$L_STS(R0)
+	RSB				; Set on-line bit and exit
+.ENDC
+
+	.Page
+	.Sbttl	EPM_UNIT_INIT		Unit Initialization Routine
+;+
+;
+; FUNCTIONAL DESCRIPTION:
+;	This is the unit initialization routine for the EPM driver.
+;	It simply sets the online bit in the UCB.
+;
+; INPUTS:
+;	R5	UCB address
+;
+; OUTPUTS:
+;	All registers are preserved.
+;
+;-
+EPM_UNIT_INIT:
+.IF DEFINED ALPHA
+	$DRIVER_UNITINIT_ENTRY
+	BISL	#UCB$M_ONLINE, UCB$L_STS(R5)
+	RET				; Set on-line bit and exit
+.IFF
+	BISW	#UCB$M_ONLINE, UCB$L_STS(R5)
+	RSB				; Set on-line bit and exit
+.ENDC
+
+	.Page
+	.Sbttl	EPM_STARTIO		EPM START I/O Routine
+;+
+;
+; FUNCTIONAL DESCRIPTION:
+;	Start I/O routine for EPMDRIVER.  Simply returns and holds onto the
+;	IRP.  We process the IRP and return data when the TQE_EXPIRATON
+;	routine comes due.
+;
+; INPUTS:
+;	R5	UCB address
+;
+;-
+EPM_STARTIO::
+.IF DEFINED ALPHA
+	$DRIVER_START_ENTRY
+	BICL	#UCB$M_BSY, UCB$L_STS(R5)
+	RET
+.IFF
+	BICW	#UCB$M_BSY, UCB$W_STS(R5)
+	RSB				; Clear busy bit in UCB
+.ENDC
+
+	.Page
+	.Sbttl	EPM_COLLECT	Setup Monitoring on a Device
+;+
+;
+; FUNCTIONAL DESCRIPTION:
+;	FDT routine to set up monitoring of a device.
+;
+; INPUTS:
+;	R3	IRP address
+;	R4	PCB address
+;	R5	UCB address
+;
+;	P1(AP)	Address of descriptor w/ device to monitor name in it
+;	P3(AP)	Number of files to collect data on
+;	P4(AP)	Number of seconds between reporting intervals
+;
+; OUTPUTS:
+;	R0	status
+;		SS$_ACCVIO	no access to P1 descriptor
+;		SS$_BADPARM	device was not a disk
+;		SS$_EXQUOTA	no TQE/AST quota left
+;		SS$_FILALRACC	already monitoring this device
+;		SS$_IVDEVNAM	specified disk class driver or shadow set member
+;		SS$_NODATA	P4 parameter, seconds, was missing
+;		SS$_NORMAL	started monitoring device
+;		any non-success status codes from IOC$SEARCHDEV
+;	R1,R2	destroyed
+;	R9-R11	destroyed
+;-
+	.Align	Long
+EPM_COLLECT::
+.AXP <	$DRIVER_FDT_ENTRY>
+
+	MOVL	#SS$_NODATA, R0 	; Assume missing P3/P4 parameter
+.IF DEFINED ALPHA
+	MOVL	IRP$L_QIO_P4(R3),R1	; Have any seconds specified?
+	BEQL	0$			; No - error
+	TSTL	IRP$L_QIO_P3(R3)	; Specified file counts?
+	BEQL	0$			; No - quit now
+.IFF
+	MOVL	P4(AP), R1		; Have any seconds specified?
+	BEQL	0$			; No - error
+	TSTL	P3(AP)			; Specified file counts?
+	BEQL	0$			; No - quit now
+.ENDC
+	MOVL	R5, UCB_L_ADDRESS	; Save our UCB address in driver memory
+	MOVZBL	#SS$_ACCVIO, R0 	; Presume the worst
+.AXP <	MOVL	IRP$L_QIO_P1(R3),R1	; Get address of device in R1>
+.VAX <	MOVL	P1(AP), R1		; Get address of device in R1>
+	BEQL	0$
+	IFNORD	#8, (R1), 0$		; Exit if no read access to device name
+	MOVZWL	0(R1), R2		; Get length of device name in R2
+	MOVL	4(R1), R9		; And address of data in R9
+	IFNORD	R2, (R9), 0$		; Verify we can read it
+	PUSHL	R3			; Preserve IRP address
+	JSB	G^SCH$IOLOCKR		; Obtain I/O database mutex, read access
+	JSB	G^IOC$SEARCHDEV 	; Get address of UCB for device in R1
+	MOVQ	R0, R10 		; Preserve UCB address/status in R10-R11
+	JSB	G^SCH$IOUNLOCK		; Relinquish I/O database mutex
+	MOVL	R10, R0 		; Restore IOC$SEARCHDEV status code
+	POPL	R3			;  ... and IRP address
+	BLBS	R0, 200$		; Continue if success
+
+   0$:
+.AXP <	CALL_FINISHIOC>
+.VAX <	JMP	G^EXE$FINISHIOC 	; Exit with error status in R0>
+;
+;	We found the UCB of the desired device, UCB address is in R11.
+;	Insure it is a disk.
+;
+  200$: MOVL	#SS$_BADPARAM, R0	; Presume not a disk
+	CMPB	#DC$_DISK, UCB$B_DEVCLASS(R11)
+	BNEQ	0$			; Exit if not a disk
+;
+;	Check to see if we can monitor this device.  Currently we do NOT allow
+;	monitoring of the disk class driver or a shadow set member.
+;
+	MOVZWL	#SS$_IVDEVNAM, R0	; Message to return
+	BITL	#<DEV$M_CDP!DEV$M_SSM>, UCB$L_DEVCHAR2(R11)
+	BNEQ	0$			; Branch if disk class or shadow member
+;
+;	Search the EPB blocks to insure we are not already monitoring this disk.
+;
+	CLRL	R2			; Clear found address flag
+	ACQ_FORKLOCK	R5		; Acquire the FORK lock
+	MOVAB	UCB_Q_EPB(R5), R0	; Get address of queue header
+	TSTL	(R0)			; Empty queue?
+	BEQL	800$			; Yes - we be done
+	MOVL	R0, R1			; Save queue header address
+	MOVL	UCB$L_DDT(R11), R9	; Get DDT address from UCB
+.AXP <	MOVL	DDT$PS_START_2(R9),R9	; Get start I/O address from DDT entry>
+.VAX <	MOVL	DDT$L_START(R9), R9	; Get start I/O address from DDT entry>
+	CLRL	R10			; Clear saved START I/O address
+;
+;	Loop thru all the existing EPB elements.  Check to see if we already
+;	are monitoring this device, as determined by comparing UCB addresses,
+;	and if so note it in R2.
+;
+  400$: ADDL3	R0, (R0), R0		; Get address of next element
+	CMPL	R0, R1			; Reached end of the queue?
+	BEQL	800$			; Yes exit this loop then
+	TSTL	R10			; Found another EBP w/ this DDT address?
+	BNEQ	600$			; Yes - skip next few instructions
+	CMPL	UCB$L_DDT(R11), EPB_L_DDT(R0)
+	BNEQ	600$			; Branch if not same DDT address
+	MOVL	EPB_L_STARTIO(R0), R10	; Else save 'real' START I/O address
+
+  600$: CMPL	EPB_L_UCB(R0), R11	; UCB address in EPB match target UCB?
+	BNEQ	400$			; No loop back for next EPB on queue
+	INCL	R2			; Yes - flag the error
+
+  800$: REL_FORKLOCK	R5		; Release FORK lock
+;
+;	R2 now contains one of the following:
+;		0		- new UCB address
+;		odd value	- already monitoring this UCB
+;
+	BLBC	R2, 1600$		; Well - are we already watching it?
+	MOVL	#SS$_FILALRACC, R0	; Say monitoring it already
+
+ 1000$:
+.AXP <	CALL_FINISHIO			; Complete the I/O request>
+.VAX <	JMP	G^EXE$FINISHIO	 	; Complete the I/O request>
+;
+;	Out-of-line routines to deal with insufficient quotas.
+;
+.IF DEFINED ALPHA
+ 1200$: ADAWI	#1, PCB$L_ASTCNT(R4)	; Put back the AST quota we took
+
+ 1400$: ADAWI	#1, JIB$L_TQCNT(R0)	; Add back TQE quota deducted
+.IFF
+ 1200$: ADAWI	#1, PCB$W_ASTCNT(R4)	; Put back the AST quota we took
+
+ 1400$: ADAWI	#1, JIB$W_TQCNT(R0)	; Add back TQE quota deducted
+.ENDC
+	MOVZWL	#SS$_EXQUOTA, R0	; Include final status code
+	BRW	ABT			; And return to caller w/ error
+;
+;	Charge the process for both a TQE and AST.
+;
+ 1600$: MOVL	PCB$L_JIB(R4), R0	; Address of JIB to R0
+.IF DEFINED ALPHA
+	ADAWI	#-1, JIB$L_TQCNT(R0)	; Charge TQE against the process
+	BLSS	1400$			; Branch if no quota left
+	ADAWI	#-1, PCB$L_ASTCNT(R4)	; Decrement # of AST's left
+	BLSS	1200$			; None there for us to use?
+.IFF
+	ADAWI	#-1, JIB$W_TQCNT(R0)	; Charge TQE against the process
+	BLSS	1400$			; Branch if no quota left
+	ADAWI	#-1, PCB$W_ASTCNT(R4)	; Decrement # of AST's left
+	BLSS	1200$			; None there for us to use?
+.ENDC
+;
+;	Allocate non-paged pool to contain the EPB.  The EXE$DEBIT_BYTCNT_ALO
+;	routine handles debiting and checking of quotas.
+;
+.AXP <	MOVL	IRP$L_QIO_P3(R3),R1	; Obtain number of files in R1>
+.VAX <	MOVL	P3(AP), R1		; Obtain number of files in R1>
+	MULL	#EPF_S_LENGTH, R1	; Multiply by size of EPF entry
+	ASHL	#1, R1, R1		; Now double it
+	PUSHL	R1			; Preserve it over the call
+	ADDL	#<TQE$K_LENGTH+EPB_S_LENGTH>, R1
+					; Size of fixed EPB + embedded TQE entry
+	PUSHL	R3			; Save IRP address
+	JSB	G^EXE$DEBIT_BYTCNT_ALO	; Some non-paged ocean please
+	POPL	R3			; Restore IRP address to R3
+	POPL	R9			; Get back file space size
+	BLBC	R0, 1000$		; Exit if we failed to allocate any
+	CLRQ	(R2)			; Zap queue links
+	MOVW	R1, EPB_W_SIZE(R2)	; Load allocated size to EPB_W_SIZE
+	MOVW	#DYN_K_EPB, EPB_W_TYPE(R2)
+					; Our unique type code
+.AXP <	MOVL	IRP$L_QIO_P3(R3),R1	; Get file count again>
+.VAX <	MOVL	P3(AP), R1		; Get file count again>
+	MOVL	R1, EPB_L_FILECOUNT(R2)	; Store it in EPB block
+	MULL3	#EPF_S_LENGTH, R1, EPB_L_FILESIZE(R2)
+					; Store number of bytes per type
+	MOVL	R9, EPB_L_FILETOTAL(R2)	; Store total file storage length
+	MOVL	#EPB_S_ZERO, EPB_L_ZEROTOTAL(R2)
+	ADDL	EPB_L_FILETOTAL(R2), EPB_L_ZEROTOTAL(R2)
+	MOVL	R10, R1 		; Copy found START I/O address, if any
+	MOVL	UCB$L_DDT(R11), R10	; Get DDT address from UCB
+.AXP <	MOVL	DDT$PS_START_2(R10),R9	; Get start I/O address from DDT entry>
+.VAX <	MOVL	DDT$L_START(R10), R9	; Get start I/O address from DDT entry>
+	MOVAB	COLLECT_STARTIO, R0	; Get pseudo start I/O address
+	CMPL	R0, R9			; Same as what's in DDT?
+	BNEQ	1800$			; No - use address from DDT
+	MOVL	R1, R9			; Yes - don't get into infinite loop
+
+ 1800$: MOVL	R9,  EPB_L_STARTIO(R2)	; Save real start I/O address in EPB
+	MOVL	R10, EPB_L_DDT(R2)	; Along w/ the DDT address
+	MOVL	R11, EPB_L_UCB(R2)	; ... and the UCB address
+	MOVL	PCB$L_PID(R4), EPB_L_PID(R2)
+	CLRL	EPB_L_IRP(R2)		; Say no initial IRP address
+	MOVQ	R2, -(SP)		; Preserve R2 and R3
+	MOVQ	R4, -(SP)		; ... along w/ R4 and R5
+	MOVL	EPB_L_ZEROTOTAL(R2), R1	; File storage area size into R1
+	MOVC5	#0, #0, #0, R1, EPB_L_WRITES(R2)
+	MOVQ	(SP)+, R4		; Clear statistics area and then
+	MOVQ	(SP)+, R2		; ... Restore R2-R5
+;
+;	Initialize the embedded TQE entry.
+;
+	MOVAB	EPB_S_LENGTH(R2), R0	; Get base address of file region
+	ADDL	EPB_L_FILETOTAL(R2), R0	; Advance to embedded TQE area
+	movl	r0, dbg_l_tqe
+	CLRL	TQE$L_TQFL(R0)		; Clear queue links to
+	CLRL	TQE$L_TQBL(R0)		; ... indicate not on queue yet
+	MOVW	#TQE$K_LENGTH, TQE$W_SIZE(R0)
+					; Set size in TQE field
+	MOVB	#DYN$C_TQE, TQE$B_TYPE(R0)
+					; Type is TQE
+	MOVB	#TQE$C_SSREPT, TQE$B_RQTYPE(R0)
+					; Repeating TQE
+	MOVAB	TQE_EXPIRATON, TQE$L_FPC(R0)
+					; Address of routine to execute
+.IF DEFINED ALPHA
+	EVAX_STQ	R2, TQE$Q_FR3(R0)	; EPB address into R3
+	EVAX_STQ	#0, TQE$Q_FR4(R0)	; No AST address
+.IFF
+	MOVL	R2, TQE$L_FR3(R0)	; EPB address into R3
+	CLRL	TQE$L_FR4(R0)		; No AST address
+.ENDC
+	CLRQ	TQE$Q_TIME(R0)		; Skip over TQE$Q_TIME (absolute time)
+.AXP <	MOVZBL	IRP$L_QIO_P4(R3),R1	; Get number of seconds to wait>
+.VAX <	MOVZBL	P4(AP), R1		; Get number of seconds to wait>
+	MULL	#SECONDS, R1		; Convert to ticks
+	MOVL	R1, TQE$Q_DELTA(R0)	; Delta time to TQE$Q_DELTA
+	MOVL	#0, TQE$Q_DELTA+4(R0)	; High order portion
+.AXP <	MOVL	#PSL$C_KERNEL, TQE$L_RMOD(R0)>
+.AXP <	CLRL	TQE$L_EFN(R0)		; Event flag field>
+.VAX <	MOVB	#PSL$C_KERNEL, TQE$B_RMOD(R0)>
+.VAX <	CLRB	TQE$B_EFN(R0)		; Event flag field>
+
+	CLRL	TQE$L_RQPID(R0)		; Clear rest of TQE
+;
+;	Test if DDT start address has already been intercepted for another unit.
+;	If so don't replace it - otherwise we'd point at ourself & loop forever.
+;
+	MOVAB	COLLECT_STARTIO, R1	; Get our address in R1
+.AXP <	CMPL	R1,DDT$PS_START_2(R10)	; Already been stolen?>
+.VAX <	CMPL	R1, DDT$L_START(R10)	; Already been stolen?>
+	BEQL	2000$			; Yes - don't point back there then
+;
+;	Acquire the fork lock associated w/ the disk device and
+;	substitute our start I/O address for the real one.
+;
+	ACQ_FORKLOCK	R11		; Acquire disk fork lock
+.IF DEFINED ALPHA
+	MOVAB	COLLECT_STARTIO,DDT$PS_START_2(R10)
+	TBI_SINGLE	ADDR=R10
+.IFF
+	INVALIDATE_TB addr=R10 environ=VMS -
+	    inst1=<MOVAB   COLLECT_STARTIO, DDT$L_START(R10)>
+.ENDC
+					; Put our start I/O routine address in
+	REL_FORKLOCK	R11		; Relinquish the disk fork lock
+;
+;	Insert the EPB on the queue.  We protect the queue via use of the
+;	EPM device fork lock.  Note:  Although it is true that the INSQTI
+;	instruction is interlocked among all processors in a SMP environment,
+;	since we traverse the queue searching for matching UCB addresses in
+;	the start I/O routine below, we acquire the fork lock to synchronize
+;	queue insertions to avoid causing problems while doing this traverse.
+;
+ 2000$: ACQ_FORKLOCK	R5		; Acquire the EPM fork lock
+	INSQTI	(R2), UCB_Q_EPB(R5)	; Put EPB on queue
+	REL_FORKLOCK	R5		; Relinquish the fork lock
+	MOVZBL	#SS$_NORMAL, R0 	; Say success to our caller
+	MOVL	R2, R1			; Return EPB address at IOSB+4
+.AXP <	CALL_FINISHIO			; Complete the I/O request>
+.VAX <	JMP	G^EXE$FINISHIO	 	; Complete the I/O request>
+
+	.Page
+	.Sbttl	COLLECT_STARTIO 	Intercepted STARTIO Routine
+;+
+; FUNCTIONAL DESCRIPTION:
+;	This routine is called instead of the real start I/O routine.
+;	We collect statistics on the disk, if we are monitoring it and then
+;	jump to the real start I/O routine.  We need a way to uniquely identify
+;	which device unit we have so we can jump to the correct original start
+;	I/O routine to allow the request to complete.  This is done by searching
+;	thru the EPB blocks until we find one with a UCB address that matches
+;	the UCB address in R5.
+;
+; INPUTS:
+;	R3	IRP address
+;	R5	UCB address
+;
+; OUTPUTS:
+;	R0-R2	trashed
+;-
+	.Align	Long
+COLLECT_STARTIO::
+.AXP <	$DRIVER_START_ENTRY>
+
+	MOVL	#1, DBG_L_LOCATION
+	MOVL	UCB_L_ADDRESS, R2	; Get our UCB address
+	BLSS	0$			; Branch if one there & S0 address
+	TSTL	@#0
+;	BUG_CHECK  INCONSTATE, FATAL	; Oh well we &%$#ed up somewhere
+;
+;	Acquire the EPM fork lock to synchronize queue traversal.  Assume EPM
+;	fork lock is highest one possible to prevent breaking synchronization.
+;
+	.Align	Long
+    0$: ACQ_FORKLOCK	R2		; Acquire the EPM fork lock
+	MOVAB	UCB_Q_EPB(R2), R0	; Get address of queue header
+	MOVL	R0, R1			; Save queue header address
+	TSTL	(R0)			; Empty queue?
+	BNEQ	400$			; No - continue in here
+;
+;	We can't locate this UCB in the EPB list - therefore we should NOT
+;	be monitoring him and, more to the point, we CANNOT call the REAL
+;	start I/O routine.  In the interest of not corrupting an application...
+;
+  200$:
+	TSTL	@#0
+;	BUG_CHECK	IVLISTK, FATAL	; Kill the king
+;
+;	See if we found a matching UCB for this device. Since it is possible
+;	that we are NOT monitoring all units of this device type, as described
+;	by the DDT, we MUST insure we have the address of the real start I/O
+;	routine if we do not have a EPB for this unit.	If we intercepted the
+;	start I/O routine then we stored the DDT address in a EPB and we can
+;	search the EPB's looking for a matching DDT address.  In summary, we
+;	only exit the loop below with either a DDT address for a unit we are
+;	not monitoring, or an EPB address for a unit we are monitoring.
+;
+	.Align	Long
+  400$: ADDL3	R0, (R0), R0		; Get address of next element
+	CMPL	R0, R1			; Reached end of the queue?
+	BEQL	800$			; Yes - NOT monitoring this unit then
+	CMPL	UCB$L_DDT(R5), EPB_L_DDT(R0)
+	BNEQ	600$			; Compare DDT address in UCB w/ EPB
+	MOVL	R0, R2			; Save an EPB w/ a matching DDT address
+
+  600$: CMPL	EPB_L_UCB(R0), R5	; UCB address in EPB match target UCB?
+	BEQL	HAVE_EPB		; Yes - we have our EPB
+	BRB	400$			; Otherwise keep looking for it
+;
+;	UCB address is not in the EPB list.  Just get outta here quickly...
+;	R2 contains an EPB address with EPB_L_DDT that matches the
+;	UCB$L_DDT address so we can jump outta here cleanly.
+;
+	.Align	Long
+  800$: MOVL	UCB_L_ADDRESS, R1	; Get EPM UCB address in R1
+	REL_FORKLOCK	R1		; Relinquish the fork lock
+	MOVL	#2, DBG_L_LOCATION	; Last place we were at
+.IF DEFINED ALPHA
+	PUSHL	R5			; UCB
+	PUSHL	R3			; IRP
+	CALLS	#2,@EPB_L_STARTIO(R2)	; Call real start I/O
+;	JSB	@EPB_L_STARTIO(R2)	; Call real start I/O
+	RET				; And return
+.IFF
+	JMP	@EPB_L_STARTIO(R2)	; Return control to real start I/O
+.ENDC
+
+	.Page
+	.Sbttl	HAVE_EPB	Found I/O On Unit to Monitor
+;+
+; FUNCTIONAL DESCRIPTION:
+;	This block of code is executed when we have determined that an I/O
+;	operation is active on a device we desire to collect statistics on.
+;
+; INPUTS:
+;	R0	EPB entry
+;	R3	IRP address
+;	R5	UCB address
+;-
+	.Align	Long
+HAVE_EPB:
+.IF DEFINED ALPHA
+	.JSB_ENTRY	INPUT=<R0,R3,R5>
+.ENDC
+	MOVL	UCB_L_ADDRESS, R1	; Get EPM UCB address in R1
+	REL_FORKLOCK	R1, SAVE=YES	; Relinquish the fork lock & save R0
+	MOVL	#3, DBG_L_LOCATION	; Mark where we are at
+	CLRL	R2			; Assume no FCB address in IRP
+	MOVL	IRP$L_WIND(R3), R1	; Get window address
+	BGEQ	200$			; Branch if not an S0 address
+	CMPB	#DYN$C_WCB, WCB$B_TYPE(R1)
+	BNEQ	200$			; Branch if type field doesn't match
+	MOVL	WCB$L_FCB(R1), R2	; Get FCB address from WCB
+;
+;	If accumulated byte count is non-zero then we have a SPLIT I/O.
+
+  200$: TSTL	IRP$L_ABCNT(R3) 	; Have we done part of the I/O yet?
+	BEQL	CHECK_PAGESWAP		; No - don't count it then
+.AXP <	BITL	#IRP$M_VIRTUAL,IRP$L_STS(R3)>
+.VAX <	BITW	#IRP$M_VIRTUAL, IRP$W_STS(R3)>
+	BEQL	CHECK_PAGESWAP		; MUST be a VIRTUAL I/O
+	INCL	EPB_L_SPLITIO(R0)	; Yes - count another one
+;
+;	See if the File ID for this file is in the split files list.
+;
+	TSTL	R2			; Do we have a FCB address?
+	BEQL	CHECK_PAGESWAP		; No - skip this block
+	MOVAB	EPB_A_FILES(R0), R1	; Yes - get base address of file array
+	ADDL	EPB_L_FILESIZE(R0), R1	; Advance to SPLIT area
+	BSBW	COUNT_FILES		; Go count accesses to this file
+;
+;	Next check for a hard page fault being satisfied.
+;
+CHECK_PAGESWAP:
+.AXP <	BITL	#IRP$M_PAGIO,IRP$L_STS(R3)>
+.VAX <	BITW	#IRP$M_PAGIO, IRP$W_STS(R3)>
+	BEQL	200$			; Branch if not for a page fault
+	INCL	EPB_L_PAGIO(R0) 	; Else count the number we see
+	BRB	CHECK_FUNCTION		; Skip a few instructions
+;
+;	See if this was an I/O for the SWAPPER.
+;
+	.Align	Long
+  200$:
+.AXP <	BITL	#IRP$M_SWAPIO,IRP$L_STS(R3)>
+.VAX <	BITW	#IRP$M_SWAPIO, IRP$W_STS(R3)>
+	BEQL	CHECK_FUNCTION		; No - branch over increment
+	INCL	EPB_L_SWAPIO(R0)	; Yes - bump the count
+;
+;	Isolate the I/O function code in R1.
+;
+CHECK_FUNCTION:
+.IF DEFINED ALPHA
+	BICL3	#^C<IO$M_FCODE>,IRP$L_FUNC(R3),R1
+	BITL	#IRP$M_FUNC,IRP$L_STS(R3)
+.IFF
+	BICL3	#^C<IO$M_FCODE>, IRP$W_FUNC(R3), R1
+	BITL	#IRP$M_FUNC, IRP$W_STS(R3)
+.ENDC
+	BEQL	0$			; Branch if not a read request
+	INCL	EPB_L_READS(R0) 	; Else count number of reads
+	BRB	CHECK_SIZE		; Skip over WRITE function code
+
+	.Align	Long
+    0$: CMPL	#IO$_WRITELBLK, R1	; Write logical block?
+	BEQL	200$			; Yes - remember it
+	CMPL	#IO$_WRITEPBLK, R1	; Write physical block?
+	BNEQ	CHECK_SIZE		; No - skip an instruction
+
+  200$: INCL	EPB_L_WRITES(R0)	; Bump write count in EPB
+
+CHECK_SIZE:
+	MOVL	IRP$L_BCNT(R3), R1	; Get transfer size from the IRP
+	CMPL	#EPB_K_1BLOCK, R1	; Is it a 1 block transfer?
+	BLSSU	0$			; Branch if larger than 1 block
+	INCL	EPB_L_1BLOCK(R0)	; Else count it
+	BRB	CHECK_FCB		; Skip rest of size checks
+
+    0$: CMPL	#EPB_K_4BLOCK, R1	; I/O between 2 and 4 blocks?
+	BLSSU	200$			; No - keep looking
+	INCL	EPB_L_4BLOCK(R0)	; Else bump count of 2-4 block I/O's
+	BRB	CHECK_FCB		; Skip rest of size checks
+
+  200$: CMPL	#EPB_K_16BLOCK, R1	; Request for >16 blocks?
+	BLSSU	400$			; Yes - go to next check
+	INCL	EPB_L_16BLOCK(R0)	; No - increment counter
+	BRB	CHECK_FCB		; Skip over rest of checks
+
+  400$: CMPL	#EPB_K_32BLOCK, R1	; Smaller than 32 blocks?
+	BLSSU	600$			; No - go on a bit
+	INCL	EPB_L_32BLOCK(R0)	; Bump count
+	BRB	CHECK_FCB		; Go look for a FCB
+
+  600$: CMPL	#EPB_K_64BLOCK, R1	; Between 33 and 64 blocks?
+	BLSSU	800$			; No
+	INCL	EPB_L_64BLOCK(R0)	; Yes - increment counter
+	BRB	CHECK_FCB
+
+  800$: CMPL	#EPB_K_96BLOCK, R1	; Between 65 and 96 blocks?
+	BLSSU	1000$			; Nope
+	INCL	EPB_L_96BLOCK(R0)	; Yep
+	BRB	CHECK_FCB		; And skip rest of size checks
+
+ 1000$: INCL	EPB_L_LARGE(R0) 	; Say its a BIG I/O
+
+CHECK_FCB:
+	MOVL	IRP$L_WIND(R3), R1	; Get window address
+	BGEQ	2000$			; Branch if not an S0 address
+	CMPB	#DYN$C_WCB, WCB$B_TYPE(R1)
+	BNEQ	2000$			; Branch if not a WCB address
+	MOVL	WCB$L_FCB(R1), R2	; Get FCB address from WCB
+	BEQL	2000$			; No - skip this block
+	MOVAB	EPB_A_FILES(R0), R1	; Get address of accessed file array
+	BSBB	COUNT_FILES		; Remember that we saw it
+
+ 2000$:	MOVL	#6, DBG_L_LOCATION
+.IF DEFINED ALPHA
+	PUSHL	R5			; UCB
+	PUSHL	R3			; IRP
+	CALLS	#2,@EPB_L_STARTIO(R0)	; Call real start I/O
+;	JSB	@EPB_L_STARTIO(R0)	; Call real start I/O
+	RET				; And return
+.IFF
+	JMP	@EPB_L_STARTIO(R0)	; Return control to real start I/O
+.ENDC
+
+	.Page
+	.Sbttl	COUNT_FILES		Count File Accesses
+;+
+;
+; FUNCTIONAL DESCRIPTION:
+;	Count the number of times a particular file is accessed.
+;
+; INPUTS:
+;	R0	Address of EPB element
+;	R1	Address of file count array
+;	R2	Address of FCB
+;
+; OUTPUTS:
+;	R1	destroyed
+;	R2	address of FID field within FCB
+;-
+	.Align	Long
+COUNT_FILES:
+.IF DEFINED ALPHA
+	.JSB_ENTRY	INPUT=<R0,R1,R2>,OUTPUT=<R2>,SCRATCH=<R1>
+.ENDC
+	MOVAB	FCB$W_FID(R2), R2	; Extract FID address from FCB
+	PUSHL	R4			; Save work register
+	MOVL	EPB_L_FILECOUNT(R0), R4 ; Number of saved FCB addresses
+	CLRL	EPB_L_NEXT(R0)		; Clear address of EPB w/ count of 1
+	CLRL	EPB_L_NCOUNT(R0)	; Clear lowest count
+
+    0$: CMPL	(R2), EPF_L_FID(R1)	; Already have FID in array?
+	BNEQ	200$			; No
+	CMPW	4(R2), EPF_W_FID(R1)	; RVN number matches?
+	BEQL	1200$			; Yes
+
+  200$: TSTL	EPF_L_FID(R1)		; Empty EPB element?
+	BEQL	1000$			; Yes
+	TSTL	EPB_L_NCOUNT(R0)	; Found any replacement candidates yet?
+	BEQL	600$			; No - this is the first one then
+	CMPL	EPB_L_NCOUNT(R0), EPF_L_COUNT(R1)
+	BLSSU	800$			; Smaller than last candidate?
+
+  600$: MOVL	EPF_L_COUNT(R1), EPB_L_NCOUNT(R0)
+	MOVL	R1, EPB_L_NEXT(R0)	; Remember next available address
+
+  800$: MOVAB	EPF_S_LENGTH(R1), R1	; Address to next COUNT element
+	SOBGTR	R4, 0$			; Loop back for next search
+	MOVL	EPB_L_NEXT(R0), R1	; Get address of element w/ count of 1
+	BEQL	2000$			; None - ignore this file id then
+
+ 1000$: MOVL	0(R2), EPF_L_FID(R1)	; Yes - record the FID_NUM & FID_SEQ
+	MOVW	4(R2), EPF_W_FID(R1)	; Along w/ the FID_RVN
+
+ 1200$: INCL	EPF_L_COUNT(R1) 	; Bump count for times seen
+
+ 2000$: POPL	R4			; Get EPB address off the stack
+	RSB				; Return to caller
+
+	.Page
+	.Sbttl	EPM_READ	Handle Read Requests
+;+
+; FUNCTIONAL DESCRIPTION:
+;	This is the EPMDRIVER FDT routine that handles IO$_READVBLK requests.
+;	This routine performs the following functions:
+;	1. insure that we do not have another IRP for this EPB;
+;	2. check for write access to the user supplied buffer address;
+;	3. allocate a system buffer for temporary storage of monitoring data;
+;	4. determine if we need to enqueue the TQE for this device.
+;
+; INPUTS:
+;	R3	IRP address
+;	R4	PCB address
+;	R5	UCB address
+;
+; OUTPUTS:
+;	R0	status
+;	R1	destroyed
+;	R10,R11 destroyed
+;-
+NOT_EPB:
+	MOVL	#9, DBG_L_LOCATION
+	MOVZWL	#SS$_UNSAFE, R0 	; It really is...
+	BRB	ABT			; Go tell them
+
+IVBUFLEN:
+	MOVZWL	#SS$_IVBUFLEN, R0	; Set error message in R0
+	BRB	ABT			; And exit in disgrace
+
+OUT_OF_SYNCH:
+	MOVL	#SS$_DEVACTIVE, R0	; Already have a read I/O waiting
+	BRB	ABT			; Abort the I/O
+
+STOPPED:MOVZWL	#SS$_ABORT, R0		; Say no more monitoring on this unit
+	BRB	ABT			; Go tell them
+
+IVADDR: MOVZWL	#SS$_IVADDR, R0 	; Say missing buffer address
+
+ABT:
+.AXP <	CALL_ABORTIO			; And abort the I/O>
+.VAX <	JMP	G^EXE$ABORTIO		; And abort this I/O>
+
+	.Align	Long
+EPM_READ::
+.AXP <	$DRIVER_FDT_ENTRY>
+
+.AXP <	MOVL	IRP$L_QIO_P4(R3),R11	; Get EPB address back>
+.VAX <	MOVL	P4(AP), R11		; Get EPB address back>
+	BGEQ	NOT_EPB 		; Branch if not a valid EPB address
+	CMPW	#DYN_K_EPB, EPB_W_TYPE(R11)
+	BEQL	0$			; Branch if a EPB address
+	CMPW	#DYN_K_DELEPB, EPB_W_TYPE(R11)
+					; EPB rundown in progress?
+	BNEQ	NOT_EPB 		; Branch if not soon to be  deleted EPB
+	BRB	STOPPED 		; Else we're history waiting to happen
+
+    0$: TSTL	EPB_L_IRP(R11)		; Already have a waiting IRP?
+	BNEQ	OUT_OF_SYNCH		; Yes - sorry we're not that complex
+	MOVL	#10, DBG_L_LOCATION
+.AXP <	MOVL	IRP$L_QIO_P2(R3),R1	; Obtain transfer size from QIO>
+.VAX <	MOVL	P2(AP), R1		; Obtain transfer size from QIO>
+	BEQL	IVBUFLEN		; Insure they gave us something
+	MOVL	EPB_L_ZEROTOTAL(R11), R0; Get data length
+	ADDL	#8, R0			; Add in time length
+	CMPL	R0, R1			; Is requested size large enough?
+	BGTRU	IVBUFLEN		; No give the user the bad news
+.AXP <	MOVL	IRP$L_QIO_P1(R3),R0	; Get user's buffer address>
+.VAX <	MOVL	P1(AP), R0		; Get user's buffer address>
+	BEQL	IVADDR			; Hope we have one
+	BSBW	WRITE_CHECK		; See if we have access to it
+;
+;	If we came back then we have write access to the buffer.
+;
+	ADDL	#VMS_S_OVERHEAD, R1	; Account for standard VMS overhead
+	MOVL	R3, R10 		; Use scratch register to preserve IRP
+	JSB	G^EXE$DEBIT_BYTCNT_ALO	; Charge quotas and allocate memory
+	MOVL	R10, R3 		; Restore IRP address to R3
+	BLBC	R0, ABT 		; Abort I/O if no quota left
+;
+;	Set up the buffer in the 'standard' VMS format.
+;
+.AXP <	MOVL	R1,IRP$L_BOFF(R3)	; Along with allocated size>
+.VAX <	MOVW	R1, IRP$W_BOFF(R3)	; Along with allocated size>
+	MOVL	R2, IRP$L_SVAPTE(R3)	; Save address in IRP
+	MOVAB	VMS_S_OVERHEAD(R2), (R2); Address of start of user data
+.AXP <	MOVL	IRP$L_QIO_P1(R3),4(R2)	; User's buffer address>
+.VAX <	MOVL	P1(AP), 4(R2)		; User's buffer address>
+	MOVL	R3, EPB_L_IRP(R11)	; Save IRP address in EPB
+;
+;	See if this is the first time thru, and if we need to enqueue the TQE.
+;
+	MOVAB	EPB_S_LENGTH(R11), R1	; Get embedded TQE address
+	ADDL	EPB_L_FILETOTAL(R11), R1; Skip past file counters
+	TSTL	TQE$L_TQFL(R1)		; Sitting on the queue?
+	BNEQ	2000$			; Branch if already on queue
+;
+;	Enqueue TQE. R5 will contain TQE address, R0/R1 quadword expiration time
+;
+	PUSHL	R5			; Preserve UCB address
+	PUSHL	R4
+	PUSHL	R3
+	MOVL	R1, R5			; Copy TQE address to R5
+	READ_SYSTIME R0 		; Obtain current 64 bit time in R0/R1
+	ADDL	TQE$Q_DELTA(R5), R0	; Add in delta time
+	BCC	1000$			; Branch if add didn't set the carry bit
+	INCL	R1			; Else ADD 1 to high order 32 bits
+
+ 1000$: JSB	G^EXE$INSTIMQ		; Put it in the queue (Start the clock)
+	POPL	R3			; Restore IRP address
+	POPL	R4			; Restore PCB address
+	POPL	R5			; Restore UCB address to R5
+
+ 2000$:	MOVL	#20, DBG_L_LOCATION
+.AXP <	CALL_QIODRVPKT			; Go to START I/O routine>
+.VAX <	JMP	G^EXE$QIODRVPKT		; Go to START I/O routine>
+
+	.Page
+	.Sbttl	WRITE_CHECK	Verify Write Access To Buffer
+;+
+; FUNCTIONAL DESCRIPTION:
+;	This routine is called to verify the user program has write access to a
+;	buffer address supplied as input to EPMDRIVER.	This performs similiar
+;	operations as the VMS EXE$READ routine but is optimized for our needs.
+;
+; INPUTS:
+;	R1	Length of buffer
+;	R2	Address of buffer
+;
+; OUTPUTS:
+;	R0	Preserved if success SS$_ACCVIO if could not get WRITE access
+;
+; SIDE EFFECTS:
+;	If we do not have write access to the buffer we abort the I/O request
+;	by transferring control to EXE$ABORTIO
+;-
+WRITE_CHECK:
+.IF DEFINED ALPHA
+	.JSB_ENTRY	INPUT=<R1,R2>,OUTPUT=<R0>
+.ENDC
+	PUSHL	R0			; Save R0
+	MOVQ	R1, -(SP)		; R1 contents and R2 contents
+	BSBB	0$			; Do it
+	MOVQ	(SP)+, R1		; Restore work register & size
+	POPL	R0			; And original R0 contents
+.IF DEFINED ALPHA
+	BISL2	#IRP$M_FUNC, IRP$L_STS(R3)
+	MOVL	IRP$L_QIO_P2(R3),-	; Remember number of bytes
+		IRP$L_BCNT(R3)
+.IFF
+	BISW2	#IRP$M_FUNC, IRP$W_STS(R3)
+	MOVW	P2(AP), IRP$W_BCNT(R3)	; Remember number of bytes
+.ENDC
+	RSB				; Exit
+
+    0$:
+.IF DEFINED ALPHA
+	.JSB_ENTRY	INPUT=<R0,R1>,SCRATCH=<R2>
+.ENDC
+	ADDL2	R0, R1			; Compute ending buffer address
+.AXP <	BICW2	#VA$M_BYTES_PER_PAGELET, R0		; Truncate start addr to page boundary>
+.VAX <	BICW2	#VA$M_BYTE, R0		; Truncate start addr to page boundary>
+	SUBL2	R0, R1			; Restore length to R1
+	CVTWL	#-^X200, R2		; Load address adjustment size in R2
+
+  200$: CVTLW	R1, R1			; Does it fit in 16 bits?
+	BVS	600$			; Branch if > 32K
+
+  400$:	IFNOWRT R1, (R0), ACCVIO	; If no access then branch
+	SUBL2	R2, R0			; Caculate next page address
+	MOVAW	(R1)[R2], R1		; Size of next segment to validate
+	BGTR	400$			; Branch if more
+	RSB				; Exit
+;
+;	This code is never executed w/ EPMDRIVER, but is included as
+;	an example of how to handle large buffer sizes.
+;
+  600$: MOVQ	R0, -(SP)		; Preserve R0 and R1
+	MOVZWL	#^X7E00, R1		; Size of next chunk (32K - 1 page)
+	ADDL2	R1, (SP)		; Point to next address to check
+	SUBL2	R1, 4(SP)		; Decrement size remaining to be checked
+  650$:	IFNOWRT R1, (R0), ACCVIO	; If no access then branch
+	SUBL2	R2, R0			; Caculate next page address
+	MOVAW	(R1)[R2], R1		; Size of next segment to validate
+	BGTR	650$			; Branch if more
+
+	MOVQ	(SP)+, R0		; Restore original values
+	BRB	200$			; See if length now less than 32 K
+
+ACCVIO: MOVZWL	#SS$_ACCVIO, R0 	; Set exit status in R0
+.AXP <	CALL_ABORTIO			; Abort the I/O request>
+.VAX <	JMP	G^EXE$ABORTIO	 	; Abort the I/O request>
+
+	.Page
+	.Sbttl	TQE_EXPIRATION		AST Routine for Notifying Process
+;+
+; FUNCTIONAL DESCRIPTION:
+;	This routine is called when the TQE entry comes due.  We determine if
+;	the process monitoring the device has an outstanding read request,
+;	as signified by the EPB_L_IRP field containing an IRP address, and
+;	if so, copy the statistics data to the system buffer pointed to by
+;	IRP$L_SVAPTE.  This routine has been optimized for speed.
+;
+; INPUTS:
+;	R3	EPB address
+;	R5	TQE address
+;
+; OUTPUTS:
+;	R5	address of TQE or EXE$AR_TQENOREPT
+;-
+	.Align	Long
+TQE_EXPIRATON::
+.IF DEFINED ALPHA
+	.JSB_ENTRY	INPUT=<R3,R5>,OUTPUT=<R5>
+.ENDC
+;
+;	Check to see if we are to terminate monitoring.
+;
+	MOVL	#30, DBG_L_LOCATION
+	CMPW	#DYN_K_DELEPB, EPB_W_TYPE(R3)
+	BNEQ	600$			; Branch if not a deleted EPB
+;
+;	Time to clean up this mess.  We need to remove this EPB from the queue.
+;
+	MOVL	UCB_L_ADDRESS, R2	; Get our UCB address
+	BLSS	0$			; Branch if one there & S0 address
+	TSTL	@#0
+;	BUG_CHECK  INCONSTATE, FATAL	; Oh well we &%$#ed up somewhere
+;
+;	Acquire the EPM fork lock to synchronize the queue traversal.
+;	Assumption here is that EPM fork lock is the highest possible one
+;	to prevent breaking the synchronization rules.
+;
+	.Align	Long
+    0$: ACQ_FORKLOCK	R2		; Acquire the EPM fork lock
+	MOVAB	UCB_Q_EPB(R2), R0	; Get address of queue header
+
+  200$: REMQHI	(R0), R2		; Dequeue an EPB entry
+	BVS	400$			; Nothing there - branch
+	CMPL	R3, R2			; Found EPB address in the queue?
+	BEQL	400$			; Match - need to clean it up
+	INSQTI	(R2), (R0)		; No - put it back on queue
+	ADDL3	R2, (R2), R4		; Compute next entry in queue
+	CMPL	R4, R0			; Reached end of queue?
+	BNEQ	200$			; No - jump back to beginning of loop
+;
+;	We deallocate the EPB and then substitute the system-wide no repeat
+;	TQE entry on the stack for the saved TQE address.
+;
+  400$: MOVL	UCB_L_ADDRESS, R2	; Get our UCB address back
+	REL_FORKLOCK	R2		; Relinquish the fork lock
+	MOVW	#DYN$C_IRP, EPB_W_TYPE(R3)
+	MOVL	R3, R0			; Get address of EPB in R0
+	JSB	G^EXE$DEANONPAGED	; And toss EPB back in the ocean
+	MOVL	G^EXE$AR_TQENOREPT, R5	; Replace R5 contents w/ permanent TQE
+	MOVL	#33, DBG_L_LOCATION	; Debug location
+	RSB				; Get outta here now
+;
+;	We are still monitoring this device so get the address of the waiting
+;	IRP from the EPB.  If there is no IRP we simply dismiss this AST.
+;
+	.Align	Long
+  600$: PUSHL	R5			; Save TQE address
+	MOVL	R3, R2			; Get EPB base address in R2
+	MOVL	EPB_L_IRP(R2), R3	; Get waiting IRP address from EPB
+	BEQL	1000$			; None-can't do much except zero counts
+;
+;	Now we need to transfer the data from the EPB to the users buffer.
+;
+	MOVL	IRP$L_SVAPTE(R3), R1	; Get system buffer address
+	CLRL	EPB_L_IRP(R2)		; Dump off IRP address
+	PUSHL	R2			; Save EPB address
+	PUSHL	R3			; Preserve IRP address
+	MOVAB	VMS_S_OVERHEAD(R1), R1	; Offset past fixed overhead
+	MOVL	R2, (R1)+		; Move in EPB address
+	READ_SYSTIME (R1)		; Get current time
+	MOVL	EPB_L_ZEROTOTAL(R2), R0	; Get size to return
+	PUSHL	R0
+	MOVC3	R0, EPB_L_WRITES(R2), 8(R1)
+					; Copy statistics to system buffer
+	POPL	R0
+	POPL	R3			; Retrieve IRP address from stack
+;
+;	Go post the IRP so the I/O read completes.
+;
+	MOVL	#SS$_NORMAL, IRP$L_MEDIA(R3)
+					; Say success in IOSB
+	ADDL	#12, R0			; Add in length of time field
+	MOVL	R0, IRP$L_MEDIA+4(R3)	; Get size of transfer in IOSB+4
+	MOVL	R0, IRP$L_BCNT(R3)	; Tell post processsing how many bytes
+	MOVL	UCB_L_ADDRESS, R5	; Get address of EPM UCB
+	BSBW	POST_IRP		; Call routine to post it for us
+	POPL	 R2			; Get EPB address back in R2
+;
+;	Zero out counter fields in EPB.
+;
+ 1000$:	MOVL	EPB_L_ZEROTOTAL(R2), R0	; Volitile data size
+	MOVC5	#0,#0,#0, R0, EPB_L_WRITES(R2)
+					; Zero out counter fields
+	POPL	R5			; Restore TQE address to R5
+
+ 2000$:	MOVL	#38, DBG_L_LOCATION	; Mark last location
+	RSB				; Then return to caller
+
+	.Page
+	.Sbttl	EPM_STOP	Terminate Monitoring on a Device
+;+
+;
+; FUNCTIONAL DESCRIPTION:
+;	This is the FDT routine that is called to terminate monitoring.
+;
+; INPUTS:
+;	R3	IRP address
+;	R5	UCB address
+;
+; SIDE EFFECTS:
+;	Monitoring is terminated on all units.
+;
+;-
+	.Align	Long
+EPM_STOP::
+EPM_CANCEL::				; CANCEL entry point
+.AXP <	$DRIVER_CANCEL_ENTRY>
+
+	MOVL	#40, DBG_L_LOCATION	; Debug location
+	MOVQ	R0, -(SP)		; Save all registers we muck with
+	MOVQ	R2, -(SP)		; So we can exit very cleanly
+	MOVQ	R9, -(SP)		; R9 & R10, too
+	PUSHL	R11			; Save one mo' register
+;
+;	Acquire the EPM fork lock to synchronize the queue traversal.
+;
+LOOP:	ACQ_FORKLOCK	R5		; Acquire the fork lock
+	MOVAB	UCB_Q_EPB(R5), R2	; Get address of queue header
+	MOVL	R2, R11 		; Save queue header address
+	TSTL	(R11)			; Empty queue?
+	BEQL	400$			; Yes - done in here
+;
+;	Dequeue an EPB element.  If PID matches or EPM is marked for delete
+;	then we want to process it, otherwise reinsert it on the queue.
+;
+    0$:	REMQHI	(R11), R2		; Dequeue next EPB entry
+	BVS	400$			; Branch if we are done
+	CMPW	#DYN_K_DELEPB, EPB_W_TYPE(R2)
+	BEQL	200$			; Skip if element marked for delete
+	CMPL	EPB_L_PID(R2), PCB$L_PID(R4)
+	BEQL	600$			; Branch if PIDs match
+
+  200$:	INSQTI	(R2), (R11)		; Else reinsert EPB on the queue
+	ADDL	(R2), R2		; Get address of next element
+	CMPL	R2, R11 		; Reached end of the queue?
+	BNEQ	0$			; No loop back for next EPB on queue
+
+  400$: CLRL	R2			; Clear found field
+;
+;	Release the fork lock and see if we found an EPB to clean up.
+;
+  600$:	REL_FORKLOCK	R5		; Relinquish the fork lock
+	TSTL	R2			; Have a EPB address in R2
+	BNEQ	1000$			; Yes - handle it
+	POPL	R11			; No - restore all the
+	MOVQ	(SP)+, R9		; ...saved registers
+	MOVQ	(SP)+, R2		; ...prior to exiting
+	MOVQ	(SP)+, R0		; ...so everything else works!
+	MOVL	#49, DBG_L_LOCATION	; Remember where we last were
+.AXP <	RET>
+.VAX <	RSB				; Then we are done>
+;
+;	We have an EPB that needs attention.  First thing we want to do
+;	here is add back the quotas we deducted when we started up.
+;
+	.Align	Long
+ 1000$: MOVL	PCB$L_JIB(R4), R0	; Address of JIB to R0
+.IF DEFINED ALPHA
+	ADAWI	#1, PCB$L_ASTCNT(R4)	; Put back the AST quota we took
+	ADAWI	#1, JIB$L_TQCNT(R0)	; And the TQE quota we deducted
+.IFF
+	ADAWI	#1, PCB$W_ASTCNT(R4)	; Put back the AST quota we took
+	ADAWI	#1, JIB$W_TQCNT(R0)	; And the TQE quota we deducted
+.ENDC
+	BSBW	RESET_DDT		; Restore original START I/O to DDT
+;
+;	We now cancel the outstanding IRP - if one exists.
+;
+	MOVL	#44, DBG_L_LOCATION
+	MOVL	EPB_L_IRP(R2), R3	; Get outstanding IRP address in R3
+	BEQL	1400$			; Branch if no outstanding IRP
+	MOVL	#SS$_CANCEL, IRP$L_MEDIA(R3)
+					; Set final status in IOSB
+	CLRL	IRP$L_MEDIA+4(R3)	; Along w/ zero bytes transferred
+	BSBB	POST_IRP		; And go post the IRP
+	CLRL	EPB_L_IRP(R2)		; Insure we forget it was there
+;
+;	Mark the EPB as ready to delete and wait until the TQE_EXPIRATION
+;	routine is once again called.  When it is called it will delete the
+;	entire EPB entry and substitute the system-wide norepeat TQE  address
+;	for the embedded TQE address.  This was done to make dequeuing of the
+;	TQE easier.  There is no real support in VMS for removing a repeating
+;	system routine TQE other than this substitution.
+;
+ 1400$: MOVW	#DYN_K_DELEPB, EPB_W_TYPE(R2)
+	MOVAB	EPB_S_LENGTH(R2), R1	; Get embedded TQE address
+	ADDL	EPB_L_FILETOTAL(R2), R1	; Include in file counter overhead
+	TSTL	TQE$L_TQFL(R1)		; Sitting on the queue?
+	BNEQ	2000$			; Branch if already on queue
+	MOVW	#DYN$C_IRP, EPB_W_TYPE(R2)
+	MOVL	R2, R0			; Get pool address in R0
+	JSB	G^EXE$DEANONPAGED	; And toss EPB back in the ocean
+
+ 2000$: ACQ_FORKLOCK	R5		; Re-acquire the fork lock
+	BRW	0$			; Go re-search the EPB list
+
+	.Page
+	.Sbttl	POST_IRP	Put IRP On I/O Post Completion Queue
+;+
+;
+; FUNCTIONAL DESCRIPTION:
+;	Subroutine to post EPM IRP to the completion queue.
+;
+; INPUTS:
+;	R3	IRP address
+;	R5	UCB address
+;
+; OUTPUTS:
+;	R0	destroyed
+;-
+	.Align	Long
+POST_IRP:
+.IF DEFINED ALPHA
+	.JSB_ENTRY	INPUT=<R3,R5>,SCRATCH=<R0>
+.ENDC
+	ACQ_FORKLOCK	R5, save=YES	; Acquire EMP FORK lock & save R0
+;
+;	Go post the IRP so the I/O read completes.
+;
+	JSB	G^COM$POST		; Post IRP
+;
+;	Release the FORK lock on the EPM device.
+;
+	REL_FORKLOCK	R5		; Relinquish the EPM fork lock
+	RSB				; All done in here
+
+	.Page
+	.Sbttl	RESET_DDT	Restore Original START I/O Address in DDT
+;+
+; FUNCTIONAL DESCRIPTION:
+;	This routine is called to put back the original start I/O routine into
+;	the DDT that describes the device we were monitoring.
+;
+; INPUTS:
+;	R2	EPB address
+;	R5	EPM UCB address
+;	R11	EPB queue header address
+;
+; OUTPUTS:
+;	R0,R1	destroyed
+;	R9	monitored UCB address
+;	R10	random
+;-
+	.Align	Long
+RESET_DDT:
+.IF DEFINED ALPHA
+	.JSB_ENTRY	INPUT=<R2,R5,R11>,OUTPUT=<R9>,SCRATCH=<R0,R1,R10>
+.ENDC
+	MOVL	#60, DBG_L_LOCATION
+	MOVL	EPB_L_UCB(R2), R9	; Get UCB out of EPB
+	ACQ_FORKLOCK	R5		; Acquire EPM FORK LOCK
+	MOVAB	UCB_Q_EPB(R5), R0	; Get address of queue header
+	MOVL	R0, R1			; Save queue header address
+	TSTL	(R0)			; Empty queue?
+	BEQL	200$			; Yes - done in here
+
+    0$:	ADDL3	R0, (R0), R0		; Get address of next element
+	CMPL	R0, R2			; Found our EPB entry?
+	BEQL	0$			; Yes - loop back for next EPB
+	CMPW	#DYN_K_DELEPB, EPB_W_TYPE(R0)
+	BEQL	0$			; Ignore if marked for delete
+	CMPL	R0, R1			; Reached end of the queue?
+	BEQL	200$			; Yes - ok to restore DDT address
+	CMPL	UCB$L_DDT(R9), EPB_L_DDT(R0)
+	BEQL	400$			; Branch if matching DDT address found
+	BRB	0$			; Else keep looping thru
+
+  200$: CLRL	R1			; Say ok to reset DDT address
+
+  400$: REL_FORKLOCK	R5		; Relinquish the fork lock
+	TSTL	R1			; Need to leave DDT as is?
+	BEQL	600$			; No - go modify it
+	MOVL	#64, DBG_L_LOCATION	; Remember where we were
+	BRW	2000$			; Yes - exit quickly
+;
+;	Acquire the fork lock associated w/ the disk device and replace the
+;	real start I/O address in the DDT.
+;
+  600$:	MOVL	#66, DBG_L_LOCATION	; *** DEBUG location
+	PUSHL	R3			; Save R3 so we can copy EPB to it
+	MOVL	R2, R3			; And do the copy
+	ACQ_FORKLOCK	R9		; Acquire the disk fork lock
+
+.IF DEFINED ALPHA
+	MOVL	UCB$L_DDT(R9),R10	; Get DDT address
+	MOVL	EPB_L_STARTIO(R3),-	; Put back original STARTIO address
+		DDT$PS_START_2(R10)
+	TBI_SINGLE	ADDR=R10
+.IFF
+	INVALIDATE_TB addr=R10 environ=VMS -
+		inst1=<MOVL    UCB$L_DDT(R9), R10> -	 ; Get DDT address
+		inst2=<MOVL    EPB_L_STARTIO(R3), DDT$L_START(R10)>
+					; Put back original start I/O address
+.ENDC
+	REL_FORKLOCK	R9		; Relinquish the disk fork lock
+	POPL	R3			; Restore R3 contents
+	MOVL	#69, DBG_L_LOCATION	; Remember where we were
+
+ 2000$:	RSB				; Return to caller
+EPM_END:				; Last label in the driver
+	.End

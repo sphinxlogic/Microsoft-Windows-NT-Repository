@@ -1,0 +1,65 @@
+ 	.TITLE	TST_EMUDB  
+; Test that len included in IP rec agrees with rec len.
+
+	.IDENT /V01-001/
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY        /EMU5_LIB:EMU5.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$NMADEF
+	$LCKDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUCNTDEF
+	EMUPSRDEF
+	EMUPSRDEF
+	EMUDBDEF
+;
+
+	.psect	TST_EMUDB,wrt,noexe,pic,shr,page
+;
+; 
+EMUDBREC_BUF:	.BLKB	DB_REC_C_MRS
+EMUDBREC_DESC:	.LONG	.-EMUDBREC_BUF
+		.ADDRESS  EMUDBREC_BUF 		; 
+RECCNT:		.LONG
+bad:		.long
+	.PSECT	TST_EMUDB_C,NOWRT,EXE,SHR,PIC,LONG
+	.sbttl	relater ()
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TST_EMUDB
+
+
+; Get all occurences of protocol = 7
+	MOVAL	EMUDBREC_BUF,R8
+	MOVL	#SYS_PID_C_PSRIP,EMUDBREC_BUF
+
+10$:
+	MOVL	#DB_REC_C_MRS,EMUDBREC_DESC
+	PUSHAL	RECCNT			; Record count
+	PUSHL	#5			; Report level
+	CLRL	-(SP)			; Search direction
+	PUSHAL	EMUDBREC_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_PROTO 	; Key of ref
+	CALLS	#5,G^EMUDB_READ
+        BLBS	R0,100$
+	CMPL	R0,#SS$_INSFMAP
+	BEQLU	100$
+	RET
+100$:
+	CMPL	#SYS_PID_C_PSRIP,EMUDBREC_BUF
+	BEQLU	110$
+	RET
+110$:
+	SUBL3	#DB_REC_C_SDATA,EMUDBREC_DESC,R3
+	CMPB	R3,DB_REC_L_snmpl(R8)
+	BEQLU	10$
+	incl	bad
+	BRW	10$
+	.END	TST_EMUDB
+

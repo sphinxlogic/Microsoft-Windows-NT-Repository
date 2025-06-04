@@ -1,0 +1,21 @@
+Patch for Opcode for Perl >= 5.005.59
+
+1) make routines in Safe:: partitions think they are in main::
+2) connect the _ in the partition to the global _
+
+
+--- ext/Opcode/Opcode.xs-orig	Wed Jul 26 07:00:15 2000
++++ ext/Opcode/Opcode.xs	Wed Jul 26 06:59:39 2000
+@@ -253,6 +253,12 @@
+     save_hptr(&PL_defstash);		/* save current default stack	*/
+     /* the assignment to global defstash changes our sense of 'main'	*/
+     PL_defstash = gv_stashpv(Package, GV_ADDWARN); /* should exist already	*/
++    if (strNE(HvNAME(PL_defstash),"main")) {
++        Safefree(HvNAME(PL_defstash));         
++        HvNAME(PL_defstash) = savepv("main"); /* make it think it's in main:: */
++        hv_store(PL_defstash,"_",1,(SV *)PL_defgv,0);  /* connect _ to global */
++        SvREFCNT_inc((SV *)PL_defgv);  /* want to keep _ around! */
++    }
+     save_hptr(&PL_curstash);
+     PL_curstash = PL_defstash;
+ 

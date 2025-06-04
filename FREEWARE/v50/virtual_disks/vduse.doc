@@ -1,0 +1,66 @@
+VDdriver allows use of contiguous files on VMS disks, or contiguous
+areas of disks (which can thus be used without file structures on them
+other than on virtual disks) as separate volumes. It also contains some
+support code for use with DEC volume shadowing but this is untried; if
+it works it will allow you to shadow VD volumes as if they were physical
+ones.
+
+This version builds & runs on VMS 7.0 (FT flavor at least), i.e., has
+the necessary 64-bit support flagging.
+
+To use, basically you create contiguous files (or decide on areas), use
+sysman io to connect VD units, then use a privileged image asnvd_S264
+to associate those files with VD units and thus bring the VD units online.
+
+VD disks can be MSCP served.
+
+To create contiguous files I use the following (assuming I have a small
+foo.exe in sys$login:)
+
+$copy/contig/alloc=nnnnnnn sys$login:foo.exe disk:[somewhere]file.dsk
+$set file/noback disk:[somewhere]file.dsk
+$set fine/nomove disk:[somewhere]file.dsk
+$set file/noshelve disk:[somewhere]file.dsk
+
+
+It is optional to protect disk:[somewhere]file.dsk against deletion.
+If there is danger it may be deleted accidentally DO PROTECT IT.
+These container files are NOT locked in any way and VDdriver will
+just use the assigned disk area even if the files are removed or
+moved. Be sure this can't happen.
+
+$set prot=(sys:rwe,own:rew,gr:re,wo:re) disk:[somewhere]file.dsk
+
+will remove delete access. You may optionally disallow world
+and group access altogether; it has NO EFFECT on access to the VD
+data.
+
+Now copy asnvd_s264.exe and vddriver.exe to sys$common:[sysexe]
+and set a VD up like this:
+
+
+$ sysman :== $sysman
+$sysman io connect vda0:/noada/driver=sys$system:vddriver
+$sysman io connect vda1:/noada/driver=vddriver
+... for more units work like the vda1: one...
+
+$asnvd :== $asnvd_s264
+$asnvd/assign vda0: disk:[somewhere]file.dsk
+
+Now VDA0: will appear online in SHOW DEVICE.
+
+First time you do this, INIT the disk. Subsequently just mount it.
+
+e.g. FIRST TIME
+
+$init/sys/noverif vda0: vd0lbl
+
+(to give vda0: the volume label "VD0LBL")
+
+and to use
+
+$mou/sys vda0: vd0lbl	! or whatever volume label you INITed with.
+
+Use this for as many units as you like. VDdriver is assembled for
+up to 64 units now. Change the parameter VD_UNITS in vddriver_S264.mar
+and recompile to increase this.

@@ -1,0 +1,310 @@
+	.TITLE	TST_GETPARAM  
+	.IDENT /V01-001/
+;
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+	EMUCMIPDEF
+	EMUDBDEF
+	EMUPSRDEF
+	EMUSYSDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	$SECDEF				; Global Section 
+	.PSECT	DATA WRT,NOEXE,QUAD
+
+; returned addresses
+CONTROL_A:		.QUAD
+DN5DB_A:		.QUAD
+COUNTERS_A:		.QUAD
+DADDR:			.QUAD
+CRCDESC:		.QUAD	0
+CRCINIT:		.LONG	0
+CRCPOLY:		.LONG  ^O120001
+CRCTBL:			.BLKL	16	
+KEY_BUF:
+BOXID:		.LONG
+TBL:		.WORD
+PARAM:		.WORD
+INSTANCE:	.LONG
+HIORD:		.BYTE	^XAA,^X00,^X04,^X00	; Hi order of decnet address
+DECID:		.BYTE	^X2B,^X0C,^X02,^X87     ; Hi order of DEC Id
+FAOBUF:		.BLKL	132
+FAODESC:
+FAOLEN:		.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+FAOLIST:	.BLKL	64
+FAOSTR:		.BLKB	64
+FAOSTR_D:	.LONG	.-FAOSTR 		; Dynamic
+		.ADDRESS  FAOSTR
+DN4TYP:		.WORD	^X0360
+PARAMSTR:		.ASCID	/ Paramater: !UL, Len: !UL, Primatives: !UL /
+PRIM:		.ASCID	/     Tag: !UW !UW, (!UL) Data: !XL !XL !XL !XL/
+RESPMSG:      	.ASCID	/ !2UL.!4UL Status = !XL /
+
+
+; Return packet
+	.ALIGN	LONG
+CONTEXT:	.LONG	0
+RETURN:	 	.BLKB	8192		
+RETURN_D:       .LONG	.-RETURN
+		.ADDRESS  RETURN
+;
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 48
+VD_COLS: 	.LONG 132
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+BYTCNT:		.WORD		; Input Byte counter
+OSITYP: 	.WORD   ^XFE00
+; Misc SMG ...
+PROMPT:		.ASCII	/YEAM> /
+CMDCOL:		.LONG	1
+CMDROW:		.LONG	1
+CURCOL:		.LONG   1
+CURROW:		.LONG   3
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+TIMEOUT:	.LONG	15
+CHARCNT:	.LONG	15
+FIRSTFLG:	.LONG	0
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+
+
+	.PSECT	CODE	EXE,NOWRT,LONG
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=TST_GETPARAM
+; Command interface MBX. Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	calls	#0, g^asn_tempmbx_system
+	bsbw	sca_error_chk		; 
+;
+
+; Build Initial Display
+	
+	BSBW	CREATE_ENVIRONMENT
+; Create CRC table for later input to CRC generation
+	PUSHAL	CRCTBL
+	PUSHAL	CRCPOLY		;  16 bit 
+	CALLS	#2,G^LIB$CRC_TABLE
+;	
+; Create and Map to sections 
+	PUSHAL	COUNTERS_A
+	CALLS	#1,G^MAP_COUNTERS
+	BSBW	SCA_ERROR_CHK
+	pushal	control_a		; Control section return addresses
+	calls	#1, g^map_control	; Create and map control section
+	BSBW	SCA_error_chk		; check errors
+
+	BSBW	SCA_ERROR_CHK
+ 
+	PUSHL	#SYS_MAP_C_PSRDN5	; Map dn5
+        PUSHAL	DN5DB_A
+	CALLS	#2, G^MAP_DB		; Map DB
+	BSBW	SCA_ERROR_CHK		;
+	MOVL	DN5DB_A,R11		; Top of table
+	ADDL3	#PSR_DN5_C_RECSIZE,R11,R6		; 1st entry 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	10$					
+	BRW	56$				; br if None
+10$:
+	BBC	#SYS_COM_V_DELETE,COM_HDR_L_SYSCTL(R6),20$ ; Br if not deleted
+	BRW	56$
+; Deternmine if this address is a candidate.
+; if the last 7 digits of the address match :
+; AA-00-04-00-xx-xx-21 (xx = dont care)
+; then select this addr
+20$:
+       	SUBL3	#7,PSR_DN5_L_ADDRLEN(R6),R1	; Offset to last 7
+	ADDL3	#PSR_DN5_B20_ADDR,R6,R10         ; Addr
+	ADDL	R1,R10				; 
+	CMPL	(R10),HIORD
+	BEQLU	30$
+	BRW	55$
+30$:
+	CLRL	CONTEXT
+        MOVL	#8192,RETURN_D
+40$:
+	PUSHAL	CONTEXT
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#GD5_FCN_C_DN5_SC_APP
+	MOVZWL	4(R10),-(SP)             ; Node number
+	CALLS	#4,G^GETOSI
+;
+	MOVL	R0,R8                  ; Save return
+	MOVL	#132,FAODESC
+	MOVZWL	4(R10),DADDR
+	EDIV    #1024,DADDR,R2,R3
+	PUSHL	R0			; Return
+	PUSHL	R3
+	PUSHL	R2
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RESPMSG
+	CALLS	#6,G^SYS$FAO
+	BLBS	R0,50$
+	RET
+50$:
+	BSBW	PRINT
+	CMPL	#SS$_NOMOREITEMS,R8
+	BEQLU	55$
+	BLBS	R8,70$
+55$:
+	ADDL	#PSR_DN5_C_RECSIZE,R6		; Next entry
+	SOBGTR	R11,57$
+56$:
+        RET
+57$:	BRW	10$
+60$:
+; Output:
+	PUSHAL	CONTEXT
+	PUSHAL	RETURN_D               	; Output block
+	PUSHL	#GD5_FCN_C_DN5_SC_APP
+	PUSHL	4(R10)             ; Node number
+	CALLS	#4,G^GETOSI
+	BLBS	R0,70$
+	brw	55$			; NEXT NODE
+
+70$:
+	CMPL	R0,#SS$_NOMOREITEMS
+	BEQLU	55$
+	MOVQ	RETURN_D,R8
+; Print param
+80$:
+	TSTL	(R9)
+	BNEQ    85$
+	BRW	120$				; Br if len = 0
+85$:
+	MOVL	#132,FAODESC
+	PUSHL	8(R9)                           ; PRIMATIVES
+	PUSHL	(R9)				; LEN
+	PUSHL	4(R9)				; Param no.
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PARAMSTR
+	CALLS	#6,G^SYS$FAO
+	BSBW	PRINT
+	MOVL	8(R9),R4			; Count of prim
+	ADDL3	#12,R9,R3			; 1st prim
+90$:
+	MOVL	#132,FAODESC
+	PUSHL	20(R3)               ; DATA
+	PUSHL	16(R3)
+	PUSHL	12(R3)
+	PUSHL	8(R3)
+	PUSHL	4(R3)                ; LEN
+        MOVZWL	2(R3),-(SP)         ;TAG
+        MOVZWL	(R3),-(SP)
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	PRIM
+	CALLS	#10,G^SYS$FAO
+	BSBW	PRINT
+	MOVL	4(R3),R1
+	ADDL	#8,R1
+	ADDL	R1,R3
+	SOBGTR	R4,90$			; Loop for each primative
+
+
+
+120$:
+	MOVL	(R9),R1
+	ADDL	#4,R1
+	ADDL	R1,R9
+	SUBL	R1,R8
+	BGTR	130$
+	BRW	60$
+130$:
+	BRW	80$
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	SCA_ERROR_CHK
+		RSB
+
+PRINTH:		
+		PUSHL	R1			; Addr of .ascid in R1
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	SCA_ERROR_CHK
+		RSB
+
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Virtual Display
+;
+CR_DISP:
+	CLRL	-(SP)
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	SCA_ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	SCA_ERROR_CHK
+;
+; Enable Unsolocited Input
+;
+;	PUSHAL	GET_INPUT                        ; AST Routine
+;	PUSHAL	PB_BOARD                         ; PB ID
+;	CALLS	#2,G^SMG$ENABLE_UNSOLICITED_INPUT
+;	BSBW	SCA_ERROR_CHK
+
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	SCA_ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	SCA_ERROR_CHK
+;
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	RSB
+SCA_ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	BLBC	R0,10$
+	RSB
+10$:
+	$EXIT_S	R0
+	.END	TST_GETPARAM
+
+

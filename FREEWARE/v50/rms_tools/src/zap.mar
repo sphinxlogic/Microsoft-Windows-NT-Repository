@@ -1,0 +1,219 @@
+;
+; Simplistic tool to Read, Verify, Modify and Rewrite Indexed file buckets.
+;
+; Main use is to PATCH remote or very large indexed file.
+; as it reads & writes only the blocks needed.
+
+; Have fun, Hein van den Heuvel, 1985
+; 1996: Add Next, Size, and X command. Default first bucket from XAB$L_DVB.
+;
+cr=13
+lf=10
+	.PSECT	help,noexe,nowrt
+help:	.ASCID	<cr><lf>-
+
+"	##   read VBN ##."<cr><lf><cr><lf>-
+"	X    followed by hexadecimal number to read VBN ##."<cr><lf>-
+"	S    followed by number to set bucket size = size to read."<cr><lf>-
+"	D    to get into the debugger. Bucket pointed to by R2."<cr><lf>-
+"	GO   While in the Debugger to get back to the prompt."<cr><lf>-
+"	W    Write out the bucket (back at prompt)"<cr><lf>-
+"	F    format data as bucket header for indexed file."<cr><lf>-
+"	<CR> reads next (or first) bucket."<cr><lf><cr><lf>
+
+	.PSECT	code,exe,nowrt
+	.ENTRY	START, ^M<>
+	PUSHAL	FILENAME_SIZ
+	PUSHAQ	FILENAME_PROMPT
+	PUSHAQ	FILENAME
+	CALLS	#3, G^LIB$GET_FOREIGN
+	MOVB	FILENAME_SIZ, FAB+FAB$B_FNS	;Insert the filename size
+	$OPEN	FAB=FAB				;Open the input file
+	BLBC	R0, BYE				;See you later!
+	CMPB	FAB+FAB$B_ORG, #FAB$C_IDX	;Indexed?
+	BNEQ	10$
+	MOVAL	XAB, FAB+FAB$L_XAB		;Hook up Xab
+	$DISPLAY FAB=FAB			;Fill in Xab
+	BLBC	R0, BYE				;See you later!
+	MOVL	XAB+XAB$L_DVB, NEXT_BUCKET	;Start bucket
+	MOVZBL	XAB+XAB$B_DBS, BUCKET_SIZE	;Pick up bucket size
+10$:	$CONNECT RAB=RAB			;Connect
+	BLBS	R0, SET_SIZE			;Go for it!
+	MOVL	R0, R10
+DONE:	$CLOSE	FAB=FAB				;Close the file
+	BLBS	R10, BYE			;Last status
+	MOVL	R10, R0
+BYE:	RET
+
+SIZE:	INCL	VBN+4				;Skip S character
+	DECW	VBN
+	PUSHAL	BUCKET_SIZE			;
+	PUSHAL	VBN				;INput again
+	CALLS	#2, G^OTS$CVT_TU_L		;Convert from decimal
+	BLBS	R0, SET_SIZE
+	PUSHAQ	CONVERT_ERROR
+	BRW	GIVE_ERROR			
+DONE1:	BRW	DONE
+SET_SIZE:
+	ASHL	#9, BUCKET_SIZE, R0		;Multiply by 512
+	MOVW	R0, RAB+RAB$W_USZ		;Set up size of read
+MAIN_LOOP:
+	MOVL	RAB+RAB$L_STS, R10		;exit status
+	MOVL	#VBN_LEN, VBN			;Init len  in descriptor
+	MOVAL	VBN_BUF, VBN+4			;Init addr in descriptor
+	PUSHAQ	VBN				;Output LEN back in descriptor
+	PUSHAQ	VBN_PROMPT			;Prompt
+	PUSHAQ	VBN				;Buffer
+	CALLS	#3, G^LIB$GET_INPUT		;Get it
+	BLBC	R0, DONE1			;Done?
+	TSTW	VBN				;Default command?
+	BNEQ	10$
+	BRW	READ
+10$:	CMPB	#^A"9", VBN_BUF			;Numeric?
+	BLSSU	20$
+	BRW	NUMBER				;
+20$:	BICB2	#32, VBN_BUF			;Upcase (the blunt way)
+	CMPB	#^A"S", VBN_BUF
+	BNEQ	30$
+	BRW	SIZE
+30$:	CMPB	#^A"W", VBN_BUF
+	BNEQ	40$
+	BRW	WRITE
+40$:	CMPB	#^A"E", VBN_BUF
+	BNEQ	50$
+	BRW	DONE
+50$:	CMPB	#^A"F", VBN_BUF
+	BNEQ	60$
+	BRW	FORMAT_INDEXED
+60$:	CMPB	#^A"D", VBN_BUF
+	BEQL	DEBUG
+	CMPB	#^A"X", VBN_BUF
+	BEQL	HEX
+	PUSHAQ	HELP
+	BRW	GIVE_ERROR
+
+DEBUG:	MOVAB	BUF, R2
+	MOVZWL	RAB+RAB$W_RSZ, R3
+	MOVL	RAB+RAB$L_BKT, R4
+	PUSHL	#SS$_DEBUG
+	CALLS	#1, g^LIB$SIGNAL
+	BRW	MAIN_LOOP
+
+NUMBER:	PUSHAL	NEXT_BUCKET
+	PUSHAL	VBN				;INput again
+	CALLS	#2, G^OTS$CVT_TU_L		;Convert from decimal
+	BLBS	R0, READ
+	PUSHAQ	CONVERT_ERROR
+	BRW	GIVE_ERROR			
+
+HEX:	INCL	VBN+4				;Skip X character
+	DECW	VBN
+	PUSHAL	NEXT_BUCKET
+	PUSHAL	VBN				;INput again
+	CALLS	#2, G^OTS$CVT_TZ_L		;Convert from hex
+	BLBS	R0, READ
+	PUSHAQ	CONVERT_ERROR
+	BRW	GIVE_ERROR			
+
+WRITE:	$WRITE	RAB=RAB
+	BLBC	R0, OOPS
+	BRW	MAIN_LOOP
+
+READ:	MOVL	NEXT_BUCKET, RAB+RAB$L_BKT	;set VBN
+	$READ	RAB=RAB				;Read the bucket
+	BLBC	R0, OOPS
+	BRW	FORMAT_OTHER
+
+OOPS:	CMPL	R0,#RMS$_EOF
+	BEQL	20$
+	PUSHAL	RAB+RAB$L_STV
+	PUSHAL	RAB+RAB$L_STS
+	PUSHAL	RAB+RAB$L_BKT
+	PUSHAL	IO_ERROR
+	CALLS	#4, G^LIB$PUT_OUTPUT
+	BRW	MAIN_LOOP
+
+20$:	PUSHAL	ENDOF_ERROR
+	BRW	GIVE_ERROR
+
+FORMAT_OTHER:
+	ADDL2	BUCKET_SIZE, NEXT_BUCKET
+	PUSHL	BUF+0				;15	data 
+	PUSHL	BUF+4				;14	data 
+	PUSHL	BUF+8				;13	data 
+	PUSHL	BUF+12				;12	data 
+	PUSHL	BUF+16				;11	data 
+	PUSHL	BUF+20				;10	data 
+	PUSHL	BUF+24				;9	data 
+	PUSHL	BUF+28				;8	data 
+	PUSHAL	BUF				;7
+	PUSHL	#40				;6 ascii bytes
+	MOVL	#FAO_OUTBUF_L, FAO_OUTBUF_D	;init size
+	PUSHL	RAB+RAB$W_RSZ			;5
+	PUSHL	RAB+RAB$L_BKT			;4
+	PUSHAL	FAO_OUTBUF_D			;3
+	PUSHAL	FAO_OUTBUF_D			;2
+	PUSHAL	FAO_OTHER			;1
+	CALLS	#15, G^SYS$FAO			
+	PUSHAL	FAO_OUTBUF_D
+	CALLS	#1, g^LIB$PUT_OUTPUT
+
+	CMPB	FAB+FAB$B_ORG, #FAB$C_IDX	;Indexed?
+	BEQL	FORMAT_INDEXED
+	BRW	MAIN_LOOP
+
+FORMAT_INDEXED:
+	MOVL	BUF+8,NEXT_BUCKET
+	PUSHL	BUF+13				;12	Flags
+	PUSHL	BUF+12				;11	Level
+	PUSHL	BUF+1				;10	Area
+	PUSHL	BUF+6				;9	Last/next
+	PUSHL	BUF+4				;8	InUse
+	MOVZWL	RAB+RAB$W_USZ, R1
+	PUSHL	BUF+8				;7	Next vbn
+	PUSHL	BUF-1(R1)			;6	Checkb-end
+	PUSHL	BUF+0				;5	Checkb-start
+	PUSHL	BUF+2				;4      Vbn Sample
+	MOVL	#FAO_OUTBUF_L, FAO_OUTBUF_D	;init size
+	PUSHAL	FAO_OUTBUF_D			;3
+	PUSHAL	FAO_OUTBUF_D			;2
+	PUSHAL	FAO_INDEXED			;1
+	CALLS	#12, G^SYS$FAO			
+	PUSHAL	FAO_OUTBUF_D
+
+GIVE_ERROR:
+	CALLS	#1, G^LIB$PUT_OUTPUT
+	BRW	MAIN_LOOP
+	
+	.PSECT	data,noexe,wrt
+BUF::	.BLKB	512*64
+FAB:	$FAB	FAC = <BRO,GET,PUT>, - 		;Allow block I/O read AND write
+		FNA = FILENAME_BUF, -		;Address of filename string
+		SHR = <UPI,PUT>
+RAB:	$RAB	FAB = FAB, -			;Associated FAB
+		ROP = <BIO>, -			;block I/O Processing
+		UBF = BUF			;Input buffer
+XAB:	$XABKEY
+
+CONVERT_ERROR:	.ASCID	"Error converting block number"
+IO_ERROR:	.ASCID	"Error reading VBN !XL, STS=!XL, STV=!XL"
+ENDOF_ERROR:	.ASCID	"Beyond End Of File"
+FILENAME_PROMPT:.ASCID	"Please enter filename: "
+NEXT_BUCKET:	.LONG	1
+BUCKET_SIZE:	.LONG	1
+FILENAME:	.LONG	80,FILENAME_BUF	;input buffer descriptor
+FILENAME_SIZ:	.WORD	0		;Receives length of filename
+FILENAME_BUF:	.BLKB	80
+VBN_PROMPT:	.ASCID	"(##, X##, S##, Debug, Format, Write, Exit) Option: "
+VBN_LEN = 20
+VBN:		.BLKL	2
+VBN_BUF:	.BLKB	VBN_LEN
+FAO_INDEXED:	.ASCID	"Checks=/!XW/!XB/!XB/, Next=!XL, Use=!XW, "-
+			"Id=!XW, Area=!XB, Lvl=!XB, Flg=!XB"
+FAO_OTHER:	.ASCID	"VBN=!XL, RSZ=!XW, Data: <!AF> !/ Dump: !8(9XL)"
+FAO_OUTBUF_L =	200
+FAO_OUTBUF_A:	.BLKB	FAO_OUTBUF_L
+FAO_OUTBUF_D:	.LONG	FAO_OUTBUF_L
+		.ADDRESS FAO_OUTBUF_A
+	.END	START
+

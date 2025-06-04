@@ -1,0 +1,124 @@
+	.title	lib_sub_asc_times
+	.ident	"X1-001"
+
+;+
+; Version:	X1-001
+;
+; Facility:	Library routines.
+;
+; Abstract:	Perform the same task as LIB$SUB_TIMES but use ascii strings
+;		as opposed to internal quadword times.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	26-Jul-1991, DBS, Version X1-001
+; 001 -	Original version.
+;-
+
+;++
+; Functional Description:
+;	This routine performs the same function as the LIB$SUB_TIMES routine.
+;	The arguments are consistent with the LIB$ routine except that they
+;	represent ascii time strings and not quadword times.  The difference
+;	is done as follows:
+;		difference = time1 - time2
+;
+; Calling Sequence:
+;	call lib_sub_asc_times (time1, time2, difference)
+;		- or -
+;	pushaq	difference
+;	pushaq	time2
+;	pushaq	time1
+;	calls	#3, g^lib_sub_asc_times
+;
+; Formal Argument(s):
+;	time1.rt.ds	Address of the string descriptor that defines the
+;			first time string.  "time2" is subtracted from this
+;			time.
+;	time2.rt.ds	Address of the string descriptor that defines the
+;			second time string.  This time is subtracted from
+;			"time1".
+;	difference.wt.ds  Address of a string descriptor that will contain the
+;			resultant ascii time string.  The string must be large
+;			enough to hold a complete absolute time (23 bytes).
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_insfarg	Returned if the wrong number of arguments supplied.
+;	Other values as returned by sys$bintim, sys$asctim and lib$sub_times.
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	.external	lib$sub_times
+
+	$ssdef
+	$gblini	GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+	arg_count = 3
+	time1	= 4			; offsets to arguments
+	time2	= 8
+	diff	= 12
+
+bin_time1:	.quad	0
+bin_time2:	.quad	0
+bin_diff:	.quad	0
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+lib_sub_asc_times, ^m<>
+
+	clrq	bin_time1
+	clrq	bin_time2
+	clrq	bin_diff
+
+	movl	#ss$_insfarg, r0	; just in case
+	cmpw	#arg_count, (ap)
+	bneq	90$
+
+	$bintim_s -
+		timbuf=@time1(ap), -
+		timadr=bin_time1
+	blbc	r0, 90$
+
+	$bintim_s -
+		timbuf=@time2(ap), -
+		timadr=bin_time2
+	blbc	r0, 90$
+
+	pushaq	bin_diff
+	pushaq	bin_time2
+	pushaq	bin_time1
+	calls	#3, g^lib$sub_times
+	blbc	r0, 90$
+
+	$asctim_s -			; return the answer to the caller
+		timbuf=@diff(ap), -
+		timadr=bin_diff
+
+90$:	ret
+
+	.end

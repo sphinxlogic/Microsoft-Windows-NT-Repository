@@ -1,0 +1,1692 @@
+CISCO-MIB DEFINITIONS ::= BEGIN
+
+-- Title:       Cisco Systems Stack MIB in concise format
+-- Date:        November 10, 1994
+-- By:          Cal Palmore <palmore@cisco.com>
+
+IMPORTS
+        enterprises,  IpAddress, TimeTicks
+                FROM RFC1155-SMI
+        OBJECT-TYPE
+                FROM RFC-1212
+        DisplayString
+                FROM RFC1213-MIB;
+
+cisco               OBJECT IDENTIFIER ::= { enterprises 9 }
+wkgrpProducts       OBJECT IDENTIFIER ::= { cisco 5 }
+
+stack               OBJECT IDENTIFIER ::= { wkgrpProducts 1 }
+wsc1000sysID        OBJECT IDENTIFIER ::= { wkgrpProducts 3 }
+wsc1100sysID        OBJECT IDENTIFIER ::= { wkgrpProducts 4 }
+wsc1200sysID        OBJECT IDENTIFIER ::= { wkgrpProducts 5 }
+wsc1400sysID        OBJECT IDENTIFIER ::= { wkgrpProducts 6 }
+
+systemGrp           OBJECT IDENTIFIER ::= { stack 1 }
+chassisGrp          OBJECT IDENTIFIER ::= { stack 2 }
+moduleGrp           OBJECT IDENTIFIER ::= { stack 3 }
+portGrp             OBJECT IDENTIFIER ::= { stack 4 }
+tftpGrp             OBJECT IDENTIFIER ::= { stack 5 }
+brouterGrp          OBJECT IDENTIFIER ::= { stack 6 }
+filterGrp           OBJECT IDENTIFIER ::= { stack 7 }
+monitorGrp          OBJECT IDENTIFIER ::= { stack 8 }
+
+
+-- textual conventions
+
+FddiMACLongAddressType ::= OCTET STRING (SIZE (6))
+        -- The representation of long MAC addresses as management
+        -- values is in the IEEE (ANSI/IEEE P802.1A) canonical
+        -- notation for 48 bit addresses.  The canonical form is a
+        -- 6-octet string where the first octet contains the first 8
+        -- bits of the address, with the I/G (Individual/Group)
+        -- address bit as the least significant bit and the  U/L
+        -- (Universal/Local) bit as the next more significant bit,
+        -- and so on.  Note that the addresses in the SMT frames are
+        -- represented in FDDI MAC order.
+
+VendorIdType ::= OCTET STRING (SIZE (3))
+        -- The vendor ID portion of a FddiMACLongAddressType (first
+        -- 3 octets of the 6-octet MAC address)
+
+
+
+-- the system group
+
+-- Implementation of the system group is mandatory for all Cisco Workgroup
+-- Stack products.
+
+sysMgmtType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),   -- none of the following
+                                snmpV1(2),  -- Simple Network Management Protocol
+                                smux(3),    -- SNMP MUX sub-agent
+                                snmpV2V1(4) -- Bi-lingual SNMP, Ver 2 and 1
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The type of network management running on this entity."
+        ::= { systemGrp 1 }
+
+sysIpAddr OBJECT-TYPE
+        SYNTAX        IpAddress
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "This entity's IP address."
+        ::= { systemGrp 2 }
+
+sysNetMask OBJECT-TYPE
+        SYNTAX        IpAddress
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "This entity's subnet mask."
+        ::= { systemGrp 3 }
+
+sysBroadcast OBJECT-TYPE
+        SYNTAX        IpAddress
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "This entity's broadcast address."
+        ::= { systemGrp 4 }
+
+-- the trap receiver table
+
+sysTrapReceiverTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF SysTrapReceiverEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "The trap receiver table (0 to 10 entries).  This 
+                      table lists the addresses of Network Management 
+                      Stations that should receive trap messages from this 
+                      entity when an exception condition occurs."
+        ::= { systemGrp 5 }
+
+sysTrapReceiverEntry OBJECT-TYPE
+        SYNTAX        SysTrapReceiverEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A trap receiver table entry."
+        INDEX         { sysTrapReceiverAddr }
+        ::= { sysTrapReceiverTable 1 }
+
+SysTrapReceiverEntry ::=
+        SEQUENCE {
+                sysTrapReceiverType
+                        INTEGER,
+                sysTrapReceiverAddr
+                        IpAddress,
+                sysTrapReceiverComm
+                        DisplayString
+        }
+
+sysTrapReceiverType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                valid(1),        -- add this entry
+                                invalid(2)       -- remove this entry
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Setting this object to invalid(2) removes the 
+                      corresponding entry from the sysTrapReceiverTable.  
+                      To add a new entry to the sysTrapReceiverTable, set
+                      this object to valid(1) for an IpAddress which is not 
+                      already in the table."
+        ::= { sysTrapReceiverEntry 1 }
+
+sysTrapReceiverAddr OBJECT-TYPE
+        SYNTAX        IpAddress
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "IP address for trap receiver."
+        ::= { sysTrapReceiverEntry 2 }
+
+sysTrapReceiverComm OBJECT-TYPE
+        SYNTAX        DisplayString (SIZE (0..20))
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Community string used for trap messages to this trap 
+                      receiver."
+        ::= { sysTrapReceiverEntry 3 }
+
+-- the community table
+
+sysCommunityTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF SysCommunityEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "The community table (4 entries).  This table lists
+                      community strings and their access levels.  When an
+                      SNMP message is received by this entity, the community
+                      string in the message is compared with this table to
+                      determine access rights of the sender."
+        ::= { systemGrp 6 }
+
+sysCommunityEntry OBJECT-TYPE
+        SYNTAX        SysCommunityEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A community table entry."
+        INDEX         { sysCommunityAccess }
+        ::= { sysCommunityTable 1 }
+
+SysCommunityEntry ::=
+        SEQUENCE {
+                sysCommunityAccess
+                      INTEGER,
+                sysCommunityString
+                      DisplayString
+        }
+
+sysCommunityAccess OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),        -- none of the following
+                                readOnly(2),     -- read but not write all but
+                                                 -- sysCommunityTable
+                                readWrite(3),    -- read and write all but
+                                                 -- sysCommunityTable
+                                readWriteAll(4)  -- read and write all
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "A value of readWriteAll(4) allows the community to
+                      read and write all objects in the MIB.  A value of
+                      readWrite(3) allows the community to read and write
+                      all objects except the sysCommunityTable, which it
+                      cannot access at all.  A value of readOnly(2) allows
+                      the community to read all objects except the
+                      sysCommunityTable.  A value of other(1) allows no
+                      access."
+        ::= { sysCommunityEntry 1 }
+
+sysCommunityString OBJECT-TYPE
+        SYNTAX        DisplayString (SIZE (0..20))
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Configurable community string with access rights 
+                      defined by the value of sysCommunityAccess."
+        ::= { sysCommunityEntry 2 }
+
+-- additional system group objects
+
+sysAttachType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),        -- none of the following
+                                dualAttach(2),   -- port 1 is A and port 2 is B
+                                singleAttach(3), -- port 1 is S and port 2 is M
+                                nullAttach(4)    -- port 1 is M and port 2 is M
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The requested concentrator attachment type.  For a
+                      dual attachment concentrator which can be connected to
+                      the trunk ring, the first FDDI port is configured as A
+                      and the second FDDI port is configured as B.  For a single
+                      attachment concentrator which can be connected beneath
+                      another concentrator, the first FDDI port is configured
+                      as M and the second FDDI port is configured as S.  For a 
+                      null attachment concentrator which can be located at the
+                      root of the tree, the first two FDDI ports are configured
+                      as M.  This object does not take effect until the 
+                      concentrator is reset.  The current attachment type can
+                      be determined from snmpFddiPORTPCType for ports 1 and 2."
+        ::= { systemGrp 7 }
+
+sysTraffic OBJECT-TYPE
+        SYNTAX        INTEGER (0..100)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "Traffic meter value, i.e. the percentage of bandwidth
+                      utilization on the network for the previous polling
+                      interval."
+        ::= { systemGrp 8 }
+
+sysReset OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),        -- none of the following
+                                reset(2)         -- resetting
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Writing a 2 to this object resets the control logic of
+                      all modules in the system."
+        ::= { systemGrp 9 }
+
+sysBaudRate OBJECT-TYPE
+        SYNTAX        INTEGER (600..38400)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The baud rate in bits per second of the RS-232 port."
+        ::= { systemGrp 10 }
+
+sysInsertMode OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),        -- none of the following
+                                standard(2),     -- standard insertion
+                                scheduled(3),    -- scheduled insertion
+                                graceful(4)      -- graceful insertion
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The mode for inserting M-ports into the concentrator
+                      ring."
+        ::= { systemGrp 11 }
+
+sysClearMacTime OBJECT-TYPE
+        SYNTAX        TimeTicks
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The time (in hundredths of a second) since mac counters
+                      were last cleared.  Writing a 0 to this object causes the
+                      mac counters to be cleared."
+        ::= { systemGrp 12 }
+
+sysClearPortTime OBJECT-TYPE
+        SYNTAX        TimeTicks
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The time (in hundredths of a second) since port counters
+                      were last cleared.  Writing a 0 to this object causes the
+                      port counters to be cleared."
+        ::= { systemGrp 13 }
+
+-- the FDDI ring map table
+
+sysFddiRingTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF SysFddiRingEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "The fddi ring map table.  This table lists the
+                      nodes in the FDDI ring(s) to which the system belongs."
+        ::= { systemGrp 14 }
+
+sysFddiRingEntry OBJECT-TYPE
+        SYNTAX        SysFddiRingEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A Fddi Ring table entry."
+        INDEX         { sysFddiRingSMTIndex, sysFddiRingAddress }
+        ::= { sysFddiRingTable 1 }
+
+SysFddiRingEntry ::=
+        SEQUENCE {
+                sysFddiRingSMTIndex
+                      INTEGER,
+                sysFddiRingAddress
+                      FddiMACLongAddressType,
+                sysFddiRingNext
+                      FddiMACLongAddressType
+        }
+
+sysFddiRingSMTIndex OBJECT-TYPE
+        SYNTAX        INTEGER (1..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The value of the SMT index associated with this ring."
+        ::= { sysFddiRingEntry 1 }
+
+sysFddiRingAddress OBJECT-TYPE
+        SYNTAX        FddiMACLongAddressType -- OCTET STRING (SIZE (6))
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The MAC address of this node in the FDDI ring."
+        ::= { sysFddiRingEntry 2 }
+
+sysFddiRingNext OBJECT-TYPE
+        SYNTAX        FddiMACLongAddressType -- OCTET STRING (SIZE (6))
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The MAC address of the next node in the FDDI ring."
+        ::= { sysFddiRingEntry 3 }
+
+-- additional system group objects
+
+sysEnableModem OBJECT-TYPE
+        SYNTAX        INTEGER { enabled(1), disabled(2) }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Indicates whether the RS-232 port modem control lines
+                      are enabled."
+        ::= { systemGrp 15 }
+
+sysEnableRedirects OBJECT-TYPE
+        SYNTAX        INTEGER { enabled(1), disabled(2) }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Indicates whether ICMP redirect messages are sent
+                      or received by the system."
+        ::= { systemGrp 16 }
+
+sysEnableRmon OBJECT-TYPE
+        SYNTAX        INTEGER { enabled(1), disabled(2) }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Indicates whether the SNMP agent supports the RMON MIB."
+        ::= { systemGrp 17 }
+
+sysArpAgingTime OBJECT-TYPE
+        SYNTAX        INTEGER (0..1000000)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The aging time for the ARP table."
+        ::= { systemGrp 18 }
+
+
+
+-- the chassis group
+
+-- Implementation of the chassis group is mandatory for all Cisco Workgroup
+-- Stack products.
+
+chassisSysType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                      other(1),    -- none of the following
+                      wsc1000(3),  -- 2+8 Port CDDI Concentrator
+                      wsc1001(4),  -- 2+8 Port FDDI Concentrator
+                      wsc1100(5),  -- 2+16 Port FDDI/CDDI Concentrator
+                      wsc1200(11), -- 2+8 Port FDDI/Ethernet Switch
+                      wsc1400(12)  -- 2 slot FDDI/CDDI Concentrator
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The chassis system type."
+        ::= { chassisGrp 1 }
+
+chassisBkplType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),        -- none of the following
+                                fddi(2),         -- fddi
+                                fddiEthernet(3)  -- fddi and ethernet
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The chassis backplane type."
+        ::= { chassisGrp 2 }
+
+chassisPs1Type OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),        -- none of the following
+                                none(2),         -- no power supply installed
+                                w50(3),          -- 50 watt supply
+                                w200(4),         -- 200 watt supply
+                                w600(5),         -- 600 watt supply
+                                w80(6),          -- 80 watt supply
+                                w130(7)          -- 130 watt supply
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "Type of power supply number 1."
+        ::= { chassisGrp 3 }
+
+chassisPs1Status OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),        -- none of the following
+                                ok(2),           -- status ok
+                                minorFault(3),   -- minor problem
+                                majorFault(4)    -- major problem
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "Status of power supply number 1.  If the status is not 
+                      ok, the value of chassisPs1TestResult gives more 
+                      detailed information about the power supply's failure 
+                      condition(s)."
+        ::= { chassisGrp 4 }
+
+chassisPs1TestResult OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "Test result for power supply number 1.  A zero 
+                      indicates that the supply passed all tests.  Bits set 
+                      in the result indicate error conditions."
+        ::= { chassisGrp 5 }
+
+chassisPs2Type OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),        -- none of the following
+                                none(2),         -- no power supply installed
+                                w50(3),          -- 50 watt supply
+                                w200(4),         -- 200 watt supply
+                                w600(5),         -- 600 watt supply
+                                w80(6),          -- 80 watt supply
+                                w130(7)          -- 130 watt supply
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "Type of power supply number 2."
+        ::= { chassisGrp 6 }
+
+chassisPs2Status OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),        -- none of the following
+                                ok(2),           -- status ok
+                                minorFault(3),   -- minor problem
+                                majorFault(4)    -- major problem
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "Status of power supply number 2.  If the status is not
+                      ok, the value of chassisPs2TestResult gives more 
+                      detailed information about the power supply's failure 
+                      condition(s)."
+        ::= { chassisGrp 7 }
+
+chassisPs2TestResult OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "Test result for power supply number 2.  A zero 
+                      indicates that the supply passed all tests.  Bits set 
+                      in the result indicate error conditions."
+        ::= { chassisGrp 8 }
+
+chassisFanStatus OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),        -- none of the following
+                                ok(2),           -- status ok
+                                minorFault(3),   -- minor problem
+                                majorFault(4)    -- major problem
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "Status of the chassis fan.  If the status is not ok, 
+                      the value of chassisFanTestResult gives more detailed 
+                      information about the fan's failure condition(s)."
+        ::= { chassisGrp 9 }
+
+chassisFanTestResult OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "Test result for the chassis fan.  A zero indicates 
+                      that the fan passed all tests.  Bits set in the result 
+                      indicate error conditions."
+        ::= { chassisGrp 10 }
+
+chassisMinorAlarm OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                off(1),
+                                on(2)
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The chassis minor alarm status."
+        ::= { chassisGrp 11 }
+
+chassisMajorAlarm OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                off(1),
+                                on(2)
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The chassis major alarm status."
+        ::= { chassisGrp 12 }
+
+chassisTempAlarm OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                off(1),
+                                on(2)
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The chassis temperature alarm status."
+        ::= { chassisGrp 13 }
+                                
+
+chassisNumSlots OBJECT-TYPE
+        SYNTAX        INTEGER (1..16)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The number of slots in the chassis for plug-in modules."
+        ::= { chassisGrp 14 }
+
+chassisSlotConfig OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An indication of which slots in the chassis have 
+                      modules inserted.  This is an integer value with bits 
+                      set to indicate configured modules.  It can be 
+                      interpreted as a sum of f(x) as x goes from 1 to the 
+                      number of slots, where f(x) = 0 for no module inserted
+                      and f(x) = exp(2, x-1) for a module inserted."
+        ::= { chassisGrp 15 }
+
+chassisModel OBJECT-TYPE
+        SYNTAX        DisplayString (SIZE (0..8))
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The manufacturer's model number for the chassis."
+        ::= { chassisGrp 16 }
+
+
+
+-- the module group
+
+-- Implementation of the module group is mandatory for all Cisco Workgroup
+-- Stack products.
+
+moduleTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF ModuleEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A list of module entries.  The number of entries is 
+                      given by the value of chassisNumSlots."
+        ::= { moduleGrp 1 }
+
+moduleEntry OBJECT-TYPE
+        SYNTAX        ModuleEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "Entry containing information about one module in a 
+                      slot of the chassis."
+        INDEX         { moduleIndex }
+        ::= { moduleTable 1 }
+
+ModuleEntry ::=
+        SEQUENCE {
+                moduleIndex
+                        INTEGER,
+                moduleType
+                        INTEGER,
+                moduleSerialNumber
+                        INTEGER,
+                moduleHwHiVersion
+                        INTEGER,
+                moduleHwLoVersion
+                        INTEGER,
+                moduleFwHiVersion
+                        INTEGER,
+                moduleFwLoVersion
+                        INTEGER,
+                moduleSwHiVersion
+                        INTEGER,
+                moduleSwLoVersion
+                        INTEGER,
+                moduleStatus
+                        INTEGER,
+                moduleTestResult
+                        INTEGER,
+                moduleAction
+                        INTEGER,
+                moduleName
+                        DisplayString,
+                moduleNumPorts
+                        INTEGER,
+                modulePortStatus
+                        OCTET STRING,
+                moduleSubType
+                        INTEGER,
+                moduleModel
+                        DisplayString
+                }
+
+moduleIndex OBJECT-TYPE
+        SYNTAX        INTEGER (1..16)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "A unique value for each module within the chassis.
+                      This value is determined by the chassis slot number 
+                      where the module is inserted.  Valid entries are 1 to 
+                      the value of chassisNumSlots"
+        ::= { moduleEntry 1 }
+
+moduleType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                      other(1),    -- none of the following
+                      empty(2),    -- nothing installed
+                      wsc1000(3),  -- 2+8 Port CDDI Concentrator
+                      wsc1001(4),  -- 2+8 Port FDDI Concentrator
+                      wsc1100(5),  -- 2+16 Port FDDI/CDDI Concentrator
+                      wsc1200(11), -- 2+8 Port FDDI/Ethernet Switch
+                      wsc1400(12), -- 2 slot FDDI/CDDI Concentrator
+
+                      -- the following modules are for the WS-C1400
+                      wsx1441(13), -- 8 port Multi Mode FDDI (MIC connector)
+                      wsx1444(14), -- 8 port Single Mode FDDI (ST connector)
+                      wsx1450(15), -- 2 port MM FDDI (MIC), 12 port CDDI (RJ-45)
+                      wsx1483(16), -- 16 port CDDI (RJ-45 connector)
+                      wsx1454(17), -- 2 port SM FDDI (ST), 12 port CDDI (RJ-45)
+                      wsx1455(18), -- 10 port MM FDDI (SC connector)
+                      wsx1431(19), -- 4 port Multi Mode FDDI (MIC connector)
+                      wsx1465(20), -- 2 port MM FDDI (SC), 12 port CDDI (RJ-45)
+                      wsx1436(21), -- 4 port SM FDDI (ST), 4 port MM FDDI (MIC)
+                      wsx1434(22)  -- 4 port Single Mode FDDI (ST connector)
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The type of module."
+        ::= { moduleEntry 2 }
+
+moduleSerialNumber OBJECT-TYPE
+        SYNTAX        INTEGER (0..999999999)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The serial number of the module."
+        ::= { moduleEntry 3 }
+
+moduleHwHiVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The high part of the hardware version of the module.  
+                      For example, if the hardware version is 3.1, the value 
+                      of moduleHwHiVersion is 3."
+        ::= { moduleEntry 4 }
+
+moduleHwLoVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The low part of the hardware version of the module.  
+                      For example, if the hardware version is 3.1, the value 
+                      of moduleHwLoVersion is 1."
+        ::= { moduleEntry 5 }
+
+moduleFwHiVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The high part of the firmware version number.  For 
+                      example, if the firmware version is 3.1, the value of 
+                      moduleFwHiVersion is 3."
+        ::= { moduleEntry 6 }
+
+moduleFwLoVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The low part of the firmware version number.  For 
+                      example, if the firmware version is 3.1, the value of 
+                      moduleFwLoVersion is 1."
+        ::= { moduleEntry 7 }
+
+moduleSwHiVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The high part of the software version number.  For 
+                      example, if the software version is 3.1, the value of 
+                      moduleSwHiVersion is 3."
+        ::= { moduleEntry 8 }
+
+moduleSwLoVersion OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The low part of the software version number.  For 
+                      example, if the software version is 3.1, the value of 
+                      moduleSwLoVersion is 1."
+        ::= { moduleEntry 9 }
+
+moduleStatus OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),       -- none of the following
+                                ok(2),          -- status ok
+                                minorFault(3),  -- minor problem
+                                majorFault(4)   -- major problem
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The operational status of the module.  If the status 
+                      is not ok, the value of moduleTestResult gives more 
+                      detailed information about the module's failure
+                      condition(s)."
+        ::= { moduleEntry 10 }
+
+moduleTestResult OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The result of the module's self test.  A zero 
+                      indicates that the module passed all tests.  Bits set 
+                      in the result indicate error conditions."
+        ::= { moduleEntry 11 }
+
+moduleAction OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),       -- none of the following
+                                reset(2),
+                                enable(3),
+                                disable(4)
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "This object, when read, always returns a value of
+                      other(1).  Setting this object to one of the
+                      acceptable values gives the following results:
+                          other(1):   gives an error
+                          reset(2):   reset the module's control logic
+                          enable(3):  enable the module
+                          disable(4): disable the module
+                      Setting this object to any other values results in 
+                      an error."
+        ::= { moduleEntry 12 }
+
+moduleName OBJECT-TYPE
+        SYNTAX        DisplayString (SIZE (0..20))
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "A descriptive string used by the network administrator 
+                      to name the module."
+        ::= { moduleEntry 13 }
+
+moduleNumPorts OBJECT-TYPE
+        SYNTAX        INTEGER (0..255)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The number of ports supported by the module."
+        ::= { moduleEntry 14 }
+
+modulePortStatus OBJECT-TYPE
+        SYNTAX        OCTET STRING (SIZE (0..40))
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "A series of bytes containing status information about 
+                      the module and each of the ports on the module.  The 
+                      first byte contains the status for the module (same 
+                      value as moduleStatus), and subsequent bytes contain 
+                      status for the first through the last ports on the 
+                      module (same value as portStatus)."
+        ::= { moduleEntry 15 }
+
+moduleSubType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),  -- none of the following
+                                empty(2)   -- nothing installed
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The type of daughterboard attached to this module."
+        ::= { moduleEntry 16 }
+
+moduleModel OBJECT-TYPE
+        SYNTAX        DisplayString (SIZE (0..8))
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The manufacturer's model number for the module."
+        ::= { moduleEntry 17 }
+
+
+
+-- the port group
+
+-- Implementation of the port group is mandatory for all Cisco Workgroup
+-- Stack products.
+
+portTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF PortEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A list of port entries.  The number of entries is 
+                      determined by the number of modules in the chassis 
+                      and the number of ports on each module."
+        ::= { portGrp 1 }
+
+portEntry OBJECT-TYPE
+        SYNTAX        PortEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "Entry containing information for a particular port on 
+                      a module."
+        INDEX         { portModuleIndex, portIndex }
+        ::= { portTable 1 }
+
+PortEntry ::= SEQUENCE {
+                portModuleIndex
+                        INTEGER,
+                portIndex
+                        INTEGER,
+                portCrossIndex
+                        INTEGER,
+                portName
+                        DisplayString,
+                portType
+                        INTEGER,
+                portOperStatus
+                        INTEGER,
+                portCrossGroupIndex
+                        INTEGER,
+                portAdditionalStatus
+                        INTEGER,
+                portSpeed
+                        INTEGER,
+                portDuplex
+                        INTEGER
+                }
+
+portModuleIndex OBJECT-TYPE
+        SYNTAX        INTEGER (1..16)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies the module
+                      where this port is located.  The value is determined by
+                      the chassis slot number which the module is plugged into.
+                      Valid entries are 1 to the value of chassisNumSlots."
+        ::= { portEntry 1 }
+
+portIndex OBJECT-TYPE
+        SYNTAX        INTEGER (1..255)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies this port within
+                      a module.  The value is determined by the location of the
+                      port on the module.  Valid entries are 1 to the value of
+                      moduleNumPorts for this module."
+        ::= { portEntry 2 }
+
+portCrossIndex OBJECT-TYPE
+        SYNTAX        INTEGER (1..4080)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "A cross-refernce to the port's index within another mib
+                      group.  The value is dependant on the type of port.  For
+                      an FDDI port, this corresponds to the snmpFddiPORTIndex."
+        ::= { portEntry 3 }
+
+portName OBJECT-TYPE
+        SYNTAX        DisplayString (SIZE (0..20))
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "A descriptive string used by the network administrator 
+                      to name the port."
+        ::= { portEntry 4 }
+
+portType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),       -- none of the following
+                                cddi(2),        -- CDDI (UTP FDDI)
+                                fddi(3),        -- Multi Mode fiber FDDI
+                                tppmd(4),       -- ANSI standard UTP FDDI
+                                mlt3(5),        -- MLT-3 UTP FDDI
+                                sddi(6),        -- STP FDDI
+                                smf(7),         -- Single Mode fiber FDDI
+                                e10BaseT(8),    -- UTP Ethernet
+                                e10BaseF(9),    -- fiber Ethernet
+                                scf(10)         -- small-connector fiber FDDI
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The type of physical layer medium dependent interface
+                      on the port."
+        ::= { portEntry 5 }
+
+portOperStatus OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),       -- none of the following
+                                ok(2),          -- status ok
+                                minorFault(3),  -- minor problem
+                                majorFault(4)   -- major problem
+                                }
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The current operational status of the port."
+        ::= { portEntry 6 }
+
+portCrossGroupIndex OBJECT-TYPE
+        SYNTAX        INTEGER (1..16)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "A cross-refernce to another mib group for this port.
+                      The value is dependant on the type of port.  For an FDDI
+                      port this corresponds to the snmpFddiPORTSMTIndex."
+        ::= { portEntry 7 }
+
+portAdditionalStatus OBJECT-TYPE
+        SYNTAX        INTEGER (0..7)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "Additional status information for the port.  The value
+                      is a sum.  It initially takes the value zero, then for
+                      each state that is true, 2 raised to a power is added
+                      to the sum.  The powers are according to the following
+                      table:
+                               State    Power
+                            Transmit    0
+                             Receive    1
+                           Collision    2
+                      Transmit state indicates that at least one packet was
+                      transmitted by the port in the last polling period.
+                      Receive state indicates that at least one packet was
+                      received by the port in the last polling period.
+                      Collision state indicates that at least one collision
+                      was detected on the port in the last polling period.
+                      Note that if a state is not applicable to a particular
+                      port its value is always false for that port."
+        ::= { portEntry 8 }
+
+portSpeed OBJECT-TYPE
+        SYNTAX        INTEGER (0..4294967295)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The base speed of the port in bits per second."
+        ::= { portEntry 9 }
+
+portDuplex OBJECT-TYPE
+        SYNTAX        INTEGER { half(1), full(2) }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Indicates whether the port is operating in half-duplex
+                      or full-duplex mode."
+        ::= { portEntry 10 }
+
+
+
+-- the tftp group
+
+-- Implementation of the tftp group is mandatory for all Cisco Workgroup
+-- Stack products which implement tftp upload/download functions.
+
+tftpHost OBJECT-TYPE
+        SYNTAX        DisplayString (SIZE (0..64))
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Name of source/destination host for the TFTP transfer."
+        ::= { tftpGrp 1 }
+
+tftpFile OBJECT-TYPE
+        SYNTAX        DisplayString (SIZE (0..64))
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Name of file for the TFTP transfer."
+        ::= { tftpGrp 2 }
+
+tftpModule OBJECT-TYPE
+        SYNTAX        INTEGER (1..16)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Which module's code/configuration is being transferred."
+        ::= { tftpGrp 3 }
+
+tftpAction OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                other(1),          -- none of the following
+                                downloadConfig(2),
+                                uploadConfig(3),
+                                downloadSw(4),
+                                uploadSw(5),
+                                downloadFw(6),
+                                uploadFw(7)
+                              }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Setting this object to one of the acceptable values
+                      initiates the requested action using the information
+                      given in tftpHost, tftpFile, tftpModule.
+                        downloadConfig(2): receive configuration from host/file
+                        uploadConfig(3): send configuration to host/file
+                        downloadSw(4): receive software image from host/file
+                        uploadSw(5): send software image to host/file
+                        downloadFw(4): receive firmware image from host/file
+                        uploadFw(5): send firmware image to host/file
+                      Setting this object to any other value results in 
+                      an error."
+        ::= { tftpGrp 4 }
+
+
+
+-- the brouter group
+
+-- Implementation of the brouter group is mandatory for all Cisco Workgroup
+-- Stack products which implement bridging/routing functions.
+
+brouterEnableRip OBJECT-TYPE
+        SYNTAX        INTEGER { enabled(1), disabled(2) }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Indicates whether the RIP protocol is enabled."
+        ::= { brouterGrp 1 }
+
+brouterEnableSpantree OBJECT-TYPE
+        SYNTAX        INTEGER { enabled(1), disabled(2) }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Indicates whether Spanning Tree protocol is enabled."
+        ::= { brouterGrp 2 }
+
+brouterEnableGiantCheck OBJECT-TYPE
+        SYNTAX        INTEGER { enabled(1), disabled(2) }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Indicates whether special handling of giant packets is
+                      enabled."
+        ::= { brouterGrp 3 }
+
+brouterEnableIpFragmentation OBJECT-TYPE
+        SYNTAX        INTEGER { enabled(1), disabled(2) }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Indicates whether IP fragmentation is enabled."
+        ::= { brouterGrp 4 }
+
+brouterEnableUnreachables OBJECT-TYPE
+        SYNTAX        INTEGER { enabled(1), disabled(2) }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Indicates whether ICMP unreachable messages are sent
+                      by the system."
+        ::= { brouterGrp 5 }
+
+brouterCamAgingTime OBJECT-TYPE
+        SYNTAX        INTEGER (0..1000000)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The aging time for the CAM table."
+        ::= { brouterGrp 6 }
+
+brouterCamMode OBJECT-TYPE
+        SYNTAX        INTEGER { filtering(1), forwarding(2) }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Mode in which the CAM module is operating."
+        ::= { brouterGrp 7 }
+
+brouterIpxSnapToEther OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                snap(1),
+                                ethernetII(2),
+                                iso8023(3),
+                                raw8023(4)
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The default translation for IPX packets when bridging
+                      from FDDI SNAP to Ethernet."
+        ::= { brouterGrp 8 }
+
+brouterIpx8023RawToFddi OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                snap(1),
+                                iso8022(5)
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The default translation for IPX packets when bridging
+                      from Ethernet 802.3 Raw to FDDI."
+        ::= { brouterGrp 9 }
+
+brouterEthernetReceiveMax OBJECT-TYPE
+        SYNTAX        INTEGER (1..120)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Maximum number of Ethernet receive buffers processed
+                      at one time per port."
+        ::= { brouterGrp 10 }
+
+brouterEthernetTransmitMax OBJECT-TYPE
+        SYNTAX        INTEGER (1..120)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Maximum number of Ethernet transmit buffers processed
+                      at one time per port."
+        ::= { brouterGrp 11 }
+
+brouterFddiReceiveMax OBJECT-TYPE
+        SYNTAX        INTEGER (1..120)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Maximum number of FDDI receive buffers processed
+                      at one time per port."
+        ::= { brouterGrp 12 }
+
+brouterFddiTransmitMax OBJECT-TYPE
+        SYNTAX        INTEGER (1..120)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Maximum number of FDDI transmit buffers processed
+                      at one time per port."
+        ::= { brouterGrp 13 }
+
+-- the brouter port table
+
+brouterPortTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF BrouterPortEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A list of brouter port entries.  The number of entries
+                      is determined by the number of modules in the chassis 
+                      and the number of ports on each module."
+        ::= { brouterGrp 14 }
+
+brouterPortEntry OBJECT-TYPE
+        SYNTAX        BrouterPortEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "Entry containing bridge/router information for a
+                      particular port on a module."
+        INDEX         { brouterPortModule, brouterPort }
+        ::= { brouterPortTable 1 }
+
+BrouterPortEntry ::= SEQUENCE {
+                brouterPortModule
+                        INTEGER,
+                brouterPort
+                        INTEGER,
+                brouterPortRouteGroup
+                        INTEGER,
+                brouterPortIpAddr
+                        IpAddress,
+                brouterPortNetMask
+                        IpAddress,
+                brouterPortBroadcast
+                        IpAddress,
+                brouterPortBridgeGroup
+                        INTEGER
+                }
+
+brouterPortModule OBJECT-TYPE
+        SYNTAX        INTEGER (1..16)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies the module
+                      where this port is located (see portModuleIndex)."
+        ::= { brouterPortEntry 1 }
+
+brouterPort OBJECT-TYPE
+        SYNTAX        INTEGER (1..255)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies this port within
+                      a module (see portIndex)."
+        ::= { brouterPortEntry 2 }
+
+brouterPortRouteGroup OBJECT-TYPE
+        SYNTAX        INTEGER (1..255)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The IP route group to which this port belongs."
+        ::= { brouterPortEntry 3 }
+
+brouterPortIpAddr OBJECT-TYPE
+        SYNTAX        IpAddress
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "This port's IP address."
+        ::= { brouterPortEntry 4 }
+
+brouterPortNetMask OBJECT-TYPE
+        SYNTAX        IpAddress
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "This port's subnet mask."
+        ::= { brouterPortEntry 5 }
+
+brouterPortBroadcast OBJECT-TYPE
+        SYNTAX        IpAddress
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "This port's broadcast address."
+        ::= { brouterPortEntry 6 }
+
+brouterPortBridgeGroup OBJECT-TYPE
+        SYNTAX        INTEGER (1..1024)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The bridge group to which this port belongs."
+        ::= { brouterPortEntry 7 }
+
+-- additional brouter group objects
+
+brouterIpx8022ToEther OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                snap(1),
+                                ethernetII(2),
+                                iso8023(3),
+                                raw8023(4)
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The default translation for IPX packets when bridging
+                      from FDDI 802.2 to Ethernet."
+        ::= { brouterGrp 15 }
+
+
+
+-- the filter group
+
+-- Implementation of the filter group is mandatory for all Cisco Workgroup
+-- Stack products which implement custom packet filtering functions.
+
+-- the filter mac table
+
+filterMacTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF FilterMacEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A list of filter mac entries."
+        ::= { filterGrp 1 }
+
+filterMacEntry OBJECT-TYPE
+        SYNTAX        FilterMacEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "Entry containing MAC address filter information."
+        INDEX         { filterMacModule, filterMacPort, filterMacAddress }
+        ::= { filterMacTable 1 }
+
+FilterMacEntry ::=
+        SEQUENCE {
+                filterMacModule
+                        INTEGER,
+                filterMacPort
+                        INTEGER,
+                filterMacAddress
+                      FddiMACLongAddressType,
+                filterMacType
+                        INTEGER
+        }
+
+filterMacModule OBJECT-TYPE
+        SYNTAX        INTEGER (1..16)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies the module
+                      where this port is located (see portModuleIndex)."
+        ::= { filterMacEntry 1 }
+
+filterMacPort OBJECT-TYPE
+        SYNTAX        INTEGER (1..255)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies this port within
+                      a module (see portIndex)."
+        ::= { filterMacEntry 2 }
+
+filterMacAddress OBJECT-TYPE
+        SYNTAX        FddiMACLongAddressType -- OCTET STRING (SIZE (6))
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "A MAC address.  If the source or destination MAC address
+                      equals this value, a match occurs.  The packet is dropped
+                      if a match occurs and deny(1) was specified.  The packet
+                      is dropped if a match doesn't occur and at least one
+                      MAC address filter was specified with permit(3)."
+        ::= { filterMacEntry 3 }
+
+filterMacType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                deny(1),         -- add deny entry
+                                invalid(2),      -- remove this entry
+                                permit(3)        -- add permit entry
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Setting this object to invalid(2) removes the 
+                      corresponding entry from the filterMacTable.  
+                      To add a new entry to the filterMacTable, set this
+                      object to deny(1) or permit(3) for a module, port,
+                      and MAC address not already in the table."
+        ::= { filterMacEntry 4 }
+
+-- the filter vendor table
+
+filterVendorTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF FilterVendorEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A list of filter vendor ID entries."
+        ::= { filterGrp 2 }
+
+filterVendorEntry OBJECT-TYPE
+        SYNTAX        FilterVendorEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "Entry containing vendor ID filter information."
+        INDEX         { filterVendorModule, filterVendorPort, filterVendorId }
+        ::= { filterVendorTable 1 }
+
+FilterVendorEntry ::=
+        SEQUENCE {
+                filterVendorModule
+                        INTEGER,
+                filterVendorPort
+                        INTEGER,
+                filterVendorId
+                      VendorIdType,
+                filterVendorType
+                        INTEGER
+        }
+
+filterVendorModule OBJECT-TYPE
+        SYNTAX        INTEGER (1..16)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies the module
+                      where this port is located (see portModuleIndex)."
+        ::= { filterVendorEntry 1 }
+
+filterVendorPort OBJECT-TYPE
+        SYNTAX        INTEGER (1..255)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies this port within
+                      a module (see portIndex)."
+        ::= { filterVendorEntry 2 }
+
+filterVendorId OBJECT-TYPE
+        SYNTAX        VendorIdType -- OCTET STRING (SIZE (3))
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "The vendor ID portion of a MAC address.  If the
+                      source or destination MAC address has the same vendor 
+                      ID, a match occurs.  The packet is dropped
+                      if a match occurs and deny(1) was specified.  The packet
+                      is dropped if a match doesn't occur and at least one
+                      Vendor ID filter was specified with permit(3)."
+        ::= { filterVendorEntry 3 }
+
+filterVendorType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                deny(1),         -- add deny entry
+                                invalid(2),      -- remove this entry
+                                permit(3)        -- add permit entry
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Setting this object to invalid(2) removes the 
+                      corresponding entry from the filterVendorTable.  
+                      To add a new entry to the filterVendorTable, set this
+                      object to deny(1) or permit(3) for a module, port,
+                      and vendor ID not already in the table."
+        ::= { filterVendorEntry 4 }
+
+-- the filter protocol table
+
+filterProtocolTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF FilterProtocolEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A list of filter protocol entries."
+        ::= { filterGrp 3 }
+
+filterProtocolEntry OBJECT-TYPE
+        SYNTAX        FilterProtocolEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "Entry containing PROTOCOL address filter information."
+        INDEX    { filterProtocolModule, filterProtocolPort, filterProtocolValue }
+        ::= { filterProtocolTable 1 }
+
+FilterProtocolEntry ::=
+        SEQUENCE {
+                filterProtocolModule
+                        INTEGER,
+                filterProtocolPort
+                        INTEGER,
+                filterProtocolValue
+                        INTEGER,
+                filterProtocolType
+                        INTEGER
+        }
+
+filterProtocolModule OBJECT-TYPE
+        SYNTAX        INTEGER (1..16)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies the module
+                      where this port is located (see portModuleIndex)."
+        ::= { filterProtocolEntry 1 }
+
+filterProtocolPort OBJECT-TYPE
+        SYNTAX        INTEGER (1..255)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies this port within
+                      a module (see portIndex)."
+        ::= { filterProtocolEntry 2 }
+
+filterProtocolValue OBJECT-TYPE
+        SYNTAX        INTEGER (0..65535)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "A 16-bit protocol value.  If the packet's type field
+                      or the packet's DSAP/SSAP field is equal to this value,
+                      a match occurs.  The packet is dropped if a match occurs
+                      and deny(1) was specified.  The packet is dropped if a 
+                      match doesn't occur and at least one protocol type
+                      filter was specified with permit(3)."
+        ::= { filterProtocolEntry 3 }
+
+filterProtocolType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                deny(1),         -- add deny entry
+                                invalid(2),      -- remove this entry
+                                permit(3)        -- add permit entry
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Setting this object to invalid(2) removes the 
+                      corresponding entry from the filterProtocolTable.  
+                      To add a new entry to the filterProtocolTable, set this
+                      object to deny(1) or permit(3) for a module, port,
+                      and protocol value not already in the table."
+        ::= { filterProtocolEntry 4 }
+
+-- the filter test table
+
+filterTestTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF FilterTestEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A list of filter test entries."
+        ::= { filterGrp 4 }
+
+filterTestEntry OBJECT-TYPE
+        SYNTAX        FilterTestEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "Entry containing test filter information."
+        INDEX         { filterTestModule, filterTestPort, filterTestIndex }
+        ::= { filterTestTable 1 }
+
+FilterTestEntry ::=
+        SEQUENCE {
+                filterTestModule
+                        INTEGER,
+                filterTestPort
+                        INTEGER,
+                filterTestIndex
+                        INTEGER,
+                filterTestType
+                        INTEGER,
+                filterTestOffset
+                        INTEGER,
+                filterTestValue
+                        INTEGER,
+                filterTestMask
+                        INTEGER
+        }
+
+filterTestModule OBJECT-TYPE
+        SYNTAX        INTEGER (1..16)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies the module
+                      where this port is located (see portModuleIndex)."
+        ::= { filterTestEntry 1 }
+
+filterTestPort OBJECT-TYPE
+        SYNTAX        INTEGER (1..255)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies this port within
+                      a module (see portIndex)."
+        ::= { filterTestEntry 2 }
+
+filterTestIndex OBJECT-TYPE
+        SYNTAX        INTEGER (1..8)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies a test for a
+                      particular module/port."
+        ::= { filterTestEntry 3 }
+
+filterTestType OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                valid(1),        -- add this entry
+                                invalid(2)       -- remove this entry
+                                }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Setting this object to invalid(2) removes the 
+                      corresponding entry from the filterTestTable.  
+                      To add a new entry to the filterTestTable, set this
+                      object to valid(1) for a module, port, and test index
+                      not already in the table."
+        ::= { filterTestEntry 4 }
+
+filterTestOffset OBJECT-TYPE
+        SYNTAX        INTEGER (0..4500)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "A byte offset into packet.  Must be a 32-bit word 
+                      aligned offset, i.e. 0, 4, 8, etc."
+        ::= { filterTestEntry 5 }
+
+filterTestValue OBJECT-TYPE
+        SYNTAX        INTEGER (0..4294967295)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "A 32-bit value to be compared against the packet 
+                      location specified by filterTestOffset."
+        ::= { filterTestEntry 6 }
+
+filterTestMask OBJECT-TYPE
+        SYNTAX        INTEGER (0..4294967295)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "A 32-bit value to be bitwise ANDed with the packet
+                      location specified by filterTestOffset before being
+                      compared to filterTestValue."
+        ::= { filterTestEntry 7 }
+
+-- the filter port table
+
+filterPortTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF FilterPortEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "A list of filter port entries.  The number of entries
+                      is determined by the number of modules in the chassis 
+                      and the number of ports on each module."
+        ::= { filterGrp 5 }
+
+filterPortEntry OBJECT-TYPE
+        SYNTAX        FilterPortEntry
+        ACCESS        not-accessible
+        STATUS        mandatory
+        DESCRIPTION   "Entry containing filter information for a particular
+                      port on a module."
+        INDEX         { filterPortModule, filterPort }
+        ::= { filterPortTable 1 }
+
+FilterPortEntry ::= SEQUENCE {
+                filterPortModule
+                        INTEGER,
+                filterPort
+                        INTEGER,
+                filterPortComplex
+                        DisplayString,
+                filterPortBroadcastThrottle
+                        INTEGER
+                }
+
+filterPortModule OBJECT-TYPE
+        SYNTAX        INTEGER (1..16)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies the module
+                      where this port is located (see portModuleIndex)."
+        ::= { filterPortEntry 1 }
+
+filterPort OBJECT-TYPE
+        SYNTAX        INTEGER (1..255)
+        ACCESS        read-only
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies this port within
+                      a module (see portIndex)."
+        ::= { filterPortEntry 2 }
+
+filterPortComplex OBJECT-TYPE
+        SYNTAX        DisplayString (SIZE (0..50))
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "A complex expression made up of the numbers 1 through
+                      8 indicating test results from filterTestIndex and
+                      using logical operators '&' (and), '|' (or), '!' (not),
+                      and parenthesis.  For example: ((1 & 2) | !3).
+                      If this complex filter matches a packet, it is dropped."
+        ::= { filterPortEntry 3 }
+
+filterPortBroadcastThrottle OBJECT-TYPE
+        SYNTAX        INTEGER (0..150000)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The maximum number of broadcast packets per second
+                      allowed on this port.  Packets in excess of this limit
+                      are dropped.  A value of 0 indicates unlimited
+                      broadcast packets are allowed."
+        ::= { filterPortEntry 4 }
+
+
+
+-- the monitor group
+
+-- Implementation of the monitor group is mandatory for all Cisco Workgroup
+-- Stack products which implement port monitoring functions.
+
+monitorSourceModule OBJECT-TYPE
+        SYNTAX        INTEGER (0..16)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies the module
+                      where the monitoring source port is located.  A value
+                      of 0 indicates that the monitorSourcePort is really
+                      a source Virtual LAN number."
+        ::= { monitorGrp 1 }
+
+monitorSourcePort OBJECT-TYPE
+        SYNTAX        INTEGER (1..1024)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies the monitoring
+                      source port within a module or the monitoring source
+                      Virtual LAN."
+        ::= { monitorGrp 2 }
+
+monitorDestinationModule OBJECT-TYPE
+        SYNTAX        INTEGER (1..16)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies the module
+                      where the monitoring destination port is located."
+        ::= { monitorGrp 3 }
+
+monitorDestinationPort OBJECT-TYPE
+        SYNTAX        INTEGER (1..255)
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "An index value that uniquely identifies the monitoring
+                      destination port within a module."
+        ::= { monitorGrp 4 }
+
+monitorDirection OBJECT-TYPE
+        SYNTAX        INTEGER {
+                                transmit(1),
+                                receive(2),
+                                transmitAndReceive(3)
+                              }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "The type of packets to be monitored at the source port."
+        ::= { monitorGrp 5 }
+
+monitorEnable OBJECT-TYPE
+        SYNTAX        INTEGER { enabled(1), disabled(2) }
+        ACCESS        read-write
+        STATUS        mandatory
+        DESCRIPTION   "Indicates whether port monitoring is in progress."
+        ::= { monitorGrp 6 }
+
+END
+

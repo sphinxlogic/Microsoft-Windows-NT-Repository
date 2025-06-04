@@ -1,0 +1,76 @@
+1 PSRIPX 
+ Program to receive IPX frames from Listen, process them and
+ build the internal PSRIPX DB.
+
+2 Database
+    Symbol	       offs	   Desc
+ PSR_IPX_L_NET         128     ; Net number
+ PSR_IPX_EA_ADDR       132     ; Ethernet address  
+ PSR_IPX_L_ADDRLO      134     ; Ethernet address  (Low long)
+ PSR_IPX_W_SERVICE     138     ; service
+ PSR_IPX_W_HOPS        140     ; Router hops to station
+ PSR_IPX_W_NAMLEN      142     ; Len of following name
+ PSR_IPX_AS_NAME       144     ; Name
+ PSR_IPX_L_SPR         188     ; Spare/align
+ PSR_IPX_C_RECSIZ      192     ; Total rec size
+2 Processing_notes
+ Unusualy, we do not process the MAC header here. The mac source
+ address is in the IPX header along with the net portion - the 
+ address we really want (really really want).
+ Additionaly, since each of the frames we process contains info
+ about other nets/addresses, we simply find the packet type and 
+ process it. All new and/or changed params are found in the checking 
+ procedures.
+2 IPX_CHECK_SAP 
+ Process a service announcement frame. All addresses and params contained
+ are tested for either new or changes adn alerts are generated.
+3 Input
+ 	.address of incoming IPX frame
+3 Output
+ 	New addresses create new records
+	Changed params are written to records
+ 	Alerts are generated for:
+		New addresses
+		Changed params
+		Routing changes (hop count changed)
+		Nodes down	(hop count >= 16)
+3 Return
+	SS$_NORMAL	OK
+2 IPX_SEND_RELATER   
+ Routine to extract the components from the input record, contruct 
+ a relater frame and send it. Note that ALL componnets are sent in 1 
+ frame to ensure the relater has complete information.
+ 
+3 Input
+	.address of IPXDB Rec
+3 Output
+  A relater frame is sent containing:
+ Netware Addr (includes net,mac,service)
+ Ethernet Addr  If true mac address then send to eth
+ Name, A name frame is formatted as follows:
+	PID	.long protocol id of sending process
+	KEY2	.long key for multiple names - this is the CRC of the 
+		name
+	Name	.ascii name
+       The len is the len of the name +8
+ Return
+	None
+2 IPX_CHECK_RIP 
+ Process a Routing Information frame. All addresses and params contained
+ are tested for either new or changes adn alerts are generated.
+3 Input
+ 	.address of incoming IPX frame
+3 Output
+3 Return
+	SS$_NORMAL	OK
+2 MAP_IPXDB   
+ Routine to create and initialise the IPX db. This is a standard routine
+ that any DB creator execxutes on it's own DB:
+	Acquire exclusive lock on this database. 
+		Fatal error if not granted.
+	Open file - if file not opened used hardcoded defaults.
+	Create section. Fatal error ir we did not CREATE.
+	Initalise with either file contents or defaults
+	Write section size (in pages) to LVB
+	Convert lock to CW
+	That's it!

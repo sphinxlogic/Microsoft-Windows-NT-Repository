@@ -1,0 +1,173 @@
+	.title	file_attributes
+	.ident	"X1-002"
+
+;+
+; Version:	X1-002
+;
+; Facility:	Library routines.
+;
+; Abstract:	Returns various file attributes.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	07-Sep-1992, DBS, Version X1-001
+; 001 -	Original version.
+;	05-Oct-1995, DBS, Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;
+; Formal Argument(s):
+;	filename.rt.ds
+;	blocks_used.wl.r
+;	blocks_alloc.wl.r
+;	cre_date.wl.r
+;	rev_date.wl.r
+;	exp_date.wl.r
+;	bck_date.wl.r
+;	rev_number.wl.r
+;	owner_uic.wl.r
+;	prot_mask.wl.r
+;	rec_att.wl.r
+;	bucket_size.wl.r
+;	extend_quan.wl.r
+;	gb_count.wl.r
+;	longest_rec.wl.r
+;	max_rec_size.wl.r
+;	rec_file_org.wl.r
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	The value returned by sys$open and/or sys$close is passed back 
+;	to the user.
+;
+; Side Effects:
+;	None
+;--
+
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+; determine architecture
+	.ntype	...on_alpha..., R31
+	.iif equal <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined alpha, .jsb_entry input=<R0>,output=<R0>
+
+.macro	extract destination, count, block, item, move, ?l1, ?l2
+
+	cmpw	(ap), #<count+1>
+	bgeq	l1
+	brw	close_file
+l1:	tstl	'destination'(ap)
+	beql	l2
+	mov'move'	file_xab'block'+xab$'item', @destination(ap)
+l2:
+
+.endm	extract
+
+	.disable global
+
+	.external	str_len
+
+	$fabdef
+	$xabdatdef
+	$xabfhcdef
+	$xabprodef
+
+	$gblini	GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+	.align	long
+file_fab:	$fab	fac=<BIO,BRO>, -
+			shr=<DEL,GET,PUT,UPD,UPI>, -
+			xab=file_xabfhc
+file_xabfhc:	$xabfhc	nxt=file_xabdat	; file header stuff, size etc.
+file_xabdat:	$xabdat	nxt=file_xabpro	; date/time stuff
+file_xabpro:	$xabpro			; protection stuff, uic etc.
+
+descriptor1:	.long	0		; filled in later
+descriptor2:	.long	0		; filled in later
+
+	filename	= 4		; offsets to our arguments
+	blocks_used	= 8
+	blocks_alloc	= 12
+	cre_date	= 16
+	rev_date	= 20
+	exp_date	= 24
+	bck_date	= 28
+	rev_number	= 32
+	owner_uic	= 36
+	prot_mask	= 40
+	rec_att		= 44
+	bucket_size	= 48
+	extend_quan	= 52
+	gb_count	= 56
+	longest_rec	= 60
+	max_rec_size	= 64
+	rec_file_org	= 68
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+file_attributes, ^m<>
+
+	movq	@filename(ap), -	; save the filename descriptor
+		descriptor1
+	pushaq	descriptor1		; this will contain the length
+	pushaq	descriptor1		; this is the "real" descriptor
+	calls	#1, g^str_len		; now find the "real" length
+	movb	descriptor1, -
+		file_fab+fab$b_fns	; store the length
+	movl	descriptor2, -		;  and address of the filename
+		file_fab+fab$l_fna	;  in the fab
+
+	$open	fab=file_fab		; see what happens...
+	blbs	r0, 10$			; continue on if open worked
+	brw	exit			; else bail out on any errors
+
+10$:	extract	blocks_used,	 1, fhc, l_ebk, l
+	extract	blocks_alloc,	 2, fhc, l_hbk, l
+	extract	cre_date,	 3, dat, q_cdt, q
+	extract	rev_date,	 4, dat, q_rdt, q
+	extract	exp_date,	 5, dat, q_edt, q
+	extract	bck_date,	 6, dat, q_bdt, q
+	extract	rev_number,	 7, dat, w_rvn, zwl
+	extract	owner_uic,	 8, pro, l_uic, l
+	extract	prot_mask,	 9, pro, w_pro, zwl
+	extract rec_att,	10, fhc, b_atr, zbl
+	extract bucket_size,	11, fhc, b_bkz, zbl
+	extract extend_quan,	12, fhc, w_dxq, zwl
+	extract gb_count,	13, fhc, w_gbc, zwl
+	extract longest_rec,	14, fhc, w_lrl, zwl
+	extract max_rec_size,	15, fhc, w_mrz, zwl
+	extract rec_file_org,	16, fhc, b_rfo, zbl
+
+
+close_file:
+	$close	fab=file_fab
+
+exit:	ret
+
+	.end

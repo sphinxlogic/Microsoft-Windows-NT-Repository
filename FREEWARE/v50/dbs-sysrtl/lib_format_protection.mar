@@ -1,0 +1,125 @@
+	.title	lib_format_protection
+	.ident	"V1-002"
+
+;+
+; Version:	V1-002
+;
+; Facility:	Library routines.
+;
+; Abstract:	Formats a protection mask into an ascii string.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	08-Jan-1992, DBS, Version V1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS, Version V1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	This routine will take a protection mask and format it into an
+;	ascii string of the form (RWED,RWED,RWED,RWED).  The maximum size
+;	of the returned string is 21 bytes, if a shorter string is passed,
+;	it will be filled with as much as it can take.
+;
+; Calling Sequence:
+;	pushaw	protection
+;	pushaq	display
+;	calls	#2, g^lib_format_protection
+;
+; Formal Argument(s):
+;	resultant.wt.ds	The address of a string descriptor pointing to
+;			the string that will contain the ascii text.
+;	prot_mask.rw.r	The address of the word containing the protection
+;			mask.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+.macro	check	?l1
+
+	decl	r0			; account for the next character
+	tstl	r0			; any room ?
+	bgeq	l1			; got room for at least one more
+	brw	exit			; we're full, bail out
+l1:
+
+.endm	check
+
+.macro	protect	bit, access, ?l1
+
+	bbs	#bit, r2, l1		; bit set => protected, so skip it
+	check				; see if output is full
+	movb	#^A/'access'/, (r1)+	; say we have access
+l1:
+
+.endm	protect
+
+	.disable global
+
+	$gblini	GLOBAL
+
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_code
+
+	.entry -
+lib_format_protection, ^m<r2,r3,r4,r5>
+
+	movq	@4(ap), r0		; save the string descriptor
+	movzwl	@8(ap), r2		; and the protection mask
+
+	protect	31, <(>
+	protect	 0, <R>			; system
+	protect	 1, <W>
+	protect	 2, <E>
+	protect	 3, <D>
+	protect	31, <,>
+	protect	 4, <R>			; owner
+	protect	 5, <W>
+	protect	 6, <E>
+	protect	 7, <D>
+	protect	31, <,>
+	protect	 8, <R>			; group
+	protect	 9, <W>
+	protect	10, <E>
+	protect	11, <D>
+	protect	31, <,>
+	protect	12, <R>			; world
+	protect	13, <W>
+	protect	14, <E>
+	protect	15, <D>
+	protect	31, <)>
+	tstl	r0			; any more space left in the output ?
+	bleq	exit			; no, so exit
+	movc5	.,(r1), #32, r0, (r1)	; else pad it with spaces
+
+exit:	movl	#1, r0			; always succeed
+
+	ret
+
+	.end

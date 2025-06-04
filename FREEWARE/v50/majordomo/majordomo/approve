@@ -1,0 +1,441 @@
+#!/usr/local/bin/perl
+
+# Approve Majordomo requests or "resend" bounces.
+#
+# Given arguments, approves the requests in those files;
+# given no arguments, reads standard input.
+#
+# If the "Subject: " line is "APPROVE <list>", the message is treated as
+# a request for approval from Majordomo.  An appropriate command is generated
+# and mailed to Majordomo to approve the request.
+#
+# If the "Subject: " line is "BOUNCE <list>: <reason>", the message is treated
+# as a posting rejected by "resend" for some reason, and is reformatted with
+# appropriate "Approved:" headers to cause it to succeed, then resubmitted
+# for posting.
+#
+# Assumes that the "approve" password for each list is the same as the
+# "approval" password used by "resend", and that this password is stored
+# in a file called ".majordomo" in the user's home directory, in the
+# following format:
+# 
+# 	List		Password	Majordomo-Address
+# 
+# Assumes that the "Majordomo-Address" field is an Internet-style 
+# "something@somewhere" address, and that postings for "List" should
+# be sent to "List@somewhere".
+#
+# Here's an example of what a .majordomo file should look like:
+# 
+# 	this-list	passwd1		Majordomo@This.COM
+# 	other-list	passwd2		Majordomo@Other.GOV
+# 
+# If, for instance, /tmp/request contains a standard request from Majordomo
+# to a list manager, such as:
+#
+#	From: Majordomo@This.COM
+#	To: this-list-approval@This.COM
+#
+#	User@Fubar.COM (Joe User) requests you approve the following:
+#
+#		subscribe this-list User@Fubar.COM (Joe User)
+#
+#	If you approve, send a line such as the following to Majordomo@This.COM:
+#
+#		approve PASSWD subscribe this-list User@Fubar.COM (Joe User)
+# 
+# Then, if you run "approve /tmp/request" or "approve < /tmp/request", the
+# following message will be sent to Majordomo@This.COM:
+#
+#	To: Majordomo@This.COM
+#
+# 	approve passwd1 subscribe this-list User@Fubar.COM (Joe User)
+# 
+
+# Read and execute the .cf file
+$cf = $ENV{'UCX$MAJORDOMO_CF'};
+eval(`type $cf`) || die "eval of majordomo.cf failed $@";
+
+unshift(@INC, $homedir);
+require "getopts.pl";
+require "majordomo.pl";		# all sorts of general-purpose Majordomo subs
+
+# What shall we use for temporary files?
+# $tmp = "/tmp/majordomo.$$";
+$tmp = "/SYS\$SCRATCH/APPROVE_$$";
+$my_system_name = &systemname;
+
+&Getopts("df:") ||
+    die("USAGE: approve [-f <config-file>] [-d] [<file> ...]\nStopped");
+
+if (!defined($opt_f)) {
+    $opt_f = "$ENV{'SYS$LOGIN'}.majordomo";
+}
+
+&read_config();
+
+# Read the headers.  Look at the "Reply-To:" header to figure out where to
+# respond to.  Look at the "Subject:" header to figure out if this is an
+# APPROVE or a BOUNCE request.
+
+if ($#ARGV >= $[) {
+    foreach $file (@ARGV) {
+	print "Processing file $file \n";
+	open(FILE, $file) || (warn("can't open \"$file\"; skipping"), next);
+	&process_file(FILE);
+	close(FILE);
+    }
+} else {
+    &process_file(STDIN);
+}
+
+exit(0);
+
+
+sub process_file {
+    local($FILE) = shift;
+    local($reply_to);
+    local($subject);
+    local($request);
+    local($list);
+
+    if ($majordomo_debug) {print STDERR "process_file entered\n";}
+    &ParseVMSMailHeader($FILE, *vmshdrs);
+    if ($majordomo_debug) {print STDERR "Back from ParseVMSMailHeader\n";}
+
+    while (<$FILE>) {
+	s/\n$//;
+#begin temporary
+if ($majordomo_debug) {print STDERR "Line from input is: $_\n";}
+#begin temporary
+	if (/^reply-to:/i) {
+	    s/^\S*:\s+//;
+	    $reply_to = $_;
+	    $reply_to =~ tr/A-Z/a-z/;
+	    if ($majordomo_debug) {print STDERR "\$reply_to is $reply_to\n";}
+	    next;
+	}
+	if (/^subject:/i) {
+	    s/^\S*:\s+//;
+	    $subject = $_;
+	    $subject =~ tr/A-Z/a-z/;
+	    ($request, $list) = split(/\s/, $subject, 2);
+	    $list =~ s/:.*//;
+	    if ($majordomo_debug) {print STDERR "\$request is $request\n\$list is $list\n";}
+	    next;
+	}
+	if (/^$/) {
+	    last;
+	}
+    }
+
+    # we've read the headers, so we should know now if this is an "APPROVE"
+    # or a "BOUNCE" that we're processing.
+
+    if ($request eq "approve") { &process_approve($FILE); }
+    elsif ($request eq "bounce") { &process_bounce($FILE); }
+    else {
+	warn("unknown request type '$request' in file '$file'; skipping");
+	next;
+    }
+}
+
+
+sub process_approve {
+    local($FILE) = shift;
+    local($tmp_filename) = "$tmp\_$my_system_name.out";
+    local($me) = (getpwuid($<))[0] . "\@$whereami";
+
+    if ($majordomo_debug) {print STDERR "process_approve entered\n";}
+    while (<$FILE>) {
+	if ((/^\tsubscribe\s/) || (/^\tunsubscribe\s/)) {
+	    if (!defined($reply_to)) {
+		warn("No \"Reply-To:\"; exiting");
+		exit(1);;
+	    }
+	    s/^\t//;
+	    split;
+	    $list = $_[1];
+	    $list =~ tr/A-Z/a-z/;
+	    $passwd = $passwd{"$list@$reply_to"};
+	    if (! $passwd) {
+		warn("no password for list $list; skipping \"$_\"");
+		next;
+	    }
+	    if (defined($opt_d)) {
+		open(MAIL, ">&STDOUT");
+		print MAIL "-" x 20, "\n";
+		print MAIL "To: $reply_to\n\n";
+	    } else {
+#		open(MAIL, "| /usr/ucb/mail -s \"\" $reply_to") ||
+#		    die ("open(\"|mail ...\"): $!");
+		open(MAIL, ">$tmp_filename") || die("open(MAIL, \">$tmp_filename\"): $!");
+#	print MAIL "To: $reply_to\n\n";
+		#
+		# Initial blank line must be there because we have no RFC headers. If we
+		# don't put this here UCX SMTP will get confused.
+		print MAIL "\n";
+	    }
+	    print MAIL "approve $passwd $_";
+	    close(MAIL);
+	    &rote_sendmail($tmp_filename, "$me", $reply_to);
+	    if ($majordomo_debug < 20)
+	       {unlink($tmp_filename);}
+	    last;
+	}
+    }
+}
+
+
+sub process_bounce {
+    local($FILE) = shift;
+    local ($from_skipped);
+    local($tmp_filename) = "$tmp\_$my_system_name.out";
+    local($me) = (getpwuid($<))[0] . "\@$whereami";
+
+    if ($majordomo_debug) {print STDERR "process_bounce entered\n";}
+
+    # we've already skipped the header, so set up to approve the message
+
+    # first, figure out where to send it
+    if (defined($reply_to)) {
+	# if there's a "Reply-To:" field set, use it.
+	$post_to = $reply_to;
+    } elsif ($list =~ /@/) {
+	# if the list name already appears fully qualified, use it
+	$post_to = $list;
+    } else {
+	# Well, can we figure it out?
+	if ($site{$list} eq "MULTIPLE") {
+	    warn("Can't distinguish between multiple lists named '$list'\nSkipping '$file'");
+	    return;
+	} else {
+	    $post_to = $list . "@" . $site{$list};
+	}
+    }
+
+
+    warn("Can't find password for list $list, Stopped") , return
+		if !defined($passwd{$list});
+
+    if (defined($opt_d)) {
+	open(MAIL, ">&STDOUT");
+	print MAIL "-" x 20, "\n";
+	print MAIL "To: $post_to\n\n";
+    } else {
+#	open(MAIL, "|mail -s \"\" $post_to") || die("open(\"|mail ...\"): $!");
+	open(MAIL, ">$tmp_filename") || die("open(MAIL, \">$tmp_filename\"): $!");
+#	print MAIL "To: $post_to\n\n";
+	#
+	# Initial blank line must be there because we have no RFC headers. If we
+	# don't put this here somebdy along the way gets confused and the
+	# message that ends up being delivered is the "outer" message. Not that
+	# bad because original text is still encapsulated. The headers are
+	# messed up though.
+	print MAIL "\n";
+    }
+
+    print MAIL "Approved: $passwd{$list}\n\n";
+
+    while (<$FILE>) {
+	if (/^>?From / && ! defined($from_skipped)) {
+	    # Skip any initial "From " or ">From " line
+	    $from_skipped = 1;
+	    next;
+	}
+	print MAIL $_;
+    }
+    close(MAIL);
+    &rote_sendmail($tmp_filename, "$me", $post_to);
+    if ($majordomo_debug < 20)
+      {unlink($tmp_filename);}
+}
+
+
+sub read_config {
+    local($l);
+    local($p);
+    local($m);
+    local($s);
+    open(CONF, $opt_f) || die("open(CONF, \"$opt_f\"): $!");
+    while (<CONF>) {
+	s/\n$//;
+	s/#.*//;
+	if (/^$/) { next; }
+	split;
+	$l = $_[0];	$l =~ tr/A-Z/a-z/;	# list
+	$p = $_[1];				# password
+	$m = $_[2];	$m =~ tr/A-Z/a-z/;	# majordomo@site
+	split(/@/, $m);
+	$s = $_[1];	$s =~ tr/A-Z/a-z/;	# site
+
+	$passwd{$l} = $p;
+	$passwd{"$l@$m"} = $p;
+	$passwd{"$l@$s"} = $p;
+	if (defined($site{$l})) {
+	    # if it's already defined, there's more than one list by this name
+	    $site{$l} = "MULTIPLE";
+	} else {
+	    $site{$l} = $s;
+	}
+    }
+    close(CONF);
+}
+
+
+#
+# New routine for VMS port
+#++
+#   FUNCTION NAME:
+#
+#     rote_sendmail
+#
+#  FUNCTIONAL DESCRIPTION:
+#
+#      Passes mail to the SFF code directly from a file.
+#
+#  FORMAL PARAMETERS
+#
+#     $fn	(I)	Filename
+#     $retpath	(I)	Return path address for envelope (MAIL FROM)
+#     $rcptto	(I)	Forward path address for envelope (RCPT TO)
+#
+#  IMPLICIT INPUTS:
+#
+#      none
+#
+#  IMPLICIT OUTPUTS:
+#
+#      none
+#
+#  SIDE EFFECTS:
+#
+#      none
+#
+#  RETURN VALUE:
+#
+#      none
+#--
+sub rote_sendmail {
+    local($fn) = shift;
+    local($retpath) = shift;
+    local($rcptto) = shift;
+    local($tmpfile_name);
+    local(*MAILOUT, *MAILIN);		# If you rename MAILOUT
+    local($save_mail) = "MAILOUT";	# make same change here.
+
+    if (!$fn) {die("approve: rote_sendmail called with no filename parameter");}
+    if (!$retpath) {die("approve: rote_sendmail called with no return path parameter");}
+    if (!$rcptto) {die("approve: rote_sendmail called with no forward path parameter");}
+
+    #
+    # If RCPT TO has no domain then make it $whereami. HACK Alert.
+    # The only reason doing this is so that everything is in same domain. Gets
+    # around bug in SMTP where it can get confused. When smtp$do_task rewrite is
+    # is done this problem should go away.
+    if (!($rcptto =~ "\@"))		# Assume no domain if no "@"
+      {$rcptto .= "\@$whereami";}
+
+    # Set up and save filename
+    $tmpfile_name = $tmp  . "_" . $my_system_name . "_" . $save_mail . ".TMP";
+    $mail_tmpfile_names{$save_mail} = $tmpfile_name;
+
+    if ($main'majordomo_debug)
+      {
+      print "rote_sendmail: \$fn is $fn\n";
+      print "rote_sendmail: \$retpath is $retpath\n";
+      print "rote_sendmail: \$rcptto is $rcptto\n";
+      print "Opening $tmpfile_name for write access.\n";
+      }
+
+    open(MAILOUT, ">$tmpfile_name");
+    #
+    # Before we write this need to add in MAIL FROM, RCPT TO and DATA lines
+    # What about date:, and message-id headers? Maybe unix puts them in
+    # automatically in which case we're going to need to enhance sff to do the
+    # same.
+    print MAILOUT "MAIL FROM:<$retpath>\n";
+    if ($main'majordomo_debug) {print "MAIL FROM:<$retpath>\n"}
+    print MAILOUT "RCPT TO:<$rcptto>\n";
+    if ($main'majordomo_debug) {print "RCPT TO:<$rcptto>\n"}
+    print MAILOUT "DATA\n";
+    if ($main'majordomo_debug) {print "DATA\n"}
+
+    open(MAILIN, $fn);
+    while (<MAILIN>) {
+      if ($main'majordomo_debug) {print "line to SFF file: $_"}
+      print MAILOUT $_;
+    }
+    &approve_close_and_send(MAILOUT);
+    close(MAILIN);
+
+    return;
+}
+
+
+#
+# New routine for VMS port
+sub approve_close_and_send {
+    local($MAIL) = shift;
+    # force unqualified filehandles into callers' package
+    local($package) = caller;
+    local($save_mail) = $MAIL;
+    $MAIL =~ s/^[^']+$/$package'$&/;
+    local($tmpfile_name) = $mail_tmpfile_names{$save_mail};
+
+# begin temporary
+if ($main'majordomo_debug)
+  {
+  print "\$save_mail is $save_mail\n";
+  print "Value in associative array is $mail_tmpfile_names{$save_mail}\n";
+  print "Closing $tmpfile_name\n";
+  }
+# end temporary
+    close($MAIL);
+
+    # Delete element for this file from associative array.
+    delete $mail_tmpfile_names{$save_mail};
+
+    # Pass temp msg file to symbiont to be delivered.
+    &approve_pass_to_symbiont($tmpfile_name);
+
+    # Delete this temp file
+    if ($majordomo_debug < 20)
+      {unlink($tmpfile_name);}
+}
+
+
+#
+# New routine for VMS port
+# Pass the mail to the symbiont using the SFF foreign command in a subprocess.
+# It would be better to do ths with Perl extension I think.
+sub approve_pass_to_symbiont {
+    local($mail_tmpfile_name) = shift;
+local($status_str);
+if ($main'majordomo_debug) {print "Passing temp file $mail_tmpfile_name to symbiont with SFF and backticks.\n";}
+
+if ($main'majordomo_debug)
+  {
+  $status_str = `SFF $mail_tmpfile_name -logfile majordomo_sff.log -loglevel 1`;
+  }
+else
+  {
+  $status_str = `SFF $mail_tmpfile_name`;
+  }
+if ($main'majordomo_debug)
+  {
+  if (defined($status_str))
+    {
+    if ($status_str eq "")
+      {print "\$status_str is empty string.\n";}
+    else
+      {print "\$status_str is >>>$status_str<<<\n";}
+    }
+  else
+    {print "\$status_str is not defined.\n";}
+  }
+#
+# Need to check for errors here.
+#    &main'log("Failed to exec mailer \"@_\": $!");
+#    die("Failed to exec mailer \"@_\": $!");
+}

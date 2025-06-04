@@ -1,0 +1,239 @@
+Layout.txt
+
+Johannes Plass, plass@dipmza.physik.uni-mainz.de
+-------------------------------------------------------------------------------
+
+Overview:
+---------------
+
+This file is intended to document the changes made to the layout
+widget.
+
+The layout widget was written by Keith Packard and is available on:
+   site: ftp.x.org
+   file: R5contrib/Layout.tar.Z
+The code of the original version of this widget may also be found
+in this directory (the files lay*.c,lay*.h,lay*.l).
+The layout semantics as well as syntax and interpretation of the
+'layout' resource is described in the article Layout.ps
+by Keith Packard. A copy of this article is supposed to be part
+of this software. If not, it may be obtained from
+   site: ftp.x.org
+   file:  R5contrib/Layout-xconf93-paper.ps.Z
+Further remarks on the layout semantics may be found below.
+
+Modifications:
+---------------
+
+New resources:
+   o 'resize'
+   o 'conditionedResize'
+   o 'maximumWidth', 'maximumHeight'
+   o 'minimumWidth', 'minimumHeight'
+   o constraint resource 'resizable'
+
+Convenience Routines:
+   o 'LayoutWidgetGetNaturalSize'
+   o 'LayoutWidgetAllowResize'
+   o 'LayoutWidgetSetSizeBounds'
+   o 'LayoutWidgetGetSizeBounds'
+
+The resources listed above have been introduced to allow for constraints on
+the widget's geometry management that can not be realized by means of the
+'layout' resource alone.
+The default values of these resources represent the state of maximum 
+compatibility with the original version of this widget.
+
+Please note that despite the excellent geometry management
+implemented by Keith Packard this widget has some weaknesses.
+If its geometry manager is invoked in 'XtCWQueryOnly' mode
+the widget always returns 'XtGeometryNo' if the requesting
+child is interested in a possible new width, height or
+border width.
+Furthermore the layout widget never deals with its children
+about their sizes, that is, the geometry manager never returns
+'XtGeometryAlmost'.
+Note also that the newly introduced resources have to be handled
+with care.
+ 
+Johannes Plass, December 1994
+
+-------------------------------------------------------------------------------
+
+
+Application Header File:   Layout.h
+Class Header File:         LayoutP.h
+class:                     layoutWidgetClass
+Class:                     Layout
+Superclass:                Constraint
+
+Class specific Resources:
+-------------------------
+
+
+Name               Class          Type          Notes           Default Value
+-------------------------------------------------------------------------------
+
+debug              Boolean        Boolean                       False
+layout             Layout         Layout                        NULL
+maximumHeight      MaximumHeight  Dimension                     0
+maximumWidth       MaximumWidth   Dimension                     0
+minimumHeight      MinimumHeight  Dimension                     0
+minimumWidth       MinimumWidth   Dimension                     0
+resize             Boolean        Boolean                       True
+conditionedResize  Boolean        Boolean                       True
+
+debug:  If the value of this resource is 'True' a detailed description
+        of the widget's geometry is written to 'stdout' whenever the layout 
+        widget adjusts sizes and positions of its children.
+layout: Determines how the layout widget manages its children.
+        A detailed description of this resource is given in the article
+        Layout.ps by Keith Packard.
+maximumWidth, maximumHeight: Whenever the layout widget has the opportunity
+        to address a geometry request to its parent the requested width and
+        height will be bounded by the values of these resources. The requested
+        width, height will be the minimum of the natural width, height and the
+        maximumWidth, maximumHeight.
+        Setting one of these values to '0' has a special meaning. In this case
+        the layout widget's geometry considerations are free of any upper
+        bounds in the given direction. 
+        Setting this resources to non zero values affects the way how the 
+        layout widget acts upon geometry requests of its children or changes
+        in its list of managed children.
+        These resources are adjusted automatically if the
+        parent of the layout widgets forces a width or height that exceeds
+        the current values of maximumWidth or maximumHeight.
+minimumWidth, minimumHeight: These resources are the
+        counterparts to the maximumWidth and maximumHeight resources
+        and are interpreted analogously.
+resizeWidth, resizeHeight: Determine the resize behaviour of the layout
+        widget in the given direction.
+        If one of these resources is 'False' the layout widget
+        will never attempt to change its current size in the given direction.
+        In this case children still may succesfully address resize requests
+        to the layout widget, the layout widget,
+        however, will never request a new size from its own parent to
+        satisfy any wishes of its children. The same holds true if the
+        widget's set of managed children changes.
+        If one of these resources is 'True' the layout widget is allowed to
+        ask its own parent for a new size in the given direction
+        whenever it seems to be the apropriate step to satisfy wishes of its
+        children.
+conditionedResize: If the layout widget is allowed to resize and this resource
+        is set to 'True' the layout widget will try to change its size only
+        if its current size does not seem to be appropriate to achieve a
+        satisfactory layout.
+        If the layout widget is allowed to resize and this resource is set to 
+        'False' the layout widget will try to resize whenever its current
+        size differs from its natural size.
+
+Constraint Resources:
+---------------------
+
+Each child of the layout widget is subject to additional 'constraint' 
+resources.
+
+Name            Class           Type            Notes           Default Value
+------------------------------------------------------------------------------
+
+resizable       Boolean         Boolean                         True
+
+resizable: If this resource is 'False' for a specific child the layout widget
+        will ignore all width, height and border width requests of this child. 
+
+
+Convenience Routines:
+---------------------
+
+To obtain the desired size of the layout widget use
+
+void LayoutWidgetGetNaturalSize(layoutwidget,width_ptr,height_ptr)
+   LayoutWidget layoutwidget;
+   Dimension *width_ptr;
+   Dimension *height_ptr;
+
+layoutwidget: specifies the layout widget
+width_ptr   : where to store the natural width
+height_tr   : where to store the natural height
+
+----
+
+A convenient way to set or get the values of the resources
+minimumWidth, minimumHeight, maximumWidth, maximumheight
+is provided by the convenience routines
+
+LayoutWidgetGetSizeBounds(layoutwidget,minw_p,minh_p,maxw_p,maxh_p)
+    LayoutWidget  layoutwidget;
+    Dimension *minw_p;
+    Dimension *minh_p;
+    Dimension *maxw_p;
+    Dimension *maxh_p;
+
+layoutwidget: specifies the layout widget
+minw_p,minh_p,maxw_p,maxh_p: specify the adresses into which
+              the resource values are to be stored.
+              If NULL is passed the value of the corresponding resource
+              will not be returned.
+
+LayoutWidgetSetSizeBounds(layoutwidget,minw_p,minh_p,maxw_p,maxh_p)
+    LayoutWidget  layoutwidget;
+    Dimension *minw_p;
+    Dimension *minh_p;
+    Dimension *maxw_p;
+    Dimension *maxh_p;
+
+layoutwidget: specifies the layout widget
+minw_p,minh_p,maxw_p,maxh_p: specify the adresses of the new
+              minimum width, minimum height maximum width, maximum height
+              or NULL.
+              If NULL is passed the corresponding resource will not
+              be changed.
+
+----
+
+A convenient way to set the values of the resizeWidth and resizeHeight
+resources is
+
+LayoutWidgetAllowResize(layoutwidget,allow_horizontal,allow_vertical)
+    LayoutWidget  layoutwidget;
+    Boolean allow_horizontal;
+    Boolean allow_vertical;
+
+layoutwidget: specifies the layout widget
+allow_horizontal,allow_vertical: specify the new values
+              of the resizeWidth, resizeHeight resources.
+
+
+Copyright:
+----------
+
+The sources of the layout widget (Layout.c,Layout.h,LayoutP.h) contain the
+following copyright and permission notice:
+
+/*
+ * $XConsortium: Layout.c,v 1.1 91/09/13 18:51:44 keith Exp $
+ * $XConsortium: Layout.h,v 1.2 92/01/22 18:03:05 keith Exp $
+ * $XConsortium: LayoutP.h,v 1.2 92/01/22 18:03:08 keith Exp $
+ *
+ * Copyright 1991 Massachusetts Institute of Technology
+ *
+ * Permission to use, copy, modify, distribute, and sell this software and its
+ * documentation for any purpose is hereby granted without fee, provided that
+ * the above copyright notice appear in all copies and that both that
+ * copyright notice and this permission notice appear in supporting
+ * documentation, and that the name of M.I.T. not be used in advertising or
+ * publicity pertaining to distribution of the software without specific,
+ * written prior permission.  M.I.T. makes no representations about the
+ * suitability of this software for any purpose.  It is provided "as is"
+ * without express or implied warranty.
+ *
+ * M.I.T. DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL M.I.T.
+ * BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+ * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN 
+ * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *
+ * Author:  Keith Packard, MIT X Consortium
+*/
+

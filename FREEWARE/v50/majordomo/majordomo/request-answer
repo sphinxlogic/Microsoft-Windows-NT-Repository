@@ -1,0 +1,205 @@
+#!/usr/local/bin/perl
+
+
+# $Source: /sources/cvsrepos/majordomo/request-answer,v $
+# $Revision: 1.2.6.2.2.1 $
+# $Date: 1994/12/26 23:48:33 $
+# $Author: rouilj $
+# $State: Exp $
+#
+# $Locker:  $
+
+# set our path explicitly
+$ENV{'PATH'} = "/bin:/usr/bin:/usr/ucb";
+
+# What shall we use for temporary files?
+# $tmp = "/tmp/majordomo.$$";
+$tmp = "/SYS\$SCRATCH/REQ_$$";
+
+# Read and execute the .cf file
+$cf = $ENV{'UCX$MAJORDOMO_CF'} || (getpwuid($<))[7] . "MAJORDOMO.CF";
+if ($ARGV[0] eq "-C") {
+    $cf = $ARGV[1];
+    shift(@ARGV); 
+    shift(@ARGV); 
+}
+if (! -r $cf) {
+    die("$cf not readable; stopped");
+}
+eval(`type $cf`)  || die 'eval of majordomo.cf failed';
+
+chdir($homedir) || die("Can't chdir(\"$homedir\"): $!");
+unshift(@INC, $homedir);
+require "majordomo.pl";
+require "config_parse.pl";
+
+$my_system_name = &systemname;
+$hostname = &hostname;
+$tmpfile_name;
+$save_mail = "MAIL";
+$retpath = ();
+$rcptto = ();
+
+if ($majordomo_debug) {print "hostname is $hostname\n";}
+
+# Set up and save filename
+$tmpfile_name = $tmp  . "_" . $my_system_name . "_" . $save_mail . ".TMP";
+
+# In VMS land we have the four VMS mail headers and a blank line before the
+# SMTP headers so we need to process them first.
+&ParseVMSMailHeader(STDIN, *vmshdrs);
+if ($majordomo_debug)
+  {
+  print "Back from ParseVMSMailHeader\n";
+  while (($key, $val) = each(%vmshdrs))
+    {
+    print "\$key is $key\n";
+    print "\$val is $val\n";
+    }
+  }
+
+&ParseMailHeader(STDIN, *hdrs);
+$reply_to = &RetMailAddr(*hdrs);
+$reply_to = join(", ", &ParseAddrs($reply_to));
+$in_reply_to = $hdrs{"message-id"} . ", from " . $hdrs{"from"};
+$list = $ARGV[0];
+
+# Get the list's config.
+&get_config($listdir, $list);
+
+# Set return path for this mail from list's config file "sender".
+$retpath = $config_opts{$list,"sender"} . "@" . $whereami;
+
+# RCPT TO is same as RFC To: header.
+$rcptto = $reply_to;
+
+open(MAIL, ">$tmpfile_name");
+
+if ($majordomo_debug) {print "Opened temp file $tmpfile_name\n";}
+
+print MAIL "MAIL FROM:<$retpath>\n";
+if ($main'majordomo_debug) {print "MAIL FROM:<$retpath>\n"}
+print MAIL "RCPT TO:<$rcptto>\n";
+if ($main'majordomo_debug) {print "RCPT TO:<$rcptto>\n"}
+print MAIL "DATA\n";
+if ($main'majordomo_debug) {print "DATA\n"}
+
+print MAIL <<"EOM";
+To: $reply_to
+From: $list-request
+Subject: Your mail to $list-request@$whereami
+In-Reply-To: $in_reply_to
+Reply-To: $list-approval@$whereami
+
+This pre-recorded message is being sent in response to your recent
+email to $list-request@$whereami.
+
+All routine administrative requests (including subscriptions and
+unsubscriptions) concerning this mailing list are handled by an
+automated server.  Please read this message carefully to find the
+information relevant to you.
+
+SUBSCRIBING
+===========
+
+To subscribe to $list, send the following in the body (not
+the subject line) of an email message to "$whoami":
+
+	subscribe $list
+
+This will subscribe the account from which you send the message to
+the $list list.
+
+If you wish to subscribe another address instead (such as a local
+redistribution list), you can use a command of the form:
+
+	subscribe $list other-address\@your_site.your_net
+
+UNSUBSCRIBING
+=============
+
+To unsubscribe from $list, send the following in the body (not
+the subject line) of an email message to "$whoami":
+
+	unsubscribe $list
+
+This will unsubscribe the account from which you send the message.
+If you are subscribed with some other address, you'll have to send
+a command of the following form instead:
+
+	unsubscribe $list other-address\@your_site.your_net
+
+If you don't know what address you are subscribed with, you can send
+the following command to see who else is on the list (assuming that
+information isn't designated "private" by the owner of the list):
+
+	who $list
+
+If you want to search non-private lists at this server, you can do that
+by sending a command like:
+
+	which string
+
+This will return a list of all entries on all lists that contain "string".
+
+HELP
+====
+
+To find out more about the automated server and the commands it
+understands, send the following command to "$whoami":
+
+	help
+
+If you feel you need to reach a human, send email to
+
+	$list-approval\@$whereami
+
+EOM
+
+close(MAIL);
+
+# Pass temp msg file to symbiont to be delivered.
+&request_answer_pass_to_symbiont($tmpfile_name);
+
+# Delete this temp file
+if ($majordomo_debug < 20)
+  {unlink($tmpfile_name);}
+
+exit 0;
+
+
+#
+# New routine for VMS port
+# Pass the mail to the symbiont using the SFF foreign command in a subprocess.
+# It would be better to do ths with Perl extension I think.
+sub request_answer_pass_to_symbiont {
+    local($mail_tmpfile_name) = shift;
+local($status_str);
+if ($main'majordomo_debug) {print "Passing temp file $mail_tmpfile_name to symbiont with SFF and backticks.\n";}
+
+if ($main'majordomo_debug)
+  {
+  $status_str = `SFF $mail_tmpfile_name -logfile majordomo_sff.log -loglevel 1`;
+  }
+else
+  {
+  $status_str = `SFF $mail_tmpfile_name`;
+  }
+
+if ($main'majordomo_debug)
+  {
+  if (defined($status_str))
+    {
+    if ($status_str eq "")
+      {print "\$status_str is empty string.\n";}
+    else
+      {print "\$status_str is >>>$status_str<<<\n";}
+    }
+  else
+    {print "\$status_str is not defined.\n";}
+  }
+#
+# Need to check for errors here.
+#    &main'log("Failed to exec mailer \"@_\": $!");
+#    die("Failed to exec mailer \"@_\": $!");
+}

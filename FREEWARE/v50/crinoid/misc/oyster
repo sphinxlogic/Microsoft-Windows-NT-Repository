@@ -1,0 +1,630 @@
+#! perl
+#
+#   a hard-shelled wrapper for Perl.
+#
+#   arg = scriptname
+#
+use Script;
+use Cwd;
+use VMS::Stdio;
+#
+#   'global' one-time initialization stuff
+#
+$ConfigFile = 'oyster.config';
+$PDBFlags = 'psltocPmfrxuLHXD';     ### Perl's debug flags
+$eol = '';
+$pquota = -1;
+@PreLoads = ('UNIVERSAL', 'DynaLoader', 'Socket', 'VMS::Filespec', 'VMS::Stdio', 'Carp', 'Exporter');  # static modules
+$Debug_Parsing   = 0;
+$Debug_Namespace = 0;
+$Debug_Quota     = 0;
+quota("initial") if $Debug_Quota;
+#
+#   The following used for interactive testing; set the logical
+#   'OYSTERTEST' and run with 'directory' and 'script' as arguments
+#   i.e.,  $ perl oyster. mydev:[mydir]  testscript.cgi
+#
+@StartupNamespace = get_namespace() if $Debug_Namespace;
+
+if (!exists($ENV{TZ}) and exists($ENV{'UCX$TZ'})) {
+    $ENV{TZ} = $ENV{'UCX$TZ'};
+}
+
+
+if ($ENV{'OYSTERTEST'}) {
+    $eol = "\n";
+    while (@ARGV) {
+        my ($dir) = shift @ARGV;
+        my ($script) = shift @ARGV;
+        print "(Enter SafeENV names=value pairs, terminate with EOF)\n";
+        while (<STDIN>) {
+            chomp;
+            ($n,$v) = split(/=/,$_);
+            SetSafeENV($n, $v);
+        }
+        RunScript($dir , $script);
+    }
+}
+
+
+#
+#   print out memory (pagefile + working_set) and CPU usage
+#   at several points during script execution.  The first ('initial')
+#   printout would normally be lost down some i/o black hole, but
+#   we save it for printing later.
+#
+sub quota {
+    my $tag = shift;
+    if ($tag eq 'initial') {
+        eval('require VMS::Process;');
+        $VMS_PROC_OK = ($@ eq '');
+    }
+
+    return if !$VMS_PROC_OK;
+    return if $tag ne 'initial' && $LogLevel <= 5;
+    my $cpu = (times)[0];
+
+    if ($pquota < 0) {
+        $pquota = VMS::Process::get_one_proc_info_item(0,"PGFLQUOTA");
+    }
+    my $q = VMS::Process::get_one_proc_info_item(0,"PAGFILCNT");
+    $q = $pquota - $q;
+    my $ws = VMS::Process::get_one_proc_info_item(0,"WSSIZE");
+
+    if (defined($delayed_print_quota)) {
+        print STDERR $delayed_print_quota.$eol if $LogLevel > 5;
+        undef($delayed_print_quota);
+    }
+
+    my $line =  $tag." Pagefile usage: $q  working set: $ws CPU: $cpu";
+    $delayed_print_quota = $line if $tag eq 'initial';
+    return if $LogLevel <= 5;
+    print STDERR $line.$eol;
+}
+
+
+sub RunScript {
+    my $save_eol = $eol;
+
+    $logopened = 0;
+    $location = cwd;
+    $iss = RunScript2(@_);
+    close(STDERR) if $logopened;
+    chdir($location);
+    $eol = $save_eol;
+}
+
+
+
+#
+#   this is what actually runs the script
+#       check that config is current
+#       logfile handling
+#       locate the file with the script (caching? could speed up)
+#       retrieve/create "Script" object, preload modules, Filehandles
+#       run the script
+#       status reporting and cleanup
+#
+
+sub RunScript2 {
+    local $SIG{ABRT} = \&HandleAbort;
+    my ($dir,$script) = @_;
+    my ($s, @mask);
+    my $logc;
+    my $found = 0;
+
+    LoadConfig();
+    $| = 1;  # autoflush output
+
+    $script = lc($script);
+    $dir =~ s#/+$##;
+
+    if ($LogLevel > 0 && $Errlog ne '') {
+        my $newlog = 1;
+        $newlog = !(-e $Errlog)
+          unless ($MaxLogfileSize && (stat($Errlog))[7] > $MaxLogfileSize);
+
+        if ($newlog) {
+            $errFH = VMS::Stdio::vmsopen(">$Errlog","shr=get,put,upd,del","ctx=rec");
+        } else {
+            $errFH = VMS::Stdio::vmsopen(">>$Errlog","shr=get,put,upd,del","ctx=rec","rfm=var","rat=cr");
+        }
+
+        if (!$errFH) {
+            print STDERR "Switch to $Errlog failed".$eol;
+        } else {
+            *STDERR = $errFH;
+            if ($newlog && $MaxLogfileVersions) {
+                system("purge/keep=$MaxLogfileVersions $Errlog");
+            }
+
+            $logopened = 1;
+            $eol = "\n";
+            print STDERR $eol."Request for script $script on $SafeENV{'SERVER_NAME'} from $SafeENV{'REMOTE_ADDR'} at ".scalar(localtime).$eol;
+        }
+    }
+
+    print STDERR "Namespace @ Startup (Perl $]): \n\t",join("\n\t",@StartupNamespace),"\n" if $Debug_Namespace;
+    print STDERR "Preloads: ".join(' ',@PreLoads).$eol if $LogLevel >=3;
+    print STDERR "base directory: $dir".$eol if $LogLevel >= 4;
+    if (!chdir($dir)) {
+        error_message($script,"Directory $dir not found or inaccessable", 404);
+        return;
+    }
+
+    if ($LogLevel >=5 ) {
+        foreach (keys(%SafeENV)) {
+            print STDERR "CGI \$ENV{'$_'} = '".$ENV{$_}."'".$eol;
+        }
+    }
+    $SafeENV{'SCRIPT_PREFIX'} =~ s#/$##;
+    $SafeENV{'SCRIPT_PREFIX'} .= '/';
+
+    if ($Debug_Parsing) {
+        print STDERR "SCRIPT_BINDIR = '$SafeENV{'SCRIPT_BINDIR'}'\n";
+        print STDERR "SCRIPT_NAME =  '$SafeENV{'SCRIPT_NAME'}'\n";
+        print STDERR "SCRIPT_PREFIX =  '$SafeENV{'SCRIPT_PREFIX'}'\n";
+    }
+
+    $script = substr($SafeENV{'SCRIPT_NAME'},length($SafeENV{'SCRIPT_PREFIX'})) unless $NoDescend;
+    print STDERR "using script named $script\n" if $Debug_Parsing;
+
+#
+#   check if script is in our cache
+#   this *can* interfere if have multiple scripts/path interactions
+#   which would be very ugly anyway
+#
+    my $incache = 0;
+
+    my $url = $script.$SafeENV{'PATH_INFO'};
+    my $ucurl = uc("$dir/$url");
+
+    foreach (keys(%ScriptCache)) {
+        if ($_ eq substr($ucurl,0,length($_))) {
+            $script = substr($url,0,length($_)-length($dir)-1);
+            $SafeENV{'PATH_INFO'} = substr($url,length($script));
+
+            my (@p) = split('/',$script);
+            $SafeENV{'SCRIPT_BARE_NAME'} = pop(@p);
+            my $x = join('/',@p);
+            $SafeENV{'SCRIPT_PATH'} = $SafeENV{'SCRIPT_PREFIX'}.($x ne '' ? $x.'/' : '');
+            $SafeENV{'SCRIPT_NAME'} = $SafeENV{'SCRIPT_PATH'}.$SafeENV{'SCRIPT_BARE_NAME'};
+            $incache++;
+            if ($Debug_Parsing) {
+                print STDERR "from cache:\n";
+                print STDERR "SCRIPT_PATH = '$SafeENV{'SCRIPT_PATH'}'\n";
+                print STDERR "SCRIPT_NAME = '$SafeENV{'SCRIPT_NAME'}'\n";
+                print STDERR "PATH_INFO   = '$SafeENV{'PATH_INFO'}'\n";
+                print STDERR "SCRIPT_BARE_NAME = '$SafeENV{'SCRIPT_BARE_NAME'}'\n";
+            }
+            last;
+        }
+    }
+
+#
+#   script + path_info => maybe at deeper level? find out...
+#       but skip all this if we found it in the cache
+#
+
+    print STDERR "before dir tree...script=$script\n" if $Debug_Parsing;
+    if (!$incache && !$NoDescend) {
+        my $file = $script.$SafeENV{'PATH_INFO'};
+        my (@pre) = split('/',$file);
+        my (@post) = ();
+        my $x;
+        while (1) {
+            print STDERR "checking dir tree.. file=$file\n" if $Debug_Parsing;
+            if (-e $file && (!-d $file || -e $file.'.')) {
+                $SafeENV{'SCRIPT_BARE_NAME'} = pop(@pre);
+                $script = join('/',@pre).($#pre >= 0? '/' : '');
+                $SafeENV{'SCRIPT_PATH'} = $SafeENV{'SCRIPT_PREFIX'}.$script;
+                $SafeENV{'SCRIPT_NAME'} = $SafeENV{'SCRIPT_PATH'}.$SafeENV{'SCRIPT_BARE_NAME'};
+                $SafeENV{'PATH_INFO'} = ($#post >= 0? '/' : '').join('/',@post);
+                $script .= $SafeENV{'SCRIPT_BARE_NAME'};
+                $found++;
+                if ($Debug_Parsing) {
+                    print STDERR "from directory search:\n";
+                    print STDERR "SCRIPT_PATH = '$SafeENV{'SCRIPT_PATH'}'\n";
+                    print STDERR "SCRIPT_NAME = '$SafeENV{'SCRIPT_NAME'}'\n";
+                    print STDERR "PATH_INFO   = '$SafeENV{'PATH_INFO'}'\n";
+                    print STDERR "SCRIPT_BARE_NAME = '$SafeENV{'SCRIPT_BARE_NAME'}'\n";
+                }
+                last;
+            }
+            last if !($x = pop(@pre));
+            unshift(@post,$x);
+            $file = join('/',@pre);
+        }
+    }
+
+    print STDERR "after dir search dir=$dir  script=$script\n" if $Debug_Parsing;
+
+    if (!$incache && !$found && (!-e "$dir/$script" || (-d "$dir/$script" && !-e "$dir/$script."))) {
+        error_message($script.$SafeENV{'PATH_INFO'},"script not found", 404);
+        return;
+    }
+
+    print STDERR "Script: $dir/$script".$eol if $LogLevel >= 1;
+    quota("prescript") if $Debug_Quota;
+
+    if ($OnlySuffixes) {
+        my (@p) = split('/',$script);
+        my ($f) = pop(@p);
+        my ($t) = '.' . lc((split(/\./,$f))[1]);
+        my ($ok) = 0;
+        foreach (@Suffixes) {
+            if (lc($_) eq $t) {
+                $ok++;
+                last;
+            }
+        }
+        if (!$ok) {
+            error_message($script,"Has an invalid/disallowed file type for a CGI script", 404);
+            return;
+        }
+    }
+
+    if ($Debug_Parsing) {
+        print STDERR "final result:\n";
+        print STDERR "SCRIPT_PATH = '$SafeENV{'SCRIPT_PATH'}'\n";
+        print STDERR "SCRIPT_NAME = '$SafeENV{'SCRIPT_NAME'}'\n";
+        print STDERR "PATH_INFO   = '$SafeENV{'PATH_INFO'}'\n";
+        print STDERR "SCRIPT_BARE_NAME = '$SafeENV{'SCRIPT_BARE_NAME'}'\n";
+        print STDERR "putting $dir/$script into cache\n";
+    }
+    $ScriptCache{uc("$dir/$script")} = 1;
+
+    $s = Script::FindScript("$dir/$script");
+
+    if (defined($s) && $s->renew()) {
+        print STDERR "script $script has been modified, reloading".$eol if $LogLevel >= 2;
+        $s->DESTROY();
+        $s = undef;
+    }
+    if (!defined($s)) {
+        print STDERR "making new script $script".$eol if $LogLevel >= 2;
+        $s = new Script "$dir/$script";
+        @pmask = qw(:all);                                            # default
+        @dmask = qw(exit);
+        @pmask = split(' ', $SafeENV{'CRINOID:ALLOW'}) if (exists($SafeENV{'CRINOID:ALLOW'}));   #specified
+        @dmask = split(' ', $SafeENV{'CRINOID:DENY'}) if (exists($SafeENV{'CRINOID:DENY'}));
+
+        print STDERR "allowing ".join(' ',@pmask).$eol if $LogLevel >= 3;
+        print STDERR "denying ".join(' ',@dmask).$eol  if $LogLevel >= 3;
+        $s->permit(@pmask);
+        $s->deny(@dmask);
+
+        $name = $s->{Root};
+        *{$name."::STDIN"}  = \*main::STDIN;
+        *{$name."::stdin"}  = \*main::STDIN;
+        *{$name."::STDOUT"} = \*main::STDOUT;
+        *{$name."::stdout"} = \*main::STDOUT;
+        *{$name."::STDERR"} = \*main::STDERR;
+        *{$name."::stderr"} = \*main::STDERR;
+        ${$name."::/"} = "\n";
+        ${$name.'::"'} = ' ';
+        ${$name.'::$'} = sprintf('%04X%04X',$Script::safeid,time & 0xFFFF);      # fake PID
+        ${$name.'::0'} = "$dir/$script";
+        *{$name.'::exit'} = \&ExitSub;
+        ${$name.'::In_CRINOID'} = 1;
+#
+#       Safe:: needs first crack at the symbol table
+#       so if loading into a module within partition
+#       set a dummy variable first to init stash name properly
+#
+        $s->init_stash('CGI::Carp');
+        *{$name."::CGI::Carp::exit"} = \&ExitSub;
+
+        foreach (keys(%NewINCdirs)) {
+            print STDERR "push(\@INC,'$_')".$eol if $LogLevel >=4 ;
+            push(@INC,$_);
+        }
+        %NewINCdirs = ();
+
+        foreach (keys(%NewPreLoads)) {
+            print STDERR "Preloading '$_'".$eol if $LogLevel >=4 ;
+            eval("require $_;");
+            if ($@ eq '') {
+                push(@PreLoads,$_);
+            } else {
+                print STDERR "ERROR preloading '$_', $@".$eol;
+            }
+        }
+        %NewPreLoads = ();
+
+        foreach (@PreLoads) {
+            print STDERR "Preload: share_module($_)".$eol if $LogLevel >=4;
+            $s->share_module($_);
+        }
+
+        $s->{ENV}->volatile('TZ');
+        $s->{ENV}->static(keys(%AddENV));
+        $s->{ENV}->volatile(keys(%VolatileENV));
+        $s->{ENV}->persistent(keys(%PersistantENV));
+
+    } else {
+        print STDERR "reusing old script $script".$eol if $LogLevel >=3;
+        $name = $s->{Root};
+        $s->{ENV}->initialize();
+    }
+    quota("postscript") if $Debug_Quota;
+#
+#   set environment
+#
+    foreach $k (keys(%SafeENV)) {
+        $s->{ENV}->fake($k, $SafeENV{$k}) unless $k =~ /^CRINOID\:/;
+#       ${$name."::ENV"}{$k} = $SafeENV{$k} unless $k =~ /^CRINOID\:/;
+    }
+
+    if ($s->{DEBUG} != $DebugFlags) {
+        $s->{DEBUG} = $DebugFlags;
+        $s->{VIRGIN} = 1;
+    }
+    $s->{TIMEOUT} = $MaxRunTime if defined($MaxRunTime);
+
+    print STDERR sprintf("Debug flags: 0x%4.4x",$s->{DEBUG}).$eol if $LogLevel > 4;
+
+    if (exists($SafeENV{'CRINOID:WARN'})) {
+        if ($s->{WARN} != $SafeENV{'CRINOID:WARN'}) {
+            $s->{WARN} =  $SafeENV{'CRINOID:WARN'};
+            $s->{VIRGIN} = 1;
+        }
+    }
+
+    if (defined($HomeDir)) {
+        if (!chdir($HomeDir)) {
+            error_message($script,"error in chdir to $HomeDir", 500);
+            return;
+        }
+    }
+#
+#   run the script
+#
+    $! = 0;
+    my $result = $s->run();
+    quota("postrun") if $Debug_Quota;
+
+    if ($@ ne '') {
+        error_message($script,"</B>(while running):<BR><B>$@") unless $@ =~ /^exit\(0\)/;
+    }
+#
+#   post-script cleanup
+#
+    $s->{ENV}->reset();
+    undef(%SafeENV);
+
+    my $Reuse = defined(${$name."::CRINOID::Reuse"}) && ${$name."::CRINOID::Reuse"};
+    $Reuse ||= defined(${$name."::SQUID::Reuse"}) && ${$name."::SQUID::Reuse"};
+    if ($Reuse) {
+        if (exists($s->{INC}->{'CGI.pm'})) {
+            $s->reval("CGI::_reset_globals();");
+        }
+    } else {
+        $s->DESTROY();
+    }
+    quota("postclean") if $Debug_Quota;
+}
+
+
+#
+#   called from driver program to insert data in ENV hash
+#
+sub SetSafeENV {
+    my($n,$v) = @_;
+    $SafeENV{$n} = $v;
+}
+
+#
+#   abort signal handler
+#
+sub HandleAbort {
+    my $m = "Tentacle::HandleAbort('".shift(@_)."')";
+    print STDERR $m;
+    $SIG{ABRT} = \&HandleAbort;
+    die 'abort';
+}
+
+sub ExitSub {
+    my $status = shift;
+    my (@c) = caller;
+    die "exit($status) called at $c[1] line $c[2]|";
+}
+
+sub LoadConfig {
+
+    if (!$tCFG) {
+        $fCFG = $ConfigFile;
+        $tCFG = 1;
+        %NewPreLoads = ();
+        $Errlog = '';
+        $LogLevel = 1;
+        $DebugFlags = 0;
+        $OnlySuffixes = 0;
+        $NoDescend = 0;
+        $HomeDir = undef;
+        $MaxRunTime = undef;
+        $ScriptCache = ();
+        @ERROR_HTML = ();
+        %NewINCdirs = ();
+        %VolatileENV = ();
+        %PersistantENV = ();
+        $MaxLogfileSize = 0;
+        $MaxLogfileVersions = 0;
+    }
+    return if !(-e $fCFG);
+    return if (stat($fCFG))[9] <= $tCFG;
+    $tCFG = (stat($fCFG))[9];
+
+    my $cfgFH = VMS::Stdio::vmsopen("<$fCFG","shr=get");
+    if (defined($cfgFH)) {     ## in user's home directory
+        $Errlog = '';
+        $LogLevel = 1;
+        %NewPreLoads = ();
+        $DebugFlags = 0;
+        $OnlySuffixes = 0;
+        $NoDescend = 0;
+        $HomeDir = undef;
+        $MaxRunTime = undef;
+        $ScriptCache = ();
+        @ERROR_HTML = ();
+        %NewINCdirs = ();
+        %AddENV = ();
+        %VolatileENV = ();
+        %PersistantENV = ();
+        $MaxLogfileSize = 0;
+        $MaxLogfileVersions = 0;
+
+        while (defined($_ = <$cfgFH>)) {
+            chomp;
+            s/^\s+//;
+            next if /^\#/;
+            next if /^\!/;
+            $_ = (split(/#/))[0];
+            if (/^preload\s+/i) {
+                $NewPreLoads{$'} = 1;
+            }
+            if (/^errlog\s+/i) {
+                $Errlog = $';
+            }
+            if (/^loglev\S*\s+/i) {
+                $LogLevel = int($');
+            }
+            if (/^debug\S*\s+/i) {
+                $DebugFlags = parsedebug($');
+            }
+            if (/^suffi\S*\s+/i) {
+                @Suffixes = split(/ /,$');
+                $OnlySuffixes = 1;
+            }
+            if (/^nodescen/i) {
+                $NoDescend = 1;
+            }
+            if (/^home\S*\s+/i) {
+                $HomeDir = $';
+            }
+            if (/^maxrun\S*\s+/i) {
+                $MaxRunTime = int($');
+            }
+            if (/^errorhtml\s+/i) {
+                local *F;
+                if (-e $' && open(F,'<'.$')) {
+                    @ERROR_HTML = (<F>);
+                    close(F);
+                } else {
+                    print STDERR "Error opening $' as ERRORHTML file".$eol;
+                }
+            }
+            if (/^addinc\s+/i) {
+                foreach (split(/ /,$')) {
+                    $NewINCdirs{$_} = 1;
+                }
+            }
+            if (/^addenv\s+/i) {
+                foreach (split(/ /,$')) {
+                    $AddENV{$_} = 1;
+                }
+            }
+
+            if (/^Static_ENV\s+/i) {
+                foreach (split(/ /,$')) {
+                    $AddENV{$_} = 1;
+                }
+            }
+
+            if (/^Volatile_ENV\s+/i) {
+                foreach (split(/ /,$')) {
+                    $VolatileENV{$_} = 1;
+                }
+            }
+            if (/^Persistant_ENV\s+/i) {
+                foreach (split(/ /,$')) {
+                    $PersistantENV{$_} = 1;
+                }
+            }
+
+            if (/^MaxLogFileS(ize)?\s+/i) {
+                $MaxLogfileSize = int($');
+            }
+            if (/^MaxLogFileV(ersions?)?\s+/i) {
+                $MaxLogfileVersions = int($');
+            }
+        }
+        close($cfgFH);
+        foreach (@PreLoads) {
+            delete($NewPreLoads{$_}) if exists($NewPreLoads{$_});
+        }
+
+        foreach (@INC) {
+            delete($NewINCdirs{$_}) if exists($NewINCdirs{$_});
+        }
+
+    }
+}
+
+sub parsedebug {
+    my $flags = shift;
+    return int($flags) if $flags =~ /^\s*\d+\s*$/;
+
+    my $i;
+    my $v = 0;
+
+    foreach (split(//,$flags)) {
+        next if /\s/;
+        $i = index($PDBFlags,$_);
+        return 0 if $i < 0;
+        $v += 1<<$i;
+    }
+    return $v;
+}
+
+
+
+sub error_message {
+    my $script = VMS::Filespec::unixify(shift);
+    my $errmsg = shift;
+    my $status = shift;
+
+    print STDERR "ERROR $errmsg, script $script  $status".$eol;
+
+    print "Status: $status\n" if $status;
+    if ($#ERROR_HTML > 0) {
+        print "Content-type: text/html\n\n";
+        foreach (@ERROR_HTML) {
+            $line = $_;
+            $line =~ s/\<\!\-\-\#error\-\-\>/$errmsg/i;
+            $line =~ s/\<\!\-\-\#script\-\-\>/$script/i;
+            print $line;
+        }
+    } else {
+        print "Content-type: text/plain\n\n";
+        print "ERROR: $errmsg for script $script\n";
+    }
+}
+
+
+sub get_namespace {
+    my %todo;
+    my @needsdone = qw(main);
+    my %done;
+    my $n;
+    my @found;
+
+    while ($#needsdone >= 0) {
+        while ($n = shift(@needsdone)) {
+            foreach (keys(%{$n."::"})) {
+                next unless /::$/;
+                s/\:\:$//;
+                next if exists($done{$_});
+                next if $_ eq $n;
+                $todo{($n eq 'main' ? '' : $n."::").$_}=1;
+            }
+            push @found, $n."::";
+            $done{$n}=1;
+        }
+        foreach (keys(%todo)) {
+            push @needsdone,$_;
+        }
+        %todo = ();
+    }
+    return @found;
+}

@@ -1,0 +1,398 @@
+<chapter>(Architecture\arch)
+    
+<head1>(Introduction)
+
+    
+    Broadly, the architecture is multpile client-multiple server and
+    is described as three  separate entities each with it's own goals
+    and purposes. In implementation  there are many servers to many
+    clients and this is held together by  network services . The broad
+    goal here is to provide  an arbitrary number of data gatherers
+    (servers) to supply an  arbitrary number of reporters (clients)
+    with network services providing connectivity, directory and timing
+    functions.
+
+    
+<head1>(Server)
+
+    The server is described in the familiar layered fashion, with major
+    functional requirements defined to exist at specific layers. The
+    layers are subsystems providing interfaces to other layers. In
+    contrast to many systems described in layers, this is not
+    bottom to top with each layer interfacing with only 
+    with adjacent layers but more as concentric circles with stictly
+    defined access from outer layers to inner layers. Initialy there
+    are 3 layers defined:
+
+<head2>(Core)
+   This layer, is as the name suggests, provides the inner core or the
+    engine of EMU. Here is where the internal database is built and
+    maintained and is largely invisible to any user. The core provides
+    the following functionality:
+<list(unnumbered)
+<le>Listeners. Listeners are processes that passively listen to
+    network traffic, and determine if any data captured can be further
+    processed and used within the system. If so, the data is passed
+    to PSRs.
+<le>PSRs. Protocol Specific Routines are processes that receive data
+    primarily from listener(s) and process a specific protocol. In
+    implementation these processers would normally process only a
+    small part of the protocol as most of a protocol's work is
+    transfering user data - a function not interesting to network
+    management. Most protocols provide a set of routines used to
+    ensure the integrity of the network and it is this 'conversation'
+    we are capturing and storing.
+<le>Relater. A mechanism to record and make available the relationship
+    between protocols. Essentialy this is the box view of the net.
+    While PSRs built a view that is network wide on a specific
+    protocol, the relater builds a view of individual devices or boxes
+    on the network. 
+<le>Alert Mechanism. Simply, an access point that core routines use to
+    send alert messages out of the core for further processing.
+<le>User interface. Most core routines process highly specific frames
+    and there is little need for paramater driven control. There are
+    however some exceptions and therfore a simple interface is
+    provided for both user and system control of some functions.
+<endlist>
+
+
+<head2>(Support)
+    Support routines include those that enhance EMU but are not
+    necessary to it's basic function. Routines in this are may or may
+    not be present in any implementation. Essentially these routines
+    are protocol specific and use pollers to enhance the data the
+    core has found. Additionaly support routines provide the next
+    level of alert processing and system interface for database
+    access.  
+
+<head2>(Layer 3 - Convergence)
+<x>(DECMCC)
+<x>(Comparison to other tools)
+
+    The layer below provides protocol specific data and alerts on
+    individual stations. This layer changes the view and provides a
+    picture of individual stations running multiple protocols. Perhaps
+    the most serious shortcoming in available network management
+    schemes is the inability to associate different protocols with the
+    same device. Even under Digital's much hailed DECMCC there is no
+    attempt to make the connection that a single VAX device is running
+    multiple protocols. Thus when the node fails the DECnet module
+    starts screaming, The LAT module starts screaming, the MOP
+    processor starts up, the SNMP module ...you get the picture. 
+    This, by no means is a simple task but even the most rudimentary
+    attempt would be a vast improvement and it is here that we will
+    accomplish this.  This layer has the following responsibilities:
+
+<list>(unnumbered)
+<le>Provides routines to format EMU data for output in strict format
+<le>Provides 1st level alert processing
+<le>Provides 1st level network wide analysis
+<endlist>
+    Levels below this are protocol specific. It is at this layer that
+    individual stations and protocols are viewed within the context of
+    the network it is participating in and other protocols the station
+    is running. This is to to make the leap to the idea that any
+    entity does not stand alone and any action it takes affects the
+    rest of the net. While this may seem an obvious conclusion, this
+    convergence is not implemented, even partially in any other system
+    seen. This is a fundamental goal of EMU.
+<p>
+<x>(Formatting Routines)
+    Formatting routines display the information requested and any
+    other relevant information. For example, a search for any Ethernet
+    address would result in a display of that address, the list of
+    protocols running on the node, the name and a brief description of
+    any protocol data we have.
+<p>
+    First level alerts processing receives alerts from levels below
+    and gathers other information relevant to that alert. Based on
+    results the alert priority is set and either suppressed or passed
+    along with the added information. Added information may include
+    other recent alerts and should always include current status. Eg.
+    it an IP down alert is received, this layer would check status on
+    any other known protocol. 
+<footnote>(DAG\In EMU, a known protocol is one for which we have a
+    processor and associated test functions.)
+<p>
+    This layer will detect network level errors such as duplicate
+    higher layer addresses, and monitor those parameters that affect
+    network (as opposed to station) performance. Examples might be
+    DECnet MAX address or IP address masks. 
+
+<p>
+    This is the lowest level that the system is visible at. All
+    structures and mechanisms below this are transparent, thus the
+    user sees individual objects as single entities with many
+    components. For example: A station running many protocols, or a
+    protocol with many active stations. The point is that this system
+    is not a protocol analyser but a network analyser in a truer sense
+    than most so called network analysers. 
+
+
+<head2>(Layer 4 - Network)
+    This layer provides the mechanisms to detect other servers,
+    synchronise the databases and provide the client mechanisms.
+    It is intended that a client connects to the 'closest' server and
+    that server provides a network wide view. Each server maintains
+    it's own local information as well as indexes to information
+    available on other servers. 
+<line>
+    The next generation of the network and it's accompanying services
+    are now being introduced and it is true to say we don't fully
+    comprehend the impact. Neither do the developers. What is clear is
+    that they will provide many of the services a system like this
+    needs to function and it is intended that we take full advantage.
+    The two main functions focused on here are DNS - the name server -
+    and DTS - the time server. In addition, the wide area
+    communications are expected to be via OSI (Phase V) rather than
+    DECnet (Phase IV) for a number of reasons: It is hoped that this
+    system outlives Phase IV and it would appear to be easier to
+    implement OSI - the interface is simpler than DECnet. In addition,
+    OSI provides essential services that DECnet does not and it is
+    expected that more services supporting a fully distributed system
+    such as this will be forthcoming. Future versions of this document
+    will describe precise mechanisms used as they are available and
+    needed.      
+
+<line>
+    This section is responsible for all communication to and from the 
+    various clients currently active. Some capabilities envisioned
+    here:
+<list>(unnumbered)
+<le>	Locates other servers
+<le>    Maintain current client and server lists
+<le>	Synchronises with other servers
+<le>    Sends alerts to current clients
+<endlist>
+<x>(DNS)	
+<x>(Name Server)	
+    When a server first starts it must locate other servers on the net
+    and synchronise it's database with them. That is, each server must
+    have knowledge of all addresses on the net and either store the
+    related information or know which server to acquire it from.
+    Conceptually this is fairly simple: The first routine any server
+    runs on startup finds and queries a name server (either DNS or the
+    IP equivalent). If none is found this is the first server and it
+    registers itself with the name server. If one is found this is the
+    'master' and it is contacted for the current list of servers and
+    is informed of the new server's presence. Each server is assigned
+    a unique ID which it keeps for life. (Because any server will
+    always run DECnet, it is advisable to use the DECnet address).
+    The new server then copies the index and database(s) from the
+    master and sets the 'origin' param to the master's ID. The
+    Listener is then started  and for any addr/PTYTYP heard resets to
+    origin to local. 
+<X>(Server Updates)
+    Servers must send updates to other servers to keep databases in
+    sync. The updates need only consist of new addresses or new
+    PTYTYP on existing addresses. There are 2 basic approaches here:
+<X>(Server Implementation Options)
+<list>(unnumbered)
+<le>If the server attempts to gather and contain the entire network
+    using polling and other methods to detect stations beyond the LAN,
+    the required number of servers is reduced as is the complexity of
+    the server network and resulting updates. This is the recommended
+    route to take.
+<le>The other method is to keep the server implementation simple and
+    restricted to the local LAN and have the servers exchange their
+    databases. The disadvantage here is that the implementation would
+    require many servers and the resulting network increases in
+    complexity. In addition, the necessary server update would likely
+    increase dramatically. 
+<endlist>
+<head1>(Alerts) 
+
+    Alerts are generated from any source and processed through
+    multiple level processes. A sending entity specifies the source
+    address, initial priority, class and any number of paramaters and
+    queues it for processing. There are currently 2 levels
+    defined:
+
+<head2>(Alert Level 1)
+    In level 1 the raw alert is received from any source. It is
+    stand-alone in that it has no relationship to any other entity or
+    event in the system. Here the message is compared with other
+    recent and related events. 
+<x>(Recent event)
+<x>(Related event)
+    Recent events are any events of any class for the same address
+    that occured within the previous 24 hours. Related events are any
+    events of the same class for any address on the same logical
+    network as the source address. A logical network is protocol
+    specific, such that in DECnet the logical net is a single DECnet
+    area, in IP and IPX it is a single subnet and for non-routing
+    protocols it is the same physical segment.
+    The count of related and recent events adjusts priority upward
+    using some scheme that may include the priority and age of other 
+    events.
+
+<head2>(Alert Level 2)
+    In this level the process determines if any clients or interested
+    servers are present and if so, formats and sends the alert. In all
+    cases the alert is logged. It also provides versatile,
+    programmable filters for both global (all destinations) and
+    individual destinations. 
+
+<head2>(Alert paramaters)
+    As each layer processes the alert from below it may add further
+    data. In implementation this then needs a structure that allows
+    any mesage to contain any paramater - or none at all.
+
+    <head1>(Client)
+
+
+<head2>(Presentation)
+    Simple overview of what is wanted:
+
+    Main window looks maybe like the Motif window manager and offers 4
+    pull down menus:
+<list>(unnumbered)
+<le>    FILE
+<le>    APPLICATIONS
+<le>    OPTIONS
+<le>    HELP
+<endlist>
+<list>(unnumbered)
+
+<le>    File:
+     One item - exit - Stops EMU interface on this station.
+<le>    Applications:
+<list>(unnumbered)
+<le>      Alert - Create alert window and send alerts to all active alert
+              windows.  Options in menu bar can set filters etc.
+              See alert below for more detail.
+<le>      Query - Start EMU_QUERY in seperate window. Destroy window on
+              exit.
+      	      Note: Counter data s/b graphed!!!!
+<le>      Monitor - Create submenu with monitor options:
+<list>(unnumbered)
+<le>    		System - EMU_DISPLAY_LISTEN
+<le>    		Nodes	- Start dialog to create list of nodes and 
+    			  objects to monitor on each. Start monitor.
+<le>    		Frames	- Start dialog to determine which frames to 
+    			  pass to window. Inform Listen and send all
+    			  outp to window
+<le>    		Other monitors ...
+<endlist>
+<endlist>
+<le>      Report - EMU_REPORT
+<le>    Options:
+    	System params	- EMU_SYSTBL
+    	User customisation such as colour, fonts etc.
+<le>    Help
+    	EMU.HLB
+<endlist>
+
+    In general, from the main window the user starts and stops
+    applications. Each application creates a window to run in and upon
+    stopping, the window is detroyed. There needs to be a common set
+    of routines for window access such as generation of menus of node
+    names, translation of device codes and such. At the bottom of all
+    apps are the access routines for the database itself. These, in
+    many cases exist as object files now. The alert window has some
+    special facilities...
+
+<head2>(Alert Window.)
+<x>(Alert Window.)
+
+    In addition to control functions such as filters, each alert
+    has the ability to expand. What is presented on the screen
+    is a single line (or block) stating clearly what the problem is.
+    Using the pointer the user should be able to select any single
+    event and cause a pop-up menu to display. The pop-up displays
+    choices to :
+<list>(unnumbered)
+<le>    Expand. Display the full message and all params (translated).
+
+<le>    Display recent events. Get all events for this address within the
+    previous 24 hrs.
+<le>    Display related events. Get all events related to this event.
+<le>    Analyse event. (Future) For some events there could be a standard
+    text that explains the event in more detail and possibly in
+    context. For example an event showing excessive collisions might
+    look like this when analysed:
+<endlist>
+    	"Excessive collision event is generated when the station
+    	experiences more collisions than is normal for this station.
+        (nodename) normally collides (12%) of it's sent frames but 
+     	is now colliding (23%)." 
+<line>
+    This can be seen as a sort of help file with backward context
+    sensitivity. That is the text generated will depend on the
+    error and other real-time information.
+<line>
+    Other window notes in no particular order:
+<list>(unnumbered)
+<le>    The windowing scheme is not limited to a single display and indeed
+    there are stations out there running a single application on a
+    single node using 2 or more (selectable) screens for display. Any
+    monitoring system eventualy runs into the problem of displaying
+    too much data on not enough screen so.... The design of the
+    windows MUST accomodate multiple screens.
+
+<le>
+    Colour is not optional, at least on the primary display. Alerts in
+    particular need to be coloured according to priority. If we ever
+    are able to produce a map, we have to be able to colour it.
+
+<le>
+
+    Lets have some humour, or at least some levity here. We can keep
+    the interest of the user up a bit by using some cartoon type
+    graphics, or some humerous text in certain situations. While we
+    are not in the entertainment business, it is a benefit to the
+    client to keep our system interesting and if a bit of lightness is
+    appropriate ... it will also help distinguish us.  
+
+<le>
+
+    Multimedia is nearly here... and will likely be the buzzword for
+    the next couple of years. If now we have to have windows to
+    attract anyone, very soon we will have to have multimedia. That is
+    instead of producing a 'red beep' we will produce a photograph and
+    digital sound. We dont have to do this now, just don't exclude it
+    in the design. 
+<endlist>
+
+
+<head2>(Client Summary)
+    It is envisioned that the client runs on customer hardware and
+    this may impose some limitations. In the environment that this
+    product is thought to be most useful in, the most common window
+    devices will likely be VMSstations, IBMPCs and Macintosh hardware
+    and any scheme adopted will have to take that into account. As
+    manufacturers move towards Motif and X-window this restriction may
+    disappear. 
+    This directs that the client (unlike the server) is written in
+    highly portable fashion - the interface must be consistent on any 
+    supported hardware.
+
+<head1>(Summary)
+
+    This system should be smart in both operation and presentation and 
+    will contain a kernel of sophistication that can grow. This is 
+    where monitoring systems are going: Less beeping and more 
+    information, pertinent information usefully displayed, not just 
+    problems but pointers to, and in some cases, hard solutions. The 
+    key to the system is the ability to collect well understood data 
+    and return information, not just the same data redisplayed. While 
+    this implies a large complex database and associated system it has 
+    become apparent during the development of this system that very 
+    small amounts of data offer a wealth of information: The MOP 
+<x>(MOP)
+    module determines the node's: manufacturer, device type, and 
+    DECnet address (if appropriate) and other functions (such as 
+    counters or console) and on many nodes we can extract the node 
+    name, and software version he is running. The module detects 
+    duplicate DECnet addresses and, as all types, new addresses. This 
+    is all gathered by listening to a single message type and is
+    stored  in less than 64 bytes. The point is that the simplest
+    analysis possible  reaps high rewards; the protocols running out
+    there are rich in information that is not that difficult to
+    extract and use and it. It must be noted that work thus far is on
+    largely unpublished protocols. In the near future the management
+    of major protocols will be done with standard and published
+    methods. We can thus look forward to this task becoming easier,
+    not as usual, more difficult.
+
+     

@@ -1,0 +1,1019 @@
+ 	.TITLE	SCANNER  
+	.IDENT /V01-003/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+;	Sep 1997	PB	Creation v1
+;	OCT 1997	PB	Added 1 sec pause after each send_relater
+;				and send_namer. Speed of processing 
+;				overloads buffers. 
+; 	APR 1999	PB	After DELETE_ALL call, if status not
+;				OK then next SCANNER rec. Formerly status
+;				not checked and always processed next EMUDB
+;				rec. On  error this sometimes caused loop.
+;++
+;1 SCANNER   
+;  This process scans EMUDB extracting those items that are gathered via
+; polling and should appear in the PSR level databases. The extracted items
+; are propogated to the correct PSRdbs.
+;
+;2 Description
+; A database that is created and can be altered by a system administrater
+; directs this process to find all occurences of particular records in 
+; EMUDB and then take specific action. Actions supported are:
+;	Send contents to Relater
+; In the case of send to relater, the contents will normaly be a protocol
+; address. After confirming the record is not in the appropriate db, and 
+; validating the record, it is sent to the relater in a standard relater
+; frame. 
+;
+;2 Scanner database
+; The database is created using the system management tool Scanner DB. In 
+; this routine, menus of tables and params EMU supports are presented and 
+; for each selected, the user specifys an action. The results are stored
+; in a file which this process reads at the start of each cycle. 
+; File format:
+; Table		.long EMU defined table the following paramater is found in.
+; Paramater	.long EMU defined parameter. 
+; Action	1. Send to relater
+; Action when link not found. A bit pattern directing the routine to execute
+; a 'fix' routine when no backward link is found. If the EMUDB rec just read
+; does not have a corresponding PSRdb entry, it may take 1 of 2 actions:
+; 1. If the EMUDB rec is a protocol address, it executes LOCATE_PSR with 
+; the EMUDB BOXID in the call. This creates the PSR record with the correct
+; boxid and the relater rebuilds the links. Note that the record is ALWAYS
+; created: If the rec existed (with different boxid) the boxid is changed
+; and flagged as created. If the rec did not exist it is created as normal.
+; 2. If the rec just read is not a protocol address the routine cannot
+; determine how to recreate the link and all EMUDB recs for this protocl.boxid
+; are deleted.
+;    
+;
+;2 Counters
+; Performance counters are kept in standard format and displayed via the 
+; standard interface. Counters kept:
+; State		WAT, RUN or WFL
+; Entry		Number of database entry currently working on
+; Scanned	Number of EMUDB recs succesfuly retrieved
+; DB Errors	Number of EMUDB reads in error
+; Relater	Number of relater recs sent
+; Namer		Number of Namer recs sent (obsolete)
+; NoIPC		Number of times no Send buffer available
+; Start time	WAT: Time next cycle will start
+;		RUN: Time current cycle started
+;
+;3 Error_logging
+; This process conforms to EMUMSG and is facility SCANER.
+; Messages:
+;--
+	.LIBRARY        /SYS$LIBRARY:LIB.MLB/
+	.LIBRARY        /EMU5_LIB:EMU5.MLB/
+        $IODEF                          ;Define I/O functions and modifiers
+	$SECDEF				; Global Section 
+	$PRTDEF				; Protection Codes
+	$SSDEF
+	$NMADEF
+	$LCKDEF
+	EMUIPCDEF			; IPC buffers
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUCNTDEF
+	EMUMSGDEF
+	EMURLTDEF
+	EMUPSRDEF
+	EMUDBDEF
+;
+
+THIS_PROCESS = SYS_PID_C_SCANNER
+THIS_PROCESS_FLAG = SYS_FLG_C_SCANNER  
+	.psect	listen_sec,wrt,noexe,pic,shr,page
+;
+; 
+; Global Section areas
+;
+; returned addresses
+	.ALIGN	QUAD
+CONTROL_A:	.QUAD	0
+COUNTERS_A:	.QUAD	0
+INADDR:		.QUAD	0
+GBLSIZ:		.LONG	0
+RECCNT:		.LONG	0
+INTIME:         .QUAD	0
+INTLTIM:	.QUAD   0
+CURBOX:		.LONG	0
+RLTCXT:		.LONG	0
+INTIM_D:	.LONG	16
+		.ADDRESS  INTIM
+INTIM:		.ASCII	/0000 00:43:00.00/      ; Wait interval
+; 
+ 
+SCANNERFAB:	
+		$FAB	FAC = <GET,PUT>,-        ; Access
+			SHR = <GET,PUT>,-
+			RFM = FIX,-
+			MRS = SCANNERREC_SIZE,-
+			ORG = REL,-
+			FNM = <EMU5_ROOT:[DAT]EMU_SCANNER.DAT>
+SCANNERRAB:	
+		$RAB	FAB = SCANNERFAB,-            ; Record 
+			RAC = KEY,-
+			KBF = RECNO,-
+       			RBF = SCANNERREC,-			; 
+       			UBF = SCANNERREC,-			; 
+       			USZ = SCANNERREC_SIZE,-		; 
+       			RSZ = SCANNERREC_SIZE   		; 
+		
+
+SCANNERREC:	 .BLKB	SCN_C_RECSIZE   
+SCANNERREC_SIZE = .-SCANNERREC
+	.ALIGN 	LONG
+RECNO:		.LONG	0
+RECBUF:
+EMUDB_KEYBUF:	.BLKB	DB_C_KSZ 			; 
+RECDAT:		.BLKB	DB_REC_C_MRS-DB_C_KSZ		; 768 (Total)
+RECBUF_DESC:	.LONG	.-RECBUF
+		.ADDRESS  RECBUF
+WRITEBUF_DESC:	.QUAD
+TEMPDESC:	.QUAD
+TEMPBUF:	.BLKB	512
+	.ALIGN 	LONG
+
+DBTBL:
+; Ordering in this table is important - the order in which they
+; appear is the order in which the PID was assigned
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 0 = invalid
+		.BLKB	SYS_MAP_C_MAPSIZ        ; = listener (no db)
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN4
+		.LONG	PSR_DN4_W_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN4DB
+		.ADDRESS EMU_PSRDN4
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRDN5
+		.LONG	PSR_DN5_B20_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_DN5DB
+		.ADDRESS EMU_PSRDN5
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRSCS
+		.LONG	PSR_SCS_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_SCSDB
+		.ADDRESS EMU_PSRSCS
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRLAT
+		.LONG	PSR_LAT_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_LATDB
+		.ADDRESS EMU_PSRLAT
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRIP
+		.LONG	PSR_IP_L_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_IPDB
+		.ADDRESS EMU_PSRIP
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 8 = IPX 
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 9 = DNS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 10 = DTS
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 11 = ARP
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRETH
+		.LONG	PSR_ETH_EA_ADDR 
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_ETHDB
+		.ADDRESS EMU_PSRETH
+;
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 13 = unassigned  
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 14 = unassigned  
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 15 = unassigned  
+		.BLKB	SYS_MAP_C_MAPSIZ 	; 16 = unassigned  
+;
+                .QUAD	0
+		.LONG	SYS_PID_C_NAMER
+		.LONG	NAM_DB_L_PID
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_NAMERDB
+		.ADDRESS EMU_NAMER
+
+
+DBTBL_DESC:	.LONG 	.-DBTBL
+		.ADDRESS  DBTBL
+
+
+;
+	.ALIGN	LONG
+EXIT_BLOCK:	.LONG	0
+		.ADDRESS SCANNEREXIT_HDLR  
+		.LONG	1
+		.ADDRESS EXIT_STATUS
+EXIT_STATUS:	.LONG	0
+
+
+
+	.ALIGN 	LONG
+
+ERRORMSG:
+		.LONG	       	;Arg, opts
+MSGCDE:	        .LONG		; Error code
+PARCNT:		.WORD		; Paramater count
+		.WORD		; Opts
+		.LONG		; Time
+		.ADDRESS RTNNAM	; Our name
+MSGPARAMS:	.BLKL	7	; Up to 7 params
+RTNNAM:		.ASCID	/SCANNER/
+
+;
+; Lock Names
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_IPDB:	
+		.ASCID	\EMU_IPDB\            ; Lock name
+EMU_SCSDB:	
+		.ASCID	\EMU_SCSDB\            ; Lock name
+EMU_DN5DB:	
+		.ASCID	\EMU_DN5DB\            ; Lock name
+EMU_DN4DB:	
+		.ASCID	\EMU_DN4DB\            ; Lock name
+EMU_LATDB:	
+		.ASCID	\EMU_LATDB\            ; Lock name
+EMU_ETHDB:	
+		.ASCID	\EMU_ETHDB\            ; Lock name
+EMU_NAMERDB:		
+		.ASCID	/EMU_NAMERDB/	; DB Lock name 
+; Section names
+EMU_PSRMOP:
+		.ASCID	/EMU_PSRMOP/
+EMU_PSRIP:
+		.ASCID	/EMU_PSRIP/
+EMU_NAMER:
+		.ASCID	/EMU_NAMER/
+EMU_PSRSCS:	
+		.ASCID	\EMU_PSRSCS\  		; Section name
+EMU_PSRDN5:	
+		.ASCID	\EMU_PSRDN5\  		; Section name
+EMU_PSRDN4:	
+		.ASCID	\EMU_PSRDN4\  		; Section name
+EMU_PSRLAT:	
+		.ASCID	\EMU_PSRLAT\  		; Section name
+EMU_PSRETH:	
+		.ASCID	\EMU_PSRETH\  		; Section name
+
+
+; Misc
+	.align	long
+READOPTS:	.LONG	3			; nomap
+BOXID:		.LONG	0		   ; Use in LOCATE_PSR
+SYSDBLOCK:	.LONG	0
+WAIT_INTERVAL:	.FLOAT	1800               ; Time to wait between cycles
+WAIT_INTERVAL1:	.FLOAT	60                 ; Time to wait before start
+PAUSE:		.FLOAT	1		   ; Time to wait between IPC sends
+EFLAGS2:	.ASCID  /EFLAGS2/ 
+
+
+	.PSECT	SCANNER_C,NOWRT,EXE,SHR,PIC,LONG
+	.sbttl	scanner ()
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SCANNER
+
+; Errors between here and READ: are fatal
+;
+; Ensure death if control process dies
+	CALLS	#0, G^GET_CONTROL_LOCK	     ; routine exits if lock rec'ed 
+	BLBS	R0,10$
+	RET
+;
+; Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+10$:
+
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BLBS	R0,20$
+	RET
+
+;	
+; Create and Map to sections 
+20$:
+	PUSHAL	CONTROL_A		; Control section return addresses     
+	CALLS	#1, G^MAP_CONTROL	; Create and map control section       
+	BLBS	R0,30$
+	RET
+30$:
+	PUSHAL	COUNTERS_A		; Counters                             
+	CALLS	#1,G^MAP_COUNTERS                                              
+	BLBS	R0,40$
+
+	RET
+40$:
+50$:
+; Declare exit handler
+	$DCLEXH_S	DESBLK=EXIT_BLOCK
+	BLBS	R0,60$
+	RET
+60$:
+70$:
+; Init counters
+	MOVL	COUNTERS_A,R11
+	MOVC5	#0,#0,#0,#CNT_SCN_C_SIZ,CNT_SCN_C_1ST(R11) ; Zero all  	
+
+;Wait for all other sections to map 
+;**
+	PUSHAL	WAIT_INTERVAL1                  	; Wait
+	CALLS	#1,G^LIB$WAIT
+
+; Map to all active PSRs
+	CALLS	#0,G^SCN_MAPDB
+110$:
+
+; Common Event flag Cluster:
+	$ASCEFC_S	EFN = #96,-
+			NAME = EFLAGS2
+	BLBS	R0,120$
+	RET
+120$:
+; Start by waiting 1 cycle (30 min)
+	BRW	END_CYCLE
+
+MAIN:
+; Simply:
+; Open the scanner file and read the contents. For each record:
+;	 Retrieve all EMUDB recs for this table/param.
+;	If:
+;		Flag in DB rec is not set and,
+;		Item does not exist in specified db and,
+;		Item is verified as correctly encoded
+;	Then:
+;		Send item to process indicated in action field.
+;	If:
+;		Flag in DB rec is not set and,
+;		Item does exist in specified db 
+;	Then:
+;		Set flag in DB rec
+; At EOF:
+;	Close file
+;	Wait
+;	Restart
+;
+
+; Register constants (this section):
+; R11 = conter section
+   	ADDL3	#96,#SYS_PID_C_SCANNER,-(SP)	; CLear run flag
+	CALLS	#1,G^SYS$CLREF
+
+	MOVL	COUNTERS_A,R11
+	MOVC5	#0,#0,#0,#CNT_SCN_C_SIZ,CNT_SCN_C_1ST(R11) ; Zero all  	
+	MOVL	#CNT_STA_C_RUN,CNT_SCN_L_STATE(R11)	; State = run
+	CLRL	RECNO		
+	$OPEN	FAB=SCANNERFAB
+	BLBC	R0,10$
+	$CONNECT RAB=SCANNERRAB
+	BLBS	R0,20$
+10$:
+        MOVL	#MSG_SCANER_INPTFIL,MSGCDE    ; Input file error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	END_CYCLE
+20$:
+	INCL	CNT_SCN_L_ENTRY(R11)
+	INCL	RECNO
+	$GET	RAB=SCANNERRAB
+	BLBS	R0,50$
+	CMPL	R0,#RMS$_RNF
+	BNEQU	30$
+	BRW	END_CYCLE
+30$:
+        MOVL	#MSG_SCANER_INPTFIL,MSGCDE    ; Input file error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRB	20$
+
+50$:
+	CLRL	RECCNT
+	MOVAL	SCANNERREC,R6
+	MOVAL	RECBUF,R2
+	MOVL	SCN_REC_L_TABLE(R6),DB_REC_L_TABLE(R2)
+	MOVL	SCN_REC_L_PARAM(R6),DB_REC_L_PARAM(R2)
+; Get all recs for this tbl.prm
+100$:
+; Lock the databases
+	PUSHL	#THIS_PROCESS		; We are the owner
+	PUSHAL	SYSDBLOCK		; Lock id
+	CALLS	#2,G^GET_EMUDBSYSLOCK	; Get it
+	BLBS	R0,101$			; Br if got it
+	BRW	END_CYCLE		; Wait if not
+101$:
+	MOVAL	RECBUF,R8
+	MOVL	#DB_REC_C_MRS,RECBUF_DESC
+	PUSHL	READOPTS		; Unlock,nomap
+	PUSHAL	RECCNT			; Record count
+	PUSHL	#5			; Report level
+	CLRL	-(SP)			; Search direction
+	PUSHAL	RECBUF_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_TAB_PAR 	; Key of ref
+	CALLS	#6,G^EMUDB_READ
+; 
+	BLBS	R0,110$                    ; Br if got rec
+	CMPL	#RMS$_RNF,R0               ; Rec not found?
+	BEQLU	105$                       ; OK
+	CMPL	#RMS$_EOF,R0               ; Rec not found?
+	BEQLU	105$                       ; OK
+; Log error
+	INCL	CNT_SCN_L_BADDB(R11)
+        MOVL	#MSG_SCANER_DBREAD,MSGCDE    ; Input file error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; RMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        CLRL	CURBOX                       ; New Box
+	BRW	20$                          ; Next scanner rec
+105$:
+; No emudb rec read
+	CALLS	#0,SCN_SEND_REL
+	BRW	20$			     ; Next Scanner
+
+110$:
+; Got EMUDB rec - check if wanted.
+; If  TABLE,PARAM match then next check
+; else call send relater and next scanner
+	CMPL	SCN_REC_L_TABLE(R6),DB_REC_L_TABLE(R8)    ; This table?
+	BNEQU	115$                       		  ; Br if not    
+	CMPL	4(R6),DB_REC_L_PARAM(R8)                  ; This param?
+	BNEQU	115$                       		  ; Br if not
+; If Boxid = 0 or match then process else send relater and then process
+	TSTL	CURBOX			   	; Starting new box?
+	BEQLU	120$			   	; Br if yes
+	CMPL	CURBOX,DB_REC_L_BOXID(R8)       ; This Box?
+	BEQLU	120$                       	; Br if so
+	CALLS	#0,SCN_SEND_REL                 ; Test and send
+	BRB	120$				; Process
+115$:
+	CALLS	#0,SCN_SEND_REL                 ; Test and send
+	BRW	20$			        ; Next Scanner
+120$:
+	MOVL	DB_REC_L_BOXID(R8),CURBOX       ;Make this Box current
+	
+125$:
+; If record has been processed (confirmed) then skip
+	MOVL	DB_REC_L_BOXID(R8),CURBOX   ; Make This Box Current
+	INCL	CNT_SCN_L_GOODDB(R11)      		; Count good read
+	BBC	#DB_FLG_V_RECORD,DB_REC_L_FLAGS(R8),130$ ; Br if rec processed
+	CALLS	#0,G^EMUDB_UNLOCK
+; Unlock the databases
+	PUSHL	#THIS_PROCESS		; We are the owner
+	PUSHAL	SYSDBLOCK		; Lock id
+	CALLS	#2,G^RELEASE_EMUDBSYSLOCK	; Unget it
+	BLBS	R0,127$			; Br if Ungot it
+	RET                             ; Unget it the hard way!
+127$:
+	BRW	100$                                    ; 
+130$:
+; extract data from rec
+	PUSHAL	RECBUF_DESC			; emudb rec
+	PUSHAL	TEMPDESC                        ; write contents here
+	CALLS	#2,G^EXTRACT_DBDATA             ; do it
+	BLBS	R0,140$                         ; br no err
+	INCL	CNT_SCN_L_ERROR(R11)
+        MOVL	#MSG_SCANER_BADHDR,MSGCDE    ; Bad header
+	MOVL	#5,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	(R8),(R1)+                   ; Header
+	MOVL	4(R8),(R1)+                   ; Header
+	MOVL	8(R8),(R1)+                   ; Header
+	MOVL	12(R8),(R1)+                   ; Header
+	MOVL	16(R8),(R1)+                   ; Header
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+        BRW	20$
+140$:
+; If name and CMIP encoded, translate to string 1st
+	CMPL    COM_HDR_L_FLAGS(R8),#SYS_PID_C_PSRDN5	; OSI?
+	BNEQU	145$                                    ; Skip if not
+	CMPL	#SYS_PID_C_NAMER,SCN_REC_L_DESTPID(R6)
+	BEQLU	1405$					; Br if name
+	BRW	148$					; Skip if not name
+1405$:
+; Replace tempddesc pointers to point to where translated string will 
+; be written.
+	MOVAL	RECBUF,R2
+	ADDL	#DB_C_KSZ,R2
+	MOVL	#512,TEMPDESC		; Outp len
+;	MOVAL	TEMPBUF,TEMPDESC+4	; ADDR
+	PUSHAL	TEMPDESC		; Outp
+	PUSHL	R2			; CMIP name
+	CALLS	#2,G^XLATE_FULLNAME
+	BLBS    R0,145$
+; Log error
+	INCL	CNT_SCN_L_ERROR(R11)
+        MOVL	#MSG_SCANER_XLTNAM,MSGCDE    ; error
+	MOVL	#1,PARCNT                    ; 1 param
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+; Unlock the databases
+	PUSHL	#THIS_PROCESS		; We are the owner
+	PUSHAL	SYSDBLOCK		; Lock id
+	CALLS	#2,G^RELEASE_EMUDBSYSLOCK	; Unget it
+	BLBS	R0,1401$			; Br if Ungot it
+	RET                             ; Unget it the hard way!
+1401$:
+        BRW	100$			     ; Next emudb
+145$:
+; If this is a name we have to create the key from the pid and name
+	CMPL	#SYS_PID_C_NAMER,SCN_REC_L_DESTPID(R6)
+	BNEQU	148$					; Skip if not name
+        MOVQ	TEMPDESC,R3
+	MOVL	#512,TEMPDESC		
+	PUSHAL	TEMPDESC		; Output
+	PUSHL	R4                      ; Addr of name
+	PUSHL	R3                      ; Len of name
+	PUSHL	COM_HDR_L_FLAGS(R8)	; This db PID
+        CALLS	#4,G^MAKE_NAMER_FRAME   ; 
+	BLBS	R0,148$
+
+        MOVL	#MSG_EMUSYS_MKNMFM,MSGCDE    ; Message
+	MOVL	#1,PARCNT                    ; 1 param
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+; Unlock the databases
+	PUSHL	#THIS_PROCESS		; We are the owner
+	PUSHAL	SYSDBLOCK		; Lock id
+	CALLS	#2,G^RELEASE_EMUDBSYSLOCK	; Unget it
+	BLBS	R0,147$			; Br if Ungot it
+	RET                             ; Unget it the hard way!
+147$:
+        BRW	100$			     ; Next emudb
+148$:
+	PUSHL	8(R6)			; Destination
+	PUSHAL	TEMPDESC
+	CALLS	#2,G^VERIFY_ADDRESS
+	BLBS	R0,150$
+; Unlock the databases
+	PUSHL	#THIS_PROCESS		; We are the owner
+	PUSHAL	SYSDBLOCK		; Lock id
+	CALLS	#2,G^RELEASE_EMUDBSYSLOCK	; Unget it
+	BLBS	R0,149$			; Br if Ungot it
+	RET                             ; Unget it the hard way!
+149$:
+        BRW	100$			     ; Next emudb
+150$:
+; Check if this rec exists in designated DB
+; Verify DB access
+	PUSHL	8(R6)			; This db
+	CALLS	#1,G^SCN_GETDB          ; Returns pointer in r1
+	BLBS	R0,160$
+	INCL	CNT_SCN_L_ERROR(R11)
+
+        MOVL	#MSG_SCANER_DBACCES,MSGCDE    	; error
+	MOVL	#2,PARCNT                    	; 2 params
+	MOVAL	MSGPARAMS,R1                 	; Plist
+	MOVL	8(R6),(R1)+       		; PID 
+	MOVL	R0,(R1)    			; returned error
+	PUSHAL	ERRORMSG                     	; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	20$                             ; Next Scanner rec
+160$:
+	
+165$:
+	CLRL	BOXID
+	MOVQ	TEMPDESC,R3             ; lookup key
+	PUSHL	#1			; Create if not found
+	PUSHL	SYS_MAP_L_PID(R1)	; Creator
+	PUSHAL	BOXID 			; New Boxid on Create
+	PUSHL	R1			; This db
+	PUSHL	R4			; Push addr
+	PUSHL	SYS_MAP_L_KEY(R1)	; Offset to addr
+	PUSHL	R3			; Addr len
+	CALLS	#7,G^LOCATE_PSRREC      ; Just check
+	BLBS	R0,167$
+        BRW	190$
+; Rec exists. Check if relationship does
+; R1 = PSRDB rec  just found
+; R8 = current EMUDBREC 
+; R9 = saved protocol from LOCATE_PSRREC
+167$:
+; If this is a name then following MUST be true:
+;	Record was created OR
+;	Record existed AND BOXID matches
+	CMPL	#SYS_PID_C_NAMER,SCN_REC_L_DESTPID(R6)
+	BNEQU	169$
+	CMPL	R0,#SS$_CREATED
+	BEQLU	169$
+        CMPL	COM_HDR_L_FLAGS(R1),DB_REC_L_BOXID(R8)
+	BEQLU	169$
+; This is a duplicate name - alert as such and ignore
+	BRW	170$
+
+169$:
+        MOVL	COM_HDR_L_FLAGS(R1),R9
+	ADDL3	#DB_REC_L_BOXID,R8,-(SP)
+	ADDL3	#DB_REC_L_PROTO,R8,-(SP)
+        ADDL3	#COM_HDR_L_BOXID,R1,-(SP)
+        ADDL3	#COM_HDR_L_FLAGS,R1,-(SP)
+	CALLS	#4,G^VERIFY_RELATER
+	BLBC	R0,190$
+; Relationship exists. Signal that.
+; Set flag in current rec...
+	BISL	#DB_FLG_M_RECORD,DB_REC_L_FLAGS(R8)
+; And update rec
+; Make data desc from recbuf desc
+	SUBL3	#DB_C_KSZ,RECBUF_DESC,TEMPDESC		; Len
+	ADDL3	#DB_C_KSZ,RECBUF_DESC+4,TEMPDESC+4	; Addr
+	PUSHAL	TEMPDESC
+	PUSHL	R8
+	CALLS	#2,G^EMUDB_WRITE
+	BLBS	R0,170$
+	INCL	CNT_SCN_L_ERROR(R11)
+        MOVL	#MSG_SCANER_DBWRITE,MSGCDE    ; Input file error
+	MOVL	#1,PARCNT                    ; 1 param
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+170$:
+; Unlock the databases
+	PUSHL	#THIS_PROCESS		; We are the owner
+	PUSHAL	SYSDBLOCK		; Lock id
+	CALLS	#2,G^RELEASE_EMUDBSYSLOCK	; Unget it
+	BLBS	R0,180$			; Br if Ungot it
+	RET                             ; Unget it the hard way!
+180$:
+	BRW	100$
+190$:
+; Relationship does not exist. Send to relater.
+; If a relater frame does not yet exist then lookup a protocol address
+; in the PSR whose PID we are now working on. Create the Relater frame
+; using this address and add any subsequent EMUDB records of this type
+; on this box. This forms the relationship between the parties
+; in a positive way. We hope they stay together forever.
+;
+;	TSTL	RLTCXT          ; Frame in progress?
+;	BEQL	1905$           ; Br if not (init frame)
+	BRW	1950$           ; Br if so 
+1905$:
+; Get the database for target PID. This is protocol address will 
+; use to 'tie' to
+; Ensure we can access
+
+	PUSHL	COM_HDR_L_FLAGS(R8)		; This db
+	CALLS	#1,G^SCN_GETDB          	; Returns pointer in r1
+	BLBS	R0,1910$
+; write error
+	INCL	CNT_SCN_L_ERROR(R11)
+        MOVL	#MSG_SCANER_DBACCES,MSGCDE    	; error
+	MOVL	#2,PARCNT                    	; 2 params
+	MOVAL	MSGPARAMS,R1                 	; Plist
+	MOVL	8(R6),(R1)+       		; PID 
+	MOVL	R0,(R1)    			; returned error
+	PUSHAL	ERRORMSG                     	; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BRW	20$                             ; Next Scanner rec
+1910$:
+; Get the record for the specified boxid
+	PUSHAL	RLTCXT		; CHEAT! Use this .long for an other purpose
+	PUSHL	R1				; This db (quad pointer)
+	ADDL3	#COM_HDR_L_BOXID,R8,-(SP)	; BOXID
+	CALLS	#3,G^LOCATE_BOXID
+	BLBS	R0,1920$
+;
+	CMPL	R0,#SS$_ITEMNOTFOUND 	; Did not find?
+	BNEQU	1915$                   ; Ignore any other error
+
+; At least 1 EMUDB rec exists for a PROTCOL.BOXID combination that 
+; does not appear in the PSR level DB. Delete all occurences of this
+; from EMUDB. There is no way of accessing these recs using supplied
+; routines. A check in the associated CONFIG (or LANMON) will regenerate
+; these recs with correct keying info on next pass.
+; 	
+	CLRL	RLTCXT			 ; Undo CHEAT!
+
+
+	MOVL	COM_HDR_L_FLAGS(R8),RECBUF	; Protocol
+	MOVL	COM_HDR_L_BOXID(R8),RECBUF+4	; Boxid
+
+	CLRL	RECCNT
+	MOVL	#DB_REC_C_MRS,RECBUF_DESC
+	PUSHAL	RECCNT			; Record count
+	PUSHAL	RECBUF_DESC		; Write rec here
+	PUSHL	#DB_REC_KEY_PRO_BOX 	; Key of ref
+	CALLS	#3,G^EMUDB_DELETE_ALL
+; Always write a status log
+        MOVL	R0,R3				; Save status
+        MOVL	#MSG_EMUSYS_DELETE,MSGCDE    	; error
+	MOVL	#2,PARCNT                    	; 2 params
+	MOVAL	MSGPARAMS,R1                 	; Plist
+	MOVL	RECCNT,(R1)+                    ; Count of deleted recs
+	MOVL	R0,(R1)    			; returned status
+	PUSHAL	ERRORMSG                     	; Log it
+	CALLS	#1,G^EMU_LOGGER
+	BLBS	R3,1915$			; Br if error not recorded
+	BRW	20$				; Next Scanner rec 
+1915$:
+	BRW	50$                             ; Next EMUDB rec
+1920$:
+; put this protocol addr as 1st relationship
+	CLRL	RLTCXT			 ; Undo CHEAT!
+	ADDL3	#COM_HDR_C_SIZE,R1,-(SP) ; Addr to add  
+	PUSHL	COM_HDR_L_LEN(R1)	; Len of addr
+  	PUSHL	COM_HDR_L_FLAGS(R1) 	; Add addr to this pid
+	PUSHL	COM_HDR_L_FLAGS(R1) 	; Sender's proto
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#COM_HDR_L_BOXID,R1,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,1930$                  ; Br no err
+	INCL	CNT_SCN_L_NOIPC(R11)
+	BRW	20$                             ; Next Scanner rec
+1930$:
+1950$:
+; Add this relationship
+	MOVQ	TEMPDESC,R3		; 
+	PUSHL	R4			; Addr to add  
+	PUSHL	R3			; Len of addr
+  	PUSHL	SCN_REC_L_DESTPID(R6) 	; Add addr to this pid
+	PUSHL	DB_REC_L_PROTO(R8) 	; Sender's proto
+	PUSHL	#RLT_FRM_C_MSGADD	; Add targets
+	ADDL3	#DB_REC_L_BOXID,R8,-(SP) ; Boxid
+  	PUSHAL	RLTCXT                  ; Context
+	CALLS	#7,G^CREATE_RELATER_FRAME
+	BLBS	R0,1980$                  ; Br no err
+; It is possible that we will overrun a relater frame here. If we 
+; get MSG_CRERLT_BUFOVF, send the frame, zero the rltcxt (new frame)
+; and br back to start of create this frame. 
+;
+	CMPL	#MSG_CRERLT_BUFOVF,R0
+	BNEQ	1960$
+; Send the loaded frame
+  	PUSHL	RLTCXT                  ; Context (Addr of buffer)
+	CALLS	#1,G^SEND_RELATER_FRAME
+	CLRL	RLTCXT			; Saftey - don't reuse
+
+	BLBS	R0,1970$                  ; Br no err
+        MOVL	#MSG_SCANER_DBREAD,MSGCDE    ; Input file error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                         ; Log it
+	CALLS	#1,G^EMU_LOGGER
+1960$:
+	INCL	CNT_SCN_L_NOIPC(R11)
+	BRW	20$ 				; Next scanner rec
+1970$:
+; OK - Now clear RLTCXT to force a new frame (with 'tie' address)
+; BIG NOTE: This is all but impossible to test. It may be worth
+; a special program to overload a relater frame at some future time.
+	INCL	CNT_SCN_L_SNDREL(R11)
+	PUSHAL	PAUSE                  	; Wait  - Reduce pressure on IPCs
+	CALLS	#1,G^LIB$WAIT
+	CLRL	RLTCXT
+	BRW	190$				; Restart frame
+
+1980$:
+; Unlock the databases
+	PUSHL	#THIS_PROCESS		; We are the owner
+	PUSHAL	SYSDBLOCK		; Lock id
+	CALLS	#2,G^RELEASE_EMUDBSYSLOCK	; Unget it
+	BLBS	R0,1990$			; Br if Ungot it
+	RET                             ; Unget it the hard way!
+1990$:
+	BRW	100$			; Next emudb
+END_CYCLE:
+; First time we will not have a lock. Check and skip if 1st time.
+	TSTL	SYSDBLOCK
+	BEQL	10$
+; Unlock the databases
+	PUSHL	#THIS_PROCESS		; We are the owner
+	PUSHAL	SYSDBLOCK		; Lock id
+	CALLS	#2,G^RELEASE_EMUDBSYSLOCK	; Unget it
+	BLBS	R0,10$			; Br if Ungot it
+	RET                             ; Unget it the hard way!
+10$:
+; Close file. Re-open at begin of each cycle. Makes this dynamic. Any
+; changes picked up on next cycle.
+
+	$CLOSE	FAB=SCANNERFAB
+
+; Determine how long to wait to start cycle again.
+; For now, simply wait 30 min ad restart. In future this will be 
+; a calc based on number of updates this cycle, how long cycle 
+; took and so on.
+   	ADDL3	#96,#SYS_PID_C_SCANNER,-(SP)	; CLear run flag
+	CALLS	#1,G^SYS$SETEF
+	MOVL	#CNT_STA_C_WAT,CNT_SCN_L_STATE(R11)	; State = WAIT
+; Set time to restart
+	$BINTIM_S-	
+		TIMBUF=INTIM_D,-
+		TIMADR=INTLTIM
+	ADDL3	#CNT_SCN_Q_STTIME,R11,-(SP)
+	PUSHAL  INTLTIM
+	PUSHAL	EXE$GQ_SYSTIME
+	CALLS	#3,G^LIB$ADD_TIMES
+
+	PUSHAL	WAIT_INTERVAL                  	; Wait
+	CALLS	#1,G^LIB$WAIT
+	BRW	MAIN
+	
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SCN_SEND_REL 
+;++
+;2 SCN_GETDB
+; Tests to see if there is a frame to send and if so sends the 
+; current relater frame.
+;3 Input
+; None. It is assumed:
+;	RLTCXT (Relater context) is either 0 (no send) or
+;	a current valid value
+;	The .addr of counter field for SCANNED is in R11
+;3 Output
+; If RLTCXT .ne. o then send the frame else exit
+;3 Return
+; None - any errors in this routine are logged here.
+;--
+	TSTL	RLTCXT			; Any frame to send from prev?
+	BNEQ	20$
+10$:
+	MOVL	#SS$_NORMAL,R0
+	RET
+20$:
+  	PUSHL	RLTCXT                  ; Context (Addr of buffer)
+	CALLS	#1,G^SEND_RELATER_FRAME  ; Send frame
+	CLRL	RLTCXT			; Saftey - don't reuse
+
+	BLBS	R0,30$                  ; Br no err
+
+	INCL	CNT_SCN_L_ERROR(R11)         ; Count error
+        MOVL	#MSG_SCANER_DBREAD,MSGCDE    ; Input file error
+	MOVL	#1,PARCNT                    ; 2 params
+	MOVAL	MSGPARAMS,R1                 ; Plist
+	MOVL	R0,(R1)+                     ; VMS error
+	PUSHAL	ERRORMSG                     ; Log it
+	CALLS	#1,G^EMU_LOGGER
+    	BRB	10$
+30$:
+	INCL	CNT_SCN_L_SNDREL(R11)
+	PUSHAL	PAUSE                  	   ; Reduce pressure on IPCs
+	CALLS	#1,G^LIB$WAIT
+	CLRL	RLTCXT                     ; New Frame
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SCN_GETDB 
+;++
+;2 SCN_GETDB
+; Returns pointer to the mapped db entry specified by the input pid
+;3 Input
+; .long of PID of db to check/map
+; The table used for lookup is hard coded in this routine (DBTBL)
+;3 Output
+;  The address of the entry is returned in R1 if mapped successfuly.
+;3 Return
+;  SS$_NORMAL		OK
+;  SS$_ITEMNOTFOUND     Unknown db specified
+;  SS$_INSFMAP		Could not map specified db
+;--
+	MOVL	4(AP),R6
+        MOVAL	DBTBL,R9
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R7   ; ENd of table
+	
+40$:
+	CMPL	R9,R7                         ; AT END?
+	BGTR	100$			      ; Br if end
+
+	CMPL	SYS_MAP_L_PID(R9),R6
+	BEQLU	60$			; br if this DB
+	ADDL	#SYS_MAP_C_MAPSIZ,R9    ; Next
+	BRB	40$                     ; Loop
+60$:
+	TSTL	SYS_MAP_Q_ADDR(R9)  	; Access this DB?     
+	BNEQ	70$                     ; Br if OK
+	CALLS	#0,G^SCN_MAPDB 		; Attempt to map
+	TSTL	SYS_MAP_Q_ADDR(R9)	; Active?
+	BNEQ	70$                     ; Br if OK
+	MOVL	#SS$_INSFMAP,R0
+	RET
+70$:
+	MOVL	#SS$_NORMAL,R0
+	MOVL	R9,R1
+	RET
+100$:
+	MOVL	#SS$_ITEMNOTFOUND,R0
+	RET
+
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SCN_MAPDB 
+;++
+;2 SCN_MAPDB
+; Maps all known DBs in the table. If the section is already
+; mapped the entry is skipped.
+;3 Inputs
+;	None. The input table is hadr coded here.
+;3 Outputs
+;	Any section newly mapped has it's 1st and last addr written
+;	to the map structure.
+;3 Returns
+; 	None
+;--
+
+	MOVAL	DBTBL,R9
+	ADDL3	DBTBL_DESC,DBTBL_DESC+4,R10	; Last addr to map
+60$:
+	TSTL	SYS_MAP_Q_ADDR(R9)		; ALready mapped?
+	BNEQ	70$				; Skip if so
+	PUSHL	R9				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,70$                          ; Log error if DB not mapped
+70$:
+; here set bit for any PSRdb with records  = 0. At end loop clear any bits 
+	ADDL	#SYS_MAP_C_MAPSIZ,R9
+	CMPL	R9,R10				; Done mapping?
+	BLSSU	60$                             ; Br if more
+	RET
+         
+	
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SCN_UNMAP   
+;++
+;2 SCN_UNMAP 
+; Unmap specific database and release lock. This routine is called
+; by the MAP Blast routine.
+;3 Input
+; The .long param suppied as the AST param to the MAP request. This is 
+; the address of the MAP_STRUCTURE that has has the blocking AST delivered
+; by VMS.
+	PUSHL	4(AP)
+	CALLS	#1,G^UNMAPLVB_DB
+	BLBS	R0,10$
+	RET
+10$:
+ ; re-request lock
+	PUSHL	4(AP)				; Blast param
+	PUSHAL	SCN_UNMAP			; Our unmap routine
+	PUSHL	4(AP)				; Map this db
+        CALLS	#3,G^MAPLVB_DB  
+	RET
+
+	.sbttl	exit_hdlr ()
+
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=SCANNEREXIT_HDLR 
+;++
+;2 SCANNEREXIT_HDLR  
+; Routine called upon exit to:
+;	 Do nothing. Place holder for future enhancement.
+;--
+	RET
+	.END	SCANNER

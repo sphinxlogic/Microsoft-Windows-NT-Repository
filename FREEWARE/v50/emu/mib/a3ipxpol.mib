@@ -1,0 +1,627 @@
+
+
+       A3Com-IPXpolicy-MIB DEFINITIONS ::= BEGIN
+
+       IMPORTS
+               enterprises 
+                   FROM RFC1155-SMI
+               MacAddress
+                   FROM RFC1286-MIB
+               DisplayString 
+                   FROM RFC1213-MIB
+               OBJECT-TYPE
+                   FROM RFC-1212;
+
+        --
+        -- This MIB is for 3Com products that implement IPX routing
+        -- policy features
+        --
+
+          a3Com          OBJECT IDENTIFIER ::= { enterprises 43 }
+          brouterMIB     OBJECT IDENTIFIER ::= { a3Com 2 }
+          a3ComIPXpol    OBJECT IDENTIFIER ::= { brouterMIB 11 }
+
+      --
+      --
+
+      RowStatus ::= INTEGER {
+                         active(1),
+                         notInService(2),
+                         notReady(3),                               
+                         createAndGo(4),
+                         createAndWait(5),
+                         destroy(6)
+      }
+
+      --This data type, which has the same semantics as the RowStatus
+      --textual convention used in SNMPv2, is used to add and 
+      --delete entries from a table.
+      --
+      --The tables in this MIB allow a subset of the functionality
+      --provided by the RowStatus textual convention.  In particular
+      --row creation is allowed using only the createAndGo method.
+      --
+      --That is, when adding entries to this table, this object
+      --must be set to createAndGo(4).  The instance identifier
+      --for this object will define the values of the columns 
+      --that make up the index.  
+      --
+      --In the same PDU, the appropriate remaining columns
+      --of that row must be set as well.  The agent
+      --will immediately set the value of this object to
+      --active(1) if the row is correct.  If not, the agent
+      --will refuse the SET request and return an
+      --error code.
+      --
+      --To modify an existing entry, it must be removed
+      --and another entry with the desired changes added. 
+      --
+      --There may be some elements of these tables that are
+      --allowed to be set while the row is active.  These
+      --will be noted in the DESCRIPTION clauses for the
+      --appropriate objects.
+      --                   
+      --To remove an entry, set the value of this object
+      --to destroy(6).
+
+      --
+      -- IPX Network Number
+      --
+    
+      IPXNET ::= OCTET STRING (SIZE(4))
+
+
+      a3ipxPolControlTable  OBJECT-TYPE
+          SYNTAX  SEQUENCE OF A3ipxPolControlEntry
+          ACCESS  not-accessible
+          STATUS  mandatory
+          DESCRIPTION
+                  "This table enables and disables the use of policies,
+                   policy attributes and the use of trusted neighbors
+                   and their attributes."
+      ::= { a3ComIPXpol 1 }
+
+      a3ipxPolControlEntry OBJECT-TYPE
+          SYNTAX  A3ipxPolControlEntry
+          ACCESS  not-accessible
+          STATUS  mandatory
+          DESCRIPTION
+                 "A single entry in the Policy Control Table"
+          INDEX   { a3ipxPCPort }
+      ::= { a3ipxPolControlTable 1 }
+
+      A3ipxPolControlEntry ::= SEQUENCE {
+          a3ipxPCPort                 INTEGER,
+          a3ipxPCRteAdvCtl            INTEGER,
+          a3ipxPCRteAdvType           INTEGER,
+          a3ipxPCRteRcvCtl            INTEGER,
+          a3ipxPCRteRcvType           INTEGER,
+          a3ipxPCSvcAdvCtl            INTEGER,
+          a3ipxPCSvcAdvType           INTEGER,
+          a3ipxPCSvcRcvCtl            INTEGER,
+          a3ipxPCSvcRcvType           INTEGER,
+          a3ipxPCNbrAdvCtl            INTEGER,
+          a3ipxPCNbrRcvCtl            INTEGER,
+          a3ipxPCNbrRcvType           INTEGER,
+          a3ipxPCPolicyOverride       INTEGER,
+          a3ipxPCSvrRplyCtl           INTEGER
+      }
+
+      a3ipxPCPort  OBJECT-TYPE
+          SYNTAX  INTEGER
+          ACCESS  read-only
+          STATUS  mandatory
+          DESCRIPTION
+                  "The port to which this Policy Control entry applies."
+      ::= { a3ipxPolControlEntry 1 }
+
+      a3ipxPCRteAdvCtl  OBJECT-TYPE
+          SYNTAX  INTEGER {
+               enable  (1),
+               disable (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "The object enables or disables the use of the
+                   'advertisable' entries in the Route Policy Table."
+          DEFVAL { disable }
+      ::= { a3ipxPolControlEntry 2 }
+
+      a3ipxPCRteAdvType  OBJECT-TYPE
+          SYNTAX  INTEGER {
+               normal  (1),
+               inverse (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "The object specifies whether only those routes listed
+                   as 'advertisable' in the Route Policy Table are 
+                   advertised from this port (normal), or if only those 
+                   routes that are not listed as 'advertisable' in the 
+                   Route Policy Table are advertised (inverse)."
+          DEFVAL { normal }
+      ::= { a3ipxPolControlEntry 3 }
+
+      a3ipxPCRteRcvCtl  OBJECT-TYPE
+          SYNTAX  INTEGER {
+               enable  (1),
+               disable (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "The object enables or disables the use of the
+                   'receivable' entries in the Route Policy Table."
+          DEFVAL { disable }
+      ::= { a3ipxPolControlEntry 4 }
+
+      a3ipxPCRteRcvType  OBJECT-TYPE
+          SYNTAX  INTEGER {
+               normal  (1),
+               inverse (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "The object specifies whether only those routes listed
+                   as 'receivable' in the Route Policy Table are accepted 
+                   from this port (normal), or if only those routes that 
+                   are not listed as 'receivable' in the Route Policy Table
+                   are accepted (inverse)."
+          DEFVAL { normal }
+      ::= { a3ipxPolControlEntry 5 }
+
+      a3ipxPCSvcAdvCtl  OBJECT-TYPE
+          SYNTAX  INTEGER {
+               enable  (1),
+               disable (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "The object enables or disables the use of the
+                  'advertisable' entries in the Service Policy Table."
+          DEFVAL { disable }
+      ::= { a3ipxPolControlEntry 6 }
+
+      a3ipxPCSvcAdvType  OBJECT-TYPE
+          SYNTAX  INTEGER {
+               normal  (1),
+               inverse (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "The object specifies whether only those routes listed
+                   as 'advertisable' in the Service Policy Table are 
+                   advertised from this port (normal), or if only those 
+                   routes that are not listed as 'advertisable' in the 
+                   Service Policy Table are advertised (inverse)."
+          DEFVAL { normal }
+      ::= { a3ipxPolControlEntry 7 }
+
+      a3ipxPCSvcRcvCtl  OBJECT-TYPE
+          SYNTAX  INTEGER {
+               enable  (1),
+               disable (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "The object enables or disables the use of the
+                   'receivable' entries in the Service Policy Table."
+          DEFVAL { disable }
+      ::= { a3ipxPolControlEntry 8 }
+
+      a3ipxPCSvcRcvType  OBJECT-TYPE
+          SYNTAX  INTEGER {
+               normal  (1),
+               inverse (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "The object specifies whether only those routes listed
+                   as 'receivable' in the Service Policy Table are 
+                   accepted from this port (normal), or if only those 
+                   routes that are not listed as 'receivable' in the 
+                   Service Policy Table are accepted (inverse)."
+          DEFVAL { normal }
+      ::= { a3ipxPolControlEntry 9 }
+
+      a3ipxPCNbrAdvCtl  OBJECT-TYPE
+          SYNTAX  INTEGER {
+               enable  (1),
+               disable (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "This object enables or disables the use of the
+                  entries in the Neighbor Policy Table that apply
+                  to neighbors to which routing and service
+                  reachability information is advertised.
+
+                  In other words, this object enables or disables
+                  the use of those entries in the Neighbor Policy
+                  Table for which a3ipxPolNbrType = advertise(2)
+                  or both(3)."
+          DEFVAL { disable }
+      ::= { a3ipxPolControlEntry 10 }
+
+      a3ipxPCNbrRcvCtl  OBJECT-TYPE
+          SYNTAX  INTEGER {
+               enable  (1),
+               disable (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "The object enables or disables the use of the
+                  entries in the Neighbor Policy Table that apply
+                  to neighbors from which routing and service
+                  reachability information is allowed to be received.
+
+                  In other words, this object enables or disables
+                  the use of those entries in the Neighbor Policy
+                  Table for which a3ipxPolNbrType = receive(2)
+                  or both(3)."
+          DEFVAL { disable }
+      ::= { a3ipxPolControlEntry 11 }
+
+      a3ipxPCNbrRcvType  OBJECT-TYPE
+          SYNTAX  INTEGER {
+               normal  (1),
+               inverse (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "If this object is set to normal(1), then route
+                  and service reachability information is accepted
+                  only from those neighbors listed in the Neighbor
+                  Policy Table for which a3ipxPolNbrType = receive(2)
+                  or both(3).
+
+                  If this object is set to inverse(2), then route
+                  and service reachability information is accepted
+                  from any neighbor except those neighbors listed
+                  in the Neighbor Policy Table for which 
+                  a3ipxPolNbrType = receive(2) or both(3)."
+          DEFVAL { normal }
+      ::= { a3ipxPolControlEntry 12 }
+
+      a3ipxPCPolicyOverride OBJECT-TYPE
+          SYNTAX  INTEGER {
+                     policyOverride (1),
+                     noPolicyOverride (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "Policy Override is used to override the configured 
+                  policies when the router issues responses to specific
+                  RIP or SAP requests.   The configured policies are
+                  always applied for regular RIP or SAP updates."
+          DEFVAL { noPolicyOverride }
+      ::= { a3ipxPolControlEntry 13 }
+
+      a3ipxPCSvrRplyCtl OBJECT-TYPE
+          SYNTAX  INTEGER {
+                     bestSvrReply   (1),
+                     noBestSvrReply (2)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "This controls whether or not the router is
+                  permitted to respond to 'get nearest server'
+                  requests.  If this object has the value
+                  bestSvrReply(1), then this router is permitted
+                  to respond to these requests.  If this object
+                  has the value noBestSvrReply(2), this this
+                  router is not permitted to respond to these
+                  requests." 
+      ::= { a3ipxPolControlEntry 14 }
+
+
+
+
+      a3ipxPolRteTable OBJECT-TYPE
+          SYNTAX  SEQUENCE OF A3ipxPolRteEntry
+          ACCESS  not-accessible
+          STATUS  mandatory
+          DESCRIPTION
+                 "The IPX Route Policy Table controls the acceptance
+                 of route reachability information from neighbors and
+                 the advertisement of route reachability information
+                 to neighbors.
+
+                 If a3ipxPCRteRcvType is configured as normal, a route
+                 is accepted if the network number for the route is in
+                 the list of 'receivable' networks specified in this
+                 table.  If a3ipxPCRteRcvType is configure as inverse, a
+                 route is not accepted if the network number for the 
+                 route is in the list of 'receivable' networks specified 
+                 in this table.
+
+                 If a3ipxPCRteAdvType is configured as normal, a route
+                 is advertised if the network number for the route is in
+                 the list of 'advertisable' networks specified in this
+                 table.  If a3ipxPCRteAdvType is configure as inverse, a
+                 route is not advertised if the network number for the 
+                 route is in the list of 'advertisable' networks specified 
+                 in this table.
+
+                 Note, since this table allows ranges of routes to be
+                 specified, all the entries should be examined when
+                 determining if a specific route is affected by these
+                 policies.  It is not sufficient to search for an instance
+                 of a3ipxPolRteNet1 that matches the route in question."
+      ::= { a3ComIPXpol 2 }
+
+      a3ipxPolRteEntry OBJECT-TYPE
+          SYNTAX  A3ipxPolRteEntry
+          ACCESS  not-accessible
+          STATUS  mandatory
+          DESCRIPTION
+                 "A single entry in the Route Policy table"
+          INDEX   { a3ipxPolRtePort, a3ipxPolRteNet1, a3ipxPolRteNet2 }
+      ::= { a3ipxPolRteTable 1 }
+
+      A3ipxPolRteEntry ::= SEQUENCE {
+          a3ipxPolRtePort       INTEGER,
+          a3ipxPolRteType       INTEGER,
+          a3ipxPolRteNet1       IPXNET,
+          a3ipxPolRteNet2       IPXNET,
+          a3ipxPolRteStatus     RowStatus
+      }
+
+      a3ipxPolRtePort OBJECT-TYPE
+          SYNTAX  INTEGER
+          ACCESS  read-only
+          STATUS  mandatory
+          DESCRIPTION
+                  "The IPX port to which this Receive Route Policy
+                  entry applies."
+      ::= { a3ipxPolRteEntry 1 }
+
+      a3ipxPolRteType  OBJECT-TYPE
+          SYNTAX  INTEGER {
+                     advertise (1),
+                     receive   (2),
+                     both      (3)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "This object specifies whether this entry applies
+                  to receiving routes, advertising routes, or both."
+      ::= { a3ipxPolRteEntry 2 }
+                   
+      a3ipxPolRteNet1 OBJECT-TYPE
+          SYNTAX  IPXNET
+          ACCESS  read-only
+          STATUS  mandatory
+          DESCRIPTION
+                  "The IPX Network Number for which route information
+                  is accepted or rejected for this port."
+      ::= { a3ipxPolRteEntry 3 }
+
+      a3ipxPolRteNet2 OBJECT-TYPE
+          SYNTAX  IPXNET
+          ACCESS  read-only
+          STATUS  mandatory
+          DESCRIPTION
+                  "When the value of this object is a valid IPX
+                  network and different from a3ipxPolRteNet1, then 
+                  this table entries specifies a range of IPX 
+                  networks, with the value of a3ipxPolRteNet1 
+                  identifying the lower end of the range.
+
+                  If the value of this object is the same as 
+                  a3ipxPolRteNet1, then this table entry 
+                  specifies a single IPX network identified by 
+                  the value of a3ipxPolRteNet1."
+      ::= { a3ipxPolRteEntry 4 }
+
+      a3ipxPolRteStatus OBJECT-TYPE
+          SYNTAX RowStatus
+          ACCESS read-write
+          STATUS mandatory
+          DESCRIPTION
+                 "This object is used to add and delete entries
+                 in this table.  See the notes describing
+                 RowStatus at the beginning of this MIB."
+      ::= { a3ipxPolRteEntry 5 }
+
+
+
+
+
+      a3ipxPolSvcTable OBJECT-TYPE
+          SYNTAX  SEQUENCE OF A3ipxPolSvcEntry
+          ACCESS  not-accessible
+          STATUS  mandatory
+          DESCRIPTION
+                 "The IPX Policy Services Table controls the acceptance
+                 of service reachability information from neighbors
+                 and the advertisement of that information to neighbors.
+
+                 If a3ipxPCSvcRcvType is configured as normal, a service
+                 is accepted if its port number, server name, and
+                 service type is in the list of tuples specified as 
+                 'receivable' by this table.  If a3ipxPCSvcRcvType is 
+                 configured as inverse, a service is not accepted if its 
+                 port number, server name, and service type is in 
+                 the list of tuples specified as 'receivable' by this 
+                 table.
+
+                 If a3ipxPCSvcAdvType is configured as normal, a service
+                 is advertised if its network port, server name, and
+                 service type is in the list of tuples specified as 
+                 'advertisable' by this table.  If a3ipxPCSvcAdvType is 
+                 configured as inverse, a service is not advertised if its 
+                 port number, server name, and service type is in 
+                 the list of tuples specified as 'advertisable' by this 
+                 table."
+      ::= { a3ComIPXpol 3 }
+
+      a3ipxPolSvcEntry OBJECT-TYPE
+          SYNTAX  A3ipxPolSvcEntry
+          ACCESS  not-accessible
+          STATUS  mandatory
+          DESCRIPTION
+                 "A single entry in the Receive Services Policy table."
+          INDEX   { a3ipxPolSvcPort, a3ipxPolSvcSvrName, a3ipxPolSvcType }
+      ::= { a3ipxPolSvcTable 1 }
+
+      A3ipxPolSvcEntry ::= SEQUENCE {
+          a3ipxPolSvcPort      INTEGER,
+          a3ipxPolSvcEntryType INTEGER,
+          a3ipxPolSvcSvrName   DisplayString,
+          a3ipxPolSvcType      OCTET STRING (SIZE(2)),
+          a3ipxPolSvcStatus    RowStatus
+      }
+
+      a3ipxPolSvcPort OBJECT-TYPE
+          SYNTAX  INTEGER
+          ACCESS  read-only
+          STATUS  mandatory
+          DESCRIPTION
+                  "The IPX port to which this Receive Svc Pol
+                  entry applies."
+      ::= { a3ipxPolSvcEntry 1 }
+
+      a3ipxPolSvcEntryType  OBJECT-TYPE
+          SYNTAX  INTEGER {
+                     advertise (1),
+                     receive   (2),
+                     both      (3)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "This object specifies whether this entry applies
+                  to receiving services, advertising services, or both."
+      ::= { a3ipxPolSvcEntry 2 }
+
+      a3ipxPolSvcSvrName OBJECT-TYPE
+          SYNTAX  DisplayString (SIZE(0..15))
+          ACCESS  read-only
+          STATUS  mandatory
+          DESCRIPTION
+                  "This object contains the name of a server.  
+
+                  A single wildcard (*) is allowed at the end of
+                  the name."
+      ::= { a3ipxPolSvcEntry 3 }
+       
+      a3ipxPolSvcType OBJECT-TYPE
+          SYNTAX  OCTET STRING (SIZE(2))
+          ACCESS  read-only
+          STATUS  mandatory
+          DESCRIPTION
+                  "The type of service for which information is accepted
+                  or rejected by this port. The value 'FFFF' acts
+                  as a wildcard for all service types."
+      ::= { a3ipxPolSvcEntry 4 }
+
+      a3ipxPolSvcStatus OBJECT-TYPE
+          SYNTAX RowStatus
+          ACCESS read-write
+          STATUS mandatory
+          DESCRIPTION
+                 "This object is used to add and delete entries
+                 in this table.  See the notes describing
+                 RowStatus at the beginning of this MIB."
+      ::= { a3ipxPolSvcEntry 5 }
+
+
+
+      a3ipxPolNbrTable OBJECT-TYPE
+          SYNTAX  SEQUENCE OF A3ipxPolNbrEntry
+          ACCESS  not-accessible 
+          STATUS  mandatory
+          DESCRIPTION
+                  "This table defines a set of neighbors to which
+                   the route and service reachability information is 
+                   advertised.  This table also defines a set of
+                   neighbors from which route and service reachability
+                   information is accepted."
+      ::= { a3ComIPXpol 4 }
+
+      a3ipxPolNbrEntry OBJECT-TYPE
+          SYNTAX  A3ipxPolNbrEntry
+          ACCESS  not-accessible
+          STATUS  mandatory
+          DESCRIPTION
+                 "A single entry in the Policy Neighbor Table"
+          INDEX   { a3ipxPolNbrPort, a3ipxPolNbrNet, a3ipxPolNbrAddress }
+      ::= { a3ipxPolNbrTable 1 }
+
+      A3ipxPolNbrEntry ::= SEQUENCE {
+          a3ipxPolNbrPort      INTEGER,
+          a3ipxPolNbrType      INTEGER,
+          a3ipxPolNbrNet       IPXNET,
+          a3ipxPolNbrAddress   MacAddress,
+          a3ipxPolNbrStatus    RowStatus
+      }
+
+      a3ipxPolNbrPort OBJECT-TYPE
+          SYNTAX  INTEGER
+          ACCESS  read-only
+          STATUS  mandatory
+          DESCRIPTION
+                  "The IPX port over which the Trusted Neighbor identified
+                   by this table entry can be reached."
+      ::= { a3ipxPolNbrEntry 1 }
+
+      a3ipxPolNbrType OBJECT-TYPE
+          SYNTAX  INTEGER {
+                     advertise (1),
+                     receive   (2),
+                     both      (3)
+          }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "This object specifies whether this entry applies
+                  to receiving information, advertising information, 
+                  or both."
+      ::= { a3ipxPolNbrEntry 2 }
+
+      a3ipxPolNbrNet OBJECT-TYPE
+          SYNTAX  IPXNET
+          ACCESS  read-only
+          STATUS  mandatory
+          DESCRIPTION
+                  "The IPX Network number identifying the network
+                  to which the neighbor identified by this table
+                  entry is attached."
+      ::= { a3ipxPolNbrEntry 3 }
+
+      a3ipxPolNbrAddress OBJECT-TYPE
+          SYNTAX  MacAddress
+          ACCESS  read-only
+          STATUS  mandatory
+          DESCRIPTION
+                  "The Mac Address of the Neighbor to whom route and service
+                  reachability information is to be advertised and from which
+                  route and service reachability information is accepted."
+      ::= { a3ipxPolNbrEntry 4 }
+
+      a3ipxPolNbrStatus OBJECT-TYPE
+          SYNTAX RowStatus
+          ACCESS read-write
+          STATUS mandatory
+          DESCRIPTION
+                 "This object is used to add and delete entries
+                 in this table.  See the notes describing
+                 RowStatus at the beginning of this MIB."
+      ::= { a3ipxPolNbrEntry 5 }
+
+
+END

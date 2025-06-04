@@ -1,0 +1,155 @@
+	.title	sys_find_ether_device
+	.ident	"X1-002"
+
+;+
+; Version:	X1-002
+;
+; Facility:	General system routines.
+;
+; Abstract:	Locate and return the name of the first ethernet device on
+;		the system.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	20-Nov-1991, DBS; Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS; Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+; 	This routine uses the device scan system service to locate the first,
+;	if any, ethernet device on the system.
+;
+; Calling Sequence:
+;	call sys_find_ether_device (device_name)
+;		-or-
+;	pushaq	device-name
+;	calls	#1, g^sys_find_ether_device
+;
+; Formal Argument(s):
+;	device_name.wt.ds  Address of a string descriptor pointing to the
+;			string that will contain the returned device name.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	As returned by $device_scan.
+;
+; Side Effects:
+;	None
+;--
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	$dcdef
+	$devdef
+	$dvidef
+	$dvsdef
+	$gblini GLOBAL
+
+.macro	check	dev_type, ?next
+
+	cmpl	#'dev_type, dvi_devtype
+	bneq	next
+	brw	80$
+next:
+
+.endm	check
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+dvs_device_class:	.long	dc$_scom
+dvs_search_name:	.ascid	"*"
+
+	alloc_string	dvs_device_name, 64
+
+dvs_context:	.quad	0
+
+dvs_item_list:	.word	4
+		.word	dvs$_devclass
+		.address dvs_device_class
+		.long	0
+		.long	0		; to end the list
+
+dvi_devtype:	.long	0
+
+dvi_item_list:	.word	4
+		.word	dvi$_devtype
+		.address dvi_devtype
+		.long	0
+		.long	0		; to end the list
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+sys_find_ether_device, ^m<r2,r3,r4,r5>
+
+	pushr	#^m<r0,r1>
+	movq	@4(ap), r0
+	movzwl	r0, r0
+	movc5	#0, ., #32, r0, (r1)	; clear the result first
+	popr	#^m<r0,r1>
+
+10$:	$device_scan_s -
+		return_devnam=dvs_device_name_ds, -
+		retlen=dvs_device_name, -
+		search_devnam=dvs_search_name, -
+		itmlst=dvs_item_list, -
+		contxt=dvs_context
+	blbs	r0, 20$
+	brw	90$
+20$:	$getdviw_s -
+		devnam=dvs_device_name, -
+		itmlst=dvi_item_list
+	blbs	r0, 30$
+	brw	90$
+
+30$:	check	dt$_deuna
+	check	dt$_deqna
+	check	dt$_es_lance
+	check	dt$_delua
+	check	dt$_et_debna
+	check	dt$_xq_delqa
+	check	dt$_et_debni
+	check	dt$_ez_sgec
+	check	dt$_ex_demna
+	check	dt$_xq_deqta
+	check	dt$_ep_lance
+
+	brw	10$
+	
+80$:	pushr	#^m<r0,r1>
+	movq	@4(ap), r0
+	movzwl	r0, r0
+	movc5	dvs_device_name, -
+		dvs_device_name_t, #32, -
+		r0, (r1)
+	popr	#^m<r0,r1>
+
+90$:	ret
+
+	.end

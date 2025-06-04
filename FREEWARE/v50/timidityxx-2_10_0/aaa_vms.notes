@@ -1,0 +1,228 @@
+Timidity++ 2.10.0 port under OpenVMS                       September 2000
+====================================
+
+New version of Timidity with enhanced features !!
+
+- Added Sound Spectrogram support in VMS version
+
+- Added Motif Interface support from Arne Bergseth (many thanks Arne !!) 
+
+- MIDI/MOD files support (enhanced MOD files support since 2.9.0)
+
+- Compatible with new MMOV 2.2 version 
+
+- Events/Effects supported:
+
+    NoteOn/Off, KeyPressure, Program, ChannelPressure, Pitchwheel,
+    ToneBank, ModulationWheel, MainVolume, Panning, Expression,
+    Sustain, Portamento, DataEntry, ReverbEffect, ChorusEffect,
+    RPN+/-, NRPN, RPN, AllSoundsOff, ResetControllers, AllNotesOff,
+    Mono/Poly Part, RandomPan, KeyShift,
+    TempoChange, Lyric, InsertText, KARAOKE-Part(@KMIDI),
+    MasterVolume, MIDI-Reset, SystemExclusiveMessages
+
+
+  The Lyric and Karaoke extensions are very nice, the lyrics are displayed
+  synchronously with the music, even in dumb and VT100 interfaces !!
+
+- GUS and SoundFont patches support (I've not tested SoundFont yet).
+- Various output formats (WAV, RIFF, AIFF, SUN au, Event list)
+- 3 visual interfaces supported : dumb and full screen VT100 available for VMS
+plus Motif front-end since v 2.8.2M .
+- 2 audio cards supported: AMD 8 bit and Microsoft Compatible 16 bits stereo.
+
+The source tree was vastly rearranged by Masanao Izumo, the new Timidity
+"project leader". The new version has many more features, and the executable 
+is about 4 times bigger in size than the original version. However, it 
+doesn't eat more CPU and the sound is generally better than with 
+0.2i version.
+
+Since version 2.2.0, some improvements made into voice reduction algorithms can
+give a better sound with a reduced CPU usage.
+
+See CHANGELOG. file for more informations.
+
+By default, Reverb and Chorus effects are disabled (they eat CPU) but yu can
+enable them at run time (type 
+$ timidity -help 
+for options list).
+
+To rebuild:
+----------
+
+First, build the 4 libraries:
+
+$ set def [.INTERFACE]
+$ @COMPILE_AXP.COM      or $ @COMPILE_VAX.COM
+$ set def [-.LIBARC]
+$ @COMPILE_AXP.COM      or $ @COMPILE_VAX.COM
+$ set def [-.LIBUNIMOD]
+$ @COMPILE_AXP.COM      or $ @COMPILE_VAX.COM
+$ set def [-.UTILS]
+$ @COMPILE_AXP.COM      or $ @COMPILE_VAX.COM
+$ set def [-]
+
+Now, you can build Timidity itself.
+
+For AXP with 16 bits sound card and MMOV (Alphastations):
+
+$ set def [.TIMIDITY]
+$ @COMPILE_MMOV.COM    or @COMPILE_MMOV_MOTIF.COM
+$ @LINK_MMOV.COM       or LINK_MMOV_MOTIF.COM
+
+For AXP with 8 bits AMD sound card (DEC 3000 serie):
+
+$ set def [.TIMIDITY]
+$ @COMPILE_AMD.COM
+$ @LINK_AMD.COM
+
+For VAX:
+ 
+$ set def [.TIMIDITY]
+$ @COMPILE_AMD_VAX.COM
+$ @LINK_AMD_VAX.COM
+
+Nota: for AMD audio, you can select internal speaker or external plug into
+AMD_A.C source file. 
+
+Nota: by default, timidity is built with linear interpolation (#define
+LINEAR_INTERPOLATION into TIMIDITY.H). You can build with cspline interpolation
+(which can give a slightly better sound) by copying TIMIDITY.H_CSPLINE to
+TIMIDITY.H before compiling sources in [.TIMIDITY] directory.
+
+Porting notes:
+-------------
+
+By Arne Bergseth (30 January 2000) on Timidity V 0.2i:
+
+Modified AMD audio output to allow both buffers to be queued at the same time.
+Included Motif user interface in the program.
+Introduced mailbox I/O to communicate with Motif user interface.
+Minor changes to avoid compiler warnings.
+Routines changed: AMD_A.C_NEW COMMON.C COMMON.H CONFIG.H GETOPT.C MOTIF.H
+                  MOTIF_C.C  MOTIF_I.C MOTIF_I.C  MOTIF_M.C RESAMPLE.C
+                  TIMIDITY.C WAVE_A.C
+
+By me: 
+
+I made the port to the current 2.9.0 version (some changes in Motif interface).
+The new AMD interface doesn't work on VMS 6.2, I keep the old one for "old"
+VMS versions. The new version is very good on VAX VMS 7.2 Arne told me.
+
+I made some mods in file name handling to get rid off ; in file names to be
+able to read compressed files with Motif interface.
+  
+
+
+Binaries provided (with Motif support):
+--------------------------------------
+
+Alpha: DEC C 5.2, VMS 6.2, MMOV 2.2
+VAX:   DEC C 5.2, VMS 6.2, AMD audio external plug (internal HP is so weak...)
+
+To switch from internal to external (or reverse) with AMD version, take a look
+at AMD_A.C source into open_output(void) function and uncomment the right
+value for QIO parameter p1:
+
+        /*
+         *    Put it back MMR2
+         */
+        p1=  SO_EXTERNAL;   /* External audio output */
+/*        p1 = SO_INTERNAL; /* Internal speaker */
+        status = sys$qiow(0,    /* efn */
+
+GUS patches:
+-----------
+
+You can find a set of GUS patches I've tested in the audio page of the 
+DECW archive web site: 
+
+http://www2.cenaath.cena.dgac.fr/ftp/audio.html
+
+Two patches are provided with this distribution for testing purpose: a grand
+piano and a nylon guitar. They were provided with Timidity 0.2i kit.
+
+Midi files:
+----------
+
+Two classical MIDI files (catavina.mid and impromtu.mid) are provided into
+[.TIMIDITY] directory for testing purpose.
+
+Usage:
+-----
+
+For a really good quality with MMOV, you must try 32 Khz or 44,1 Khz 
+sample rate:
+
+$ timidity "-a" "-s32000" file.mid
+
+$ timidity "-a" "-s44100" file.mid
+
+By default, reverberation is not used. You can turn it on at launch time with
+"-EFreverb=1" or "-EFreverb=2" option. The result may be very nice at the 
+cost of more CPU eaten.
+
+Motif interface is invoked with -im switch:
+------------------------------------------
+
+$ timidity "-a" "-im" file.mid
+
+Note: Motif interface under VMS makes use of Timidity "-Y" switche (internal
+use);
+
+Install:
+-------
+
+Configuration files are referenced with timidity_dir rooted logical:
+
+$ define/trans=conc timidity_dir disk:[rep1.timidityxx-2_9_4.]
+
+                                       don't forget the dot ^
+
+You need MMOV 2.0 or 2.2 (multimedia Services for OpenVMS V 2.x) to play midi 
+files in real time on good contidions on your Alphastation (and SYSNAM 
+privileges to connect to Multimedia server; timidity is linked /notraceback 
+to allow image installation with SYSNAM privilege).
+
+Invocation from a Web browser:
+-----------------------------
+
+Actually only the command-line and VT100 interfaces are ported under VMS, but 
+with that you can even use Timidity as a Midi sound player for the Web 
+(tested with Mosaic and Netscape). You just need to add one line into your 
+SYS$LOIN:MAILCAP. file:
+
+audio/midi; timidity  %s
+
+By default, with MMOV, midi files are played in stereo, 16 bits samples 
+at 22.050 Khz of sample rate which gives a good sound quality with a 
+moderate cpu charge (about 20% on Alphastation 255/233). 
+
+With AMD audio, midi files are played in mono, 8 bits samples at 8,000 Khz 
+of sample rate.
+              
+New AMD routines:
+----------------
+The new AMD_A.C_NEW routine from Arne Bergseth (for VMS 7.2) is provided. 
+(Modified AMD audio output to allow both buffers to be queued at the same time)
+The old version is always here for VMS < 7.2
+
+Web pages:
+---------
+
+I've setup a Web page related to MIDI and OpenVMS. Take a look at url:
+
+http://www.multimania.com/pmoreau/audio/midi.html
+http://www.multimania.com/pmoreau/audio/midigb.html
+
+where I'm hosting a VMS Hobbyist page.
+
+Enjoy !
+
+Patrick Moreau
+--
+pmoreau@cena.dgac.fr
+moreau_p@decus.fr
+http://www.cena.dgac.fr/~pmoreau/
+http://www.multimania.com/pmoreau/
+http://www.multimania.com/pmoreau/decw/index.html

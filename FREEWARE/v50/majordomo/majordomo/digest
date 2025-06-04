@@ -1,0 +1,736 @@
+#!/usr/local/bin/perl
+
+print STDERR "STDERR digest script entered \n";
+print STDERR "STDERR \$$ is $$ \n";
+print STDERR "digest script entered \n";
+print STDERR "\$$ is $$ \n";
+print STDERR "********************************************************************************\n";
+foreach $arg (@ARGV)
+  {
+  print STDERR "\$arg is $arg \n";
+  }
+print STDERR "********************************************************************************\n";
+
+#
+# Flags	Meaning
+# r	receieve a message
+# m	make digest
+#
+# Before doing anything else tell the world I am majordomo
+# The mj_ prefix is reserved for tools that are part of majordomo proper.
+$main'program_name = 'mj_digest';
+require "getopts.pl";
+require "majordomo_version.pl";	# What version of Majordomo is this?
+require "majordomo.pl";		# all sorts of general-purpose Majordomo subs
+
+%mail_tmpfile_names = ();
+$my_system_name = &systemname;
+$tmp = "/SYS\$SCRATCH/DIGEST_$$";
+
+&init;
+&readconfig;
+
+if ($majordomo_debug) {&log_cf_stuff;}
+
+require "shlock.pl";
+
+#
+# If no digest directory then make one. Assume it's first time.
+&check_digest_dir();
+&set_lock;
+
+if (defined($opt_r)) {
+    &receive_message;
+} elsif (defined($opt_m)) {
+    &make_digest;
+} else {
+    &digest'abort("Usage: digest {-r|-m} [-c config|(-C -l list)]\nStopped");
+}
+
+&free_lock;
+
+if ($majordomo_debug) {print STDERR "digest script exiting with 0\n";}
+
+exit(0);
+
+
+sub receive_message {
+    if ($majordomo_debug) {print STDERR "receive message entered \n";}
+    $sum = 0;
+    $i = 0;
+    do {
+	$i++;
+	$file = sprintf("%s/%03d", $V{'INCOMING'}, $i);
+	$sum += (-s $file);
+    } until (! -e $file);
+      
+    if ($majordomo_debug)
+      {
+      print STDERR "Writing message to file $file\n";
+      print STDERR "Sum of bytes in files up to this is $sum \n";
+      }
+
+    &ParseVMSMailHeader(STDIN, *vmshdrs);
+    if ($majordomo_debug) {print STDERR "Back from ParseVMSMailHeader\n";}
+
+    if ($majordomo_debug)
+      {
+      while (($key, $val) = each(%vmshdrs))
+        {print STDERR "\$vmshdrs{$key} is $val \n";}
+      }
+
+    &open_temp(MSG, "$file") || &digest'abort("open(MSG, \">>$file\"): $!");
+    while (<STDIN>) {
+	print MSG $_;
+    }
+    close(MSG);
+    $sum += (-s $file);
+    if ($majordomo_debug) {print STDERR "Sum of bytes including this file is $sum \n";}
+    if ($sum > $V{'DIGEST_SIZE'}) {
+	&make_digest;
+    }
+    return(1);
+}
+
+
+#
+# New routine for VMS port
+#++
+#   FUNCTION NAME:
+#
+#     rote_sendmail
+#
+#  FUNCTIONAL DESCRIPTION:
+#
+#      Passes mail to the SFF code directly from a file.
+#
+#  FORMAL PARAMETERS
+#
+#     $fn	(I)	Filename
+#     $retpath	(I)	Return path address for envelope (MAIL FROM)
+#     $rcptto	(I)	Forward path address for envelope (RCPT TO)
+#
+#  IMPLICIT INPUTS:
+#
+#      none
+#
+#  IMPLICIT OUTPUTS:
+#
+#      none
+#
+#  SIDE EFFECTS:
+#
+#      none
+#
+#  RETURN VALUE:
+#
+#      none
+#--
+sub rote_sendmail {
+    local($fn) = shift;
+    local($retpath) = shift;
+    local($rcptto) = shift;
+    local($tmpfile_name);
+    local(*MAILOUT, *MAILIN);		# If you rename MAILOUT
+    local($save_mail) = "MAILOUT";	# make same change here.
+
+    if (!$fn) {die("digest: rote_sendmail called with no filename parameter");}
+    if (!$retpath) {die("digest: rote_sendmail called with no return path parameter");}
+    if (!$rcptto) {die("digest: rote_sendmail called with no forward path parameter");}
+
+    #
+    # If RCPT TO has no domain then make it $whereami. HACK Alert.
+    # The only reason doing this is so that everything is in same domain. Gets
+    # around bug in SMTP where it can get confused. When smtp$do_task rewrite is
+    # is done this problem should go away.
+    if (!($rcptto =~ "\@"))		# Assume no domain if no "@"
+      {$rcptto .= "\@$whereami";}
+
+    # Set up and save filename
+    $tmpfile_name = $tmp  . "_" . $my_system_name . "_" . $save_mail . ".TMP";
+    $mail_tmpfile_names{$save_mail} = $tmpfile_name;
+
+    if ($main'majordomo_debug)
+      {
+      print "rote_sendmail: \$fn is $fn\n";
+      print "rote_sendmail: \$retpath is $retpath\n";
+      print "rote_sendmail: \$rcptto is $rcptto\n";
+      print "Opening $tmpfile_name for write access.\n";
+      }
+
+    open(MAILOUT, ">$tmpfile_name");
+    #
+    # Before we write this need to add in MAIL FROM, RCPT TO and DATA lines
+    # What about date:, and message-id headers? Maybe unix puts them in
+    # automatically in which case we're going to need to enhance sff to do the
+    # same.
+    print MAILOUT "MAIL FROM:<$retpath>\n";
+    if ($main'majordomo_debug) {print "MAIL FROM:<$retpath>\n"}
+    print MAILOUT "RCPT TO:<$rcptto>\n";
+    if ($main'majordomo_debug) {print "RCPT TO:<$rcptto>\n"}
+    print MAILOUT "DATA\n";
+    if ($main'majordomo_debug) {print "DATA\n"}
+
+    open(MAILIN, $fn);
+    while (<MAILIN>) {
+      if ($main'majordomo_debug) {print "line to SFF file: $_"}
+      print MAILOUT $_;
+    }
+    &digest_close_and_send(MAILOUT);
+    close(MAILIN);
+
+    return;
+}
+
+
+#
+# New routine for VMS port
+sub digest_close_and_send {
+    local($MAIL) = shift;
+    # force unqualified filehandles into callers' package
+    local($package) = caller;
+    local($save_mail) = $MAIL;
+    $MAIL =~ s/^[^']+$/$package'$&/;
+    local($tmpfile_name) = $mail_tmpfile_names{$save_mail};
+
+# begin temporary
+if ($main'majordomo_debug)
+  {
+  print "\$save_mail is $save_mail\n";
+  print "Value in associative array is $mail_tmpfile_names{$save_mail}\n";
+  print "Closing $tmpfile_name\n";
+  }
+# end temporary
+    close($MAIL);
+
+    # Delete element for this file from associative array.
+    delete $mail_tmpfile_names{$save_mail};
+
+    # Pass temp msg file to symbiont to be delivered.
+    &digest_pass_to_symbiont($tmpfile_name);
+
+    # Delete this temp file
+    if ($majordomo_debug < 20)
+      {unlink($tmpfile_name);}
+}
+
+
+#
+# New routine for VMS port
+# Pass the mail to the symbiont using the SFF foreign command in a subprocess.
+# It would be better to do ths with Perl extension I think.
+sub digest_pass_to_symbiont {
+    local($mail_tmpfile_name) = shift;
+local($status_str);
+if ($main'majordomo_debug) {print "Passing temp file $mail_tmpfile_name to symbiont with SFF and backticks.\n";}
+
+if ($main'majordomo_debug)
+  {
+  $status_str = `SFF $mail_tmpfile_name -logfile majordomo_sff.log -loglevel 1`;
+  }
+else
+  {
+  $status_str = `SFF $mail_tmpfile_name`;
+  }
+if ($main'majordomo_debug)
+  {
+  if (defined($status_str))
+    {
+    if ($status_str eq "")
+      {print "\$status_str is empty string.\n";}
+    else
+      {print "\$status_str is >>>$status_str<<<\n";}
+    }
+  else
+    {print "\$status_str is not defined.\n";}
+  }
+#
+# Need to check for errors here.
+#    &main'log("Failed to exec mailer \"@_\": $!");
+#    die("Failed to exec mailer \"@_\": $!");
+}
+
+
+sub mail_digest
+{
+local($fn) = shift;
+local($mail_from) = shift;
+local($rcpt_to) = shift;
+
+if ($majordomo_debug)
+  {
+  print "mail_digest sending digest to $rcpt_to...\n";
+  print "calling sendmail with these parameters: \n";
+  print "  MAIL FROM:<$mail_from>\n";
+  print "  RCPT TO: <$list_owner>\n";
+  }
+
+&rote_sendmail($fn, $mail_from, $rcpt_to);
+}
+
+
+sub make_digest {
+local($tmp_from);
+local($tmp_reply_to);
+local($tmp_errors_to);
+
+    if ($majordomo_debug) {print STDERR "make_digest entered \n";}
+    @files=<$V{'INCOMING'}/*>;
+    if ($majordomo_debug) {print STDERR "\$# is $#\n\$[ is $[\n\$#files is $#files\n";}
+    if ($#files < $[) {
+	&digest'abort("No messages to process.\n");
+    }
+    if ($majordomo_debug) {print STDERR "make_digest B4 open_temp\n";}
+    &open_temp(TEMP, $TEMP) || &digest'abort("$TEMP: $!\n");
+    if ($majordomo_debug) {print STDERR "make_digest after open_temp\n";}
+    print STDERR "producing $V{'NAME'} V$VOLUME #$NUMBER\n";
+    foreach $message (@files) {
+            if ($majordomo_debug) {print STDERR "Current file is $message \n";}
+
+            # Skip files where names aren't all digits.
+            if ($message !~ m#/\d+.$#)
+              {
+              if ($majordomo_debug) {print STDERR "non digest input file $message \n";}
+              next;
+              }
+	    open(message) || &digest'abort("$message: $!\n");
+	    #side note: "open message or die"?
+	    print STDERR "\tprocessing $message\n";
+
+	    $/ = '';
+	    $head = <message>;
+	    $head =~ s/\n\s+/ /g;
+	    $body = "";
+	    ($subj) = ($head =~ /^subject:\s+(.*)/i);
+	    $subj = "[none]" unless $subj;
+	    ($from) = ($head =~ /^from:\s+(.*)/i);
+	    ($date) = ($head =~ /^date:\s+(.*)/i);
+
+	    $/ = "\n";
+	    while (<message>) {
+		    s/^-/- -/; #escape encapsulation boundaries in message
+		    $body .= $_;
+	    }
+	    close(message);
+            if ($majordomo_debug) {print STDERR "\tdeleting $message \n";}
+            unlink($message);
+	    $body =~ s/\n+$/\n/;
+
+	    push(@subj,$subj);
+	    print TEMP <<EOF;
+From: $from
+Date: $date
+Subject: $subj
+
+$body
+$EB
+
+EOF
+    }
+    if ($majordomo_debug) {print STDERR "After main loop in make_digest\n";}
+    if ($majordomo_debug) {print STDERR "\@subj is @subj\n";}
+    close(TEMP);
+
+    &check_archive_dir();
+
+    $DIGEST = sprintf("%s/v%02d.n%03d", $V{'ARCHIVE'}, $VOLUME, $NUMBER);
+    if ($majordomo_debug) {print STDERR "Opening digest file $DIGEST\n";}
+    open(DIGEST, ">$DIGEST") || &digest'abort("open(DIGEST, \">$DIGEST\"): $!");
+
+    $tmp_from = $V{'FROM'};
+    if (!($tmp_from =~ "\@"))		# Assume no domain if no "@"
+      {$tmp_from .= "\@$whereami";}
+
+    $tmp_reply_to = $V{'REPLY-TO'};
+    if (!($tmp_reply_to =~ "\@"))		# Assume no domain if no "@"
+      {$tmp_reply_to .= "\@$whereami";}
+
+    $tmp_errors_to = $V{'ERRORS-TO'};
+    if (!($tmp_errors_to =~ "\@"))		# Assume no domain if no "@"
+      {$tmp_errors_to .= "\@$whereami";}
+
+    print DIGEST <<EOF;
+From:       $tmp_from
+To:         $V{'TO'}
+Subject:    $V{'NAME'} V$VOLUME #$NUMBER
+Reply-To:   $tmp_reply_to
+Errors-To:  $tmp_errors_to
+Precedence: $Precedence
+$HEADERS
+
+EOF
+
+    $PDATE = &getdate();
+    printf DIGEST ("%-20s",$V{'NAME'});
+    $center = " " x int(18 - length($PDATE) / 2);
+    print  DIGEST $center,$PDATE,$center;
+    printf DIGEST ("Volume %02d : Number %03d\n\n",$VOLUME,$NUMBER);
+
+    foreach (split(/\n/,$HEADER)) {
+	    if (/_SUBJECTS_/) {
+		    $pre = $`;
+		    foreach $subj (@subj) {
+			    print DIGEST $pre,$subj,"\n";
+		    }
+	    }else{
+		    print DIGEST "$_\n";
+	    }
+    }
+    print DIGEST "\n";
+    print DIGEST "-" x 70,"\n\n";
+
+    open(TEMP);
+    print DIGEST <TEMP>;
+    close(TEMP);
+    unlink($TEMP);
+
+    $end = sprintf("End of %s V%d #%d", $V{'NAME'}, $VOLUME, $NUMBER);
+    print DIGEST $end, "\n";
+    print DIGEST "*" x length($end), "\n";
+    print DIGEST "\n";
+    print DIGEST $TRAILER;
+
+    close(DIGEST);
+
+#    system("/usr/lib/sendmail -f$V{'ERRORS-TO'} $V{'REALLY-TO'} < $DIGEST");
+
+    &mail_digest($DIGEST, $V{'ERRORS-TO'}, $V{'REALLY-TO'});
+
+    if ( ! defined($opt_C) ) {
+	open(NUM_FILE, ">$V{'NUM_FILE'}") ||
+		&digest'abort("open(NUM_FILE, \">$NUM_FILE\"): $!");
+    	printf NUM_FILE "%d\n", $NUMBER + 1;
+	close(NUM_FILE);
+    } else { # hurrah we are using the majordomo config file
+	$config_opts{$opt_l,"digest_issue"} += 1;
+	&config'writeconfig($listdir, $opt_l);
+    }
+
+    return 0;
+}
+
+
+sub init {
+print STDERR "digest script checkpoint 1 \n";
+	$* = 1;
+print STDERR "digest script checkpoint 2 \n";
+	$HOME = $ENV{"HOME"} || (getpwuid($>))[7];
+print STDERR "digest script checkpoint 3 \n";
+	chdir($HOME);
+print STDERR "digest script checkpoint 4 \n";
+#	&getopt("rmc:Cl:") ||
+#	    &digest'abort("Usage: digest {-r|-m} [-c config|(-C -l list)]\nStopped");
+print STDERR "digest script checkpoint 5 \n";
+	Getopts("rmc:Cl:") ||
+	    &digest'abort("Usage: digest {-r|-m} [-c config|(-C -l list)]\nStopped");
+print STDERR "digest script checkpoint 6 \n";
+	$config = $opt_c || "$HOME/.digestrc";
+print STDERR "digest script checkpoint 7 \n";
+	$TEMP = "/SYS\$SCRATCH/DIGEST_$$";
+print STDERR "digest script checkpoint 8 \n";
+	$SIG{'INT'} = 'cleanup';
+print STDERR "digest script checkpoint 9 \n";
+	@MONTHS = ("January","February","March","April","May","June","July",
+	           "August","September","October","November","December");
+print STDERR "digest script checkpoint 10 \n";
+	@DAYS = ("Sunday","Monday","Tuesday","Wednesday","Thursday",
+	         "Friday","Saturday");
+print STDERR "digest script checkpoint 11 \n";
+	$EB = "-" x 30;
+
+print STDERR "digest script checkpoint 12 \n";
+}
+
+
+sub readconfig {
+print STDERR "digest script checkpoint 13 \n";
+	if (defined($opt_C)) {
+print STDERR "digest script checkpoint 14 \n";
+	   if (!defined($opt_l)) {
+		&digest'abort("-C used without -l");
+	    } else {
+print STDERR "digest script checkpoint 15 \n";
+		# Read and execute the .cf file
+		$cf = $ENV{'UCX$MAJORDOMO_CF'} || 
+			(getpwuid($<))[7] . "MAJORDOMO.CF";
+print STDERR "digest script checkpoint 16 \n";
+		if (! -r $cf) {
+		    &digest'abort("$cf not readable; stopped");
+		}
+print STDERR "digest script checkpoint 17 \n";
+		eval(`type $cf`) || die "eval of majordomo.cf failed $@";
+		$HOME = $homedir;
+
+		chdir($homedir);
+print STDERR "digest script checkpoint 18 \n";
+
+		$opt_l =~ tr/A-Z/a-z/;
+
+	   	require "config_parse.pl";
+print STDERR "digest script checkpoint 19 \n";
+		# get the digest config file
+		&get_config($listdir, $opt_l);
+print STDERR "digest script checkpoint 20 \n";
+
+		# map config opts to internal variables and $V array
+		$HEADER = $config_opts{$opt_l,"message_fronter"};
+		$HEADER =~ s/\001/\n/g;
+		$TRAILER = $config_opts{$opt_l,"message_footer"};
+		$TRAILER =~ s/\001/\n/g;
+		$VOLUME = $config_opts{$opt_l,"digest_volume"};
+		$NUMBER = $config_opts{$opt_l,"digest_issue"};
+		$Precedence = $config_opts{$opt_l,"precedence"};
+		$Precedence = "bulk" if ($Precedence eq "");
+		$V{'ARCHIVE'} = "$filedir/$opt_l$filedir_suffix";
+		$V{'DIGEST_SIZE'} = $config_opts{$opt_l, "maxlength"};
+		$V{'ERRORS-TO'} = $config_opts{$opt_l,"sender"};
+		$V{'FROM'} = $config_opts{$opt_l, "sender"};
+		$V{'INCOMING'} = "$digest_work_dir/$opt_l";
+		$V{'NAME'} = $config_opts{$opt_l,"digest_name"};
+		$V{'REALLY-TO'} = $ARGV[0];
+		$V{'REPLY-TO'} = $config_opts{$opt_l,"reply_to"};
+		$V{'TO'} = "$opt_l\@$whereami";
+
+		# make the headers keyword work
+		if ( $config_opts{$opt_l,"message_headers"} ne '' ) {
+			$from = $V{'FROM'};
+			$HEADERS = &config'substitute_values (
+			$config_opts{$opt_l,"message_headers"}, $opt_l);
+			$HEADERS =~ s/\001/\n/g;
+		}
+            } # list is defined
+	 } else { # not using -C 
+print STDERR "digest script checkpoint 21 \n";
+	   open(config) || &digest'abort("$config: $!\n");
+print STDERR "digest script checkpoint 22 \n";
+	   while (<config>) {
+		next if /^\s*$|^\s*#/;
+		chop;
+		($key,$value) = split(/\s*=\s*/,$_,2);
+		$V{$key} = $value;
+	   }
+	   close(config);
+
+	   open(header,$V{'HEADER'}) || &digest'abort("$V{'HEADER'}: $!\n");
+	   $HEADER = join("",<header>);
+	   close(header);
+
+	   open(trailer,$V{'TRAILER'}) || &digest'abort("$V{'TRAILER'}: $!\n");
+	   $TRAILER = join("",<trailer>);
+	   close(trailer);
+
+	   open(VOL_FILE,$V{'VOL_FILE'}) || &digest'abort("$V{'VOL_FILE'}: $!\n");
+	   $VOLUME = join("",<VOL_FILE>);
+	   chop($VOLUME);
+	   close(VOL_FILE);
+
+	   open(NUM_FILE,$V{'NUM_FILE'}) || &digest'abort("$V{'NUM_FILE'}: $!\n");
+	   $NUMBER = join("",<NUM_FILE>);
+	   chop($NUMBER);
+	   close(NUM_FILE);
+
+	   if (defined($V{'HOME'})) {
+	       unshift(@INC, $V{'HOME'});
+	   } 
+
+	} # end not using -C
+}
+
+
+sub cleanup {
+	unlink($TEMP);
+	exit(1);
+}
+
+
+sub getdate {
+  local($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime(time);
+  return($DAYS[$wday] . ", $mday " . $MONTHS[$mon] . " 19$year");
+}
+
+
+sub check_digest_dir
+{
+local($dir) = $V{'INCOMING'} . ".DIR";
+local($vmsdir) = VMS::Filespec::vmspath($dir);
+local($status_str) = ();
+
+if ($majordomo_debug)
+  {
+  print STDERR "check_digest_dir looking for directory $dir \n";
+  print STDERR "check_digest_dir \$vmsdir is $vmsdir\n";
+  }
+if (!(-e $dir))
+  {
+  if ($majordomo_debug) {print STDERR "check_digest_dir directory file not found. Making directory myself.\n";}
+
+  $status_str = `CREATE/DIRECTORY/OWNER=UCX\$MAJORDOM $vmsdir`;
+  if ($majordomo_debug) {print STDERR "check_digest_dir result from CREATE DIRECTORY is $status_str\n";}
+  if (defined($status_str))
+    {
+    if (($status_str =~ /-W-/) ||
+        ($status_str =~ /-E-/) ||
+        ($status_str =~ /-F-/))
+      {
+      print STDERR "DANGER! DANGER! An error occured while creating directory $vmsdir.\n";
+      print STDERR "output of CREATE /DIRECTORY command is:\n$status_str\n";
+      return undef;
+      }
+    }
+  }
+}
+
+
+sub check_archive_dir
+{
+local($dir) = $V{'ARCHIVE'} . ".DIR";
+local($vmsdir) = VMS::Filespec::vmspath($dir);
+local($status_str) = ();
+
+if ($majordomo_debug)
+  {
+  print STDERR "check_archive_dir looking for directory $dir \n";
+  print STDERR "check_archive_dir \$vmsdir is $vmsdir\n";
+  }
+if (!(-e $dir))
+  {
+  if ($majordomo_debug) {print STDERR "check_archive_dir directory file not found. Making directory myself.\n";}
+
+  $status_str = `CREATE/DIRECTORY/OWNER=UCX\$MAJORDOM $vmsdir`;
+  if ($majordomo_debug) {print STDERR "check_archive_dir result from CREATE DIRECTORY is $status_str\n";}
+  if (defined($status_str))
+    {
+    if (($status_str =~ /-W-/) ||
+        ($status_str =~ /-E-/) ||
+        ($status_str =~ /-F-/))
+      {
+      print STDERR "DANGER! DANGER! An error occured while creating directory $vmsdir.\n";
+      print STDERR "output of CREATE /DIRECTORY command is:\n$status_str\n";
+      return undef;
+      }
+    }
+  }
+}
+
+
+sub set_lock {
+if ($majordomo_debug) {print STDERR "set_lock entered \n";}
+
+    for ($tries = 0 ; $tries < 600 ; $tries++) {
+	if (&shlock($V{'INCOMING'} . "/.LOCK",DIGEST_LOCK)) {
+	    # got the lock
+	    $lock_set = 1;
+        if ($majordomo_debug) {print STDERR "set_lock exiting with status 1\n";}
+	    return(1);
+	} else {
+	    # didn't get the lock; wait 1 second and try again.
+	    sleep(1);
+	}
+    }
+    # if we got this far, we ran out of tries on the lock.
+    &digest'abort("unable to create lock \"$V{'INCOMING'}/.LOCK\"; giving up");
+    if ($majordomo_debug) {print STDERR "set_lock exiting with status undef\n";}
+    return undef;
+}
+
+
+sub free_lock {
+if ($majordomo_debug) {print STDERR "free_lock entered \n";}
+
+    if (defined($lock_set)) {
+	undef($lock_set);
+	close(DIGEST_LOCK);
+        if ($majordomo_debug) {print STDERR "free_lock exiting (lock released)\n";}
+	return unlink($V{'INCOMING'} . "/.LOCK");
+    } else {
+        if ($majordomo_debug) {print STDERR "free_lock exiting (no lock)\n";}
+	return undef;
+    }
+}
+
+
+sub digest'abort {
+    local($msg) = shift;
+
+    &free_lock;
+    die($msg);
+}
+
+
+sub log_cf_stuff {
+local($i);
+local($mykey);
+local($myval);
+
+if ($opt_r)
+  {print STDERR "\$opt_r is $opt_r \n";}
+else
+  {print STDERR "\$opt_r is undefined \n";}
+if ($opt_m)
+  {print STDERR "\$opt_m is $opt_m \n";}
+else
+  {print STDERR "\$opt_m is undefined \n";}
+if ($opt_c)
+  {print STDERR "\$opt_c is $opt_c \n";}
+else
+  {print STDERR "\$opt_c is undefined \n";}
+if ($opt_C)
+  {print STDERR "\$opt_C is $opt_C \n";}
+else
+  {print STDERR "\$opt_C is undefined \n";}
+if ($opt_l)
+  {print STDERR "\$opt_l is $opt_l \n";}
+else
+  {print STDERR "\$opt_l is undefined \n";}
+
+print STDERR "\$* is $* \n";
+print STDERR "\$HOME is $HOME \n";
+print STDERR "\$config is $config \n";
+print STDERR "\$TEMP is $TEMP \n";
+print STDERR "\@MONTHS is @MONTHS \n";
+print STDERR "\@DAYS is @DAYS \n";
+print STDERR "\$EB is $EB \n";
+print STDERR "\$HEADER is $HEADER \n";
+print STDERR "\$TRAILER is $TRAILER \n";
+print STDERR "\$VOLUME is $VOLUME \n";
+print STDERR "\$NUMBER is $NUMBER \n";
+print STDERR "\$Precedence is $Precedence \n";
+print STDERR "\$HEADERS is $HEADERS \n";
+
+print STDERR "Dump of \$V associative array:\n";
+while (($mykey,$myval) = each(%V))
+  {print STDERR "   \$V{$mykey} is $myval\n";}
+
+print STDERR "\$whereami is $whereami \n";
+print STDERR "\$whoami is $whoami \n";
+print STDERR "\$whoami_owner is $whoami_owner \n";
+print STDERR "\$homedir is $homedir \n";
+print STDERR "\$homedir_vms is $homedir_vms \n";
+print STDERR "\$listdir is $listdir \n";
+print STDERR "\$listdir_vms is $listdir_vms \n";
+print STDERR "\$digest_work_dir is $digest_work_dir \n";
+print STDERR "\$digest_work_dir_vms is $digest_work_dir_vms \n";
+print STDERR "\$log is $log \n";
+print STDERR "\$mailer is $mailer \n";
+print STDERR "\$filedir is $filedir \n";
+print STDERR "\$filedir_suffix is $filedir_suffix \n";
+print STDERR "\$index_command is $index_command \n";
+print STDERR "\$return_subject is $return_subject \n";
+print STDERR "\$majordomo_request is $majordomo_request \n";
+$i = 0;
+while ($archive_dirs[$i])
+  {
+  print STDERR "\$archive_dirs[$i] is $archive_dirs[$i]\n";
+  $i++;
+  }
+$i = 0;
+while ($archive_dirs_vms[$i])
+  {
+  print STDERR "\$archive_dirs_vms[$i] is $archive_dirs_vms[$i]\n";
+  $i++;
+  }
+print STDERR "\$analyze_slash_in_address is $analyze_slash_in_address \n";
+print STDERR "\$no_x400at is $no_x400at\n";
+print STDERR "\$no_true_x400 is $no_true_x400\n";
+1;
+}

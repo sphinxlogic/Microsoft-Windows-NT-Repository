@@ -1,0 +1,269 @@
+$ !
+$ !	S D L B L D . C O M
+$ !
+$ !	THIS COMMAND FILE BUILDS THE SDL IMAGES
+$ !	ASSUMES [SDL] AND DEFINITIONS FOR COM$, SRC$, LIB$, EXE$, 
+$ !		MAP$, LIS$, AND OBJ$.
+$ !
+$ !	This command procedure was built by reading the SDLBUILD.MMS
+$ !	file and creating VMS build procedures that match as closely
+$ !	as possible.  The logical names (eg SDLLIB:) have been changed 
+$ !	to the VMS conventions (LIB$ or SRC$).  
+$ !	SDLBUILD.MMS can be found in VMS$:[SDL] if it is needed for 
+$ !	future reference.
+$ !
+$ !  If logical ALPHA_TOOL is defined, image names are made to be
+$ !  ALPHA_SDLxxx.EXE instead of SDLxxx.EXE.
+$ !
+$ @COM$:SDLLOGDEF
+$ GOTO 'phase'
+$
+$INIT:
+$ !
+$ !	CREATE THE DIRECTORIES
+$ !
+$ @SYSBLDCOM$:CREATEDIR
+$ EXIT
+$
+$UPDATE:
+$ !	
+$ !  If build host is an AXP host, build a native LALRPAT.EXE against V6.1.
+$ !
+$ IF AXP_NATIVE
+$   THEN
+$	SRCUPDATE LALRPAT.PAS
+$ !
+$ !  Within the OpenVMS build environment, the linker ultimately uses
+$ !  the logical SYS$LIBRARY to locate shareable images and STARLET.OLB.
+$ !  (Within the AXP build ALPHA$LIBRARY is based on SYS$LIBRARY.)  For
+$ !  the ALPHA version of SDL temporarily redefine the SYS$LIBRARY logical
+$ !  to reference the V61_RESD$ so that all library references are
+$ !  resolved there.  Save the current definition to restore afterwards.
+$ !
+$	syslib_max = F$TRNLNM("SYS$LIBRARY","LNM$PROCESS_TABLE",,,,"MAX_INDEX")
+$	syslib_len = 0
+$	save_syslib = F$TRNLNM("SYS$LIBRARY","LNM$PROCESS_TABLE",syslib_len)
+$Save_Syslib_loop:
+$	syslib_len = syslib_len + 1
+$	IF syslib_len .LE. syslib_max
+$	THEN
+$		save_syslib = save_syslib + "," + -
+			F$TRNLNM("SYS$LIBRARY","LNM$PROCESS_TABLE",syslib_len)
+$		GOTO Save_Syslib_loop
+$	ENDIF
+$	DEFINE/PROCESS/NOLOG SYS$LIBRARY V61_RESD$:[SYSLIB]
+$	PASCAL/NOWARNINGS/OBJ=OBJ$:/LIS=LIS$: SRC$:LALRPAT.PAS
+$	LINK/EXE=EXE$:/MAP=MAP$: OBJ$:LALRPAT.OBJ
+$!
+$	IF F$TYPE(save_syslib) .NES. ""
+$	  THEN DEFINE/PROCESS/NOLOG SYS$LIBRARY 'save_syslib'
+$	ENDIF
+$   ELSE
+$ !
+$ !  LALRPAT.EXE for VAX is fetched to COM$ in INIT as part of the
+$ !  BUILD group.  SDLPAT.COM expects it in EXE$:
+$ !
+$	RENAME COM$:LALRPAT.EXE EXE$:
+$ ENDIF
+$ !
+$ !	Create updated sources.
+$ !
+$ !
+$ !	Update sources with SLP changes
+$ !
+$ SRCUPDATE PATBLSEXT.REQ
+$ SRCUPDATE PATDATA.REQ
+$ SRCUPDATE PATLANGSP.REQ
+$ SRCUPDATE DEB.REQ
+$ SRCUPDATE PATDEB.REQ
+$ SRCUPDATE PATERROR.REQ
+$ SRCUPDATE PATLRTUNE.REQ
+$ SRCUPDATE PATPARSER.REQ
+$ SRCUPDATE PATTOKEN.REQ
+$ SRCUPDATE SDLGETFNM.IN
+$ SRCUPDATE SDLMSGDEF.IN
+$ SRCUPDATE SDLNODMSK.IN
+$ SRCUPDATE SDLNODEF.SDL
+$ SRCUPDATE SDLOLDNODMSK.IN
+$ SRCUPDATE SDLSEMDEF.TPU
+$ SRCUPDATE SDLSHR.SDL
+$ SRCUPDATE SDLSHR.EDT
+$ SRCUPDATE SDLSYMTAB.IN
+$ SRCUPDATE SDLTOKDEF.SDL
+$ SRCUPDATE SDLTYPDEF.SDL
+$ SRCUPDATE SDLVERSION.IN
+$ SRCUPDATE SDLVERSION.EDT
+$ SRCUPDATE SDLVERSION.OPT
+$ SRCUPDATE SDLMSG.MSG
+$ SRCUPDATE PATREQPRO.REQ
+$ SRCUPDATE SDLPAT.PAT
+$ SRCUPDATE PATSWITCH.REQ
+$ SRCUPDATE PATPROLOG.REQ
+$ SRCUPDATE VMS.REQ
+$ SRCUPDATE COPYRIGHT.TXT
+$ SRCUPDATE XPORT.REQ		! This comes from a layered product kit and
+$!				! is checked in here so that XPORT.L32 can
+$!				! be created during the Cross Tools build
+$!				! using the current version of Bliss-32.
+$ EXIT
+$
+$SRCLIB:
+$ !
+$ !	DELETE AND RE-CREATE MACRO AND HELP LIBRARIES
+$ !
+$ DELETE LIB$:*.L32;*,*.MLB;*,*.IN;*,*.SRC;*,*.SAV;*,*.SDL;*
+$
+$ !
+$ EDIT/EDT/COMMAND=SRC$:SDLVERSION.EDT SRC$:SDLVERSION.OPT/OUTPUT=LIB$:SDLVERSION.IN
+$ COPY SRC$:SDLVERSION.OPT OPT$:
+$
+$!
+$! Parser Tables Section
+$!
+$! The build for SDLSEMDEF uses as input the file SDLPAT.LIS generated in
+$! the default directory by LALRPAT in the first stage.  To avoid changing
+$! SDLSEMDEF.TPU, the file COPYRIGHT.TXT has to
+$! be copied into LIB$, where the TPU file expects it to be.
+$!        
+$! Note:  Source/object for LALRPAT.PAS/.OBJ are also checked into VMS$:[SDL]
+$!	  in case any change ever needs to be made to LALRPAT.EXE.  However,
+$!	  the .EXE is not built here.
+$!
+$
+$ @COM$:SDLPAT
+$ EDIT/TPU/COMMAND=SRC$:SDLSEMDEF.TPU/NOSECTION/NODISPLAY LIS$:SDLPAT.LIS
+$!
+$ SDL /LAN=(PLI=LIB$:.IN,MACRO=LIB$:.SRC)	LIB$:SDLSEMDEF
+$ SDL /LAN=(PLI=LIB$:.IN,MACRO=LIB$:.SRC)	SRC$:SDLSHR
+$ EDIT/EDT/COMMAND=SRC$:SDLSHR.EDT		LIB$:SDLSHR.IN
+$ SDL /LAN=(PLI=LIB$:.IN)			SRC$:SDLNODEF
+$ SDL /LAN=(BLISSF=LIB$:.R32,MACRO=LIB$:.SRC)	SRC$:SDLTOKDEF
+$ SDL /LAN=(PLI=LIB$:.IN)			SRC$:SDLTYPDEF
+$ MESSAGE/NOLIS/OBJ=OBJ$:			SRC$:SDLMSG.MSG
+$
+$ LIBRARY/CREATE/MACRO LIB$:PAT.MLB  -
+	LIB$:SDLSEMDEF.SRC,	LIB$:SDLSHR.SRC,	LIB$:SDLTOKDEF.SRC
+$ ! BLISS Libraries Section
+$
+$ ! The first four (XPORT, PATBLSEXT, PATDATA, PATLANGSP) must be built
+$ ! in the order given, and before any of the other libraries.
+$
+$ BLISS/NOLIST /LIBRARY=LIB$:.L32	SRC$:XPORT.REQ
+$ BLISS/NOLIST /LIBRARY=LIB$:.L32	SRC$:PATBLSEXT.REQ
+$ BLISS/NOLIST /LIBRARY=LIB$:.L32	SRC$:PATDATA.REQ
+$ BLISS/NOLIST /LIBRARY=LIB$:.L32	SRC$:PATLANGSP.REQ
+$ BLISS/NOLIST /LIBRARY=LIB$:.L32	SRC$:DEB.REQ
+$ BLISS/NOLIST /LIBRARY=LIB$:.L32	SRC$:PATDEB.REQ
+$ BLISS/NOLIST /LIBRARY=LIB$:.L32	SRC$:PATERROR.REQ
+$ BLISS/NOLIST /LIBRARY=LIB$:.L32	SRC$:PATLRTUNE.REQ
+$ BLISS/NOLIST /LIBRARY=LIB$:.L32	SRC$:PATPARSER.REQ
+$ BLISS/NOLIST /LIBRARY=LIB$:.L32	SRC$:PATTOKEN.REQ
+$ COPY SRC$:SDLGETFNM.IN	LIB$:
+$ COPY SRC$:SDLMSGDEF.IN	LIB$:
+$ COPY SRC$:SDLNODMSK.IN	LIB$:
+$ COPY SRC$:SDLOLDNODMSK.IN	LIB$:
+$ COPY SRC$:SDLSYMTAB.IN	LIB$:
+$ EXIT
+$
+$ASSEM:
+$ !
+$ !	PURGE AND RE-CREATE THE OBJECTS AND LISTINGS
+$ !
+$ PURGE OBJ$:*.OBJ,*.OBS,*.OBB,LIS$:*.LIS,*.LSS
+$ !
+$ !	Generate and compile SDLNPARSE.PLI
+$ !
+$ SRCUPDATE SDLMAIN.PLI
+$ SRCUPDATE SDLNPARSE.EDT
+$ EDIT/EDT/COMMAND=SRC$:SDLNPARSE.EDT SRC$:SDLMAIN.PLI/OUTPUT=LIB$:SDLNPARSE.PLI
+$ IF AXP_NATIVE
+$   THEN
+$ 	@evms$build_tools:dec_pli				! Set up AXP PL/I compiler
+$   ENDIF
+$ !
+$ PLI /LIS=LIS$:/OBJ=OBJ$: LIB$:SDLNPARSE.PLI
+$ @SYSBLDCOM$:FASM 'FACNAM' "" NOLIB 'UPDATES'
+$!
+$ EXIT
+$
+$OBJLIB:
+$ !
+$ !	Create the object library from the object modules.
+$ !
+$ DELETE OBJ$:*.OBB;*,OBJ$:*.OLB;*
+$
+$ LIBRARY/CREATE LIB$:SDL.OLB -
+	OBJ$:SDLERRMSG.OBJ,	OBJ$:SDLCVTSTR.OBJ,	OBJ$:SDLGETFNM.OBJ, -
+	OBJ$:SDLHEADER.OBJ,	OBJ$:SDLPUTLIN.OBJ,	OBJ$:SDLWRTLIS.OBJ, -
+	OBJ$:SDLHASHF.OBJ,	OBJ$:SDLMSG.OBJ,	OBJ$:SDLQUE.OBJ, -
+	OBJ$:SDLTRIM.OBJ
+$ IF F$GETSYI ("ARCH_TYPE") .EQ. 1 THEN -
+  LIBRARY/INSERT LIB$:SDL.OLB -
+	OBJ$:SDLTRNVEC.OBJ
+$ LIBRARY/CREATE LIB$:PAT.OLB -
+	OBJ$:DEB.OBJ,		OBJ$:PATDATA.OBJ,	OBJ$:PATDEB.OBJ, -
+	OBJ$:PATERROR.OBJ,	OBJ$:PATLANGSP.OBJ,	OBJ$:PATLRTUNE.OBJ, -
+	OBJ$:PATPARSER.OBJ,	OBJ$:PATTOKEN.OBJ
+$ EXIT
+$
+$LNKLIB:
+$ !
+$ @COM$:SDLLNK SDLADA
+$ @COM$:SDLLNK SDLBASIC
+$ @COM$:SDLLNK SDLBLISS
+$ @COM$:SDLLNK SDLBLISS64
+$ @COM$:SDLLNK SDLBLISSF
+$ @COM$:SDLLNK SDLCC
+$ @COM$:SDLLNK SDLDTR
+$ @COM$:SDLLNK SDLEPASCAL
+$ @COM$:SDLLNK SDLFORTRAN
+$ @COM$:SDLLNK SDLFORTV3
+$ @COM$:SDLLNK SDLLISP
+$ @COM$:SDLLNK SDLMACRO
+$ @COM$:SDLLNK SDLPASCAL
+$ @COM$:SDLLNK SDLPLI
+$ @COM$:SDLLNK SDLSDML
+$ @COM$:SDLLNK SDLTPU
+$ @COM$:SDLLNK SDLUIL
+$ !
+$
+$LINK:
+$ !
+$ @COM$:SDLLNK SDL
+$ @COM$:SDLLNK SDLNPARSE
+$ EXIT
+$
+$RESULT:
+$ !
+$ !	COPY THE IMAGE, MAP AND HELP FILES TO A SYSTEM AREA
+$ !
+$ IF F$TRNLNM("ALPHA_TOOL") .NES. "" 
+$ THEN prefix = "ALPHA_"
+$ ELSE prefix = ""
+$ ENDIF
+$
+$ CPYRESEXE EXE$:'prefix'SDL.EXE
+$ CPYRESMAP MAP$:'prefix'SDL.MAP
+$ CPYRESEXE EXE$:'prefix'SDLNPARSE.EXE
+$ CPYRESMAP MAP$:'prefix'SDLNPARSE.MAP
+$ CPYSYSLIB EXE$:'prefix'SDLADA.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLBASIC.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLBLISS.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLBLISS64.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLBLISSF.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLCC.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLDTR.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLEPASCAL.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLFORTRAN.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLFORTV3.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLLISP.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLMACRO.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLPASCAL.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLPLI.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLSDML.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLTPU.EXE
+$ CPYSYSLIB EXE$:'prefix'SDLUIL.EXE
+$ !
+$ !	BUILD THE CONCATENATED LISTING RESLIS$:SDL.LSS
+$ !
+$ CPYRESLIS LIS$:*.LIS SDL.LSS

@@ -1,0 +1,334 @@
+	.title EMU_DISP_PSR 
+	.ident /v05-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;
+; Modifications
+; v01-001 Feb-1994 PB	Creation
+; v01-002 05-06-94 kob	Put into emu cld format
+; V5	  08-sep-1996	Updated for v5
+;++
+;1 EMU_DISP_PSR 
+;
+; Programme to monitor the progress of the Ethernet Monitor system.
+; This routine displays PSR counters.
+;
+;2 Counter_definitions
+;
+; Name		Name of this PSR
+; Rec		Frames Received from the listener
+; Ret		Frames returned to Listener. This and Rec should always 
+;		be equal.
+; Fmterr	Unexpected format in input frame
+; Comm    	Commands received (not yet used)
+; Err		Error recs written to log file.
+; NoIPC		Times unable to allocate IPC
+; Alt		Number of Alerts sent
+; Rlt		Number of Relater frames sent
+; Name		Number of Namer frames sent
+;--
+;
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+;	.library	/lib$:macrolib.mlb/
+	EMUCNTDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	$SECDEF				; Global Section 
+;
+; Data Section
+;
+
+	.psect	rw_data, noexe, rd, wrt, quad, pic, noshr	;Read/Write data
+; Global Section
+; returned addresses
+COUNTERS_A:	.QUAD
+
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 40
+VD_COLS: 	.LONG 132
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	1
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+BYTCNT:		.WORD		; Input Byte counter
+; Misc SMG ...
+bold:		.long	smg$m_bold
+PROMPT:		.ASCII	/YEAM> /
+CMDCOL:		.LONG	1
+CMDROW:		.LONG	24
+STCOL:		.LONG	1
+STROW:		.LONG	3
+UPCASE:         .LONG   TRM$M_TM_CVTLOW         ;Convert lower to upper case
+TIMEOUT:	.LONG	15
+CHARCNT:	.LONG	15
+BLANK:		.ASCID	/      /
+CURCOL:		.LONG
+CURROW:		.LONG
+;CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+cursor_flags:	.LONG	<SMG$M_SCROLL_JUMP>
+reset_cursor:	.long	<smg$m_cursor_on!smg$m_scroll_smooth>
+;
+; String formatting parameters
+;
+                 
+; Messages
+HEAD1:		.ASCID	/CCCI Ltd 1993          Ethernet Monitor PSR Display/
+HEAD2:		.ASCID	/ Name            Rec         Ret      Fmterr        Comm         Err       NoIPC         Alt         Rlt        Name/
+PSRCNT:		.ASCID	/ !7<!AC!>!9(12UL)/
+
+controller_shutdown:	.ascid	/EMU Control Process shutdown/
+twenty_four:	.long	24
+
+	.ALIGN	LONG
+; Error messages
+;
+NOSEC:		.ASCID	/ Counters not available /
+; 
+; Message Buffer
+FAOBUF:		.BLKB	132 
+FAODESC:
+FAOLEN: 	.LONG		.-FAOBUF
+        	.ADDRESS        FAOBUF
+;
+; Misc
+;
+WAIT_INTERVAL:	.FLOAT	1               ; Time between Screen updates
+
+got_cntl_lck:	.long	0
+exit_requested:	.long	0
+zero:		.long	0
+control_w:	.long	23
+control_z:	.long	26
+oob_b_mask:	.long	^x4800000
+;0028 0024 0020 0016 0012 0008 0004 0000
+
+ttcdata:	.quad	0		; characteristics to chg
+page_len:	.long	24
+term_wid:	.long	132
+lock_id:	.long	0
+
+
+	.psect	prog_code, rd, nowrt, exe, pic, shr, long
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_DISP_PSR
+
+; Command interface MBX. Define LNM$TEMPORARY_MAILBOX = LNM$SYSTEM
+; make all temporary things in the system logical name table
+	CALLS	#0, G^ASN_TEMPMBX_SYSTEM
+	BSBW	ERROR_CHK		; 
+;
+	BSBW	CREATE_ENVIRONMENT
+	CLRL	EXIT_REQUESTED
+
+
+; DECLARE EXIT HANDLER
+;	$DCLEXH_S DESBLK=EXIT_BLOCK	; 
+;	BSBW	ERROR_CHK		; 
+
+        PUSHAL  COUNTERS_A      	; Counters section return addresses
+        CALLS   #1, G^MAP_COUNTERS	; Monitor counters
+        BSBW    ERROR_CHK       	; check errors
+        MOVL    COUNTERS_A,R6
+	ADDL	#CNT_PSR_C_START,R6	; Start of PSRs
+
+; Registers
+; R6 = Address of counter section
+; R7 = Index
+; R10 = Loop Conrol
+		
+; Create initial Display
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$HOME_CURSOR
+	BSBW	ERROR_CHK            		; Error Check
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	PUSHAL	BOLD
+	CLRL	-(SP)
+	PUSHAL	HEAD1
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PUT_LINE
+	PUSHAL	HEAD2
+	PUSHAL	VD_DISP
+	CALLS	#2,G^SMG$PUT_LINE
+
+;Main loop	>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+20$:	blbc	exit_requested, 30$	; 
+	brw	70$
+30$:
+        MOVL    COUNTERS_A,R6
+	ADDL	#CNT_PSR_C_START,R6	; Start of PSRs
+	PUSHAL	STCOL			; Column (1)
+	PUSHAL	STROW			; Row (3)
+	PUSHAL	VD_DISP
+	CALLS	#3,G^SMG$SET_CURSOR_ABS
+	MOVL	#CNT_PSR_C_MAXPSR,R7
+40$:
+	TSTL	(R6)			; PSR?
+	BEQL    100$
+	MOVL	#132,FAOLEN			; Reset Out Len
+
+	PUSHL	40(R6)
+	PUSHL	36(R6)
+	PUSHL	32(R6)
+	PUSHL	28(R6)
+	PUSHL	24(R6)
+	PUSHL	20(R6)
+	PUSHL	16(R6)
+	PUSHL	12(R6)
+	PUSHL	8(R6)           ; 
+	PUSHL	R6		; Name
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	PSRCNT
+	CALLS	#13,G^SYS$FAO
+	PUSHAL	FAODESC
+	PUSHAL	VD_DISP
+	CALLS	#2,G^SMG$PUT_LINE
+100$:
+	ADDL	#CNT_PSR_C_ASIZE,R6			; Next block
+	SOBGTR	R7,40$
+
+60$:	PUSHAL	WAIT_INTERVAL                  ; Wait
+	CALLS	#1,G^LIB$WAIT
+	BRW	20$
+
+70$:
+	TSTL	COUNTERS_A		; 
+	BEQL	80$			; 
+	CLRQ	-(SP)			;
+	PUSHAL	COUNTERS_A		; section return addresses
+	CALLS	#3, G^SYS$DELTVA	; Remove section
+	CLRQ	COUNTERS_A		; 
+;
+80$:	$DACEFC_S	EFN = #64
+	$DACEFC_S	EFN = #96
+
+	CLRQ	-(SP)                   ; fags, acmode
+	CLRL	-(SP)                   ; valblk
+	PUSHL	LOCK_ID			; lock id
+	CALLS	#4, G^SYS$DEQ           ; dequeue lock
+
+	CLRQ	-(SP)			;
+	PUSHAL	ZERO			;
+	PUSHAL	PB_BOARD		;
+	CALLS	#4, G^SMG$SET_OUT_OF_BAND_ASTS
+	BSBW	ERROR_CHK		;
+
+	PUSHAL	TWENTY_FOUR
+	PUSHAL	VD_DISP
+	CALLS	#2, G^SMG$SET_CURSOR_ABS
+
+	PUSHAL	RESET_CURSOR
+	PUSHAL	PB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	#SS$_NORMAL,R0
+
+90$:	RET
+
+; If the result is anything other than succesful MAP - Exit
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+;
+; Create Virtual Display
+;
+CR_DISP:
+	CLRL	-(SP)
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+	PUSHAL	CURSOR_FLAGS                    ; Turn cursor off
+	PUSHAL	PB_BOARD
+	CALLS	#2, G^SMG$SET_CURSOR_MODE
+	BSBW	ERROR_CHK		;
+
+	CLRL	-(SP)			;
+	PUSHAL	G^EMU_PSR_OOB_AST	;
+	PUSHAL	OOB_B_MASK		;
+	PUSHAL	PB_BOARD		;;
+	CALLS	#4, G^SMG$SET_OUT_OF_BAND_ASTS
+	BSBW	ERROR_CHK		;
+
+	RSB
+
+	.SBTTL	ERROR_CHK
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBC	R0,20$
+	RSB
+20$:	RET
+
+	.SBTTL	EMU_PSR_OOB_AST ()
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_PSR_OOB_AST
+
+	MOVL	4(AP), R2		; Structure address
+
+	CMPB	SMG$B_CHARACTER(R2), CONTROL_Z
+	BEQL	10$
+	BRW	50$
+
+10$:	MOVL	#1, EXIT_REQUESTED		; 
+
+50$:	CMPB	SMG$B_CHARACTER(R2), CONTROL_W
+	BNEQ	100$			;
+	PUSHAL	PB_BOARD		;
+	CALLS	#1, G^SMG$REPAINT_SCREEN
+	BSBW	ERROR_CHK		;
+
+100$:	MOVZWL	#SS$_NORMAL, R0		; return good status
+	RET
+	.END 

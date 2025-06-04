@@ -1,0 +1,231 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.SCRIPTING]SCRIPTING_RTE.SDML">
+<META NAME="date" CONTENT="Fri, 26 Jan 2001 12:57:25">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Run-Time Environments</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Scripting Environment</H1>
+
+<A NAME="65">
+<H2>4 - Run-Time Environments</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+4.1 - <A HREF="scripting_0400.html#69" TARGET="_self">RTE Programming</A>
+<BR>4.2 - <A HREF="scripting_0400.html#72" TARGET="_self">Server Configuration</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="scripting_0500.html" TARGET="_self">next</A>] [<A HREF="scripting_0300.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0400.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> A Run-Time Environment (RTE) is a persistant scripting environment with
+similar objectives to CGIplus ... reducing script response time,
+increasing server throughput and reducing system impact.&nbsp;  In fact the RTE
+environment is implemented using CGIplus!&nbsp;  There is very little difference in
+the behaviour of CGIplus scripts and RTEs.&nbsp;  Both are activated by the server,
+process multiple requests (reading the request CGI environment from a data
+stream supplied by the server), persist between requests in a quiescent state,
+and may be removed by the server if idle for a specified period or when it
+wishes to use the process for some other purpose.&nbsp; <B>Like CGIplus an
+RTE must be purpose-written for the environment!&nbsp;</B>  What is the difference
+then?&nbsp;
+
+<P> With CGIplus the script itself persists between uses, retaining all of it's
+state.&nbsp;  With an RTE the script does not persist or retain state, only the RTE
+itself.&nbsp;
+
+<P> A RTE is intended as an environment in which a script source is interpreted
+or otherwise processed, although it is not limited to that.&nbsp;  The essential
+difference between an RTE and a CGIplus script is this script source.&nbsp;  In
+CGIplus the SCRIPT_NAME and SCRIPT_FILENAME CGI variables reflect the script
+itself, and remain constant for each activation of the script, with PATH_INFO
+and PATH_TRANSLATED providing the additional &quot;location&quot; information for
+the script processing.&nbsp;  With an RTE the SCRIPT_NAME and SCRIPT_FILENAME can
+vary with each activation.&nbsp;  This allows the RTE to process multiple, successive
+different (or the same) scripts, each with it's own PATH_INFO and
+PATH_TRANSLATED.&nbsp;  Hence, it is not unreasonable to consider the two
+environments to be the same, with a slight difference in the mapping of
+resources passed to them.&nbsp;
+
+<P> This might be best illustrated with examples.&nbsp;
+
+<A NAME="66">
+<H3><BR>CGIplus Example</H3>
+</A>
+
+<P> Consider the mapping rule
+
+<FONT COLOR="#333333"><PRE>  exec+ /cgiplus-bin/* /cgi-bin/*
+</PRE></FONT>
+ applied to the following CGIplus request
+
+<FONT COLOR="#333333"><PRE>  /cgiplus-bin/xyz/the/path/information?and=a&amp;query=string
+</PRE></FONT>
+
+<P> If the script was an executable it would be activated as
+
+<FONT COLOR="#333333"><PRE>  CGI-BIN:[000000]XYZ.EXE
+</PRE></FONT>
+ with script CGI information
+
+<FONT COLOR="#333333"><PRE>  /cgiplus-bin/xyz
+  CGI-BIN:[000000]XYZ.EXE
+</PRE></FONT>
+ and the request path information and query string supplied as
+
+<FONT COLOR="#333333"><PRE>  /the/path/information
+  THE:[PATH]INFORMATION
+  and=a&amp;query=string
+</PRE></FONT>
+
+<A NAME="67">
+<H3><BR>RTE Example</H3>
+</A>
+
+<P> By contrast with a request to activate an RTE the following mapping rule
+
+<FONT COLOR="#333333"><PRE>  exec /xyz-bin/* (CGI-BIN:[000000]XYZ.EXE)/ht_root/src/xyz/*
+</PRE></FONT>
+ (note the RTE executable specified inside parentheses) and request
+
+<FONT COLOR="#333333"><PRE>  /xyz-bin/an_example/the/path/information?and=a&amp;query=string
+</PRE></FONT>
+ would activate the scripting environment (perhaps interpreter)
+
+<FONT COLOR="#333333"><PRE>  CGI-BIN:[000000]XYZ.EXE
+</PRE></FONT>
+ supplying it with per-request script name and file information 
+
+<FONT COLOR="#333333"><PRE>  /xyz-bin/an_example.xyz
+  HT_ROOT:[SRC.XYZ]AN_EXAMPLE.XYZ
+</PRE></FONT>
+ and path and query string information
+
+<FONT COLOR="#333333"><PRE>  /the/path/information
+  THE:[PATH]INFORMATION
+  and=a&amp;query=string
+</PRE></FONT>
+
+<A NAME="68">
+<H3><BR>Summary</H3>
+</A>
+
+<P> As can be seen the script information is constant for each request to a
+CGIplus script, while with RTE the script information could vary with each
+request (although of course it would be the same if the same script is
+requested).&nbsp;  In the case of CGIplus the <I>process what?&nbsp;</I> request
+information is provided only by path information, however with RTE both script
+and path information are used.&nbsp;
+
+<A NAME="69">
+<H3><BR><U>4.1 - RTE Programming</U></H3>
+</A>
+
+<P> <B>The RTE interface is still CGI</B>, with all the usual
+environment variables and input/output streams available, just in a CGIplus
+environment!&nbsp;  Hence when coding a Run-Time Environment the same considerations
+involved in CGIplus programming apply.&nbsp;  See
+<A HREF="scripting_0300.html#58" TARGET="_self">3 - CGIplus</A>.&nbsp;
+
+<P> In particular it is important a RTE should explicitly close files, free
+allocated memory, etc., after processing a request (of course it cannot rely on
+image  run-down to clean-up after itself).&nbsp; It is particularly important that
+all traces of each script's processing are removed after it concludes.&nbsp;  This
+does not mean for example that databases need to be completely closed, etc.,
+which might defeat the purpose of using a persistant environment, just that
+great care must be exercised by the programmer to prevent one script
+interfering with another!&nbsp;
+
+<A NAME="70">
+<H3><BR>Examples</H3>
+</A>
+<UL>
+
+<LI> An example RTE,
+
+<A TARGET="_top" HREF="/ht_root/src/CGIplus/RTE_example.c"> HT_ROOT:[SRC.CGIPLUS]RTE_EXAMPLE.C</A>
+
+provides the basics of the environment.&nbsp;
+<P>
+<LI> WASD's own Perl RTE,
+
+<A TARGET="_top" HREF="/ht_root/src/perl/PerlRTE*.C">HT_ROOT:[SRC.PERL]PERLRTE.C/PERLRTENG.C</A>, 
+
+can also serve as an implementation example.&nbsp;
+</UL>
+
+
+<A NAME="71">
+<H3><BR>CGI Function Library</H3>
+</A>
+
+<P> A source code collection of C language functions useful for processing the
+more vexing aspects of CGI/CGIplus/RTE programming.&nbsp;  See
+<A HREF="scripting_0100.html#38" TARGET="_self">1.7 - Scripting Function Library</A>.&nbsp;  The example RTE implementations use this library.&nbsp;
+
+<A NAME="72">
+<H3><BR><U>4.2 - Server Configuration</U></H3>
+</A>
+
+<P> The following configuration information uses the supplied Perl RTE as the
+example.&nbsp;
+
+<P> The following rule in HTTPD$MAP maps the /pl-bin/ location to where the
+site wishes to locate it's CGI Perl scripts (not necessarily the same as in the
+example).&nbsp;
+
+<FONT COLOR="#333333"><PRE>  exec /pl-bin/* (CGI-BIN:[000000]PERLRTE.EXE)/ht_root/src/perl/*
+</PRE></FONT>
+
+<P> With this rule Perl scripts may be accessed using 
+
+<FONT COLOR="#333333"><PRE>  http://host.name.domain/pl-bin/an_example
+</PRE></FONT>
+
+<P> A DCL procedure can be specified in place of an executable.&nbsp;  Merely prefix
+the specification with a &quot;@&quot;.
+
+<P> This HTTPD$CONFIG rule ensures Perl scripts could be activated via
+the Perl RTE even if the HTTPD$MAP rule did not exist (see
+<A HREF="scripting_0100.html#31" TARGET="_self">1.3 - Script Run-Time</A>).&nbsp;
+
+<FONT COLOR="#333333"><PRE>  [DclScriptRunTime]
+  .PL  (CGI-BIN:[000000]PERLRTE.EXE)
+</PRE></FONT>
+<BLOCKQUOTE><CENTER><B>NOTE</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+The server makes no check of the RTE executable (or procedure) before
+attempting to activate  it using DCL for processing the script.&nbsp;  If it does not
+exist or is not accessable due to incorrent file protections the DCL of the
+subprocess will report the problem.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<P> It does by default however, check that the file used as the script source
+exists as with other scripting environments.&nbsp;  If it does not this is reported
+as a &quot;script not found&quot;.&nbsp;  For RTEs that wish to report on this
+themselves, or that possibly construct their own script specification via some
+internal processing, this server behaviour may be suppressed for the script
+activation path using the HTTPD$MAP path SETting &quot;script=nofind&quot; as in
+the following example.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  set /xyz-bin/* script=nofind
+  exec /xyz-bin/* (CGI-BIN:[000000]XYZ.EXE)/ht_root/src/xyz/*
+</PRE></FONT>
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="scripting_0500.html" TARGET="_self">next</A>] [<A HREF="scripting_0300.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0400.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

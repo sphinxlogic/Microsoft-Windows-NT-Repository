@@ -1,0 +1,916 @@
+	.title	scan_file_locks
+	.ident	/X2-001/
+
+;+
+; Version:	X2-001
+;
+; Facility:	Diagnostic Utilities
+;
+; Abstract:	
+;
+; Environment:
+;
+; History:
+;
+;	31-Dec-1997, DBS, Version X1-001
+; 001 -	Original version.
+;	30-Apr-1999, DBS, Version X1-002
+; 002 -	Format some more output rather than just dumping it. (Easier to read)
+;	30-Apr-1999, DBS, Version X1-003
+; 003 -	Added some more formatted output.
+;
+;	30-Apr-1999, DBS, Version X2-001
+; 001 -	And now for something completely different...
+;-
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	.external	lib_output_seg_t
+	.external	lib_output_seg_tzb
+	.external	lib_output_seg_zb
+	.external	lib$get_foreign
+	.external	lib$fid_to_name
+	.external	lib$put_output
+	.external	lib$signal
+	.external	lib$stop
+	.external	lib$tparse
+	.external	lib$trim_filespec
+	.external	str_len
+	.external	str_uppercase
+
+	$dvidef
+	$fibdef
+	$iodef
+	$jpidef
+	$lckdef
+	$libdef
+	$libdtdef
+	$lkidef
+	$namdef
+	$ssdef
+	$stsdef
+	$tpadef
+	$gblini GLOBAL
+
+	def_psect _util_data_rw, type=DATA, alignment=QUAD
+	def_psect _util_data_ro, type=RO_DATA, alignment=QUAD
+	def_psect _util_code, type=CODE, alignment=QUAD
+
+	.subtitle Local macros
+
+.macro	display_error status=r0, ?next
+
+	blbs	status, next
+	movl	status, util_msgsts
+	$putmsg_s msgvec=util_msgvec
+	movl	util_msgsts, status
+next:
+
+.endm	display_error
+
+.macro	signal_error status=r0, ?next
+
+	blbs	status, next
+	pushl	status
+	calls	#1, g^lib$stop
+next:
+
+.endm	signal_error
+
+	.subtitle Read only data area
+
+	nul=0
+	lf=10
+	cr=13
+	space=32
+
+	set_psect _util_data_ro
+
+util_version:	.ascid	"Scan_File_Locks X2-001"
+util_tt:	.ascid	"TT"
+filespec_prompt:.ascid	"_File: "
+
+blank_line:	.ascid	<cr>
+
+	reset_psect
+
+	.subtitle Impure data area and TPA argument block
+
+	set_psect _util_data_rw
+
+;>>> start of lib$tparse argument block
+; this becomes the argument block for all lib$tparse action routines
+
+util_parse_ctrl:		; control block for lib$tparse
+	.long	tpa$k_count0	; longword count - required
+	.long	tpa$m_abbrev	; allow unambiguous abbreviations
+		; from here down is filled in at run time
+	.long	0	; length of input string	tpa$l_stringcnt
+	.long	0	; pointer to input string	tpa$l_stringptr
+	.long	0	; length of current token	tpa$l_tokencnt
+	.long	0	; pointer to current token	tpa$l_tokenptr
+	.blkb	3	; unused area
+	.byte	0	; character returned		tpa$b_char
+	.long	0	; binary value of numeric token	tpa$l_number
+	.long	0	; argument supplied by user	tpa$l_param
+		; up to here is REQUIRED, anything after here is optional
+util_parse_ctrl_end:
+
+;>>> end of lib$tparse argument block
+
+	alloc_string	util_faobuf, 2048
+	alloc_string	util_filespec, 255
+
+util_tt_chan:	.long	0
+
+util_msg: 	$putmsg msgvec=util_msgvec ; setup a message vector
+util_msgvec:	.word	^X0001		; argument count
+util_msgtxt:	.word	^X000F		; set message/f/i/s/t
+util_msgsts:	.long	0		; here we store the status
+
+	reset_psect
+
+	.subtitle Main command processing loop
+
+	set_psect _util_code
+
+	.entry -
+util_start, ^m<>
+
+	display	util_version
+
+	$assign_s -			; assign a channel to our terminal
+		devnam=util_tt, -	;  so we can setup a control c
+		chan=util_tt_chan	;  trap
+
+	calls	#0, g^util_set_ctrlcast	; now do it
+
+	pushaw	util_filespec
+	pushaq	filespec_prompt
+	pushaq	util_filespec_ds
+	calls	#3, g^lib$get_foreign	; input the filespec
+
+	blbc	r0, 90$			; bail out on errors
+	tstw	util_filespec		; did they enter anything ?
+	beql	90$			; no, so bail out
+
+	calls	#0, g^validate_filespec	; else check that we have a file
+	blbc	r0, 90$
+
+	calls	#0, g^util_scan_locks
+
+90$:	calls	#0, g^util_exit
+
+	ret
+
+	.entry -
+util_exit, ^m<>
+
+	display	blank_line
+;	bisl	#sts$m_inhib_msg, r0
+
+	$exit_s	code=r0
+
+	ret
+
+	.entry -
+util_set_ctrlcast, ^m<>
+
+	$qiow_s	chan=util_tt_chan, -
+		func=#<io$_setmode!io$m_ctrlcast>, -
+		p1=util_exit, -
+		p3=#3
+
+	ret
+
+	.subtitle Data areas for filespec validation routine
+
+	set_psect _util_data_ro
+
+using_fao:		.ascid	"!/Looking for locks on !AS!/"-
+				"!21* !AS(!UW,!UW,!UW)!/"
+inp_def_filespec:	.ascid	"FILE.DAT"
+resnam_fao:		.ascid	"Resource name is [!AF]!/"-
+				"      File ID is [!XB !XB !XB !XB !XB !XB]"
+
+	reset_psect
+
+	set_psect _util_data_rw
+
+	alloc_string	inp_dvi, 64	; nam$s_dvi
+	alloc_string	inp_file, 255
+	alloc_string	inp_volnam, 12	; dvi$_volnam
+
+inp_fib:	.blkb	fib$k_length
+
+fib_descr:	.long	fib$k_length
+		.address inp_fib
+
+inp_filespec:	.long	0
+inp_filespec_addr:
+		.long	0
+
+inp_fid:	.long	0
+inp_seq:	.long	0
+inp_rvn:	.long	0
+
+	.align	long
+inp_fab:
+	$fab	fac=<GET>, -
+		fop=<NAM>, -
+		nam=inp_nam
+inp_nam:
+	$nam
+
+	resource_name_size = 31
+	rms_resource_name_size = 26	; ???
+resource_name_ds:
+		.long	resource_name_size ; it's always 31 bytes
+		.address resource_name_t
+resource_name_t:
+		.ascii	"RMS$"
+file_id:	.word	0[3]		; filled in later with the file ID
+		.byte	2		; dunno what this is
+volume_name:	.byte	32[12]		; filled in with volume name
+		.byte	0[8]		; to get to 31 bytes
+
+dvi_itmlst:
+		.word	12
+		.word	dvi$_volnam	; get the volume name
+		.address inp_volnam_t
+		.address inp_volnam
+		.long	0		; end of list
+
+	reset_psect
+
+	.subtitle Filespec validation routine
+
+	.entry -
+validate_filespec, ^m<>
+
+	pushaq	util_filespec
+	calls	#1, g^str_uppercase
+
+	movzwl	util_filespec, -
+		util_parse_ctrl+tpa$l_stringcnt
+	movab	util_filespec_t, -
+		util_parse_ctrl+tpa$l_stringptr
+
+	pushab	input_keyword_tbl
+	pushab	input_state_tbl
+	pushab	util_parse_ctrl
+	calls	#3, g^lib$tparse
+	blbc	r0, 90$
+
+	tstl	inp_fid			; did they use fid
+	beql	10$			; no, use filename
+	calls	#0, g^process_file_id
+	brw	80$
+10$:	calls	#0, g^process_filespec
+
+80$:	calls	#0, g^create_resource_name
+
+90$:	ret
+
+	.entry -
+process_file_id, ^m<>
+
+	movw	inp_fid, inp_fib+fib$w_fid
+	movw	inp_seq, inp_fib+fib$w_fid+2
+	movw	inp_rvn, inp_fib+fib$w_fid+4
+	movl	inp_filespec, inp_dvi
+	movzwl	inp_filespec, r0
+
+	pushr	#^m<r2,r3,r4,r5>
+	movc3	r0, @inp_filespec_addr, inp_dvi_t
+	popr	#^m<r2,r3,r4,r5>
+
+	pushal	inp_file
+	pushaq	inp_file_ds
+	pushaw	inp_fib+fib$w_fid
+	pushaq	inp_dvi
+	calls	#4, g^lib$fid_to_name
+	signal_error
+
+	ret
+
+	.entry -
+process_filespec, ^m<>
+
+	movb	inp_def_filespec, -
+		inp_fab+fab$b_dns
+	movl	inp_def_filespec+4, -
+		inp_fab+fab$l_dna
+	movb	util_filespec, -
+		inp_fab+fab$b_fns
+	movab	util_filespec_t, -
+		inp_fab+fab$l_fna
+	movb	#inp_file_s, -
+		inp_nam+nam$b_ess
+	movab	inp_file_t, -
+		inp_nam+nam$l_esa
+
+	$parse	fab=inp_fab
+	signal_error
+
+	$search	fab=inp_fab
+	signal_error
+
+	movzbl	inp_nam+nam$b_esl, -
+		inp_file
+
+	movw	inp_nam+nam$w_fid, -
+		inp_fib+fib$w_fid
+	movw	inp_nam+nam$w_fid+2, -
+		inp_fib+fib$w_fid+2
+	movw	inp_nam+nam$w_fid+4, -
+		inp_fib+fib$w_fid+4
+	movzbl	inp_nam+nam$t_dvi, r0
+
+	pushr	#^m<r2,r3,r4,r5>
+	movc3	r0, -
+		inp_nam+nam$t_dvi+1, -
+		inp_dvi_t
+	popr	#^m<r2,r3,r4,r5>
+
+	pushal	inp_dvi
+	pushaq	inp_dvi_ds
+	calls	#2, g^str_len
+
+	addl3	#inp_dvi_t, inp_dvi, r0
+	movb	#^A/:/, (r0)
+	incl	inp_dvi
+
+	ret
+
+	.entry -
+create_resource_name, ^m<>
+
+	movw	inp_fib+fib$w_fid, -	; load the fields in the resource
+		file_id			;  name
+	movw	inp_fib+fib$w_fid+2, -
+		file_id+2
+	movw	inp_fib+fib$w_fid+4, -
+		file_id+4
+
+	$getdviw_s -			; we need the volume name
+		devnam=inp_dvi, -
+		itmlst=dvi_itmlst
+
+	pushr	#^m<r2,r3,r4,r5>
+	movc5	inp_volnam, inp_volnam_t, - ; load it into the resource name
+		#32, #12, volume_name
+	popr	#^m<r2,r3,r4,r5>
+
+
+	$fao_s	ctrstr=using_fao, -	; show what we've got so far
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=#inp_file, -
+		p2=#inp_dvi, -
+		p3=inp_fib+fib$w_fid, -
+		p4=inp_fib+fib$w_fid+2, -
+		p5=inp_fib+fib$w_fid+4
+	display util_faobuf
+
+	$fao_s	ctrstr=resnam_fao, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=#rms_resource_name_size, -
+		p2=#resource_name_t, -
+		p3=file_id, -
+		p4=file_id+1, -
+		p5=file_id+2, -
+		p6=file_id+3, -
+		p7=file_id+4, -
+		p8=file_id+5
+	display util_faobuf
+
+	ret
+
+	.subtitle Data areas for scanning routines
+
+;; The following was taken from the VMS source (7.2) listings since these are
+;; not public structures... so they may break.  They define offsets to
+;; fields within the lock value block for the file lock
+
+;; SFSB == shared file synchronization block
+
+	sfsb_b_lvb_ver = 0
+	sfsb_b_mbc = 1
+	sfsb_w_unused = 2
+	sfsb_w_lrl = 4
+	sfsb_w_ffb = 6
+	sfsb_l_hbk = 8
+	sfsb_l_ebk = 12
+
+;; RLB == record lock block
+
+	rlb_l_rfa4 = 0
+	rlb_l_rfa0 = 4
+
+;; BLB == bucket lock block
+
+	blb_l_vbn = 0
+
+;;
+
+	set_psect _util_data_ro
+
+lki_fao:	.ascid	"!78*-!/LockID !XL, state !AC/!AC/!AC, Granted !UL"-
+			", Wait !UL, Cvt !UL, Sublocks !UL (!UL)"
+jpi_fao:	.ascid	"!8* PID !XL  !AS  !AS  !AS"
+sfsb_fao:	.ascid	"!8* Ver !UB, MBC !UB, LRL !UW, FFB !UW"-
+			", Hi block !UL, EOF block !UL"
+lkisub_fao:	.ascid	"  !74*-!/  SubLockID !XL, state !AC/!AC/!AC, Granted !UL"-
+			", Wait !UL, Cvt !UL, Sublocks !UL"
+jpisub_fao:	.ascid	"!10* PID !XL !AS  !AS  !AS"
+dashes_fao:	.ascid	"!78*-"
+blb_fao:	.ascid	"!6* Bucket at VBN  !UL  (valblk sequence !UL)"
+blb_fast_fao:	.ascid	"!6* !40<Bucket at VBN  !UL!> !AC/!AC/!AC"
+rlb_fao:	.ascid	"!6* Lock on record !UL,!UL"
+rlb_fast_fao:	.ascid	"!6* !40<Lock on record !UL,!UL!>  !AC/!AC/!AC"
+longword_fao:	.ascid	"!7* !XL (!-!UL.)"
+trimmed_width:	.word	28		; number of characters for imagename
+lki_spaces:	.ascic	"--"
+
+lki_convert:	.ascic	"CO"
+lki_granted:	.ascic	"GR"
+lki_waiting:	.ascic	"WA"
+
+lki_nlmode:	.ascic	"NL"
+lki_crmode:	.ascic	"CR"
+lki_cwmode:	.ascic	"CW"
+lki_prmode:	.ascic	"PR"
+lki_pwmode:	.ascic	"PW"
+lki_exmode:	.ascic	"EX"
+
+	reset_psect
+
+	set_psect _util_data_rw
+
+	alloc_string	trimmed_imagename, 255
+
+segment_size:	.long	16
+
+lki_a_rqmode:	.long	0
+lki_a_grmode:	.long	0
+lki_a_queue:	.long	0
+
+saved_lkidadr:	.long	0
+saved_lki_lockid:
+		.long	0
+saved_lki_pid:	.long	0
+lkidadr:	.long	0
+
+lki_resnam_ds:	.long	31
+		.address lki_resnam
+lki_valblk_ds:	.long	16
+		.address lki_valblk
+
+lki_cvtcount:	.long	0
+lki_grantcount:	.long	0
+lki_lckrefcnt:	.long	0
+lki_lockid:	.long	0
+lki_namspace:	.long	0
+lki_parent:	.long	0
+lki_pid:	.long	0
+lki_resnam_len:	.long	0
+		.address lki_resnam
+lki_resnam:	.blkb	31
+lki_rsbrefcnt:	.long	0
+lki_state:	.blkb	3
+lki_valblk:	.blkb	16
+lki_waitcount:	.long	0
+
+lki_itmlst:	.word	4,		lki$_cvtcount
+		.address lki_cvtcount
+		.long	0
+		.word	4,		lki$_grantcount
+		.address lki_grantcount
+		.long	0
+		.word	4,		lki$_lckrefcnt
+		.address lki_lckrefcnt
+		.long	0
+		.word	4,		lki$_lockid
+		.address lki_lockid
+		.long	0
+		.word	4,		lki$_namspace
+		.address lki_namspace
+		.long	0
+		.word	4,		lki$_parent
+		.address lki_parent
+		.long	0
+		.word	4,		lki$_pid
+		.address lki_pid
+		.long	0
+		.word	31,		lki$_resnam
+		.address lki_resnam
+		.address lki_resnam_len
+		.word	4,		lki$_rsbrefcnt
+		.address lki_rsbrefcnt
+		.long	0
+		.word	3,		lki$_state
+		.address lki_state
+		.long	0
+		.word	16,		lki$_valblk
+		.address lki_valblk
+		.long	0
+		.word	4,		lki$_waitcount
+		.address lki_waitcount
+		.long	0
+		.long	0		; to end the list
+
+
+jpi_imagname_ds:	.long	0	; filled in later
+			.address jpi_imagname
+jpi_imagname:		.blkb	255
+jpi_prcnam_ds:		.long	15
+			.address jpi_prcnam
+jpi_prcnam:		.blkb	15
+jpi_tt_accpornam_ds:	.long	0	; filled in later
+			.address jpi_tt_accpornam
+jpi_tt_accpornam:	.blkb	64
+jpi_tt_phydevnam_ds:	.long	0	; filled in later
+			.address jpi_tt_phydevnam
+jpi_tt_phydevnam:	.blkb	64
+jpi_username_ds:	.long	12
+			.address jpi_username
+jpi_username:		.blkb	12
+
+jpi_itmlst:
+		.word	255,		jpi$_imagname
+		.address jpi_imagname
+		.address jpi_imagname_ds
+		.word	15,		jpi$_prcnam
+		.address jpi_prcnam
+		.long	0
+		.word	64,		jpi$_tt_accpornam
+		.address jpi_tt_accpornam
+		.address jpi_tt_accpornam_ds
+		.word	64,		jpi$_tt_phydevnam
+		.address jpi_tt_phydevnam
+		.address jpi_tt_phydevnam_ds
+		.word	12,		jpi$_username
+		.address jpi_username
+		.long	0
+		.long	0		; to end the list
+
+	reset_psect
+
+	.subtitle Scan locks
+
+	.entry -
+util_scan_locks, ^m<>
+
+	movl	#-1, lkidadr		; this is a wildcard search
+
+scan_loop:
+	$cmkrnl_s -
+		routin=get_lki_stuff
+	blbs	r0, 10$
+	cmpl	r0, #ss$_nomorelock
+	bnequ	scan_loop
+	brw	end_scan_loop
+
+10$:	cmpl	#rms_resource_name_size, -
+		lki_resnam_len
+	bnequ	scan_loop
+	pushr	#^m<r2,r3,r4,r5>
+	cmpc3	#31, lki_resnam, resource_name_t
+	popr	#^m<r2,r3,r4,r5>
+	tstl	r0
+	bneq	scan_loop
+
+	calls	#0, g^setup_states
+
+	$fao_s	ctrstr=lki_fao, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=lki_lockid, -
+		p2=lki_a_rqmode, -
+		p3=lki_a_grmode, -
+		p4=lki_a_queue, -
+		p5=lki_grantcount, -
+		p6=lki_waitcount, -
+		p7=lki_cvtcount, -
+		p8=lki_lckrefcnt, -
+		p9=lki_rsbrefcnt
+	display util_faobuf
+
+	tstl	lki_pid
+	bneq	20$
+	brw	scan_loop
+
+20$:	$getjpiw_s -
+		pidadr=lki_pid, -
+		itmlst=jpi_itmlst
+	blbs	r0, 30$
+	brw	scan_loop
+
+30$:	pushaw	trimmed_imagename
+	pushaw	trimmed_width
+	pushaq	trimmed_imagename_ds
+	pushaq	jpi_imagname_ds
+	calls	#4, g^lib$trim_filespec
+	signal_error
+
+	$fao_s	ctrstr=jpi_fao, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=lki_pid, -
+		p2=#jpi_username_ds, -
+		p3=#jpi_prcnam_ds, -
+		p4=#trimmed_imagename
+	display util_faobuf
+
+;	$fao_s	ctrstr=sfsb_fao, -
+;		outbuf=util_faobuf_ds, -
+;		outlen=util_faobuf, -
+;		p1=lki_valblk+sfsb_b_lvb_ver, -
+;		p2=lki_valblk+sfsb_b_mbc, -
+;		p3=lki_valblk+sfsb_w_lrl, -
+;		p4=lki_valblk+sfsb_w_ffb, -
+;		p5=lki_valblk+sfsb_l_hbk, -
+;		p6=lki_valblk+sfsb_l_ebk
+;	display	util_faobuf
+
+;	pushal	segment_size
+;	pushal	lki_valblk_ds
+;	pushaq	lki_valblk_ds
+;	calls	#3, g^lib_output_seg_zb
+
+	tstl	lki_lckrefcnt
+	beql	40$
+	calls	#0, g^util_scan_sublocks
+
+40$:	brw	scan_loop
+
+end_scan_loop:
+	$fao_s	ctrstr=dashes_fao, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf
+	display util_faobuf
+
+	ret
+
+	.entry -
+util_scan_sublocks, ^m<>
+
+	movl	lkidadr, saved_lkidadr
+	movl	lki_lockid, saved_lki_lockid
+	movl	lki_pid, saved_lki_pid
+
+	movl	#-1, lkidadr		; this is a wildcard search
+
+subscan_loop:
+	$cmkrnl_s -
+		routin=get_lki_stuff
+	blbs	r0, 10$
+	cmpl	r0, #ss$_nomorelock
+	bnequ	subscan_loop
+	brw	end_subscan_loop
+
+10$:	cmpl	lki_parent, saved_lki_lockid
+	bneq	subscan_loop
+
+	calls	#0, g^setup_states
+
+;	$fao_s	ctrstr=lkisub_fao, -
+;		outbuf=util_faobuf_ds, -
+;		outlen=util_faobuf, -
+;		p1=lki_lockid, -
+;		p2=lki_a_rqmode, -
+;		p3=lki_a_grmode, -
+;		p4=lki_a_queue, -
+;		p5=lki_grantcount, -
+;		p6=lki_waitcount, -
+;		p7=lki_cvtcount, -
+;		p8=lki_lckrefcnt
+;	display util_faobuf
+
+	cmpl	lki_resnam_len, #4
+	bneq	12$
+
+;	$fao_s	ctrstr=longword_fao, -
+;	$fao_s	ctrstr=blb_fao, -
+;		outbuf=util_faobuf_ds, -
+;		outlen=util_faobuf, -
+;		p1=lki_resnam, -
+;		p2=lki_valblk
+;	display util_faobuf
+	$fao_s	ctrstr=blb_fast_fao, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=lki_resnam, -
+		p2=lki_a_rqmode, -
+		p3=lki_a_grmode, -
+		p4=lki_a_queue
+	display util_faobuf
+	brw	15$
+
+12$:	cmpl	lki_resnam_len, #8
+	bneq	13$
+
+;	$fao_s	ctrstr=rlb_fao, -
+;		outbuf=util_faobuf_ds, -
+;		outlen=util_faobuf, -
+;		p1=lki_resnam, -
+;		p2=lki_resnam+4
+	$fao_s	ctrstr=rlb_fast_fao, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=lki_resnam, -
+		p2=lki_resnam+4, -
+		p3=lki_a_rqmode, -
+		p4=lki_a_grmode, -
+		p5=lki_a_queue
+	display util_faobuf
+	brb	15$
+
+13$:	pushal	segment_size
+	pushal	lki_resnam_len
+	pushaq	lki_resnam_ds
+	calls	#3, g^lib_output_seg_zb
+
+15$:;	pushal	segment_size
+;	pushal	lki_valblk_ds
+;	pushaq	lki_valblk_ds
+;	calls	#3, g^lib_output_seg_zb
+
+	tstl	lki_pid
+	bneq	20$
+	brw	subscan_loop
+
+20$:	cmpl	lki_pid, saved_lki_pid
+	bneq	25$
+	brw	subscan_loop
+
+25$:	$getjpiw_s -
+		pidadr=lki_pid, -
+		itmlst=jpi_itmlst
+	blbs	r0, 30$
+	brw	subscan_loop
+
+30$:	pushaw	trimmed_imagename
+	pushaw	trimmed_width
+	pushaq	trimmed_imagename_ds
+	pushaq	jpi_imagname_ds
+	calls	#4, g^lib$trim_filespec
+	signal_error
+
+	$fao_s	ctrstr=jpisub_fao, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=lki_pid, -
+		p2=#jpi_username_ds, -
+		p3=#jpi_prcnam_ds, -
+		p4=#trimmed_imagename
+	display util_faobuf
+
+	brw	subscan_loop
+
+end_subscan_loop:
+	movl	saved_lkidadr, lkidadr
+
+	ret
+
+	.entry -
+get_lki_stuff, ^m<>
+
+	$getlkiw_s -
+		lkidadr=lkidadr, -
+		itmlst=lki_itmlst
+
+	ret
+
+	.entry -
+setup_states, ^m<>
+
+	movab	lki_spaces, lki_a_rqmode
+	cmpb	lki_state+lki$b_state_rqmode, -
+		#lck$k_nlmode
+	bnequ	10$
+	movab	lki_nlmode, lki_a_rqmode
+	brw	100$
+10$:	cmpb	lki_state+lki$b_state_rqmode, -
+		#lck$k_crmode
+	bnequ	20$
+	movab	lki_crmode, lki_a_rqmode
+	brw	100$
+20$:	cmpb	lki_state+lki$b_state_rqmode, -
+		#lck$k_cwmode
+	bnequ	30$
+	movab	lki_cwmode, lki_a_rqmode
+	brw	100$
+30$:	cmpb	lki_state+lki$b_state_rqmode, -
+		#lck$k_prmode
+	bnequ	40$
+	movab	lki_prmode, lki_a_rqmode
+	brw	100$
+40$:	cmpb	lki_state+lki$b_state_rqmode, -
+		#lck$k_pwmode
+	bnequ	50$
+	movab	lki_pwmode, lki_a_rqmode
+	brw	100$
+50$:	cmpb	lki_state+lki$b_state_rqmode, -
+		#lck$k_exmode
+	bnequ	100$
+	movab	lki_exmode, lki_a_rqmode
+
+100$:	movab	lki_spaces, lki_a_grmode
+	cmpb	lki_state+lki$b_state_grmode, -
+		#lck$k_nlmode
+	bnequ	110$
+	movab	lki_nlmode, lki_a_grmode
+	brw	200$
+110$:	cmpb	lki_state+lki$b_state_grmode, -
+		#lck$k_crmode
+	bnequ	120$
+	movab	lki_crmode, lki_a_grmode
+	brw	200$
+120$:	cmpb	lki_state+lki$b_state_grmode, -
+		#lck$k_cwmode
+	bnequ	130$
+	movab	lki_cwmode, lki_a_grmode
+	brw	200$
+130$:	cmpb	lki_state+lki$b_state_grmode, -
+		#lck$k_prmode
+	bnequ	140$
+	movab	lki_prmode, lki_a_grmode
+	brw	200$
+140$:	cmpb	lki_state+lki$b_state_grmode, -
+		#lck$k_pwmode
+	bnequ	150$
+	movab	lki_pwmode, lki_a_grmode
+	brw	200$
+150$:	cmpb	lki_state+lki$b_state_grmode, -
+		#lck$k_exmode
+	bnequ	200$
+	movab	lki_exmode, lki_a_grmode
+
+200$:	movab	lki_spaces, lki_a_queue
+	cmpb	lki_state+lki$b_state_queue, -
+		#lki$c_granted
+	bnequ	210$
+	movab	lki_granted, lki_a_queue
+	brw	900$
+210$:	cmpb	lki_state+lki$b_state_queue, -
+		#lki$c_convert
+	bnequ	220$
+	movab	lki_convert, lki_a_queue
+	brw	900$
+220$:	cmpb	lki_state+lki$b_state_queue, -
+		#lki$c_waiting
+	bnequ	900$
+	movab	lki_waiting, lki_a_queue
+
+900$:	ret
+
+	.subtitle Parser state and transition defintions for input and start
+
+$init_state input_state_tbl, input_keyword_tbl
+
+	$state input
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	'DEVICE'	,save_device
+	$tran	'DISK'		,save_device
+	$tran	'FILE'		,save_filespec
+	$tran	tpa$_filespec	,tpa$_exit,,,inp_filespec
+
+	$state save_filespec
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	tpa$_filespec	,tpa$_exit,,,inp_filespec
+
+	$state save_device
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	tpa$_filespec	,check_fid,,,inp_filespec
+
+	$state check_fid
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	'IDENTIFICATION',save_fid
+	$tran	'FID'		,save_fid
+	$state save_fid
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	tpa$_decimal	,save_seq,,,inp_fid
+	$state save_seq
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	tpa$_decimal	,save_rvn,,,inp_seq
+	$state save_rvn
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	tpa$_decimal	,tpa$_exit,,,inp_rvn
+
+$end_state
+
+	.end	util_start

@@ -1,0 +1,156 @@
+	.MACRO	EMUCNTDEF,$GBL
+	$DEFINI	EMUCNTDEF,$GBL
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Counter monitor section. This is where process store event counts.
+; Used to display the running system and for the AUTOTUNER to determine 
+; system params.
+; Global
+$EQU	CNT_GBL_C_SIZE		4	; Size of section in pages
+; Constants
+; States
+$EQU	CNT_STA_C_OFF		0
+$EQU	CNT_STA_C_ON		1
+$EQU	CNT_STA_C_HIB		2
+$EQU	CNT_STA_C_WAT		3
+$EQU	CNT_STA_C_RUN		4
+$EQU	CNT_STA_C_WFL		5	; Wait for flag(s)
+
+; Listener
+$EQU	CNT_LSN_C_START		 0	; Listener section start
+$EQU	CNT_LSN_EQUE 		 0	; Qued to Ethernet
+$EQU	CNT_LSN_LQUE 		 4	; Lowest ever Qued to Ethernet
+$EQU	CNT_LSN_QERR		 8	; Ethernet que errors
+$EQU	CNT_LSN_READ		 12	; Good reads
+$EQU	CNT_LSN_IOSBERR		 16	; IOSB errors
+$EQU	CNT_LSN_PROC		 20	; Processed frames
+$EQU	CNT_LSN_MCSA		 24	; Multicast source addr
+$EQU	CNT_LSN_ZERSA		 28	; Zero SA
+$EQU	CNT_LSN_ZERDA		 32	; Zero DA
+$EQU	CNT_LSN_ZERPTY		 36	; Zero protocol type
+$EQU	CNT_LSN_C_END		 44	; Listener section End
+; PSRs
+; Each PSR (up to limit) reserves an area here and keeps it's counts
+; in it's own area. The area is found by PID (EMUSYSDEF)
+$EQU	CNT_PSR_C_START	 	64	; Start of PSR area
+$EQU	CNT_PSR_C_ASIZE	 	48	; Size of each section
+$EQU	CNT_PSR_C_MAXPSR	16	; Maximum PSRs in table
+
+; Each PSR:
+$EQU	CNT_PSR_Q_NAME		0 	; ascic display name (from PSR tbl)
+$EQU	CNT_PSR_L_PRCV  	8	; Received from que
+$EQU	CNT_PSR_L_RET		12	; Returned buffers
+$EQU	CNT_PSR_L_INFMT	  	16	; Rec frame format error
+$EQU	CNT_PSR_L_COMMNDS	20	; Commands received
+$EQU	CNT_PSR_L_ERROR		24	; Error messages written to log
+$EQU	CNT_PSR_L_NOIPC		28	; IPC buffers unavailable
+$EQU	CNT_PSR_L_PALT  	32	; Alerts sent
+$EQU	CNT_PSR_L_PREL  	36	; Relater mesages sent
+$EQU	CNT_PSR_L_PNAM  	40	; Namer mesages sent
+; Relater
+$EQU	CNT_RLT_C_1ST		832	; 1st counter to be zeroed at init
+$EQU	CNT_RLT_C_SIZ		16	; Size of RLT count section
+$EQU	CNT_RLT_L_RCV		832	; Relater frames received
+$EQU	CNT_RLT_L_OK		836	; Frames succesfuly processed
+$EQU	CNT_RLT_L_ERR		840	; Frames with error
+$EQU	CNT_RLT_L_RET		844	; Frames returned
+; Namer
+$EQU	CNT_NAM_C_1ST		848	; 1st counter to be zeroed at init
+$EQU	CNT_NAM_C_SIZ		16	; Size of NAM count section
+$EQU	CNT_NAM_L_RCV		848	; Namer frames received
+$EQU	CNT_NAM_L_OK		852	; Frames succesfuly processed
+$EQU	CNT_NAM_L_ERR		856	; Frames with error or internal error
+$EQU	CNT_NAM_L_RET		860	; Buffers returned to FREEQ
+; Alert
+$EQU	CNT_ALT_C_1ST		864	; 1st counter to be zeroed at init
+$EQU	CNT_ALT_C_SIZ		16	; Size of ALT count section
+$EQU	CNT_ALT_L_RCV		864	; Alert frames received
+$EQU	CNT_ALT_L_OK		868	; Frames succesfuly processed
+$EQU	CNT_ALT_L_ERR		872	; Error Messages written
+$EQU	CNT_ALT_L_RET		876	; unused
+; Pollers
+;
+$EQU	CNT_POL_L_CMIPREQ	880	; CMIP requests
+$EQU	CNT_POL_L_CMIPRESP	884	; All responses
+$EQU	CNT_POL_L_CMIPERR       888	; Errors returned
+$EQU	CNT_POL_L_CMIPNORESP	892	; No responses
+;
+$EQU	CNT_POL_L_NICEREQ	900	; NICE requests
+$EQU	CNT_POL_L_NICERESP	904	; All responses
+$EQU	CNT_POL_L_NICEERR       908	; Errors returned
+$EQU	CNT_POL_L_NICENORESP	912	; No responses
+;
+$EQU	CNT_POL_L_MOPREQ	916	; MOP requests
+$EQU	CNT_POL_L_MOPRESP	920	; All responses
+$EQU	CNT_POL_L_MOPERR        924	; Errors returned
+$EQU	CNT_POL_L_MOPNORESP	928	; No responses
+;
+$EQU	CNT_POL_L_LATREQ	932	; LAT requests
+$EQU	CNT_POL_L_LATRESP	936	; All responses
+$EQU	CNT_POL_L_LATERR       	940	; Errors returned
+$EQU	CNT_POL_L_LATNORESP	944	; No responses
+;
+$EQU	CNT_POL_L_IPXREQ	948	; IPX requests
+$EQU	CNT_POL_L_IPXRESP	952	; All responses
+$EQU	CNT_POL_L_IPXERR        956	; Errors returned
+$EQU	CNT_POL_L_IPXNORESP	960	; No responses
+
+$EQU	CNT_POL_L_SNMPREQ	964	; SNMP requests
+$EQU	CNT_POL_L_SNMPRESP	968	; All responses
+$EQU	CNT_POL_L_SNMPERR       972	; Errors returned
+$EQU	CNT_POL_L_SNMPNORESP	976	; No responses
+; Reserved to 1016 for other pollers
+
+; Configuration Monitor
+$EQU	CNT_CFG_L_STATE		1016	; .ascic current state
+$EQU	CNT_CFG_L_CURDB		1020	; .ascic Current DB
+$EQU	CNT_CFG_L_ENTRY		1024	; Current entry number
+$EQU	CNT_CFG_L_ENTRIES	1028	; Entries this DB
+$EQU	CNT_CFG_Q_STTIME	1032	; Start time
+; Lan COnfig monitor
+$EQU	CNT_LCM_L_STATE		1040	; .ascic current state
+$EQU	CNT_LCM_L_CURDB		1044	; .ascic Current DB
+$EQU	CNT_LCM_L_ENTRY		1048	; Current entry number
+$EQU	CNT_LCM_L_ENTRIES	1052	; Entries this DB
+$EQU	CNT_LCM_Q_STTIME	1056	; Start time
+; Scanner
+$EQU	CNT_SCN_C_1ST		1068	; 1st counter to be zeroed at init
+$EQU	CNT_SCN_C_SIZ		32	; Size of CNT count section to zero
+$EQU	CNT_SCN_L_STATE		1064	; .ascic current state
+$EQU	CNT_SCN_L_ENTRY		1068	; Current entry
+$EQU	CNT_SCN_L_GOODDB	1072    ; Good DB reads
+$EQU	CNT_SCN_L_BADDB		1076    ; Bad DB reads
+$EQU	CNT_SCN_L_ERROR		1084    ; Namer frames sent
+$EQU	CNT_SCN_L_SNDREL	1080    ; Relater frames sent
+$EQU	CNT_SCN_L_SNDNAM	1088    ; Spare
+$EQU	CNT_SCN_L_NOIPC		1092    ; IPC unavailable
+$EQU	CNT_SCN_Q_STTIME	1096    ; Start time
+;;		spare quad
+; IPC buffs
+$EQU	CNT_IPC_TL_IPCBUF 	1112    ; Start 
+$EQU	CNT_IPC_C_IPCBUF_LEN 	128     ; Len of section
+; Node scan
+$EQU	CNT_NCS_L_STATE		1240	; .ascic current state
+$EQU	CNT_NCS_L_CURDB		1244	; .ascic Current DB
+$EQU	CNT_NCS_L_ENTRY		1248	; Current entry number
+$EQU	CNT_NCS_L_ENTRIES	1252	; Entries this DB
+$EQU	CNT_NCS_Q_STTIME	1256	; Start time
+; Performance Monitor
+$EQU	CNT_PFM_L_STATE		1264	; .ascic current state
+$EQU	CNT_PFM_L_POLLS		1268	; Number of polls
+$EQU	CNT_PFM_L_SUCC		1272	; Answered
+$EQU	CNT_PFM_L_NORESP	1276	; No response
+$EQU	CNT_PFM_L_ERR		1280	; Errors
+$EQU	CNT_PFM_Q_STTIME	1284	; Start time
+$EQU	CNT_PFM_C_SIZE		28	; Size in bytes
+ 
+
+
+
+	$DEFEND	EMUCNTDEF,$GBL,DEF
+	.ENDM

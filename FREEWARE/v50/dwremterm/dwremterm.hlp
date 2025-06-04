@@ -1,0 +1,660 @@
+1 DWremterm
+ DWremterm is designed to allow users flexibility in using DECwindows across 
+ a large number of machines connected together by a Local Area Network. It 
+ allows users to create LAT, DECnet, LDT and TELNET windows locally or to 
+ create remote DECwindows sessions using the RDT, RFV, RDW, DWRT and RSH 
+ commands. These are actually network process's and as such do not not count 
+ as an interactive login.
+2 INSTALLATION
+ DWremterm consists of two files: 
+ VUE$LIBRARY:DWREMTERM.COM and SYS$HELP:DWREMTERM.HLB.
+ DWremterm.com needs to exist on the local node and on the remote node to
+ use the RDT, RDW, DWRT and RFV commands. The user is required to either 
+ specify node access control or for the remote account to be set up for 
+ proxy access. 
+ 
+ DWremterm can simply reside in sys$login on the remote node, which requires 
+ each user to have their own copy.
+   -or- 
+ DWremterm can be defined as a DECnet object, requiring only one copy on 
+ each system.
+
+ VMS V5.5-2 is required to support outgoing LAT. This is enabled using the
+ MCR LATCP> SET NODE/CONNECTION=BOTH command.
+
+ The TELNET and RSH commands require TCPIP access and have been tested 
+ with DIGITAL's TCP/IP Services for VMS (UCX), Multinet and TCPWARE.
+3 NETWORK_OBJECT
+ To install DWremterm as a network object the system manager should 
+ enter the following commands:
+ 
+ DECnet/IV
+  $ MCR NCP
+  NCP> DEFINE OBJECT DWREMTERM NUMBER 0 FILE -
+       SYS$COMMON:[VUE$LIBRARY.USER]DWREMTERM.COM PROXY BOTH
+  NCP> SET OBJECT DWREMTERM ALL
+  NCP> EXIT
+  $
+
+ DECNET/OSI
+  $ @sys$startup:net$configure application_add dwremterm "" -
+  "{name=dwremterm}||vue$library:dwremterm.com|true|true|true|true|true||||1" 
+  $
+
+ If DWremterm is not installed as a network object then by default no 
+ other setups are required. However if the DECnet object task has been 
+ Modified to disable proxy access then DWremterm will fail. In this 
+ case the system manager should enter the following commands:
+
+    $ MCR NCP
+    NCP> DEFINE OBJECT TASK PROXY BOTH
+    NCP> SET OBJECT TASK ALL
+    NCP> EXIT
+    $
+3 PROXY_ACCOUNTS
+ Proxy accounts allow a user direct access to another users account
+ without having to specify a username and password. 
+4 DECNET
+ The system manager can set up proxy account access from within 
+ AUTHORIZE. 
+
+ Example:  $ MCR AUTHORIZE>
+           UAF> ADD/PROXY MVAX::KINGSMILL KINGSMILL/DEFAULT
+           UAF> ADD/PROXY MVAX::KINGSMILL OLSENK
+           UAF> EXIT
+           $
+ This examples allows user KINGSMILL on node MVAX into the local 
+ KINGSMILL and OLSENK accounts. The default switch enables you to
+ specify just the nodename when addressing this node:-
+   eg. $ DIRECTORY TVAX::
+ 
+ If Default access is not specified then you need to specify the 
+ nodename and username when addressing this node:-
+   eg. $ DIRECTORY TVAX"OLSENK"::
+
+ If you do not have proxy access then you need to specify the
+ nodename, username and password when addressing this node:-
+   eg. $ DIRECTORY TVAX"SYSTEM password"::
+  
+ DWremterm gives you the flexibility to use any of these addressing
+ schemes, however proxy access is recommended.
+4 TCPIP
+ To set up remote user access on a UNIX machine, or TCPWARE/MULTINET
+ under VMS you specify the remote node and username in the .rhosts
+ file located in $HOME (UNIX) or SYS$LOGIN (VMS) directory.
+   eg. $ TYPE SYS$LOGIN:.RHOSTS   -or-  # more $HOME/.rhosts
+       tvax geoffk
+   This allows geoffk on tvax to access the account owned by .rhosts
+
+ TCPIP Services for VMS must be done by the system manager using the
+ UCX> ADD PROXY command.
+   eg. $ UCX ADD PROXY KINGSMILL/REMOTE_USER=GEOFFK/HOST=TVAX
+   This allows geoffk on tvax to access the kingsmill account on 
+   the local node
+ To configure TCPIP Services for VMS to allow proxy access the following
+   configuration may be necessary.
+ UCX> SET SERVICE RSH /FLAG=(PROXY,CASE)
+ UCX> SET SERVICE RLOGIN /FLAG=(PROXY,CASE)
+3 SECURITY
+ The Factory Defaults prohibit a remote users from displaying their
+ output to your workstation. To authorize other users or remote
+ nodes to use your workstation display you should:
+   1. Choose Security... from Session Manager's Options menu.
+   2. Type the nodename, the username, and the method of transport,
+      of the user you want to authorize. Entering * * * will allow
+      any user on any node with any transport to display output on
+      your workstaton.
+   3. Click on the Add button and the Clock OK.
+ Refer to the DECwindow User Guide for further details.
+2 MODES
+ DWremterm can be run in two modes:
+
+   MENU MODE:    commands are entered from a Small Menu Window.
+   COMMAND MODE: commands are entered from the DCL command line.
+3 MENU_MODE
+ Commands are entered from a Small Menu Window. DWremterm can be added 
+ as a DECwindows Application or simply started from the DCL command 
+ line by entering:-
+   
+ $ @VUE$LIBRARY:DWREMTERM.COM 
+
+ This will then display a small DWremterm MENU window at the top left 
+ hand corner of your screen. The WINDOW POSITION and INITIAL STATE 
+ (window or icon) can be altered from the default setting by editing the 
+ resource file. Details on how to do this is documented in the resource
+ file itself located in decw$user_defaults:dwremterm$default_v*.dat.
+3 COMMAND_MODE
+ Commands are entered from the DCL command line by typing:-
+
+ $ @VUE$LIBRARY:DWREMTERM nodename command [qualifiers...]
+
+ It is suggested that DWremterm be defined as a symbol and placed
+ in your login.com. This should be entered as follows:
+
+ $ DWREMTERM :== @VUE$LIBRARY:DWREMTERM
+
+ Example: $ @VUE$LIBRARY:DWREMTERM RDT MVAX -or-
+          $ DWREMTERM RDT MVAX
+
+ Commands are entered directly from the DCL prompt. In all the 
+ following examples the $ DWREMTERM symbol can be be used in place
+ of the DWremterm> prompt.
+2 COMMANDS
+ Valid command are:-  
+ HELP, DWHELP, LAT, DECNET, TELNET, LDR, RDT, RFV, RDW, RSH, DWRT and $.
+ Parameters shown in [] brackets are optional.
+3 HELP 
+ This gives you a list of valid commands and information on how to gain 
+ further help.
+
+ Brief Help can be obtained by entering a Command with no qualifiers.
+ Full Help can be obtained by typing DWHELP.
+
+ Command syntax is: DWremterm> HELP 
+
+ Example 1: DWremterm> HELP         or
+            $ @VUE$LIBRRY:DWREMTERM HELP
+ 
+            Valid Commands are:
+            LAT,DECNET,TELNET,LDT,RDT,RFV,RDW,RSH,DWRT,$, HELP and DWHELP.
+            Enter Command only for Brief Help or DWHELP for Full Help.
+   
+ Example 2: DWremterm> RDT          or
+            $ @VUE$LIBRRY:DWREMTERM RDT
+            This command creates a Remote DECterm Window:
+            RDT nodename [init_state] [title] [dcl_command]
+                         [display] [transport] [X:Y]
+            DWremterm>
+ 
+ This example shows how to get brief help on the command RDT.
+3 DWHELP 
+ This command will create a new window and call sys$library:dwremterm.hlb.
+ A full description of each command is given with examples.
+
+ Example: DWremterm> DWHELP         or
+          $ @VUE$LIBRRY:DWREMTERM DWHELP
+3 LAT 
+ This command creates a new DECterm window, sets the icon and title 
+ name to the requested nodename and requests login information. 
+
+ The command is equivalent to a CREATE/TERMINAL followed by a 
+ SET HOST/LAT command. 
+
+ VMS V5.5-2 is required to support outgoing LAT. This is enabled using
+ the MCR LATCP> SET NODE/CONNECTION=BOTH command.
+
+ If LAT is not installed then use the DECNET or TELNET command.
+ The LAT command does not require the DECwindows software to be 
+ installed on the remote node.
+        
+ The logical LAT$DISCONNECT_CHARACTER can be defined to specify an 
+ alternate disconnect character. The default character is Ctrl+\ .
+
+ Command syntax is: DWremterm> LAT nodename 
+
+ Example 1: DWremterm> LAT MVAX        
+
+ This example creates a window using LAT as its network transport and 
+ connects you to node MVAX. You are then prompted for your username 
+ and password.
+4 NODENAME   
+ This specifies the desired nodename. You cannot use LAT to connect 
+ to yourself. If this is required then use the DECNET command.
+ 
+ Example: MVAX
+
+ If this field is left blank a brief help message is displayed.
+3  DECNET 
+ This command creates a new DECterm window, sets the icon and title
+ name to the requested nodename and requests login information. 
+
+ The command is equivalent to a CREATE/TERMINAL followed by a
+ SET HOST command.
+
+ If DECNET is not installed then use the LAT or TELNET command.
+ The DECNET command does not require the DECwindows software to be 
+ installed on the remote node.
+
+ Command syntax is: DWremterm> DECNET nodename 
+
+ Example:  DWremterm> DECNET MVAX          
+
+ This example creates a window using DECnet as its network transport and 
+ connects you to node MVAX. You are then prompted for your username and 
+ password.
+4 NODENAME   
+ This specifies the desired nodename. A double colon "::" suffix is 
+ optional. A "0" will decode as being the currently used node.
+ 
+ Example: MVAX, 0::, MVAX::
+
+ If this field is left blank a brief help message is displayed.
+3  TELNET
+ This command creates a new DECterm window, sets the icon and title
+ name to the requested nodename and requests login information. 
+
+ The command is equivalent to a CREATE/TERMINAL followed by a
+ TELNET command.
+
+ If TCPIP is not installed then use the DECNET or LAT command.
+ The TELNET command does not require the DECwindows software to be 
+ installed on the remote node.
+
+ Command syntax is: DWremterm> TELNET nodename 
+
+ Example:  DWremterm> TELNET MVAX          
+
+ This example creates a window using TCP/IP as its network transport and 
+ connects you to node MVAX. You are then prompted for your username and 
+ password.
+4 NODENAME   
+ This specifies the desired nodename. A colon ":" suffix is optional. 
+ A "0" will decode as being the currently used node.
+ 
+ Example: MVAX, 0:, MVAX:, yakka.ali.dec.com
+
+ If this field is left blank a brief help message is displayed.
+3  LDT
+ This command creates a new local DECterm window, sets the icon and title
+ and does an rlogin.
+
+ The command is equivalent to a CREATE/TERMINAL followed by an
+ RLOGIN command.
+
+ If TCPIP is not installed then use the DECNET or LAT command.
+ The LDT command does not require the DECwindows software to be 
+ installed on the remote node.
+
+ Command syntax is: DWremterm> LDT nodename [init_state] [title] 
+
+ Example:  DWremterm> LDT MVAX          
+
+ This example creates a local DECterm window and then uses TCP/IP to 
+ remotely connect to node MVAX. 
+4 NODENAME   
+ This specifies the desired nodename. A single colon suffix is 
+ optional. A "0" will decode as being the currently used node. 
+ Access controls can also be supplied as part of the nodename 
+ specification.
+ 
+ Example: MVAX, MVAX:, MVAX"geoffk":, MVAX"KINGSMILL PASSWORD":
+          yakka.ali.dec.com
+
+ If this field is left blank a brief help message is displayed.
+4 INIT_STATE 
+ This gives you the choice of bringing up the display as an Icon or 
+ as a Window. Valid entries are ICON and WINDOW. 
+
+ The default is WINDOW .
+4 TITLE 
+ This specifies the desired icon name and window title name. 
+
+ The default is "nodename username"
+3 RDT 
+ This command starts a DECterm window on a remote node and uses 
+ DECwindows to set the display to the desired workstation. If 
+ proxy logins have been enabled then no login information is 
+ required. If there is no proxy access then access control 
+ information can be supplied as part of the nodename specification.
+
+ This command is the equivalent of doing a SET HOST, followed by a 
+ SET DISPLAY/CREATE and a CREATE/TERMINAL.
+
+ DECwindows must be installed on the remote node.
+
+ Command syntax is: 
+ DWremterm> RDT nodename [init_state] [title] [dcl_command] 
+                         [display] [transport] [X:Y]
+
+ Example 1: DWremterm> RDT MVAX ICON MVAX_DECTERM "" MVAXS1::0.0
+            $ @VUE$LIBRARY:DWREMTERM RDT MVAX ICON MVAX_DECTERM "" -
+                         MVAXS1::0.0 DECNET 250:100
+
+ This example will bring up a remote DECterm session as an icon named 
+ MVAX_DECTERM on MVAX and display it on MVAXS1 Server 0 Screen 0 with the 
+ top left corner at location 250:100.
+
+ Example 2: DWremterm> RDT MVAX"KINGSMILL PASSWORD" 
+            $ @VUE$LIBRARY:DWREMTERM RDT MVAX"KINGSMILL PASSWORD"
+ 
+ This example will bring up a remote DECterm session on MVAX using the 
+ VMS account KINGSMILL.
+4 NODENAME   
+ This specifies the desired nodename. The double colon suffix is 
+ optional. A "0" will decode as being the currently used node. 
+ Access controls can also be supplied as part of the nodename 
+ specification.
+ 
+ Example: MVAX, MVAX::, MVAX"KINGSMILL"::, MVAX"KINGSMILL PASSWORD"::
+
+ If this field is left blank a brief help message is displayed.
+4 INIT_STATE 
+ This gives you the choice of bringing up the display as an Icon or 
+ as a Window. Valid entries are ICON and WINDOW. 
+
+ The default is WINDOW .
+4 TITLE 
+ This specifies the desired icon name and window title name. 
+
+ The default is "nodename username"
+4 DCL_COMMAND 
+ A DCL Command or DCL Command procedure to run after the DECterm 
+ window is created. 
+
+ Example: DWremterm> RDT MVAX "" MVAX-ALLIN1 ALLIN1
+          $ @VUE$LIBRARY:DWREMTERM RDT MVAX "" MVAX-ALLIN1 ALLIN1
+
+ This will start ALL-IN-1 as a window on MVAX and set the title and 
+ icon name to MVAX-ALLIN1
+
+4 DISPLAY 
+ This specifies the output display device. By default it is on your 
+ current workstation, however it can be redirected to another 
+ workstation or screen. 
+ 
+ The syntax is NODENAME[::server.screen]
+
+ Example: TRANSPORT: NODENAME:
+          ---------- ---------
+           DECNET    MVAX
+           DECNET    MVAX::0.0
+           TCPIP     MVAX.DEC.COM:0.0
+	   ADSP      GEOFF:X11@DEC:0.2
+	   LAT       LAT_08002B272829:0.0
+4 TRANSPORT
+  This specifies the DECwindows transport protocol. DECwindows 
+  currently supports the LOCAL, DECnet, TCPIP, LAT and ADSP (Apple) 
+  transports.
+3 RFV 
+ This command starts a Fileview window on a remote node and uses 
+ DECwindows to set the display to the desired workstation. Fileview 
+ gives you most of the facilities available under the session manager.
+ Therefore if you add all your applications to the Fileview Menu's 
+ then all those facilities we be available to RFV. This may be more 
+ convenient that using RDW. For instance. You can remotely start 
+ DECwrite by doing a DWremterm> RDW nodename "MCR DECWRITE".
+ However it may be that you already have a RFV session open on that 
+ node. Therefore if you add DECwrite as a Fileview Application on that 
+ node then you can simply invoke DECwrite just as though it was a 
+ local application.
+
+ It is the equivalent of doing a SET HOST, followed by a 
+ SET DISPLAY/CREATE and a RUN SYS$SYSTEM:VUE$MASTER. 
+
+ DECwindows must be installed on the remote node.
+
+ Command syntax is: 
+ DWremterm> RFV nodename [init_state] [display] [transport]
+
+ Example: DWremterm> RDT MVAX ICON LAT_080027AFBE:0.0 LAT
+          $ @VUE$LIBRARY:DWREMTERM RDT MVAX ICON LAT_080027AFBE:0.0 LAT
+
+ This example will bring up a remote Fileview session on MVAX and display 
+ the information on node LAT_080027AFBE (VT1200).
+4 NODENAME   
+ This specifies the desired nodename. The double colon suffix is 
+ optional. A "0" will decode as being the currently used node. 
+ Access controls can also be supplied as part of the nodename 
+ specification.
+ 
+ Example: MVAX, MVAX::, MVAX"KINGSMILL"::, MVAX"KINGSMILL PASSWORD"::
+
+ If this field is left blank a brief help message is displayed.
+4 INIT_STATE 
+ This gives you the choice of bringing up the display as an Icon or 
+ as a Window. Valid entries are ICON and WINDOW. 
+
+ The default is WINDOW .
+
+ NOTE: Attempting to bring up Fileview as an icon may actually bring
+ Fileview up as a window. This is a bug in the current DECwindows 
+ Toolkit.
+4 DISPLAY 
+ This specifies the output display device. By default it is on your 
+ current workstation, however it can be redirected to another 
+ workstation or screen. 
+ 
+ The syntax is NODENAME[::server.screen]
+
+ Example: TRANSPORT: NODENAME:
+          ---------- ---------
+           DECNET    MVAX
+           DECNET    MVAX::0.0
+           TCPIP     MVAX.DEC.COM:0.0
+	   ADSP      GEOFF:X11@DEC:0.2
+	   LAT       LAT_08002B272829:0.0
+4 TRANSPORT
+  This specifies the DECwindows transport protocol. DECwindows 
+  currently supports the LOCAL, DECnet, TCPIP, LAT and ADSP (Apple) 
+  transports.
+3 RDW
+ This command sets the display to the requested workstation and allows
+ the user to specify the command procedure or executable to run. If
+ proxy logins have been enabled then no login information is 
+ required. If there is no proxy access then access control 
+ information can be supplied as part of the nodename specification.
+
+ This command is the equivalent of doing a SET HOST, followed by a
+ SET DISPLAY/CREATE and any valid command that uses DECwindows as its
+ display device.
+
+ DECwindows must be installed on the remote node.
+
+ Command syntax is: DWremterm> RDW nodename command [display] [transport]
+
+ Example 1: DWremterm> RDT MVAX "MCR DECWRITE"
+            $ @VUE$LIBRARY:DWREMTERM RDT MVAX "MCR DECWRITE"
+
+ This example will bring up a remote DECwrite session on MVAX
+
+ Example 2: DWremterm> RDT MVAX @VUE$LIBRARY:DWALLIN1
+            $ @VUE$LIBRARY:DWREMTERM RDT MVAX @VUE$LIBRARY:DWALLIN1
+
+ This example will bring up a remote ALLIN1 session on OAVAX
+                                                                                
+4 NODENAME
+ This specifies the desired nodename. The double colon suffix is
+ optional. A "0" will decode as being the currently used node.
+ Access controls can also be supplied as part of the nodename
+ specification.
+
+ Example: MVAX, MVAX::, MVAX"KINGSMILL"::, MVAX"KINGSMILL PASSWORD"::
+
+ If this field is left blank a brief help message is displayed.
+4 DISPLAY
+ This specifies the output display device. By default it is on your
+ current workstation, however it can be redirected to another
+ workstation or screen.
+
+ The syntax is NODENAME[::server.screen]
+
+ Example: TRANSPORT: NODENAME:
+          ---------- ---------
+           DECNET    MVAX
+           DECNET    MVAX::0.0
+           TCPIP     16.153.0.1:0.0
+4 TRANSPORT
+  This specifies the DECwindows transport protocol. DECwindows
+  currently supports the LOCAL, DECnet, TCPIP, LAT and ADSP (Apple)
+  transports.
+3 RSH
+ This command allows the user to run a remote executable, 
+ command procedure or script file. The destination can be any node
+ that supports RSH, such as VMS, UNIX or WINDOWS/NT.
+
+ It is the equivalent of doing a RSH, followed by any valid 
+ command that uses X-windows as its display device.
+
+ X-windows must be installed on the remote node.
+
+ Command syntax is: DWremterm> RSH nodename command 
+
+ Example 1: DWremterm> RSH MVAX "MCR DECW$CLOCK -DISPLAY GVAX:0"
+   $ @VUE$LIBRARY:DWREMTERM RSH MVAX "MCR DECW$CLOCK -DISPLAY GVAX:0"
+
+ This example will bring up a remote CLOCK session on MVAX 
+   and displayed on GVAX using a TCP/IP transport.
+
+ Example 2: DWremterm> RSH MVAX"KINGSMILL" -
+                         "MCR DECW$UTILS:ICO -DISPLAY GVAX::0"
+            $ @VUE$LIBRARY:DWREMTERM RSH MVAX"KINGSMILL" -
+                         "MCR DECW$UTILS:ICO -DISPLAY GVAX::0"
+
+ This example will bring up a remote ICO display on MVAX using the
+   KINGSMILL account and displayed on GCAX using a DECnet transport.
+
+ Example 3: DWremterm> rsh mvax"geoffk secret" -
+                         "/usr/bin/X11/ico -display gvax:0"
+            $ @VUE$LIBRARY:DWREMTERM rsh mvax"geoffk secret" -
+                         "/usr/bin/X11/ico -display gvax:0"
+
+ This example will bring up a remote ICO display on MVAX, a unix machine,
+ using the "geoffk" account, password "secret" and displayed on GCAX 
+ using the TCP/IP transport.
+4 NODENAME   
+ This specifies the desired nodename. A single colon suffix is 
+ optional. A "0" will decode as being the currently used node. 
+ Access controls can also be supplied as part of the nodename 
+ specification.
+ 
+ Example: MVAX, MVAX:, MVAX"geoffk":, MVAX"KINGSMILL PASSWORD":
+          yakka.ali.dec.com
+
+ If this field is left blank a brief help message is displayed.
+4 DISPLAY 
+ The display must be either specified as part of the command or
+ included in the script or command procedure.
+3 DWRT 
+ This command allows you to bring up a second DWremterm window in the 
+ context of another user. It is designed for a user who has a personnel 
+ account but also needs to use a group functional account such as the 
+ system managers account. The DWRT Window, is displayed by default, just 
+ below the default DWremterm Menu window position near the top left hand 
+ corner of the screen. The WINDOW POSITION and INITIAL STATE 
+ (window or icon) can be altered from the default setting by editing the 
+ resource file. Details on how to do this is documented in the resource
+ file itself located in decw$user_defaults:dwremterm$dwrt_default_v*.dat.
+ You can override the WINDOW POSITION resource file defaults by defining
+ the logical name DWREMTERM_DWRT_X and DWREMTERM_DWRT_Y on the local node. 
+ The INITIAL STATE can also be specified on the command line.
+ This command requires DECwindows to be installed on the remote node.
+
+ Command syntax is: DWremterm> DWRT nodename [init_state] [display] 
+                                             [transport] 
+
+ Example 1: DWremterm> DWRT MVAX"OLSENK"
+            $ @VUE$LIBRARY:DWREMTERM DWRT MVAX"OLSENK"
+
+ This example shows how you can be logged in as one user yet bring up 
+ another DWremterm window in the context of another user.  Here user 
+ KINGSMILL is bringing up a DWremterm window under the OLSENK account. 
+ Now all commands issued under that DWremterm window will be of user 
+ OLSENK. 
+4 NODENAME   
+ This specifies the desired nodename. The double colon suffix is 
+ optional. A "0" will decode as being the currently used node. 
+ Access controls can also be supplied as part of the nodename 
+ specification.
+ 
+ Example: MVAX, MVAX::, MVAX"KINGSMILL"::, MVAX"KINGSMILL PASSWORD"::
+
+ If this field is left blank a brief help message is displayed.
+4 INIT_STATE 
+ This gives you the choice of bringing up the display as an Icon or 
+ as a Window. Valid entries are ICON and WINDOW. 
+
+ The default is WINDOW .
+4 DISPLAY 
+ This specifies the output display device. By default it is on your 
+ current workstation, however it can be redirected to another 
+ workstation or screen. 
+ 
+ The syntax is NODENAME[::server.screen]
+
+ Example: TRANSPORT: NODENAME:
+          ---------- ---------
+           DECNET    MVAX
+           DECNET    MVAX::0.0
+           TCPIP     MVAX.DEC.COM:0.0
+	   ADSP      GEOFF:X11@DEC:0.2
+	   LAT       LAT_08002B272829:0.0
+4 TRANSPORT
+ This specifies the DECwindows transport protocol. DECwindows 
+ currently supports the LOCAL, DECnet, TCPIP, LAT and ADSP (Apple) 
+ transports.
+4 DEFINING_PROXY_ACCESS
+ Setting up proxy access is a system management function. See your
+ System manager to have this functionality enabled.
+
+ Example:  $ MCR AUTHORIZE
+           AUTHORIZE> ADD/PROXY MVAX::KINGSMILL KINGSMILL/DEFAULT
+           AUTHORIZE> ADD/PROXY MVAX::KINGSMILL OLSENK
+           AUTHORIZE> EXIT
+           $
+ This examples shows how user KINGSMILL on node MVAX can be set up
+ to access both the KINGSMILL and OLSENK accounts on the local node 
+ without specifying user passwords. Therefore the following DWRT 
+ commands could be used:
+
+ DWremterm> DWRT MVAX::           --> to use the KINGSMILL account.
+ DWremterm> DWRT MVAX"OLSENK"::   --> to use the OLSENK account.
+3 $ 
+ This simply executes a DCL command in the menu window
+
+ Command syntax is: DWremterm> $ dcl_command 
+
+ Example: DWremterm> $ show error
+          $ @VUE$LIBRARY:DWREMTERM $ SHOW ERROR
+2 CONFIGURATION_SETUPS
+ The following logicals can be used to change the default behavior of 
+ DWremterm.
+
+ DWREMTERM_ENABLE_COPY gives the user the option of copying the latest
+   version of DWREMTERM.COM should there be a mismatch in versions 
+   between the local and remote node.
+
+ LAT$DISCONNECT_CHARACTER defines the character that you can use to 
+   disconnect from a remote session. Default character is Ctrl+\.
+
+ The WINDOW POSITION and INITIAL STATE (window or icon) can be altered 
+ from the default setting by editing the desired resource file. Details 
+ on how to do this is documented in the following resource files.
+   Default DWremterm Window:
+   - decw$user_defaults:dwremterm$default_v*.dat.
+   DWRT DWremterm window:
+   - decw$user_defaults:dwremterm$dwrt_default_v*.dat
+     This is on the remote node/users account.
+   - You can also override the DWRT resource file positions by
+     defining the logical names DWREMTERM_DWRT_X and DWREMTERM_DWRT_Y
+     under your local user account. These values are then passed to
+     the remote node/users account.
+2 TROUBLESHOOTING_HINTS
+ SECURITY: The Factory Defaults prohibit a remote users from displaying 
+ their output to your workstation. To authorize other users or remote
+ nodes to use your workstation display you should:
+   1. Choose Security... from Session Manager's Options menu.
+   2. Type the nodename, the username, and the method of transport,
+      of the user you want to authorize. Entering * * * will allow
+      any user on any node with any transport to display output on
+      your workstaton.
+   3. Click on the Add button and the Clock OK.
+ Refer to the DECwindow User Guide for further details.
+
+ THE FOLLOWING LOGICALS CAN BE USED TO AID IN TROUBLESHOOTING.
+ These can be defined before execution or during a DWremterm Session 
+ by using the $ command.
+   DWREMTERM_VERBOSE to display the progress of both local and remote 
+     events. If verbose is enabled then a full sized menu window will 
+     be displayed. Modifying the version from V0.0 to X0.0 will also 
+     enable Debug mode.
+   DWREMTERM_VERIFY to turn on verify and verbose.
+
+ NETSERVER.LOG on the remote node may also aid in troubleshooting.
+ DWREMTERM_'pid'_*.TMP temporary file on the remote node shows the 
+    created command file.
+ DWREMTERM_'pid'_*.LOG temporary file on on the remote node showing 
+    the output from dwremterm_'pid'_*.tmp
+
+ If you have problems creating DECterms then get the latest DECterm patch
+    from your CSC.
+

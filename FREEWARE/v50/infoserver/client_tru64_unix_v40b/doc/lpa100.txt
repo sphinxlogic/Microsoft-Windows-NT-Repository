@@ -1,0 +1,398 @@
+
+  DIGITAL InfoServer Client for DIGITAL UNIX Version 1.00 Release Notes 
+
+  Final Release
+
+  20-May-1997
+
+  File: LPA100.txt
+
+  CONTENTS 
+  ========
+
+    Introduction
+    Hardware and Software Requirements
+    Usage Notes
+    Documentation Errata
+    Known Problems
+
+
+  INTRODUCTION
+  ============
+
+    DIGITAL InfoServer Client for DIGITAL UNIX V1.0 provides the ability
+    to browse for and connect to InfoServer CD-ROM and hard drive services.
+
+
+  HARDWARE AND SOFTWARE REQUIREMENTS
+  ==================================
+
+    Make sure your system meets or exceeds the minimum hardware
+    and software requirements.
+
+    > All Alpha systems manufactured by DIGITAL Equipment Corporation
+      with ln or tu ethernet adapters.
+
+    > The DIGITAL InfoServer Client for DIGITAL UNIX is qualified to 
+      be installed on DIGITAL UNIX V3.2g and V4.0b.
+
+
+
+
+                                                                     Page 2
+  USAGE NOTES
+  ===========
+
+  1.) Ultrix service class is used to display and create DIGITAL UNIX
+      services. 
+
+      The latest (v3.4) release of the InfoServer kernel software will
+      work properly with this new client. Services and service names 
+      created automatically as part of the automount process will contain
+      the word Ultrix in the name and be listed in the Ultrix service
+      class. For example, when the DIGITAL UNIX documentation disc is
+      inserted into a drive on the InfoServer, it shows up as follows:
+      
+      Wolf> show services
+
+        Service Name         Service Class   Disk:Partition
+        -------------------- --------------- ----------------------
+        WOLF_ULTRIX_DK0      [ULTRIX]        DK0:
+
+        To create another service for this disc, specify Ultrix as the 
+        service class.  
+
+        Wolf> create service UNIXDOC for dk0: class ultrix
+        %ESS-I-CREATED, Created service UNIXDOC [ULTRIX].
+        %ESS-I-CREATED, Create service completed successfully.
+
+        Wolf> show service
+
+        Service Name         Service Class   Disk:Partition
+        -------------------- --------------- ----------------------
+        UNIXDOC              [ULTRIX]        DK0:
+        WOLF_ULTRIX_DK0      [ULTRIX]        DK0:
+
+  2.) Mounting Ultrix CD-ROMs served by an InfoServer.
+
+      The -d switch must be used to mount an Ultrix CD-ROM. If the 
+      -d switch is not used, the mount command will return with the 
+      error "Dirty file system" and the mount will not succeed. The 
+      following example assumes there is an Ultrix CD-ROM in an 
+      InfoServer served by service FOX_ULTRIX_DK3. 
+           
+      # bindladcunit 0 -serviceName FOX_ULTRIX_DK3
+
+            Unit 0 Bound          Service FOX_ULTRIX_DK3 
+        /dev/ladc/unit0c          Server  FOX
+
+        Drive Name        DK3:            Service Rating             65016
+        Device Class      CD-ROM          Max Read Session           1000
+        Device Type       RRD45           Max Write Session          0
+        Device Format     UNIX            Current Read Session       0
+        Device Size       512088          Current Write Session      0
+        
+        Partition         Sectors         Offset
+                a         512088          0
+                b         0               0
+                c         512088          0
+                d         0               0
+                e         0               0
+                f         0               0
+                g         0               0
+                h         0               0
+        
+        # mount -dr /dev/ladc/unit0c /mnt 
+
+
+                                                                     Page 3
+
+  3.) Initializing InfoServer hard drive partitions.
+
+      When creating partitions on an InfoServer hard drive, newfs may 
+      produce warning messages about unallocated disk sectors. These 
+      messages are particularly apparent with partitions that are 2MB 
+      or smaller but a partition of any size may cause these warnings
+      to occur. These messages can also be displayed if the -resizeEnabled
+      switch on the bindladcunit command is set to "no" when binding the
+      logical device to an InfoServer service. These warnings can be 
+      ignored.
+
+      The recommended method for initializing a partition under any 
+      supported version of DIGITAL UNIX is to use disklabel followed 
+      by the newfs commands. The disktype argument for the disklabel
+      command must always be 'lad' regardless of the actual disktype
+      (e.g. RZ28M) on which the InfoServer partition can be found. Using
+      disktype 'lad' will insure that UNIX partition configuration entries
+      in the /etc/disktab will not override the partition size information
+      retrieved by the LAD device driver. The automatic UNIX partition 
+      resizing algorithm built into the LAD driver will attempt to 
+      create appropriately sized UNIX partitions within the InfoServer 
+      partition when devicetype 'lad' is specified.
+
+      The following is an example of the initialization of a 1000 blk 
+      (1/2MB) InfoServer partition and the warning message that can be
+      generated from the newfs command. This example assumes that
+      logical unit 2 has been previously bound to an InfoServer service
+      representing a partition on the hard drive. 
+
+      # disklabel -wr /dev/ladc/runit2c lad
+
+      # newfs /dev/ladc/runit2c
+      Warning: 80 sector(s) in last cylinder unallocated
+      /dev/ladc/runit2c:1200 sectors in 10 cylinders of 2 tracks, 64 sectors
+           0.6MB in 1 cyl groups (16 c/g, 1.05MB/g, 256 i/g)
+      super-block backups (for fsck -b #) at:
+      32,
+
+      # mount /dev/ladc/unit2c /mnt
+
+      It is also possible that the disklabel command might issue truncation
+      messages and prompts. If this occurs, respond to each truncation
+      question with a "y". A "n" response to any of these questions will
+      result in failure to write the disk label. 
+
+  4.) Using FSCK to check the UNIX File System on an InfoServer Partition.
+
+      Should the need arise to check the consistency of the UFS on an
+      InfoServer partition, use the fsck utility with the -y switch. Running
+      fsck might be necessary if mount returns with the message "Dirty
+      file system". The switch will eliminate the need to type 'y' in 
+      response to each "CANNOT READ: BLK", "CONTINUE? [yn]" prompt. 
+      The reason for these errors is that fsck expects the UNIX partitions
+      to be sized differently than the actual InfoServer partition.
+
+  5.) FDDI, ATM, and TOKEN Ring network adapter support.
+
+      The DIGITAL InfoServer Client for DIGITAL UNIX only supports ethernet
+      network adapters. FDDI, ATM, and TOKEN Ring adapters are not supported
+      at this time.
+
+
+
+                                                                     Page 4
+
+
+  6.) CD-ROM discs removed from the InfoServer while mounted.
+
+      Users will receive "Connection timed out" or "I/O error" messages 
+      if they try to access a mounted file system associated with a CD-ROM
+      that was somehow made inaccessible (i.e. removed) from the InfoServer.
+      Using the showladcbind command, the affected logical unit will show the 
+      unit state as "Aborted" when it should be "Connected". To recover 
+      from this type of situation, the system manager can follow either 
+      one of the strategies below.
+
+      A.) Unmount the file system and unbind the logical unit. Bind the
+          logical unit to the chosen service and mount the file system.
+
+      B.) Make sure the disc containing the correct service is placed in
+          the exact drive in the InfoServer from which it was previously
+          bound. Unmount the file system to transition the logical unit 
+          from the "Aborted" state to the "Discarded" state. Then remount
+          the file system to cause transition to the "Connected" state.
+          Users should now be able to access the service. The "Discarded"
+          state simply means that the logical unit was previously in the
+          "Aborted" state. 
+
+  7.) Occasionally when attempting to mount a DIGITAL UNIX disc served by
+      the InfoServer, you might receive the message "Dirty file system".
+      To mount the disc, simply use the -d switch on the mount command
+      as follows:
+
+         mount -dr /dev/ladc/unit1c /mnt
+
+  8.) Receiving "No such device or address" when attempting to 
+      mount a disc or partition served by the InfoServer. 
+
+      # mount -r /dev/ladc/unit2c /mnt
+      /dev/ladc/unit2c on /mnt: No such device or address
+ 
+      The association request sent from the client as the result of the mount 
+      command is transmitted four times at 1/2 second intervals before a
+      failure is reported. A response from the InfoServer must be delivered
+      across the LAN within 3 seconds or the mount will fail. Occasional
+      failures may result from an InfoServer and/or network that is
+      experiencing some load. The solution is simply to issue the mount
+      command a second time. If the bind and mount commands are in shell 
+      scripts, you might want to use a retry loop as follows:
+
+      RETRY=true
+      while $RETRY
+      do
+        if mount ...
+        then
+               RETRY=false
+        else
+               sleep 1
+               echo "mount failed, trying again..."
+        fi
+      done
+
+      The "No such device or address" and "Error: /dev/ladc/unit0c is
+      an invalid device or cannot be opened" messages are also displayed
+      when attempting to mount a hard drive partition that was opened by 
+      another client in an incompatible access mode (read/write). Access
+      mode compatibility is also governed by the type of write access 
+      policy enabled on the InfoServer. 
+
+
+                                                                     Page 5
+
+
+  9.) Using the DIGITAL InfoServer Client for DIGITAL UNIX in a high 
+      traffic network environment.
+
+      A switch was added to the bindladcunit command to permit some control
+      over the number of times the LAST protocol will attempt to transmit
+      requests to an InfoServer before timing out the logical device. The 
+      default value is set to 20 retry attempts. In a heavily loaded
+      network, it is possible that the InfoServer Client might not receive
+      a response from an InfoServer during the twenty retry window. Logical
+      device (/dev/ladc/unit*) timeouts are reported in the console log
+      as 
+      
+      LAD error log: Assoc to unit 0 (2) aborted for reason 0xf43c (errno 60) 
+
+      To alleviate this problem, try setting the timeout value to something
+      between 20 and 100 using the following command:
+
+      # bindladcunit 0 -servicename WOLF_ULTRIX_DK0 -transmitlimit 25
+ 
+      The transmitlimit applies only to the logical unix specified in the
+      bindladcunit command. All other units are unaffected.
+       
+
+ 10.) Staging an ISO image file on the InfoServer to publish CD media.
+
+      The following are the steps that one can follow to stage an ISO
+      image on the InfoServer to publish a CD-ROM. This procedure assumes
+      the InfoServer is equipped with a hard disk, and CD-R drive and that
+      an ISO-9660 CD-R publishing package is available on the DIGITAL UNIX
+      system. The DIGITAL InfoServer Client for DIGITAL UNIX must be 
+      loaded and started on the system. 
+
+      a) Create an ISO-9660 image on the DIGITAL UNIX system using an 
+         ISO-9660 publishing package. 
+
+      b) Create a partition on the hard drive in the InfoServer slightly
+         larger than the ISO-9660 image. If your ISO-9660 image is 40  
+         megabytes, then you can safely create a partition that is larger 
+         by 3 megabytes. A larger partition is necessary to provide for
+         InfoServer file system overhead. 
+         
+         InfoServer> CREATE PARTITION DK1:STAGE MEGABYTES 43 ERASE
+ 
+      c) Create a service for that partition in the ULTRIX class.
+ 
+         InfoServer> CREATE SERVICE STAGE FOR DK1:STAGE CLASS ULTRIX.
+
+      d) Issue the bindladcunit command on the DIGITAL UNIX system to
+         bind to the STAGE service using any available unit number.
+         For this example, unit number 0 is used.
+
+         # bindladcunit 0 -servicename STAGE
+         
+      e) Execute the disklabel command twice, once to apply a label and
+         once to zero it out. 
+
+         # disklabel -wr /dev/ladc/runit0c lad
+         # disklabel -z /dev/ladc/runit0c
+
+
+                                                                     Page 6
+
+
+ 10.) (Continued...)
+
+      f) Copy the image file to the raw InfoServer device using the DIGITAL
+         UNIX dd command. This copy operation might take some time. 
+
+         # dd if=dunix.img of=/dev/ladc/runit0c
+
+      g) Now mount the logical device unit 0 on an available mount point
+         and check out the files within the image.  
+
+         # mount -r -t cdfs -o noversion /dev/ladc/unit0c /mnt
+
+      h) If you are satisfied with the information in the ISO-9660 image, 
+         unmount and unbind the unit.
+
+         # umount /mnt
+         # unbindladcunit 0
+
+      i) Begin the record process on the InfoServer by verifying that the
+         recorder is in the ready state. If the device is not in the ready
+         state, make sure a blank piece of media has been inserted into
+         the device. 
+
+         InfoServer> SHOW RECORDER
+
+         Execute the RECORD command in test mode first before performing
+         the actual burn. When the record operation is run in test mode,
+         the CD-R laser operates at read level instead of write. It is 
+         very important to include both the ISO and SIZE switches. These 
+         switches insure that the InfoServer only records the ISO-9660
+         image on to the CD and not the surrounding file system. The exact
+         size in bytes of ISO-9660 image must be known in order to use 
+         the SIZE switch. Assuming the the CD-R is device DK0:, the record 
+         command would look like the following:
+
+         InfoServer> RECORD DK1:STAGE DK0: ISO SIZE nnn TEST 
+
+      j) If the test proceeds without error, remove the TEST switch and 
+         re-execute the record.  
+
+         InfoServer> RECORD DK1:STAGE DK0: ISO SIZE nnn TEST 
+
+
+                                                                     Page 7
+  Documentation Errata
+  ====================
+
+  1.) Section 5.2 entitled "Enabling Your System as an InfoServer Client
+      for DMS" in the "DIGITAL InfoServer Client for DIGITAL UNIX Installation
+      and User's Guide" states that "some manual setup is required to permit
+      bind and mount operations." Manual intervention is only required if 
+      the InfoServer Client software is installed into an environment that
+      one or more DMS clients are already using. The commands below must be
+      executed on each DMS client from which the InfoServer Client is to 
+      be used. These commands are to be used in place of the setup
+      instructions described in Section 5.2.  
+
+         # /usr/opt/LPABASE100/ladsetup.sh bblock
+         # /usr/opt/LPABASE100/ladsetup.sh reboot
+         # /usr/opt/LPABASE100/ladsetup.sh driver
+         # /usr/opt/LPABASE100/ladsetup.sh adapter
+         # /usr/opt/LPABASE100/ladc.sh start
+
+      The setup above is not necessary if the InfoServer Client is 
+      installed in an environment prior to adding one or more clients.          
+
+
+  KNOWN PROBLEMS
+  ==============
+
+  1.) If there are no requested services available from InfoServers on the
+      LAN or there are no InfoServers on the LAN, the showladservice command
+      will solicit for approximately 15 minutes before returning. When the
+      showladservice command is executed, it will display "Interrogating 
+      network, please wait.." The Client will continually display more dots
+      as solicitation request responses are received. This activity occurs
+      almost immediately when services are available in the service
+      solicitation class (Ultrix by default). If there are no services
+      available, only two dots will be displayed for a long (10 seconds or 
+      more) period of time. Simply type Ctrl/c to terminate the command 
+      if this problem is encountered.
+
+  2.) When the InfoServer Client is removed from a DMS environment, the
+      subsystem names remain in the ./dms/dmsn.alpha/ProdNames file. This
+      file is used by the dmu to display the contents of all software
+      environments after selecting 's', "SHOW software environments"
+      from the menu. To correct this problem, use an editor to open the 
+      ProdNames file and delete the following subsystem names:
+
+       'InfoServer Client for Digital UNIX LPABASE100'
+       'InfoServer Client for Digital UNIX LPAMAN100'
+
+

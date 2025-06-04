@@ -1,0 +1,81 @@
+	.title	lib_count_bits
+	.ident	"X1-002"
+
+;+
+; Version:	X1-002
+;
+; Facility:	General system routines.
+;
+; Abstract:	Count the number of bits that are set in a longword.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	28-Sep-1990, DBS, Version X1-001
+; 001 -	Original version.
+;	21-Aug-1992, DBS; Version X1-002
+; 002 -	Added optional second argument to receive the result.
+;-
+
+;++
+; Functional Description:
+;	Scans a longword and counts the number of bits that are set.
+;
+; Calling Sequence:
+;	bits_set = lib_count_bits (number)
+;		-or-
+;	pushal	number
+;	calls	#1, g^lib_count_bits
+;
+; Formal Argument(s):
+;	value.rl.r	Address of the longword to scan.
+;	count.wl.r	Address of a longword to receive the result.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	The count of the number of bits that were set in the longword.
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+
+	.disable global
+
+	$ssdef
+
+p1=4					; offset to argument 1
+p2=8					; offset to argument 2
+
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_code
+
+	.entry -
+lib_count_bits ,^m<r2,r3,r4>
+
+	movl	@p1(ap), r2		; grab the value
+	clrl	r3			; initialize the count
+	movl	#32, r4			; that's how many bits to check
+10$:	rotl	#-1, r2, r2		; rotate
+	blbc	r2, 20$			; is low bit set ?
+	incl	r3			; yes, increment count
+20$:	sobgtr	r4, 10$			; loop until we check all bits
+	movl	r3, r0			; pass the count back
+	cmpw	#2, (ap)		; two arguments ?
+	bneq	90$			; no, just return
+	tstl	p2(ap)			; yes, check the argument
+	beql	90$			; dummy, ignore it
+	movl	r0, @p2(ap)		; not a dummy, use it
+	movl	#ss$_normal, r0
+
+90$:	ret
+
+	.end

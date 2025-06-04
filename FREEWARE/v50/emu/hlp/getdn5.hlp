@@ -1,0 +1,133 @@
+1 GETDN5
+ This routine will request the specified param(s) via CMIP from the input
+ OSI routing layer address and, if succesful, return the data in the oupt 
+ area.
+
+2 Modifications:
+ 01 001	Jul-1995	PB	Creation
+ 02 002	Sep-1996	PB	Changed request format to allow
+					greater flexibility
+ 02 003	Mar-1997	PB	Added counters
+2 Inputs
+	Node number	Word by val DECnet address in net fmt
+   	Function:
+		Entityclass	.addr of entity class
+		Instance	.addr of instance
+		Attribute	.long value of attributes
+	Output		Long adddress of desc pointing to output
+3 Function:
+  A function is in 3 parts. Each part is a counted string.
+4 Entity class. An object ID detailing the entity this operation is on.
+ example:
+ 	.byte		; Len of this structure
+	.byte	^x80	; Contect specific tag (ObjId in this case)
+ len1:  .byte	8	; Len of the ObjId  (change for each func)
+ Following is constant
+       .byte	^X2B			; iso, Identtified org
+       .byte	^X0C			; ECMA
+       .byte	^X02			; Member Company
+       .byte	^X87			; Dec ...
+       .byte	^X73			; ... (1011)
+       .byte	^X02			; EMA
+       .byte	^X01			; Entities
+       .byte	^X01			; Node
+ followed by any entities below node. Len1: is the len from Len1 to 
+ the end of ENTITY CLASS
+ Examples:
+	04	routing         ( no instance)
+	04,02	routing circuit (needs instance)
+
+4 Instance
+ 	^XA3		Entity instance
+ Here the len (may be 0 ) of instances 
+ Examples:
+ sho rout circ *
+	04	len
+	05	Universal null   no name for routing
+	0	Null
+	5D	wildcard         all circuits
+	0	terminator       end
+
+ sho rout circ L601-3-0
+	OE	Len
+	05	No name for routing ent
+	0
+	5A	applic 26 (DNS SimpleName)
+	01	ascii encoded simplename
+	08	len
+	4C	L
+	36	6
+	30	0
+	31	1
+	2d	-
+	33	3
+	2d	-
+	30	0
+
+4 Attributes
+ This is the info to return and is supplied by symbol. Possible entries:
+	ALL	0
+	ID	1
+	STATUS	2
+	COUNT	3
+	CHAR	4
+ In a future implementation this may change to a counted string to allow
+ specific data to be returned
+2 Returns:
+	SS$_NORMAL	Request successful, data written
+	SS$_UNREACHABLE	Failed to receive response from target
+	SS$_BADPARAM	Invalid function code
+	SS$_DATACHECK	Some error returned - detail in output 
+ 	SS$_REJECT	Connection rejected by remote node
+ 	SS$_ABORT	Condition handler called - unhandled error
+	SS$_ACCVIO	Can' read input params or can't write outp 
+	SS$_BUFFEROVF	Outp buffer not large enough 
+
+ CMIP errors are signaled by returning SS$_DATACHECK and the error detail
+ is returned as data.
+2 MAKE_LINK
+ Creates DECnet/OSI link to CML application on requested address
+2 Inputs
+ DECnet address
+2 Outputs
+ None
+ Returns
+ Any return from $FAO, $QIO 
+
+MOVW	#NCB_LEN,NCB_DESC		; Make 1st part NCB
+$FAO_S	CTRSTR=NCB_CTRSTR,-
+	OUTLEN=NCB_DESC,-
+	OUTBUF=NCB_DESC,-
+	P1=4(AP)
+BLBS	R0,10$
+RET
+0$:
+MOVAL	NCB,R10
+MOVZWL	NCB_DESC,R11     
+MOVC3	#OPT_LEN,NCB_OPTDATA,(R10)[R11]	; 2nd part 
+ADDW2	#OPT_LEN,NCB_DESC
+$QIOW_S	-
+	CHAN=NET_CHAN,-			; Make link
+	FUNC=#IO$_ACCESS,-
+	IOSB=IOSB,-
+	P2=#NCB_DESC
+RET
+; Condition Handler. 
+.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=GETDN5_HANDLER
+$UNWIND_S			; Unwind Stack
+MOVL	#SS$_ABORT,R0		; Crash and Burn
+RET
+
+.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=GETDN5_TIMEOUT
+MOVL	COUNTERS_A,R1
+INCL	CNT_POL_L_CMIPNORESP(R1)
+PUSHL	NET_CHAN
+CALLS	#1,G^SYS$CANCEL
+RET
+.end	

@@ -1,0 +1,129 @@
+	.TITLE IMPORT_MNU  
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 IMPORT_MNU  
+; Imports/converts manufacturer's id list to internat fmt. This file, 
+; occasionaly available from the internet is the best known list of 
+; Ethernet Manufacturer's codes and could be used to refresh EMU tables.
+;--
+
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+
+	$RMSDEF
+	$DSCDEF		; Declare DSC sysmbols
+	$IODEF
+	$SSDEF
+	EMUCTRLDEF
+	EMUSYSDEF
+	EMUDBDEF
+;
+
+	.PSECT PARAMXLT_DATA,WRT,NOEXE,QUAD,pic
+
+
+	.ALIGN	LONG
+INPUTFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		DNM = <EMU5_Dat:ETHMAN.STP>,-	; Default Filename 
+		FNM = <ETHMAN>			; Filename 
+
+INPUTRAB:	$RAB  FAB = INPUTFAB,-		; pointer to FAB
+		RBF = INPUTREC_BUF,-		; i/o buffer 
+		RSZ = INPUTREC_SIZE,-		; Write this many bytes
+		UBF = INPUTREC_BUF,-		; i/o buffer 
+		USZ = INPUTREC_SIZE,-		; 
+		RAC = SEQ			; Keyed file
+
+
+OUTPUTFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		DNM = <EMU5_Dat:ETHMNU.DAT>,-	; Default Filename 
+		FNM = <ETHMNU>,-			; Filename 
+		ORG = IDX,-			; Keyed file (Finally)
+		RFM = FIX,-
+		MRS = 80,-                       ; Largest rec
+		XAB = OUTPUTXAB0                  ; Keys
+
+OUTPUTRAB:	$RAB	FAB = OUTPUTFAB,-		; pointer to FAB
+		RBF = OUTPUTREC_BUF,-		; i/o buffer 
+		RSZ = OUTPUTREC_SIZE,-		; Write this many bytes
+		UBF = OUTPUTREC_BUF,-		; i/o buffer 
+		USZ = OUTPUTREC_SIZE,-		; 
+		RAC = KEY			; Keyed file
+
+
+
+OUTPUTXAB0:	$XABKEY	REF = 0,-  		; TBL,PARAM
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4                 ; Key len (dups not allowed)
+;
+INPUTREC_BUF:	
+
+TOP3:			.QUAD
+XLAT:			.BLKB	72
+INPUTREC_SIZE = .-INPUTREC_BUF        ; = 76
+
+OUTPUTREC_BUF:
+CODE:			.LONG
+LEN:			.LONG
+STR:			.BLKB	72
+OUTPUTREC_SIZE = .-OUTPUTREC_BUF        ; = 76
+INT:		.QUAD
+;
+;	.End data definitions
+;
+	.PSECT PARAMXLT_CODE,EXE,pic
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=import_mnu      
+;
+; For now use direct file access. At a later time, move to subr that builds
+; section.
+	$OPEN	FAB = INPUTFAB		;Open input file
+ 	$CONNECT RAB = INPUTRAB	;Connect input stream
+	$CREATE	FAB = OUTPUTFAB		;Open input file
+ 	$CONNECT RAB = OUTPUTRAB	;Connect input stream
+
+
+
+; Read input seq, calc new key, write outp keyed.
+10$:
+	$GET	RAB=INPUTRAB
+	BLBS	R0,20$
+	RET
+20$:
+; Reverse bytes
+	CLRQ	 INT
+	MOVW	TOP3,INT+4
+	MOVW	TOP3+2,INT+2
+	MOVW	TOP3+4,INT
+	PUSHAL	CODE
+	PUSHAL	INT
+	PUSHL	#6
+	CALLS	#3,G^LIB$CVT_HTB
+	BLBS	R0,30$
+	RET
+30$:
+	MOVZBL	INPUTRAB+RAB$W_RSZ,LEN
+	SUBL	#4,LEN
+	MOVC3	LEN,XLAT,STR
+	$PUT	RAB=OUTPUTRAB
+	BLBS	R0,40$
+	RET
+40$:
+	BRW	10$
+	.END	import_mnu	
+
+
+

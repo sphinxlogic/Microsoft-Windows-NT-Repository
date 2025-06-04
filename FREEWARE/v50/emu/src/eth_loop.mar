@@ -1,0 +1,152 @@
+	.TITLE ETH_LOOP
+	.IDENT /V01-003/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 002	10-jun-1994	PB	Fixed stupid ^&%!" bug in calling seq
+;				when response time wanted. Call with 2 params
+;				to loop routine is now correct ($@#!)
+; 003	SEP 1999	PB	Upgraded for V5.
+;
+;++
+;1 ETH_LOOP
+; This routine has 2 distinct functions:
+;	 Calls the loop routine specified in the P2 params and returns
+;	success or failure and (optionaly) reponse time.
+;	If the P2 param is 0 it determines the loop type to call 
+;	and returns the type in P2.
+;
+;2 Inputs
+;	P1	.address of 6 byte Ethernet address of target node (net fmt)
+;	P2 	.address of .long containing loop type to perform
+;    Optional:
+;	P3 	.address of .long where reponse time is written.
+;		Given as no. of 100th sec intervals
+;2 Outputs
+; If optional P3 param is given, is is written with the round trip 
+; response time in 1/100 sec intervals.
+; If P2 .eq. 0 then the routine calls all known loop types until either 1
+; or none are answered and P2 is written with the reponding type (if any).
+
+;2 Returns
+;	SS$_NORMAL	All Requested loops were succesful
+;	SS$_BADPARAM	P2 specified unknown loop test
+;	SS$_UNREACHABLE	Failed to receive loop response from target
+;	SS$_ACCVIO	Can' read input params or can't write outp field
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+
+	$IODEF		; I/O functions
+	$NMADEF		; Network Management Functions
+	EMUPSRDEF
+
+		.PSECT	CODE,NOWRT,EXE,LONG
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=ETH_LOOP
+;
+; Validate Params
+	PROBER	#0,#6,4(AP)  		; Read Ethernet address?
+	BEQL	10$			; Yes
+	PROBER	#0,#4,8(AP)  		; Read Loop type?
+	BEQL	10$			; Yes
+	CMPL	#3,(AP)			; 3 params?
+	BNEQU	20$
+	PROBEW	#0,#8,12(AP)  		; Write response time?
+	BNEQ	20$			; Yes
+10$:
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+20$:
+	MOVL	8(AP),R1
+	BBS	#PSR_ETH_V_LOOPE,(R1),100$		; Not ethernet type?
+	BBS	#PSR_ETH_V_LOOPI,(R1),200$		; Not XID type?
+	BBS	#PSR_ETH_V_LOOPX,(R1),300$		; Not 802 type?
+; Don't kno type
+	MOVL	#1,R6
+	CMPL	#3,(AP)			; Wants reponse time??
+	BNEQU	30$                     ; No
+	PUSHL	12(AP)
+	INCL	R6
+; Determine loop type
+30$:
+	PUSHL	4(AP)
+	CALLS	R6,G^LOOPE		; Ethernet loop?
+
+	BLBC	R0,40$                  ; No
+	BISL	#PSR_ETH_M_LOOPE,@8(AP)               ; Write loop type
+	MOVL	#SS$_NORMAL,R0
+	RET
+40$:
+	MOVL	#1,R6
+	CMPL	#3,(AP)			; Wants reponse time??
+	BNEQU	50$                     ; No
+	PUSHL	12(AP)
+	INCL	R6
+; Determine loop type
+50$:
+	PUSHL	4(AP)
+	CALLS	R6,G^LOOPX		; 802 XID loop?
+	BLBC	R0,60$                  ; No
+	BISL	#PSR_ETH_M_LOOPX,@8(AP)               ; Write loop type
+	MOVL	#SS$_NORMAL,R0
+	RET
+60$:
+	MOVL	#1,R6
+	CMPL	#3,(AP)			; Wants reponse time??
+	BNEQU	70$                     ; No
+	PUSHL	12(AP)
+	INCL	R6
+70$:
+	PUSHL	4(AP)
+	CALLS	R6,G^LOOPI		; 802 loop?
+	BLBC	R0,80$                  ; No
+	BISL	#PSR_ETH_M_LOOPI,@8(AP)               ; Write loop type
+	MOVL	#SS$_NORMAL,R0
+	RET
+80$:
+	MOVL	#SS$_UNREACHABLE,R0
+	RET
+100$:
+;Ethernet loop
+	MOVL	#1,R6
+	CMPL	#3,(AP)			; Wants reponse time??
+	BNEQU	110$                     ; No
+	PUSHL	12(AP)
+	INCL	R6
+110$:
+	PUSHL	4(AP)
+	CALLS	R6,G^LOOPE
+	RET	
+200$:
+;802.3 test (loop) function 
+	MOVL	#1,R6
+	CMPL	#3,(AP)			; Wants reponse time??
+	BNEQU	210$                     ; No
+	PUSHL	12(AP)
+	INCL	R6
+210$:
+	PUSHL	4(AP)
+	CALLS	R6,G^LOOPI
+	RET	
+300$:
+; 802.3 XID (Poll bit set) loop
+	MOVL	#1,R6
+	CMPL	#3,(AP)			; Wants reponse time??
+	BNEQU	310$                     ; No
+	PUSHL	12(AP)
+	INCL	R6
+310$:
+	PUSHL	4(AP)
+	CALLS	R6,G^LOOPX
+	RET	
+		.END								
+		
+

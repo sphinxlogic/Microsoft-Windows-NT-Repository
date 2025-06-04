@@ -1,0 +1,1406 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.HTD]HTD_CONFIG.SDML">
+<META NAME="date" CONTENT="Thu, 25 Jan 2001 04:55:42">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Mapping Rules</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Technical Overview</H1>
+
+<A NAME="120">
+<H2>10 - Mapping Rules</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+10.1 - <A HREF="htd_1000.html#123" TARGET="_self">VMS File System Specifications</A>
+<BR>10.2 - <A HREF="htd_1000.html#124" TARGET="_self">Extended File Specifications (ODS-5)</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;10.2.1 - <A HREF="htd_1000.html#125" TARGET="_self">Characters In Request Paths</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;10.2.2 - <A HREF="htd_1000.html#126" TARGET="_self">Characters In Server-Generated Paths</A>
+<BR>10.3 - <A HREF="htd_1000.html#127" TARGET="_self">Rules</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;10.3.1 - <A HREF="htd_1000.html#128" TARGET="_self">MAP, PASS, FAIL Rules</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;10.3.2 - <A HREF="htd_1000.html#129" TARGET="_self">REDIRECT Rule</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;10.3.3 - <A HREF="htd_1000.html#130" TARGET="_self">USER Rule</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;10.3.4 - <A HREF="htd_1000.html#131" TARGET="_self">EXEC/UXEC and SCRIPT, Script Mapping Rules</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;10.3.5 - <A HREF="htd_1000.html#133" TARGET="_self">SET Rule</A>
+<BR>10.4 - <A HREF="htd_1000.html#134" TARGET="_self">Rule Interpretation</A>
+<BR>10.5 - <A HREF="htd_1000.html#136" TARGET="_self">Mapping Examples</A>
+<BR>10.6 - <A HREF="htd_1000.html#142" TARGET="_self">Virtual Servers</A>
+<BR>10.7 - <A HREF="htd_1000.html#143" TARGET="_self">Conditional Mapping</A>
+<BR>10.8 - <A HREF="htd_1000.html#146" TARGET="_self">Mapping User Directories (<I>tilde</I> character (&quot;~&quot;))
+</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;10.8.1 - <A HREF="htd_1000.html#147" TARGET="_self">Using The SYSUAF</A>
+<BR>&nbsp;&nbsp;&nbsp;&nbsp;10.8.2 - <A HREF="htd_1000.html#149" TARGET="_self">Without Using The SYSUAF</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="htd_1100.html" TARGET="_self">next</A>] [<A HREF="htd_0900.html" TARGET="_self">previous</A>] [<A HREF="htd_0001.html"TARGET="_top" >contents</A>] [<A HREF="htd_1000.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> Mapping rules are used in five primary ways.&nbsp;
+<OL>
+
+<LI> To map a request <I>path</I> onto the VMS file system.&nbsp;
+<P>
+<LI> To process a request path according to specified criteria resulting in an
+effective path that is different to that supplied with the request.&nbsp;
+<P>
+<LI> To identify requests requiring script activation and to parse the script
+from the path portion of that request.&nbsp;  The path portion is then independently
+re-mapped.&nbsp;
+<P>
+<LI> To conditionally map to different end-results based on one or more
+criteria of the request.&nbsp;
+<P>
+<LI> To provide differing virtual sites depending on the actual service
+accessed by the client.&nbsp;
+</OL>
+
+
+<P> Mapping is basically for server-internal purposes only.&nbsp; The only time the
+path information of the request itself is modified is when a script component
+is removed.&nbsp; At all other times the path information remains unchanged.&nbsp;  Path
+authorization is always applied to the path supplied with the request.&nbsp;
+
+<P> By default, the system-table logical name HTTPD$MAP locates a common
+mapping rule file, unless an individual rule file is specified using a job-
+table logical name.&nbsp; Simple editing of the mapping file changes the rules.&nbsp;
+Comment lines may be included by prefixing them with the hash &quot;#&quot;
+character.&nbsp; Although, there is no fixed limit on the number of rules there are
+the processing implications of scanning a large, linear database.&nbsp; 
+
+<P> Rules are given a basic consistency check when loaded (i.e. server
+startup, map reload, etc.) If there is an obvious problem (unknown rule,
+missing component, etc., path not absolute) a warning message is generated and
+the rule is not loaded into the database.&nbsp; This will not cause the server
+startup to fail.&nbsp; These warning messages may be found in the server process
+log.&nbsp; 
+
+<P> <B>The server administration facility allows realm and arbitrary
+paths to be checked against the rule database in real-time using the WATCH
+facility.&nbsp;</B> See <A HREF="htd_1600.html#245" TARGET="_self">16 - WATCH Facility</A>.&nbsp; In this way the rule database
+may be checked against test or even live requests.&nbsp;
+
+<P> Any changes to the mapping file may be (re)loaded into the running HTTPd 
+server using the following command on the server system: 
+
+<FONT COLOR="#333333"><PRE>  $ HTTPD /DO=MAP
+</PRE></FONT>
+
+<P> Also see <A HREF="htd_0600.html#74" TARGET="_self">6 - Server Configuration</A> for daemon configuration.&nbsp; 
+
+<A NAME="121">
+<H3><BR>Server Mapping Rules</H3>
+</A>
+
+<P> A server's currently loaded mapping rules may be interrogated.&nbsp;  See
+<A HREF="htd_1500.html#236" TARGET="_self">15 - Server Administration</A> for further information.&nbsp;
+
+<A NAME="122">
+<H3><BR>Mapping Overhead</H3>
+</A>
+
+<P> Naturally, each rule that needs to be processed adds a little to consumed
+CPU, introduces some latency, and ultimately reduces throughput.&nbsp;  The
+test-bench has shown this to be acceptably small compared to the overall costs
+of responding to a request.&nbsp;  Using the ApacheBench tool on a DEC 3000 Model 300
+running OpenVMS V7.2-1 with a simple access to /ht_root/exercise/0k.html showed
+approximately 60 requests/second throughput using the following mapping file.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  pass /ht_root/exercise/* 
+</PRE></FONT>
+
+<P> After adding various quantities of the same intervening rule
+
+<FONT COLOR="#333333"><PRE>  pass /ht_root/example/* 
+  pass /ht_root/example/* 
+    .
+    .
+    .
+  pass /ht_root/example/* 
+  pass /ht_root/exercise/* 
+</PRE></FONT>
+ the following results were derived.&nbsp;
+
+<P>
+<CENTER><B>Mapping Overhead</B></CENTER>
+
+<BR><CENTER>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=1>
+<TR><TD>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=0>
+<TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Intervening Rules</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Requests/S</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Throughput</U></TH></TR>
+<TD ALIGN=left VALIGN=top>0</TD><TD ALIGN=left VALIGN=top>60</TD><TD ALIGN=left VALIGN=top>benchmark</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>100</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>57</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>-5%</TD></TR>
+<TD ALIGN=left VALIGN=top>200</TD><TD ALIGN=left VALIGN=top>54</TD><TD ALIGN=left VALIGN=top>-10%</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>500</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>48</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>-20%</TD></TR>
+</TABLE>
+</TD></TR>
+</TABLE>
+</CENTER><BR>
+
+
+<P> Although this is a fairly contrived set-up and actual real-world rule-sets
+are more complex than this, even one hundred rules is a <U>very</U> large
+set, and it does indicate that for all intents and purposes mapping rules can
+be used to achieve desired objectives without undue concern about impact on
+server throughput.&nbsp;
+
+<A NAME="123">
+<H3><BR><U>10.1 - VMS File System Specifications</U></H3>
+</A>
+
+<P> The VMS file system in mapping rules is always assumed to begin with a
+device or concealed device logical.&nbsp; Specifying a Master File Directory (MFD)
+component, the [000000] is completely optional, although always implied.&nbsp; The
+mapping functions will always insert one if required for correct file system
+syntax.&nbsp; That is, if the VMS file system mapping of a path results in a file in
+a top-level directory an MFD is inserted if not explicitly present in the
+mapping.&nbsp;  For example, both of the following paths
+
+<FONT COLOR="#333333"><PRE>  /dka100/example.txt
+  /dka100/000000/example.txt
+</PRE></FONT>
+ would result in a mapping to
+
+<FONT COLOR="#333333"><PRE>  DKA100:[000000]EXAMPLE.TXT
+</PRE></FONT>
+ The MFD is completely optional when both specifying paths in mapping
+rules and when supplying paths in a request.&nbsp;  Similarly, when supplying a path
+that includes directory components, as in
+
+<FONT COLOR="#333333"><PRE>  /dka100/dir1/dir2/example.txt
+  /dka100/000000/dir1/dir2/example.txt
+</PRE></FONT>
+ both mapping to
+
+<FONT COLOR="#333333"><PRE>  DKA100:[DIR1.DIR2]EXAMPLE.TXT
+</PRE></FONT>
+<BLOCKQUOTE><CENTER><B>Implication</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+When using logical names in file system mappings they must be able to be used
+as concealed devices and cannot be logical equivalents of directory
+specifications.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<P> Concealed device logicals are created using the following syntax:
+
+<FONT COLOR="#333333"><PRE>  $ DEFINE LOGICAL_NAME device:[dir1.dir2.]
+  $ DEFINE LOGICAL_NAME /TRANSLATION=CONCEALED physical_device:[dir1.dir2.]
+</PRE></FONT>
+
+<P> For ODS-2 volumes (see <A HREF="htd_1000.html#124" TARGET="_self">10.2 - Extended File Specifications (ODS-5)</A> immediately
+below), when during rule mapping of a path to a VMS file specification an
+RMS-invalid character (e.g. &quot;+&quot;) or syntax (e.g. multiple periods) is
+encountered a dollar symbol is substituted in an attempt to make it acceptable.&nbsp; 
+This functionality is often useful for document collections imported to the
+local web originating from, for instance, a Unix site that utilizes non-RMS
+file system syntax.&nbsp;  The default substitution character may be changed on a
+per-path basis using the SET rule, <A HREF="htd_1000.html#133" TARGET="_self">10.3.5 - SET Rule</A>.&nbsp;
+
+<A NAME="124">
+<H3><BR><U>10.2 - Extended File Specifications (ODS-5)</U></H3>
+</A>
+
+<P> OpenVMS Alpha V7.2 introduced a new on-disk file system structure, ODS-5. 
+This brings to VMS in general, and WASD and other Web servers in particular, a
+number of issues regarding the handling of characters previously not
+encountered during (ODS-2) file system activities.&nbsp;  It is necessary to
+distinguish paths to ODS-5, extended specification volumes from the default
+ODS-2 ones.&nbsp;  See <A HREF="htd_1000.html#133" TARGET="_self">10.3.5 - SET Rule</A>.&nbsp;
+
+<A NAME="125">
+<H3><BR><U>10.2.1 - Characters In Request Paths</U></H3>
+</A>
+
+<P> There is a standard for characters used in HTTP requests paths and query
+strings (URLs).&nbsp;  This includes conventions for the handling of reserved
+characters, for example &quot;?&quot;, &quot;+&quot;, &quot;&amp;&quot;, &quot;=&quot;
+that have specific meanings in a request,  characters that are completely
+forbidden, for example white-space, control characters (0x00 to 0x1f), and
+others that have usages by convention, for example the &quot;~&quot;, commonly
+used to indicate a username mapping.&nbsp;  The request can otherwise contain these
+characters provided they are URL-encoded (i.e. a percentage symbol followed by
+two hexadecimal digits representing the hexadecimal-encoded character value).&nbsp;
+
+<P> There is also an RMS standard for handling characters in extended file
+specifications, some of which are forbidden in the ODS-2 file naming
+conventions, and others which have a reserved meaning to either the command-line
+interpreter (e.g. the space) or the file system structure (e.g. the &quot;:&quot;,
+&quot;[&quot;, &quot;]&quot; and &quot;.&quot;).  Generally the allowed but reserved
+characters can be used in ODS-5 file names if escaped using the &quot;^&quot;
+character.&nbsp;  For example, the ODS-2 file name &quot;THIS_AND_THAT.TXT&quot; could
+be named &quot;This^_^&amp;^_That.txt&quot; on an ODS-5 volume.&nbsp;  More complex rules
+control the use of character combinations with significance to RMS, for
+instance multiple periods.&nbsp;  The following file name is allowed on an ODS-5
+volume, &quot;A-GNU-zipped-TAR-archive^.tar.gz&quot;, where the non-significant
+period has been escaped making it acceptable to RMS.&nbsp;
+
+<P> The WASD server will accept request paths for file specifications in both
+formats, URL-encoded and RMS-escaped.&nbsp;  Of course characters absolutely
+forbidden in request paths must still be URL-encoded, the most obvious example
+is the space.&nbsp;  RMS will accept the file name &quot;This^ and^ that.txt&quot; (i.e.
+containing escaped spaces) but the request path would need to be specified as
+&quot;This%20and%20that.txt&quot;, or possibly &quot;This^%20and^%20that.txt&quot;
+although the RMS escape character is basically redundant.&nbsp;
+
+<P> Unlike for ODS-2 volumes, ODS-5 volumes do not have &quot;invalid&quot;
+characters, so no processing is performed to ensure RMS compliance.&nbsp;
+
+<A NAME="126">
+<H3><BR><U>10.2.2 - Characters In Server-Generated Paths</U></H3>
+</A>
+
+<P> When the server generates a path to be returned to the browser, either in a
+viewable page such as a directory listing or error message, or as a part of the 
+HTTP transaction such as a redirection, the path will contain the URL-encoded
+equivalent of the <I>canonical form</I> of an extended file specification
+escaped character.&nbsp;  For example, the file name &quot;This^_and^_that.txt&quot;
+will be represented by &quot;This%20and%20that.txt&quot;.&nbsp;
+
+<P> When presenting a file name in a viewable page the general rule is to also
+provide this URL-equivalent of the unescaped file name, with a small number of
+exceptions.&nbsp;  The first is a directory listing where VMS format has been
+requested by including a version component in the request file specification.&nbsp; 
+The second is in similar fashion, but with the <I>tree</I> facility,
+displaying a directory tree.&nbsp;  The third is in the navigation page of the
+<I>UPDate</I> menu.&nbsp;  In all of the instances the canonical form of the
+extended file specification is presented (although any actual reference to the
+file is URL-encoded as described above).&nbsp; 
+
+<A NAME="127">
+<H3><BR><U>10.3 - Rules</U></H3>
+</A>
+
+<P> There are seven mapping rules.&nbsp;
+<UL>
+
+<LI> Rules that map paths to the file system, and to other paths:
+<UL>
+
+<LI> MAP
+<LI> PASS
+<LI> FAIL
+<LI> REDIRECT
+<LI> USER
+</UL>
+
+<LI> Rules that provide access to scripting:
+<UL>
+
+<LI> EXEC
+<LI> SCRIPT
+<LI> UXEC
+</UL>
+
+<LI> A rule that sets characteristics against particular paths:
+<UL>
+
+<LI> SET
+</UL>
+
+</UL>
+
+
+<A NAME="128">
+<H3><BR><U>10.3.1 - MAP, PASS, FAIL Rules</U></H3>
+</A>
+<OL>
+
+<LI> <B>map <I>template result</I></B>
+
+<P> If the URL path matches the template, substitute the <I>result</I> 
+string for the path and use that for further rule processing.&nbsp;  Both template
+and result paths must be absolute (i.e. begin with &quot;/&quot;).
+<P>
+<LI> <B>pass <I>template</I></B> 
+
+<BR> <B>pass <I>template result</I></B> 
+
+<BR> <B>pass <I>template &quot;999 message text&quot;</I></B> 
+
+<P> If the URL path matches the template, substitute the result if present (if 
+not just use the original URL path), processing no further rules.&nbsp; 
+
+<P> The <I>result</I> should be a either a physical VMS file system
+specification in URL format or an <I>HTTP status-code message</I> (see
+below).&nbsp; If there is a direct correspondance between the <I>template</I>
+and <I>result</I> the result may be omitted.&nbsp;
+
+<P> <B>The PASS directive is also used to <I>reverse-map</I> VMS
+file specifications to the URL path format equivalent.&nbsp;</B>
+
+<P> <B>An HTTP status-code message</B> can be provided as a result.&nbsp;
+The server then generates a response corresponding to that status code
+containing the supplied message.&nbsp;  Status-code results should be enclosed in
+one of single or double quotes, or curly braces.&nbsp;  See examples.&nbsp;  A
+3<I>nn</I> status results in a redirection response with the message text
+comprising the location.&nbsp; Codes 4<I>nn</I> and 5<I>nn</I> result in
+an error message.&nbsp;  Other code ranges (e.g. 0, 1<I>nn</I>, 2<I>nn</I>,
+etc.) simply cause the connection to be immediately dropped, and can be used
+for that purpose (i.e. no indication of why!)
+<P>
+<LI> <B>fail <I>template</I></B> 
+
+<P> If the URL path matches the template, prohibit access, processing no 
+further rules.&nbsp;  The template path must be absolute (i.e. begin with
+&quot;/&quot;).
+</OL>
+
+
+<A NAME="129">
+<H3><BR><U>10.3.2 - REDIRECT Rule</U></H3>
+</A>
+<OL>
+
+<LI> <B>redirect <I>template</I> <I>result</I></B>
+
+<P> If the URL path matches the template, substitute the <I>result</I> 
+string for the path.&nbsp;  Process no further rules.&nbsp;  Redirection rules can provide
+result URLs in four formats, each with a slightly different behaviour.&nbsp;
+<OL>
+
+<LI> The <I>result</I> can be a full URL
+(&quot;http://host.domain/path/to/whatever&quot;).&nbsp;  This is used to redirect
+requests to a specific service, usually on a another host.&nbsp;
+<P>
+<LI> If the scheme (e.g. &quot;http:&quot;) is omitted the scheme of the
+current request is substituted.&nbsp;  This allows HTTP requests to be transparently
+redirected via HTTP and HTTPS (SSL) requests via HTTPS (e.g.
+&quot;//host.domain/path/to/whatever&quot;, note the leading double-slash).&nbsp;
+<P>
+<LI> In a similar fashion both the scheme and the host name may be omitted
+(e.g. &quot;///path/to/whatever&quot;, note the leading triple-slash).&nbsp;  The server
+then substitutes the appropriate request scheme and host name before returning
+the redirection to the client.&nbsp;
+<P>
+<LI> If the scheme is provided but no host component the current request's
+host infomation is substituted and the redirection made using that (e.g.
+&quot;https:///secure/path/to/whatever&quot;.&nbsp;  This effectively allows a request
+to be redirected from standard to SSL, or from SSL to standard HTTP on the same
+server.&nbsp; 
+<P>
+<LI> Alternatively, it may be just a path (&quot;/path/to/whatever&quot;, a
+single leading slash), which will cause the server to internally generate an
+entire new request structure to process the new path (i.e. request redirection
+is not returned to the client).&nbsp;
+</OL>
+
+</OL>
+
+
+<A NAME="130">
+<H3><BR><U>10.3.3 - USER Rule</U></H3>
+</A>
+
+<P> The USER rule maps a VMS user account default device and directory (i.e.
+<I>home</I> directory) into a request path.&nbsp;  That is, the  base location
+for the request is obtained from the VMS systems SYSUAF file.&nbsp;  This is usually
+invoked by a request path in the form &quot;/~username/&quot;, see
+<A HREF="htd_1000.html#146" TARGET="_self">10.8 - Mapping User Directories (<I>tilde</I> character (&quot;~&quot;))
+</A> for more detailed information.&nbsp;
+<OL>
+
+<LI> <B>user <I>template</I> <I>result</I></B>
+
+<P> If the path matches the template then the result is substituted, with the
+following conditions.&nbsp;  At least one wildcard must be present.&nbsp;  The first
+wildcard in the result substitutes the username's home directory into the path
+(in place of the &quot;~username&quot;).&nbsp;  Any subsequent wildcard(s) substitute
+corresponding part(s) of the original path.&nbsp;
+
+<P> If the user DANIEL's default device and directory were
+
+<FONT COLOR="#333333"><PRE>  USER$DISK:[DANIEL]
+</PRE></FONT>
+ the following rule
+
+<FONT COLOR="#333333"><PRE>  user /~*/* /*/www/*
+</PRE></FONT>
+ would result in the following path being mapped and used
+
+<FONT COLOR="#333333"><PRE>  /user$disk/daniel/www/
+</PRE></FONT>
+</OL>
+
+<BLOCKQUOTE><CENTER><B>NOTE</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+Accounts that possess SYSPRV, are CAPTIVE, have been DISUSERED or that have
+expired passwords will not be mapped.&nbsp;  A &quot;directory not found&quot; error
+report is returned.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<A NAME="131">
+<H3><BR><U>10.3.4 - EXEC/UXEC and SCRIPT, Script Mapping Rules</U></H3>
+</A>
+
+<P> Also see &quot;Scripting Environment&quot; document for further information.&nbsp;
+
+<P> The EXEC/UXEC and SCRIPT directives have the <B>variants
+EXEC+/UXEC+ and SCRIPT+</B>.&nbsp; These  behave in exactly the same fashion and
+simply mark the rule as representing a CGIplus script environment.&nbsp;
+
+<P> The EXEC/UXEC rules maps script <B>directories</B>.&nbsp;
+
+<P> The SCRIPT rules maps script <B>file names</B>.&nbsp; It behaves a
+little differently to the EXEC rule, essentially supplying in a single rule the
+effect of a MAP then an EXEC rule.&nbsp; 
+
+<P> Both rules must have a <I>template</I> and <I>result</I>, and 
+both must end in a wildcard asterisk.&nbsp;  The placement of the wildcards and the 
+subsequent functionality is slightly different however.&nbsp;   Both template
+and result paths must be absolute (i.e. begin with &quot;/&quot;).
+<OL>
+
+<LI> <B>exec <I>template result</I></B> 
+
+<P> The EXEC rule requires the <I>template</I>'s asterisk to immediately
+follow the slash terminating the directory specification containing the
+scripts.&nbsp; The script name follows immediately as part of the wildcard-matched
+string.&nbsp; For example:
+
+<FONT COLOR="#333333"><PRE>  exec /htbin/* /ht_root/script/*
+</PRE></FONT>
+
+<P> If the URL path matches the template, the result, including the first
+slash-terminated part of the wildcard-matched section, becomes the URL format
+physical VMS file specification the script to be executed.&nbsp; What remains of the
+original URL path is used to create the path information.&nbsp; Process no further
+rules.&nbsp; 
+
+<P> Hence, the EXEC rule will match multiple script specifications without
+further rules, the script name being supplied with the URL path.&nbsp; Hence any
+script (i.e. procedure, executable) in the specified directory is accessable,
+a possible security concern if script management is distributed.&nbsp;
+<P>
+<LI> <B>exec <I>template (run-time-environment)result</I></B> 
+
+<P> A variation on the &quot;exec&quot; rules allows a Run-Time Environment (RTE)
+to be mapped.&nbsp;  An RTE is a persistant scripting environment not unlike CGIplus.&nbsp; 
+The essential difference is an RTE provides an environment in which a variety
+of scripts can be run.&nbsp;  It is often an interpreter, such as Perl, where the
+advantages of persistance (reduced response latency and system impact) are
+available.&nbsp;  For more information on RTEs and how they operate see the
+
+<A TARGET="_top" HREF="/ht_root/doc/scripting/">WASD Scripting Environment</A>
+
+ 
+document.&nbsp;
+
+<P> The RTE executable is specified in parentheses prefixed to the mapping
+result, as show in this example:
+
+<FONT COLOR="#333333"><PRE>  exec /pl-bin/* (cgi-bin:[0000000]perlrte.exe)/ht_root/src/perl/*
+</PRE></FONT>
+<LI> <B>script <I>template result</I></B> 
+
+<P> The SCRIPT rule requires the <I>template</I>'s asterisk to
+immediately follow the <I>unique string</I> identifying the script in the
+URL path.&nbsp; The wildcard-matched string is the following path, and supplied to
+the script.&nbsp; For example: 
+
+<FONT COLOR="#333333"><PRE>  script /conan* /ht_root/script/conan*
+</PRE></FONT>
+
+<P> If the URL path matches the template, the result becomes the URL format
+physical VMS file specification for the DCL procedure of the script to be
+executed (the default file extension of &quot;.COM&quot; is not required).&nbsp; What
+remains of the original URL path is used to create the path information.&nbsp;
+Process no further rules.&nbsp; 
+<BLOCKQUOTE><CENTER><B>NOTE</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+The wildcard asterisk is best located immediately after the unique script 
+identifier.&nbsp; In this way there does not need to be any path supplied with the 
+script.&nbsp;  If even a slash follows the script identifier it may be mapped into a 
+file specification that may or may not be meaningful to the script.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+ 
+
+<P> Hence, the SCRIPT rule will match only the script specified in the
+<I>result</I>, making for finely-granular scripting at the expense of a
+rule for each script thus specified.&nbsp; It also implies that only the script name
+need precede any other path information.&nbsp;
+
+<P> It may be thought of as a more efficient implementation of the equivalent 
+functionlity using two CERN rules, as illustrated in the following example:
+
+<FONT COLOR="#333333"><PRE>  map /conan* /script/conan*
+  exec /cgi-bin/* /cgi-bin/*
+</PRE></FONT>
+<LI> <B>uxec <I>template result</I></B> 
+
+<P> The UXEC rule is an analog to the EXEC rule, except it is used to map user
+scripts.&nbsp;  It requires two mapping asterisks, the first for the username, the
+second for the script name.&nbsp; It must be used in conjunction with a SET
+<I>script=as=~</I> rule.&nbsp; For example:
+
+<FONT COLOR="#333333"><PRE>  SET   /~*/www/cgi-bin/*  script=as=~
+  UXEC  /~*/cgi-bin/*  /*/www/cgi-bin/*
+</PRE></FONT>
+
+<P> For further information see <A HREF="htd_1000.html#148" TARGET="_self">User Account Scripting</A> and the
+&quot;Scripting Overview, Introduction&quot;.&nbsp;
+</OL>
+
+
+<A NAME="132">
+<H3><BR>Script Location</H3>
+</A>
+
+<P> It is conventional to locate script images in HT_ROOT:[AXP] or
+HT_ROOT:[VAX] (depending on the platform), and procedures, etc.&nbsp; in
+HT_ROOT:[SCRIPT] or  HT_ROOT:[SCRIPT_LOCAL].  These multiple directories are
+accessable via the single search list logical CGI-BIN.&nbsp;
+
+<P> Script files can be located elsewhere, either subdirectories of
+HT_ROOT:[SCRIPT_LOCAL] or in an area completely outside of the HT_ROOT tree.&nbsp; 
+Two approaches are available.&nbsp;
+<OL>
+
+<P>
+<LI> Modify the search list CGI-BIN to include the additional directories.&nbsp;
+<P>
+<LI> Use mapping rules to make the script accessable.&nbsp;  This can be done by
+using the EXEC or SCRIPT rule to specify the directory directly as in these
+examples
+
+<FONT COLOR="#333333"><PRE>  exec /mycgi-bin/* /site_local_scripts/bin/*
+  script /myscript* /web/myscripts/bin/myscript.exe*
+</PRE></FONT>
+ or by using the MAP rules to make a hierarchy of script locations obvious
+and accessable, as in this example
+
+<FONT COLOR="#333333"><PRE>  map /cgi-bin/myscripts/* /cgi-bin_myscripts/* 
+  exec /cgi-bin_myscripts/* /web/myscripts/bin/*
+</PRE></FONT>
+</OL>
+
+
+<A NAME="133">
+<H3><BR><U>10.3.5 - SET Rule</U></H3>
+</A>
+
+<P> The SET rule does not change the mapping of a path, it just sets one or
+more characteristics against that path that affect the subsequent processing
+in some way.&nbsp; It is a general purpose rule that conveniently allows the
+administrator to tell the server to process requests with particular paths in
+some ad hoc and generally useful fashion.&nbsp; Most SET parameters are single
+keywords that act as boolean switches on the request, some require parameter
+strings.&nbsp; Multiple space-separated parameters may be set against against the one
+path in a single SET statement.&nbsp;
+<OL>
+
+<P>
+<LI><B>AUTHONCE, NOAUTHONCE -</B>
+If a request path contains both a script component and a resource component by
+default the WASD server makes sure both parts are authorized before allowing
+access (see <A HREF="htd_1200.html#157" TARGET="_self">12 - Authentication and Authorization</A>).&nbsp;  This can be disabled using
+this path setting.&nbsp;  When this is done only the original request path undergoes
+authorization.&nbsp;
+&quot;authONCE&quot;.&nbsp;
+<P>
+<LI><B>CACHE, NOCACHE -</B>
+The default is to cache files (when caching is enabled).&nbsp; NOCACHE sets files in
+this path as not to be stored in the file cache.&nbsp; A subsequent CACHE will again
+permit caching, allowing smaller path hierarchies to be cached within larger
+ones that are not.&nbsp;
+<P>
+<LI><B>CGIPREFIX -</B>
+CGI environment variable names are by default prefixed with &quot;WWW_&quot;. 
+This may be changed on a per-path basis  using this SET rule.&nbsp;  To remove the
+prefix altogether for selected scripts use &quot;CGIprefix=&quot;.
+<P>
+<LI><B>CHARSET -</B>
+This setting allows overriding of the server default ([CharsetDefault]
+configuration parameter) content-type character set (in the response header)
+for text files (plain and HTML).&nbsp;  A string is required as in the following
+example, &quot;charset=ISO-8859-5&quot;.
+<P>
+<LI><B>CONTENT -</B>
+The content-type of a file is normally determined by the file's type
+(extension).&nbsp; This setting allows files matching the template to be returned
+with the specified content-type.&nbsp;  The content-type must be specified as a
+parameter, e.g. &quot;content=application/binary&quot;.&nbsp;
+<P>
+<LI><B>EXPIRED, NOEXPIRED -</B>
+This setting allows files in the specified paths to be sent pre-expired.&nbsp; The
+browser should always then reload them whenever accessed.&nbsp;
+<P>
+<LI><B>INDEX -</B>
+This setting provides the &quot;Index of&quot; (directory listing) format string
+for directory paths matching the template.&nbsp;  It uses the same formatting as can
+be supplied with a URL and overrides any query string passed via any URL.&nbsp;
+<P>
+<LI><B>LOG, NOLOG -</B>
+When server access logging is enabled the default is to log all requests.&nbsp; The
+NOLOG setting suppresses logging for requests involving the specified path
+template.&nbsp;
+<P>
+<LI><B>MAPONCE, NOMAPONCE -</B>
+Normally, when a script has been identified during mapping, the resultant path
+information is also mapped in a second pass.&nbsp; This can be suppressed by SETting
+the path as MAPONCE.&nbsp;  The resultant path is then given to the script without
+further processing.&nbsp;
+<P>
+<LI><B>PROFILE, NOPROFILE -</B>
+When using the server /PROFILE qualifier enable or disable the authentication
+profile when assessing access for a specific path.&nbsp;
+<P>
+<LI><B>REPORT -</B>
+This setting allows error and other server-generated reports for any specified
+path to changed between <I>detailed</I> and <I>basic</I> (see
+<A HREF="htd_0600.html#91" TARGET="_self">6.4.1 - Basic and Detailed</A>).&nbsp;  Use &quot;report=BASIC&quot; and
+&quot;report=DETAILED&quot;.&nbsp;
+<P>
+<LI><B>ODS-5, ODS-2 -</B> The ODS-5 setting is used to indicate that
+a particular path maps to files on an ODS-5 volume and so the names may comply
+to extended specifications.&nbsp;  This changes the way file names are processed,
+including for example the replacement of invalid RMS characters (see
+immediately below).&nbsp;  The ODS-2 setting is basically redundant, because if a
+path is not indicated as being ODS-5 it is assumed to be ODS-2.  This can be
+used for clarity in the mapping rules if required.&nbsp;
+<P>
+<LI><B>RMSCHAR -</B> 
+This setting applies to ODS-2 paths (the default) only.&nbsp;  Paths SET as ODS-5 do
+not have this applied.&nbsp; During rule mapping of a path to a VMS file
+specification, if an RMS-invalid character (e.g. &quot;+&quot;) or syntax (e.g.
+multiple periods) is encountered  a dollar symbol is substituted in an attempt
+to make it acceptable.&nbsp; This setting provides an alternate substitution
+character.&nbsp;  Any general RMS-valid character may be specified (e.g.
+alpha-numeric, '$', '-' or '_', although the latter three are probably the only
+REAL choices).&nbsp;  A single character is required as in the following example,
+&quot;RMSchar=_&quot;.
+<P>
+<LI><B>SCRIPT=AS= -</B>
+For non-server account scripting this rule allows the user account to be either
+explicitly specified or substituted through the use of the tilde character
+&quot;~&quot; or the dollar &quot;$&quot;.  For further detail see the
+&quot;Scripting Overview, Introduction&quot;.&nbsp;
+<P>
+<LI><B>SCRIPT=[FIND|NOFIND] -</B>
+By default the server always confirms the existance and accessability of a
+script file by searching for it before attempting to activate it.&nbsp;  If it does
+not exsist it reports an error.&nbsp;  It may be possible a Run-Time Environment
+(RTE) may require to access it's own script file via a mechanism available only
+to itself.&nbsp;  The server script search may be disabled by SETting the path as
+<I>nofind</I>, for example &quot;script=nofind&quot;.&nbsp;  The script path and
+filename is directly passed to the RTE for it to process and activate.&nbsp;
+<P>
+<LI><B>SSI -</B>
+SSI documents cannot contain privileged directives (e.g. &lt;--#exec
+... --&gt; unless owned by SYSTEM ([1,4]) or are in path set as allowing these
+directives.&nbsp;  Use SSI=priv to enable this, SSI=nopriv to disable.&nbsp; 
+<B>Caution:</B> these SSI directives are quite powerful, use great
+care when allowing any particular document author or authors to use them.&nbsp;
+<P>
+<LI><B>SSLCGI=<I>string</I> -</B>
+Enables and sets the type of CGI variables used to represent a Secure
+Sockets Layer (SSL) CGI variables.&nbsp;
+<P>
+<UL>
+
+<LI> &quot;SSLCGI=none&quot; disables the facility
+<LI> &quot;SSLCGI=Apache_mod_SSL&quot; provides Apache mod_ssl style variables
+<LI> &quot;SSLCGI=Purveyor&quot; provides Purveyor style variables
+</UL>
+
+
+<P> When enabling these variables it is advised to increase the HTTPD$CONFIG
+[BufferSizeDclCommand] and [BufferSizeCgiPlusIn] directives by approximately
+2048.
+<P>
+<LI><B>STMLF, NOSTMLF -</B>
+Specify files to be automatically converted to Stream-LF format.&nbsp; The default is
+to ignore conversion.&nbsp; STMLF allows selected paths to be converted.&nbsp; See
+<A HREF="htd_1800.html#270" TARGET="_self">File Record Format</A>.&nbsp;
+</OL>
+
+
+<P> Of course, as with all mapping rules, paths containing file types
+(extensions) may be specified so it is quite easy to apply settings to
+particular groups of files.&nbsp;  Multiple settings may be made against the one
+path, merely separate set directives from each other with white-space.&nbsp; If a
+setting string is required to contain white-space enclose the string with
+single or double quotes, or curly brackets.&nbsp;  The following example gives a
+small selection of potential uses.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  # examples of SET rule usage
+  # --------------------------
+  # disable caching for selected paths
+  set /ht_root/src/* NOcache
+  set /sys$common/* NOcache
+  # enable stream-LF conversion in selected directory trees
+  set /web/* stmlf
+  set /ht_root/* stmlf
+  # respond with Cyrillic character set(s) from relevant directories
+  set /*/8859-5/* charset=ISO-8859-5
+  set /*/koi8-r/* charset=KOI8-R
+  # the Sun Java tutorial when UNZIPped contains underscores for invalid characters
+  set /vms/java/tutorial/* RMSchar=_
+  # if a request has "/plain-text/" in it's path then ALWAYS return as plain-text!
+  set /*/plain-text/* content=text/plain
+  map /*/plain-text/* /*/*
+  # same for "/binary/"
+  set /*/binary/* content=text/plain
+  map /*/binary/* /*/*
+  # indicate extended file specifications on this path
+  set /Documents/* ODS-5
+  pass /Documents/* /ods5_device/Documents/*
+  # disable server script search for this RTE
+  set /onerte/*  script=nofind
+  exec /onerte/* (CGI-BIN:[000000]ONERTE.EXE)/ht_root/src/one/*
+</PRE></FONT>
+
+<A NAME="134">
+<H3><BR><U>10.4 - Rule Interpretation</U></H3>
+</A>
+
+<P> The rules are scanned from first towards last, until a matching PASS, EXEC,
+SCRIPT, FAIL, REDIRECT, UXEC or USER rule is encountered, when processing
+ceases and final substitution occurs.&nbsp; Mapped rules substitute the
+<I>template</I> with the <I>result</I> and continue to the next rule.&nbsp; 
+
+<P> Use of wildcards in <I>template</I> and <I>result</I>:
+<UL>
+
+<LI> The <B>template</B> may contain one or more asterisk
+(&quot;*&quot;) wildcard symbols.&nbsp; These match zero or more characters up until
+the character following the wildcard (or end-of-string).&nbsp; If no wildcard is
+present then the path must match the <I>template</I> exactly.&nbsp; 
+<P>
+<LI> The <B>result</B> may contain one or more asterisk (&quot;*&quot;)
+wildcard symbols.&nbsp; It must not contain more wildcards than the
+<I>template</I>.&nbsp; The <I>result</I> wildcards are expanded to replace
+the matching characters of the respective <I>template</I> wildcards.&nbsp;
+Characters represented by wildcards in the <I>template</I> not
+represented by a corresponding wildcard in the <I>result</I> are ignored.&nbsp;
+Non-wildcard <I>result</I> characters are directly inserted in
+reconstructed path.&nbsp; Non-wildcard characters in the <I>template</I> are
+ignored.&nbsp; If the <I>result</I> contains no wildcards it completely
+replaces the URL path.&nbsp; 
+</UL>
+
+
+<A NAME="135">
+<H3><BR>Virtual Servers</H3>
+</A>
+
+<P> As described in <A HREF="htd_0600.html#85" TARGET="_self">6.3 - Virtual Services</A> virtual service syntax
+may be used with mapping rules to selectively apply rules to one specific
+service.&nbsp; If virtual services are configured rule interpretation sees only
+rules common to all services and those specific to it's own service (host
+address and port).&nbsp; In all other aspects rule interpretation applies as
+described above.&nbsp;
+
+<A NAME="136">
+<H3><BR><U>10.5 - Mapping Examples</U></H3>
+</A>
+
+<P> The example
+<A TARGET="_top" HREF="/ht_root/example/httpd$map.conf">mapping rule file</A> for the WASD
+HTTP server can be viewed.
+
+
+<A NAME="137">
+<H3><BR>Example of <B>Map</B> Rule</H3>
+</A>
+
+<P> The <I>result</I> string of these rules may or may not correspond to 
+to a VMS physical file system path.&nbsp;  Either way the resulting rule is further 
+processed before passing or failing.&nbsp; 
+<OL>
+
+<LI> The following example shows a path
+&quot;/web/unix/shells/c&quot; being mapped to
+&quot;/web/software/unix/scripts/c&quot;, with this 
+being used to process further rules.&nbsp; 
+
+<FONT COLOR="#333333"><PRE>  map /web/unix/* /web/software/unix/*
+</PRE></FONT>
+</OL>
+
+
+<A NAME="138">
+<H3><BR>Examples of <B>Pass</B> Rule</H3>
+</A>
+
+<P> The <I>result</I> string of these rules should correspond to to a VMS 
+physical file path.&nbsp; 
+<OL>
+
+<LI> This example shows a path &quot;/web/rts/home.html&quot; being mapped to
+&quot;/user$rts/web/home.html&quot;, and this returned as the mapped path.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  pass /web/rts/* /user$rts/web/*
+</PRE></FONT>
+<P>
+<LI> This maps a path &quot;/icon/bhts/dir.gif&quot; to
+&quot;/web/icon/bhts/dir.gif&quot;, and this returned as the mapped path.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  pass /icon/bhts/* /web/icon/bhts/*
+</PRE></FONT>
+<P>
+<LI> This example illustrates HTTP status code mapping.&nbsp; Each of these does
+basically the same thing, just using one of the three possible delimiters
+according to the characters required in the message.&nbsp; The server generates a
+403 response with has as it's text the following message.&nbsp; (Also see the
+conditional mapping examples.)
+
+<FONT COLOR="#333333"><PRE>  pass /private/* "403 Can't go in there!"
+  pass /private/* '403 "/private/" is off-limits!'
+  pass /private/* {403 Can't go into "/private/"}
+</PRE></FONT>
+</OL>
+
+
+<A NAME="139">
+<H3><BR>Examples of <B>Fail</B> Rule</H3>
+</A>
+<OL>
+
+<LI> If a URL path &quot;/web/private/home.html&quot; is being mapped the path
+would immediately be failed.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  fail /web/private/*
+</PRE></FONT>
+<P>
+<LI> To ensure all access fails, other than that explicitly passed, this entry 
+should be included the the rules.&nbsp; 
+
+<FONT COLOR="#333333"><PRE>  fail /*
+</PRE></FONT>
+</OL>
+
+
+<A NAME="140">
+<H3><BR>Examples of <B>Exec</B> and <B>Script</B> Rules
+</H3>
+</A>
+<OL>
+
+<LI> If a URL path &quot;/htbin/ismap/web/example.conf&quot; is being mapped the
+&quot;/ht_root/script/&quot; must be the URL format equivalent of the physical
+VMS specification for the directory locating the script DCL procedure.&nbsp; The
+&quot;/web/example.conf&quot; that followed the &quot;/htbin/ismap&quot; in the
+original URL becomes the translated path for the script.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  exec /cgi-bin/* /cgi-bin/*
+</PRE></FONT>
+<LI> If a URL path &quot;/pl-bin/example/this/directory/and-file.txt&quot; is
+being mapped the script name and filename become &quot;/pl-bin/example&quot; and
+&quot;HT_ROOT:[SRC.PERL]EXAMPLE.PL&quot; respectively, the path information and
+translated become &quot;/this/directory/and-file.txt&quot; and
+&quot;THIS:[DIRECTORY]AND-FILE.TXT&quot;, and the interpreter (run-time
+environment) activated to interpret the script is CGI-BIN:[000000]PERLRTE.EXE.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  exec /pl-bin/* (cgi-bin:[000000]perlrte.exe)/ht_root/src/perl/*
+</PRE></FONT>
+<P>
+<LI> If a URL path &quot;/conan/web/example.hlb&quot; is being 
+mapped the &quot;/ht_root/script/conan&quot; must be the URL format equivalent of 
+the physical VMS specification for the DCL procedure.&nbsp;  The 
+&quot;/web/example.hlb&quot; that followed the 
+&quot;/conan/&quot; in the original URL becomes the translated path 
+for the script.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  script /conan* /ht_root/script/conan*
+</PRE></FONT>
+</OL>
+
+
+<A NAME="141">
+<H3><BR>Example of <B>Redirect</B> Rule</H3>
+</A>
+<OL>
+
+<LI> If a URL path &quot;/AnotherGroup/this/that/other.html&quot; is 
+being mapped the URL would be redirected to
+&quot;http://host/this/that/other.html&quot;
+
+<FONT COLOR="#333333"><PRE>  redirect /AnotherGroup/* http://host/group/*
+</PRE></FONT>
+</OL>
+
+
+<A NAME="142">
+<H3><BR><U>10.6 - Virtual Servers</U></H3>
+</A>
+
+<P> As described in <A HREF="htd_0600.html#85" TARGET="_self">6.3 - Virtual Services</A>, virtual service syntax
+may be used with mapping rules to selectively apply rules to one specific
+service.&nbsp;  This example provides the essentials of using this syntax.&nbsp;  Note
+that service-specific and service-common rules may be mixed in any order
+allowing common mappings (e.g. for scripting) to be shared.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  # a mapping rule example of virtual servers
+  [[alpha.wasd.dsto.defence.gov.au:80]]
+  # ALPHA is the only service allowing access to VMS help directory
+  pass /sys$common/syshlp/*
+  [[beta.wasd.dsto.defence.gov.au:80]]
+  # good stuff is only available from BETA
+  pass /good-stuff/*
+  # BETA has it's own error report format, the others share one
+  pass /errorreport /ht_root/local/errorreportalpha.shtml  
+  [[gamma.wasd.dsto.defence.gov.au:80]]
+  # gamma responds with documents using the Cyrillic character set
+  set /* charset=ISO-8859-5
+  [[*]]
+  # common file and script mappings
+  exec /cgi-bin/* /cgi-bin/*
+  exec+ /cgiplus-bin/* /cgi-bin/*
+  script+ /help/* /cgiplus-bin/conan/*
+  pass /errorreport /ht_root/local/errorreport.shtml  
+  # now the base directories for all documents
+  [[alpha.wasd.dsto.defence.gov.au:80]]
+  /* /web/alpha/*
+  [[beta.wasd.dsto.defence.gov.au:80]]
+  /* /web/beta/*
+  [[gamma.wasd.dsto.defence.gov.au:80]]
+  /* /web/gamma/*
+  [[*]]
+  # catch-all rule (just in case :^)
+  pass /* /web/*
+</PRE></FONT>
+
+<P> The server administration menu WATCH report (see
+<A HREF="htd_1500.html#240" TARGET="_self">15.3 - HTTPd Server Reports</A>) provides the capability to view the rule
+databse as well as rule mapping during actual request processing, using the
+WATCH facility.&nbsp;
+
+<A NAME="143">
+<H3><BR><U>10.7 - Conditional Mapping</U></H3>
+</A>
+
+<P> The purpose of <I>conditional mapping</I> is to <B>apply</B>
+rules only after certain criteria other than the initial path match are met.&nbsp; 
+These criteria serve to create conditional mapping rules, and were introduced
+in version 4.4.
+
+<P><B>THIS OFFERS A POWERFUL TOOL TO THE SERVER ADMINISTRATOR!&nbsp;</B>
+
+<P> Conditional mapping can be applied on the following criteria:
+<UL>
+
+<LI> authenticated remote user
+<LI> client internet address
+<LI> browser-accepted languages
+<LI> browser-accepted character sets
+<LI> browser-accepted content-types 
+<LI> browser identification string
+<LI> cookie data
+<LI> host and port specified in request header
+<LI> HTTP method (GET, POST, etc.)
+<LI> proxy/gateway host(s) request forwarded by
+<LI> refering page
+<LI> request scheme (protocol ... &quot;http:&quot; or &quot;https:&quot;)
+<LI> query string
+<LI> server name
+<LI> server port
+</UL>
+
+
+<P> Conditionals must follow the rule and are delimited by &quot;[&quot; and
+&quot;]&quot;. Multiple, space-separated conditions may be included
+within one &quot;[...]&quot;. This behaves as a logical OR (i.e. the condition
+only needs one matched to be true).&nbsp; Multiple &quot;[...]&quot; conditionals may be
+included against a rule.&nbsp; These act as a logical AND (i.e. all must have at
+least one condition matched).&nbsp;  If a condition begins with a &quot;!&quot; it
+acts as a negation operator (i.e. matched strings result in a false condition,
+unmatched strings in a true condition).&nbsp; The result of an entire conditional may
+also be negated by prefixing the &quot;[&quot; with a &quot;!&quot;.
+
+<P> If a conditional, or set of conditionals, is not met the rule is completely
+ignored.&nbsp;
+
+<P> Matching is done by simple, case-insensitive, string comparison, using
+the wildcards &quot;*&quot;, matching one or more characters, and &quot;%&quot;,
+matching any single character.&nbsp;
+
+<P> White-space (spaces and TABs), wildcards and the delimiting &quot;[&quot; and
+&quot;]&quot;, are forbidden characters and cannot be used within condition
+matching strings, nor can they be encoded for inclusion in any way (for
+simplicity and speed of processing).&nbsp; These characters are uncommon in the
+information being matched against, but if one does occur then &quot;match&quot; it
+using a single character wildcard (&quot;%&quot;).
+
+<P> While conditionals are powerful adjuncts to <I>smart</I> serving they
+do add significant overhead to rule mapping and should be used with this in
+mind.&nbsp;
+
+<A NAME="144">
+<H3><BR>Conditionals</H3>
+</A>
+<UL>
+
+<LI> <B>ac: -</B> browser-accepted content types
+(&quot;Accept:&quot; request header field)
+<LI> <B>al: -</B> browser-accepted languages
+(&quot;Accept-Language:&quot; request header field)
+<LI> <B>as: -</B> browser-accepted character sets
+(&quot;Accept-Charset:&quot; request header field)
+<LI> <B>ck: -</B> cookie data
+(&quot;Cookie:&quot; request header field)
+<LI> <B>fo: -</B> request forwarded by proxy/gateway host(s)
+(&quot;Forwarded:&quot; request header field)
+<LI> <B>ho: -</B> browser host internet name or address
+<LI> <B>hm: -</B> browser host internet address compare to
+dotted-decimal network and mask specification
+<LI> <B>me: -</B> request HTTP method
+<LI> <B>qs: -</B> query string
+<LI> <B>rf: -</B> refering page
+(&quot;Referer:&quot; request header field)
+<LI> <B>ru: -</B> authenticated remote user name
+<LI> <B>sc: -</B> request <I>scheme</I> (protocol),
+&quot;http&quot;, and if SSL is in use &quot;https&quot; (see
+<A HREF="htd_1400.html#218" TARGET="_self">14 - Secure Sockets Layer</A>)
+<LI> <B>sn: -</B> server name
+<LI> <B>sp: -</B> server port
+<LI> <B>ua: -</B> browser
+(&quot;User-Agent:&quot; request header field)
+<LI> <B>vs: -</B> virtual host and port request directed to
+(&quot;Host:&quot; request header field)
+</UL>
+
+
+<A NAME="145">
+<H3><BR>Examples</H3>
+</A>
+<BLOCKQUOTE><CENTER><B>NOTE</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+It is possible to <I>spoof</I> (impersonate) internet host addresses.&nbsp; 
+Therefore any controls applied using host name/address information cannot be
+used for authorization purposes in the strictest sense of the term.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+<OL>
+
+<LI> The following example shows a rule being applied only if the client host
+is within a particular subnet.&nbsp;  This is being used to provide a
+&quot;private&quot; home page to those in the subnet while others get a
+&quot;public&quot; page by the second rule.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  pass / /web/internal/ [ho:131.185.250.*]
+  pass / /web/
+</PRE></FONT>
+<P>
+<LI> This is a similar example to the above, but showing multiple host
+specifications and specifically excluding one particular host using the
+negation operator &quot;!&quot;. This could be read as <I>pass if ((host
+OR host) AND (not host))</I>.&nbsp;    
+
+<FONT COLOR="#333333"><PRE>  pass / /web/internal/ [ho:*.fred.com ho:*.george.com] [!ho:you.fred.com]
+  pass / /web/
+</PRE></FONT>
+<P>
+<LI> The next example shows how to prevent browsing of a particular tree except
+from specified host addresses.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  pass /web/internal/* /web/SorryNoAccess.html [!ho:131.185.250.*]
+  pass /web/internal/*
+</PRE></FONT>
+
+<P> This could be used to prevent browsing of the server configuration files
+(an alternative to this sort of approach is to use the authorization file, see
+<A HREF="htd_1200.html#157" TARGET="_self">12 - Authentication and Authorization</A>).&nbsp;
+
+<FONT COLOR="#333333"><PRE>  pass /ht_root/local/* /web/SorryNoAccess.html [!ho:131.185.250.201]
+</PRE></FONT>
+<P>
+<LI> This example performs much the same task as the previous one, but uses
+whole conditional negation to prevent browsing of a particular tree except from
+specified addresses (as well as using the continuation character to provide a
+more easily comprehended layout ... note the trailing spaces as
+required).&nbsp;  This could be read as <I>pass if not (host OR host OR
+host)</I>.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  pass /web/internal/* /web/SorryNoAccess.html \
+  ![\
+  ho:131.185.250.* \
+  ho:131.185.251.* \
+  ho:131.185.45.1 \
+  ho:ws2.wasd.dsto.gov.au\
+  ]
+  pass /web/internal/*
+</PRE></FONT>
+<P>
+<LI> This example demonstrates mapping pages according to geography or language
+preference (it's a bit contrived, but ...)
+
+<FONT COLOR="#333333"><PRE>  pass /doc/* /web/doc/french/* [ho:*.fr al:fr]
+  pass /doc/* /web/doc/swedish/* [ho:*.se al:se]
+  pass /doc/* /web/doc/english/*
+</PRE></FONT>
+<P>
+<LI> How to exclude specific browsers from your site (how many times have we
+seen this!)
+
+<FONT COLOR="#333333"><PRE>  # I had to pick on a well-known acronym, no offence Bill!
+  pass /* /web/NoThankYou.html [ua:*MSIE*]
+</PRE></FONT>
+<P>
+<LI> This example allows excluding certain requests from specific addresses.&nbsp;
+This could be read as <I>pass if ((method is POST) AND (not host))</I>.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  pass /* /web/NotAllowed.html [me:POST] [!ho:*.my.net]
+</PRE></FONT>
+<P>
+<LI> The following illustrates using the server name and/or server port to
+conditionally map servers executing on clustered nodes using the same
+configuration file, or for multi-homed/multi-ported hosts.&nbsp; Distinct home pages
+are maintained for each system, and on BETA two servers execute, one on port
+8000 that may only be used by those within the specified network address
+range.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  pass / /web/welcome_to_Alpha.html [sn:alpha.*]
+  pass / /web/welcome_to_Beta.html [sn:beta.*] [sp:80]
+  pass /* /sorry_no_access.html [sn:beta.*] [sp:8000] [!ho:*.my.sub.net]
+  pass / /web/welcome_to_Beta_private.html [sn:beta.*] [sp:8000]
+</PRE></FONT>
+<P>
+<LI> Each of these three do basically the same thing, just using the three
+possible delimiters according to the characters required in the message.&nbsp;
+The server generates a 403 response with has as it's text the following
+message.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  pass /private/* "403 Can't go in there!" [!ho:my.host.name]
+  pass /private/* '403 "/private/" is off-limits!' [!ho:my.host.name]
+  pass /private/* {403 Can't go into "/private/"} [!ho:my.host.name]
+</PRE></FONT>
+<P>
+<LI> This example illustrates the use of a host network mask, the &quot;HM:&quot;
+conditional.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  pass /private/* "403 Can't go in there!" [!hm:131.185.250.128/255.255.255.192]
+</PRE></FONT>
+
+<P> The mask is a dotted-decimal network address, a slash, then a
+dotted-decimal mask.&nbsp;  This example shows a 6 bit subnet.&nbsp;  Network mask
+conditionals operate by bitwise-ANDing the client host address with the mask,
+bitwise-ANDing the network address supplied with the mask, then comparing the
+two results for equality.&nbsp;  Using the above example the host 131.185.250.250
+would be accepted, but 131.185.250.50 would be rejected.&nbsp;
+</OL>
+
+
+<P> <B>Note that rule processing for any particular path may be
+checked using the WATCH facility from the server administration menu.&nbsp;
+See <A HREF="htd_1600.html#245" TARGET="_self">16 - WATCH Facility</A> for details.&nbsp;</B>
+
+<A NAME="146">
+<H3><BR><U>10.8 - Mapping User Directories (<I>tilde</I> character (&quot;~&quot;))
+</U></H3>
+</A> 
+
+<P> The convention for specifying user web areas is &quot;/~username/&quot;.  The
+basic idea is that the user's web-available file-space is mapped into the
+request in place of the tilde and username.&nbsp;
+
+<A NAME="147">
+<H3><BR><U>10.8.1 - Using The SYSUAF</U></H3>
+</A>
+
+<P> The USER rule maps a VMS user account default device and directory (i.e.
+<I>home</I> directory) into a request path (see
+<A HREF="htd_1000.html#130" TARGET="_self">10.3.3 - USER Rule</A>).&nbsp;  That is, the base location for the request
+is obtained from the VMS systems SYSUAF file.&nbsp;  A user's home directory
+information is cached, to reduce load on the authorization databases.&nbsp;  As this
+information is usually quite static there is no timeout period on such
+information (although it may be flushed to make room for other user's).&nbsp;  Cache
+contents is include in the Mapping Rules Report (see
+<A HREF="htd_1500.html#240" TARGET="_self">15.3 - HTTPd Server Reports</A>) and is implicitly flushed when the server's
+rules are reloaded (see <A HREF="htd_1500.html#242" TARGET="_self">15.5 - HTTPd Server Action</A>).&nbsp;
+
+<P> The following is a typical usage of the rule.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  USER  /~*/*  /*/www/*
+</PRE></FONT>
+
+<P> Note the &quot;/www&quot; subdirectory component.&nbsp;  It is <B>stongly
+recommended</B> that users never be mapped into their top-level, but into a
+web-specific subdirectory.&nbsp;  This effectively &quot;sandboxes&quot; Web access to
+that subdirectory hierarchy, allowing the user privacy elsewhere in the home
+area.&nbsp;
+
+<P> To accomodate request user paths that do not incorporate a trailing
+delimiter after the username the following redirect may be used to cause the
+browser to re-request with a more appropriate path (make sure it follows the
+USER rule).&nbsp;
+
+<FONT COLOR="#333333"><PRE>  REDIRECT  /~*  ///~*/
+</PRE></FONT>
+
+<P> WASD also &quot;reverse maps&quot; VMS specifications into paths and so
+requires additional rules to provide these mappings.&nbsp;  (Reverse mapping is
+required during directory listings and error reporting.)  For the continuing
+example the following rules would be required (and in the stated order).&nbsp;
+
+<FONT COLOR="#333333"><PRE>  USER  /~*/*  /*/www/*
+  REDIRECT  /~*  ///~*/
+  PASS  /~*/*  /user$disk/*/www/*
+</PRE></FONT>
+
+<P> Where user home directories are spread over multiple devices (physical or
+concealed logical) a reverse-mapping rule would be required for each.&nbsp; Consider
+the following situation, where user directories are distributed across these
+devices (concealed logicals)
+
+<FONT COLOR="#333333"><PRE>  USER$GROUP1:
+  USER$GROUP2:
+  USER$GROUP2:
+  USER$OTHER:
+</PRE></FONT>
+
+<P> This would require the following mapping rules (in the stated order).&nbsp;
+
+<FONT COLOR="#333333"><PRE>  USER  /~*/*  /*/www/
+  PASS  /~*/*  /user$group1/*/www/*
+  PASS  /~*/*  /user$group2/*/www/*
+  PASS  /~*/*  /user$group3/*/www/*
+  PASS  /~*/*  /user$other/*/www/*
+</PRE></FONT>
+
+<P> Accounts with a search list as a default device (e.g. SYS$SYSROOT) present
+particular complications in this schema and should be avoided.&nbsp;
+<BLOCKQUOTE><CENTER><B>NOTE</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+Accounts that possess SYSPRV, are CAPTIVE, have been DISUSERED or that have
+expired passwords will not be mapped.&nbsp;  A &quot;directory not found&quot; error
+report is returned.&nbsp;  This error was chosen to make it to make more difficult 
+to <I>probe</I> the authorization environment, determining whether
+accounts exist or not.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<P> Of course vanilla mapping rules may be used to provide for special
+cases.&nbsp;  For instance, if there is requirement for a particular, privileged
+account to have a user mapping that could be provided as in the following
+(rather exagerated) example.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  PASS  /~system/*  /sys$common/sysmgr/www/*
+  USER  /~*/*  /*/www/
+  PASS  /~*/*  /user$disk/*/www/*
+</PRE></FONT>
+
+<A NAME="148">
+<H3><BR>User Account Scripting</H3>
+</A>
+
+<P> In some situations it may be desirable to allow the average Web user to
+experiment with or implement scripts.&nbsp;  With WASD 7.1 and later, and VMS V6.2
+and later, this is possible.&nbsp;  Detached scripting must be enabled, the /PERSONA
+startup qualifier used, and appropriate mapping rules in place.&nbsp;  If the SET
+&quot;script=as=&quot; mapping rule specifies a tilde character then for a
+user request the mapped SYSUAF username is substituted.&nbsp;
+
+<P> The following example shows the essentials of setting up a user environment
+where access to a subdirectory in the user's home directory, [.WWW] with
+script's located in a subdirectory of that, [.WWW.CGI-BIN].
+
+<FONT COLOR="#333333"><PRE>  SET   /~*/www/cgi-bin/*  script=as=~
+  UXEC  /~*/cgi-bin/*  /*/www/cgi-bin/*
+  USER  /~*/*  /*/www/*
+  REDIRECT  /~*  /~*/
+  PASS  /~*/*  /dka0/users/*/*
+</PRE></FONT> 
+
+<P> For more detailed information see the &quot;Scripting Overview,
+Introduction&quot;.&nbsp;
+
+<A NAME="149">
+<H3><BR><U>10.8.2 - Without Using The SYSUAF</U></H3>
+</A>
+
+<P>
+<BLOCKQUOTE><CENTER><B>Deprecated and Discouraged</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+There are now &quot;better&quot; approaches to achieving the same functionality
+as described in this section.&nbsp;  This documentation is retained only for
+reference by older site configurations.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<P> The server is also able to map user directories using the same mechanisms
+as for  any other.&nbsp;  No reference needs to be made to the SYSUAF, user support
+can be accomplished via a combination of mapping rule and logical name.&nbsp;  This
+approach relies on a correspondance between the username and the home
+directory name.&nbsp;  Hence users are made known by the HTTPd using the name of
+their top-level directory.&nbsp;  User scripts can also be supported using WASD's
+DECnet scripting environment.&nbsp;
+
+<P> The &quot;PASS&quot; rule provides a wildcard representation of users'
+directory paths.&nbsp; As part of this mapping a subdirectory specifically for the
+hypertext data should always be included.&nbsp; <B>Never</B> map users'
+top-level directories.&nbsp; For instance if a user's account home directory was
+located in the area USER$DISK:[DANIEL] the following rule would potentially
+allow the user DANIEL to provide web documents from the home subdirectory
+[.WWW] (if the user has created it) using the accompanying URL: 
+
+<FONT COLOR="#333333"><PRE>  pass /~*/* /user$disk/*/www/*
+ 
+  http://host/~daniel/
+</PRE></FONT>
+
+<P> It is <B>recommended</B> that a separate logical name be created 
+for locating user directories.&nbsp;  This helps hide the internal organisation of 
+the file system.&nbsp;  The following logical name definition and mapping rule 
+illustrate this point.&nbsp; 
+
+<FONT COLOR="#333333"><PRE>  $ DEFINE /SYSTEM /EXEC /TRANSLATION=CONCEALED WWW_USER device:[USER.]
+ 
+  pass /~*/* /www_user/*/www/*
+</PRE></FONT>
+
+<P> Where users are grouped into different areas of the file system a logical 
+search list may be defined.&nbsp; 
+
+<FONT COLOR="#333333"><PRE>  $ DEFINE /SYSTEM /EXEC /TRANSLATION=CONCEALED -
+           WWW_USER -
+           DISK1:[GROUP1.], -
+           DISK1:[GROUP2.], -
+           DISK2:[GROUP3.], -
+           DISK2:[GROUP4.]
+    
+  pass /~*/* /www_user/*/www/*
+</PRE></FONT>
+
+<P> As logical search lists have specific uses and some complications (e.g.
+when creating files) this is the only use for them recommended with this
+server, although it is specifically coded to allow for search lists in document
+specifications.&nbsp;
+
+<P> If only a subset of all users are to be provided with WWW publishing 
+access either their account directories can be individually mapped (best used 
+only with a small number) or a separate area of the file system be provided 
+for this purpose and specifically mapped as user space.&nbsp; 
+
+<P> Of course, user mapping is amenable to all other rule processing so it is 
+a simple matter to redirect or otherwise process user paths.&nbsp;  For instance, 
+the published username does not need to, or need to continue to, correspond 
+to any real user area, or the user's actual name or home area: 
+
+<FONT COLOR="#333333"><PRE>  redirect /~doej/* http://a.nother.host/~doej/*
+  pass /~doej/* /www/messages/deceased.html
+  pass /~danielm/* /special$www$area/danielm/*
+  pass /~Mark.Daniel/* /user$disk/danielm/www/*
+  pass /~*/* /www_user/*/www/*
+</PRE></FONT>
+
+<P> A user directory is always presented as a top-level directory (i.e. no 
+parent directory is shown), although any subdirectory tree is accesssable by 
+default.&nbsp;
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="htd_1100.html" TARGET="_self">next</A>] [<A HREF="htd_0900.html" TARGET="_self">previous</A>] [<A HREF="htd_0001.html"TARGET="_top" >contents</A>] [<A HREF="htd_1000.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

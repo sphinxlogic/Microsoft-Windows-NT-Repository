@@ -1,0 +1,71 @@
+int
+table_lookup(vid, table_name, key, num_of_cols, p1, p2, p3, p4, p5)
+VID	*vid;
+char	*table_name;			    /* Name of table to search	*/
+char	*key;				    /* Key to search for	*/
+int	num_of_cols;			    /* Pieces of data to get	*/
+char	*p1;				    /* Buffers to fill		*/
+char	*p2;				
+char	*p3;
+char	*p4;
+char	*p5;
+{
+    register int    i;
+    int		    argcount;
+    unsigned long   status;
+    char	    buffer[132];
+    char	    *kp;
+    FILE	    *fp;
+
+    va_count(argcount);
+    /*
+     *  I am assuming that table name is a filename for the voice91 demo.
+     *  In the future, I will append the right extenstion.
+     */
+    if ((fp = fopen(table_name, "r")) == NULL) 
+	return(VOXAG$_TNF);
+    /*
+     *  Search the table for the key
+     */
+    while (fgets(buffer, 132, fp) != NULL) {
+	if ((kp = strstr(&buffer[0], key)) != NULL) 
+	    break;			    /* Found the key		    */
+    }
+    if (kp == NULL) 			    /* Entry not found		    */	
+	return(VOXAG$_NO_ENTRY);
+    /*
+     *  Skip over the key entry
+     */
+    while (!isspace(*kp++));
+    for (i = 0; i < num_of_cols) {    
+	/*
+	 *  Fill in the parameters
+	 */
+	while (!isspace(*kp)) {
+	    *p1++ = *kp++;
+	}
+	*p1 = '\0';
+    }	  
+    if (argcount < 2) 
+	return(SS$_INSFARG);		    /* Need prompt label or text    */
+    /*
+     *  Check for keys in the typeahead buffer.  If there are keys, DON'T
+     *  play the prompt.  
+     */
+    if ((argcount > 3 && interrupt == TRUE) || (argcount <= 3)) {
+        if (strlen(vid->typeahead_keys) > 0) {	/* Keys in typeahead buffer */
+	    return(SS$_NORMAL);
+        }
+    }
+    /*
+     *  May want to play with global messages in the future.
+     *  For right now, just load the message.  Or maybe load the
+     *  message with global message name as the filename.
+     *  status = VOX$LOAD_FROM_FILE(&fnd, &handle, 0, global, &mnd);
+     */
+    if (p_label != 0) {
+        status = VOX$LOAD_FROM_FILE(desc(p_label), &handle);
+        if ((FAILURE(status)) && (status != RMS$_FNF)) 
+	    return(status);
+    }
+}

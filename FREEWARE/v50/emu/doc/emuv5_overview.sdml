@@ -1,0 +1,351 @@
+<chapter>(System Overview\ovvw)
+
+    The system is currently described in 2 major divisions:
+<list>(unnumbered) 
+<le>Core system 
+<le>Applications 
+<endlist> 
+
+    The major distinction between a process existing at either level is
+    the internal database and write access to it: Core routines
+    have direct access and applications do not. In implementation
+    there may be difficulty in maintaining this distinction clearly but
+    it requires persuasive reasoning to violate it. 
+
+<head1>(Core System)
+<x>(Core System)
+
+    The core system is made up of a number of processes and structures
+    who's main objective is to document the network and supply an API
+    to the application layer who's main objective is to monitor the
+    network. 
+<head2>(Listener)
+<x>(Listener)
+    The listener is thoroughly documented elsewhere. Suffice to say
+    here that it provides one of many inputs to the PSRs and acts as a
+    source of data.
+<head2>(PSR)
+<x>(PSR)
+    The array of PSRs provide the first level of 'understanding' in
+    any particular network. A network is composed of multiple devices
+    cooperating via a protocol. Most protocols provide an internal
+    management facility in order to maintain orderliness and will
+    exchange information on the content and events within that
+    network among themselves. It is this 'conversation' that the
+    Listener picks up and passes to the PSRs. Each PSR is responsible
+    for a single protocol and extracts data useful for management
+    purposes and stores it. Additionally as network changes ensue, the
+    PSR detects and alerts those changes to higher layers. A fully
+    implemented PSR will usually be implemented in a number of
+    standalone but intercommunicating processes. Fully implemented
+    includes the following:
+<list>(Unnumbered)
+<le>Ability to receive protocol data units (PDU) directly from the
+    network and extract information useful to EMU purposes.
+<le>Provide a poller function to inquire of the network further data
+    to enhance EMU usefulness.
+<le>Provide a process to receive and process any asyncronous events the
+    network may generate.
+<le>Provide an analysis function able to correlate the inputs from the
+    other processes and make determinations as to protocol address and/or
+    network integrity and functionality.
+<endlist>
+
+<head2>(PSR interface)
+<x>(PSR interface)
+   
+    It is essential to the success of this architecture that new PSRs
+    can be added, changed  and deleted easily. It is a fundamental
+    goal here to add new functionality at this level as dictated by
+    events and to retire older, less useful functions. Further, as
+    functions change, they must integrate seamlessly with the
+    supporting structures. In practice, the Listener(s) and PSRs are
+    the centre of the core.
+
+<head2>(Network Views)
+<x>(Network Views)
+
+    There are a number of underlying principles driving the database
+    structures. The most fundamental is the required 'view' of a
+    network. From one perspective, the network is a collection of
+    devices all connected together and able to transport data from any
+    point to any other point. From another perspective a network is a
+    system offering a service wherein physical location of resources
+    and the complexities of providing that service are hidden from
+    consumers. That is to say the network is an extended computer
+    system, providing a seamless end to end service. Either view is
+    valid and it is a goal to support both views. An EMU user can view
+    either a network and it's collection of devices or devices and it's
+    attachments to various networks. As such the PSRs build network
+    specific databases and pass on information about devices and other
+    networks to another process that forms the relationship of any
+    particular device to any particular network. A secondary
+    design goal is to limit the amount of traffic EMU adds to any network
+    to absolute minimum while effectively attaining it's more primary
+    purposes. As such the following is to be observed:
+<list>(unnumbered)
+<le>The main source of data for any PSR is that which the network uses
+    to control itself. This data is listened to by the system and
+    understood by the PSR. A more successful PSR understands this
+    conversation and is able to extract more information from it than
+    a less successful PSR. 
+<le>EMU does not attempt to monitor all available data on the network.
+    Primary parameters are those contained in the control messages
+    sent by the network. Secondary params are those deemed to be
+    essential to network operation but must be polled for. 
+<le>The majority of useful parameter data can be gathered from the
+    network on an as necessary basis - that is to provide a complete
+    report or similar.
+<endlist>
+
+              
+           
+<head2>(Relater)
+    Information gathered on any single network often has implications
+    for (and about) other networks, particularly when multiple
+    networks interconnect as is common practice. It is a
+    responsibility of the PSRs to make this information available and
+    it is the relater that acts upon the results. The relater
+    essentially builds the 'device' level database and ensures the
+    relationships the PSRs detect are propagated correctly. As such
+    the relater is part of the 'centre of the core'.
+<p>
+    Essentially, the relater database is device specific. Each record
+    specifies EMU's view of a single device, the protocols that it
+    implements (that is the networks it attaches to), and other device
+    specific information such as device type, class and services.
+    Additionally it specifies which EMU server contains the network
+    level information for this device. It does this with the BOXID.
+<head2>(Identity)
+<x>(Identity)
+<x>(BOXID)
+<x>(Protocol Address)
+    For both internal purposes and external representation it is
+    necessary to uniquely identify any single device. Internally EMU
+    defines a BOXID - simply a number that is used to relate disparate
+    pieces of data together. In EMU, the basic unit of information is
+    an address/protocol combination. That is a known address and the
+    protocol it runs is considered an atomic structure and they are
+    indivisible because knowledge of each part is useless without
+    knowledge of the other. This unit is termed a protocol address. As
+    information becomes available, various protocol addresses are found
+    to exist on single devices and via various mechanisms, further
+    device and/or network specific information is gathered. The
+    relater table is the place where this information is correlated
+    and the key between this table and the network databases is the
+    BOXID. This identifier is quite fluid - as any protocol address is
+    detected it is assigned a unique BOXID and if, as and when it is
+    found to relate to another BOXID the number is changed so that the
+    related data is keyed with the same BOXID. The BOXID is made up of
+    2 distinct parts:
+<list>(unnumbered)
+<le>EMU part. Each EMU server is assigned a number. In
+    implementation it simplifies a number of processes if this ID
+    directly relates to it's network address in that it is guaranteed
+    to be unique in the network and where it is located is immediately
+    known without requiring further translation.
+<le>Local part. This is simply a number unique in the local system. 
+<endlist>
+<head2>(EMU network)
+<x>(EMU network)
+    EMU servers cooperate in their own private network. The goal here
+    is to have each server contain the complete list of protocol
+    addresses on the network. Each instance of a protocol address is
+    assigned 'responsibility' to a single server. That is only one
+    server will undertake to monitor any particular protocol address.
+    This is to prevent multiple servers from polling a single device.
+<p>
+
+    Each EMU server periodically sends changes to it's network
+    databases to all other EMU servers on the network.  The EMU server
+    to server update exchanges information on protocol addresses. The
+    system must have sufficient information to decide which EMU server
+    any protocol address is local to. Essentially this is supplied by
+    the combination of the protocol address and the management
+    capability it offers to a particular server. The majority of
+    protocol addresses seen from multiple servers will provide
+    identical facilities to all but there are some circumstances where
+    this is not true. The system then compares the management
+    capabilities as seen from each server and sets the location based
+    upon that server with the greatest capabilities. In (the usual)
+    case of equality, a scheme ensuring only one server has
+    'responsibility' needs to be present to ensure a single device is
+    not being polled from multiple servers.  Additionally, the
+    following rules must be applied in an update message:
+<list>(unnumbered)
+<le>Send only those addresses detected locally. Do not send any
+    updates containing addresses that were created or changed as a
+    result of a received update. 
+<le>Each update will contain the BOXID and the protocol address it
+    refers to followed by an action. the actions may be:
+<list>(unnumbered)
+<le>New (or updated) protocol address showing a management level. This
+    could be simply a number with a higher value indicating more
+    management capability.
+<le>Delete. The sender has deleted this from it's database. the
+    Receiver must also delete it.
+<endlist>
+
+<endlist>
+
+<head2>(Database Overview)
+<x>(PSR Database Overview)
+
+    The database is divided into protocol specific sections with each
+    section independent of all others. Thus there is a LAT database,
+    an IP database and so on. Above this is the relater database which
+    is in effect the device database. That is the relater collates
+    information from the PSR databases and correlates the addresses
+    that coexist on any single device. In each case  the database
+    itself is divided into 3 sections:
+<list>(unnumbered)
+<le>The first record in any database describes the size of the
+    following structure. That is it supplies the size of the records
+    and number of each type of record to follow (at minimum). This
+    record is used to initialise the database at startup. It is
+    written at shutdown.
+<le>The next section is termed the summary section and it's contents
+    and use are directed by the protocol. It is effectively a summary
+    of network contents and activity on this protocol.
+<le>The remainder of the database is made up of the individual records
+    of addresses appearing on this network. 
+<endlist>
+
+<head2>(Record Structure)
+<x>(PSR Record Structure)
+
+    While the contents and size of any record in any database is
+    dictated by the needed and available information from the
+    associated network, there are a number of common features that
+    each database must adhere to:
+<list>(unnumbered)
+<le>The database is created and maintained by a single process.
+    This means that only that process may add and (physically) delete 
+    records and further it is at that process's discretion if as and
+    when the database is available.
+<le>Each record any any database begins with a standard header.
+<le>Each parameter stored is typed with a standard descriptor.
+<endlist>
+
+<head2>(Record Header)
+<x>(PSR Record Header)
+
+    The record header supplies information to accessing processes in
+    standard format so that these processes can access any database
+    using common algorithms. The header, it's size and contents are
+    strictly defined and it is required that any participating
+    database implement it. An extract will make the purpose clear:
+<list>(unnumbered)
+<le>BOXID. Assigned and written by Relater. 
+<le>Other protocols present.Assigned and written by Relater. 
+<le>System control bits
+<le>Status. A field showing current status of this protocol address.
+<le>Time last packet this addr.    
+<le>Time last alert this addr.
+<le>Time this node 1st heard from.    
+<le>and so on...
+<endlist>
+    The data record itself can only be written by the PSR (and possibly
+    some associated pollers and such) but the header allows specific
+    process to write specific areas in the header. Note that any area
+    allows only a single writer - any specific field can only be
+    written by a single process. Thus the BOXID is written by the
+    Relater and can only be written by that process. 
+    Immediately following the header is the data record for a
+    particular protocol address. 
+
+<head2>(Database Access)
+<x>(Database Access)
+
+    There are 2 standard keys that any record in the database always
+    has: The BOXID and the protocol address. Beyond this, a lookup
+    routine must be able to specify a series of specified params used
+    to find records. Wildcarding of any param or address is supported.
+    The BOXID is internal and not displayable. The return is always a
+    pointer to the record satisfying search criteria and a
+    context variable used internally to find the next record in a
+    recursive search. For security purposes any field not accessible
+    by the caller is not displayed and any search specifying a field
+    not accessible is rejected. Given the structures above any
+    parameter stored by EMU is directly addressable by specifying the
+    database, a record key (any field) and a symbol specifying the
+    offset to the parameter . In this context a parameter is the
+    combination of it's Datatype and value. For most purposes this
+    structure is indivisible. 
+     
+         
+<head1>(Counter Processing System)
+<x>(Counter Processing System)
+
+    This subsystem is intended to be a universally useful system used
+    to process and store a related stream of numbers showing their
+    relationship over time. It has the following basic features:
+<list>(unnumbered)
+<le>Stores a limited number of previous samples received and the 
+    time each was received.
+<le>Processes each sample as it is received into the tables and
+    determines:
+<list>(unnumbered)
+<le>	Long term average - The average of all samples received.
+<le>	Short term average - The average of the previous 48 samples.
+<le>	Min/Max - Stores the highest and lowest values for this
+    	stream.
+<endlist>
+<le>Calculates the movement range in both long and short terms. That
+    is, the system determines what the normal range that this stream
+    of samples is in and expresses this as a percentage of the current
+    average. 
+<le>Adjusts the range of each stream based on received values.
+<le>Calculates thresholds based on current averages and movement
+    ranges. 
+<le>Returns a status block to the caller showing which (if any)
+    thresholds were exceeded with an error value relative to the
+    amount and number of thresholds exceeded.
+<endlist>
+
+    In general, the following sequence is used to identify addresses
+    with useful data, and include them in the counter system. 
+<list>(unnumbered)
+<le>On each cycle EMU_CNTPOLL determines which counter analyser to
+    call for the set of counters and calls it with the address param.
+    If the counters do not
+    have CNTID set, they are registered with EMU_CNTRPRC and that
+    routine returns a CNTID - a unique ID to be associated with this
+    counter. Each received counter is passed to CNTRPRC with it's
+    CNTID and if the return specifies any error status, an alert is
+    generated.
+<le>On each cycle CNTRPOLL determines if it is any use to continue
+    polling this address for data. If the address answers less that
+    10% of attempts with good data, the record is removed from the
+    database and this is flagged in the DB1 MOP record. This flag
+    prevents the address from being inadvertently reintroduced to the
+    database.
+<endlist>
+
+<p>
+    The counter system, is intended to be
+    universal. That is any stream of related numbers can be processed
+    through it with only 2 prerequisites:
+<list>(unnumbered)
+<le>The samples are integer only and must be 64 bits wide.
+<le>The samples must not be negative.
+
+<endlist>
+    However, to provide usefulness the following should also be
+    observed:
+<list>(unnumbered)
+<le>The samples should be passed to the subsystem on a regular,
+    cyclical basis. The resulting outputs are less meaningful if the
+    time between samples is highly erratic.
+<le>Each counter uses significant disk space processing
+    time. For a single MOP node about 6300 bytes of disk space is used
+    and again, some processing time. The point is that the system is a
+    heavy user of resources and should be called upon only when the
+    returns are useful and worth the effort. To that end, one of the
+    calculations always performed is the number of times a node was
+    polled for data and the number of times it responded with good
+    data. Should this fall below 10% the entry is deleted from the
+    system. 
+<endlist>
+
+

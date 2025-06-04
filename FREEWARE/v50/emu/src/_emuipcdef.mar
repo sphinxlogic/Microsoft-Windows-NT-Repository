@@ -1,0 +1,174 @@
+        .MACRO  EMUIPCDEF,$GBL
+        $DEFINI EMUIPCDEF,$GBL
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Interprocess communications buffers
+; Processes intercommunicate via ques and flags.
+; In general: the target process is identified by number. The number 
+; is permanantly assigned and designates: 1. the que header location
+;					  2. The flag to set
+; The sender allocates an unused buffer by taking one from the free que
+; In processing determines which process(es) should receive this buffer
+; and sets the process flag in TFLAGS. At send time the buffer is 
+; qued to all process(es) whose flags are set and the coresponding 
+; CEF is set.
+; The RFLAGS param is used by the sender to determine all processes
+; reading the buffer are finished. At send time the TFLAGS and RFLAGS
+; are equal. As each target process returns the buffers it clears it's
+; own flag from the RFLAGS. When all flags are clear, the buffer is unused.
+; The RETURN param indicates which que to return this buffer to.
+; The PARAM is a spare that cooperating process may use to communicate further
+; info 
+; 
+; Process IDs are found in _EMUSYSDEF
+; Standard header
+$EQU	IPC_HDR_C_SIZE		16      ; Size of standard header
+$EQU	IPC_HDR_L_TFLAGS 	0	; Target process flags
+$EQU	IPC_HDR_L_RFLAGS 	4	; Target completion flags
+$EQU	IPC_HDR_L_BUFFNO      	8	; Ebuff number
+$EQU	IPC_HDR_L_PARAM         12      ; Buffer specific param
+; Buffer types
+; The type is embedded into each buffer at IPC_HDR_L_RETURN. 
+; It is used to return the buffer to the correct que
+$EQU	IPC_BTTYPE_C_EBUFF	1       ; Ethernet buffers
+$EQU	IPC_BTTYPE_C_GEN	2	; General use
+$EQU	IPC_ETH_C_LASTBUF	30	; Last buffer to use for Ethernet read
+; Ethernet buffer
+$EQU	IPC_ETH_C_BUFSIZE 	1552	; Total len of buf (includes header)
+$EQU	IPC_ETH_C_BUFNO		32	; Number of buffers to create
+$EQU	IPC_ETH_C_LASTBUF	29	; Last buffer to use for Ethernet read
+$EQU	IPC_ETH_C_RECBUF	30	; 1st buffer to use for record
+
+; Offsets (from start of header)
+$EQU	IPC_ETH_Q_IOSB		16	; IOSB from Ethernet read
+$EQU	IPC_ETH_W_ESAT		16	; Status of ethernet read
+$EQU	IPC_ETH_W_ELEN		18	; Len of ethernet data
+$EQU	IPC_ETH_L_BOXID		20	; Write BOXID here
+$EQU	IPC_ETH_20_RP5		24	; Receive P5 from read
+$EQU	IPC_ETH_EA_DA 		24	; Destination address
+$EQU	IPC_ETH_EA_DALO 	26	; Destination address lo long
+$EQU	IPC_ETH_EA_SA		30	; Source address
+$EQU	IPC_ETH_EA_SALO		32	; Source address lo long
+$EQU	IPC_ETH_W_PTY		36	; Start of protocol type
+$EQU    IPC_ETH_L_TYPIND        38      ; Ethernet frame type indicator
+$EQU	IPC_ETH_5_SNAPPID	39	; SNAP protocol id
+$EQU	IPC_ETH_Q_SPARE		44	; Spare /align
+$EQU	IPC_ETH_1500_DATA   	52	; Ethernet data
+; CEF Usage
+$EQU	FLG_C_1STEBUFF		64	; Lowest CEF to use for EBUFFS
+; Que headers. 1st  IPC_EBUF_C_QHEADSIZE .quads are reserved for que headers
+; 
+$EQU	IPC_EBUF_V_ETHQUE	0	; Indicator this buff is qued to eth
+$EQU	IPC_EBUF_M_ETHQUE	1	; Indicator this buff is qued to eth
+
+;$EQU	IPC_EBUF_C_QHEADSTART	0	; Start of que headers
+;$EQU	IPC_EBUF_C_QHEADSIZE	16	; Number of que headers
+$EQU	IPC_EBUF_C_MAXPSR	16	; Max PSRs present
+$EQU	IPC_EBUF_C_EBUFFQUE	0	; Offset into headers for ebuff que
+$EQU	IPC_EBUF_C_BUFSTART 	128	; Start of EBUFFS
+; packet types
+; IP
+; IP Packet 
+$EQU	PKT_IP_C_VERSLEN	0      ; Version 4 bits, Len 4 bits
+$EQU	PKT_IP_C_SERVICE	1      ; Service type
+$EQU	PKT_IP_C_PCKLEN		2      ; Len of IP packet - incl header
+$EQU	PKT_IP_C_PCKID		4      ; Sequence
+$EQU	PKT_IP_C_FLAGS		6      ; Frag flags (4 bits, Frag offs 12 bits)
+$EQU	PKT_IP_C_TTL		8      ; Time to Live
+$EQU	PKT_IP_C_IPROT 		9      ; Ip protocol
+$EQU	PKT_IP_C_HCHKSUM	10     ; Header Checksum
+$EQU	PKT_IP_C_SRCIADDR	12      ; IP source addr
+$EQU	PKT_IP_C_DSTIADDR	16      ; IP dest addr
+$EQU	PKT_IP_C_OPTIONS	20      ; Options (If present)
+$EQU	PKT_IP_C_DATA		20
+$EQU	PKT_IP_C_SRCPORT	20	; Source socket (no options)   
+$EQU	PKT_IP_C_DSTPORT	22      ; Destination socket (no options)   
+;
+; IP Protocol types
+$EQU	PKT_IP_PROT_C_ICMP  	1	; ICMP
+$EQU	PKT_IP_PROT_C_TCP	6	; TCP
+$EQU	PKT_IP_PROT_C_EGP	8	; EGP
+$EQU	PKT_IP_PROT_C_UDP	17	; UDP
+; Specific IP ports
+$EQU	PKT_IP_PORT_C_SNMPTRAP	41472	; Port 162 (.word, byte reversed)
+; Common IPC
+; This section is for RELATER buffers. 
+; A free buff may be allocated by any process, filled and sent to 
+; the RELATER. That process processes the frame and marks it free
+;
+; 
+$EQU	IPC_COM_C_BUFSIZ	512	; Size 1 buffer
+$EQU	IPC_COM_C_SIZE		64	; Def size in pages	
+	
+; Alert system
+; Alert format
+; This is also the log file format
+$EQU	ALT_MSG_Q_TIME 		0	; Time alert generated
+$EQU	ALT_MSG_L_DBPID		8	; DB this alert is for
+$EQU	ALT_MSG_L_ALTID		12	; ALert ID this alert is for
+$EQU	ALT_MSG_L_CLASS		16	; FCAPS
+$EQU	ALT_MSG_L_SCLAS		20	; Subclass
+$EQU	ALT_MSG_L_EXP		24	; Expirey time (seconds)
+$EQU	ALT_MSG_L_PID		28	; Sender's PID (EMU)
+$EQU	ALT_MSG_L_PRIO		32	; Priority
+$EQU	ALT_MSG_L_PARAMC	36	; Count of params following
+$EQU	ALT_MSG_C_PARAMS 	40	; Paramaters
+
+;
+$EQU	ALT_MSG_C_SIZE		512	; Max sise of any message
+$EQU	ALT_MSG_C_PSIZE		ALT_MSG_C_SIZE-ALT_MSG_C_PARAMS ;(472)
+;Alert Classes
+$EQU	ALT_CLS_C_ACCT		1	;   Accounting
+$EQU	ALT_CLS_C_PERF		2	;    Performance
+$EQU	ALT_CLS_C_CONF		3	;    Configuration
+$EQU	ALT_CLS_C_FAUL		4	;    Fault
+$EQU	ALT_CLS_C_SEC		5	;    Security
+$EQU	ALT_CLS_C_SYS		6	;    system	*
+;Alert SubClasses
+$EQU	ALT_SCLS_C_NEW		1	;   New component
+$EQU	ALT_SCLS_C_MOD		2	;   Modified
+$EQU	ALT_SCLS_C_DEL		3	;   Deleted
+; Alert base priorities. May be 1 - 255
+$EQU	ALT_PRI_C_LOW		10	
+$EQU	ALT_PRI_C_NORM          100
+$EQU	ALT_PRI_C_HIGH          150
+$EQU	ALT_PRI_C_SEVERE        200
+
+;NAMER
+$EQU	NAM_C_RECSIZE  		512      ; Record size
+$EQU	NAM_C_MAXREC		1000	; Def Maximum records
+$EQU	NAM_C_HEADREC		0	; Header rec is 1st rec
+$EQU	NAM_C_1STREC 		NAM_C_RECSIZE	; Database start
+
+; Database
+; Header rec Standard IPC rec 0 (_EMUPSRDEF)
+; all other recs:
+; Standard PSR header (_EMUPSRDEF)
+
+$EQU	NAM_DB_L_PID	 	128      ; PID value of the writer
+$EQU	NAM_DB_L_KEY2	 	132      ; 2nd key if multiple names possible
+$EQU	NAM_DB_AS_NAME 		136	; String
+
+$EQU	NAM_DB_C_MAXNAMSIZ	376	; Max len of name
+; Namer frame
+$EQU	NAM_FRM_L_BOXID		8  	; Sending NAM's boxid
+$EQU	NAM_FRM_L_MTYPE		12      ; Message type
+$EQU	NAM_FRM_L_NAMLEN	16	; Len of following name
+$EQU	NAM_FRM_L_ADDRLEN	20	; Len of following addr
+$EQU	NAM_FRM_L_SENDER 	24      ; Sender's PID
+$EQU	NAM_FRM_L_KEY2 		28      ; 2nd key
+$EQU	NAM_FRM_AS_NAME		32	; Name
+; followed by protocol address
+$EQU	NAM_FRM_C_LEN 		512     ; Len of 1 frame
+; Namer message types
+$EQU	NAM_FRM_C_MSGADD 	1       ; Add these targets
+$EQU	NAM_FRM_C_MSGDEL	2	; Delete these targets
+
+
+        $DEFEND EMUIPCDEF,$GBL,DEF
+        .ENDM

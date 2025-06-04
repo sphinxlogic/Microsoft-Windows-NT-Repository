@@ -1,0 +1,494 @@
+%!PS-Adobe-2.0
+%%Title: Century Almanac
+%%Pages: 2
+%%PageOrder: Ascend
+%%Orientation: Portrait
+%%DocumentPaperSizes: Letter
+%%BoundingBox: 0 0 612 792
+%%EndComments
+
+%
+% 100-year "perpetual" calendar, inspired by circa-1870 "Century Almanac"
+%
+% For best results, print on the heaviest stock your printer can handle,
+% or run it off on plain paper and take it to Staples/Kinko's/whoever for
+% a photocopy on card stock.  Alternatively, you can use spray-on contact
+% cement to attach the output to manila folder stock before cutting.
+%
+% Author: A.W. Rogers, 12/96 [revised 6/97: shade "Su" wheel segments;
+%			      revised 12/98: use true character height;
+%			      revised 3/99: display text around circle]
+%
+% This hack is in the public domain.
+%
+
+/first_year 1950 def			% initial year (1753-9900)
+
+% force "Letter" size paper and disable duplex mode
+statusdict /lettertray known { statusdict begin lettertray end } if
+statusdict (duplexmode) known { statusdict begin false setduplexmode end } if
+
+% array of weekday names
+/weekdays [(Su) (Mo) (Tu) (We) (Th) (Fr) (Sa)] def
+
+% array of arrays containing names of months starting on same day (Jan*
+% and Feb* apply to leap years)
+/months [[(Jan) (Oct)] [(May)] [(Feb*) (Aug)] [(Feb) (Mar) (Nov)]
+	 [(Jun)] [(Sep) (Dec)] [(Jan*) (Apr) (Jul)]] def
+
+% Fonts (try Times-Bold if NewCenturySchlbk-Bold not supported)
+/dayfont /NewCenturySchlbk-Bold def
+/altfont /Helvetica def
+
+/fillgray 0.9 def		% cutout regions on front page
+/alt_fillgray 0.9 def		% Sunday box shading on second page
+
+/inch { 72 mul } bind def
+
+/r0 3.875 inch def		% outer radius of wheel
+/r1 3.75 inch def		% outer radius of weekday circle
+/r2 2.875 inch def		% inner radius of weekday/outer radius of month
+/r3 2.0 inch def		% inner radius of month circle
+
+/angle 360 28 div def		% divide circles into 28 parts
+
+/last_year first_year 99 add def	% final year to print
+
+% utility functions
+
+/center {			% str width center >> --
+	/width exch def
+	/str exch def
+	width str stringwidth pop sub 2 div 0 rmoveto str show
+} def
+
+% print text inside/outside a circle (borrowed from the Blue Book)
+
+/PI 3.14159265359 def
+
+/findhalfangle {
+  stringwidth pop 2 div
+  2 xradius mul PI mul div 360 mul
+} def
+
+/insideplacechar {
+  /char exch def
+  /halfangle char findhalfangle def
+  gsave
+  halfangle rotate
+  radius 0 translate
+  90 rotate
+  char stringwidth pop 2 div neg 0 moveto
+  char display_alt { alt_show } { show } ifelse
+  grestore
+  halfangle 2 mul rotate
+} def
+
+/outsideplacechar {
+  /char exch def
+  /halfangle char findhalfangle def
+  gsave
+  halfangle neg rotate
+  radius 0 translate
+  -90 rotate
+  char stringwidth pop 2 div neg 0 moveto
+  char display_alt { alt_show } { show } ifelse
+  grestore
+  halfangle 2 mul neg rotate
+} def
+
+/insidecircletext {
+  /display_alt exch def
+  /radius exch def
+  /centerangle exch def
+  /ptsize exch def
+  /str exch def
+  /xradius radius ptsize 3 div sub def
+
+  gsave
+  centerangle str findhalfangle sub rotate
+
+  str {
+    /charcode exch def
+    ( ) dup 0 charcode put insideplacechar
+  } forall
+  grestore
+} def
+
+/outsidecircletext {
+  /display_alt exch def
+  /radius exch def
+  /centerangle exch def
+  /ptsize exch def
+  /str exch def
+  /xradius radius ptsize 4 div add def
+
+  gsave
+  centerangle str findhalfangle add rotate
+
+  str {
+    /charcode exch def
+    ( ) dup 0 charcode put outsideplacechar
+  } forall
+  grestore
+} def
+
+/charheight {                   % -- => uppercase character height
+	gsave
+	0 0 moveto
+	(O) true charpath
+	flattenpath
+	pathbbox 4 1 roll pop pop pop
+	grestore
+} def
+
+/strcat {			% str1 str2 >> str1str2
+	2 copy
+	length exch length
+	dup 3 -1 roll add
+	string
+	dup 0 6 -1 roll putinterval
+	dup 3 -1 roll 4 -1 roll putinterval
+} def
+
+% % mark center (crosshatch)
+% /mark_ctr {			% -- >> --
+% 	newpath
+% 	0.8 setlinewidth
+% 	/l 0.15 inch def
+% 	0 l neg 2 div moveto
+% 	0 l rlineto
+% 	l neg 2 div 0 moveto
+% 	l 0 rlineto
+% 	stroke
+% } def
+
+% mark center (circle)
+/mark_ctr {			% -- >> --
+	gsave
+	newpath
+ 	0.8 setlinewidth
+	0 0 0.15 inch 2 div 0 360 arc
+	closepath fillgray setgray fill stroke
+	0.5 setlinewidth 0 setgray
+	0 0 0.15 inch 2 div 0 360 arc stroke
+	grestore
+} def
+
+% alternate version of "show" used to display "Jan" and "Feb" of leap years
+% in a contrasting representation (take your pick); note that all save and
+% restore the graphic state and move the current point past the string
+
+% display string as outlined characters
+/alt_show {			% str >> --
+	gsave
+	0.1 setlinewidth
+	dup true charpath stroke
+	grestore
+	stringwidth pop 0 rmoveto
+} def
+
+% % display string in red
+% /alt_show {			% str >> --
+% 	gsave
+% 	1 0 0 setrgbcolor
+% 	dup show
+% 	grestore
+% 	stringwidth pop 0 rmoveto
+% } def
+
+% % display string in gray
+% /alt_show {			% str >> --
+% 	gsave
+% 	0.6 setgray
+% 	dup show
+% 	grestore
+% 	stringwidth pop 0 rmoveto
+% } def
+
+/FEB 2 def			% significant months
+/MAR 3 def
+
+/is_leap {			% year => boolean [true: leap; false: common]
+    dup 4 mod 0 eq 1 index 100 mod 0 ne 2 index 400 mod 0 eq or and exch pop
+} def
+
+/day_of_week {			% month[1-12] day year => weekday[0-6]
+	3 2 roll dup FEB le { 12 add exch 1 sub exch } if
+	dup 2 mul exch 1 add 3 mul 5 idiv add exch	% Zeller's Congruence
+	dup dup dup 4 idiv exch 100 idiv sub exch 400 idiv add add
+	add add 1 add 7 mod
+} def
+
+% first page - generic calendar and list of years
+
+%%Page: 1 1
+%%BeginPageSetup
+clear flush
+/PageNum { 1 } def
+/PageState save def
+%%EndPageSetup
+
+% print cutting instructions
+0.5 setlinewidth
+newpath
+4.25 inch r1 sub 0 moveto 0 11 inch rlineto
+4.25 inch r1 add 0 moveto 0 11 inch rlineto stroke
+altfont findfont 10 scalefont setfont
+gsave
+4.25 inch r1 sub 2 sub 5.5 inch moveto
+90 rotate
+(CUT HERE) 0 center
+grestore
+
+gsave
+4.25 inch r1 add 2 add 5.5 inch moveto
+270 rotate
+(CUT HERE) 0 center
+grestore
+
+dayfont findfont 10 scalefont setfont
+gsave
+4.25 inch r1 sub 3 sub 1 inch moveto
+90 rotate
+(Inspired by "Century Almanac" calendar, circa 1870) show
+grestore
+
+% mark center for rivet/paper fastener
+4.25 inch 11 inch 4.25 inch r1 sub sub r1 sub translate
+mark_ctr
+
+% create cutouts for weekday/month wheel
+fillgray setgray
+newpath
+0 0 r1 45 135 arc
+0 0 r2 135 45 arcn
+closepath fill stroke
+newpath
+0 0 r2 225 315 arc
+0 0 r3 315 225 arcn
+closepath fill stroke
+
+0 setgray
+newpath
+0 0 r1 45 135 arc
+0 0 r2 135 45 arcn
+closepath stroke
+newpath
+0 0 r2 225 315 arc
+0 0 r3 315 225 arcn
+closepath stroke
+
+/FS 12 def
+altfont findfont FS scalefont setfont
+(REMOVE) 12 90 r2 r1 add FS sub 2 div false outsidecircletext
+(REMOVE) 12 270 r2 r3 add FS add 2 div false insidecircletext
+
+% print generic calendar
+/x0 135 cos r2 mul def		% various x and y coordinates
+/x7 45 cos r2 mul def
+/x x7 x0 sub 7 div def
+/x3 x0 x 3 mul add def
+/y0 135 sin r2 mul 10 sub def
+/y5 225 sin r3 mul 0.9 mul def
+/y y0 y5 sub 5 div def
+/y4 y5 y add def
+
+% draw calendar grid
+newpath
+0 1 7 {
+	/i exch def
+	/a 135 angle i mul sub def
+	a cos r2 mul a sin r2 mul moveto
+	x0 x i mul add y0 lineto
+	x0 x i mul add i 4 ge { y4 } { y5 } ifelse lineto
+} for
+
+x0 y5 moveto x3 y5 lineto
+x3 y4 moveto x7 y4 lineto stroke
+
+% fill in the dates
+/fs y 0.5 mul def
+dayfont findfont [fs 0 0 fs 1.2 mul 0 0 ] makefont setfont
+/ch charheight def
+1 1 31 {
+	/i exch def
+	/r i 1 sub 7 idiv def
+	/c i 6 add 7 mod def
+	x0 c x mul add y0 r 1 add y mul sub y ch sub 2 div add moveto
+	i 3 string cvs x center
+} for
+
+% draw "Century Almanac" legend as per original
+/m x 0.16 mul def
+x3 m add y4 m sub moveto
+x7 m sub y4 m sub lineto
+x7 m sub y5 m add lineto
+x3 m add y5 m add lineto
+closepath fill stroke
+1 setgray
+dayfont findfont [fs 0.6 mul 0 0 fs 1.0 mul 0 0] makefont setfont
+x0 3 x mul add y0 4 y mul sub y5 y4 sub charheight sub 2 div add moveto
+(Century Almanac) x 4 mul center
+0 setgray
+
+% print list of years - note that a) March 1 (not Jan 1) is the base
+% day-of-week for determining which column the year belongs in; b) the
+% first year is always displayed in the leftmost column
+/fs y 0.225 mul def
+/y0 r2 neg def
+dayfont findfont fs scalefont setfont
+/prev_c 7 def
+/y y0 fs sub def
+
+/mar_1_fy MAR 1 first_year day_of_week def	% first year -> left column
+
+first_year 1 last_year {
+	/year exch def
+	/c MAR 1 year day_of_week mar_1_fy sub 7 add 7 mod def
+	c prev_c lt {
+		/y y fs sub def
+	} if
+	x0 c x mul add y moveto
+	year 10 string cvs x center
+	year is_leap { (*) show } if
+	/prev_c c def
+} for
+
+% draw grid around list of years
+/y1 y fs 0.5 mul sub def
+/y2 y0 fs 0.5 mul sub def
+0 1 7 {
+	/i exch def
+	/a 225 angle i mul add def
+	a cos r2 mul a sin r2 mul moveto
+	x0 x i mul add y2 lineto
+	x0 x i mul add y1 lineto
+} for
+
+x0 y1 moveto x7 y1 lineto stroke
+
+% add instructions for leap years (print Jan and Feb in outlines, as per wheel)
+0 y1 fs 2 mul sub moveto
+dayfont findfont [fs 0 0 fs 1.25 mul 0 0] makefont setfont
+/w (*Use Jan and Feb for January and February of Leap Year) stringwidth pop def
+w 2 div neg 0 rmoveto
+(*Use ) show
+(Jan) alt_show
+( and ) show
+(Feb) alt_show
+( for January and February of Leap Year) show
+
+%%PageTrailer
+showpage
+clear flush
+PageState restore
+
+% second page (wheel with weekdays and months)
+
+%%Page: 2 2
+%%BeginPageSetup
+clear flush
+/PageNum { 2 } def
+/PageState save def
+%%EndPageSetup
+
+4.25 inch 11 inch 4.25 inch r1 sub sub r1 sub translate
+
+% draw outer circle with weekday names - note that alignment of weekdays
+% w.r.t. months depends on the starting date of the first year
+
+gsave
+/fs r1 r2 sub 0.4 mul def
+dayfont findfont [ fs 0.8 mul 0 0 fs 0 0 ] makefont setfont
+/text_r r1 r2 add charheight sub 2 div def
+/offset MAR 1 first_year day_of_week 3 add 7 mod def
+
+angle 2 div rotate
+
+0 1 27 {
+	/n exch offset add 7 mod def
+	n 0 eq {			% shade each Sunday segment
+		gsave
+		newpath
+		0 r2 moveto
+		0 r1 lineto
+		0 0 r1 90 90 angle sub arcn
+		angle neg rotate
+		0 r2 lineto
+		0 0 r2 90 90 angle add arc
+		closepath alt_fillgray setgray fill stroke
+		grestore
+	} if
+	0 r2 moveto
+	0 r1 lineto stroke
+	angle 2 div neg rotate
+	weekdays n get fs 90 text_r false outsidecircletext
+	angle 2 div neg rotate
+} for
+grestore
+
+% draw inner circle with inverted month names - if more than one, stack
+% them and reduce font size accordingly
+gsave
+/base_fs r2 r3 sub 0.3 mul def			% base font size
+angle 2 div rotate
+0 1 27 {
+	/n exch 7 mod def
+	0.5 setlinewidth
+	0 r3 moveto
+	0 r2 lineto stroke
+	angle 2 div neg rotate
+	/l months n get length def
+	/fs base_fs l 1 sub 0.1 mul base_fs mul sub def
+	dayfont findfont [ fs 0.8 mul 0 0 fs 0 0 ] makefont setfont
+	/text_r r2 r3 add 2 div fs l 0.25 sub mul 2 div sub charheight add def
+	gsave
+	/y 0 def
+	months n get {
+		% print Jan* and Feb* in alternate form (without asterisk)
+		(*) search {
+			fs 90 text_r y sub true insidecircletext
+			pop pop
+		}
+		{
+			fs 90 text_r y sub false insidecircletext
+		} ifelse
+		/y y fs sub def
+	} forall
+	grestore
+	angle 2 div neg rotate
+} for
+grestore
+
+% draw the concentric circles
+newpath
+0.5 setlinewidth
+0 0 r1 0 360 arc
+0 0 r0 360 0 arcn
+closepath fill stroke
+newpath
+0 0 r2 0 360 arc stroke
+newpath
+0 0 r3 0 360 arc stroke
+
+% draw the center mark and cutting instructions
+mark_ctr
+gsave
+altfont findfont 10 scalefont setfont
+%45 rotate
+%0 r0 4 add moveto
+%(CUT HERE) 0 center
+(CUT HERE) 10 135 r0 4 add false outsidecircletext
+grestore
+
+% print legend (light gray) for matching wheel to top page
+/fs r1 r2 sub 0.4 mul def
+dayfont findfont fs scalefont setfont
+alt_fillgray setgray
+first_year 10 string cvs ( - ) strcat last_year 10 string cvs strcat
+  fs 270 r3 0.95 mul false insidecircletext
+%%PageTrailer
+showpage
+clear flush
+PageState restore

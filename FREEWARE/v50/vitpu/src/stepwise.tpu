@@ -1,0 +1,45 @@
+PROCEDURE step_compile (fn)
+	LOCAL
+		pos,
+		buf,
+		spos,
+		epos,
+		rng;
+
+	ON_ERROR
+		IF ERROR = TPU$_COMPILEFAIL THEN
+			QUIT;
+		ENDIF;
+	ENDON_ERROR
+
+	buf := CREATE_BUFFER ("$$temp_buf$$", fn);
+	IF (buf = 0) THEN
+		MESSAGE ("Error loading file!!!");
+		RETURN;
+	ENDIF;
+
+	POSITION (BEGINNING_OF (buf));
+	pos := MARK (NONE);
+	LOOP
+		rng := SEARCH (line_begin & "PROC", FORWARD, EXACT);
+		EXITIF (rng = 0);
+		spos := BEGINNING_OF (rng);
+		POSITION (spos);
+		MESSAGE (CURRENT_LINE);
+		rng := SEARCH (line_begin & "ENDPROC", FORWARD, EXACT);
+		EXITIF (rng = 0);
+		epos := BEGINNING_OF (rng);
+		POSITION (epos);
+		MOVE_VERTICAL (1);
+		pos := MARK (NONE);
+		MOVE_HORIZONTAL (-1);
+		COMPILE (CREATE_RANGE (spos, MARK (NONE), NONE));
+	ENDLOOP;
+
+	POSITION (pos);
+	COMPILE ("PROCEDURE step_compile ENDPROCEDURE;");
+	EXECUTE (COMPILE (CREATE_RANGE (pos, END_OF (CURRENT_BUFFER), NONE)));
+ENDPROCEDURE;
+
+step_compile (GET_INFO (COMMAND_LINE, "FILE_NAME"));
+quit;

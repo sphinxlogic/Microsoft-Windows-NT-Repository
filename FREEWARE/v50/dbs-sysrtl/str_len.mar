@@ -1,0 +1,116 @@
+	.title	str_len
+	.ident	/X1-002/
+
+;+
+; Version:	X1-002
+;
+; Facility:	String routines.
+;
+; Abstract:	Return the "real" length of a fixed length string.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	27-Sep-1990, DBS, Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS, Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	Accept a fixed length string and scan the string from the end until we
+;	find a character that is not a space, tab or null, thus returning the
+;	"real" length of the string.
+;
+; Calling Sequence:
+;	string_size = str_len (this_string)
+;		-or-
+;	status = str_len (this_string, string_size)
+;		-or-
+;	pushaq	this_string
+;	calls	#1, g^str_len
+;	movl	r0, string_size
+;		-or-
+;	pushal	string_size
+;	pushaq	this_string
+;	calls	#2, g^str_len
+;
+; Formal Argument(s):
+;   1 Argument form:
+;	string.rt.ds	Address of a fixed length string descriptor.
+;   2 Argument form:
+;	string.rt.ds	Address of a fixed length string descriptor.
+;	size.wl.r	Address of a longword to contain the length.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	The "real" length of the string.
+;
+; Side Effects:
+;	None
+;--
+
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	$ssdef
+
+one_arg=1
+p1=4					; offset to argument 1
+p2=8					; offset to argument 2
+space=32				; these are all things we ignore
+tab=9
+
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_code
+
+        .entry -
+str_len ,^m<r2,r3>
+
+	clrl	r2			; always say length is zero to start
+	tstl	p1(ap)			; check the address of the string
+	beql	error			; if it's 0 we don't want to know
+	movq	@p1(ap), r2		; get the string descriptor
+	movzwl	r2, r2			; get rid of the class stuff
+	beql	error			; zero length string, forget it
+	addl2	r2, r3			; set the last byte to search
+10$:	decl	r3			; and adjust
+	cmpb	(r3), #space		; is it a space
+	beql	20$			; yep, keep going
+	cmpb	(r3), #tab		; no, is it a tab
+	beql	20$			; yep, keep going
+	tstb	(r3)			; no, is it a null
+	beql	20$			; yep, keep going
+	brb	30$			; not any of the above, must be real
+20$:	sobgtr	r2, 10$			; decrement the length, and go on ?
+30$:	cmpw	(ap), #one_arg		; one argument only ?
+	beql	40$			; yes, return the length in r0
+	movl	r2, @p2(ap)		; else return where they want it
+	brb	exit
+40$:	movl	r2, r0			; return the length in r0
+	brb	exit
+error:	cmpw	(ap), #one_arg		; one argument ?
+	beql	50$			; yes, just return zero length
+	movl	#ss$_badparam, r0	; else say bad parameter
+	brb	exit
+50$:	clrl	r0			; say zero length for one argument
+	
+exit:	ret
+
+	.end

@@ -1,0 +1,85 @@
+	.TITLE	RESET_MOPCNT
+	.IDENT /V05-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 05-001 PB	29-apr-1997	(re)recreation
+;++ 
+;1 RESET_MOPCNT
+; Resets (clears all bits relating to counters) in MOPDB
+;--
+
+
+	.LIBRARY	/SYS$LIBRARY:LIB.MLB/
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+	$SSDEF		; System Services
+        $NMADEF         ; Network Management
+	EMUSNMPDEF
+	EMUSYSDEF
+	EMURLTDEF
+	EMUCTRLDEF
+	EMUPSRDEF
+	EMUCNTDEF
+	EMUCMIPDEF
+	EMUDBDEF
+	EMUDN4DEF
+	EMUIPCDEF
+	EMUMOPDEF
+	EMUMSGDEF
+	EMUCTPDEF
+	.PSECT	RESET_MOPCNT_D,WRT,NOEXE,PIC,SHR,QUAD
+
+
+MOPMAPS:
+                .QUAD	0
+		.LONG	SYS_PID_C_PSRMOP  
+		.LONG	PSR_MOP_EA_ADDR
+		.LONG	0			; Lock ID
+		.LONG	0			; Spare/align
+		.ADDRESS EMU_MOPDB
+		.ADDRESS EMU_PSRMOP
+EMU_MOPDB:	
+		.ASCID	\EMU_MOPDB\            ; Lock name
+EMU_PSRMOP:	
+		.ASCID	\EMU_PSRMOP\  		; Section name
+
+
+
+	.PSECT	CODE NOWRT,EXE,QUAD
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=RESET_MOPCNT
+
+	PUSHAL	MOPMAPS				; Map structure
+        CALLS	#1,G^MAPLVB_DB  
+	BLBS	R0,10$
+	RET
+10$:
+	MOVL	MOPMAPS,R11				; Top of table
+	ADDL3	#PSR_MOP_C_RECSIZ,R11,R6		; 1st entry 
+	MOVL	COM_DBHDR_L_ENTRIES(R11),R11		; Entries
+	BNEQU	20$					
+	BRW	1000$				; br if None
+20$:
+; If counts offered and not disabled and not in DB then add.
+
+	BICL	#SYS_COM_M_DISCNT,COM_HDR_L_SYSCTL(R6)	; CLEAR disabled
+	BICL	#SYS_COM_M_CNTDB,COM_HDR_L_SYSCTL(R6)	; CLEAR in DB
+100$:
+	ADDL	#PSR_MOP_C_RECSIZ,R6			; Next entry 
+	SOBGTR	R11,20$
+; Unmap
+	PUSHAL	MOPMAPS				; Map structure
+        CALLS	#1,G^UNMAPLVB_DB  
+1000$:
+        MOVL	#SS$_NORMAL,R0
+	RET
+
+ 	.END	RESET_MOPCNT

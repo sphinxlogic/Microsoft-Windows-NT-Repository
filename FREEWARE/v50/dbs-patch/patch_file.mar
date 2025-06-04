@@ -1,0 +1,1299 @@
+	.title	patch_file
+	.ident	/X1-012/
+
+;+
+; Version:	X1-012
+;
+; Facility:	Diagnostic Utilities
+;
+; Abstract:	Patch_File allows a suitably privileged user to read a file
+;		and optionally modify that file regardless of normal access
+;		restrictions.  It operates on 512 byte blocks only and
+;		editing is via Teco (in screen mode if you want) or by
+;		replacing individual bytes within the block.
+;
+; Environment:
+;
+; History:
+;
+;	28-May-1993, DBS, Version X1-011
+; 011 -	Original version.  (Not really, but the first version with this
+;	header in it.)
+;	17-Jan-1996, DBS, Version X1-012
+; 012 -	Added code for the alpha to allow native image.
+;-
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	.external	lbr_output_mlb_module
+	.external	lib_checksum2
+	.external	lib_compare_blocks
+	.external	lib_get_input
+	.external	lib_output_bkt
+	.external	lib_output_fh2
+	.external	lib_output_hm2
+	.external	lib_output_seg_t
+	.external	lib_output_seg_tzb
+	.external	lib_output_seg_zb
+	.external	lib_patch_block
+	.external	lib_validate_fh2
+	.external	lib$get_foreign
+	.external	lib$fid_to_name
+	.external	lib$put_output
+	.external	lib$signal
+	.external	lib$spawn
+	.external	lib$stop
+	.external	lib$tparse
+	.external	str_collapse
+	.external	str_evaluate
+	.external	str_len
+	.external	str_uppercase
+	.external	sys_check_software_expiry1
+	.external	teco_edit_thing
+
+	$fh2def
+	$fibdef
+	$hm2def
+	$iodef
+	$libdef
+	$libdtdef
+	$namdef
+	$rabdef
+	$rmsdef
+	$ssdef
+	$stsdef
+	$tpadef
+	$gblini GLOBAL
+
+	def_psect _util_data_rw, type=DATA, alignment=LONG
+	def_psect _util_data_ro, type=RO_DATA, alignment=LONG
+	def_psect _util_code, type=CODE, alignment=LONG
+
+	.subtitle Local macros
+
+.macro	display_error status=r0, ?next
+
+	blbs	status, next
+	movl	status, util_msgsts
+	$putmsg_s msgvec=util_msgvec
+	movl	util_msgsts, status
+next:
+
+.endm	display_error
+
+.macro	signal_error status=r0, ?next
+
+	blbs	status, next
+	pushl	status
+	calls	#1, g^lib$stop
+next:
+
+.endm	signal_error
+
+	.subtitle Read only data area
+
+	nul=0
+	lf=10
+	cr=13
+	space=32
+
+	set_psect _util_data_ro
+
+util_version:	.ascid	"Patch_File X1-012"
+util_prompt:	.ascid	"PatchFile "
+util_tt:	.ascid	"TT"
+filespec_prompt:.ascid	"_file: "
+		.ascii	"ED>"
+expiry_date:	.long	-1
+check_date:	.long	0
+		.ascii	"<DE"
+
+blank_line:	.ascid	<cr>
+
+util_ambiguous:	.ascid	"!/The use of the word !AS is ambiguous"
+
+util_syntaxerr:	.ascid	"I didn't understand that command, "
+
+util_confused:	.ascid	"!/!ASI got confused when I reached !AS"
+
+util_badtable:	.ascid	<cr><lf>"My internal tables are invalid... help"
+
+util_fatal:	.ascid	<cr><lf>"A fatal logic error has occurred... help"
+
+	reset_psect
+
+	.subtitle Impure data area and TPA argument block
+
+	set_psect _util_data_rw
+
+;>>> start of lib$tparse argument block
+; this becomes the argument block for all lib$tparse action routines
+
+util_parse_ctrl:		; control block for lib$tparse
+	.long	tpa$k_count0	; longword count - required
+	.long	tpa$m_abbrev	; allow unambiguous abbreviations
+		; from here down is filled in at run time
+	.long	0	; length of input string	tpa$l_stringcnt
+	.long	0	; pointer to input string	tpa$l_stringptr
+	.long	0	; length of current token	tpa$l_tokencnt
+	.long	0	; pointer to current token	tpa$l_tokenptr
+	.blkb	3	; unused area
+	.byte	0	; character returned		tpa$b_char
+	.long	0	; binary value of numeric token	tpa$l_number
+	.long	0	; argument supplied by user	tpa$l_param
+		; up to here is REQUIRED, anything after here is optional
+util_parse_ctrl_end:
+
+;>>> end of lib$tparse argument block
+
+	alloc_string	util_command, 256
+	alloc_string	util_faobuf, 2048
+	alloc_string	util_filespec, 255
+
+util_tt_chan:	.long	0
+
+util_msg: 	$putmsg msgvec=util_msgvec ; setup a message vector
+util_msgvec:	.word	^X0001		; argument count
+util_msgtxt:	.word	^X000F		; set message/f/i/s/t
+util_msgsts:	.long	0		; here we store the status
+
+	reset_psect
+
+	.subtitle Main command processing loop
+
+	set_psect _util_code
+
+	.entry -
+util_start, ^m<>
+
+	display	util_version
+	pushal	check_date
+	pushal	expiry_date
+	calls	#2, g^sys_check_software_expiry1
+
+	$assign_s -			; assign a channel to our terminal
+		devnam=util_tt, -	;  so we can setup a control c
+		chan=util_tt_chan	;  trap
+	jsb	util_set_ctrlcast	; now do it
+
+	pushaw	util_filespec
+	pushaq	filespec_prompt
+	pushaq	util_filespec_ds
+	calls	#3, g^lib$get_foreign	; input the filespec
+	blbc	r0, 90$			; bail out on errors
+	tstw	util_filespec		; did they enter anything ?
+	beql	90$			; no, so bail out
+	jsb	validate_filespec	; else check that we have a file
+	blbs	r0, util_get_command	; if it's ok, carry on
+90$:	jmp	util_exit_die		; we don't have a filespec, so exit
+
+util_get_command:
+	pushaw	util_command
+	pushaq	util_prompt
+	pushaq	util_command_ds
+	calls	#3, g^lib_get_input
+	blbc	r0, util_input_error
+	tstw	util_command
+	beql	util_get_command
+
+10$:	pushaq	util_command
+	calls	#1, g^str_uppercase
+	movzwl	util_command, -		; move the command descriptor to
+		util_parse_ctrl+tpa$l_stringcnt ; the control block so that
+	movab	util_command_t, -	; lib$tparse knows what to look at
+		util_parse_ctrl+tpa$l_stringptr
+	pushab	start_keyword_tbl	; that's the keyword table to use
+	pushab	start_state_tbl		; that's the state table to use
+	pushab	util_parse_ctrl		; that's the control block
+	calls	#3, g^lib$tparse	; let's parse the command
+	blbs	r0, util_get_command	; if it's ok, back for more
+	jsb	util_syntax_error	; go do some error processing
+20$:	brw	util_get_command	;  and then back for more
+
+util_input_error:
+	cmpl	r0, #rms$_eof		; did they do a ^Z ?
+	beql	10$			; yes, don't report an error
+	tstw	util_command		; did they give a response ?
+	beql	10$			; no, just go away
+	display_error
+10$:	brw	util_exit_die
+
+util_syntax_error: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+	movl	r0, util_msgsts		; in case we need it later
+	cmpl	r0, #lib$_invtype	; is it a table problem ?
+	bneq	10$			; no, try some other tests
+	display_error util_msgsts
+	display	util_badtable		; say our parse table is rs
+	brw	90$			; and bail out
+10$:	cmpl	r0, #lib$_syntaxerr	; was it a syntax error ?
+	beql	20$			; yes, check for ambiguity as well
+	display_error util_msgsts
+	brw	90$			; and bail out
+20$:	movaq	util_parse_ctrl+tpa$l_tokencnt, r0
+	bbs	#tpa$v_ambig, -		; here we check to see if the word
+		util_parse_ctrl+tpa$l_options, - ; was ambiguous so we can
+		30$			; give our message
+	$fao_s	ctrstr=util_confused, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=#util_syntaxerr, -
+		p2=r0			; that's the confusing bit
+	brw	40$
+30$:	$fao_s	ctrstr=util_ambiguous, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=r0			; that's the ambiguous bit
+40$:	display	util_faobuf
+90$:	rsb
+
+	.entry -		; exit without displaying any messages but
+util_exit, ^m<>			; leave the status value intact
+util_exit_die:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+	$qiow_s	chan=disk_chan, -
+		func=#<io$_deaccess>, -
+		p1=fib_descr
+	$dassgn_s chan=disk_chan
+	display	blank_line
+	bisl	#sts$m_inhib_msg, r0
+	$exit_s	code=r0
+	ret
+
+	set_psect _util_data_ro
+util_incomplete:	.ascid	"!/?!AS what?"
+util_no_can_do:		.ascid	\!/"!AS" is not a thing that I can do\
+	reset_psect
+
+	.entry -			; tell them that what they type was
+util_not_possible, ^m<>			; not something we can do
+	$fao_s	ctrstr=util_no_can_do, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=#util_command
+	display	util_faobuf
+	ret
+
+	.entry -		; tell them that their command was lacking
+util_short_command, ^m<>	; in substance
+	$fao_s	ctrstr=util_incomplete, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=#util_command
+	display	util_faobuf
+	ret
+
+	.entry -		; use implicit processing of blanks
+util_blanks_off, ^m<>
+	bbcc	#tpa$v_blanks, tpa$l_options(ap), 10$
+10$:	ret
+
+	.entry -		; use explicit processing of blanks
+util_blanks_on, ^m<>
+	bbss	#tpa$v_blanks, tpa$l_options(ap), 10$
+10$:	ret
+
+util_set_ctrlcast:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+	$qiow_s	chan=util_tt_chan, -
+		func=#<io$_setmode!io$m_ctrlcast>, -
+		p1=util_exit, -
+		p3=#3
+	rsb
+
+	.subtitle Data areas for filespec validation routine
+
+	set_psect _util_data_ro
+
+patching:		.ascid	"Patching file !AS!/!14* !AS (!UW,!UW,!UW)!/"
+inp_def_filespec:	.ascid	"FILE.DAT"
+
+	reset_psect
+
+	set_psect _util_data_rw
+
+disk_chan:	.long	0		; used for all qio's
+
+inp_fib:	.blkb	fib$k_length
+
+fib_descr:	.long	fib$k_length
+		.address inp_fib
+
+	alloc_string	inp_dvi, 64	; nam$s_dvi
+	alloc_string	inp_file, 255
+
+inp_filespec:	.long	0
+inp_filespec_addr:
+		.long	0
+inp_fid:	.long	0
+inp_seq:	.long	0
+inp_rvn:	.long	0
+
+norecord_value:	.long	xab$k_enable
+xabitems:	.word	4, xab$_norecord
+		.address norecord_value
+		.long	0
+		.long	0		; to end the list
+
+	.align	long
+inp_xab:
+	$xabitm	itemlist=xabitems, -
+		mode=SETMODE
+inp_fab:
+	$fab	fac=<GET>, -
+		fop=<NAM>, -
+		nam=inp_nam, -
+		xab=inp_xab
+inp_nam:
+	$nam
+inp_rab:
+	$rab 	fab=inp_fab, -
+		rac=<SEQ>
+
+	reset_psect
+
+	.subtitle Filespec validation routine
+
+validate_filespec:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	pushr	#^m<r2,r3,r4,r5>
+
+	pushaq	util_filespec
+	calls	#1, g^str_uppercase
+	movzwl	util_filespec, -
+		util_parse_ctrl+tpa$l_stringcnt
+	movab	util_filespec_t, -
+		util_parse_ctrl+tpa$l_stringptr
+	pushab	input_keyword_tbl
+	pushab	input_state_tbl
+	pushab	util_parse_ctrl
+	calls	#3, g^lib$tparse
+	blbc	r0, 90$
+
+	tstl	inp_fid			; did they use fid
+	beql	10$			; no, use filename
+	bsbw	process_file_id
+	brw	80$
+10$:	bsbw	process_filespec
+80$:	bsbw	open_file
+
+90$:	popr	#^m<r2,r3,r4,r5>
+
+	rsb
+
+process_file_id:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	movw	inp_fid, inp_fib+fib$w_fid
+	movw	inp_seq, inp_fib+fib$w_fid+2
+	movw	inp_rvn, inp_fib+fib$w_fid+4
+	movl	inp_filespec, inp_dvi
+	movzwl	inp_filespec, r0
+	movc3	r0, @inp_filespec_addr, inp_dvi_t
+	pushal	inp_file
+	pushaq	inp_file_ds
+	pushaw	inp_fib+fib$w_fid
+	pushaq	inp_dvi
+	calls	#4, g^lib$fid_to_name
+	signal_error
+
+	rsb
+
+process_filespec:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	movb	inp_def_filespec, -
+		inp_fab+fab$b_dns
+	movl	inp_def_filespec+4, -
+		inp_fab+fab$l_dna
+	movb	util_filespec, -
+		inp_fab+fab$b_fns
+	movab	util_filespec_t, -
+		inp_fab+fab$l_fna
+	movb	#inp_file_s, -
+		inp_nam+nam$b_ess
+	movab	inp_file_t, -
+		inp_nam+nam$l_esa
+
+	$parse	fab=inp_fab
+	signal_error
+	$search	fab=inp_fab
+	signal_error
+
+	movzbl	inp_nam+nam$b_esl, -
+		inp_file
+
+	movw	inp_nam+nam$w_fid, -
+		inp_fib+fib$w_fid
+	movw	inp_nam+nam$w_fid+2, -
+		inp_fib+fib$w_fid+2
+	movw	inp_nam+nam$w_fid+4, -
+		inp_fib+fib$w_fid+4
+	movzbl	inp_nam+nam$t_dvi, r0
+	movc3	r0, -
+		inp_nam+nam$t_dvi+1, -
+		inp_dvi_t
+
+	pushal	inp_dvi
+	pushaq	inp_dvi_ds
+	calls	#2, g^str_len
+
+	addl3	#inp_dvi_t, inp_dvi, r0
+	movb	#^A/:/, (r0)
+	incl	inp_dvi
+
+	rsb
+
+open_file:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	calls	#0, util_show_filespec
+
+	$assign_s -
+		devnam=inp_dvi, -
+		chan=disk_chan
+	display_error
+
+	movl	#<fib$m_nowrite -
+		!fib$m_write -
+		!fib$m_nolock -
+		!fib$m_norecord>, -
+		inp_fib+fib$l_acctl
+
+	$qiow_s	chan=disk_chan, -
+		func=#<io$_access!io$m_access>, -
+		p1=fib_descr
+	display_error
+
+	rsb
+
+	.subtitle Data areas for Set and Show routines
+
+	set_psect _util_data_ro
+
+display_is:	.ascid	"Display mode is set to !AC!/"
+display_both:	.ascic	"ASCII and HEX"
+display_ascii:	.ascic	"ASCII"
+display_hex:	.ascic	"HEX"
+write_on:	.ascid	"WRITE is ENABLED"
+write_off:	.ascid	"WRITE is DISABLED"
+
+	reset_psect
+
+	set_psect _util_data_rw
+
+patch_flags1:	.long	0
+	pat_m_write	== 1
+	pat_v_write	== 0
+	pat_m_read_done	== 2
+	pat_v_read_done	== 1
+
+display_option:	.long	0
+	disp_k_both	== 0
+	disp_k_ascii	== 1
+	disp_k_hex	== 2
+
+	reset_psect
+
+	.subtitle Enable, Disable, Set and Spawn routines
+
+	set_psect _util_data_ro
+
+subproc_prompt:	.ascid	"...dcl "
+
+	reset_psect
+
+	.entry -
+util_spawn, ^m<>
+
+	pushaq	subproc_prompt
+	pushl	#0
+	pushl	#0
+	pushl	#0
+	pushl	#0
+	pushl	#0
+	pushl	#0
+	pushl	#0
+	pushl	#0
+	pushl	#0
+	pushaq	tpa$l_stringcnt(ap)
+	calls	#11, g^lib$spawn
+	display	blank_line
+
+	ret
+
+	.entry -
+util_enable_flag1, ^m<>
+
+	bisl	tpa$l_param(ap), -
+		patch_flags1
+	movl	#1, r0
+
+	ret
+
+	.entry -
+util_disable_flag1, ^m<>
+
+	bicl	tpa$l_param(ap), -
+		patch_flags1
+	movl	#1, r0
+
+	ret
+
+	.entry -
+util_set_display, ^m<>
+
+	movl	tpa$l_param(ap), -
+		display_option
+	movl	#1, r0
+
+	ret
+
+	.subtitle Show routines
+
+	.entry -
+util_show_all, ^m<>
+
+	calls	#0, util_show_filespec
+	calls	#0, util_show_display
+	calls	#0, util_show_flag1
+	calls	#0, util_show_current_vbn
+
+	ret
+
+	.entry -
+util_show_filespec, ^m<>
+
+	$fao_s	ctrstr=patching, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=#inp_file, -
+		p2=#inp_dvi, -
+		p3=inp_fib+fib$w_fid, -
+		p4=inp_fib+fib$w_fid+2, -
+		p5=inp_fib+fib$w_fid+4
+	display util_faobuf
+
+90$:	ret
+
+	.entry -
+util_show_display, ^m<>
+
+	movab	display_both, r0	; this is the default
+	cmpl	#disp_k_ascii, -	; is the setting ascii ?
+		display_option
+	bneq	10$			; no, see if it's hex
+	movab	display_ascii, r0	; else it is ascii
+	brb	90$			; do the display
+10$:	cmpl	#disp_k_hex, -		; is the setting hex ?
+		display_option
+	bneq	90$			; no, it must be the default
+	movab	display_hex, r0		; else it is hex
+
+90$:	$fao_s	ctrstr=display_is, -	; show the current display setting
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=r0
+	display	util_faobuf
+
+	ret
+
+	.entry -
+util_show_flag1, ^m<>
+
+	bbc	#pat_v_write, patch_flags1, 10$
+	display	write_on
+	brb	90$
+
+10$:	display	write_off
+
+90$:	display blank_line
+
+	ret
+
+	.entry -
+util_show_current_vbn, ^m<>
+
+	bbs	#pat_v_read_done, -
+		patch_flags1, 10$
+	display	no_current
+	brb	90$
+
+10$:	$fao_s	ctrstr=doing_vbn, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=#current_is, -
+		p2=current_vbn
+	display	util_faobuf
+
+90$:	display	blank_line
+
+	ret
+
+	.entry -
+util_show_differences, ^m<>
+
+	bbs	#pat_v_read_done, -
+		patch_flags1, 10$
+	display	no_current
+	brb	90$
+
+10$:	pushaq	modified_buffer
+	pushaq	original_buffer
+	pushal	current_vbn
+	calls	#3, g^lib_compare_blocks
+
+90$:	display	blank_line
+
+	ret
+
+	.subtitle Data areas for format routines
+
+	set_psect _util_data_ro
+
+bad_fh2_header:	.ascid	"Buffer is not a valid Files-11 file header"<cr><lf>
+
+	reset_psect
+
+	set_psect _util_data_rw
+
+format_option:	.long	0
+	fmt_m_original	== 1
+	fmt_v_original	== 0
+	fmt_m_modified	== 2
+	fmt_v_modified	== 1
+
+	reset_psect
+
+	.subtitle Format routines
+
+	.entry -
+util_format_homeblock, ^m<>
+
+	bbs	#pat_v_read_done, -
+		patch_flags1, 10$
+	display	no_current
+	brw	90$
+	
+10$:	calls	#0, g^util_show_current_vbn
+
+	bbs	#fmt_v_original, -
+		format_option, 20$
+
+	pushab	modified_buffer_t
+	calls	#1, g^lib_output_hm2
+	brb	90$
+
+20$:	pushab	original_buffer_t
+	calls	#1, g^lib_output_hm2
+
+90$:	clrl	format_option
+
+	ret
+
+	.entry -
+util_format_bucket, ^m<>
+
+	bbs	#pat_v_read_done, -
+		patch_flags1, 10$
+	display	no_current
+	brw	90$
+	
+10$:	calls	#0, g^util_show_current_vbn
+
+	bbs	#fmt_v_original, -
+		format_option, 20$
+
+	pushab	modified_buffer_t
+	calls	#1, g^lib_output_bkt
+	brb	90$
+
+20$:	pushab	original_buffer_t
+	calls	#1, g^lib_output_bkt
+
+90$:	clrl	format_option
+
+	ret
+
+	.entry -
+util_format_header, ^m<>
+
+	bbs	#pat_v_read_done, -
+		patch_flags1, 10$
+	display	no_current
+	brw	90$
+	
+10$:	calls	#0, g^util_show_current_vbn
+
+	bbs	#fmt_v_original, -
+		format_option, 20$
+
+	pushab	modified_buffer_t
+	calls	#1, g^lib_validate_fh2
+	blbc	r0, 80$
+
+	pushab	modified_buffer_t
+	calls	#1, g^lib_output_fh2
+	brb	90$
+
+20$:	pushab	original_buffer_t
+	calls	#1, g^lib_validate_fh2
+	blbc	r0, 80$
+
+	pushab	original_buffer_t
+	calls	#1, g^lib_output_fh2
+	brb	90$
+
+80$:	display	bad_fh2_header
+
+90$:	clrl	format_option
+
+	ret
+
+	.subtitle Display routines
+
+	set_psect _util_data_rw
+
+segment_size:	.long	0
+	segsize_ascii	== 64
+	segsize_hex	== 24
+	segsize_both	== 16
+dsp_record:	.quad	0
+
+	reset_psect
+
+	.entry -
+util_display_original, ^m<>
+
+	movab	displaying_org, r0
+	movl	current_vbn, r1
+	movq	original_buffer, dsp_record
+
+	jsb	util_display_
+
+	ret
+
+	.entry -
+util_display_copy, ^m<>
+
+	movab	displaying_mod, r0
+	movl	current_vbn, r1
+	movq	modified_buffer, dsp_record
+
+	jsb	util_display_
+
+	ret
+
+util_display_:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+; Inputs
+;	R0	Address of the descriptor of the block type i.e. orig or mod
+;	R1	Block number
+
+	bbs	#pat_v_read_done, -
+		patch_flags1, 10$
+	display	no_current
+	brb	90$
+
+10$:	$fao_s	ctrstr=doing_vbn, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=r0, -
+		p2=r1
+	display	util_faobuf
+
+	movl	#segsize_both, -
+		segment_size
+	movab	g^lib_output_seg_tzb, r1
+	cmpl	#disp_k_both, -
+		display_option
+	beql	80$
+	movl	#segsize_ascii, -
+		segment_size
+	movab	g^lib_output_seg_t, r1
+	cmpl	#disp_k_ascii, -
+		display_option
+	beql	80$
+	movl	#segsize_hex, -
+		segment_size
+	movab	g^lib_output_seg_zb, r1
+
+80$:	pushal	segment_size		; that's how many bytes per line
+	pushal	dsp_record		; this is the record size
+	pushaq	dsp_record		; and this is the descriptor
+	calls	#3, (r1)
+
+90$:	display	blank_line
+
+	rsb
+
+	.subtitle Data areas for Read and Write routines
+
+	set_psect _util_data_ro
+
+no_read:	.ascid	"WRITE is invalid without a READ"
+reading:	.ascic	"Reading"
+writing:	.ascic	"Writing"
+displaying_org:	.ascic	"Original"
+displaying_mod:	.ascic	"Modified"
+current_is:	.ascic	"Currently selected"
+no_current:	.ascid	"There is no current VBN"
+doing_vbn:	.ascid	"!AC VBN !UL  (!-!XL)"
+
+	reset_psect
+
+	set_psect _util_data_rw
+
+	alloc_string	original_buffer, 512
+	alloc_string	modified_buffer, 512
+
+current_vbn:	.long	0
+block_modified:	.long	0
+
+	reset_psect
+
+	.subtitle Read routine
+
+	.entry -
+util_read, ^m<r2,r3,r4,r5>
+
+	bicl	#pat_m_read_done, -	; assume for now that the read is
+		patch_flags1		;  going to fail
+
+	$fao_s	ctrstr=doing_vbn, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=#reading, -
+		p2=current_vbn
+	display	util_faobuf
+
+	jsb	issue_read_qio
+	blbc	r0, 90$
+	movc3	#original_buffer_s, -
+		original_buffer_t, -
+		modified_buffer_t
+
+	bisl	#pat_m_read_done, -	; flag that the read was ok
+		patch_flags1
+
+90$:	display blank_line
+
+	ret
+
+issue_read_qio:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	$qiow_s	chan=disk_chan, -
+		func=#io$_readvblk, -
+		p1=original_buffer_t, -
+		p2=#original_buffer_s, -
+		p3=current_vbn
+	display_error
+
+	rsb
+
+	.subtitle Write routine
+
+	.entry -
+util_write, ^m<>
+
+	bbs	#pat_v_write, -		; only proceed if write is enabled
+		patch_flags1, 10$
+	display write_off		; else say we can't write
+	brb	90$			; and return
+
+10$:	bbs	#pat_v_read_done, -	; only proceed if we've done a read
+		patch_flags1, 20$
+	display	no_read			; else say we've nothing to write
+	brb	90$			; and return
+
+20$:	$fao_s	ctrstr=doing_vbn, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=#writing, -
+		p2=current_vbn
+	display	util_faobuf
+
+	jsb	issue_write_qio
+
+	bicl	#pat_m_read_done, -	; clear the read done flag so another
+		patch_flags1		;  read is required for this block
+	bicl	#pat_m_write, -		; disable write for now
+		patch_flags1		;  this must be done for each write
+
+90$:	display blank_line
+
+	ret
+
+issue_write_qio:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	$qiow_s	chan=disk_chan, -
+		func=#io$_writevblk, -
+		p1=modified_buffer_t, -
+		p2=#modified_buffer_s, -
+		p3=current_vbn
+	display_error
+
+	rsb
+
+	.subtitle Patch and Edit routines
+
+	.entry -
+util_patch, ^m<>
+
+	bbs	#pat_v_read_done, -	; only proceed if we've done a read
+		patch_flags1, 10$
+	display	no_current		; else say we've nothing to patch
+	brb	90$			; and return
+
+10$:	pushal	block_modified
+	pushaq	modified_buffer
+	calls	#2, g^lib_patch_block
+
+90$:	display	blank_line
+
+	ret
+
+	.entry -
+util_edit, ^m<>
+
+	bbs	#pat_v_read_done, -	; only proceed if we've done a read
+		patch_flags1, 10$
+	display	no_current		; else say we've nothing to edit
+	brb	90$			; and return
+
+10$:	pushaq	modified_buffer
+	calls	#1, g^teco_edit_thing
+
+90$:	display	blank_line
+
+	ret
+
+	.subtitle Checksum data areas and routines
+
+	set_psect _util_data_ro
+
+bad_checksum_count:
+	.ascid	"Invalid checksum byte count"
+checksum_display:
+	.ascid	"Original checksum = !XW, Calculated checksum = !XW"
+
+	reset_psect
+
+	set_psect _util_data_rw
+
+checksum_count:	.long	0
+	min_checksum_count == 2
+	max_checksum_count == 510
+
+	reset_psect
+
+	.entry -
+util_header_checksum, ^m<>
+
+	bbs	#pat_v_read_done, -
+		patch_flags1, 10$
+	display	no_current
+	brb	90$
+
+10$:	pushl	#fh2$w_checksum
+	pushab	modified_buffer_t
+	calls	#2, g^lib_checksum2
+	movl	#fh2$w_checksum, r0
+	jsb	display_checksums
+
+90$:	display	blank_line
+
+	ret
+
+	.entry -
+util_home_checksum, ^m<>
+
+	bbs	#pat_v_read_done, -
+		patch_flags1, 10$
+	display	no_current
+	brb	90$
+
+10$:	pushl	#hm2$w_checksum1	; calculate the first of the home
+	pushab	modified_buffer_t	;  block checksums
+	calls	#2, g^lib_checksum2
+	pushl	#hm2$w_checksum2	; now do the second
+	pushab	modified_buffer_t
+	calls	#2, g^lib_checksum2
+	movl	#hm2$w_checksum1, r0
+	jsb	display_checksums
+	movl	#hm2$w_checksum2, r0
+	jsb	display_checksums
+
+90$:	display	blank_line
+
+	ret
+
+	.entry -
+util_calc_checksum, ^m<>
+
+	bbs	#pat_v_read_done, -
+		patch_flags1, 10$
+	display	no_current
+	brb	90$
+
+10$:	cmpl	checksum_count, -
+		#min_checksum_count
+	blssu	80$
+	cmpl	checksum_count, -
+		#max_checksum_count
+	bgtru	80$
+	bbs	#0, checksum_count, 80$
+
+	pushl	checksum_count
+	pushab	modified_buffer_t
+	calls	#2, g^lib_checksum2
+	movl	checksum_count, r0
+	jsb	display_checksums
+	brb	90$
+
+80$:	display	bad_checksum_count
+
+90$:	display	blank_line
+
+	ret
+
+display_checksums:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+; Inputs:
+;	R0	Offset within block to checksum
+
+	$fao_s	ctrstr=checksum_display, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=original_buffer_t(r0), -
+		p2=modified_buffer_t(r0)
+	display	util_faobuf
+
+	rsb
+
+	.subtitle List macro routines
+
+	set_psect _util_data_rw
+
+inp_keyname:	.quad	0
+inp_library:	.quad	0
+
+	reset_psect
+
+	.entry -
+util_list_macro, ^m<>
+
+	movq	tpa$l_tokencnt(ap), -
+		inp_library
+	pushaq	inp_keyname
+	pushaq	inp_library
+	calls	#2, g^lbr_output_mlb_module
+	display	blank_line
+
+	ret
+
+	.subtitle Expression evaluation routine and data areas
+
+	set_psect _util_data_ro
+
+eval_evaluation:.ascid	" expression = !UL (%x!-!XL, %o!-!OL)!/"
+eval_badexpr:	.ascid	"Your expression could not be evaluated"<cr><lf>
+
+	reset_psect
+
+	set_psect _util_data_rw
+
+eval_dot:	.long	0
+eval_q:		.long	0
+eval_z:		.long	0
+eval_answer:	.long	0
+
+	reset_psect
+
+	.entry -
+util_evaluate, ^m<>
+
+	clrl	eval_dot
+	clrl	eval_z
+
+	pushal	eval_answer
+	pushal	eval_z
+	pushal	eval_q
+	pushal	eval_dot
+	pushaq	tpa$l_stringcnt(ap)
+	calls	#5, g^str_evaluate
+	blbs	r0, 10$
+
+	display	eval_badexpr
+	brb	90$
+
+10$:	$fao_s	ctrstr=eval_evaluation, -
+		outbuf=util_faobuf_ds, -
+		outlen=util_faobuf, -
+		p1=eval_answer
+	display	util_faobuf
+
+	movl	eval_answer, eval_q
+
+90$:	ret
+
+	.subtitle Parser state and transition defintions for input and start
+
+$init_state input_state_tbl, input_keyword_tbl
+
+	$state input
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	'DEVICE'	,save_device
+	$tran	'DISK'		,save_device
+	$tran	'FILE'		,save_filespec
+	$tran	tpa$_filespec	,tpa$_exit,,,inp_filespec
+
+	$state save_filespec
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	tpa$_filespec	,tpa$_exit,,,inp_filespec
+
+	$state save_device
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	tpa$_filespec	,check_fid,,,inp_filespec
+
+	$state check_fid
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	'IDENTIFICATION',save_fid
+	$tran	'FID'		,save_fid
+	$state save_fid
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	tpa$_decimal	,save_seq,,,inp_fid
+	$state save_seq
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	tpa$_decimal	,save_rvn,,,inp_seq
+	$state save_rvn
+	$tran	tpa$_eos	,tpa$_fail
+	$tran	tpa$_decimal	,tpa$_exit,,,inp_rvn
+
+$end_state
+
+$init_state start_state_tbl, start_keyword_tbl
+
+	$state start
+	$tran	tpa$_eos	,tpa$_exit
+	$tran	'SET'		,set
+	$tran	'SHOW'		,show
+	$tran	'ENABLE'	,enable
+	$tran	'DISABLE'	,disable
+	$tran	'READ'		,save_read
+	$tran	'DISPLAY'	,display
+	$tran	'FORMAT'	,format,,fmt_m_modified,format_option
+	$tran	'PATCH'		,tpa$_exit,util_patch
+	$tran	'EDIT'		,tpa$_exit,util_edit
+	$tran	'TECO'		,tpa$_exit,util_edit
+	$tran	'CALCULATE'	,calculate
+	$tran	'EVALUATE'	,evaluate,util_blanks_on
+	$tran	'WRITE'		,tpa$_exit,util_write
+	$tran	'DIFFERENCES'	,tpa$_exit,util_show_differences
+	$tran	'COMPARE'	,tpa$_exit,util_show_differences
+	$tran	'SPAWN'		,tpa$_exit,util_spawn
+	$tran	'DO'		,tpa$_exit,util_spawn
+	$tran	'LIST'		,list
+	$tran	'EXIT'		,tpa$_exit,util_exit
+
+	$state set
+	$tran	tpa$_eos	,tpa$_exit,util_short_command
+	$tran	'DISPLAY'	,set_display
+	$state set_display
+	$tran	'BOTH'		,start,util_set_display,,,disp_k_both
+	$tran	'ASCII'		,start,util_set_display,,,disp_k_ascii
+	$tran	'HEX'		,start,util_set_display,,,disp_k_hex
+	$tran	tpa$_lambda	,start,util_set_display,,,disp_k_both
+
+	$state show
+	$tran	'ALL'		,start,util_show_all
+	$tran	'FILE'		,start,util_show_filespec
+	$tran	'DISPLAY'	,start,util_show_display
+	$tran	'WRITE'		,start,util_show_flag1
+	$tran	'CURRENT'	,start,util_show_current_vbn
+	$tran	'DIFFERENCES'	,start,util_show_differences
+	$tran	'MODIFICATIONS'	,start,util_show_differences
+	$tran	tpa$_lambda	,start,util_show_all
+
+	$state format
+	$tran	'COPY'		,format_what,,fmt_m_modified,format_option
+	$tran	'MODIFIED'	,format_what,,fmt_m_modified,format_option
+	$tran	'ORIGINAL'	,format_what,,fmt_m_original,format_option
+	$tran	tpa$_lambda	,format_what,,fmt_m_modified,format_option
+	$state format_what
+	$tran	tpa$_eos	,start,util_format_homeblock
+	$tran	'HOMEBLOCK'	,start,util_format_homeblock
+	$tran	'FILEHEADER'	,start,util_format_header
+	$tran	'HEADER'	,start,util_format_header
+	$tran	'BUCKET'	,start,util_format_bucket
+
+	$state enable
+	$tran	tpa$_eos	,tpa$_exit,util_short_command
+	$tran	'WRITE'		,start,util_enable_flag1,,,pat_m_write
+
+	$state disable
+	$tran	tpa$_eos	,tpa$_exit,util_short_command
+	$tran	'WRITE'		,start,util_disable_flag1,,,pat_m_write
+
+	$state save_read
+	$tran	tpa$_eos	,tpa$_exit,util_short_command
+	$tran	tpa$_decimal	,read_vbn,,,current_vbn
+	$state read_vbn
+	$tran	tpa$_lambda	,start,util_read
+
+	$state display
+	$tran	'ORIGINAL'	,start,util_display_original
+	$tran	'COPY'		,start,util_display_copy
+	$tran	'MODIFIED'	,start,util_display_copy
+	$tran	tpa$_lambda	,start,util_display_copy
+
+	$state calculate
+	$tran	tpa$_eos	,tpa$_exit,util_short_command
+	$tran	'HOMEBLOCK'	,calc_checksum,util_home_checksum
+	$tran	'FILEHEADER'	,calc_checksum,util_header_checksum
+	$tran	'HEADER'	,calc_checksum,util_header_checksum
+	$tran	'CHECKSUM'	,calc_checksum_at
+	$state calc_checksum
+	$tran	tpa$_eos	,start
+	$tran	'CHECKSUM'	,start
+	$state calc_checksum_at
+	$tran	tpa$_eos	,tpa$_exit,util_short_command
+	$tran	'AT'		,save_chsum_count
+	$tran	tpa$_decimal	,do_checksum,,,checksum_count
+	$state save_chsum_count
+	$tran	tpa$_eos	,tpa$_exit,util_short_command
+	$tran	tpa$_decimal	,do_checksum,,,checksum_count
+	$state do_checksum
+	$tran	tpa$_lambda	,start,util_calc_checksum
+
+	$state evaluate
+	$tran	tpa$_blank	,evaluate
+	$tran	tpa$_lambda	,,util_blanks_off
+	$state
+	$tran	tpa$_eos	,tpa$_exit,util_short_command
+	$tran	tpa$_lambda	,tpa$_exit,util_evaluate
+
+	$state list
+	$tran	tpa$_eos	,tpa$_exit,util_short_command
+	$tran	'MACRO'		,list_macro
+	$tran	'MODULE'	,list_macro
+	$tran	tpa$_filespec	,list_macro_from,,,inp_keyname
+	$state list_macro
+	$tran	tpa$_eos	,tpa$_exit,util_short_command
+	$tran	tpa$_filespec	,list_macro_from,,,inp_keyname
+	$state list_macro_from
+	$tran	tpa$_eos	,tpa$_exit,util_short_command
+	$tran	'FROM'		,list_module
+	$tran	tpa$_filespec	,tpa$_exit,util_list_macro
+	$state list_module
+	$tran	tpa$_eos	,tpa$_exit,util_short_command
+	$tran	tpa$_filespec	,tpa$_exit,util_list_macro
+
+$end_state
+
+	.end	util_start

@@ -1,0 +1,372 @@
+$!
+$!	wwwfind2.com
+$!
+$! 'f$verify(0)'
+$!
+$!	comments placed at end of file for speed
+$!
+$!----------------
+$ WWWquery := "$www_root:[bin]query2/www"
+$!-------------
+$ INDEX_DIR = "WWW_Root:[Index]"	! Location of server data tree indexes
+$!----------------
+$ crlf = f$fao("!/") 
+$!
+$ If f$trnlnm("WWW_OUT") .nes. ""
+$ Then						! CERN server
+$    WWW_IPATH_INFO = "/www/"			! Default Document Directory
+$    WWW_IPATH_TRANSLATED = "/WWW_Root/000000/"	! Default Translation
+$    say = "write WWW_OUT"
+$    put = "create WWW_OUT"
+$    define_output   = "!"
+$    deassign_output = "!"
+$ Else						! OSU server
+$    WWW_IPATH_INFO = "/www/"			! Default Document Directory
+$    WWW_IPATH_TRANSLATED = "/WWW_Root/documents/" ! Default Translation
+$    say = "write net_link"
+$    put = "create net_link"
+$    define_output   = "define/nolog sys$output net_link"
+$    deassign_output = "deassign sys$output"
+$    say "<DNETRECMODE>"		! Set implied carriage control
+$    mcr 'f$parse("SET_DCL_ENV.EXE;",f$environment("PROCEDURE")) "WWW_" "form_"
+$ EndIf
+$!----------------
+$ If WWW_REQUEST_METHOD .eqs. "HEAD"	! Request for header only.
+$ Then
+$   say "Content-type: text/html", crlf	! CGI header.
+$   goto done
+$ Endif
+$!----------------
+$!
+$! If it's a /~username/ URL, use UserSearch.com
+$!
+$ If f$locate("/~",WWW_PATH_INFO) .eq. 0
+$ Then
+$   @'f$parse("USERSEARCH.COM;",f$environment("PROCEDURE"))'
+$   goto done
+$ EndIf
+$!----------------
+$!
+$	database = "''form_server'"
+$!
+$!----------------
+$!
+$! Check the database name symbol for ones we want to change.
+$! Also can set the title as a function of the index, and change the
+$! WWW_IPATH_INFO and WWW_IPATH_TRANSLATED symbols here if the defaults
+$! don't apply to particular indexes.
+$!
+$ if database .eqs. "INDEXDEMO"
+$ then
+$   database = "VMSINDEX"
+$   WWW_VMSINDEX_TITLE = "ISINDEX Search Demonstration"
+$ endif
+$!
+$! Prepend the location of indexes.
+$!
+$ database = INDEX_DIR + database
+$!
+$! Active Hit list options:  (complete list of options is at the end of the file)
+$! ========================
+$  WWW_SEND_RAW_FILE = "YES"	! Send direct URL's without a Range
+$  WWW_ITEMS_FOUND  = "<FONT SIZE=+1><STRONG>%d</STRONG></FONT> items were found"
+$!	We use this string, with plural items, because if only one is found, 
+$!	we jump directly (see WWW_SEND_CONTENTS, below)
+$  WWW_SHOW_FILETYPE = "YES"	! Show filetype icons or ALT strings
+$  WWW_MAXIMUM_HITS = 250	! Limit number of hits to return
+$  WWW_STARTING_HIT = 1		! Start listing with the first hit.
+$  WWW_SHOW_SIZE = "YES"	! Bytes or KB
+$  WWW_SORT = "YES"		! Sort according to the score.
+$  WWW_SHOW_SCORE = "YES"	! Show the score.
+$!
+$! Document options:
+$! =================
+$  WWW_VMSINDEX_TITLE = "Ohio University Keyword Search Results" 
+$						! See header of WWWquery.c
+$!
+$! Ranking options:
+$! ================
+$!				! See routine home_page in query.c -- RDP
+$  WWW_DEPRECATED_HOST = "thepost.baker.ohiou.edu"  ! to reduce the score - RDP
+$  WWW_DEPRECATED_PATH = "operations/analog/"  ! to reduce the score - RDP
+$!
+$! Script options:
+$! ===============
+$  WWW_MINIMUM_WORD = "3"	! Ignore keywords smaller than this number.
+$  WWW_SEND_CONTENTS = "YES"	! Send Location: redirect if only one hit.
+$!
+$!----------------
+$!
+$! Reconstruct the query (unescaped).
+$!
+$! --spaces for all plusses--
+$ loop:
+$  loc=f$locate("+",form_addwords)
+$  if (loc .ne. f$length(form_addwords))
+$    THEN 
+$      form_addwords=f$extract(0,loc,form_addwords) + " " -
+            + f$extract(loc+1,f$length(form_addwords),form_addwords)
+$    GOTO loop
+$  ENDIF
+$!
+$! --spaces for all quotes--
+$ loop:
+$  loc=f$locate("""",form_addwords)
+$  if (loc .ne. f$length(form_addwords))
+$    THEN 
+$      form_addwords=f$extract(0,loc,form_addwords) + " " -
+            + f$extract(loc+1,f$length(form_addwords),form_addwords)
+$    GOTO loop
+$  ENDIF
+$!
+$	query = "''form_addwords'"
+$!
+$! Constrain the search, if requested
+$!
+$	IF f$length(form_realm) .gt. 2
+$	THEN
+$		WWW_REQUIRED_REALM = "''form_realm'"
+$	ELSE
+$	ENDIF
+$!
+$!----------------
+$!
+$! Do the search or RANGE fetch.
+$!
+$ define_output
+$ set process/priority=3
+$ WWWquery "''database'" "''query'"
+$ set process/priority=4
+$ deassign_output
+$	IF f$length(WWW_REQUIRED_REALM) .ne. 0
+$	THEN
+$		delete/symbol WWW_REQUIRED_REALM
+$! To be sure it does not contaminate a later search if this
+$! process is re-used.
+$	ENDIF
+$!
+$done:
+$ exit
+$!
+$!	This command procedure is based on wwwsearch.com from VMSINDEX and
+$!	searchfinder.com from University of Rochester. 
+$!
+$!	First, some comments from wwwfind, the prior variation on searchfinder:
+$!
+$!   =====================================================================
+$!   |Geoffrey B. Inglis             |Phone: (716) 275-3791              |
+$!   |Univ. of Rochester Med Ctr     |FAX:   (716) 256-2591              |
+$!   |Dept EHSC, Room G-6824         |inglis@envmed.rochester.edu        |
+$!   |575 Elmwood Ave.               |                                   |
+$!   |Rochester, N.Y. 14642          |http://www.envmed.rochester.edu/   |
+$!   =====================================================================
+$!
+$!	Revised 4/11/97 Richard D. Piccard to act as a front-end to
+$!	WWWSEARCH.COM from the VMSINDEX package, permitting us to have
+$!	a specified database AND have the re-search from the results page
+$!	conduct a search of the same database. 
+$!
+$!
+$! 	Second, the wwwsearch comments
+$!
+$!	9/6/00  RDP	clean out unused code and move comments to end
+$!
+$!	7/6/00	RDP	for use with modified query as query2
+$!
+$!	14-MAR-1995	F.Macrides (macrides@sci.wfbr.edu)
+$!			ISINDEX search script interface to the
+$!			VMSIndex search engine (query.exe).
+$!			For use with CERN and OSU http servers.
+$!			(** Use WWWsearch.COM-dt, renamed to .COM, for
+$!			    versions of the OSU server before v1.8a **)
+$!
+$!			Should be placed where your ISINDEX search script
+$!			has been mapped in the server's configuration
+$!			file, e.g.,
+$!			  for CERN:	Search	/HTTPD_Dir/WWWsearch.COM
+$!			  for OSU:	Search	WWW_Root:[bin]WWWsearch.com
+$!
+$!			It allows you to specify a location of
+$!			indexes (.IDX, .SEL and .POS files), and set
+$!			up symbols for features of the hit lists, in
+$!			calls to WWWquery (query/www).  You can further
+$!			elaborate this model script so that it
+$!			tests the "database" symbol and sets the
+$!			hit list features as a function of the index
+$!			(e.g., don't set WWW_SEND_RAW_FILES if the
+$!			index is for a sectional database), and/or
+$!			substitutes databases whose names differ from
+$!			the root of the ISINDEX document.
+$!
+$!	13-APR-1995	Added WWW_VMSINDEX_TITLE string. - FM
+$!
+$!	25-APR-1995	Modified to invoke UserSearch.COM for /~username/
+$!			URLs (can't be made to work for OSU server through
+$!			v1.8; see comments below).  Added symbols for
+$!			converting translated paths in the the .SEL files
+$!			back to HTTP logical paths in the hit lists. - FM
+$!
+$!	26-APR-1995	Found a way to make it work with the OSU server. - FM
+$!
+$!	28-APR-1995     The cgi_init() bug was fixed in v1.8a of the
+$!			OSU server, so the external fix was removed
+$!			from this script. - FM
+$!
+$!	13-JAN-1996     Updated for query.c v2.4 or later. - FM
+$!
+$!	01-FEB-1996	Added WWW_HITS_TARGET to the Hit List Options
+$!			which if non-NULL and a non-zero-length string
+$!			will cause TARGET="string" to be added to the
+$!			hit list anchors. - FM
+$!
+$!	04-MAY-1996	If WWW_PATH_TRANSLATED is blank, use
+$!			WWW_PATH_INFO - BT
+$!
+$!----------------
+$!
+$!	Query.c is the search engine developed by Bruce Tanner and Foteos
+$!	Macrides for accessing foo.doc;*, foo.IDX;*, foo.SEL;*, and foo.POS
+$!	filesets.  The doc file(s) is(are) indexed with BUILD_INDEX.EXE,
+$!	yielding the IDX, SEL and POS filesets.
+$!
+$!	This search engine was developed by Bruce and colleagues associated
+$!	with the VMSGopher-L@trln.lib.unc.edu list for use with the
+$!	VMSGopherServer, and was extended by Foteos and Bruce for use with
+$!	http servers.  It is similar to WAIS, but uses native indexing
+$!	facilities of the VMS Record Management System (RMS).
+$!
+$!	Build BUILD_INDEX.EXE and QUERY.EXE by executing MAKE.COM.  It will
+$!	check out your system and then use MMS or command files, and the
+$!	appropriate foo.OPT files.  QUERY.EXE is executed with its /www
+$!	qualifier for http servers, normally via a WWWquery foreign command
+$!	which includes the qualifier.  The symbol WWW_GATEWAY_INTERFACE,
+$!	with is set for CGI scripts by http servers, also acts as a /www
+$!	qualifier for query.exe.
+$!
+$!	Read BUILD_INDEX.DOC for information about the indexer.
+$!
+$!	The example indexdemo.html ISINDEX document is for use with this
+$!	script and an index of all HTML documents (i.e., which have extension
+$!	.html) in your WWW_Root data tree.  The index should have been
+$!	created with the example HTTP_INDEXTREE.COM in this distribution,
+$!	and reside in the WWW_Root:[Index] subdirectory.  If instead of one,
+$!	"whole tree" index, you built a series of indexes for components of
+$!	your data tree, you could call WWWquery with a wildcarded index spec
+$!	to search them all, or particular combinations which match the
+$!	wildcarding.  Do that substitution where this script presently
+$!	substitutes "VMSINDEX" for "INDEXDEMO" as the database symbol.
+$!
+$!	The symbol WWW_SEND_RAW_FILE must be made non-NULL (we set it equal
+$!	to "YES", below, but any string will do, e.g., "TRUE"), so that
+$!	WWWquery will not add html "packaging", as the .html file should
+$!	already have a <HEAD> section with <TITLE>.
+$!
+$!	Note that the symbol WWW_OMIT_PRE_TAG, if defined, would cause
+$!	the <PRE> tag to be omitted by WWWquery, but not the other html
+$!	"packaging".  You want it all omitted, since you presumably
+$!	indexed sets of complete, normally independent foo.html files.
+$!
+$!	The symbol WWW_SHOW_FILETYPE can be made non-NULL (e.g., "YES") to
+$!	have icons (or ALT text) indicating the file types to be inserted
+$!	into the hit lists returned from searches.
+$!
+$!	If the symbol WWW_MAXIMUM_HITS is made non-NULL (i.e., set equal to
+$!	a number), then the hit lists returned by searches will be abridged,
+$!	if necessary, so as not to exceed that number.  The WWW_STARTING_HIT
+$!	symbol can be set to a number to indicate the starting number in hit
+$!	lists.
+$!
+$!	The symbol WWW_SHOW_SIZE can be made non-NULL (e.g., "YES") to have
+$!	the size of each file or database section indicated in the hit lists.
+$!
+$!	The symbol WWW_SHOW_DATE can be made non-NULL to have the date of the
+$!	database indicated in the hit lists (DD-MMM-YY).  If WWW_SHOW_TIME
+$!	also is made non-NULL, for the current year the hour and minute will
+$!	be indicated instead of the year (DD-MMM HH:MM).  If WWW_USE_MDATE is
+$!	made non-NULL, the date of the last modification (e.g., from an
+$!	APPEND) will be used.  The default is the file creation date (i.e.,
+$!	of the highest version).
+$!
+$!	The symbol WWW_VMSINDEX_TITLE can be set to a string for the TITLE
+$!	tag in hit lists and section fetches.  Otherwise, the TITLE defaults
+$!	to "VMS Indexed Database Search".
+$!
+$!	The symbol WWW_SEND_CONTENTS can be made non-NULL (e.g., "YES") to
+$!	have searches which yield only one hit return that document (instead
+$!	of a "hit list" with a link for the document).  This can be used to
+$!	fetch particular documents via unique identifiers in them, or other
+$!	query known to generate one hit, for that document.
+$!
+$!	The symbol WWW_SORT can be made non-NULL (e.g., "YES") to invoke
+$!	sorting of hits by score, and the symbol WWW_SHOW_SCORE can be made
+$!	non-NULL to include the scores in hit list titles.  Setting these
+$!	symbols is equivalent to calling query.exe with /sort and /score.
+$!
+$!	See the header of query.c for additional regulatory symbols.
+$!
+$!	Set up the foreign command definition for WWWquery, below (or define
+$!	it in the CERN server's SpawnInit.COM).  This script must be in the
+$!	server's htbin directory, but query.exe can be anywhere that is
+$!	accessible to the server (e.g., where you broke out and built the
+$!	VMSIndex distribution).  Check the default document directory and
+$!	translation symbols, below (see header of query.c for more info).
+$!
+$!	For the OSU server, you also must have Set_DCL_Env.EXE in its htbin
+$!      directory.
+$!
+$!
+$!	Copy any hist list options up to the active code and un-comment them.
+$!	Leave the full set here at the end for reference. -- RDP
+$!
+$! Hit list options:
+$! =================
+$! WWW_SEND_RAW_FILE = "YES"	! Send direct URL's without a Range
+$! WWW_ITEMS_FOUND  = "There are <EM>%d</EM> item(s) found" !Default string
+$! WWW_ITEMS_LISTED = "Listing <EM>%d</EM> to <EM>%d</EM>"  !Default string
+$! WWW_SHOW_FILETYPE = "YES"	! Show filetype icons or ALT strings
+$! WWW_MAXIMUM_HITS = 250	! Limit number of hits to return
+$! WWW_STARTING_HIT = 1		! Start listing with the first hit.
+$! WWW_SHOW_SIZE = "YES"	! Bytes or KB
+$! WWW_SHOW_DATE = "YES"	! DD-MMM-YY
+$! WWW_SHOW_TIME = "YES"	! Replace -YY with HH:MM for current year
+$! WWW_USE_MDATE = "YES"	! Use last modified date (default is creation)
+$! WWW_SORT = "YES"		! Sort according to the score.
+$! WWW_SHOW_SCORE = "YES"	! Show the score.
+$! WWW_HITS_TARGET = "foo"	! Add TARGET attribute to anchors.
+$!
+$! Document options:
+$! =================
+$! WWW_OMIT_PRE_TAG = "YES"	! See header of WWWquery.c
+$! WWW_DATADIRECTORY = "foo"	! See header of WWWquery.c
+$! WWW_FORBIDDEN = "blah"	! See header of WWWquery.c
+$! WWW_VMSINDEX_TITLE = "Ohio University Keyword Search Results" 
+$						! See header of WWWquery.c
+$!
+$! Ranking options:
+$! ================
+$!				! See routine home_page in query.c -- RDP
+$! WWW_DEPRECATED_HOST = "thepost.baker.ohiou.edu"  ! to reduce the score - RDP
+$! WWW_DEPRECATED_PATH = "operations/analog/"  ! to reduce the score - RDP
+$! WWW_HOME_BOOST = "400"	!
+$! WWW_PLACE_SCALE = "2"	!
+$! WWW_PLACE_EARLY = "150"	!
+$! WWW_TOP_BOOST = "50"		!
+$! WWW_PLACE_TOP = "50"		!
+$! WWW_SLASH_ADD = "50"		!
+$! WWW_SLASH_MAX = "4"		!
+$! WWW_BAD_HOST_CUT = "2"	!
+$! WWW_BAD_PATH_CUT = "2"	!
+$!
+$! Script options:
+$! ===============
+$! WWW_MINIMUM_WORD = "3"	! Ignore keywords smaller than this number.
+$! WWW_SEND_CONTENTS = "YES"	! Send Location: redirect if only one hit.
+$! WWW_OMIT_CONTENT_TYPE = "YES"	! See header of WWWquery.c
+$! WWW_OMIT_HEAD = "YES"		! See header of WWWquery.c
+$! WWW_OMIT_FOOT = "YES"		! See header of WWWquery.c
+$! WWW_VIA_FORM = "YES"			! See header of query.c
+$! WWW_ADD_CONTEXT = "YES"		! See header of query.c
+$! WWW_END_FORM = "YES"			! See header of query.c
+$! WWW_OMIT_IPATH_CONVERSION = "YES"	! See header of query.c
+$!
+$!----------------

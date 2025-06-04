@@ -1,0 +1,23 @@
+XEphem, Motif_Toys, An interactive astronomy program for Motif Window systems
+
+This is XEphem v3.2.3
+
+XEphem (v3.2.3) is an interactive astronomy program for Motif Window systems.
+
+It provides many graphical views as well as quantitative heliocentric,
+geocentric and topocentric information for Earth satellites, solar system
+and celestial objects.
+
+XEphem contains extensive context-sensitive on-line help. Virtually none
+of that help is duplicated here so go ahead and run XEphem to learn more.
+
+The Main window of XEphem provides control and display of three basic
+services: observing circumstances, looping, and access to additional
+displays. Observing circumstances includes location, date, time and
+atmospheric conditions (used for the refraction model). Looping refers to
+the ability to set up XEphem so that it automatically increments time at
+a desired step size and rate. Additional displays provide all of the
+graphical and quantitative information available, and always refer to the
+circumstances defined in the main menu.
+
+Latest info is at http://www.ClearSkyInstitute.com/xephem/xephem.html.

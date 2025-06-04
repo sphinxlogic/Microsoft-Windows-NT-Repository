@@ -1,0 +1,91 @@
+$ __save_verif = 'f$verify(0)
+$! Set the def dir to proper place for use in batch. Works for interactive too.
+$flnm = f$enviroment("PROCEDURE")     ! get current procedure name
+$set default 'f$parse(flnm,,,"DEVICE")''f$parse(flnm,,,"DIRECTORY")'
+$!
+$! This command procedure compiles and links BISON for VMS.
+$! BISON has been tested with VAXC version 2.3 and VMS version 4.5
+$! and on VMS 4.5 with GCC 1.12.
+$!
+$! Bj|rn Larsen			blarsen@ifi.uio.no
+$! With some contributions by Gabor Karsai, 
+$!  KARSAIG1%VUENGVAX.BITNET@jade.berkeley.edu
+$! All merged and cleaned by RMS.
+$!
+$! Adapted for both VAX-11 "C" and VMS/GCC compilation by
+$! David L. Kashtan		kashtan.iu.ai.sri.com
+$!
+$! Adapted to be configurable by
+$! Richard Levitte		levitte@e.kth.se
+$!
+$ on control_y then goto exit
+$ on error then goto exit
+$ srcdir_dev:=@srcdir_dev@
+$ srcdir_dir:=@srcdir_dir@
+$ srcdir:=@srcdir@
+$ vmssrcdir:='srcdir_dev'['srcdir_dir'.vms]
+$
+$ prefix_dev:=@prefix_dev@
+$ prefix_dir:=@prefix_dir@
+$ prefix:=@prefix@
+$ datadir:='prefix_dev'['prefix_dir'.lib]
+$
+$ CC:=@CC@
+$ CFLAGS:=@CFLAGS@ /DEBUG
+$ ALLOCA:=@ALLOCA@
+$ DEFS:=@DEFS@
+$ LIBS:=@LIBS@
+$ OPTS:=@OPTS@
+$ COMMA:=,
+$ if DEFS .eqs. "" then COMMA:=
+$
+$ PFILE:=bison.simple
+$ PFILE1:=bison.hairy
+$ PFILES:=XPFILE=""""""""""'datadir''PFILE'"""""""""",XPFILE1=""""""""""'datadir''PFILE1'""""""""""
+$!
+$!	Do the compilation (compiler type is all set up)
+$!
+$ Compile:
+$ if "''p1'" .eqs. "LINK" then goto Link
+$ set verify
+$ 'CC' 'CFLAGS' /define=('DEFS''COMMA''PFILES') 'srcdir'files.c /object=files.obj/list/show=(includ,expan)
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'LR0.C /object=LR0.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'ALLOCATE.C /object=ALLOCATE.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'CLOSURE.C /object=CLOSURE.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'CONFLICTS.C /object=CONFLICTS.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'DERIVES.C /object=DERIVES.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'VMSGETARGS.C /object=VMSGETARGS.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'GRAM.C /object=GRAM.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'LALR.C /object=LALR.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'LEX.C /object=LEX.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'MAIN.C /object=MAIN.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'NULLABLE.C /object=NULLABLE.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'OUTPUT.C /object=OUTPUT.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'PRINT.C /object=PRINT.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'READER.C /object=READER.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'REDUCE.C /object=REDUCE.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'SYMTAB.C /object=SYMTAB.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'WARSHALL.C /object=WARSHALL.obj
+$ 'CC' 'CFLAGS' /define=('DEFS') 'srcdir'VERSION.C /object=VERSION.obj
+$ 'CC' 'CFLAGS' /define=('DEFS''COMMA'"emacs","BLOCK_INPUT") 'srcdir'ALLOCA.C /object=ALLOCA.obj
+$ a = 'f$verify(0)
+$! if "''CC'" .eqs. "CC" then macro vmshlp.mar
+$ Link:
+$! First, produce an option file.
+$ set verify
+$ open/write foo vmslink.opt
+$ @'vmssrcdir'loop_sym l LIBS " " "write foo l" ";"
+$ close foo
+$ link/exec=bison.exe main.obj,LR0.obj,allocate.obj,closure.obj,conflicts.obj,-
+derives.obj,files.obj,vmsgetargs.obj,gram.obj,lalr.obj,lex.obj,nullable.obj,-
+output.obj,print.obj,reader.obj,reduce.obj,symtab.obj,warshall.obj,-
+version.obj'ALLOCA',vmslink.opt/opt'OPTS'
+$ a = 'f$verify(0)
+$!
+$! Generate bison.hlp (for online help).
+$!
+$ set verify
+$runoff 'srcdir'bison.rnh /output=bison.hlp
+$ a = 'f$verify(0)
+$exit:
+$ a = f$verify(__save_verif)

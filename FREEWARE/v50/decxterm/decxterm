@@ -1,0 +1,553 @@
+#!/bin/sh
+# The procedure remaps the Sun Keyboard, IBM AIX PC type Keyboard,
+# Linux PC type Keyboard and Tru64 Compaq Unix keyboards to mappings 
+# suitable for VMS
+#
+# Created by Geoff Kingsmill (Geoff.Kingsmill@compaq.com)  
+# Revision 1.0 20-Oct-1997
+# Revision 1.1 15-Nov-1997 - added Linux support
+# Revision 1.2 27-May-1998 - added help text for keys above arrow keys
+# Revision 1.3 19-May-1999 - fixed Linux Insert, Home, Prior, Delete and End key
+# Revision 1.4 29-Jun-1999 - added Tru64 Unix, Digital Unix, OSF1
+# Revision 1.5 10-Oct-1999 - modified OSF1 keyboard mapping to support both
+#                            the LKxxx keyboards and the PC keyboards.
+#                            Modified default xterm options which can be
+#                              overriden by the DECXTERM_OPTIONS variable.
+#                            The default Terminal Emulator can now be 
+#                              overridden using the variable DECXTERM_EMULATOR.
+#                            Alt/F1-F10 now replaced with Shift/F1-F10 as
+#                              most of the window managers have these keys
+#                              mapped to special functions.
+#                            Added HP-UX support.
+# Revision 1.6 19-Oct-1999 - minor modifications and added lots of help.
+#
+# usage: DECxterm [-option ...]
+#        which are identical to xterm. "#man xterm" for further details
+#    eg: DECxterm -e telnet yakka.ali.dec.com
+#
+# Note 1: All keys in the same position are mapped to the standard
+#         VMS LKxxx ikeyboard except for the keys between the main keyboard
+#         keys and the Numeric/Application keys which remain as labelled.
+#         The keys on an DEC LKxxx Keyboard are marked on other keyboards as:-
+#         Find marked Home, Insert marked the same, Remove marked Delete,
+#         Select marked End, Previous marked Page-Up and Next marked Page-Down.
+#
+# Note 2: Shift/F1 to Shift/F10 are mapped to F11 to F20
+#
+# Note 3: Other Terminal Emulators such as dtterm or dxterm can be used
+#   by setting the variable DECXTERM_EMULATOR. The default is xterm.
+#
+# Note 4: The default xterm qualiers are defined by the variable 
+#   DECXTERM_OPTIONS and are set to:-
+#    -fn 9X15   Default font
+#    -sb        Enable scroll bars 
+#    -sl 500    Number of lines saved that are scrolled off the top of window
+#    -cr red    Set the cursor color to red
+#    -tn vt100  Set the terminal type to vt100
+#    -132       Allow switching between 80 and 132 columns
+#   The default settings can be changed by defining this environment
+#   variable before running DECxterm.
+#
+xterm_options="${DECXTERM_OPTIONS:=-fn 9X15 -sb -sl 500 -cr red -tn vt100 -132}"
+#
+# Note 5: To modify this program or to add further keyboard mappings do the
+#   following:-
+#   1. Build the following program using the command:-
+#        HP-UX: "# cc -Aa -o vmskbmap vmskbmap.c"
+#        Linux,OSF1,AIX,Solaris: "# cc -o vmskbmap vmskbmap.c"
+##include <stdio.h>
+#main() {
+#  long key=0xa;
+#  int ch, esc=0x1b, lf=0xa;
+#  char keytext[80]="This Key has been mapped to";
+#  while (1) {
+#    /* get a character from input */
+#    ch=getchar();
+#    /* Print the Key Name when an escape or line-feed character is returned */
+#    if (ch == lf || (ch == esc && (key != 0 && key != lf))) {
+#       switch (key)
+#       {
+#         case 0x5b31317e: printf("%s F1",keytext); break;
+#         case 0x5b31327e: printf("%s F2",keytext); break;
+#         case 0x5b31337e: printf("%s F3",keytext); break;
+#         case 0x5b31347e: printf("%s F4",keytext); break;
+#         case 0x5b31357e: printf("%s F5",keytext); break;
+#         case 0x5b31377e: printf("%s F6/Intr-Halt",keytext); break;
+#         case 0x5b31387e: printf("%s F7/Resume",keytext); break;
+#         case 0x5b31397e: printf("%s F8/Cancel",keytext); break;
+#         case 0x5b32307e: printf("%s F9/Main-Screen",keytext); break;
+#         case 0x5b32317e: printf("%s F10/Exit",keytext); break;
+#         case 0x5b32337e: printf("%s F11/Alt-Char",keytext); break;
+#         case 0x5b32347e: printf("%s F12/Pr-Field",keytext); break;
+#         case 0x5b32357e: printf("%s F13/Er-Line",keytext); break;
+#         case 0x5b32367e: printf("%s F14/Insert-Overstrike",keytext); break;
+#         case 0x5b32387e: printf("%s F15/Help",keytext); break;
+#         case 0x5b32397e: printf("%s F16/Do",keytext); break;
+#         case 0x5b33317e: printf("%s F17",keytext); break;
+#         case 0x5b33327e: printf("%s F18",keytext); break;
+#         case 0x5b33337e: printf("%s F19",keytext); break;
+#         case 0x5b33347e: printf("%s F20",keytext); break;
+#
+#         case 0x4f50: printf("%s PF1",keytext); break;
+#         case 0x4f51: printf("%s PF2",keytext); break;
+#         case 0x4f52: printf("%s PF3",keytext); break;
+#         case 0x4f53: printf("%s PF4",keytext); break;
+#         case 0x4f4d: printf("%s KP_Enter",keytext); break;
+#         case 0x4f6c: printf("%s KP_Separator",keytext); break;
+#         case 0x4f6d: printf("%s KP_Subtract",keytext); break;
+#         case 0x4f6e: printf("%s KP_Decimal",keytext); break;
+#         case 0x4f70: printf("%s KP_0",keytext); break;
+#         case 0x4f71: printf("%s KP_1",keytext); break;
+#         case 0x4f72: printf("%s KP_2",keytext); break;
+#         case 0x4f73: printf("%s KP_3",keytext); break;
+#         case 0x4f74: printf("%s KP_4",keytext); break;
+#         case 0x4f75: printf("%s KP_5",keytext); break;
+#         case 0x4f76: printf("%s KP_6",keytext); break;
+#         case 0x4f77: printf("%s KP_7",keytext); break;
+#         case 0x4f78: printf("%s KP_8",keytext); break;
+#         case 0x4f79: printf("%s KP_9",keytext); break;
+#
+#         case 0x5b317e: printf("%s Find",keytext); break;
+#         case 0x5b327e: printf("%s Insert",keytext); break;
+#         case 0x5b337e: printf("%s Remove",keytext); break;
+#         case 0x5b347e: printf("%s Select",keytext); break;
+#         case 0x5b357e: printf("%s Previous",keytext); break;
+#         case 0x5b367e: printf("%s Next",keytext); break;
+#         case 0x5b41: printf("%s Up",keytext); break;
+#         case 0x5b42: printf("%s Down",keytext); break;
+#         case 0x5b43: printf("%s Left",keytext); break;
+#         case 0x5b44: printf("%s Right",keytext); break;
+#
+#         case 0xa: break; /* Ignore LF */ 
+#         case 0x7f: printf("%s Delete",keytext); break;
+#         default: printf("This Key has NOT been remapped");
+#       }
+#       printf("\n");
+#    }
+#    /* keep appending each byte. x256 moves character left one byte */
+#    key = key*256+ch;
+#    /* reset the key code if the last entered character is Newline or ESCAPE */
+#    /* Don't include the Escape as it makes the case string too long */
+#    if (ch == lf || ch == esc) key = 0;
+#
+#    /* print the byte value if it is not a line terminator  */
+#    if (ch != lf) printf("Value = Hex %x", ch);
+#    /* if the character is printable then print the ascii char */
+#    if (ch >= ' ') printf(", char = >%c<", ch);
+#    /* if the character is an Escape the print <ESC> */
+#    if (ch == esc) printf(", char = <ESC>");
+#    /* start a new line for next character */
+#    printf("\n");
+#  }
+#}
+#   2. Find the Xwindow key names by running the standard X utility XEV.
+#   3. Now modify DECxterm and Map the key names to a keyboard code  
+#       using the keyboard mapping information supplied below.
+#   4. Create an xterm display using the newly created DECxterm script.
+#   5. Configure the terminal to display control characters by entering the
+#       command "# stty echoctl iexten"
+#   6. Now run the vmskbmap problem that was built in step 1.
+#       If you now enter a key followed by a return you should see the
+#       ascii text, the hexadecimal representation and the VMS mapped keyname.
+#       This should be compared to the keyboard mapping information supplied
+#       below to ensure the key is mapped correctly.
+#   7. Please mail any updates to Geoff.Kingsmill@compaq.com
+#    
+#
+# Keyboard Mapping
+# ================
+# 
+## VMS keyname "KB code required for VMS", alternate Key Name
+# Delete "\177 - octal 177" = BackSpace
+#
+# Top row of keys
+# ---------------
+#
+## VMS keyname "KB code required for VMS", alternate Key Name or mapping 
+# F1 "<ESC>[11~"
+# F2 "<ESC>[12~"
+# F3 "<ESC>[13~"
+# F4 "<ESC>[14~"
+# F5 "<ESC>[15~"
+# Interrupt "<ESC>[17~" = F6
+# Resume "<ESC>[18~" = F7
+# Cancel "<ESC>[19~" = F8
+# Main Screen "<ESC>[20~" = F9
+# Exit "<ESC>[21~" = F10
+# Alt Char "<ESC>[23~" = F11, Shift/F1 
+#      (SUN) F11 key called SunF36
+#      (OSF1) F11 key called Escape
+# Previous Field "<ESC>[24~" = F12, Shift/F2
+#      (SUN) F12 key called SunF37
+# Erase Line "<ESC>[25~" = F13, Shift/F3
+# Insert/Overstrike "<ESC>[26~" = F14, Shift/F4 
+# HELP "<ESC>[28~" = Shift/F5, 
+#      (SUN) F22                   (key in usual location marked Print Screen)
+#      (AIX) Print                 (key in usual location marked Print Screen)
+#      (Linux|HP-UX) Print         (key in usual location marked Print Screen)
+# DO "<ESC>[29~" = Shift/F6, 
+#      (SUN) F21, F23              (key in usual location marked Scroll/Pause)
+#      (AIX) Cancel, Pause         (key in usual location marked Cancel/Pause)
+#      (LinuxHP-UX) Scroll, Pause  (key in usual location marked Scroll/Pause)
+# F17 "<ESC>[31~" = Shift/F7, 
+#      (SUN) SunAudioMute          (key in usual location above NumLock PF1)
+# F18 "<ESC>[32~" = Shift/F8, 
+#      (SUN) SunAudioLowerVolume   (key in usual location above KP/ PF2)
+#                                  (on Sun CDE systems this key not mapped to X)
+# F19 "<ESC>[33~" = Shift/F9 
+#      (SUN) SunAudioRaiseVolume   (key in usual location above KP* PF3)
+#                                  (on Sun CDE systems this key not mapped to X)
+# F20 "<ESC>[34~" = Shift/F10, 
+#      (SUN) SunPowerSwitch        (key in usual location above KP- PF4)
+#                                  (on Sun CDE systems this key not mapped to X)
+#
+# Keypad
+# ------
+#
+## VMS keyname "KB code required for VMS", alternate Key Name or mapping
+# PF1 "<ESC>[OP" 
+#     (SUN, AIX, HP-UX, Linux, OSF1-PC) Num_Lock
+# PF2 "<ESC>[OQ" 
+#     (SUN, AIX, HP-UX, Linux, OSF1-PC) KP_Divide, F25
+# PF3 "<ESC>[OR"
+#     (SUN, AIX, HP-UX, Linux, OSF1-PC) KP_Multiply, F26 
+# PF4 "<ESC>[OS" 
+#     (SUN, AIX, HP-UX, Linux, OSF1-PC) KP_Subtract, F24 
+# KP_Subtract "<ESC>[Om"      
+#     (SUN, AIX, HP-UX, Linux, OSF1-PC) Shift/KP_Add
+# KP_Separator "<ESC>[Ol" 
+#     (SUN, AIX, HP-UX, Linux) KP_Add
+# KP_Enter "<ESC>[OM"   
+# KP_Decimal "<ESC>[On" 
+## For Keyboards with Num_Lock 
+##                    Off   On
+# KP_0 "<ESC>[Op" =  KP_0, Insert
+# KP_1 "<ESC>[Oq" =  KP_1, F33
+# KP_2 "<ESC>[Or" =  KP_2, Down
+# KP_3 "<ESC>[Os" =  KP_3, F35
+# KP_4 "<ESC>[Ot" =  KP_4, Left
+# KP_5 "<ESC>[Ou" =  KP_5, F31
+# KP_6 "<ESC>[Ov" =  KP_6, Right
+# KP_7 "<ESC>[Ow" =  KP_7, F27
+# KP_8 "<ESC>[Ox" =  KP_8, Up
+# KP_9 "<ESC>[Oy" =  KP_9, F29
+#
+# Keys above Arrow Keys
+# ---------------------
+#
+## VMS keyname "KB code required for VMS", alternate Key Name or mapping
+# Find "<ESC>[1~"     = Home
+# Insert "<ESC>[2~"   = Insert
+# Remove "<ESC>[3~"   = Delete
+# Select "<ESC>[4~"   = End
+# Previous "<ESC>[5~" = Prior, Page Up
+# Next "<ESC>[6~"     = Next, Page Down
+# Up "<ESC>[A"
+# Down "<ESC>[B"
+# Left "<ESC>[C"
+# Right "<ESC>[D"
+# 
+# Notes:
+# - Shift<Key> must precede <Key>
+# - string("\033") is an <ESC> seven bit character Octal=33, Decimal 27
+# - <ESC>[ is equivalent to the <CSI> eight bit character Decimal 155
+# - <ESC>O is equivalent to the <SS3> eight bit character Decimal 143 
+# - The VMS keyboard mapping codes can be found in sys$system:smgterms.txt
+# - these lines can also be included in a resource file if required
+#   as follows:-
+#   # xrdb -nocpp -merge <<endxrdb 
+#   myxterm*VT100.Translations: #override\n\
+#   <Key>BackSpace:string("\177")\n\
+#   Shift<Key>F1:string("\033")string("[23~")
+#   endxrdb
+#   # xterm -name myxterm
+#
+case `uname` in
+  SunOS)
+    ${DECXTERM_EMULATOR:=/usr/openwin/bin/xterm} \
+                         -xrm 'xterm*VT100.Translations: #override\n\
+           <Key>BackSpace           :               string("\177")\n\
+      Shift<Key>F1                  :string("\033") string("[23~")\n\
+           <Key>SunF36              :string("\033") string("[23~")\n\
+      Shift<Key>F2                  :string("\033") string("[24~")\n\
+           <Key>SunF37              :string("\033") string("[24~")\n\
+      Shift<Key>F3                  :string("\033") string("[25~")\n\
+      Shift<Key>F4                  :string("\033") string("[26~")\n\
+      Shift<Key>F5                  :string("\033") string("[28~")\n\
+           <Key>F22                 :string("\033") string("[28~")\n\
+      Shift<Key>F6                  :string("\033") string("[29~")\n\
+           <Key>F21                 :string("\033") string("[29~")\n\
+           <Key>F23                 :string("\033") string("[29~")\n\
+           <Key>F6                  :string("\033") string("[17~")\n\
+      Shift<Key>F7                  :string("\033") string("[31~")\n\
+           <Key>SunAudioMute        :string("\033") string("[31~")\n\
+           <Key>F7                  :string("\033") string("[18~")\n\
+      Shift<Key>F8                  :string("\033") string("[32~")\n\
+           <Key>SunAudioLowerVolume :string("\033") string("[32~")\n\
+           <Key>F8                  :string("\033") string("[19~")\n\
+      Shift<Key>F9                  :string("\033") string("[33~")\n\
+           <Key>SunAudioRaiseVolume :string("\033") string("[33~")\n\
+           <Key>F9                  :string("\033") string("[20~")\n\
+      Shift<Key>F10                 :string("\033") string("[34~")\n\
+           <Key>SunPowerSwitch      :string("\033") string("[34~")\n\
+           <Key>F10                 :string("\033") string("[21~")\n\
+           <KeyPress>Num_Lock       :string("\033") string("OP")\n\
+           <KeyRelease>Num_Lock     :string("\033") string("OP")\n\
+           <Key>KP_Divide           :string("\033") string("OQ")\n\
+           <Key>F25                 :string("\033") string("OQ")\n\
+           <Key>KP_Multiply         :string("\033") string("OR")\n\
+           <Key>F26                 :string("\033") string("OR")\n\
+           <Key>KP_Subtract         :string("\033") string("OS")\n\
+           <Key>F24                 :string("\033") string("OS")\n\
+      Shift<Key>KP_Add              :string("\033") string("Om")\n\
+           <Key>KP_Add              :string("\033") string("Ol")\n\
+           <Key>KP_Enter            :string("\033") string("OM")\n\
+           <Key>Delete              :string("\033") string("On")\n\
+           <Key>KP_0                :string("\033") string("Op")\n\
+           <Key>KP_1                :string("\033") string("Oq")\n\
+           <Key>KP_2                :string("\033") string("Or")\n\
+           <Key>KP_3                :string("\033") string("Os")\n\
+           <Key>KP_4                :string("\033") string("Ot")\n\
+           <Key>KP_5                :string("\033") string("Ou")\n\
+           <Key>KP_6                :string("\033") string("Ov")\n\
+           <Key>KP_7                :string("\033") string("Ow")\n\
+           <Key>KP_8                :string("\033") string("Ox")\n\
+           <Key>KP_9                :string("\033") string("Oy")\n\
+           <Key>Insert              :string("\033") string("[2~")\n\
+           <Key>Home                :string("\033") string("[1~")\n\
+           <Key>Prior               :string("\033") string("[5~")\n\
+           <Key>Delete              :string("\033") string("[3~")\n\
+           <Key>End                 :string("\033") string("[4~")\n\
+           <Key>Next                :string("\033") string("[6~")' \
+             $xterm_options $*
+    ;;
+
+  AIX) 
+    # It appears that AIX CDE has a character limit restriction with the
+    # -xrm qualifier. The spaced formatting used elsewhere failed on AIX 
+    # systems. Reducing the number of characters resolved this problem.
+    # The error message received was similar to the following:-
+    #    Warning: translation table syntax error: ',' or ':' expected while i
+    #    parsing event sequence.
+    #    Warning: ... found while parsing '<Key>Prior   '
+    # There was no syntax error. Merely reducing the number of characters
+    # anywhere in the -xrm string resolved the problem.
+    
+    ${DECXTERM_EMULATOR:=/usr/lpp/X11/bin/xterm} \
+      -xrm 'xterm*VT100.Translations: #override\n\
+           <Key>BackSpace :string("\177")\n\
+      Shift<Key>F1 :string("\033[23~")\n\
+      Shift<Key>F2 :string("\033[24~")\n\
+      Shift<Key>F3 :string("\033[25~")\n\
+      Shift<Key>F4 :string("\033[26~")\n\
+      Shift<Key>F5 :string("\033[28~")\n\
+           <Key>Print :string("\033[28~")\n\
+      Shift<Key>F6 :string("\033[29~")\n\
+           <Key>Pause :string("\033[29~")\n\
+           <Key>Cancel :string("\033[29~")\n\
+           <Key>F6 :string("\033[17~")\n\
+      Shift<Key>F7 :string("\033[31~")\n\
+           <Key>F7 :string("\033[18~")\n\
+      Shift<Key>F8 :string("\033[32~")\n\
+           <Key>F8 :string("\033[19~")\n\
+      Shift<Key>F9 :string("\033[33~")\n\
+           <Key>F9 :string("\033[20~")\n\
+      Shift<Key>F10 :string("\033[34~")\n\
+           <Key>F10 :string("\033[21~")\n\
+           <KeyPress>Num_Lock :string("\033OP")\n\
+           <KeyRelease>Num_Lock :string("\033OP")\n\
+           <Key>KP_Divide :string("\033OQ")\n\
+           <Key>F25 :string("\033OQ")\n\
+           <Key>KP_Multiply :string("\033OR")\n\
+           <Key>F26 :string("\033OR")\n\
+           <Key>KP_Subtract :string("\033OS")\n\
+           <Key>F24 :string("\033OS")\n\
+      Shift<Key>KP_Add :string("\033Om")\n\
+           <Key>KP_Add :string("\033Ol")\n\
+           <Key>KP_Enter :string("\033OM")\n\
+           <Key>KP_Decimal :string("\033On")\n\
+           <Key>KP_0 :string("\033Op")\n\
+           <Key>KP_1 :string("\033Oq")\n\
+           <Key>KP_2 :string("\033Or")\n\
+           <Key>KP_3 :string("\033Os")\n\
+           <Key>KP_4 :string("\033Ot")\n\
+           <Key>KP_5 :string("\033Ou")\n\
+           <Key>KP_6 :string("\033Ov")\n\
+           <Key>KP_7 :string("\033Ow")\n\
+           <Key>KP_8 :string("\033Ox")\n\
+           <Key>KP_9 :string("\033Oy")\n\
+           <Key>Insert :string("\033[2~")\n\
+           <Key>Home :string("\033[1~")\n\
+           <Key>Prior :string("\033[5~")\n\
+           <Key>Delete :string("\033[3~")\n\
+           <Key>End :string("\033[4~")\n\
+           <Key>Next :string("\033[6~")' \
+             $xterm_options $*
+    ;;
+
+  HP-UX | Linux)    
+    ${DECXTERM_EMULATOR:=/usr/bin/X11/xterm} \
+                         -xrm 'xterm*VT100.Translations: #override\n\
+           <Key>BackSpace           :               string("\177")\n\
+      Shift<Key>F1                  :string("\033") string("[23~")\n\
+           <Key>F1                  :string("\033") string("[11~")\n\
+      Shift<Key>F2                  :string("\033") string("[24~")\n\
+           <Key>F2                  :string("\033") string("[12~")\n\
+      Shift<Key>F3                  :string("\033") string("[25~")\n\
+           <Key>F3                  :string("\033") string("[13~")\n\
+      Shift<Key>F4                  :string("\033") string("[26~")\n\
+           <Key>F4                  :string("\033") string("[14~")\n\
+      Shift<Key>F5                  :string("\033") string("[28~")\n\
+           <Key>Print               :string("\033") string("[28~")\n\
+           <Key>F5                  :string("\033") string("[15~")\n\
+      Shift<Key>F6                  :string("\033") string("[29~")\n\
+           <Key>Pause               :string("\033") string("[29~")\n\
+           <Key>Scroll_Lock         :string("\033") string("[29~")\n\
+           <Key>F6                  :string("\033") string("[17~")\n\
+      Shift<Key>F7                  :string("\033") string("[31~")\n\
+           <Key>F7                  :string("\033") string("[18~")\n\
+      Shift<Key>F8                  :string("\033") string("[32~")\n\
+           <Key>F8                  :string("\033") string("[19~")\n\
+      Shift<Key>F9                  :string("\033") string("[33~")\n\
+           <Key>F9                  :string("\033") string("[20~")\n\
+      Shift<Key>F10                 :string("\033") string("[34~")\n\
+           <Key>F10                 :string("\033") string("[21~")\n\
+           <Key>Num_Lock            :string("\033") string("OP")\n\
+           <Key>KP_Divide           :string("\033") string("OQ")\n\
+           <Key>F25                 :string("\033") string("OQ")\n\
+           <Key>KP_Multiply         :string("\033") string("OR")\n\
+           <Key>F26                 :string("\033") string("OR")\n\
+           <Key>KP_Subtract         :string("\033") string("OS")\n\
+           <Key>F24                 :string("\033") string("OS")\n\
+      Shift<Key>KP_Add              :string("\033") string("Om")\n\
+           <Key>KP_Add              :string("\033") string("Ol")\n\
+           <Key>KP_Enter            :string("\033") string("OM")\n\
+           <Key>KP_Decimal          :string("\033") string("On")\n\
+           <Key>KP_0                :string("\033") string("Op")\n\
+           <Key>KP_1                :string("\033") string("Oq")\n\
+           <Key>KP_2                :string("\033") string("Or")\n\
+           <Key>KP_3                :string("\033") string("Os")\n\
+           <Key>KP_4                :string("\033") string("Ot")\n\
+           <Key>KP_5                :string("\033") string("Ou")\n\
+           <Key>KP_6                :string("\033") string("Ov")\n\
+           <Key>KP_7                :string("\033") string("Ow")\n\
+           <Key>KP_8                :string("\033") string("Ox")\n\
+           <Key>KP_9                :string("\033") string("Oy")\n\
+           <Key>Insert              :string("\033") string("[2~")\n\
+           <Key>Home                :string("\033") string("[1~")\n\
+           <Key>Prior               :string("\033") string("[5~")\n\
+           <Key>Delete              :string("\033") string("[3~")\n\
+           <Key>End                 :string("\033") string("[4~")\n\
+           <Key>Next                :string("\033") string("[6~")\n\
+           <Key>Up                  :string("\033") string("[A")\n\
+           <Key>Down                :string("\033") string("[B")\n\
+           <Key>Left                :string("\033") string("[C")\n\
+           <Key>Right               :string("\033") string("[D")' \
+             $xterm_options $*
+    ;;
+                  
+  OSF1)
+    KB=`/usr/sbin/sizer -wk | cut -c -2`
+    case $KB in
+    LK) # OSF1 LK2xx or LK4xx VMS style keyboards
+      ${DECXTERM_EMULATOR:=/usr/bin/X11/xterm} \
+                           -xrm 'xterm*VT100.Translations: #override\n\
+        Shift<Key>F1                  :string("\033") string("[23~")\n\
+             <Key>Escape              :string("\033") string("[23~")\n\
+        Shift<Key>F2                  :string("\033") string("[24~")\n\
+        Shift<Key>F3                  :string("\033") string("[25~")\n\
+        Shift<Key>F4                  :string("\033") string("[26~")\n\
+        Shift<Key>F5                  :string("\033") string("[28~")\n\
+        Shift<Key>F6                  :string("\033") string("[29~")\n\
+        Shift<Key>F7                  :string("\033") string("[31~")\n\
+        Shift<Key>F8                  :string("\033") string("[32~")\n\
+        Shift<Key>F9                  :string("\033") string("[33~")\n\
+        Shift<Key>F10                 :string("\033") string("[34~")\n\
+             <Key>KP_Subtract         :string("\033") string("Om")\n\
+             <Key>KP_Separator        :string("\033") string("Ol")\n\
+             <Key>KP_Enter            :string("\033") string("OM")\n\
+             <Key>KP_Decimal          :string("\033") string("On")\n\
+             <Key>KP_0                :string("\033") string("Op")\n\
+             <Key>KP_1                :string("\033") string("Oq")\n\
+             <Key>KP_2                :string("\033") string("Or")\n\
+             <Key>KP_3                :string("\033") string("Os")\n\
+             <Key>KP_4                :string("\033") string("Ot")\n\
+             <Key>KP_5                :string("\033") string("Ou")\n\
+             <Key>KP_6                :string("\033") string("Ov")\n\
+             <Key>KP_7                :string("\033") string("Ow")\n\
+             <Key>KP_8                :string("\033") string("Ox")\n\
+             <Key>KP_9                :string("\033") string("Oy")' \
+               $xterm_options $*
+        ;;
+
+    PC|''|*)   # OSF1 PC style keyboard
+      if [ "$KB" = "" ]; then 
+         echo -n "Unable to determine Keyboard Type for `uname`, " 
+         echo    "Using default PC keyboard."
+      else   
+        if [ "$KB" != PC ]; then
+          echo -n "DECxterm has not been configured for Keyboard Type $KB "
+          echo    "on `uname`." 
+          echo    "Using default PC keyboard."
+        fi
+      fi
+      ${DECXTERM_EMULATOR:=/usr/bin/X11/xterm} \
+                           -xrm 'xterm*VT100.Translations: #override\n\
+             <Key>BackSpace           :               string("\177")\n\
+        Shift<Key>F1                  :string("\033") string("[23~")\n\
+             <Key>Escape              :string("\033") string("[23~")\n\
+        Shift<Key>F2                  :string("\033") string("[24~")\n\
+        Shift<Key>F3                  :string("\033") string("[25~")\n\
+        Shift<Key>F4                  :string("\033") string("[26~")\n\
+        Shift<Key>F5                  :string("\033") string("[28~")\n\
+             <Key>Print               :string("\033") string("[28~")\n\
+        Shift<Key>F6                  :string("\033") string("[29~")\n\
+             <Key>Pause               :string("\033") string("[29~")\n\
+             <Key>Scroll_Lock         :string("\033") string("[29~")\n\
+             <Key>F6                  :string("\033") string("[17~")\n\
+        Shift<Key>F7                  :string("\033") string("[31~")\n\
+             <Key>F7                  :string("\033") string("[18~")\n\
+        Shift<Key>F8                  :string("\033") string("[32~")\n\
+             <Key>F8                  :string("\033") string("[19~")\n\
+        Shift<Key>F9                  :string("\033") string("[33~")\n\
+             <Key>F9                  :string("\033") string("[20~")\n\
+        Shift<Key>F10                 :string("\033") string("[34~")\n\
+             <Key>F10                 :string("\033") string("[21~")\n\
+             <Key>Num_Lock            :string("\033") string("OP")\n\
+             <Key>KP_Divide           :string("\033") string("OQ")\n\
+             <Key>F25                 :string("\033") string("OQ")\n\
+             <Key>KP_Multiply         :string("\033") string("OR")\n\
+             <Key>F26                 :string("\033") string("OR")\n\
+             <Key>KP_Subtract         :string("\033") string("OS")\n\
+             <Key>F24                 :string("\033") string("OS")\n\
+        Shift<Key>KP_Add              :string("\033") string("Om")\n\
+             <Key>KP_Add              :string("\033") string("Ol")\n\
+             <Key>KP_Separator        :string("\033") string("Ol")\n\
+             <Key>KP_Enter            :string("\033") string("OM")\n\
+             <Key>KP_Decimal          :string("\033") string("On")\n\
+             <Key>KP_0                :string("\033") string("Op")\n\
+             <Key>KP_1                :string("\033") string("Oq")\n\
+             <Key>KP_2                :string("\033") string("Or")\n\
+             <Key>KP_3                :string("\033") string("Os")\n\
+             <Key>KP_4                :string("\033") string("Ot")\n\
+             <Key>KP_5                :string("\033") string("Ou")\n\
+             <Key>KP_6                :string("\033") string("Ov")\n\
+             <Key>KP_7                :string("\033") string("Ow")\n\
+             <Key>KP_8                :string("\033") string("Ox")\n\
+             <Key>KP_9                :string("\033") string("Oy")\n\
+             <Key>Insert              :string("\033") string("[2~")\n\
+             <Key>Home                :string("\033") string("[1~")\n\
+             <Key>Prior               :string("\033") string("[5~")\n\
+             <Key>Delete              :string("\033") string("[3~")\n\
+             <Key>End                 :string("\033") string("[4~")\n\
+             <Key>Next                :string("\033") string("[6~")' \
+               $xterm_options $*
+        ;;
+    esac
+    ;;                     
+
+  *)
+    echo "No Keyboard Mapping defined for `uname`, Using default settings"
+    ${DECXTERM_EMULATOR:=xterm} $xterm_options $*
+    ;;
+  esac

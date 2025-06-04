@@ -1,0 +1,228 @@
+$ ! Procedure:	OPTIMIZE_RMS.COM
+$ __vfy = "VFY_''f$parse(f$environment("procedure"),,,"name")'"
+$ if (f$type('__vfy') .eqs. "") then __vfy = 0
+$ __vfy_saved = f$verify(&__vfy)
+$ set noon
+$ on control_y then goto bail_out
+$ say = "write sys$output"
+$ ask = "@olga$sys:sys_ask"
+$ __warning	= %X10000000
+$ __success	= %X10000001
+$ __error	= %X10000002
+$ __information	= %X10000003
+$ __fatal	= %X10000004
+$ exit_status = __success
+$ temp_file = "''f$getjpi("","pid")'_playback.input"
+$
+$ filename		== f$edit(P1, "collapse,upcase")
+$ adds			== f$edit(P2, "collapse,upcase")
+$ index_compression	== f$edit(P3, "collapse,upcase")
+$ data_compression	== f$edit(P4, "collapse,upcase")
+$ bucket_fill		== f$edit(P5, "collapse,upcase")
+$
+$ if ((filename .eqs. "?") .or. (filename .eqs. "HELP")) then goto give_help
+$ if (adds .eqs. "") then adds == "0"
+$ if (index_compression .eqs. "") then index_compression == "N"
+$ if (data_compression .eqs. "") then data_compression == "Y"
+$ if (bucket_fill .eqs. "") then bucket_fill == "75"
+$ if (filename .nes. "") then goto batch
+$
+$ask_file:
+$ ask filename "File to be optimized (^Z to exit)" "" DSZ^
+$ if ((sys__control_z) .or. (sys__backwards)) then goto bail_out
+$ filename == f$search(filename)
+$got_name_interactive:
+$ name = f$parse(filename,,,"name")
+$ if (f$file_attribute(filename,"org") .nes. "IDX")
+$   then
+$   say "%OPTIMIZE_RMS-E-NOTIDX, file is not indexed"
+$   goto ask_file
+$ endif !(f$file_attribute(filename,"org") .nes. "IDX")
+$
+$ask_adds:
+$ ask adds "Number of records to add after initial load" "0" DIZ^
+$ if (sys__control_z) then goto bail_out
+$ if (sys__backwards) then goto ask_file
+$
+$ask_idx:
+$ ask index_compression "Index & Key Compression" "No" BDZ^
+$ if (sys__control_z) then goto bail_out
+$ if (sys__backwards) then goto ask_adds
+$
+$ask_data:
+$ ask data_compression "Data Record Compression" "Yes" BDZ^
+$ if (sys__control_z) then goto bail_out
+$ if (sys__backwards) then goto ask_idx
+$
+$ ask bucket_fill "Bucket fill percentage" "75" DIZ^
+$ if (sys__control_z) then goto bail_out
+$ if (sys__backwards) then goto ask_data
+$
+$batch:
+$got_name:
+$ filename == f$search(filename)
+$ if (filename .eqs. "")
+$   then
+$   say "%OPTIMIZE_RMS-F-FNF, file not found"
+$   exit_status = %X18292
+$   goto bail_out
+$ endif !(filename .eqs. "")
+$
+$ name = f$parse(filename,,,"name")
+$ if (f$file_attribute(filename,"org") .nes. "IDX")
+$   then
+$   say "%OPTIMIZE_RMS-E-NOTIDX, file is not indexed"
+$   exit_status = %X10024
+$   goto bail_out
+$ endif !(f$file_attribute(filename,"org") .nes. "IDX")
+$
+$ if (adds .lt. 0)
+$   then
+$   say "%OPTIMIZE_RMS-F-BADPARAM, added records must be greater than 0"
+$   exit_status = %X38060
+$   goto bail_out
+$ endif !(adds .lt. 0)
+$
+$ if ((bucket_fill .lt. 50) .or. (bucket_fill .gt. 100))
+$   then
+$   bucket_fill == "75"
+$   say ""
+$   say "%OPTIMIZE_RMS-I-BKTFILL, using a bucket fill of 75%"
+$ endif !((bucket_fill .lt. 50) .or. (bucket_fill .gt. 100))
+$
+$ number_of_keys == f$file_attribute(filename,"nok")
+$ fdl_name = f$parse(".fdl;0",filename)
+$
+$ say ""
+$ open/write/error=open_error out 'temp_file'
+$ wo = "write out"
+$ wo "$ define/user/nolog sys$command sys$input"
+$ wo "$ analyze/rms/fdl/output=''fdl_name' ''filename'"
+$ wo "$ define/user/nolog sys$command sys$input"
+$ wo "$ define/user/nolog edf$$playback_input kludge"
+$ wo "$ editt/fdl/script=optimize/analyze=''fdl_name' ''fdl_name'"
+$ wo ""				! definition of key 0 will be replaced
+$ wo ""				! graph type (line)
+$ wo ""				! number  of records to be reloaded
+$ wo "Fast"			! reload method
+$ wo "''adds'"			! number of records added
+$ if (adds .ne. 0)
+$   then
+$   wo ""			! ascending primary key
+$   wo ""			! distributed evenly
+$ endif !(adds .ne. 0)
+$
+$ wo "yes"			! segmentation question
+$ wo "-"			! end of segments
+$ wo "BF"			! bucket fill
+$ wo "''bucket_fill'"
+$ if (index_compression)
+$   then
+$   wo "IC"			! index compression
+$   wo "YES"
+$   wo "KC"			! key compression
+$   wo "YES"
+$ else
+$ wo "IC"			! index compression
+$ wo "NO"
+$ wo "KC"			! key compression
+$ wo "NO"
+$ endif !(index_compression)
+$ if (data_compression)
+$   then
+$   wo "RC"			! data record compression
+$   wo "YES"
+$ else
+$ wo "RC"			! data record compression
+$ wo "NO"
+$ endif !(data_compression)
+$ wo "FD"			! finished design
+$!$ wo "Created from OPTIMIZE_RMS for ''adds' added records"
+$ wo ""
+$ wo ""				! bucket size
+$ wo ""				! return to continue
+$k_loop:
+$ if (number_of_keys .eq. 1) then goto end_k_loop
+$ wo ""				! definition of key n will be replaced
+$ wo ""				! graph type (line)
+$ wo "yes"			! key segmentation
+$ wo "-"			! end of segments
+$ wo "BF"			! bucket fill
+$ wo "''bucket_fill'"
+$ if (index_compression)
+$   then
+$   wo "IC"			! index compression
+$   wo "YES"
+$   wo "KC"			! key compression
+$   wo "YES"
+$ else
+$ wo "IC"			! index compression
+$ wo "NO"
+$ wo "KC"			! key compression
+$ wo "NO"
+$ endif !(index_compression)
+$ wo "FD"			! finished design
+$ wo ""
+$ wo ""
+$ number_of_keys == number_of_keys - 1
+$ goto k_loop
+$end_k_loop:
+$
+$ wo "E"
+$ wo "$ exitt 1"
+$ close/nolog out
+$
+$ @'temp_file'
+$ goto bail_out
+$
+$open_error:
+$ say "OPTIMIZE_RMS-F unable to open ''temp_file'"
+$ exit_status = __fatal
+$ goto bail_out
+$
+$give_help:
+$ say ""
+$ say " OPTIMIZE_RMS  V1-003"
+$ say ""
+$ say " This procedure will analyze an RMS indexed file, generate an FDL,"
+$ say " then optimize it using the parameters specified."
+$ say ""
+$ say " Parameters:"
+$ say "   P1   Filename.  No default.  (? or HELP will give this text.)"
+$ say "  [P2]  Additional records to add after initial load, defaults to 0."
+$ say "  [P3]  Index & Key compression, defaults to No."
+$ say "  [P4]  Data record compression, defaults to Yes."
+$ say "  [P5]  Bucket fill percentage, defaults to 75."
+$ say ""
+$ goto bail_out
+$
+$bail_out:
+$ if (f$search(temp_file) .nes. "") then deletee 'temp_file';*
+$ !'f$verify(__vfy_saved)'
+$ exitt 'exit_status'
+$ !+==========================================================================
+$ !
+$ ! Procedure:	OPTIMIZE_RMS.COM
+$ !
+$ ! Purpose:	This procedure will analyze an RMS indexed file, generate an
+$ !		FDL then optimize it using the parameters specified.
+$ !
+$ ! Parameters:
+$ !	 P1	Filename
+$ !	[P2]	Additional records to add after initial load, defaults to 0.
+$ !	[P3]	Index & Key compression, defaults to No.
+$ !	[P4]	Data record compression, defaults to Yes.
+$ !	[P5]	Bucket fill percentage, defaults to 75.
+$ !
+$ ! History:
+$ !		24-Oct-1991, DBS; Version V1-001
+$ !	001 -	Original version.  (Based on a similar procedure from the
+$ !		DECUS US CHAPTER Newsletter, Volume 6 Number 7.)
+$ !		14-Apr-1993, LWD; Version V1-002
+$ !	002 -	Index and Key compression now the same, defaults to No.
+$ !		02-Mar-1999, DBS; Version V1-003
+$ !	003 -	"Fixed" to handle segmented keys.
+$ !		15-Apr-1999, DBS; Version V1-004
+$ !	004 -	Fixed a problem where writing the description seems to screw
+$ !		up the owner field in the generated FDL (?).
+$ !-==========================================================================

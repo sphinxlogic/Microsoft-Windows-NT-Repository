@@ -1,0 +1,1280 @@
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+    6      Modifications by Richard D. Piccard -- Ohio University
+    7   
+    8   	2000/07/07 Add home_page function immediately before sorting, to
+    9   			change the ranking of the hits based on several
+   10   			criteria.  The numerical values can be customized
+   11   			readily, and two environment variables can be used
+   12   			to suppress particular hosts or paths. 
+   13   
+   14   	2000/07/10 Use include files custom_head.c and custom_foot.c for
+   15   			cosmetic and site-specific changes to the HTML at
+   16   			the top and bottom of the generated page. 
+   17   
+   18   	2000/08/01 Add capability for REQUIRED_REALM to home_page. 
+   19   
+   20   	2000/08/24 Removed \n prior to > closing tags, and abolished <ISINDEX> 
+   21   			in order to work around bug in Mac Internet Explorer V5. 
+   22   
+   23      -------------------------------------
+   24   
+   25      0.0 1993/06/18 Start the program
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+    6      0.0 1993/06/18 Start the program
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+  362   static char *BAD_HOST_LENGTH   = "Deprecated host too long or too short.";
+  363   static char *BAD_PATH_LENGTH   = "Deprecated path too long or too short.";
+  364   static char *BAD_REALM_LENGTH   = "Required realm too long or too short.";
+  365   static char *MISSING_ARGUMENTS = "Script invoked with missing arguments.";
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+  343   static char *MISSING_ARGUMENTS = "Script invoked with missing arguments.";
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+  412   static void home_page(Result result);
+  413   
+  414   void parse_selector(char *str, int *new_style, char **title, char *gtype,
+  415                       char *ptype, char **file, char **host, char **port,
+  416                       char *method, char **path);
+  417   
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+  390   
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+  735   
+  736   	/*
+  737   	 *  Before sorting, elevate the ranking of any hit that is a "home"
+  738   	 *  page or otherwise preferred.  -  RDP
+  739   	 */
+  740   
+  741   	if (result.count >= 2) home_page(result);
+  742   
+  743           for (ind = 0; ind < result.count; ind++)
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+  708           for (ind = 0; ind < result.count; ind++)
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+  747   	/*
+  748   	 *  discard any results with zero score -- RDP
+  749   	 */
+  750   
+  751   	for (ind = result.count - 1; ind >= 0; ind--) {
+  752   
+  753   	    if (result.select[ind].score == 0) result.count = ind;
+  754   	}
+  755       }
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+  712       }
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+ 1777   
+ 1778   /*
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+ 1734   /*
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+ 1809       char ipath_info[SPEC_SIZE],required_realm[250];
+ 1810       char ipath_translated[SPEC_SIZE], alt_ipath_translated[SPEC_SIZE];
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+ 1765       char ipath_info[SPEC_SIZE];
+ 1766       char ipath_translated[SPEC_SIZE], alt_ipath_translated[SPEC_SIZE];
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+ 1818   
+ 1819       /*
+ 1820        * Check for required realm
+ 1821        */
+ 1822   
+ 1823       if ((cp=getenv("WWW_REQUIRED_REALM")) == NULL) {
+ 1824   
+ 1825   	required_realm[0] = '\0';
+ 1826   
+ 1827       } else {
+ 1828   
+ 1829   	if (strlen(cp) <= 2) {
+ 1830   
+ 1831   	    required_realm[0] ='\0';
+ 1832   
+ 1833   	} else {
+ 1834   
+ 1835   	    if (strlen(cp) <= 249) {
+ 1836   
+ 1837   		strcpy(required_realm, cp);
+ 1838   
+ 1839   	    } else {
+ 1840   
+ 1841   		too_bad(BAD_REALM_LENGTH); 
+ 1842   		exit(1);
+ 1843   	    }
+ 1844   	}
+ 1845   
+ 1846       }
+ 1847   
+ 1848   
+ 1849       /* Check whether we're using whole files. */
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+ 1774       /* Check whether we're using whole files. */
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+ 2032   
+ 2033       /* Set up the HTML rendition. */
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+ 1957       /* Set up the HTML rendition. */
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+ 2042   
+ 2043   /*
+ 2044    *      You can leave the <ISINDEX> part active, if you don't care about
+ 2045    *      functioning with Mac Internet Explorer V5 -- none of the hit links
+ 2046    *      will be clickable if you do, though!  -- RDP 8/21/00
+ 2047    *
+ 2048    *      if (!via_form)
+ 2049    *          printf("<ISINDEX>\n");
+ 2050    */
+ 2051   
+ 2052   #include "custom_head.c"
+ 2053       }
+ 2054   
+ 2055   
+ 2056       printf("<H3>Searching for:</H3>\n<UL>\n<H1><EM>%s</EM></H1>\n</UL>\n", orig_qstr);
+ 2057       if (required_realm[0] != '\0') {
+ 2058   	printf("<H3>in pages whose URLs contain:</H3>\n<UL>\n<H2><EM>%s</EM></H2>\n</UL>\n", required_realm);
+ 2059       }
+ 2060       EndingHit = TotalHits = result.count;
+ 2061       fprintf(stdout, items_found, TotalHits);
+ 2062       if (StartingHit > 1 && StartingHit > TotalHits) {
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+ 1966   	if (!via_form)
+ 1967   	    printf("<ISINDEX>\n");
+ 1968   	printf("</HEAD>\n<BODY>\n");
+ 1969       }
+ 1970       printf("<H1><EM>%s</EM></H1>\n", orig_qstr);
+ 1971       EndingHit = TotalHits = result.count;
+ 1972       fprintf(stdout, items_found, TotalHits);
+ 1973       if (TotalHits < 1) {
+ 1974           printf(".<BR>\n");
+ 1975   	StartingHit = 0;
+ 1976   	add_context = FALSE;
+ 1977           goto check_if_end_form_wanted;
+ 1978       }
+ 1979       if (StartingHit > 1 && StartingHit > TotalHits) {
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+ 2284   	    printf ("<LI>%s<A HREF=\"%s%s%s%s%s\"%s%s>%s</A>%s%s\n",
+ 2285   	    	    FileType(gtype),
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+ 2201   	    printf ("<LI>%s<A HREF=\"%s%s%s%s%s\"%s%s\n>%s</A>%s%s\n",
+ 2202   	    	    FileType(gtype),
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+ 2297               printf ("<LI>%s<A HREF=\"%s%s%s%s%s%s?TEXT=%s-%s\"%s%s>%s</A>%s%s\n",
+ 2298   	    	    FileType(gtype),
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+ 2214               printf ("<LI>%s<A HREF=\"%s%s%s%s%s%s?TEXT=%s-%s\"%s%s\n>%s</A>%s%s\n",
+ 2215   	    	    FileType(gtype),
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+ 2364   	printf("<P>\n<BR>\n");
+ 2365   #include "custom_research.c"
+ 2366   
+ 2367   #include "custom_foot.c"
+ 2368       }
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+ 2281           printf("</BODY>\n</HTML>\n");
+ 2282       }
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+ 2372   
+ 2373   
+ 2374   /*
+ 2375    * Modify the scores to elevate the ranking of home pages (using the path)
+ 2376    * and to elevate the ranking of pages where the hit was early enough on the
+ 2377    * page that it might have been from meta-tagged keywords or description.  
+ 2378    * Based on www_emit (there may be some relic lines of code that are not
+ 2379    * needed).  - RDP
+ 2380    */
+ 2381   static void home_page (Result result)
+ 2382   {
+ 2383       int ind, rawplace, rawscore, start, end, bytes, status;
+ 2384       int slashcheck, slashcount;
+ 2385       struct stat buf;
+ 2386       time_t	elapsed;
+ 2387       struct tm	*local;
+ 2388       char	cdate[26];
+ 2389   #define	MMM	cdate+4
+ 2390   #define DD	cdate+8
+ 2391   #define HHMM	cdate+11
+ 2392   #define	YY	cdate+22
+ 2393       unsigned short send_raw = FALSE;
+ 2394       unsigned short use_ipath_info = FALSE;
+ 2395       char *cp, *cp1, *ptr1, *name, *path;
+ 2396       char score[10], ptype[25], method[10], bad_host[250], bad_path[250];
+ 2397       char required_realm[250], this_url[250];
+ 2398       char *title, *file;
+ 2399       int new_style;
+ 2400       char *file_name, size[128];
+ 2401       char items_found[256], items_listed[256];
+ 2402       char ipath_info[SPEC_SIZE];
+ 2403       char ipath_translated[SPEC_SIZE], alt_ipath_translated[SPEC_SIZE];
+ 2404       char *alt_path=NULL;
+ 2405       char gtype;
+ 2406       char *host, *port;
+ 2407       FILE *fp;
+ 2408       int bad_path_cut, bad_host_cut, slash_max, slash_add;
+ 2409       int place_top, top_boost, place_early, place_scale, home_boost;
+ 2410   
+ 2411       /*
+ 2412        * Initialize cut and boost parameters
+ 2413        */
+ 2414   
+ 2415   
+ 2416       if ((cp=getenv("WWW_BAD_PATH_CUT")) != NULL) {
+ 2417   
+ 2418   	bad_path_cut = atoi(cp);
+ 2419   
+ 2420       } else {
+ 2421   
+ 2422   	bad_path_cut = 2;
+ 2423   
+ 2424       }
+ 2425   
+ 2426   
+ 2427       if ((cp=getenv("WWW_BAD_HOST_CUT")) != NULL) {
+ 2428   
+ 2429   	bad_host_cut = atoi(cp);
+ 2430   
+ 2431       } else {
+ 2432   
+ 2433   	bad_host_cut = 2;
+ 2434   
+ 2435       }
+ 2436   
+ 2437   
+ 2438       if ((cp=getenv("WWW_SLASH_MAX")) != NULL) {
+ 2439   
+ 2440   	slash_max = atoi(cp);
+ 2441   
+ 2442       } else {
+ 2443   
+ 2444   	slash_max = 4;
+ 2445   
+ 2446       }
+ 2447   
+ 2448   
+ 2449       if ((cp=getenv("WWW_SLASH_ADD")) != NULL) {
+ 2450   
+ 2451   	slash_add = atoi(cp);
+ 2452   
+ 2453       } else {
+ 2454   
+ 2455   	slash_add = 50;
+ 2456   
+ 2457       }
+ 2458   
+ 2459   
+ 2460       if ((cp=getenv("WWW_PLACE_TOP")) != NULL) {
+ 2461   
+ 2462   	place_top = atoi(cp);
+ 2463   
+ 2464       } else {
+ 2465   
+ 2466   	place_top = 50;
+ 2467   
+ 2468       }
+ 2469   
+ 2470   
+ 2471       if ((cp=getenv("WWW_TOP_BOOST")) != NULL) {
+ 2472   
+ 2473   	top_boost = atoi(cp);
+ 2474   
+ 2475       } else {
+ 2476   
+ 2477   	top_boost = 50;
+ 2478   
+ 2479       }
+ 2480   
+ 2481   
+ 2482       if ((cp=getenv("WWW_PLACE_EARLY")) != NULL) {
+ 2483   
+ 2484   	place_early = atoi(cp);
+ 2485   
+ 2486       } else {
+ 2487   
+ 2488   	place_early = 150;
+ 2489   
+ 2490       }
+ 2491   
+ 2492       if ((cp=getenv("WWW_PLACE_SCALE")) != NULL) {
+ 2493   
+ 2494   	place_scale = atoi(cp);
+ 2495   
+ 2496       } else {
+ 2497   
+ 2498   	place_scale = 2;
+ 2499   
+ 2500       }
+ 2501   
+ 2502       if ((cp=getenv("WWW_HOME_BOOST")) != NULL) {
+ 2503   
+ 2504   	home_boost = atoi(cp);
+ 2505   
+ 2506       } else {
+ 2507   
+ 2508   	home_boost = 400;
+ 2509   
+ 2510       }
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+ 2286   /*
+ 2287   ** Redirect or output a client's request for a RANGE fetch.
+ 2288   */
+ 2289   static void display_result(char *file_name)
+ 2290   {
+ 2291       int start, end, i;
+ 2292       unsigned short omit_pre = FALSE;
+ 2293       char *cp, inputline[SPEC_SIZE];
+ 2294       FILE *fp;
+ 2295   
+ 2296       /* Get the range and VMS filename. */
+ 2297       if (orig_qstr[5] == ' ')	/** "TEXT= R..."		**/
+ 2298           i = 7;
+ 2299       else	   		/** "TEXT=R..." or "TEXT R..."	**/
+ 2300           i = 6; 
+ 2301       sscanf(orig_qstr+i, "%d-%d-%s", &start, &end, file_name);
+ 2302   
+ 2303       /* Force any paths whose device begins with WWW_Root to begin at root? */
+ 2304       if (!strncasecomp(file_name, "WWW_Root", 8) &&
+ 2305           (cp=strstr(file_name, ":[")) != NULL &&
+ 2306   	getenv("WWW_FORCE_000000") != NULL) {
+ 2307           cp += 2;
+ 2308           if (*cp && strncmp(cp, "000000", 6)) {
+ 2309   	    strncpy(inputline, file_name, cp-file_name);
+ 2310   	    inputline[cp-file_name] = '\0';
+ 2311   	    strcat(inputline, "000000.");
+ 2312   	    strcat(inputline, cp);
+ 2313   	    strcpy(file_name, inputline);
+ 2314   	}
+ 2315       }
+ 2316   
+ 2317       /* Use Location: for raw files to implement httpd authorization checks. */
+ 2318       /* 		(still need this for old or gerry-rigged URL's)		    */
+ 2319       if (getenv("WWW_SEND_RAW_FILE") != NULL) {
+ 2320           printf("Location: %s%s%s\n\n",
+ 2321   			  strlen(Host) ? "http://" : "",
+ 2322   			  strlen(Host) ? Host : "",
+ 2323   			  HTVMS_wwwName(file_name));
+ 2324   	return;
+ 2325       }
+ 2326   
+ 2327       /* Set up the HTML rendition for document sections. */
+ 2328       if (!omit_content_type)
+ 2329           printf("Content-Type: text/html\n\n");
+ 2330       if (!omit_head) {
+ 2331           printf("<HTML>\n<HEAD>\n");
+ 2332   	if (TITLE != NULL)
+ 2333   	    printf("<TITLE>%s</TITLE>\n", TITLE);
+ 2334   	else
+ 2335   	    printf("<TITLE>VMS Indexed Database Search</TITLE>\n");
+ 2336   	printf("</HEAD>\n<BODY>\n");
+ 2337       }
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+ 2513        * Check for deprecated path
+ 2514        */
+ 2515   
+ 2516       if ((cp=getenv("WWW_DEPRECATED_PATH")) != NULL) {
+ 2517   
+ 2518   	if ((strlen(cp) <= 249) && (strlen(cp) >= 4)) {
+ 2519   
+ 2520   	    strcpy(bad_path, cp);
+ 2521   
+ 2522   	} else {
+ 2523   
+ 2524   	    too_bad(BAD_PATH_LENGTH);
+ 2525   	    exit(1);
+ 2526   	}
+ 2527   
+ 2528       } else {
+ 2529   
+ 2530   	bad_path[0] = '\0';
+ 2531   
+ 2532       }
+ 2533   
+ 2534   
+ 2535       /*
+ 2536        * Check for deprecated host
+ 2537        */
+ 2538   
+ 2539       if ((cp=getenv("WWW_DEPRECATED_HOST")) != NULL) {
+ 2540   
+ 2541   	if ((strlen(cp) <= 249) && (strlen(cp) >= 4)) {
+ 2542   
+ 2543   	    strcpy(bad_host, cp);
+ 2544   
+ 2545   	} else {
+ 2546   
+ 2547   	    too_bad(BAD_HOST_LENGTH);
+ 2548   	    exit(1);
+ 2549   	}
+ 2550   
+ 2551       } else {
+ 2552   
+ 2553   	bad_host[0] = '\0';
+ 2554   
+ 2555       }
+ 2556   
+ 2557   
+ 2558       /*
+ 2559        * Check for required realm
+ 2560        */
+ 2561   
+ 2562       if ((cp=getenv("WWW_REQUIRED_REALM")) == NULL) {
+ 2563   
+ 2564   	required_realm[0] = '\0';
+ 2565   
+ 2566       } else {
+ 2567   
+ 2568   	if (strlen(cp) <= 2) {
+ 2569   
+ 2570   	    required_realm[0] ='\0';
+ 2571   
+ 2572   	} else {
+ 2573   
+ 2574   	    if (strlen(cp) <= 249) {
+ 2575   
+ 2576   		strcpy(required_realm, cp);
+ 2577   
+ 2578   	    } else {
+ 2579   
+ 2580   		too_bad(BAD_REALM_LENGTH); 
+ 2581   		exit(1);
+ 2582   	    }
+ 2583   	}
+ 2584   
+ 2585       }
+ 2586   
+ 2587       /*
+ 2588        * Check whether to substitute ipath_info for ipath_translated
+ 2589        * in hit lists, and if so, set up the translation.
+ 2590        */
+ 2591       if (((cp=getenv("WWW_OMIT_IPATH_CONVERSION")) == NULL) &&
+ 2592           ( cp=getenv("WWW_IPATH_INFO") ) != NULL) {
+ 2593   	if (strlen(cp) > SPEC_SIZE)
+ 2594   	    cp[SPEC_SIZE] = '\0';
+ 2595   	strcpy(ipath_info, cp);
+ 2596           if ((cp=getenv("WWW_IPATH_TRANSLATED")) != NULL) {
+ 2597   	    if (strlen(cp) > SPEC_SIZE)
+ 2598   	        cp[SPEC_SIZE] = '\0';
+ 2599   	    strcpy(ipath_translated, cp);
+ 2600   	    /*
+ 2601   	     * Make sure we handle both root (device/000000/)
+ 2602   	     * and subdirectory (device/foo/) paths.
+ 2603   	     */
+ 2604   	    if ((cp=strstr(ipath_translated, "000000/")) != NULL) {
+ 2605   	        *cp = '\0';
+ 2606   		strcpy(alt_ipath_translated, ipath_translated);
+ 2607   		*cp = '0';
+ 2608   		strcat(alt_ipath_translated, (cp+7));
+ 2609   	    } else {
+ 2610   	        alt_ipath_translated[0] = '\0';
+ 2611   	    }
+ 2612   	    use_ipath_info = TRUE;
+ 2613   	}
+ 2614       } 
+ 2615   
+ 2616   
+ 2617       /* Go through the selectors one at a time. */
+ 2618       for (ind = 0; ind < result.count; ind++) {
+ 2619           find_selector(result.select[ind]);
+ 2620           ptr1 = (char *) (selrab.rab$l_ubf +
+ 2621   			 index_size[result.select[ind].file]);
+ 2622           parse_selector(ptr1, &new_style, &name, &gtype, ptype,
+ 2623                          &file_name, &host, &port, method, &path);
+ 2624   	status = -1;
+ 2625   	bytes = 0;
+ 2626   
+ 2627           /* Get the path field for the URL. */
+ 2628   	if (ptype[0] != 'R') {
+ 2629   	    /* No range is indicated.  Use a direct URL. */
+ 2630               if (strlen(path) == 0)     /* no path given in selector */
+ 2631   	        path = HTVMS_wwwName(file_name);   /* use file name */
+ 2632   	} else {
+ 2633   	    /* Get file_name and number of bytes from the Range selector. */
+ 2634               sscanf(ptype+1, "%d-%d", &start, &end);
+ 2635   	    bytes = (end - start) + 1;
+ 2636   
+ 2637   	    if (send_raw == TRUE) {
+ 2638   	        /* Ignore the Range and use a direct URL. */
+ 2639                   ptype[0] = '\0';
+ 2640                   if (strlen(path) == 0)         /* no path given in selector */
+ 2641                       path = HTVMS_wwwName(file_name);   /* use file name */
+ 2642   	    } else if (use_ipath_info == TRUE) {
+ 2643   	        /* Include the Range but convert the pathspec. */
+ 2644   	        path = HTVMS_wwwName(file_name);
+ 2645   
+ 2646   	    } else {
+ 2647   	        /* We're including a Range and VMS pathspecs so hex escape. */
+ 2648   	        alt_path = URLescape(file_name);
+ 2649   	        path = alt_path;
+ 2650   	    }
+ 2651   	}
+ 2652   
+ 2653   
+ 2654   	/*
+ 2655   	 * Check for ipath_translated or alt_ipath_translated
+ 2656   	 * and substitute ipath_info (if set).
+ 2657   	 */
+ 2658   	if (use_ipath_info == TRUE) {
+ 2659   	    alt_path = (char *)malloc(strlen(path) + strlen(ipath_info) + 1);
+ 2660   	    if (strncasecomp(path,
+ 2661   			     ipath_translated,
+ 2662   			     strlen(ipath_translated)) == 0) {
+ 2663   		strcpy(alt_path, ipath_info);
+ 2664   		strcat(alt_path, (char*)&path[strlen(ipath_translated)]);
+ 2665   		path = alt_path;
+ 2666   	    } else if(alt_ipath_translated[0] != '\0' &&
+ 2667   		      strncasecomp(path,
+ 2668   				   alt_ipath_translated,
+ 2669   				   strlen(alt_ipath_translated)) == 0) {
+ 2670   		strcpy(alt_path, ipath_info);
+ 2671   		strcat(alt_path, (char*)&path[strlen(alt_ipath_translated)]);
+ 2672   		path = alt_path;
+ 2673   	    }
+ 2674   	}
+ 2675   
+ 2676   
+ 2677           /* provide http default if a host is given with no method */
+ 2678   
+ 2679           if ((strlen(method) == 0) && strlen(host))
+ 2680               strcpy(method, "http");
+ 2681           if (strlen(method))
+ 2682               strcat(method, "://");
+ 2683   
+ 2684   
+ 2685           /*
+ 2686   	 *  At this point, method, host, port, and path are the obvious parts 
+ 2687   	 *  of the HREF that will be created for the link.  -  RDP
+ 2688   	 */
+ 2689   
+ 2690           rawscore = result.select[ind].score;
+ 2691           rawplace = result.select[ind].pos;
+ 2692   
+ 2693   	if ((strlen(path) + strlen(host)) <= (250 - 7 - 6)) {
+ 2694   
+ 2695   	    sprintf(this_url, "%s%s%s%s",
+ 2696   		strlen(method) ? method : "",
+ 2697   		strlen(host) ? host : "",
+ 2698   		strlen(port) ? port : "",
+ 2699   		path);
+ 2700   
+ 2701   	} else {
+ 2702   
+ 2703   	    /* deal with pathologically long URL */
+ 2704   
+ 2705   	    sprintf(this_url, "%s",
+ 2706   		strlen(method) ? method : "");
+ 2707   
+ 2708   	    strncat(this_url, host, (250 - strlen(this_url) - 3));
+ 2709   	    strncat(this_url, port, (250 - strlen(this_url) - 2));
+ 2710   	    strncat(this_url, path, (250 - strlen(this_url) - 1));
+ 2711   	}
+ 2712   
+ 2713   	if (required_realm[0] == '\0' || (required_realm[0] != '\0' &&
+ 2714   		(strstr(this_url,required_realm) != NULL)) ) {
+ 2715   
+ 2716   	    /*
+ 2717   	     * either no required realm or it matches, so go ahead
+ 2718   	     * with the boost and cut calculations
+ 2719   	     *
+ 2720   	     */
+ 2721   
+ 2722               if (strstr(path,"index.") != NULL ||
+ 2723                   strstr(path,"welcome.") != NULL ||
+ 2724                   strstr(path,"default.") != NULL ||
+ 2725                   path[strlen(path)-1] == '/')  {
+ 2726   
+ 2727   	        /*
+ 2728                    *  we have a home page, folks!
+ 2729                    */
+ 2730                   rawscore = rawscore + home_boost;	/* home page boost */
+ 2731               }
+ 2732   
+ 2733   	    /*
+ 2734   	     *  Apply boost for early location in page -- primary target
+ 2735   	     *  is keywords and description text from META tags. 
+ 2736   	     */
+ 2737   
+ 2738               if (rawplace <= place_top) rawscore = rawscore + top_boost;
+ 2739   	    if (rawplace <= place_early) rawscore = rawscore + (place_early - rawplace)/place_scale;
+ 2740   
+ 2741   	    /*
+ 2742   	     *  Apply boost for high-level path (small number of slashes).
+ 2743   	     */
+ 2744   
+ 2745   	    slashcount = 0;
+ 2746   
+ 2747   	    for (slashcheck=0; slashcheck < strlen(path); slashcheck++) {
+ 2748   
+ 2749   	        if (path[slashcheck] == '/') slashcount = slashcount + 1;
+ 2750   	    }
+ 2751   
+ 2752   	    if (slashcount <= slash_max) rawscore = rawscore + slash_add*(slash_max - slashcount);
+ 2753   
+ 2754   
+ 2755   	    /*
+ 2756   	     *  Apply cut for pages on deprecated host.
+ 2757   	     */
+ 2758   
+ 2759   	    if ((strlen(bad_host) >= 2) && (strstr(host, bad_host) != NULL)) {
+ 2760   
+ 2761   	        rawscore = rawscore/bad_host_cut;
+ 2762   
+ 2763   	    }
+ 2764   
+ 2765   
+ 2766   	    /*
+ 2767   	     *  Apply cut for pages on deprecated path.
+ 2768   	     */
+ 2769   
+ 2770   	    if ((strlen(bad_path) >= 2) && (strstr(path, bad_path) != NULL)) {
+ 2771   
+ 2772   	        rawscore = rawscore/bad_path_cut;
+ 2773   
+ 2774   	    }
+ 2775   
+ 2776   	} else {
+ 2777   
+ 2778   	/*
+ 2779   	 *
+ 2780   	 * required realm and it did not match
+ 2781   	 *
+ 2782   	 */
+ 2783   
+ 2784   	    rawscore = 0;
+ 2785   
+ 2786   	}
+ 2787   
+ 2788           result.select[ind].score = rawscore;
+ 2789   
+ 2790   	if (alt_path != NULL) {
+ 2791   	    free(alt_path);
+ 2792   	    alt_path = NULL;
+ 2793   	}
+ 2794       }
+ 2795   
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+ 2340        * If we are omitting the IPATH conversions, then
+ 2341        * require that the path to the document begin with
+ 2342        * WWW_Root, Gopher_Root, or a string optionally set by
+ 2343        * the calling script as the WWW_DATADIRECTORY symbol.
+ 2344        * 
+ 2345        * Always require that it not begin with the WWW_FORBIDDEN
+ 2346        * symbol if the calling script has set a string for it.
+ 2347        *
+ 2348        * These checks are done for files or database sections
+ 2349        * fetched with a RANGE specification because the path
+ 2350        * to them is not included in the server's access checks
+ 2351        * (the server only checks access for the script which
+ 2352        * invoked us).  We want to block spoofs like:
+ 2353        * 		R0-10000-SYS$COMMON:[SYSMGR]FOO.BLAH
+ 2354        */
+ 2355       if ( getenv("WWW_OMIT_CONVERSION") != NULL &&
+ 2356            ( strncasecomp(file_name, "WWW_Root", 8) &&
+ 2357              strncasecomp(file_name, "Gopher_Root", 11) &&
+ 2358   	  !(((cp=getenv("WWW_DATADIRECTORY")) != NULL) &&
+ 2359   	      strncasecomp(file_name, cp, strlen(cp))) ) ||
+ 2360   	 ( ((cp=getenv("WWW_FORBIDDEN")) != NULL) &&
+ 2361   	   0==strncasecomp(file_name, cp, strlen(cp)) ) ) {
+ 2362   	printf("<H1>ERROR 403</H1>\nForbidden -- by rule");
+ 2363           printf("\n</BODY>\n</HTML>\n");
+ 2364   	return;
+ 2365       }
+ 2366   
+ 2367       /* Check whether we should omit PRE formatting. */
+ 2368       if (getenv("WWW_OMIT_PRE_TAG") != NULL) {
+ 2369   	omit_pre = TRUE;
+ 2370       }
+ 2371       else
+ 2372           printf("<PRE>\n");
+ 2373   
+ 2374       /* Get and send the section with appropriate further packaging. */ 
+ 2375       if ((cp=getenv("WWW_IPATH_TRANSLATED")) != NULL &&
+ 2376           getenv("WWW_OMIT_IPATH_CONVERSION") == NULL)
+ 2377           fp = fopen(cp, "r", "shr=get", "mbc=32");
+ 2378       else
+ 2379           fp = fopen(file_name, "r", "shr=get", "mbc=32");
+ 2380       if (fp == NULL) {
+ 2381   	printf("<H1>ERROR 403</H1>\nUnable to fopen() database.");
+ 2382           printf("\n</BODY>\n</HTML>\n");
+ 2383   	return;
+ 2384       }
+ 2385       fseek(fp, start, SEEK_SET);
+ 2386       if(omit_pre)
+ 2387           printf("This is from the document %s\n\n", file_name);
+ 2388       else
+ 2389   	printf("<PRE>\nThis is from the document %s\n</PRE>\n", file_name);
+ 2390       while (fgets(inputline, sizeof(inputline), fp) != NULL) {
+ 2391           printf("%s", inputline);
+ 2392   	if (ftell(fp) >= end)
+ 2393               break;
+ 2394       }
+ 2395       fclose(fp);
+ 2396       if (omit_pre)
+ 2397           printf("\n");
+ 2398       else
+ 2399           printf("\n</PRE>\n");
+ 2400       if (!omit_foot)
+ 2401           printf("</BODY>\n</HTML>\n");
+ 2402   }
+ 2403   
+ 2404   static char *URLescape(char *str)
+ 2405   {
+ 2406   #define ACCEPTABLE(a)	( a>=32 && a<128 && ((isAcceptable[a-32]) & 1))
+ 2407       char *p;
+ 2408       char *q;
+ 2409       char *result;
+ 2410       int unacceptable = 0;
+ 2411       for(p=str; *p; p++)
+ 2412           if (!ACCEPTABLE((unsigned char)*p))
+ 2413   		unacceptable++;
+ 2414       result = (char *) malloc(p-str + unacceptable+ unacceptable + 1);
+ 2415       for(q=result, p=str; *p; p++) {
+ 2416       	unsigned char a = *p;
+ 2417   	if (!ACCEPTABLE(a)) {
+ 2418   	    *q++ = '%';	/* Means hex commming */
+ 2419   	    *q++ = hex[a >> 4];
+ 2420   	    *q++ = hex[a & 15];
+ 2421   	}
+ 2422   	else *q++ = *p;
+ 2423       }
+ 2424       *q++ = '\0';			/* Terminate */
+ 2425       return(result);
+ 2426   }
+ 2427   
+ 2428   static char *HTVMS_wwwName(char *vmsname)
+ 2429   {
+ 2430   static char wwwname[SPEC_SIZE];
+ 2431   char *src, *dst;
+ 2432   int dir;
+ 2433      dst = wwwname;
+ 2434      src = vmsname;
+ 2435      dir = 0;
+ 2436      if (strchr(src,':')) *(dst++) = '/';
+ 2437      for ( ; *src != '\0' ; src++)
+ 2438      {
+ 2439         switch(*src)
+ 2440         {
+ 2441            case ':':  *(dst++) = '/'; break;
+ 2442            case '-': if (dir)
+ 2443   	 	   {
+ 2444   	 	      if ((*(src-1)=='[' || *(src-1)=='.' || *(src-1)=='-') && 
+ 2445   		          (*(src+1)=='.' || *(src+1)=='-'))
+ 2446   		      {
+ 2447   		          *(dst++) = '/';
+ 2448                             *(dst++) = '.'; 
+ 2449                             *(dst++) = '.';
+ 2450   		      }
+ 2451   		      else
+ 2452   		          *(dst++) = '-';
+ 2453   		   }
+ 2454   		   else
+ 2455   		   {
+ 2456   		      if (*(src-1) == ']') *(dst++) = '/';
+ 2457   		      *(dst++) = '-';
+ 2458   		   }
+ 2459                      break;
+ 2460            case '.': if (dir)
+ 2461                      {
+ 2462                         if (*(src-1) != '[') *(dst++) = '/';
+ 2463                      }
+ 2464                      else
+ 2465   		   {
+ 2466   		      if (*(src-1) == ']') *(dst++) = '/';
+ 2467                         *(dst++) = '.';
+ 2468   		   }
+ 2469                      break;
+ 2470            case '[': dir = 1; break;
+ 2471            case ']': dir = 0; break;
+ 2472            default:  if (*(src-1) == ']') *(dst++) = '/';
+ 2473                      *(dst++) = *src; 
+ 2474                      break;
+ 2475         }
+ 2476      }
+ 2477      *(dst++) = '\0';
+ 2478      return(wwwname);
+ 2479   }
+ 2480   
+ 2481   static char *FileType(char gtype)
+ 2482   {
+ 2483   static char filetype[256];
+ 2484   
+ 2485       if (getenv("WWW_SHOW_FILETYPE") == NULL) {
+ 2486           filetype[0] = '\0';
+ 2487   	return(filetype);
+ 2488       }
+ 2489   
+ 2490       switch(gtype)
+ 2491       {
+ 2492           case '0':
+ 2493   	case 'R':
+ 2494   	case 'h':
+ 2495   	case 'M':
+ 2496   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[TXT]\"\n> ",
+ 2497   	    	    strlen(Host) ? "http://" : "",
+ 2498   		    strlen(Host) ? Host : "",
+ 2499   		    "/httpd-internal-icons/text.xbm");
+ 2500   	    break;
+ 2501   
+ 2502   	case '1':
+ 2503   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[DIR]\"\n> ",
+ 2504   	    	    strlen(Host) ? "http://" : "",
+ 2505   		    strlen(Host) ? Host : "",
+ 2506   		    "/httpd-internal-icons/directory.xbm");
+ 2507   	    break;
+ 2508   
+ 2509   	case '4':
+ 2510   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[HEX]\"\n> ",
+ 2511   	    	    strlen(Host) ? "http://" : "",
+ 2512   		    strlen(Host) ? Host : "",
+ 2513   		    "/httpd-internal-icons/binhex.xbm");
+ 2514   	    break;
+ 2515   
+ 2516   	case '5':
+ 2517   	case '9':
+ 2518   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[BIN]\"\n> ",
+ 2519   	    	    strlen(Host) ? "http://" : "",
+ 2520   		    strlen(Host) ? Host : "",
+ 2521   		    "/httpd-internal-icons/binary.xbm");
+ 2522   	    break;
+ 2523   
+ 2524   	case '6':
+ 2525   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[UUE]\"\n> ",
+ 2526   	    	    strlen(Host) ? "http://" : "",
+ 2527   		    strlen(Host) ? Host : "",
+ 2528   		    "/httpd-internal-icons/uu.xbm");
+ 2529   	    break;
+ 2530   
+ 2531   	case '7':
+ 2532   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[IDX]\"\n> ",
+ 2533   	    	    strlen(Host) ? "http://" : "",
+ 2534   		    strlen(Host) ? Host : "",
+ 2535   		    "/httpd-internal-icons/index.xbm");
+ 2536   	    break;
+ 2537   
+ 2538   	case 'g':
+ 2539   	case 'I':
+ 2540   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[IMG]\"\n> ",
+ 2541   	    	    strlen(Host) ? "http://" : "",
+ 2542   		    strlen(Host) ? Host : "",
+ 2543   		    "/httpd-internal-icons/image.xbm");
+ 2544   	    break;
+ 2545   
+ 2546   	case 's':
+ 2547   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[SND]\"\n> ",
+ 2548   	    	    strlen(Host) ? "http://" : "",
+ 2549   		    strlen(Host) ? Host : "",
+ 2550   		    "/httpd-internal-icons/sound.xbm");
+ 2551   	    break;
+ 2552   
+ 2553   	case ';':
+ 2554   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[MOV]\"\n> ",
+ 2555   	    	    strlen(Host) ? "http://" : "",
+ 2556   		    strlen(Host) ? Host : "",
+ 2557   		    "/httpd-internal-icons/movie.xbm");
+ 2558   	    break;
+ 2559   
+ 2560   	default:
+ 2561   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[UNK]\"\n> ",
+ 2562   	    	    strlen(Host) ? "http://" : "",
+ 2563   		    strlen(Host) ? Host : "",
+ 2564   		    "/httpd-internal-icons/unknown.xbm");
+ 2565   	    break;
+ 2566       }
+ 2567   
+ 2568       return(filetype);
+ 2569   }
+ 2570   
+ 2571   static void too_bad(char *reason)
+ 2572   {
+ 2573       if (!(switch_present("www") ||
+ 2574       	  getenv("WWW_GATEWAY_INTERFACE") != NULL)) {
+ 2575           printf("%s\n", reason);      /* non HTML error */
+ 2576           return;
+ 2577       }
+ 2578   
+ 2579       /* set up the HTML rendition */
+ 2580       if (!omit_content_type)
+ 2581           printf("Content-type: text/html\n\n");
+ 2582       if (!omit_head) {
+ 2583           printf("<HTML>\n<HEAD>\n");
+ 2584   	if (TITLE != NULL)
+ 2585   	    printf("<TITLE>%s</TITLE>\n", TITLE);
+ 2586   	else
+ 2587   	    printf("<TITLE>VMS Indexed Database Search</TITLE>\n");
+ 2588   	printf("</HEAD>\n<BODY>\n");
+ 2589       }
+ 2590   
+ 2591       /* display the error message */
+ 2592       printf("<H1>ERROR 403</H1>\n%s", reason);
+ 2593       if (!omit_foot)
+ 2594           printf("\n</BODY>\n</HTML>\n");
+ 2595   
+************
+************
+File DISK9:[INDEX.VMSINDEX]QUERY.C;75
+ 2799   
+ 2800   
+ 2801   /*
+ 2802   ** Redirect or output a client's request for a RANGE fetch.
+ 2803   */
+ 2804   static void display_result(char *file_name)
+ 2805   {
+ 2806       int start, end, i;
+ 2807       unsigned short omit_pre = FALSE;
+ 2808       char *cp, inputline[SPEC_SIZE];
+ 2809       FILE *fp;
+ 2810   
+ 2811       /* Get the range and VMS filename. */
+ 2812       if (orig_qstr[5] == ' ')	/** "TEXT= R..."		**/
+ 2813           i = 7;
+ 2814       else	   		/** "TEXT=R..." or "TEXT R..."	**/
+ 2815           i = 6; 
+ 2816       sscanf(orig_qstr+i, "%d-%d-%s", &start, &end, file_name);
+ 2817   
+ 2818       /* Force any paths whose device begins with WWW_Root to begin at root? */
+ 2819       if (!strncasecomp(file_name, "WWW_Root", 8) &&
+ 2820           (cp=strstr(file_name, ":[")) != NULL &&
+ 2821   	getenv("WWW_FORCE_000000") != NULL) {
+ 2822           cp += 2;
+ 2823           if (*cp && strncmp(cp, "000000", 6)) {
+ 2824   	    strncpy(inputline, file_name, cp-file_name);
+ 2825   	    inputline[cp-file_name] = '\0';
+ 2826   	    strcat(inputline, "000000.");
+ 2827   	    strcat(inputline, cp);
+ 2828   	    strcpy(file_name, inputline);
+ 2829   	}
+ 2830       }
+ 2831   
+ 2832       /* Use Location: for raw files to implement httpd authorization checks. */
+ 2833       /* 		(still need this for old or gerry-rigged URL's)		    */
+ 2834       if (getenv("WWW_SEND_RAW_FILE") != NULL) {
+ 2835           printf("Location: %s%s%s\n\n",
+ 2836   			  strlen(Host) ? "http://" : "",
+ 2837   			  strlen(Host) ? Host : "",
+ 2838   			  HTVMS_wwwName(file_name));
+ 2839   	return;
+ 2840       }
+ 2841   
+ 2842       /* Set up the HTML rendition for document sections. */
+ 2843       if (!omit_content_type)
+ 2844           printf("Content-Type: text/html\n\n");
+ 2845       if (!omit_head) {
+ 2846           printf("<HTML>\n<HEAD>\n");
+ 2847   	if (TITLE != NULL)
+ 2848   	    printf("<TITLE>%s</TITLE>\n", TITLE);
+ 2849   	else
+ 2850   	    printf("<TITLE>VMS Indexed Database Search</TITLE>\n");
+ 2851   #include "custom_head.c"
+ 2852       }
+ 2853   
+ 2854       /*
+ 2855        * If we are omitting the IPATH conversions, then
+ 2856        * require that the path to the document begin with
+ 2857        * WWW_Root, Gopher_Root, or a string optionally set by
+ 2858        * the calling script as the WWW_DATADIRECTORY symbol.
+ 2859        * 
+ 2860        * Always require that it not begin with the WWW_FORBIDDEN
+ 2861        * symbol if the calling script has set a string for it.
+ 2862        *
+ 2863        * These checks are done for files or database sections
+ 2864        * fetched with a RANGE specification because the path
+ 2865        * to them is not included in the server's access checks
+ 2866        * (the server only checks access for the script which
+ 2867        * invoked us).  We want to block spoofs like:
+ 2868        * 		R0-10000-SYS$COMMON:[SYSMGR]FOO.BLAH
+ 2869        */
+ 2870       if ( getenv("WWW_OMIT_CONVERSION") != NULL &&
+ 2871            ( strncasecomp(file_name, "WWW_Root", 8) &&
+ 2872              strncasecomp(file_name, "Gopher_Root", 11) &&
+ 2873   	  !(((cp=getenv("WWW_DATADIRECTORY")) != NULL) &&
+ 2874   	      strncasecomp(file_name, cp, strlen(cp))) ) ||
+ 2875   	 ( ((cp=getenv("WWW_FORBIDDEN")) != NULL) &&
+ 2876   	   0==strncasecomp(file_name, cp, strlen(cp)) ) ) {
+ 2877   	printf("<H1>ERROR 403</H1>\nForbidden -- by rule");
+ 2878   #include "custom_foot.c"
+ 2879   	return;
+ 2880       }
+ 2881   
+ 2882       /* Check whether we should omit PRE formatting. */
+ 2883       if (getenv("WWW_OMIT_PRE_TAG") != NULL) {
+ 2884   	omit_pre = TRUE;
+ 2885       }
+ 2886       else
+ 2887           printf("<PRE>\n");
+ 2888   
+ 2889       /* Get and send the section with appropriate further packaging. */ 
+ 2890       if ((cp=getenv("WWW_IPATH_TRANSLATED")) != NULL &&
+ 2891           getenv("WWW_OMIT_IPATH_CONVERSION") == NULL)
+ 2892           fp = fopen(cp, "r", "shr=get", "mbc=32");
+ 2893       else
+ 2894           fp = fopen(file_name, "r", "shr=get", "mbc=32");
+ 2895       if (fp == NULL) {
+ 2896   	printf("<H1>ERROR 403</H1>\nUnable to fopen() database.");
+ 2897   #include "custom_foot.c"
+ 2898   	return;
+ 2899       }
+ 2900       fseek(fp, start, SEEK_SET);
+ 2901       if(omit_pre)
+ 2902           printf("This is from the document %s\n\n", file_name);
+ 2903       else
+ 2904   	printf("<PRE>\nThis is from the document %s\n</PRE>\n", file_name);
+ 2905       while (fgets(inputline, sizeof(inputline), fp) != NULL) {
+ 2906           printf("%s", inputline);
+ 2907   	if (ftell(fp) >= end)
+ 2908               break;
+ 2909       }
+ 2910       fclose(fp);
+ 2911       if (omit_pre)
+ 2912           printf("\n");
+ 2913       else
+ 2914           printf("\n</PRE>\n");
+ 2915       if (!omit_foot)
+ 2916   #include "custom_foot.c"
+ 2917   }
+ 2918   
+ 2919   static char *URLescape(char *str)
+ 2920   {
+ 2921   #define ACCEPTABLE(a)	( a>=32 && a<128 && ((isAcceptable[a-32]) & 1))
+ 2922       char *p;
+ 2923       char *q;
+ 2924       char *result;
+ 2925       int unacceptable = 0;
+ 2926       for(p=str; *p; p++)
+ 2927           if (!ACCEPTABLE((unsigned char)*p))
+ 2928   		unacceptable++;
+ 2929       result = (char *) malloc(p-str + unacceptable+ unacceptable + 1);
+ 2930       for(q=result, p=str; *p; p++) {
+ 2931       	unsigned char a = *p;
+ 2932   	if (!ACCEPTABLE(a)) {
+ 2933   	    *q++ = '%';	/* Means hex commming */
+ 2934   	    *q++ = hex[a >> 4];
+ 2935   	    *q++ = hex[a & 15];
+ 2936   	}
+ 2937   	else *q++ = *p;
+ 2938       }
+ 2939       *q++ = '\0';			/* Terminate */
+ 2940       return(result);
+ 2941   }
+ 2942   
+ 2943   static char *HTVMS_wwwName(char *vmsname)
+ 2944   {
+ 2945   static char wwwname[SPEC_SIZE];
+ 2946   char *src, *dst;
+ 2947   int dir;
+ 2948      dst = wwwname;
+ 2949      src = vmsname;
+ 2950      dir = 0;
+ 2951      if (strchr(src,':')) *(dst++) = '/';
+ 2952      for ( ; *src != '\0' ; src++)
+ 2953      {
+ 2954         switch(*src)
+ 2955         {
+ 2956            case ':':  *(dst++) = '/'; break;
+ 2957            case '-': if (dir)
+ 2958   	 	   {
+ 2959   	 	      if ((*(src-1)=='[' || *(src-1)=='.' || *(src-1)=='-') && 
+ 2960   		          (*(src+1)=='.' || *(src+1)=='-'))
+ 2961   		      {
+ 2962   		          *(dst++) = '/';
+ 2963                             *(dst++) = '.'; 
+ 2964                             *(dst++) = '.';
+ 2965   		      }
+ 2966   		      else
+ 2967   		          *(dst++) = '-';
+ 2968   		   }
+ 2969   		   else
+ 2970   		   {
+ 2971   		      if (*(src-1) == ']') *(dst++) = '/';
+ 2972   		      *(dst++) = '-';
+ 2973   		   }
+ 2974                      break;
+ 2975            case '.': if (dir)
+ 2976                      {
+ 2977                         if (*(src-1) != '[') *(dst++) = '/';
+ 2978                      }
+ 2979                      else
+ 2980   		   {
+ 2981   		      if (*(src-1) == ']') *(dst++) = '/';
+ 2982                         *(dst++) = '.';
+ 2983   		   }
+ 2984                      break;
+ 2985            case '[': dir = 1; break;
+ 2986            case ']': dir = 0; break;
+ 2987            default:  if (*(src-1) == ']') *(dst++) = '/';
+ 2988                      *(dst++) = *src; 
+ 2989                      break;
+ 2990         }
+ 2991      }
+ 2992      *(dst++) = '\0';
+ 2993      return(wwwname);
+ 2994   }
+ 2995   
+ 2996   static char *FileType(char gtype)
+ 2997   {
+ 2998   static char filetype[256];
+ 2999   
+ 3000       if (getenv("WWW_SHOW_FILETYPE") == NULL) {
+ 3001           filetype[0] = '\0';
+ 3002   	return(filetype);
+ 3003       }
+ 3004   
+ 3005       switch(gtype)
+ 3006       {
+ 3007           case '0':
+ 3008   	case 'R':
+ 3009   	case 'h':
+ 3010   	case 'M':
+ 3011   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"\"> ",
+ 3012   	    	    strlen(Host) ? "http://" : "",
+ 3013   		    strlen(Host) ? Host : "",
+ 3014   		    "/httpd-internal-icons/text.xbm");
+ 3015   	    break;
+ 3016   
+ 3017   	case '1':
+ 3018   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[DIR]\"> ",
+ 3019   	    	    strlen(Host) ? "http://" : "",
+ 3020   		    strlen(Host) ? Host : "",
+ 3021   		    "/httpd-internal-icons/directory.xbm");
+ 3022   	    break;
+ 3023   
+ 3024   	case '4':
+ 3025   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[HEX]\"> ",
+ 3026   	    	    strlen(Host) ? "http://" : "",
+ 3027   		    strlen(Host) ? Host : "",
+ 3028   		    "/httpd-internal-icons/binhex.xbm");
+ 3029   	    break;
+ 3030   
+ 3031   	case '5':
+ 3032   	case '9':
+ 3033   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[BIN]\"> ",
+ 3034   	    	    strlen(Host) ? "http://" : "",
+ 3035   		    strlen(Host) ? Host : "",
+ 3036   		    "/httpd-internal-icons/binary.xbm");
+ 3037   	    break;
+ 3038   
+ 3039   	case '6':
+ 3040   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[UUE]\"> ",
+ 3041   	    	    strlen(Host) ? "http://" : "",
+ 3042   		    strlen(Host) ? Host : "",
+ 3043   		    "/httpd-internal-icons/uu.xbm");
+ 3044   	    break;
+ 3045   
+ 3046   	case '7':
+ 3047   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[IDX]\"> ",
+ 3048   	    	    strlen(Host) ? "http://" : "",
+ 3049   		    strlen(Host) ? Host : "",
+ 3050   		    "/httpd-internal-icons/index.xbm");
+ 3051   	    break;
+ 3052   
+ 3053   	case 'g':
+ 3054   	case 'I':
+ 3055   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[IMG]\"> ",
+ 3056   	    	    strlen(Host) ? "http://" : "",
+ 3057   		    strlen(Host) ? Host : "",
+ 3058   		    "/httpd-internal-icons/image.xbm");
+ 3059   	    break;
+ 3060   
+ 3061   	case 's':
+ 3062   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[SND]\"> ",
+ 3063   	    	    strlen(Host) ? "http://" : "",
+ 3064   		    strlen(Host) ? Host : "",
+ 3065   		    "/httpd-internal-icons/sound.xbm");
+ 3066   	    break;
+ 3067   
+ 3068   	case ';':
+ 3069   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[MOV]\"> ",
+ 3070   	    	    strlen(Host) ? "http://" : "",
+ 3071   		    strlen(Host) ? Host : "",
+ 3072   		    "/httpd-internal-icons/movie.xbm");
+ 3073   	    break;
+ 3074   
+ 3075   	default:
+ 3076   	    sprintf (filetype, "<IMG SRC=\"%s%s%s\" ALT=\"[UNK]\"> ",
+ 3077   	    	    strlen(Host) ? "http://" : "",
+ 3078   		    strlen(Host) ? Host : "",
+ 3079   		    "/httpd-internal-icons/unknown.xbm");
+ 3080   	    break;
+ 3081       }
+ 3082   
+ 3083       return(filetype);
+ 3084   }
+ 3085   
+ 3086   static void too_bad(char *reason)
+ 3087   {
+ 3088       if (!(switch_present("www") ||
+ 3089       	  getenv("WWW_GATEWAY_INTERFACE") != NULL)) {
+ 3090           printf("%s\n", reason);      /* non HTML error */
+ 3091           return;
+ 3092       }
+ 3093   
+ 3094       /* set up the HTML rendition */
+ 3095       if (!omit_content_type)
+ 3096           printf("Content-type: text/html\n\n");
+ 3097       if (!omit_head) {
+ 3098           printf("<HTML>\n<HEAD>\n");
+ 3099   	if (TITLE != NULL)
+ 3100   	    printf("<TITLE>%s</TITLE>\n", TITLE);
+ 3101   	else
+ 3102   	    printf("<TITLE>VMS Indexed Database Search</TITLE>\n");
+ 3103   #include "custom_head.c"
+ 3104       }
+ 3105   
+ 3106       /* display the error message */
+ 3107       printf("<H1>ERROR 403</H1>\n%s", reason);
+ 3108       if (!omit_foot)
+ 3109   #include "custom_foot.c"
+ 3110   
+ 3111       return;
+ 3112   }
+ 3113   
+ 3114   static int strcasecomp(char *a, char *b)
+******
+File DISK9:[INDEX.VMSINDEX]QUERY.C;1
+ 2599   static int strcasecomp(char *a, char *b)
+************
+
+Number of difference sections found: 16
+Number of difference records found: 838
+
+DIFFERENCES /IGNORE=()/MERGED=1/OUTPUT=DISK15:[PICCARD.VMSINDEX]QUERY_C_DIFF.TXT;3-
+    DISK9:[INDEX.VMSINDEX]QUERY.C;75-
+    DISK9:[INDEX.VMSINDEX]QUERY.C;1

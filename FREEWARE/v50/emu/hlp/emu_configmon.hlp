@@ -1,0 +1,219 @@
+1 EMU_CONFIGMON
+ This routine polls the network using all implemented WAN protocols
+ to:
+	Build the database
+	Update the database
+	Determine any param changes and alert
+ The data is gathered through polling using the appropriate routines.
+
+2 SNMP
+ Polls using SNMP over UDP(IP) any address found in IPDB
+2 DN4
+ Polls using NICE any address found in DN4DB.
+2 OSI
+ Polls using DNA CMIP any address found in DN5DB which:
+	Is Phase IV compatible
+	Has either NSP or 0 as  transport selector
+2 CONFIGMON_DN4ADJ 
+ Get all currently active DECnet nodes from  this box (IP) and ensure
+ they exist in the DN4 database.
+3 Inputs
+ Record address
+3 Outputs
+  Any address found and not in PSRDN4db is added.
+ Record is updated with count of addresses added. This field may be 
+ useful in future when algorithm will determine the usefulness of 
+ getting this info from this node.
+ Any errors detected are written to error log
+3 Returns
+ SS$_NORMAL		Update succesful
+  Any from DN4ACTNOD, LOCATE_PSRREC
+2 CONFIGMON_DN5ADJ 
+ Get all current adjacencies on this box (OSI) and ensure
+ they exist in the DN5 database.
+3 Inputs
+ Record address
+3 Outputs
+  Any address found and not in PSRDN5db is added.
+ Record is updated with count of addresses added. This field may be 
+ useful in future when algorithm will determine the usefulness of 
+ getting this info from this node.
+ Any errors detected are written to error log
+3 Returns
+ SS$_NORMAL		Update succesful
+  Any from GETDN5ADJ, LOCATE_PSRREC
+2 CONFIGMON_IPADJ 
+ Get all current addresses connected to this box (IP) and ensure
+ they exist in the IP database.
+3 Inputs
+ Record address
+3 Outputs
+  Any address found and not in PSRIPdb is added.
+ Record is updated with count of addresses added. This field may be 
+ useful in future when algorithm will determine the usefulness of 
+ getting this info from this node.
+ Any errors detected are written to error log
+
+ The count of addresses received from the node is recorded in the PSR header
+ and used to indicate that this node is a source of other addresses. It 
+ causes this node to be polled for addresses only on each cycle.
+3 Returns
+ SS$_NORMAL		Update succesful
+  Any from SNMP_GET_ADJNODES, LOCATE_PSRREC
+2 CONFIGMON_UPDATE_OSI 
+ Update all OSI records for this boxid
+3 Inputs
+ Record address
+3 Outputs
+ EMUDB records
+ Alerts on any node unreachable or change(s) found
+ Record is updated with facilities, poll times, last response fields.
+ Any errors detected are written to error log
+3 Returns
+ SS$_NORMAL		Update succesful
+ Any error from GETOSI (which see) 
+2 CONFIGMON_UPDATE_DECNET 
+ Update all DN4 records for this boxid
+3 Inputs
+ Record address
+3 Outputs
+ EMUDB records
+ Alerts on any node unreachable or change(s) found
+ Record  is updated with facilities, poll times, last response fields.
+ Any errors detected are written to error log
+3 Returns
+ SS$_NORMAL		Update succesful
+ Any error from GETNICE (which see) 
+2 CONFIGMON_WRITE_DN4
+ Format and write dn4 records to emudb
+3 Inputs
+ .address of desc point to GETNICE formatted paramater block
+ .long value of entity name type. This is an emu symbol showing the 
+ paramater type of the name this routine sets for each instance found.
+ Possibilities:
+	DN4_C_LINENAME	3901
+	DN4_C_CIRCNAM	3902
+	DN4_C_OBJNAM	3903
+	DN4_C_DTENAM	3904
+	DN4_C_DESTNAM	3905
+	DN4_C_NETNAM	3906
+
+  .address of PSRdb record
+
+ Note that the record header (Keys) are set before calling 
+ this routine.
+3 Outputs
+ EMUDB records
+ For multiple instance blocks, each instance is:
+	CRC'd to make unique key
+	name is written using paramter type given in P2
+ Alerts on any change(s) found
+ Any errors detected are written to error log
+2 CONFIGMON_UPDATE_SNMP 
+ Update all SNMP records for this boxid
+3 Inputs
+ Record address
+3 Outputs
+ EMUDB records
+ Alerts on any node unreachable or change(s) found
+ Record  is updated with facilities, poll times, last response fields.
+ Any errors detected are written to error log
+3 Other_Inputs
+ MIB files. The record contains indication as to which MIB(s) to use.
+ These MIB files are opened and used to direct which params are retrieved
+ for this BOXID. 
+
+3 Returns
+ SS$_NORMAL		Update succesful
+ Any error from GETSNMP, EMUDB routines (which see) 
+3 Table_example 
+ Next object is the table entry point and following n entries
+ are the table params. n is determined by scanning the entries until
+ the last 'valid' digit in the objid .NE. the last 'valid' digit in
+ the table entry point id. An example:
+ 
+"atTable"               "1.3.6.1.2.1.3.1"
+"atEntry"               "1.3.6.1.2.1.3.1.1"
+"atIfIndex"             "1.3.6.1.2.1.3.1.1.1"
+"atPhysAddress"         "1.3.6.1.2.1.3.1.1.2"
+"atNetAddress"          "1.3.6.1.2.1.3.1.1.3"
+"ip"            	 "1.3.6.1.2.1.4"
+  This is the address translation table and contains the name (atTable), 
+ the entry point (atIfIndex) and 3 entries. Ip is the 1st entry beyond
+ the table. The 'valid' digit is the last digit of the entry point's objid (1)
+ Encoding note:
+ the binary object id for atEntry is '43 6 1 2 1 3 1 1 0'
+ That is 1.3 is converted to 43 and a zero is appended. (don't ask me - I 
+ didn't invent this!) thus the 'valid' reference.
+ To simplify the network call the table entry point is accessed as a
+ 'get_next' and a bit pattern representing the desired elements is passed.
+ In the above example the pattern is '7' (bits 1,2,3 set)
+ The routine then returns 'rows' rather than SNMP native 'columns'.
+2 CONFIGMON_PROPOGATE_IP 
+ If no answer from SNMP, this address is propogated to EMUDB to ensure
+ the entry exists. This routine mimics the action when the address is
+ returned via SNMP.
+3 Inputs
+ PSRIP Record address
+ Hardcoded block duplicating the SNMP return (IPADDRBLK) 
+3 Outputs
+ 1 EMUDB record
+3 Returns
+ SS$_NORMAL		 succesful
+ Any error from EMUDB routines (which see) 
+2 CONFIGMON_CHECK_SNMP    
+ Routine to get the MAPPER entry for the input MIB entry and return either 
+ TRUE or FALSE if this param should be polled for. Each paramater in MAPPER
+ has a bit field that directs this poller whether or not to poll for the 
+ paramater and include in in the database. If the MAPPER entry is not
+ found, the routine returns TRUE.
+ NOTE:
+ This routine sets the TBL param in the EMUDB rec 
+
+3 Input
+ .address of MIB entry
+
+3 Output
+  R1 = address of MAPPER record if found, else 0
+  TBL is calculated and set in the Key buffer
+ 
+3 Returns
+	SS$_NORMAL	(TRUE) poller should get this param
+	0		(FALSE) poller should ignore this param
+	0 (FALSE) is returned on any error (No MAPPER rec)
+	SS$_BADPARAM	Invalid MIB entry
+	 Any error from RMS
+2 CONFIGMON_WRITE_SNMP    
+ Routine to set the index paramaters and write the input values to
+ EMUDB returned by SNMP.
+
+3 Input
+ .address of IP entry this data refers to (PSRrec)
+ .address of MIB entry this data is for
+ .address of SNMP data returned
+
+3 Output
+ The Instance is passed as a param and written as passed
+ The boxid is extracted from the IP entry
+ The record header is created, and data is written to EMUDB
+       
+3 Returns
+	SS$_NORMAL	OK
+	SS$_BADPARAM	MIB entry had len = 0
+			BOXID = 0
+			Param = 0
+			Len of data = 0
+2 CONFIGMON_SET_MIB    
+ Routine to read in specified MIB file to memeory and return the 
+ location to the caller. NOTE: The section is set NOWRITE. The caller
+ cannot alter the contents.       
+
+3 Input
+	.long mib to use. This is the number of the mib set at
+	mib registration time.
+3 Output
+ The variable MIBSEC_A is written with the 1st and last address mapped. The
+ section contains the file contents of the selected MIB after completion.
+3 Return
+ 	SS$_NORMAL	OK Mib set in mibsection
+ Any from: RMS, $CRMPSC, $EXPREG

@@ -1,0 +1,4719 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program   TRAINING_SYSTEM.INT
+        ! Purpose   Process training scripts
+        ! Authors   Tyke Frost
+        !           Bob van Keuren
+        ! For       Touch Technologies, Inc.
+        ! Date      02-Nov-1988
+        !          
+        ! Copyright © 1988, 1989, 1990 Touch Technologies, Inc.
+        !
+        ! This program requires the following logicals:
+        !   TTI_TRAINING          Directory containing the training program
+        !   TTI_TRAINING_SCRIPT   Directory containing the scripts
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Modified by   Robert Steven van Keuren,
+        !               Software Design and Consulting
+        !               3701 Meadowgate St., San Diego, CA  92111
+        !               (619) 576-6974
+        ! For           Touch Technologies, Inc.
+        ! Date          3 Jan 1989
+        ! Last revised  28 Oct 1990
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+1000    !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A I N   L O G I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize the program.
+        ! Repeat the following:
+        !   Display the main menu and get an item.
+        !   Exit if wanted
+        !   Dispatch to the item selected
+        !   If any error occurs, take care of it
+        ! Tell the subprocess to end.
+        ! Close all files, clear the screen
+        ! End the program
+        !
+        ! Used:
+        !   action$      Main action state
+        !   mbx_ch       Mailbox channel
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        
+        gosub initialize
+
+        do
+          gosub main_menu
+          if  action$ = 'exit'  then  exit do
+          if  action$ = 'error'  then  gosub process_error
+
+          gosub dispatch_main_items             
+          if  action$ = 'exit'  then  exit do
+          if  action$ = 'error'  then  gosub process_error
+        loop
+
+        print #mbx_ch: 'EXIT'
+        close all
+        clear
+        if debug% then set scroll 1, 24
+
+        stop
+
+
+
+10000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T I A L I Z E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize the main program.
+        !
+        ! Turn the frame off.
+        ! Initialize the variables.
+        ! Make sure we have the logicals we need.
+        ! Create the mailbox.
+        ! Start up the subprocess server.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !   The mailbox is created and opened.
+        !   Variables are initialized.
+        !   We start up the subprocess server.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine initialize
+
+        frame off
+        gosub init_variables
+        gosub check_logicals
+        if  fatal_error%  then
+          gosub process_error
+          stop
+        end if
+
+        gosub open_mailbox
+        gosub start_process_server
+
+        end routine
+
+
+
+10100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T   V A R I A B L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize variables.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !   cmpr_elements%     ???
+        !   max_symbols%       Max symbols allowed
+        !   u_rel               Real result (used in IF test)
+        !   max_scripts%        Max number of scripts
+        !   max_script_lines%   Max number of script lines
+        !   max_stack_entries%  Max number of stack entries  100
+        !   max_script_labels%  Max number of labels in a script 100
+        !   max_select_stmts%   Max number of SELECT statements 100
+        !   label_name_ptr%     Column for label name in label_array$(,)
+        !   label_line_ptr%     Column for label line in label_array$(,)
+        !   label_rtn_ptr%      Column for label rtn  in label_array$(,)
+        !   do_start_addr%      Pointer to the column of the DO_ARRAY()
+        !                       that contains the DO start address
+        !                       Initialized to 1
+        !   do_end_addr%        Pointer to the column of the DO_ARRAY()
+        !                       that contains the DO end address
+        !                       Initialized to 2.
+        !
+        ! This routine is longer than 22 lines because of all the
+        ! variables that need to be dimensioned and initialized.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init_variables
+
+        declare real u_rel
+        max_scripts%       = 100
+        max_script_lines%  = 1000
+        max_stack_entries% = 100
+        max_script_labels% = 100
+        max_select_stmts%  = 100
+        max_case_stmts%    = 100
+        max_do_loops%      = 100
+        max_if_stmts%      = 100
+        max_symbols%       = 100
+        cmpr_elements%     = 7
+        max_cmpr_entries%  = max_if_stmts% + max_case_stmts%
+
+        dim script_spec$      (max_scripts%)
+        dim script_title$     (max_scripts%)
+        dim cur_pos%          (4)
+        dim script_array$     (max_script_lines%)
+        dim sub_stack         (max_stack_entries%)
+        dim do_stack          (max_stack_entries%)
+        dim select_stack      (max_stack_entries%)
+        dim case_stack        (max_stack_entries%)
+        dim if_stack          (max_stack_entries%)
+        dim compare_stack     (max_stack_entries%)
+        dim label_array$      (max_script_labels%, 3)
+        dim do_array          (max_do_loops%, 2)
+        dim if_array          (max_if_stmts%, 5)
+        dim case_array        (max_case_stmts%, 4)
+        dim select_array      (max_case_stmts%, 4)
+        dim symbol_table$     (max_symbols%, 2)
+        dim compare_element$  (max_cmpr_entries%, cmpr_elements%)
+        dim compare_condl$    (max_cmpr_entries%)
+
+        mbx_ch             = 1
+        scr_ch             = 2                  
+        label_name_ptr%    = 1  
+        label_line_ptr%    = 2
+        label_rtn_ptr%     = 3
+
+        do_start_addr%     = 1
+        do_end_addr%       = 2
+        if_start_addr%     = 1
+        if_else_addr%      = 2
+        if_end_addr%       = 3
+        if_cmpr_ptr%       = 4
+        if_do_ptr%         = 5
+        case_start_addr%   = 1
+        case_select_ptr%   = 2 
+        case_next_ptr%     = 3
+        case_do_ptr%       = 4
+        select_start_addr% = 1
+        select_end_addr%   = 2
+        select_cmpr_ptr%   = 3
+        select_do_ptr%     = 4
+        smbl_name_ptr%     = 1
+        smbl_value_ptr%    = 2
+
+        u_variable$ = 'reply$'
+        mail_cmd$ = ''
+        gosub load_symbol_table
+                         
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   L O G I C A L S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Make sure we have the logicals TTI_TRAINING and
+        ! TTI_TRAINING_SCRIPT set up.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !   fatal_error%       True if fatal error occurred
+        !   error_condition$   Error condition string
+        !   script_action$     Next script action
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_logicals
+
+        ask system, logical 'TTI_TRAINING': value z$
+        if  z$ = ''  then
+          fatal_error% = true
+          script_action$ = 'error'
+          error_condition$ = 'missing logical tti_training'
+          exit routine
+        end if
+
+        ask system, logical 'TTI_TRAINING_TUTORIAL': value z$
+        if  z$ = ''  then
+          fatal_error% = true
+          script_action$ = 'error'
+          error_condition$ = 'missing logical TTI_TRAINING_TUTORIAL'
+          exit routine
+        end if
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O P E N   M A I L B O X   
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Open a mailbox.
+        ! Create a mailbox and then open it on channel MBX_CH.
+        !
+        ! Expected:
+        !   mbx_ch             Mailbox channel
+        !
+        ! Result:
+        !   tti_mbx            Mailbox opened on channel mbx_ch
+        !   error_condition$   Set to "crembx_error" if any error occurred
+        !   action$            Set to 'error' if any error
+        !
+        ! Note:  No longer using command file DEMO_RUN:CREMBX.COM
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine open_mailbox
+
+        message 'Initializing TTI Training System...'
+        delay .3
+
+        fatal_error% = false
+        when exception in
+          open #mbx_ch: name 'tti_mbx', mailbox, access outin
+        use
+        end when
+
+        if  _error  then
+          error_condition$ = 'crembx_error'
+          action$ = 'error'
+          exit routine  
+        end if
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A I N   M E N U
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display the main menu.
+        ! Ask for a menu item.
+        !
+        ! Result  :
+        !   item$      First three characters of item selected, upper case
+        !   action$    Top level action to take.  Set to 'main_menu'
+        !              Not used much any more.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine main_menu
+
+        action$ = 'main_menu'
+        gosub display_main_menu
+        gosub ask_main_item
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   M A I N   M E N U
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display the main menu.
+        ! Since we removed ENVIRONMENT, there's no point
+        ! in having two groups of topics.
+        !
+        ! Used: 
+        !   frame_head$     Frame heading
+        !   center_head$    Heading to center
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine display_main_menu
+                                             
+        frame_head$  = 'Main Menu'
+        center_head$ = 'Welcome to the TTI Training System'
+        gosub paint_top_frame
+        gosub paint_bottom_frame
+        clear area 2, 1, 23, 80
+
+        print reverse, at 3, 1 : 'Selections';
+        print bold, at 4, 4 : 'TUTOR';
+        print '     Start a tutorial ';             
+
+        ! +++ RSvK Removed as per Dan, 30 Sep 1989
+        ! print bold, at 5, 5 : 'Envir';
+        ! print '     INTOUCH environment';
+
+        print at 10, 1, reverse: 'Miscellaneous';
+
+        print at 11, 4, bold: 'SYSTEM';
+        print '    VMS system commands';
+        print at 12, 4, bold: 'EXIT';
+        print '      Exit program';
+
+        message 'Enter a topic and press Return, or EXIT to exit'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   M A I N   I T E M
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for an item from the main menu.
+        !
+        ! Expected:
+        !
+        ! Used:
+        !   u_prompt$     Prompt text
+        !
+        ! Result  :
+        !   action$       Set to 'exit' if exit is wanted.
+        !   item$         Item selected
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_main_item
+
+        do
+          u_prompt$ = "Item? "
+          default$  = ""
+          gosub ask
+          if  _exit or _back  then  
+            action$ = 'exit'
+            return
+          end if
+          if  _help  then
+            message 'To select an item, enter the item name and press Return.'
+            repeat do
+          end if
+          gosub check_item
+          if  repeat%  then  repeat do          
+        end do
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   I T E M
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check whether user entered a valid item.  
+        ! The user can enter any non-ambiguous name.
+        !
+        ! Expected:
+        !   u_reply$        Item entered by user
+        !   main_items$     List of items from main menu
+        !
+        ! Result  :
+        !   main_items$        List of main menu items
+        !   main_item$         Name of item chosen from main menu
+        !   main_item%         Number of item chosen from main menu
+        !   item$              First three letters of item, uppercase
+        !   invalid_item%      True if invalid item
+        !   debug%             True if debug is set
+        !   repeat%            True if we are to repeat question
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_item
+
+        main_items$ = "TUTOR,ENVIRON,DEBUG,DEMO,SYSTEM,EXIT"
+        repeat% = false
+        item$ = ucase$(u_reply$[1:3])
+        main_item% = item(main_items$, item$)
+        main_item$ = element$(main_items$, main_item%)
+        item$ = ucase$(main_item$[1:3])
+
+        if  item$ = 'DEB'  then
+          debug% = true
+          ! set scroll 14, 21
+          ! log_ch = 20
+          ! open #log_ch: name 'ts.log', access output
+          message 'Debug set'
+          repeat% = true
+        end if
+        if  main_item% = 0  then
+          message error : "Invalid item: " + u_reply$
+          repeat% = true
+        end if
+
+        if  main_item% < 0  then
+          message error : "Ambiguous item: " + u_reply$
+          repeat% = true
+        end if
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P A T C H   M A I N   I T E M S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! From the main menu, dispatch to the selected item.
+        !
+        ! Expected:
+        !   item$       Item user requested
+        !
+        ! Result:
+        !   The item is selected.
+        !                                   
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine dispatch_main_items
+
+        item$ = item$[1:3]
+        select case item$
+          case "TUT", 'DEM' : gosub do_script
+          case "ENV"        : gosub intouch
+          case "SYS"        : gosub system
+          case "EXI"        : action$ = 'exit'
+          case else         : return
+        end select
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   S C R I P T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Process the TUTOR scripts item from the main menu.
+        !
+        ! Find the scripts.
+        ! If none, set error flag and exit.
+        ! If one, load and run it.
+        ! If several, present a menu.
+        !
+        ! Expected:
+        !   item$               Main menu item--TUT or DEM
+        !
+        ! Used:
+        !   script_ctr%         Number of scripts found
+        !
+        ! Result:
+        !   lookup_seq          Number of script chosen
+        !   action$             Set to 'error'  if  some error
+        !   fatal_error%        Set to true if some error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_script
+
+        gosub find_scripts
+        select case script_ctr%
+          case script_ctr% = 0
+            action$ = 'error'
+            error_condition$ = 'no_scripts'
+            fatal_error% = true
+          case script_ctr% = 1
+            lookup_seq = 1
+            gosub load_script_file
+            if  fatal_error%  then  exit routine
+            gosub process_script
+            delay 1
+          case else
+            gosub tutorial_menu
+        end select
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N D   S C R I P T S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Find the first ten script files.
+        ! Load the names into an array
+        ! Remove version number from each spec.
+        ! If none, report error.
+        ! If just one, open it.
+        ! If several, let user choose.
+        !
+        ! Result:
+        !   script_spec$()   Array of script files found
+        !   script_ctr%      Number of script files found
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine find_scripts
+
+        fatal_error% = false
+        script_ctr%  = 0
+        message 'Finding tutorials'
+        delay .4
+        i% = 0
+        do
+          i% = i% + 1
+          z$ = findfile$('tti_training_tutorial:*.SCRIPT', i%)
+          if  z$ = ''  then  exit do
+          !z% = pos(z$, ';')
+          !if  z% > 0  then  z$ = left(z$, z% - 1)
+          z$ = element$(z$, 1, ';')
+          script_spec$(i%) = z$
+        loop
+        script_ctr% = i% - 1
+
+        message delay : 'Tutorials found: ' + str$(script_ctr%)
+
+        end routine
+
+
+
+10300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S C R I P T   M E N U
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display a menu of up to 10 scripts,
+        ! and have user choose one.
+        ! Load the script chosen.
+        ! Process the script.
+        !
+        ! Expected:
+        !
+        ! Result:
+        !   seq_done   True if a valid number was chosen.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine tutorial_menu
+
+        prior_item% = 0
+        do
+          gosub init_script_menu
+          gosub ask_lookup_sequence
+          clear
+          if  fatal_error% or exit%  then  exit routine
+
+          gosub load_script_file
+          if  fatal_error%  then  exit routine
+          gosub process_script
+        loop
+  
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T   S C R I P T   M E N U
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize for the script menu.
+        ! Initialize variables.
+        ! Get the items for the menu.
+        ! Format the banner at top of screen.
+        ! Print the script items.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !   script_ctr%        Number of scripts
+        !   line_ctr%          Line counter, reset to zero
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init_script_menu
+
+        line_ctr% = 0
+        seq_done  = false
+
+        gosub get_script_items
+
+        clear
+        frame_head$  = 'Tutorial Menu'
+        center_head$ = 'TTI Training System'
+        gosub paint_top_frame
+        gosub paint_bottom_frame
+
+        tutor_menu$ = '%at 3, 15, %title "Tutorial Menu", %size 10'
+        for script_ptr% = 1 to script_ctr%
+          tutor_menu$ = tutor_menu$ + ', "' + rpad$(str$(script_ptr%), 3) + &
+            script_title$(script_ptr%) + '"=' + str$(script_ptr%)
+          !gosub display_item
+        next script_ptr%
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   S C R I P T   I T E M S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! 
+        ! Get the items for the script menu.
+        !
+        ! Reset error flag.
+        ! For each script file
+        !   Open the file
+        !   Exit loop if some error occurs.
+        !   Find the title of the script.
+        !   Close the script.
+        !
+        ! Result: fatal_error%   True if some error
+        !         exit%          True if they want to exit
+        !         script_index%  ???
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_script_items
+
+        fatal_error%  = false
+        script_index% = 0
+        for script_ptr% = 1 to script_ctr%
+          script_index% = script_index% + 1
+          gosub open_script_channel
+          if  fatal_error%  then  exit routine
+          gosub find_script_title
+          gosub close_script_channel
+        next script_ptr%
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N D   S C R I P T   T I T L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Find a script title.
+        ! Use the file spec  if  no title line found.
+        ! Search the first five lines of the script file for the title.
+        ! Skip over comment lines.
+        !
+        ! Expected: 
+        !   script_index%     Which script we're on
+        !   script_spec$()    Array of script file specs
+        !
+        ! Result:
+        !   script_title$()   Script title array, loaded with title
+        !                     or name.
+        ! 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine find_script_title
+
+        fatal_error% = false
+
+        do
+          for i% = 1 to 5
+            gosub read_script_line
+            if  fatal_error%  then  exit for
+
+            gosub get_first_token
+            if  token$ = '!'  then  repeat for
+            if  token$ <> 'TITLE'  then  iterate for
+            if  token$ = ''  then  iterate for
+
+            token$ = parse$
+            gosub strip_quotes
+            exit do
+          next i%
+          string$ = script_spec$ (script_index%)
+        end do
+        script_title$(script_index%) = string$
+ 
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   I T E M
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Print a script menu item and its number on the screen.
+        ! If this is the previous one selected, print an asterisk
+        !   in front of the item number.
+        !
+        ! Expected:
+        !   script_ptr%       Pointer to current script in array.
+        !   script_title$()   Array of script titles.
+        !   line_ctr%         Line counter; used also as the number 
+        !                     associated with the item.
+        !   prior_item%       Item previously selected
+        !
+        ! Result  :
+        !   line_ctr%         Incremented by 1
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine display_item
+
+        fatal_error% = false
+        line_ctr% = line_ctr% + 1
+        print at line_ctr% + 3, 2:;
+        if  script_ptr% = prior_item%  then  print '*';
+        print tab(4);
+        print using "##", bold : line_ctr%;
+        print tab(10); script_title$(script_ptr%); ' ';
+
+        end routine
+
+
+
+10500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   L O O K U P   S E Q U E N C E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask the user for a script item number.
+        !
+        ! Result  :
+        !   lookup_seq       Menu item number
+        !   script_index%    Script index number.  Zero if none chosen.
+        !   exit%            True if they want to exit
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_lookup_sequence
+
+        script_index% = 0
+        exit% = false
+        last_index = last_index + 1
+        if  last_index > script_ctr% then last_index = 1
+        menu_default$ = '#' + str$(last_index)
+        do
+          !lookup_seq = 16
+          !clear area 22, 1, 22, 80
+          !line input at 22, 1, prompt "Item? ": lookup_seq$
+          line input menu tutor_menu$, default menu_default$ : lookup_seq$
+          if  _exit or _back  then 
+            exit% = true
+            action$ = 'main_menu'
+            exit routine
+          end if
+          if  _help  then
+            message 'Select the tutorial you want ' &
+                  + 'and press Return.'
+            repeat do
+          end if
+          !gosub check_valid_seq
+          !if  not_valid  then  repeat do
+        end do
+        lookup_seq = val(lookup_seq$)
+        script_index% = lookup_seq
+        last_index = script_index%
+
+        end routine
+
+
+
+10600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   V A L I D   S E Q
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check whether the sequence number entered is valid
+        !
+        ! Expected:
+        !   lookup_seq$    Sequence number entered
+        !   line_ctr%      Biggest valid sequence number
+        !
+        ! Result:
+        !   lookup_seq     Sequence number in numeric format, if valid.
+        !   not_valid      True if sequence number is not valid
+        !                  False if valid      
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_valid_seq
+
+        not_valid = false
+        if  valid(lookup_seq$, "integer")  then
+          lookup_seq = val(lookup_seq$)
+        else
+          message error: "Number expected"
+          not_valid = true
+          exit routine
+        end if
+
+        if  (lookup_seq < 1)  or  (lookup_seq > line_ctr%)  then
+          message error: "Invalid item number: " + lookup_seq$ &
+                  + '...range 1-' + str$(line_ctr%)
+          not_valid = true
+        end if
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S T A R T   P R O C E S S   S E R V E R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Start up a subprocess to receive the commands
+        ! thru the mailbox.
+        !
+        ! Expected:  SERVER.COM    Command file to run server subprocess
+        !
+        ! Result  : We spawn a subprocess and run SERVER.COM
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine start_process_server
+
+        pass nowait: '@tti_training:server.com'
+        delay 3
+
+        end routine
+
+
+
+30000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   S C R I P T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Process a script file.
+        !
+        ! This is the main routine to run a script.
+        ! Set the main action to 'exit'
+        ! or to 'tutorial_menu', if there is more than one item,
+        ! so we can get back to the menu.
+        ! Process the script action indicated.
+        !
+        ! Expected:
+        !   script_ctr%    Number of script files found
+        !
+        ! Result  : 
+        !   We process the script
+        !   action$        Main action, set to
+        !                  exit
+        !                  error          if some error
+        !                  tutorial_menu  if multiple scripts
+        !   prior_item%    Previous item selected
+        !
+        ! This routine is longer than 22 lines because of the SELECT CASE
+        ! statement.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_script
+
+        gosub process_script_init
+        script_action$ = 'get_command_line'
+        do
+          select case script_action$
+          case 'get_command_line'       : gosub get_script_command
+          case 'mail_command_line'      : gosub mail_command_line
+          case 'parse_command_line'     : gosub parse_command
+          case 'process_data_cmd'       : gosub process_data_cmd
+          case 'process_clear_cmd'      : gosub process_clear_cmd
+          case 'process_delay_cmd'      : gosub process_delay_cmd
+          case 'process_do_cmd'         : gosub process_do_cmd
+          case 'process_end_cmd'        : gosub process_end_cmd
+          case 'process_gosub_cmd'      : gosub process_gosub_cmd
+          case 'process_input_cmd'      : gosub process_input_cmd
+          case 'process_keyboard_cmd'   : gosub process_keyboard_cmd
+          case 'process_option_cmd'     : gosub process_option_cmd
+          case 'process_print_cmd'      : gosub process_print_cmd
+          case 'process_screen_cmd'     : gosub process_screen_cmd
+          case 'process_return_cmd'     : gosub process_return_cmd
+          case 'process_exit_do_cmd'    : gosub process_exit_do_cmd
+          case 'process_if_cmd'         : gosub process_if_cmd
+          case 'process_let_cmd'        : gosub process_let_cmd
+          case 'process_loop_cmd'       : gosub process_loop_cmd
+          case 'process_refresh_cmd'    : gosub process_refresh_cmd
+          case 'process_repeat_cmd'     : gosub process_repeat_cmd
+          case 'process_select_cmd'     : gosub process_select_cmd
+          case 'process_case_cmd'       : gosub process_case_cmd
+          case 'exit'                   : exit do
+          case 'error'                  : gosub process_error
+          case else
+            message error: 'No tutorial action: ' + script_action$
+            delay 5
+            exit do
+          end select
+        loop       
+        prior_item% = lookup_seq
+
+        end routine
+
+
+                                                               
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   S C R I P T   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize for processing a script.
+        ! Set up main action to do after this script.
+        !
+        ! Expected:
+        !   script_ctr%        Number of scripts found
+        !
+        ! Result  :
+        !   action$            Next main action to take
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_script_init
+
+        if  script_ctr% > 1  then
+          action$ = 'tutorial_menu'
+        else
+          action$ = 'main_menu'
+        end if
+
+        end routine
+
+
+
+30100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   S C R I P T   C O M M A N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Read one line from a script file. 
+        !
+        ! Expected: 
+        !   script_array$      Array of commands
+        !   script_cmd_ptr%    Pointer to current script command
+        !   scr_ch             Channel that the script is open on
+        !   script_cmd_ptr%    Pointer to which script cmd we're on 
+        !
+        ! Result  :
+        !   script_cmd_ptr%    Incremented
+        !   raw_cmd$           Line read from script file.
+        !   script_action$     Set to 'parse_command_line'
+        !                        or to 'error' if some error
+        !   fatal_error%       True if some fatal error
+        !   error_condition$   Set to 'no_end_script' if some error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_script_command
+
+        fatal_error% = false
+
+        do
+          script_cmd_ptr% = script_cmd_ptr% + 1
+          if  script_cmd_ptr% > last_script_cmd%  then
+            fatal_error% = true
+            script_action$ = 'error'
+            error_condition$ = 'no_end_script'
+            exit routine
+          end if
+          script_line$ = trim$(script_array$(script_cmd_ptr%))
+          if  script_line$ = ''  then  repeat do
+        end do
+
+        script_action$ = 'parse_command_line'
+
+        end routine
+
+
+
+30200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   C O M M A N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Get first token
+        ! Dispatch to routine to process command.
+        !
+        ! Expected: script_cmd$    Script command
+        !
+        ! Result: script_action$   Process action to take
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_command
+
+        script_action$ = 'exit'
+        gosub get_first_token
+
+        select case token$
+          case '', '!'   : script_action$ = 'get_command_line'
+          case 'CLEAR'   : script_action$ = 'process_clear_cmd'
+          case 'DATA'    : script_action$ = 'process_data_cmd'
+          case 'DELAY'   : script_action$ = 'process_delay_cmd'
+          case 'DO'      : script_action$ = 'process_do_cmd'
+          case 'END'     : script_action$ = 'process_end_cmd'
+          case 'GOSUB'   : script_action$ = 'process_gosub_cmd'
+          case 'INPUT'   : script_action$ = 'process_input_cmd'
+          case 'KEYBOARD': script_action$ = 'process_keyboard_cmd'
+          case 'LABEL'   : script_action$ = 'get_command_line'
+          case 'LOOP'    : script_action$ = 'process_loop_cmd'
+          case 'OPTION'  : script_action$ = 'process_option_cmd'
+          case 'PRINT'   : script_action$ = 'process_print_cmd'
+          case 'RETURN'  : script_action$ = 'process_return_cmd'
+          case 'SCREEN'  : script_action$ = 'process_screen_cmd'
+          case 'STOP'    : script_action$ = 'exit'
+          case 'IF'      : script_action$ = 'process_if_cmd'
+          case 'EXIT'    : script_action$ = 'process_exit_do_cmd'
+          case 'REFRESH' : script_action$ = 'process_refresh_cmd'
+          case 'REPEAT'  : script_action$ = 'process_repeat_cmd'
+          case 'SELECT'  : script_action$ = 'process_select_cmd'
+          case 'CASE'    : script_action$ = 'process_case_cmd'
+          case 'LET'     : script_action$ = 'process_let_cmd'
+          case 'TITLE'   : script_action$ = 'get_command_line'
+          case 'SCRIPT'  : script_action$ = 'get_command_line'
+          case else     
+            script_action$ = 'error'
+            error_condition$ = 'invalid_command'
+        end select
+
+        end routine
+           
+
+
+30300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   D A T A   C M D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Process a DATA command. 
+        ! Command line must include a quoted string.
+        !    ...or a variable?
+        !
+        ! Expected:
+        !   DATA "stuff"    Data to pass to subprocess
+        !   We have started a PARSE$
+        !
+        ! Result  :
+        !   mail_cmd$        Command to mail to subprocess
+        !   script_action$   Set to 'mail_command_line'
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_data_cmd
+
+        ! gosub refresh
+        do
+          script_action$ = 'mail_command_line'
+          token$ = parse$
+          z$ = token$[1:1]
+          if  z$ = "'"  or  z$ = '"'  then
+            gosub strip_quotes
+          else
+            gosub get_data_symbol
+          end if
+          if  fatal_error%  then  exit do
+          mail_cmd$ = string$
+        end do
+
+        end routine
+
+
+
+30400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   D A T A   S Y M B O L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Get the value for a variable?
+        !
+        ! Expected:
+        !   token$    Variable to look up
+        !
+        ! Result:
+        !   string$   Value of the variable
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_data_symbol
+
+        fatal_error% = false
+        u_variable$ = token$
+        gosub do_symbol_lookup
+
+        if  smbl_ptr% = 0  then
+          script_action$ = 'error'
+          error_condition$ = 'symbol_not_found'
+          exit routine
+        end if
+
+        string$ = symbol_table$ (smbl_ptr%, smbl_value_ptr%)
+
+        end routine
+
+
+
+30500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A I L   C O M M A N D   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Print command to mail box.
+        !
+        ! Expected:
+        !   mail_cmd$        Text to print to mail box
+        !
+        ! Result:
+        !   script_action$   Set to "get_command_line"
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine mail_command_line
+
+        print #mbx_ch: mail_cmd$
+        script_action$ = 'get_command_line'
+
+        end routine
+
+
+
+30600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   D E L A Y   C M D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Delay execution until user presses Return key.
+        ! Set exit flag if user asks to exit.
+        !
+        ! Expected:
+        !   PARSE$ has been called.
+        ! 
+        ! Used:
+        !   token$             Next token
+        ! 
+        ! Result:
+        !   error_condition$   Error condition string
+        !   script_action$     Next action to take
+        ! 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_delay_cmd
+
+        script_action$ = 'get_command_line'
+        token$ = parse$
+        if  token$ = ''  then
+          delay
+        else
+          i% = len(token$)
+          if  token$[i% : i%] = '%'  then  token$ = token$[1 : i% - 1]
+          if  not valid (token$, 'INTEGER')  then
+            script_action$ = 'error'
+            error_condition$ = 'integer_expected'
+            exit routine
+          end if
+          delay val(token$)
+        end if
+        if  _exit  then
+          script_action$ = 'exit'
+          gosub abort
+        end if
+
+        end routine
+
+
+
+30700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   C L E A R   C M D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Process the CLEAR command.
+        !
+        ! Synchronize.
+        !
+        ! Format: 
+        !   CLEAR [AREA [BOX[:]] top-row, top-column, low-row, low-column]
+        !
+        ! Check key words and integer values of parameters.
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_clear_cmd
+
+        gosub synch
+        script_action$ = 'get_command_line'
+        token$ = parse$
+        if  token$ = ''  then
+          clear
+          exit routine
+        end if
+        if  token$  <> 'AREA'  then
+          script_action$ = 'error'
+          error_condition$ = 'missing_key_word'
+          exit routine
+        end if
+
+        gosub test_clear_parameters
+        if  fatal_error%  then  exit routine
+
+        if  print_box%  then
+          clear area box: cur_pos%(1), cur_pos%(2), &
+                cur_pos%(3), cur_pos%(4)      
+        else
+          clear area cur_pos%(1), cur_pos%(2), cur_pos%(3), cur_pos%(4)
+        end if
+
+        end routine
+
+
+
+                                                               
+30800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T E S T   C L E A R   P A R A M E T E R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check tokens until we have four integers, and possibly
+        !   the keyword BOX.
+        ! Test for syntax errors
+        !
+        ! Result:
+        !   fatal_error%       True if we have a fatal error.
+        !   print_box%         True if we are to print a box
+        !   script_action$     Set to 'error' if some error.
+        !   error_condition$   Name of any error condition.
+        !   error_value$       Error value string 
+        !
+        ! This routine is longer than 22 lines because of the
+        ! SELECT CASE.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine test_clear_parameters
+
+        params% = 0
+        fatal_error% = false
+        print_box%   = false
+        do
+          token$ = parse$
+          select case token$
+            case ''   : exit do            
+            case ','  : repeat do
+            case 'BOX': print_box% = true
+            case ':'
+              if  print_box%  then  repeat do
+              gosub clear_parameter_colon_error
+              exit do
+            case else
+              gosub test_integer_value
+              if  fatal_error%  then  exit do
+              params% = params% + 1
+              cur_pos%(params%) = val(token$)
+          end select
+        loop
+        gosub test_number_of_clear_parameters
+        if  fatal_error%  then  exit routine
+        gosub adjust_clear_parameters
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C L E A R   P A R A M E T E R   C O L O N   E R R O R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Set up flags for an error with a colon in a CLEAR statement.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !   fatal_error%       Fatal error flag, set to true
+        !   error_value$       Error value
+        !   error_condition$   Error condition
+        !   script_action$     Script action to take, set to 'error'
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine clear_parameter_colon_error
+
+        script_action$   = 'error'
+        error_condition$ = 'unexpected_symbol'
+        error_value$     = ':'
+        fatal_error%     = true
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T E S T   N U M B E R   O F   C L E A R   P A R A M E T E R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! If there are fewer than four parameters, set error flags.
+        !
+        ! Expected:
+        !   params%            Number of parameters
+        !
+        ! Result  :
+        !   fatal_error%       Fatal error flag
+        !   error_condition$   Error condition
+        !   script_action$     Script action, set to 'error'
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine test_number_of_clear_parameters
+
+        if  params% < 4  then
+          script_action$ = 'error'
+          error_condition$ = 'missing_parameter'
+          fatal_error% = true
+        end if
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A D J U S T   C L E A R   P A R A M E T E R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Adjust CLEAR AREA parameters so they don't go off the screen.
+        ! *** May need to adjust for 132 columns. ***
+        !
+        ! Expected: cur_pos%()  Array with rows and columns
+        !
+        ! Result  : cur_pos%() array elements are kept within 1-24 for rows,
+        !           1-80 for columns.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine adjust_clear_parameters
+
+        if  cur_pos% (1) < 1   then  cur_pos% (1) = 1
+        if  cur_pos% (1) > 24  then  cur_pos% (1) = 24
+        if  cur_pos% (2) < 1   then  cur_pos% (2) = 1
+        if  cur_pos% (2) > 80  then  cur_pos% (2) = 80
+        if  cur_pos% (3) < 1   then  cur_pos% (3) = 1
+        if  cur_pos% (3) > 24  then  cur_pos% (3) = 24
+        if  cur_pos% (4) < 1   then  cur_pos% (4) = 1
+        if  cur_pos% (4) > 80  then  cur_pos% (4) = 80
+
+        end routine
+
+
+
+30900   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   E R R O R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display error message and signal to quit processing
+        !
+        ! Expected:
+        !   error_condition$  Error condition symbol
+        !   error_value$      Error value string
+        !   script_line$      Line from script file
+        !
+        ! Result  :
+        !   script_action$    Set to 'exit'
+        !   action$           Set to 'exit'
+        !
+        ! This routine is longer than 22 lines because of the SELECT CASE
+        ! statement.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_error
+
+        do
+          fatal_error% = false
+
+          select case error_condition$
+            case 'do_without_end'
+              message error: 'DO encountered without a END DO or LOOP'
+            case 'end_without_do'
+              message error: 'END DO or LOOP encountered without active do '
+            case 'end_without_keyword'
+              message error: 'END found without a keyword'
+            case  'empty_stack'
+              message error: 'RETURN without a GOSUB'
+            case  'missing_label'
+              message error: 'Label not found'
+            case 'no_end_script'
+              message error: 'END SCRIPT statement not found'
+            case 'crembx_error'
+              message error: 'Unable to create mailbox'
+            case 'script_open_error'
+              message error: 'Unable to open tutorial file: ' + &
+                      script_spec$ (script_index%)
+            case 'missing_quote'
+              message error: 'Missing quote in command: ' + script_line$
+            case 'missing_key_word'       
+              message error: 'Incorrect or missing keyword : ' + script_line$
+              print at 24, 1: script_line$
+              print repeat$('.', parse_pos% - 1); '^'
+            case 'integer_expected'
+              message error: 'Integer parameter expected in command: ' &
+                + script_line$
+            case 'invalid_command'
+              message error: 'Invalid command: ' + script_line$
+            case 'missing_parameter' 
+              message error: 'Missing parameter in command: ' + script_line$
+            case 'missing_colon'
+            message error: 'Colon expected in command: ' + script_line$
+            case 'missing_comma'
+              message error: 'Comma expected in command: ' + script_line$
+            case 'missing logical tti_training'
+              message error: 'Logical TTI_TRAINING needs to be defined'
+            case 'missing logical tti_training_tutorial'
+              message error: 'Logical TTI_TRAINING_TUTORIAL needs to be defined'
+            case 'input_error'
+              message error: 'Error during user input: ' + script_line$
+            case 'do_quota_exceeded'
+              message error: 'Number of do loops exceeds max'
+            case 'cmd_quota_exceeded'
+              message error: 'Number of tutorial command lines exceeds max'
+            case 'no_scripts'
+              message error: 'No tutorials exist'
+            case 'read_error'
+              message error: 'Error reading tutorial file'
+            case 'stack_quota_exceed'
+              message error: 'Tutorial process stack quota exceeded'
+            case 'label_quota_exceeded'
+              message error: 'Number of tutorial labels exceeds max'
+            case 'exit_without_do'
+              message error: 'EXIT DO not within DO loop'
+            case 'return_without_gosub'
+              message error: 'RETURN without GOSUB'
+            case 'end_without_if'
+              message error: 'END IF found without matching IF'
+            case 'else_without_if'
+              message error: 'ELSE found without matching IF'
+            case 'unexpected_symbol'
+              message error: 'Unexpected symbol: ' + error_value$
+            case else
+              message error: 'No message for error: ' + error_condition$
+          end select
+
+          set error off
+          delay 6
+          script_action$ = 'exit'
+          action$ = 'exit'
+        end do
+
+30999   end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   O P T I O N   C O M M A N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Set various options.
+        ! The only one so far is OPTION ALLOW BACKUP.
+        ! By default, backup is not allowed.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !   option$            Option entered
+        !   token$             Next token found
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_option_cmd
+
+        token$  = parse$
+        z1$     = parse$
+        option$ = token$ + ' ' + z1$
+        select case option$
+          case 'ALLOW BACKUP'
+            allow_backup% = true
+          case else
+            script_action$ = 'error'
+            error_condition$ = 'Unknown option'
+            fatal_error% = true
+        end select
+
+        end routine
+
+
+
+40000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   P R I N T   C O M M A N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Format:
+        !   PRINT [AT x,y, attribute] : "text to print"
+        !
+        ! Expected:
+        !
+        ! Result:
+        !   fatal_error%       True if some fatal error
+        ! 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_print_cmd
+
+        gosub synch
+
+        fatal_error% = false
+        script_action$ = 'get_command_line'
+        gosub parse_print_elements
+        if  fatal_error%  then  exit routine
+
+        gosub print_with_attributes
+
+        end routine
+
+
+
+                                                               
+40100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N D   P R I N T   T E X T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check for quoted string to print.
+        !
+        ! Used:
+        !   string$       String to print
+        !
+        ! Result:
+        !   prt_txt$      Command line right of the quoted string
+        !   fatal_error%  True if some fatal error occurred
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine find_print_text
+
+        fatal_error% = false
+        gosub strip_quotes
+        if  fatal_error%  then  exit routine
+        prt_txt$ = string$
+
+        end routine
+
+
+                                                               
+40200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N D   P R I N T   P O S I T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check for key word and integer cursor parameters
+        !
+        ! Result:
+        !   fatal_error%    True if some fatal error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine find_print_position
+
+        fatal_error% = false
+
+        if  pos(token_line$,':') = 0  then
+          script_action$ = 'error'
+          error_condition$ = 'missing_colon'
+          fatal_error% = true
+          exit routine
+        end if
+        
+        gosub get_cursor_tokens
+        if  fatal_error%  then   exit routine
+        print at cur_pos%(1), cur_pos%(2):;
+        
+        end routine
+
+
+
+                                                               
+40300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   P R I N T   E L E M E N T S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Fetch attribute tokens and assign values to binary flag
+        ! accordingly.
+        !
+        ! Expected:
+        !   We have called PARSE$
+        !   token$        Current token to parse
+        !
+        ! Result:
+        !   parse_pos%         Position of token within string
+        !   bit_switch%        Flag with bits set reflecting attribute string.
+        !
+        ! This routine is longer than 22 lines because of the SELECT CASE
+        ! statement.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_print_elements
+
+        bit_switch% = 0
+        do
+          token$ = parse$
+          parse_pos% = _integer
+
+          select case token$
+            case "'"
+              gosub find_print_text
+              if  fatal_error%  then  exit do
+            case '"'
+              gosub find_print_text
+              if  fatal_error%  then  exit do
+            case ''
+              exit do
+            case ','
+              repeat do
+            case 'AT'
+              gosub find_print_position
+              if  fatal_error%  then  exit do
+            case ':'        : repeat do
+            case 'BOLD'     : bit_switch% = bit_switch% OR 2
+            case 'BLINK'    : bit_switch% = bit_switch% OR 4
+            case 'UNDERLINE': bit_switch% = bit_switch% OR 8
+            case 'REVERSE'  : bit_switch% = bit_switch% OR 16
+            case 'NORMAL'   : bit_switch% = bit_switch% AND 0
+            case else
+              if  token$[1:1] = "'" or token$[1:1] = '"'  then  
+                gosub find_print_text
+                exit routine
+              end if
+              script_action$ = 'error'
+              error_condition$ = 'missing_key_word'
+              exit do
+          end select
+        loop
+
+40399   end routine
+
+
+
+40400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   W I T H   A T T R I B U T E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Print text line with appropriate attributes
+        !
+        ! Expected:  bit_switch%   Flag with bits for attributes
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine print_with_attributes
+
+        select case bit_switch%
+          case 0  :  print prt_txt$;
+          case 2  :  print bold: prt_txt$;
+          case 4  :  print blink: prt_txt$;
+          case 6  :  print bold, blink: prt_txt$;
+          case 8  :  print underline: prt_txt$;
+          case 10 :  print bold, underline: prt_txt$;
+          case 12 :  print blink, underline: prt_txt$;
+          case 14 :  print bold, blink, underline: prt_txt$;
+          case 16 :  print reverse: prt_txt$;
+          case 18 :  print bold, reverse: prt_txt$;
+          case 20 :  print blink, reverse: prt_txt$;
+          case 22 :  print bold, blink, reverse: prt_txt$;
+          case 24 :  print underline, reverse: prt_txt$;
+          case 26 :  print bold, underline, reverse: prt_txt$;
+          case 28 :  print blink, underline, reverse: prt_txt$;
+          case 30 :  print bold, blink, underline, reverse: prt_txt$;
+        end select
+
+        end routine
+
+
+
+40500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T E S T   I N T E G E R   V A L U E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected: token$   Token to test for an integer value
+        ! Result  : fatal_error%   True if some error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine test_integer_value
+
+        fatal_error% = false
+     
+        if  not valid(token$,"INTEGER")  then
+          script_action$ = 'error'
+          error_condition$ = 'integer_expected'
+          fatal_error% = true
+          exit routine
+        end if
+     
+40599   end routine
+
+
+
+40600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   C U R S O R   T O K E N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Get tokens until we get integer cursor position or a syntax error
+        !
+        ! Expected:
+        ! 
+        ! Used:
+        !   token$             Next token in command line
+        !
+        ! Result:
+        !   i%                 ??? counter?
+        !   fatal_error%       True if some fatal error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_cursor_tokens
+
+        fatal_error% = false
+        i% = 0
+
+        do
+          token$ = parse$
+          if  token$ = ','  then  repeat do
+          gosub test_integer_value
+          if  fatal_error%  then   exit do
+          i% = i% + 1
+          cur_pos%(i%) = val(token$)
+          if  i% = 2  then   exit do
+        loop
+
+        end routine
+
+
+                                                               
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   R E F R E S H   C M D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_refresh_cmd
+
+        gosub refresh
+
+        end routine
+
+
+
+40700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   R E P E A T   C O M M A N D 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !
+        ! Result:
+        !   script_action$   Set to 'get_command_line'
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_repeat_cmd
+
+        do
+          script_action$ = 'get_next_command_line'
+          fatal_error% = false
+          token$ = parse$
+          if  token$ = ''  then
+            fatal_error% = true
+            script_action$ = 'error'
+            error_condition$ = 'missing_key_word'
+            exit do
+          end if
+
+40740     ! ????
+          select case token$
+          case 'DO'
+            gosub process_repeat_do
+          end select
+
+        end do
+
+        end routine
+
+
+                                                               
+40800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   R E P E A T   D O   C O M M A N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Process a REPEAT DO command
+        ! 
+        ! Expected:
+        !
+        ! Result:
+        !   script_cmd_ptr%   Set to next command to process
+        !   fatal_error%      True if any error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_repeat_do
+
+        do
+          fatal_error% = false
+          if  do_index% = 0  then
+            fatal_error% = true
+            script_action$ = 'error'
+            error_condition$ = 'repeat_without_do'
+            exit do
+          end if
+
+          do_ptr% = do_stack (do_index%)
+          script_cmd_ptr% = do_array (do_ptr%, do_start_addr%)
+        end do
+
+        end routine
+
+
+                                                               
+50000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   K E Y B O A R D   C O M M A N D 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Get input from the keyboard and print to mailbox.
+        !
+        ! Expected:
+        !   allow_backup%    True if backup is allowed.
+        !
+        ! Result:
+        !   error_condition$   Error condition string
+        !   mail_cmd$          User's reply, processed to send thru mailbox.
+        !   script_action$     Set to 'mail_command_line'
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_keyboard_cmd
+
+        script_action$ = 'mail_command_line'
+
+        do
+          when exception in
+            line input prompt '': mail_cmd$
+          use
+          end when
+          if  _back  and  (allow_backup% = false)  then
+            message error: "Can't back up"
+            repeat do
+          end if
+        end do  
+
+        if  _error  then
+          error_condition$ = 'input_error'
+          fatal_error% = true
+          script_action$ = 'error'
+          exit routine
+        end if
+
+        ! *** We had problems after some KEYBOARD commands with printing of
+        ! *** text in strange places.  The DELAY fixed it.
+        delay .001
+
+        if  _exit  then  mail_cmd$ = 'EXIT'
+        if  _back  then  mail_cmd$ = '\'
+        if  _help  then  mail_cmd$ = 'HELP'
+          
+        end routine
+
+
+                                                               
+50100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   G O S U B   C O M M A N D 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Result:
+        !   script_action$     Next script action
+        !   fatal_error%       True if some fatal error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_gosub_cmd
+
+        do
+          fatal_error% = false
+          script_action$ = 'get_command_line'
+          token$ = parse$
+          gosub find_label
+          if  fatal_error%  then   exit do
+        end do
+
+        end routine
+
+
+
+50200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N D   L A B E L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Find a label
+        !
+        ! Expected:
+        !   label_ptr%         Label pointer ??
+        !   label_name_ptr%    ???
+        !   last_label_ptr%    Pointer to last label
+        !
+        ! Result:
+        !   error_condition$   Name of error condition
+        !   script_action$     Next script action to perform
+        !   fatal_error%       True if some error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine find_label
+
+        fatal_error% = false
+        if  last_label_ptr% = 0  then
+          fatal_error% = true
+          script_action$ = 'error'
+          error_condition$ = 'missing_label'
+          exit routine
+        end if
+        if  (label_ptr% + 1) = max_stack_entries%  then
+          fatal_error% = true
+          script_action$ = 'error'
+          error_condition$ = 'stack_quota_exceeded'
+          exit routine
+        end if
+
+        gosub find_label_name
+        if  found%  then  exit routine
+
+        fatal_error% = true
+        script_action$ = 'error'
+        error_condition$ = 'missing_label'
+
+        end routine
+
+
+                                                               
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N D   L A B E L   N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Find a label name in the label array and return
+        ! some pointer information.
+        !
+        ! Expected:
+        !   label_ptr%         Label pointer
+        !   label_array$(,)    Label array
+        !   label_name_ptr%    Pointer to col of array containing label name
+        !   label_line_ptr%    Label line pointer
+        !   token$             Label name to find
+        !   last_label_ptr%    Last label pointer
+        !   label_rtn_ptr%     Label return pointer?
+        !
+        ! Result  :
+        !   found%             Found label flag, set to true if label is found
+        !   label_ptr%         Label pointer
+        !   script_cmd_ptr%    Script command pointer?
+        !   sub_stack          ??? gosub stack?
+        !   label_array$(,)    Label array, updated.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine find_label_name
+
+        found% = false
+        for i% = 1 to last_label_ptr%
+          if  ucase$(token$) = label_array$(i%, label_name_ptr%)  then
+            label_ptr% = label_ptr% + 1
+            sub_stack (label_ptr%) = i%
+            label_array$(i%, label_rtn_ptr%) = str$(script_cmd_ptr%)
+            script_cmd_ptr% = val(label_array$(i%, label_line_ptr%))
+            found% = true
+            exit routine     
+          end if
+        next i%
+
+        end routine
+
+
+
+50300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   R E T U R N   C O M M A N D 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !   label_array$       Label info array
+        !   sub_stack          Gosub stack array?
+        !   label_ptr%   ???
+        !
+        ! Result:
+        !   script_cmd_ptr%    Pointer to next command to perform
+        !   label_ptr%         Label pointer
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_return_cmd
+
+50320   do
+          fatal_error% = false
+          script_action$ = 'get_command_line'
+          if  label_ptr% = 0  then
+            fatal_error% = true
+            script_action$ = 'error'
+            error_condition$ = 'return_without_gosub'
+            exit do
+          end if
+     
+          i% = sub_stack (label_ptr%)
+          script_cmd_ptr% = val(label_array$(i%, label_rtn_ptr%))
+          label_ptr% = label_ptr% - 1
+        end do
+
+        end routine
+
+
+                                                               
+50400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   E N D   C O M M A N D 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Process an END command
+        !
+        ! Result:
+        !   fatal_error%       True if fatal error occurred
+        !   script_action$     Set to one of these:
+        !                        get_command_line
+        !                        menu
+        !                        error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_end_cmd
+
+        script_action$ = 'get_command_line'
+        fatal_error% = false
+        token$ = parse$
+        if  token$ = ''  then
+          fatal_error% = true
+          script_action$ = 'error'
+          error_condition$ = 'missing_key_word'
+          exit routine
+        end if
+
+        select case token$
+          case 'SCRIPT':  script_action$ = 'menu'
+          case 'DO'    :  gosub close_do_loop
+          case 'IF'    :  gosub close_if_stmt
+          case 'SELECT':  gosub close_select_stmt
+          case else    :  fatal_error% = true
+            script_action$ = 'error'
+            error_condition$ = 'missing_key_word'
+        end select
+
+        end routine
+
+
+
+50500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C L O S E   D O   L O O P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine close_do_loop
+
+        fatal_error% = false
+        script_action$ = 'get_command_line'
+        if  do_index% = 0  then
+          fatal_error% = true
+          script_action$ = 'error'
+          error_condition$ = 'end_without_do'
+          exit routine
+        end if
+
+        do_index% = do_index% - 1
+
+        end routine
+
+
+                                                               
+50600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   D O   C O M M A N D 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected: 
+        !   do_start_addr%  ???
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_do_cmd
+
+50620   do
+          fatal_error% = false
+          script_action$ = 'get_command_line'
+
+50640     for do_ptr% = 1 to last_do_ptr%
+            if  do_array (do_ptr%, do_start_addr%) = script_cmd_ptr%  then  
+              exit for
+            end if
+            if  do_ptr% = last_do_ptr%  then
+              fatal_error% = true
+              script_action$ = 'error'
+              error_condition$ = 'end_without_do'
+              exit do
+            end if
+          next do_ptr%
+
+          do_index% = do_index% + 1
+          do_stack (do_index%) = do_ptr%
+        end do
+
+50699   end routine
+
+
+                                                               
+50700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   L O O P   C O M M A N D 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Process a LOOP command.
+        !
+        ! Expected:
+        !   do_ptr%            Pointer to current DO command
+        !
+        ! Result:
+        !   script_cmd_ptr%    Set to next command to execute
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_loop_cmd
+
+        do
+          fatal_error% = false
+          script_action$ = 'get_command_line'
+          if  do_ptr% = 0  then
+            fatal_error% = true
+            script_action$ = 'error'
+            error_condition$ = 'end_without_do'
+            exit routine
+          end if
+
+          i% = do_stack (do_index%)
+          script_cmd_ptr% = do_array (i%, do_start_addr%)
+        end do
+
+        end routine
+
+
+
+                                                               
+50800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   E X I T   D O   C O M M A N D 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !
+        ! Used:
+        !   do_ptr%            Pointer to DO ???
+        !
+        ! Result:
+        !   fatal_error%       True if there is a fatal error
+        !   script_action$     Set to 'get_command_line'
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_exit_do_cmd
+
+        fatal_error% = false
+        script_action$ = 'get_command_line'
+        gosub check_exit_do_index
+        if  fatal_error%  then  exit routine
+
+        do_ptr% = do_stack (do_index%)
+        script_cmd_ptr% = do_array (do_ptr%, do_end_addr%)
+        if  if_index% > 0  then
+          if_ptr% = if_stack (if_index%)
+          if  do_ptr% = if_array (if_ptr%, if_do_ptr%)  then
+            if_index% = if_index% - 1
+          end if
+        end if
+        if  select_index% > 0  then
+          select_ptr% = select_stack (select_index%)
+          if  do_ptr% = select_array (select_ptr%, select_do_ptr%)  then
+            select_index% = select_index% - 1
+          end if
+        end if
+        if  case_index% > 0  then
+          case_ptr% = case_stack (case_index%)
+          if  do_ptr% = case_array (case_ptr%, case_do_ptr%)  then
+            case_index% = case_index% - 1
+          end if
+        end if
+
+        end routine
+
+
+                                                               
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   E X I T   D O   I N D E X
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check the DO_INDEX% for an EXIT DO.  
+        ! End with fatal error  if  the index is zero.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !   do_index%          DO block index
+        !   fatal_error%       True if fatal error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_exit_do_index
+
+        if  do_index% = 0  then
+          fatal_error% = true
+          script_action$ = 'error'
+          error_condition$ = 'exit_without_do'
+          exit routine
+        end if
+
+        end routine
+
+
+
+50900   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C L O S E   I F   S T A T E M E N T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !   if_index%
+        !
+        ! Result:
+        !   fatal_error%        Set to true if IF_INDEX% is zero
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine close_if_stmt
+
+        fatal_error% = false
+        if  if_index% = 0  then
+          fatal_error% = true
+          script_action$ = 'error'
+          error_condition$ = 'end_without_if'
+          exit routine
+        end if
+
+        if_index%   = if_index% - 1
+        cmpr_index% = cmpr_index% - 1
+
+        end routine
+
+
+
+                                                               
+60000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   S C R E E N   C O M M A N D 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! SCREEN SAVE
+        !
+        ! SCREEN RESTORE
+        !
+        ! Result:
+        !   screen_action$     Screen action (??)
+        ! 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_screen_cmd
+
+        do
+          screen_action$ = 'get_command_line'
+          b$ = parse$
+          
+          select case b$
+          case 'SAVE'
+            ask window: current screen_ptr$
+          case 'RESTORE'
+            set window: current screen_ptr$
+          case else
+            screen_action$ = 'missing_key_word'
+          end select
+        end do
+
+        end routine
+
+
+                                                               
+60100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   I N P U T   C O M M A N D 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! 
+        ! Process input command
+        !
+        ! Format:  INPUT AT x, y, PROMPT "prompt_text", &
+        !                ALLOW "val-1,val-2", &
+        !                HELP "help-text": variable-name
+        !
+        ! Expected:
+        !
+        ! Used:
+        !   reply$            User's reply
+        !
+        ! Result:
+        !   script_action$    Next action to take.
+        !                       Set to 'mail_command_line' or
+        !                       'get_command_line'.
+        !   fatal_error%      True if a fatal error occurred
+        !   exit_requested%   True if user asked to exit
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_input_cmd
+
+        gosub synch
+        script_action$ = 'mail_command_line'
+        fatal_error% = false
+
+        gosub direct_user_input
+        if  fatal_error%  or  exit_requested%  then
+          gosub abort
+          exit routine
+        end if
+
+        gosub load_input_symbols
+
+        end routine
+
+
+                                                               
+70000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I R E C T   U S E R   I N P U T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! 
+        ! Direct user input.
+        !
+        ! Get INPUT parameters.
+        ! Process INPUT keywords.
+        ! End now if some error.
+        ! Move to a spot on the screen if using cursor control.
+        ! Ask the question.
+        ! 
+        ! Used:
+        !   cur_pos%           Cursor position -- row
+        !   mail_cmd$          Command to pass to subprocess
+        !   reply$             User's reply
+        !
+        ! Result:
+        !   fatal_error%       True if a fatal error occurred
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine direct_user_input
+
+        gosub init_input_params
+        gosub process_input_key_words
+        if  fatal_error%  then  exit routine
+
+        if  u_menu$ = '' then
+          if  cur_pos%(1) > 0  then
+            gosub get_user_input_cursor
+          else
+            gosub get_user_input
+          end if
+        else
+          gosub get_user_input_menu
+        end if
+
+        end routine
+
+
+                                                               
+70100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T    I N P U T   P A R A M S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize variables for an input statement.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !   fatal_error%      Set to false
+        !   u_variable$       Set to null string
+        !   u_prompt$         Set to null string
+        !   u_help$           Set to null string
+        !   u_allow$          Set to null string
+        !   cur_pos% (1)      Row for input, reset to zero
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init_input_params
+
+        fatal_error%  = false
+        u_variable$   = ''
+        u_prompt$     = ''
+        u_help$       = ''
+        u_allow$      = ''
+        cur_pos% (1) = 0
+        u_menu$       = ''
+
+        end routine
+
+
+                                                               
+70200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   I N P U T   K E Y   W O R D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check each token in the INPUT statement.
+        ! Get any screen position, prompt text, allow clause,
+        ! help message, and target variable.
+        !
+        ! Expected:  
+        !   fatal_error%       Fatal error flag, set to false
+        !   We have started parsing the INPUT statement.
+        !
+        ! Result:
+        !   u_allow$           List of allowed values
+        !   u_help$            Help message
+        !   u_prompt$          Prompt text
+        !   u_variable$        Target variable name
+        !   error_condition$   Error condition
+        !   script_action$     Next script action
+        !   fatal_error%       True if fatal error
+        !   parse_pos%         Position of token in parsed text,
+        !                      for error reporting.
+        !
+        ! This routine is longer than 22 lines because of the SELECT CASE.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_input_key_words
+
+        do
+          token$ = parse$
+          parse_pos% = _integer
+          select case token$
+            case ''    : exit do
+            case 'AT'
+              gosub get_cursor_tokens
+              if  fatal_error%  then  exit do
+            case ','   : repeat do
+            case 'PROMPT'
+              gosub test_quoted_string
+              if  fatal_error%  then  exit do
+              u_prompt$ = string$
+            case 'MENU'
+              gosub test_quoted_string
+              if  fatal_error%  then  exit do
+              u_menu$ = string$
+            case 'HELP'
+              gosub test_quoted_string
+              if  fatal_error%  then  exit do
+              u_help$ = string$
+            case 'ALLOW'
+              gosub test_quoted_string
+              if  fatal_error%  then  exit do
+              u_allow$ = string$
+            case ':'   : u_variable$ = parse$
+            case else
+              fatal_error% = true
+              script_action$ = 'error'
+              error_condition$ = 'missing_key_word'
+              exit do
+          end select
+        loop
+
+        end routine
+
+
+
+                                                               
+70300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T E S T   Q U O T E D   S T R I N G
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check for single or double quotes bracketing a token.
+        !
+        ! Expected:
+        !   We have started parsing a string
+        !
+        ! Result:
+        !   string$           String without quotes
+        !   fatal_error%      True if some fatal error occurred
+        !                     True if quotes are missing
+        !   script_action$    Set to error if quotes missing
+        !   error_condition$  Set to 'missing_quote' if quotes are missing
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine test_quoted_string
+
+        do
+          fatal_error% = false
+          token$ = parse$
+          i% = len(token$)
+          z$ = token$[i%:i%]
+          if  z$ <> "'"  and  z$ <> '"'  then
+            fatal_error% = true
+            script_action$ = 'error'
+            error_condition$ = 'missing_quote'
+            exit do
+          end if
+
+          if  token$[1:1] <> token$[i%:i%]  then
+            fatal_error% = true
+            script_action$ = 'error'
+            error_condition$ = 'missing_quote'
+            exit do
+          end if
+
+          string$ = token$[2 : i% - 1]
+        end do
+
+        end routine
+
+
+
+                                                               
+70400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   U S E R   I N P U T   C U R S O R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Get user input with cursor control
+        !
+        ! Initialize some flags.
+        ! Move to the place and do the input.
+        ! If some error occurred, set the flags and end now.
+        ! If help is requested, print message and ask again.
+        ! Validate the input.
+        ! If some fatal error or exit requested, end now.
+        ! If a non-fatal error, ask again.
+        ! Position the cursor after the prompt again, so the subprocess
+        !   will echo the input in the right place.
+        !
+        ! Expected:
+        !   u_allow$           List of allowed values
+        !   item$              Item selected
+        !   cur_pos%()         Row and column to do input at
+        !   u_prompt$          Prompt
+        !
+        ! Result  :  
+        !   exit_requested%    True if user asked to exit
+        !   mail_cmd$          User's reply, as it will be sent to
+        !                      the subprocess.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_user_input_cursor
+
+        do
+          fatal_error% = false
+          repeat_do% = false
+          gosub input_with_cursor
+          gosub check_input_error
+          if  fatal_error%  then  exit routine
+          if  _help  then
+            if  match(u_allow$, 'help') = 0  then
+              message u_help$
+              repeat do
+            end if
+          end if
+          gosub validate_input
+          if  fatal_error%  or  exit_requested%  then  exit do
+          if  repeat_do%  then  repeat do
+        end do
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N P U T   W I T H   C U R S O R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! If we are doing a demo, use the first item from the U_ALLOW$
+        ! string for the reply.  Otherwise, do an input with cursor control.
+        !
+        ! Expected:
+        !   u_prompt$          Prompt text
+        !   cur_pos%           Cursor position array
+        !   u_allow$           Answers allowed
+        !   item$              Main item chosen: DEM for demo
+        !
+        ! Result  :
+        !   reply$             User's reply
+        !   _error             True if any error occurred.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine input_with_cursor
+
+        if  item$ <> 'DEM'  then
+          when exception in
+            line input at cur_pos% (1), cur_pos%(2), prompt u_prompt$: reply$
+          use
+          end when
+        else
+          delay
+          z$ = element$(u_allow$, 1)
+          if  pos('''"', z$[1:1]) > 0  then  z$ = z$[2 : len(z$) - 1]
+          reply$ = z$
+        end if
+
+        print at cur_pos%(1), cur_pos%(2) + len(u_prompt$): space$(len(reply$));
+        print at cur_pos%(1), cur_pos%(2) + len(u_prompt$):;
+        delay .001
+
+        end routine
+
+
+
+70500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   U S E R   I N P U T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Get user input without cursor control.
+        !
+        ! Expected:
+        !   u_help$            Help message
+        !   u_allow$           List of allowed values
+        !   u_prompt$          Prompt text
+        !
+        ! Used:
+        !   repeat_do%         True if we are to repeat the question
+        !
+        ! Result  :
+        !   repeat_do%         True if we are to repeat the DO loop
+        !   mail_cmd$          User reply
+        !   exit_requested%    True if user asked to exit
+        !   fatal_error%       True if some fatal error occurs.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_user_input
+
+        do
+          fatal_error% = false
+          repeat_do% = false
+          when exception in
+            line input prompt u_prompt$: reply$
+          use
+          end when
+          if  _error  then  gosub  check_input_error
+          if  fatal_error%  then  exit routine
+          if  _help  then
+            if  match(u_allow$, 'help') = 0  then
+              print u_help$
+              repeat do
+            end if
+          end if
+          gosub validate_input
+          if  fatal_error%  or  exit_requested%  then  exit do
+          if  repeat_do%  then  repeat do
+        end do
+
+        end routine
+
+
+
+70550   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   U S E R   I N P U T   M E N U
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_user_input_menu
+
+        do
+          fatal_error% = false
+          repeat_do% = false
+          when exception in
+            line input menu u_menu$: reply$
+          use
+          end when
+          if  _error  then  gosub  check_input_error
+          if  fatal_error%  then  exit routine
+          if  _help  then
+            if  match(u_allow$, 'help') = 0  then
+              print u_help$
+              repeat do
+            end if
+          end if
+          gosub validate_input
+          if  fatal_error%  or  exit_requested%  then  exit do
+          if  repeat_do%  then  repeat do
+        end do
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   I N P U T    E R R O R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check to see whether an error occurred in input.
+        ! If so, set some variables.
+        !
+        ! Expected:
+        !   _error             True if error occurred
+        !
+        ! Result  :
+        !   error_condition$   Set to 'input_error' if some error
+        !   script_action$     Set to 'error' if some error
+        !   fatal_error%       True if error occurred
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_input_error
+
+        if  _error  = false  then  exit routine
+
+        fatal_error% = true
+        script_action$ = 'error'
+        error_condition$ = 'input_error'
+        set error off
+
+        end routine
+
+
+
+70600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! V A L I D A T E   U S E R   I N P U T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Reset error flag and repeat flag.
+        ! Convert internal variables to string replies.
+        ! Check list of allowed answers.
+        !
+        ! Expected:
+        !   reply$             What the user entered
+        !
+        ! Result  :
+        !   fatal_error%       True if some error
+        !   repeat_do%         True if we are to ask again
+        !   exit_requested%    True if we are to exit
+        !   reply$             User reply, formatted
+        !   mail_cmd$          User reply as entered originally
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine validate_input
+
+        fatal_error% = false
+        repeat_do% = false
+        if  _exit  then  reply$ = 'EXIT'
+        if  _back  then  reply$ = '\'
+        if  _help  then  reply$ = 'HELP'
+
+        gosub format_reply
+        gosub check_allowed_values
+        mail_cmd$ = reply$
+        reply$    = std_reply$
+
+        end routine
+
+
+                                                               
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F O R M A T   R E P L Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Standardize the format of the text the user typed in.
+        ! Strip leading and trailing spaces.
+        ! Upper-case, except quoted data.
+        ! Remove THE and WITH.
+        ! Change AND to a comma.
+        ! Remove any final space.
+        !
+        ! Expected: 
+        !   reply$      What the user just typed in.
+        !
+        ! Result  : 
+        !   std_reply$  The user's command, upper-cased except quoted text,
+        !               leading and trailing spaces stripped off,
+        !               extra spaces reduced to one, converted.
+        !               Conversions:  AND  -->  ,
+        !                             THE removed
+        !                             WITH removed
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine format_reply
+
+        std_reply$ = edit$(reply$, 8 + 128)
+        z$ = parse$(std_reply$)
+        z1$ = ''
+        do
+          z$ = parse$
+          select case z$
+            case ''            : exit do
+            case 'THE', 'WITH' : iterate do
+            case 'AND'         : z$ = ','
+            case else
+          end select
+          z1$ = z1$ + z$ + ' '
+        loop
+        std_reply$ = edit$(z1$, 8 + 128)
+
+        end routine
+
+
+
+70700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   A L L O W E D   V A L U E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check the user input against allowed values.
+        !
+        ! Reset some flags.
+        ! If there is no list of values, end now.
+        ! Process what the user entered: upper-case (except within quotes),
+        !   strip leading and trailing spaces.
+        ! Check the list; exit when we find a match.
+        !   Strip quotes from quoted elements of the ALLOW string.
+        ! Check the list first, before checking _EXIT or _BACK, in case
+        !   EXIT or BACK is one of the allowed values.
+        ! If no match, but they entered EXIT, set exit-requested flag.
+        !   We'll let 'em out anyway.
+        ! If running DEMO, don't check values.
+        ! If backup requested, and it's allowed, exit now.
+        !   Otherwise, tell 'em they can't back up.
+        ! Otherwise, print a message telling what the choices are.
+        ! Blank out what they typed.
+        ! Flag to ask the question again.
+        !
+        ! Expected:
+        !   u_allow$           List of allowed values
+        !                      Format: xxxx,"yyyy",'zz,zz'
+        !                      If there is a comma in a value,
+        !                      the data must be quoted.
+        !   reply$             What the user entered
+        !   std_reply$         User's reply in standard format
+        !   _exit              True if user asked to exit
+        !   cur_pos%()         Current input position
+        !   allow_backup%      True if backup is allowed
+        !
+        ! Result  :
+        !   exit_requested%    True if user asked to exit
+        !   repeat_do%         True if we are to repeat some DO loop
+        !                      False if the reply is okay
+        !   script_action$     Set to 'exit' if user asked to exit
+        !
+        ! This routine is longer than 22 lines because of all the
+        ! checking required.  The many exit points make further
+        ! breaking up difficult.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_allowed_values
+
+        gosub check_values_init
+        if  u_allow$ = ''  then  exit routine
+        ucased_reply$ = ucase$(std_reply$)
+        for  j% = 1 to elements(u_allow$, ',')
+          z$ = element$(u_allow$, j%, ',')
+          if  pos('''"', z$[1:1]) > 0  then  z$ = z$[2 : len(z$) - 1]
+          z$ = parse$(z$)
+          if  ucased_reply$ = ucase$(z$)  then  exit routine
+        next j%
+        exit_requested% = false
+        if  _exit  then
+          exit_requested% = true
+          script_action$ = 'exit'
+          exit routine
+        end if
+        if  item$ = 'DEM'  then  exit routine
+        if  std_reply$ = 'BACK'  then
+          if  allow_backup%  then  
+            exit routine
+          else
+            message error: "Can't back up"
+            repeat_do% = true
+            exit routine
+          end if
+        end if
+        gosub check_values_finish
+
+        end routine
+
+
+
+                                                               
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   V A L U E S   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize for checking values.
+        !
+        ! Expected:
+        !   std_reply$         User's reply in standard format
+        !   u_allow$           List of allowed values
+        !
+        ! Result  :
+        !   exit_requested%    Exit requested flag, set to false
+        !   repeat_do%         Repeat do flag, set to false
+        !   fatal_error%       Fatal error flag, set to false
+        !   std_reply$         User's reply in standard format,
+        !                        \ changed to BACK.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_values_init
+
+        fatal_error%    = false
+        repeat_do%      = false
+        exit_requested% = false
+        if  u_allow$ = ''  then  exit routine
+        if  std_reply$ = '\'  then  std_reply$ = 'BACK'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   V A L U E S   F I N I S H
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Finish checking input values.
+        ! If we get here, we have an illegal value.
+        !
+        ! Expected:
+        !   reply$             User's original reply
+        !   u_prompt$          Prompt text
+        !   cur_pos%           Row for input
+        !   u_allow$           List of allowed values
+        !
+        ! Result  :
+        !   repeat_do%         Flag to repeat the input statement
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_values_finish
+
+        message error: 'Please enter only: ' + u_allow$
+        if  cur_pos% (1) > 0  then  
+          print at cur_pos%(1), cur_pos%(2) + len(u_prompt$): &
+                space$(len(reply$));
+        end if
+        repeat_do% = true
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   I N P U T   S Y M B O L S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Load the symbol table for the input target variable,
+        ! REPLY$, and _REPLY.
+        ! If there is a target variable, set script action to
+        !   'get_command_line'.
+        !
+        ! Expected:
+        !   u_variable$        Target variable name for the input, if any
+        !
+        ! Result  :
+        !   script_action$     Next action to take.
+        !                      Set to 'get_command_line' if there was
+        !                      an input variable.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_input_symbols
+
+        if  u_variable$ <> ''  then
+          gosub load_symbol_table
+          script_action$ = 'get_command_line'
+        end if
+
+        u_variable$ = 'reply$'
+        gosub load_symbol_table
+        u_variable$ = '_reply'
+        gosub load_symbol_table
+
+        end routine
+
+
+
+70800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   S Y M B O L   T A B L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! See whether this symbol is already defined.
+        ! If not, add the symbol.
+        ! Store the new value.
+        !
+        ! Expected:
+        !   u_variable$        Name of variable to load or look up
+        !   mail_cmd$          Value of variable
+        !   smbl_table$(,)     Symbol table array
+        !       *,smbl_name_ptr%   Symbol name
+        !       *,smbl_value_ptr%  Symbol value
+        !   last_smbl_ptr%     Pointer to last symbol defined
+        ! 
+        ! Result:
+        !   smbl_table$(,)     Array is loaded with new symbol and value.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_symbol_table
+
+        fatal_error% = false
+        gosub do_symbol_lookup
+
+        if  smbl_ptr% = 0  then
+          smbl_ptr% = last_smbl_ptr% + 1
+          symbol_table$ (smbl_ptr%, smbl_name_ptr%) = ucase$(u_variable$)
+          last_smbl_ptr% = last_smbl_ptr% + 1
+        end if
+
+        symbol_table$ (smbl_ptr%, smbl_value_ptr%) = mail_cmd$
+
+        end routine
+
+
+                                                               
+70900   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   S Y M B O L   L O O K U P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Look up a symbol.
+        !
+        ! Expected:
+        !   u_variable$        Name of variable to look up
+        !   symbol_table$      Symbol table
+        !   last_smbl_ptr%     Pointer to last symbol in symbol table
+        !
+        ! Result:
+        !   smbl_ptr%          Index within symbol_table$, or 
+        !                      0 if symbol is not found
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_symbol_lookup
+
+        fatal_error% = false
+        smbl_ptr% = 0
+        if  last_smbl_ptr% = 0  then  exit routine
+
+        for smbl_ptr% = 1 to last_smbl_ptr%
+          if  ucase$(symbol_table$ (smbl_ptr%, smbl_name_ptr%)) &
+              = ucase$(u_variable$)  then
+            exit routine
+          end if
+        next smbl_ptr%
+
+        end routine
+
+
+                                                               
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   S C R I P T   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Load a script file into memory arrays.
+        ! Initialize.
+        ! Open the script file.
+        ! Read thru the file and load into arrays.
+        !
+        ! Expected: 
+        !   script_index%   Item number of the chosen script
+        !   lookup_seq      Same thing
+        !
+        ! Result:
+        !   fatal_error%    True if some error
+        !   action$         Set to 'process_script'  if  all okay
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_script_file
+
+        gosub init_script_vars
+        gosub open_script_file
+        if  fatal_error%  then  exit routine
+
+        script_cmd_ptr% = 0
+        do
+          gosub read_raw_cmd
+          if  fatal_error%  then  exit routine
+          gosub load_script_array
+          if  fatal_error%  then  exit routine
+          if  action$ = 'ready_script_processing'  then  exit do
+        loop
+
+        gosub ready_script_processing
+        if  fatal_error%  then  exit routine
+        action$ = 'process_script'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T   S C R I P T   V A R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize variables for the scripts.
+        !
+        ! Result:
+        !   label_ptr%         Label pointer, reset to zero
+        !   last_script_cmd%   Number of the last command in the script
+        !   fatal_error%       Reset to zero
+        !   script_ctr%        Number of scripts, reset to zero
+        !   script_active%     Active script flag reset (not used?)
+        !   script_array_ptr%  Script array pointer (apparently not used)
+        !   last_label_ptr%    Last label pointer
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init_script_vars
+
+        script_active%    = false
+        script_array_ptr% = 0
+
+        label_ptr%        = 0
+        last_label_ptr%   = 0
+        last_script_cmd%  = 0
+        last_select_ptr%  = 0
+        last_case_ptr%    = 0
+        do_ptr%           = 0
+        if_ptr%           = 0
+        select_ptr%       = 0
+        case_ptr%         = 0
+        smbl_ptr%         = 0
+        last_smbl_ptr%    = 0
+        last_if_ptr%      = 0
+        last_do_ptr%      = 0
+        delay .7
+
+        end routine
+
+
+
+80000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E A D   R A W   C O M M A N D 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Read a command line from the script file.
+        ! Trim trailing spaces.
+        ! If there is a continued line, trim any trailing ampersand
+        ! and get the next physical line.
+        !
+        ! Expected:
+        ! 
+        ! Used:
+        !   raw_cmd$           Raw command line
+        !
+        ! Result  :
+        !   script_line$       Line from script file
+        !   fatal_error%       True if a fatal error occurred
+        ! 
+        ! Note:  The former use of a state table here (action$) totally 
+        ! obscured the fact that this routine and LOAD_SCRIPT_ARRAY 
+        ! loop thru and load the entire script file.   
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine read_raw_cmd
+
+        fatal_error% = false
+        raw_cmd$ = ''
+
+        do
+          gosub read_script_line
+          if  fatal_error%  then  exit routine
+
+          raw_cmd$ = raw_cmd$ + trim$(script_line$)
+          i% = len(raw_cmd$)
+          if  raw_cmd$[i%:i%] = '&'  then
+            raw_cmd$ = raw_cmd$[1:i% - 1]
+            repeat do
+          end if
+        end do
+        script_line$ = raw_cmd$
+
+        end routine
+
+
+                                                               
+80100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   S C R I P T   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Load the script array from script text file.
+        !
+        ! Expected: 
+        !   script_cmd_ptr%    Script command pointer
+        !   script_array$()    Array of script lines
+        !   max_script_lines%  Max lines allowed
+        !
+        ! Result  :
+        !   script_cmd_ptr%    Pointer to current line in array
+        !   fatal_error%       True if an error occurred
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_script_array
+
+        gosub load_script_array_init
+        if  fatal_error%  then  exit routine
+
+        gosub get_first_token
+        script_cmd_ptr% = script_cmd_ptr% + 1
+        script_array$ (script_cmd_ptr%) = script_line$
+        last_script_cmd% = script_cmd_ptr%
+
+        select case token$
+          case 'LABEL' : gosub load_label_array
+          case 'IF'    : gosub load_if_array
+          case 'DO'    : gosub load_do_array
+          case 'LOOP'  : gosub load_loop_array
+          case 'END'   : gosub load_end_statement
+          case 'ELSE'  : gosub load_else_array
+          case 'SELECT': gosub load_select_array
+          case 'CASE'  : gosub load_case_array
+          case else
+        end select
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   S C R I P T   A R R A Y   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !   error_condition$   Name of error condition
+        !   max_script_lines%  Max number of script lines allowed
+        !   script_cmd_ptr%    Script command pointer
+        !   action$            Main action, set to null  if  all is okay
+        !                      'error' if some error
+        !   fatal_error%       True if fatal error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_script_array_init
+
+        fatal_error% = false
+        action$ = ''
+
+        if  (script_cmd_ptr% + 1) = max_script_lines%  then
+          fatal_error% = true
+          action$ = 'error'
+          error_condition$ = 'cmd_quota_exceeded'
+          exit routine
+        end if
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   E N D   S T A T E M E N T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Process the loading of an END statement from the script file.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !   token$             Next token in END statement
+        !   action$            Main action, set to 'ready_script_processing'
+        !                         if we are done with the script
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_end_statement
+
+        token$ = parse$
+        select case token$
+          case 'DO'    :  gosub load_loop_array
+          case 'IF'    :  gosub load_end_if_array
+          case 'SCRIPT':  action$ = 'ready_script_processing'
+          case 'SELECT':  gosub load_end_select_array
+          case else
+            fatal_error% = true
+            action$ = 'error'
+            script_action$ = 'error'
+            error_condition$ = 'end_without_keyword'
+        end select
+
+        end routine
+
+
+
+80200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   L A B E L   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected: 
+        !   max_script_labels%  Maximum number of labels
+        !   label_ptr%          Pointer to current label
+        !
+        ! Result:
+        !   label_ptr%          Pointer to current (also last) label
+        !   last_label_ptr%     New number of labels
+        !   label_array$(,)     Array of label information
+        !     *, label_name_ptr%   Name of label
+        !     *, label_line_ptr%   Location of label
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_label_array
+
+        fatal_error% = false
+        if  (label_ptr% + 1) = max_script_labels%  then
+          fatal_error% = true
+          action$ = 'error'
+          error_condition$ = 'label_quota_exceeded'
+          exit routine
+        end if
+
+        token$ = parse$
+        label_ptr% = label_ptr% + 1
+        label_array$ (label_ptr%, label_name_ptr%) = ucase$(token$)
+        label_array$ (label_ptr%, label_line_ptr%) = str$(script_cmd_ptr%)
+        last_label_ptr% = label_ptr%
+
+        end routine
+
+
+
+80300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   D O   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_do_array
+
+80320   do
+          fatal_error% = false
+          if  (do_ptr% + 1) = max_do_loops%  then
+            fatal_error% = true
+            action$ = 'error'
+            error_condition$ = 'do_quota_exceeded'
+            exit do
+          end if
+
+80340     do_ptr% = do_ptr% + 1
+          do_array (do_ptr%, do_start_addr%) = script_cmd_ptr%
+          do_array (do_ptr%, do_end_addr%) = 0
+          last_do_ptr% = do_ptr%
+        end do
+
+        end routine
+
+
+
+
+80400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   L O O P   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_loop_array
+
+        fatal_error% = false
+        if  do_ptr% = 0  then
+          fatal_error% = true
+          action$ = 'error'
+          error_condition$ = 'end_without_do'
+          exit routine
+        end if
+
+        for i% = do_ptr% to 1 step -1
+          if  do_array (i%, do_end_addr%) > 0  then  iterate for
+          do_array (i%, do_end_addr%) = script_cmd_ptr%
+          exit routine
+        next i%
+
+        fatal_error% = true
+        action$ = 'error'
+        error_condition$ = 'end_without_do'
+
+        end routine
+
+
+
+80500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E A D Y   S C R I P T   P R O C E S S I N G 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Finish up initializing for script processing.
+        !
+        ! Check the DO array for END DO addresses.
+        ! If we find any DO without END DO, report the error.
+        ! Initialize some variables.
+        !
+        ! Expected:
+        !   last_do_ptr%       ????
+        !   do_array(,)        Array of DO loop addresses
+        !
+        ! Result  :
+        !   action$            Set to 'error' if some error
+        !   allow_backup%      Set flag not to allow backup
+        !                      Set to 'process_script' if all okay
+        !   fatal_error%       True if some error occurred.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ready_script_processing
+
+        for i% = 1 to last_do_ptr%
+          if  do_array (i%, do_end_addr%) = 0  then
+            fatal_error% = true
+            action$ = 'error'
+            error_condition$ = 'do_without_end'
+            exit routine
+          end if
+        next i%
+
+        script_cmd_ptr% = 0
+        do_ptr%         = 0
+        label_ptr%      = 0
+        cmpr_ptr%       = 0
+        if_index%       = 0
+        case_index%     = 0
+        select_index%   = 0
+        cmpr_index%     = 0
+        do_index%       = 0
+        allow_backup%   = false
+
+        action$ = 'process_script'
+
+        end routine
+
+
+
+80600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   I F   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Load the IF array
+        !
+        ! Expected:
+        !   if_ptr%   Pointer to IF array
+        !
+        ! Result:
+        !   fatal_error%       True if some fatal error
+        !   max_if_stmts%      Max number of IF statements
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_if_array
+
+        fatal_error% = false
+        if  (if_ptr% + 1) = max_if_stmts%  then
+          fatal_error% = true
+          action$ = 'error'
+          error_condition$ = 'if_quota_exceeded'
+          exit routine
+        end if
+
+        if_ptr% = if_ptr% + 1
+        if_array (if_ptr%, if_start_addr%) = script_cmd_ptr%
+        if_array (if_ptr%, if_else_addr%)  = 0
+        if_array (if_ptr%, if_end_addr%)   = 0
+        if_array (if_ptr%, if_cmpr_ptr%)   = 0
+        last_if_ptr% = if_ptr%
+
+        end routine
+
+
+
+80700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   E N D   I F   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Load END IF array
+        !
+        ! Expected:
+        !   if_array           IF array
+        !   if_ptr%        Pointer to last IF statement
+        !
+        ! Result:
+        !   if_array           IF array
+        ! 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_end_if_array
+
+        for i% = if_ptr% to 1 step -1
+          if  if_array (i%, if_end_addr%) > 0  then  iterate for
+          if_array (i%, if_end_addr%) = script_cmd_ptr%
+          exit routine
+        next i%
+
+        fatal_error% = true
+        action$ = 'error'
+        error_condition$ = 'end_without_if'
+
+        end routine
+
+
+
+
+80800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   E L S E   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Load the ELSE array.
+        !
+        !
+        ! Result:
+        !   if_array           IF array
+        !   error_condition$   Name of error condition
+        !   action$            Next main action, 'error' if some error
+        !   fatal_error%       True if some fatal error
+        ! 
+        ! 
+        ! Expected:
+        !   if_array           IF array
+        !   if_ptr%            IF array pointer
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_else_array
+
+        fatal_error% = false
+        if  if_ptr% = 0  then
+          fatal_error% = true
+          action$ = 'error'
+          error_condition$ = 'else_without_if'
+          exit routine
+        end if
+
+        for i% = if_ptr% to 1 step -1
+          if  if_array (i%, if_end_addr%)  > 0  then  iterate for
+          if  if_array (i%, if_else_addr%) > 0  then  iterate for
+          if_array (i%, if_else_addr%) = script_cmd_ptr%
+          exit routine
+        next i%
+
+        fatal_error% = true
+        action$ = 'error'
+        error_condition$ = 'else_without_if'
+
+        end routine
+
+
+
+90100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O P E N   S C R I P T   C H A N N E L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Open a script file on a channel
+        !
+        ! Expected:
+        !   script_index%      Script index number
+        !   script_spec$       Array of script file specs
+        !   scr_ch             Channel to open on
+        !
+        ! Result:
+        !   fatal_error%       True if some fatal error
+        !   script_action$     Script action
+        !   action$            Next main action
+        !   error_condition$   Error condition name
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine open_script_channel
+
+        close #scr_ch   !+++ Patch RSvK 13 Jan 89
+        fatal_error% = false
+         when exception in
+          open #scr_ch: name script_spec$ (script_index%), access input
+        use
+        end when
+
+        if  _error  then
+          error_condition$ = 'script_open_error'
+          action$ = 'error'
+          script_action$ = 'error'
+          fatal_error% = true
+          exit routine
+        end if
+        
+90199   end routine
+
+
+
+
+90200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C L O S E   S C R I P T   C H A N N E L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected: scr_ch           Script channel
+        !
+        ! Result  : We close the script channel.
+        !           script_active%   Set to false
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine close_script_channel
+
+        close #scr_ch
+        script_active% = false
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E A D   S C R I P T   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Read a line from the script file.
+        ! If any error occurs, set error flags and end.
+        !
+        ! Expected: 
+        !   scr_ch           Script channel
+        !
+        ! Result:
+        !   script_line$     Line from script file
+        !   script_active%   Set to true
+        !   fatal_error      True if we had an error in the read
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine read_script_line
+
+        fatal_error% = false
+        script_active% = true
+        when exception in
+          line input #scr_ch: script_line$
+        use
+        end when
+
+        if  _error  then
+          ! End of file -- END SCRIPT missing
+          if  extype = 8011  then
+            fatal_error% = true
+            error_condition$ = 'no_end_script'
+            script_action$ = 'error'
+            exit routine   
+          end if
+
+          fatal_error% = true
+          action$ = 'error'
+          script_action$ = 'error'
+          error_condition$ = 'read_error'
+          exit routine
+        end if
+        
+        end routine
+
+
+                                                               
+90400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   F I R S T   T O K E N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Get the first token on the line.
+        !
+        ! Reset token to null string, fatal error flag.
+        ! Trim and parse the script line.
+        ! If blank, end now.
+        ! If the line ends with a colon, set token to LABEL.
+        ! Otherwise get the first token on the line.
+        ! End now if we have a comment "!".
+        ! Remove any leading dollar sign.
+        !
+        ! Expected:  script_line$   Line of script to parse
+        !
+        ! Result  :  token$    Token
+        !                      'LABEL' if the token is a label
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_first_token
+
+        do
+          token$ = ''
+          fatal_error% = false
+          a$ = trim$(script_line$)
+          token_line$ = parse$(a$)
+          if  token_line$ = ''  then  exit do
+
+          z% = len(a$)
+          if  a$[z%:z%] = ':'  then  
+            token$ = 'LABEL'
+          else
+            token$ = parse$
+          end if
+
+          if  token$ = '!'  then  exit do
+          if  token$[1:1] = '$'  then  token$ = token$[2:len(token$)]
+
+        end do
+
+        end routine
+
+
+                                                               
+90500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S T R I P   Q U O T E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !   token$         String to strip quotes from
+        !
+        ! Result  :
+        !   string$        String with quotes removed
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine strip_quotes
+
+        fatal_error% = false
+        i% = len(token$)
+
+        if  token$[1:1] <> "'" and token$[1:1] <> '"'  then
+          fatal_error% = true
+          script_action$ = 'error'
+          error_condition$ = 'missing_quote'
+          exit routine
+        end if
+
+        if  token$[i%:i%] <> token$[1:1]  then
+          fatal_error% = true
+          script_action$ = 'error'
+          error_condition$ = 'missing_quote'
+          exit routine
+        end if
+
+        string$ = token$[2:i%-1]
+
+90599   end routine
+
+
+                                                               
+100000  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   I F   C O M M A N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Process IF command.
+        !
+        ! Reset fatal error flag.
+        ! Set script action to get next command.
+        ! Get address of IF statement; exit if any problem.
+        !
+        ! Expected:
+        !
+        ! Result:
+        !   script_action$     Next script action to take
+        !   fatal_error%       True if any fatal error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_if_cmd
+
+        fatal_error% = false
+        script_action$ = 'get_command_line'
+        gosub get_if_address
+        if  fatal_error%  then  exit routine
+
+        if_ptr% = if_stack (if_index%)
+        if  if_array (if_ptr%, if_cmpr_ptr%) = 0  then
+          cmpr_ptr% = cmpr_ptr% + 1
+          if_array (if_ptr%, if_cmpr_ptr%) = cmpr_ptr%
+        end if
+
+        cmpr_ptr% = if_array (if_ptr%, if_cmpr_ptr%)
+        cmpr_index% = cmpr_index% + 1
+        compare_stack (cmpr_index%) = cmpr_ptr%
+        gosub init_condl_elements
+
+        expected$ = 'expression_1'
+        gosub direct_condl_processing
+        if  fatal_error%  then  exit routine
+
+        gosub finish_if_cmd
+
+        end routine
+
+
+                                                               
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   C O N D I T I O N A L   S T A T E M E N T   E L E M E N T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !   compare_stack()    Compare stack
+        ! 
+        ! Used:
+        !   token$             Next token
+        !
+        ! Result:
+        !   cmpr_ptr%          ???
+        !   fatal_error%       True if some fatal error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_condl_element
+
+        fatal_error% = false
+        cmpr_ptr% = compare_stack (cmpr_index%)
+        do
+          token$ = parse$
+          if  token$ = ''  then  exit do
+          select case token$
+          case '<', '>', '<>', '='
+            gosub process_condl_operator
+            if  fatal_error%  then  exit do
+          case 'THEN'
+            expected$ = 'statement'
+            exit do
+          case else           
+             if  expected$ = 'expression_2'  then
+              compare_element$ (cmpr_ptr%, 4) = &
+                compare_element$ (cmpr_ptr%, 4) + token$
+            else
+              compare_element$ (cmpr_ptr%, 1) = &
+                compare_element$ (cmpr_ptr%, 1) + token$
+              expected$ = 'conditional'
+            end if
+          end select
+        loop
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   C O N D L   O P E R A T O R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_condl_operator
+
+        if  expected$ <> 'conditional'  then
+          fatal_error% = true
+          script_action$ = 'error'
+          error_condition$ = 'expression expected'
+          exit routine
+        end if
+        expected$ = 'expression_2'
+        compare_condl$ (cmpr_ptr%) = token$
+
+        end routine
+
+
+
+100200  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E S O L V E   C O N D I T I O N A L   E X P R E S S I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        ! 
+        ! Used:
+        !   cmpr_ptr%          Compare pointer???
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine resolve_if_expr
+
+        cmpr_ptr% = compare_stack (cmpr_index%)
+        fatal_error% = false
+
+        for constr_ptr% = 0 to 1
+          if_constr% = (constr_ptr% * 3) + 1
+          if  compare_element$ (cmpr_ptr%, if_constr%) = ''  then  exit for
+          token$ = compare_element$ (cmpr_ptr%, if_constr%)
+          if  token$[1:1] = "'" or token$[1:1] = '"'  then
+            gosub bld_if_string          
+            iterate for
+          end if
+          i% = len(token$)
+          if  token$[i%:i%] = '%'  then  token$ = token$[1:i%-1]
+          if  valid(token$,'NUMBER')  then
+            gosub bld_if_number
+            iterate for
+          end if
+          u_variable$ = token$
+          gosub do_symbol_lookup
+          if  smbl_ptr% > 0  then
+            gosub bld_if_symbl
+            iterate for
+          end if
+        next constr_ptr%
+
+        end routine
+
+
+
+
+                                                               
+100300  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B U I L D   I F   S Y M B O L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !   cmpr_index%        Compare index number
+        !   compare_element$() Array of elements for a comparison
+        !
+        ! Used:
+        !   cmpr_ptr%          Compare pointer
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine bld_if_symbl
+
+        cmpr_ptr% = compare_stack (cmpr_index%)
+        fatal_error% = false
+        compare_element$ (cmpr_ptr%, if_constr% + 2) = 'string'
+        a$ = symbol_table$ (smbl_ptr%, smbl_value_ptr%)
+        i% = len(a$)
+        if  a$[i%:i%] = '%'  then  a$ = a$[1:i% - 1]
+        if  valid(token$, 'NUMBER')  then
+          compare_element$ (cmpr_index%, if_constr% + 2) = 'number'
+        end if
+
+        compare_element$ (cmpr_ptr%, if_constr% + 1) = a$
+
+        end routine
+
+
+                                                               
+100400  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B U I L D   I F   S T R I N G
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine bld_if_string
+
+          cmpr_ptr% = compare_stack (cmpr_index%)
+          fatal_error% = false
+          compare_element$ (cmpr_ptr%, if_constr%+ 2) = 'string'
+          gosub strip_quotes
+          if  fatal_error%  then  exit routine
+          compare_element$ (cmpr_ptr%, if_constr%+ 1) = string$
+                                    
+100499  end routine
+
+
+
+                                                               
+100500  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B U I L D   I F   N U M B E R
+        !
+        ! Expected:
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine bld_if_number
+
+100520  do
+          cmpr_ptr% = compare_stack (cmpr_index%)
+          fatal_error% = false
+          compare_element$ (cmpr_ptr%, if_constr% + 2) = 'number'
+          a$ = compare_element$ (cmpr_ptr%, if_constr% + 1)
+          i% = len(a$)
+          if  a$[i%:i%] = '%'  then  a$ = a$[1:i% - 1]
+          u_rel = val(a$)
+          compare_element$ (cmpr_ptr%, if_constr% + 1) = str$(u_rel)
+        end do
+
+100599  end routine
+
+
+
+                                                               
+100600  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T E S T   I F   E X P R E S S I O N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !   cmpr_ptr%          ???
+        !   compare_condl$     ???
+        !
+        ! Result:
+        !   script_action$     Next script action to take, 
+        !                      set to ERROR if some error
+        !   fatal_error%       True if some fatal error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine test_if_expr
+
+        do
+          cmpr_ptr% = compare_stack (cmpr_index%)
+          if  compare_condl$ (cmpr_ptr%) = ''  then
+            fatal_error% = true
+            script_action$ = 'error'
+            error_condition$ = 'expression_expected'
+            exit do
+          end if
+
+          if  (compare_element$ (cmpr_ptr%, 4) = '') and &
+              (compare_element$ (cmpr_ptr%, 3) = 'number')  then
+            compare_element$ (cmpr_ptr%, 3) = 'boolean'
+            exit do
+          end if
+
+100660    if  compare_element$ (cmpr_ptr%, 3) <> &
+            compare_element$ (cmpr_ptr%, 6)  then
+            fatal_error% = true
+            script_action$ = 'error'
+            error_condition$ = 'data_type_mismatch'
+            exit do
+          end if
+        end do
+
+        end routine
+
+
+                                                               
+100700  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A K E   I F   C O M P A R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !   cmpr_index%        ???
+        !   compare_stack      ???
+        ! 
+        ! Used:
+        !   cmpr_ptr%          ???
+        !
+        ! Result:
+        !   compare_element$(cmpr_ptr%, 7)   
+        !                      Result--true or false
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine make_if_compare
+
+        cmpr_ptr% = compare_stack (cmpr_index%)
+        fatal_error% = false
+        compare_element$ (cmpr_ptr%, 7) = 'false'
+        ! if_compare% = false
+
+        select case compare_condl$(cmpr_ptr%)
+        case '<'
+          if  compare_element$(cmpr_ptr%,2) < compare_element$(cmpr_ptr%,5) &
+              then  compare_element$ (cmpr_ptr%, 7) = 'true'
+        case '>'
+          if compare_element$ (cmpr_ptr%, 2) > &
+            compare_element$ (cmpr_ptr%, 5)  then
+            compare_element$ (cmpr_ptr%, 7) = 'true'
+          end if
+        case '='
+          if compare_element$ (cmpr_ptr%, 2) = &
+            compare_element$ (cmpr_ptr%, 5)  then
+            compare_element$ (cmpr_ptr%, 7) = 'true'
+          end if
+        case '<>'
+          if compare_element$ (cmpr_ptr%, 2) <> &
+            compare_element$ (cmpr_ptr%, 5)  then
+            compare_element$ (cmpr_ptr%, 7) = 'true'
+          end if
+        end select
+
+       end routine
+
+
+                                                               
+100800  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   I F   A D D R E S S 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_if_address
+
+        fatal_error% = false
+
+          for  i% = 1 to last_if_ptr%
+            if  if_array (i%, if_start_addr%) = script_cmd_ptr%  then  exit for
+            if  i% = last_if_ptr%  then
+              fatal_error% = true
+              script_action$ = 'error'
+              error_condition$ = 'end_without_if'
+              exit routine
+            end if
+          next i%
+
+          if_index% = if_index% + 1
+          if_stack (if_index%) = i%
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N I S H   I F   C M D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Finish up processing an IF command.
+        !
+        ! Get the number of the next statement to process.
+        !
+        ! Expected:
+        !   compare_element$   Array of elements for each comparison
+        !   cmpr_index%        Compare index
+        !   compare_stack      Compare stack ??
+        !   if_index%          Which IF statement we are on??
+        !   if_stack           ???
+        !
+        ! Used:
+        !   cmpr_ptr%          Compare pointer
+        !   if_ptr%            ???
+        !
+        ! Result  :
+        !   script_cmd_ptr%    Pointer to next command to execute
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine finish_if_cmd
+
+        if_ptr% = if_stack (if_index%)
+        cmpr_ptr% = compare_stack (cmpr_index%)
+        if  compare_element$ (cmpr_ptr%, 7) = 'true'  then  
+          script_cmd_ptr% = if_array (if_index%, if_start_addr%)
+        else
+          !### should this next be PLUS 1 ??? ###
+          script_cmd_ptr% = if_array (if_index%, if_end_addr%) - 1
+        end if
+
+        if  do_index% > 0  then
+          if_array (if_ptr%, if_do_ptr%) = do_stack (do_ptr%)
+        else
+          if_array (if_ptr%, if_do_ptr%) = 0
+        end if
+
+        end routine
+
+
+
+101000  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   S E L E C T   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_select_array
+
+        do
+          fatal_error% = false
+          if (select_ptr% + 1) = max_select_stmts%  then
+            fatal_error% = true
+            action$ = 'error'
+            error_condition$ = 'select_quota_exceeded'
+            exit do
+          end if
+
+101040    select_ptr% = select_ptr% + 1
+           select_array (select_ptr%, select_start_addr%) = script_cmd_ptr%
+           select_array (select_ptr%, select_end_addr%) = 0
+           select_array (select_ptr%, select_cmpr_ptr%) = 0
+          last_select_ptr% = select_ptr%
+        end do
+
+101099  end routine
+
+
+
+
+101100  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   E N D   S E L E C T   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_end_select_array
+
+        do
+          fatal_error% = false
+          for i% = last_select_ptr% to 1 step -1
+            if select_array (i%, select_end_addr%) > 0  then  iterate for
+            select_array (i%, select_end_addr%) = script_cmd_ptr%
+            exit do
+          next i%
+          fatal_error% = true
+          action$ = 'error'
+          error_condition$ = 'end_without_select'
+        end do
+        do
+          if fatal_error%  then  exit do
+          for i% = last_case_ptr% to 1 step -1
+            if case_array (i%, case_next_ptr%) > 0  then  iterate for
+            case_array (i%, case_next_ptr%) = script_cmd_ptr%
+            exit do
+          next i%
+          fatal_error% = true
+          action$ = 'error'
+          error_condition$ = 'case_without_select'
+          exit do
+        end do
+
+        end routine
+
+
+
+101200  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   C A S E   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_case_array
+
+        fatal_error% = false
+        if (case_ptr% + 1) = max_case_stmts%  then
+          fatal_error% = true
+          action$ = 'error'
+          error_condition$ = 'case_quota_exceeded'
+          exit routine
+        end if
+        if case_ptr% <> 0  then  
+          if case_array (case_ptr%, case_next_ptr%) = 0  then
+            case_array (case_ptr%, case_next_ptr%) = script_cmd_ptr%
+          end if
+        end if
+        case_ptr% = case_ptr% + 1
+        case_array (case_ptr%, case_start_addr%) = script_cmd_ptr%
+        case_array (case_ptr%, case_next_ptr%) = 0
+        last_case_ptr% = case_ptr%
+        for i% = select_ptr% to 1 step -1
+          if select_array (i%, select_end_addr%) > 0  then  iterate for
+          case_array (case_ptr%, case_select_ptr%) = i%
+          exit routine
+        next i%
+        fatal_error% = true
+        action$ = 'error'
+        error_condition$ = 'case_without_select'
+
+        end routine
+
+
+
+                                                               
+101300  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   S E L E C T   C O M M A N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_select_cmd
+
+        fatal_error% = false
+        script_action$ = 'get_command_line'
+        token$ = parse$
+        if token$ <> 'CASE'  then
+          script_action$ = 'error'
+          error_condition$ = 'missing_key_word'
+          exit routine
+        end if
+        gosub get_select_address
+        if fatal_error%  then  exit routine
+        expected$ = 'expression_1'
+        select_ptr% = select_stack (select_index%)
+        if select_array (select_ptr%, select_cmpr_ptr%) = 0  then
+          cmpr_ptr% = cmpr_ptr% + 1
+          select_array (select_ptr%, select_cmpr_ptr%) = cmpr_ptr%
+        end if
+        cmpr_ptr% = select_array (select_ptr%, select_cmpr_ptr%)
+        cmpr_index% = cmpr_index% + 1
+        compare_stack (cmpr_index%) = cmpr_ptr%
+        gosub init_condl_elements
+        gosub get_condl_element
+        cmpr_index% = cmpr_index% - 1
+        if  fatal_error%  then  exit routine
+        gosub finish_select_cmd
+
+        end routine
+
+
+                                                               
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N I S H   S E L E C T   C M D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !   do_index%          ???
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine finish_select_cmd
+
+        if  do_index% > 0  then
+          select_array (select_ptr%, select_do_ptr%) = do_stack (do_index%)
+        else
+          select_array (select_ptr%, select_do_ptr%) = 0
+        end if
+
+        end routine
+
+
+
+101400  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   C A S E   C O M M A N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_case_cmd
+
+        gosub process_case_init
+        if  fatal_error%  then  exit routine
+
+        if compare_element$ (cmpr_ptr%, 7) = 'true'  then  
+          script_cmd_ptr% = select_array(select_ptr%, select_end_addr%) - 1
+          exit routine
+        end if
+        compare_condl$ (cmpr_ptr%) = '='
+        expected$ = 'expression_2'
+        gosub direct_condl_processing
+        if fatal_error%  then  exit routine
+        case_ptr% = case_stack (case_index%)
+        cmpr_ptr% = compare_stack (cmpr_index%)
+        if compare_element$ (cmpr_ptr%, 7) <> 'true'  then  
+          script_cmd_ptr% = case_array (case_ptr%, case_next_ptr%) - 1
+          compare_element$ (cmpr_ptr%, 4) = ''
+          compare_element$ (cmpr_ptr%, 5) = ''
+        end if
+        if do_index% > 0  then
+          case_array (case_ptr%, case_do_ptr%) = do_stack (do_ptr%)
+        else
+          case_array (case_ptr%, case_do_ptr%) = 0
+        end if
+
+        end routine
+
+
+                                                               
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   C A S E   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize for processing a CASE statement.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_case_init
+
+        fatal_error%   = false
+        script_action$ = 'get_command_line'
+        gosub get_case_address
+        if fatal_error%  then  exit routine
+
+        case_ptr% = case_stack (case_index%)
+        select_ptr% = case_array (case_ptr%, case_select_ptr%)
+        cmpr_ptr% = select_array (select_ptr%, select_cmpr_ptr%)
+        cmpr_index% = cmpr_index% + 1
+        compare_stack (cmpr_index%) = cmpr_ptr%
+
+        end routine
+
+
+
+101900  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C L O S E   S E L E C T   S T M T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine close_select_stmt
+
+101920  do
+          fatal_error% = false
+          if select_index% = 0  then
+            fatal_error% = true
+            script_action$ = 'error'
+            error_condition$ = 'end_without_select'
+            exit do
+          end if
+
+101940    select_index%   = select_index% - 1
+          cmpr_index% = cmpr_index% - 1
+        end do
+
+        end routine
+
+
+
+                                                               
+102000  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   L E T   C O M M A N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !
+        ! Result:
+        !   fatal_error%       True if some error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_let_cmd
+
+102020  do
+          fatal_error% = false
+          script_action$ = 'get_command_line'
+          u_variable$ = parse$
+          token$ = parse$
+          if token$ <> '='  then
+            script_action$ = 'error'
+            error_condition$ = 'missing_key_word'
+            exit do
+          end if
+
+102040    token$ = parse$          
+          string$ = token$
+          if token$[1:1] = '"' or token$[1:1] = "'"  then  gosub strip_quotes
+          mail_cmd$ = string$
+          gosub load_symbol_table
+        end do
+
+        end routine
+
+
+                                                               
+102100  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I R E C T   C O N D I T I O N A L   P R O C E S S I N G
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Reset fatal error flag.
+        ! Get a conditional element.
+        !
+        ! Expected:
+        !   cmpr_index%        Compare index
+        !
+        ! Result:
+        !   fatal_error%       True if some fatal error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine direct_condl_processing
+
+        fatal_error% = false
+        cmpr_ptr% = compare_stack (cmpr_index%)
+        gosub get_condl_element
+        if  fatal_error%  then  return
+
+        gosub resolve_if_expr
+        if  fatal_error%  then  return
+        gosub test_if_expr
+        if  fatal_error%  then  return
+        gosub make_if_compare
+        if  fatal_error%  then  return
+
+        end routine
+
+
+
+102200  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   S E L E C T   A D D R E S S 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_select_address
+
+102220  do
+          fatal_error% = false
+
+102240    for i% = 1 to last_select_ptr%
+            if select_array (i%, select_start_addr%) = &
+                 script_cmd_ptr%  then  exit for
+            if i% = last_select_ptr%  then
+              fatal_error% = true
+              script_action$ = 'error'
+              error_condition$ = 'end_without_select'
+              exit routine
+            end if
+          next i%
+
+102260    select_index% = select_index% + 1
+          select_stack (select_index%) = i%
+        end do
+
+102299  end routine
+
+
+                                                               
+102300  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   C A S E   A D D R E S S 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_case_address
+
+102320  do
+          fatal_error% = false
+
+102340    for i% = 1 to last_case_ptr%
+            if case_array (i%, case_start_addr%) = &
+                 script_cmd_ptr%  then  exit for
+            if i% = last_case_ptr%  then
+              fatal_error% = true
+              script_action$ = 'error'
+              error_condition$ = 'case without select'
+              exit do
+            end if
+          next i%
+
+102360    case_index% = case_index% + 1
+          case_stack (case_index%) = i%
+        end do
+
+102399  end routine
+
+
+                                                               
+102400  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T I A L I Z E   C O N D I T I O N A L   E L E M E N T S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize conditional elements
+        !
+        ! Expected: cmpr_index%          ???
+        !           cmpr_elements%       ???
+        !           compare_element$()   ???
+        !
+        ! Result:
+        !   fatal_error%          Reset to false
+        !   compare_element$()    Reset to null string
+        !   compare_condl$()      Reset to null string
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init_condl_elements
+
+        fatal_error% = false
+        cmpr_ptr% = compare_stack (cmpr_index%)
+        for i% = 1 to cmpr_elements%
+            compare_element$ (cmpr_ptr%, i%) = ''
+        next i%
+        compare_condl$ (cmpr_ptr%) = ''
+
+        end routine
+
+
+
+105000  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S Y N C H R O N I Z E   W I T H   S U B P R O C E S S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Synchronize by sending a "&" to the mailbox.
+        ! This causes the subprocess to do a NULL operation.
+        ! However, we don't get control back again until the "&" has
+        ! been processed by the subprocess.
+        !
+        ! Expected:
+        !   mbx_ch      Mailbox channel
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine synch
+
+        print #mbx_ch: '&'
+
+        end routine
+
+
+
+105100  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E F R E S H
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Refresh subprocess screen, by sending Control-W to it.
+        !
+        ! Expected:  
+        !   mbx_ch        Mailbox channel
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine refresh
+
+        print #mbx_ch: '^W'
+
+        end routine
+
+
+
+105200  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A B O R T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Abort the program the subprocess is running.
+        ! Send a Control-Y character.
+        !
+        ! Expected:
+        !   mbx_ch             Mailbox channel for subprocess
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine abort
+
+        message 'Exiting...'
+        delay 1       
+
+        print #mbx_ch: '^Y'
+
+        clear
+        delay 1
+
+        end routine
+
+
+
+105400  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A I N T   T O P    F R A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display which current item is being executed.
+        !
+        ! Expected:
+        !   frame_head$    Current item
+        !   center_head$   Heading to print in center 
+        !   wide           True if margin is set to 132 (not handled yet)
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine paint_top_frame
+
+        z$ = space$(80)
+        cset z$ = center_head$
+        lset z$[1: len(frame_head$)] = frame_head$
+        print at 1, 1, reverse, bold: z$;
+
+        end routine
+
+
+
+105600  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S Y S T E M
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Pass to VMS.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine system
+
+        clear 
+        pass "$"
+
+        gosub paint_bottom_frame
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+        ! P A I N T   B O T T O M   F R A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display bottom part of frame.
+        !
+        ! Expected:
+        !   wide    True if margin is set to 132
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine paint_bottom_frame
+
+        print reverse, at 24, 1: &
+            "EXIT = Exit" + repeat$(" ", 48%) + "          HELP = Help";
+
+        end routine
+
+
+
+105900  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask a question.
+        !
+        ! Expected:
+        !   u_prompt$   Prompt for the question
+        !   default$    Default
+        !   u_len       Length
+        !
+        ! Result:
+        !   u_reply$    User's reply
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask
+
+        do
+          u_reply$ = ""
+          print at 22, 1:;
+          line input prompt u_prompt$, default default$ : u_reply$
+          if  _exit or _back  or _help  then  exit do
+          if  u_reply$ = ""  then  repeat do
+          clear area 22, 1, 22, 80
+        end do
+
+        end routine
+
+
+
+106000  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N T O U C H
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Pass to INTOUCH environment.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine intouch
+
+        clear 
+        pass "intouch"
+
+        gosub paint_bottom_frame
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O P E N   S C R I P T   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Open a script file.
+        !
+        ! Expected:
+        !   lookup_seq           Lookup sequence number
+        !
+        ! Used    :
+        !   script_index%        Script index, to pass to open_script_channel
+        !
+        ! Result  :
+        !   fatal_error%         True if some error
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine open_script_file
+
+        message 'Loading tutorial'
+
+        fatal_error%  = false
+        script_index% = lookup_seq
+        gosub open_script_channel
+        if  fatal_error%  then  exit routine
+
+        end routine
+
+
+

@@ -1,0 +1,170 @@
+	.ident	"2.0-001"
+	.title	String routines for Ultrix emulation
+
+	.psect	strings,exe,rel,shr,pic,nowrt
+
+	.sbttl	binary copy
+
+;
+;  bcopy(src, dest, length)
+;
+;  char *src;		     /* source string */
+;  char *dest;               /* dest string  */
+;  unsigned long int length; /* length in bytes */
+;
+;  This routine copies the specified number of bytes from the source string
+;  to the destination string. If the specified length is longer thatn 
+;  64kb, then it copies 64kb each time until it is done.
+;  
+.If	Df,EVAX
+bcopy::
+	.Call_Entry Home_Args=True,Max_Args=4,Preserve=<R2,R3,R4,R5,R6,R7>
+.Iff
+	.entry bcopy,^M<R2,R3,R4,R5,R6,R7>
+.EndC
+	movl	#65535,r7	; counter 
+	movl	12(ap),r6	; amount to copy 
+next_block:
+	cmpl	r6,r7		; are we done yet?
+	bgtru	do_copy
+	movl	r6,r7		; only need to move what's left
+do_copy:
+	movc3	r7,@4(ap),@8(ap); move it
+	subl2	r7,r6		; adjust counter to the next block
+	bleq	copy_done
+	movl	r1,4(ap)
+	movl	r3,8(ap)
+	brw	next_block	; do it again
+copy_done:
+	ret
+
+	.sbttl	binary compare
+
+;++
+;
+; bcmp( source, dest, len )
+; char *source, *dest;
+; int len;
+;
+; copies (len) bytes from (source) to (dest) regardless of contents
+;
+;--
+.If	Df,VAX
+bcmp::
+	.Call_Entry Home_Args=True,Max_Args=4,Preserve=<r2,r3,r4,r5>
+.Iff
+	.entry	bcmp,^m<r2,r3,r4,r5>
+.EndC
+
+	cmpc3 12(ap),@4(ap),@8(ap)	; that's all, folks...
+	beql	10$
+	movl	#-1,R0	;fail
+	ret
+10$:	movl	#0,R0	;SUCCESS
+	ret
+
+	.sbttl	binary zero'd
+
+;++
+;
+; bzero( dest, len )
+; char *dest;
+; int len;
+;
+; writes (len) zero bytes into dest
+;
+;--
+.If	Df,EVAX
+bzero::
+	.Call_Entry Home_Args=True,Max_Args=4,Preserve=<r2,r3,r4,r5>
+.Iff
+	.entry	bzero,^m<r2,r3,r4,r5>
+.EndC
+
+	movc5 #0,@4(ap),#0,8(ap),@4(ap)	; will pad with nuls
+	ret
+
+	.sbttl	find first bit set
+
+;++
+;
+; int ffs( i )
+; int i;
+;
+; finds the first bit set in the argument and returns the index
+; of that bit (starting at 1).
+;
+;--
+.If	Df,EVAX
+ffs::
+	.Call_Entry Home_Args=True,Max_Args=4,Preserve=<>
+.Iff
+	.entry	ffs,0
+.EndC
+
+	ffs 4(ap),8(ap),12(ap),16(ap)
+	beql 10$			; branch if arg=0
+	movl #1,r0			; VAX counts bits from 0
+	ret
+10$:	movl #0,r0			; no set bits, return 0
+	ret
+
+	.sbttl	index into a string
+
+;++
+;
+; char *index( string, c )
+; char *string, c;
+;
+; returns pointer to first occurrence of character c within string
+; or zero if not found.
+;
+;--
+.If	Df,EVAX
+index::
+	.Call_Entry Home_Args=True,Max_Args=2,Preserve=<>
+.Iff
+	.entry	index,0
+.EndC
+
+	locc #0,#-1,@4(ap)		; find end of string first
+	subl 4(ap),r1			; compute length of string
+	locc 8(ap),r1,@4(ap)		; now find char
+	bneq 10$
+	clrl r1				; clear pointer if not found
+10$:	movl r1,r0			; return the pointer
+	ret
+
+	.sbttl	reverse index into a string
+
+;++
+;
+; char *rindex( string, c )
+; char *string, c;
+;
+; returns pointer to last occurrence of character c within string
+; or zero if not found.
+;
+;--
+.If	Df,EVAX
+rindex::
+	.Call_Entry Home_Args=True,Max_Args=4,Preserve=<R2>
+.Iff
+	.entry	rindex,^M<R2>
+.EndC
+
+	locc #0,#-1,@4(ap)		; find end of string first
+	subl3 4(ap),r1,r0		; compute length of string
+	clrl r2				; assume no occurrence
+	movl 4(ap),r1			; starting address
+10$:	locc 8(ap),r0,(r1)		; search from left
+	beql 20$			; none there, done
+	movl r1,r2			; save this pointer
+	incl r1				; start again one byte to the right
+	decl r0				; update new length
+	bgtr 10$			; and continue search
+
+20$:	movl r2,r0			; return last pointer found
+	ret
+
+	.end

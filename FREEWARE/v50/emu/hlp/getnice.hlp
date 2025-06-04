@@ -1,0 +1,192 @@
+1 GETNICE  
+ Get and parse PARAM data for a given entity from DECnet IV node
+2 Input
+  .long of DECnet Phase IV address in Network format
+  .long of EMU defined function code
+  .address of desc pointing to output
+3 The return block is an unaligned list of paramaters formatted as 
+ follows:
+ Entity ID consisting of:
+ .long -1
+ 16 bytes (space padded) of entity name (may be 0 len)
+ For each param for this entity:
+ .long	NICE defined paramater number ( This is bits 0-11 in NICE Data ID)
+ .long	len of following field
+ .byte Data type (This is the NICE data type)
+    Data
+3 Return 
+	SS$_NORMAL 	- Data recieved and written
+	SS$_ACCVIO	- Cant read inpt or cant write outp
+	SS$_BUFFEROVF	- Buffer too small to receive response
+			- 1st part of response may be rec'ed
+	Any possible returns from $ASSIGN, $QIO
+
+ Data Definitions
+	.PSECT DATA,WRT,NOEXE,long
+
+.LIBRARY        "SYS$LIBRARY:LIB.MLB"
+     	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+$IODEF
+$SSDEF
+$NMADEF
+EMUDN4DEF
+ Return packet
+ETURN:	 	.BLKB	8192		
+ETURN_D:       .LONG	.-RETURN
+	.ADDRESS  RETURN
+EMPDESC:	.QUAD
+ADDR:		.QUAD
+NTITY:		.LONG
+
+RRORMSG:
+	.LONG	       	;Arg, opts
+SGCDE:	        .LONG		; Error code
+ARCNT:		.WORD		; Paramater count
+	.WORD		; Opts
+	.LONG		; Time
+	.ADDRESS RTNNAM	; Our name
+SGPARAMS:	.BLKL	7	; Up to 7 params
+TNNAM:		.ASCID	/GETNICE/
+
+	.PSECT CODE,NOWRT,EXE,LONG
+
+.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+		INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+		LABEL=GETNICE
+
+
+PROBER	#0,#4,4(AP)		; Check for read access
+BEQL	20$			; No
+PROBER	#0,#4,8(AP)		; Check for read access
+BEQL	20$			; No
+       MOVQ	@12(AP),R8		; Get Outp desc
+PROBEW	#0,R8,(R9)		; Check for write access
+BNEQ	30$			; OK
+0$:
+MOVL	#SS$_ACCVIO,R0 		; Signal Error
+RET				; Die
+0$:
+MOVL	#8192,RETURN_D		; Reset desc
+PUSHAL	RETURN_D                ; Output block
+PUSHL	8(AP)         		; Func code
+PUSHL	4(AP)                   ; Node number
+CALLS	#3,G^GETDN4DATA
+CMPL	R0,#SS$_NORMAL
+BEQLU	40$
+MOVL	R0,MSGCDE
+MOVL	#3,PARCNT
+MOVAL	MSGPARAMS,R1
+MOVL    4(AP),DADDR            ; Decnet addr
+       EDIV    #1024,DADDR,(R1),4(R1)
+MOVL	8(AP),8(R1)
+PUSHAL	ERRORMSG
+CALLS	#1,G^EMU_LOGGER
+RET
+0$:
+MOVAL	RETURN,R7		; Rec'ed Param block
+ Regs
+ R6 (Output array)     Static
+ R7 (Input block)        "
+ R10 (end of input block)"
+
+ Set end of inpt array 
+MOVZWL	RETURN_D,R1             ; Len of block
+ADDL3	R1,R7,R10		; Address of last input byte
+ To patch around a problem with returns:
+ Documentation says the entity type is in byte 3 of the return. It is
+ and it is often wrong which fucks up processing somewhat.
+ We will explicitly set the entity at this level and pass it down.
+CLRL	ENTITY                      ; Set default (node)
+1$:
+CMPW	#DN4_W_LICHAR,8(AP)	; Known line Char
+BNEQU	42$
+MOVL	#1,ENTITY
+2$:
+CMPW	#DN4_W_LGCHAR,8(AP)	; Known logging known Events
+BNEQU	43$
+MOVL	#2,ENTITY
+3$:
+CMPW	#DN4_W_CICHAR,8(AP)	; Known Circuits Char
+BNEQU	44$
+MOVL	#3,ENTITY
+4$:
+CMPW	#DN4_W_KNOBJ,8(AP)	; Known Objects
+BNEQU	45$
+MOVL	#6,ENTITY
+5$:
+CMPW	#DN4_W_KNAREA,8(AP)	; Known Area
+BNEQU	46$
+MOVL	#5,ENTITY
+6$:
+CMPW	#DN4_W_LICNT,8(AP)	; Known Line Count
+BNEQU	48$
+MOVL	#1,ENTITY
+8$:
+CMPW	#DN4_W_CICNT,8(AP)	; Known Circuit count
+BNEQU	49$
+MOVL	#3,ENTITY
+9$:
+CMPW	#DN4_W_X25DTE,8(AP)	; Known DTE
+BNEQU	492$
+MOVL	#7,ENTITY
+92$:
+CMPW	#DN4_W_X25DEST,8(AP)	; Known DEST
+BNEQU	493$
+MOVL	#8,ENTITY
+93$:
+CMPW	#DN4_W_X25NET,8(AP)	; Known NET
+BNEQU	494$
+MOVL	#9,ENTITY
+94$:
+
+
+
+
+ Set entity
+0$:
+PUSHL	ENTITY                  ; ENtity
+PUSHL	R9			; Output
+PUSHL	R7			; Input
+CALLS	#3,G^EMU_NML_SETENT     ; Write entity
+BLBS	R0,60$
+RET
+0$:
+ADDL	#20,R9   		; Output written
+SUBL	#20,R8
+ADDL	R1,R7                   ; Input processed
+ Set all param this entity
+0$:
+CMPW	#-1,1(R7)		; Next entity?
+BEQL	50$			; Br if yes
+EXTZV	#0,#11,(R7),R1		; Extract param no.
+CMPL	#128,R1			; NICE eob?
+       BEQL	75$                     ; Br if yes
+CMPL	R7,R10                  ; End of block?
+BLSSU	80$                     ; Br if not
+5$:
+       MOVQ	@12(AP),R1		; Get original Outp desc
+SUBL3	R8,R1,@12(AP)		; Write len
+MOVL	#SS$_NORMAL,R0          ; Good end
+RET
+0$:
+MOVQ	R8,TEMPDESC
+PUSHAL	TEMPDESC
+PUSHL	R7
+CALLS	#2,G^EMU_NML_PARSE
+BLBS	R0,90$
+RET
+0$:
+ADDL3	#8,4(R9),R1		; Total len written
+ADDL	R1,R9
+SUBL	R1,R8
+CLRL	-(SP)
+PUSHL	R7
+CALLS	#2,G^EMU_NML_NEXP	; Get len
+BLBS	R0,100$			; Br if OK
+RET
+00$:
+ADDL	R1,R7
+BRW	70$
+.END 
+

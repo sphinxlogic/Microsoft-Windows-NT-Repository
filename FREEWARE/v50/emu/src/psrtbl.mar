@@ -1,0 +1,1286 @@
+	.TITLE PSRTBL 
+	.IDENT /V01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications
+; 001 	Aug 1996		PB	Creation		
+;++
+;1 PSRTBL 
+; Program to List,Add,Modify and Delete items in PSRTBL.DAT
+; The resulting file is loaded into a section at system start time and is
+; used by LISTEN to determine the target process (if any) of any Ethernet
+; frame.
+; Thus this is the utility used to introduce new PSRs to the system.
+; 
+;2 Displays  
+;	     1. List:
+;		Lists known entries and items on sys$output
+;	     2. Add:
+;		Records details in PSRTBL.DAT file
+;	     3. Modify:
+;		Allows modification of modifiable fields
+;            4. Delete:
+;		Erase corresponding record
+;2 Output
+;  File_format:
+; Field          Len  Ofs                Desc
+; PTYTYP	  0    8 	EMU Conversion of Ethernet protocol type 
+; PsrID		  8    4        Bit pattern showing que and flag info
+; RELDIS	  12   4	Disable relater sends
+;  
+; Fields displayed by EMU_DISP_LISTEN   
+;  PSRname	  16    8  	.ascic display name this PSR type
+;   MsgSnt	  24	4	Sends to PSR
+;   MsgDsc	  28	4	Discarded
+;   MsgOst	  32	4	Current Outstanding
+;   HIGHESTOst	  36    4 	Highest count of outstanding 
+;   MAXOst	  40    4 	Max outstanding before discard
+;   Spares	  44 - 60
+;3 RELDIS
+;  Each PSR can be prevented from sending particular relater messages.
+;  Each bit in this field corresponds to a PSR. If set, the PSR will not
+;  include any information about this PSR in relater messages.
+;
+;--
+; Abstract:
+	.LIBRARY	/EMU5_LIB:EMU5.MLB/
+
+	$RMSDEF
+	$TRMDEF		; Terminal Modifiers
+	$DSCDEF		; Declare DSC sysmbols
+	$SMGDEF		; Declare SMG symbols
+	$IODEF
+	$SSDEF
+	EMUPSRDEF
+	EMUSYSDEF
+;
+
+	.PSECT PSRTBL_DATA,WRT,NOEXE,QUAD,pic
+PSRTBL_A:	.QUAD   0
+ENETPTY_A:	.QUAD   0
+PSRPTYTYP:	.QUAD	0
+TMPDESC:	.QUAD	0
+KEY_BUF:	.QUAD	0
+KEY_BUFSIZE = .-KEY_BUF
+PSRTBLCNT:		.LONG	0		; Count of psr table entries
+;	
+; File Structures
+	.ALIGN 	LONG
+
+PTYFAB:	$FAB	FAC = <GET,UPD,PUT>,-        ; Access
+		shr = <DEL,UPD,GET,PUT>,-
+		MRN = 0,-		; No Max rec No.
+		MRS = PTYREC_SIZE,-	; FIXED
+		ORG = IDX,-		; Indexed
+		RFM = FIX,-		; Fixed size
+		FNM = <EMU_PTYXLT>,-      ; Filename 
+		DNM = <EMU5_DAT:EMU_PTYXLT.TBL>      ; Filename 
+PTYRAB:	$RAB	FAB = PTYFAB,-            ; Record 
+		RAC = SEQ,-		 ; RELATIVE KEY access
+		KBF = ENETPTY_C,-
+		krf = 1, -		; second key (name)
+ 		RBF = PTYREC,-
+		UBF = PTYREC,-
+		USZ = PTYREC_SIZE,-
+		RSZ = PTYREC_SIZE
+PTYREC:
+		.WORD           ; Protocol type/SAP in Net format
+		.BLKB 6		; Translation  
+		.BLKB 72	; Comment field (not used in this routine) 
+PTYREC_SIZE = .-PTYREC
+
+
+
+
+PSRFAB:	$FAB	FAC = <GET,UPD,PUT,DEL>,-        ; Access
+		SHR = <DEL,UPD,GET,PUT>,-
+		FOP = CIF,-		; Create if Doesn't Exist
+		ORG = IDX,-		; Indexed
+		XAB = PSRXAB,-
+		FNM = <PSRTBL>,-	; Filename 
+		DNM = <EMU5_DAT:PSRTBL.DAT>      ; Filename 
+		
+PSRRAB:	$RAB	FAB = PSRFAB,-            ; Record 
+		RAC = SEQ,-
+ 		RBF = PSRREC,-
+		UBF = PSRREC,-
+		USZ = PSRREC_SIZE,-
+		RSZ = PSRREC_SIZE
+PSRRAB2:
+	$RAB	FAB = PSRFAB,-			; Record 
+		RAC = key,-			; KEYED access
+		KBF = KEY_BUF,-
+		KSZ = KEY_BUFSIZE,-
+		RBF = PSRREC,-			; 
+		UBF = PSRREC,-			; 
+		USZ = PSRREC_SIZE,-		; 
+		RSZ = PSRREC_SIZE   		; 
+
+PSRXAB: 	$XABKEY REF=0,-
+		PROLOG=0,POS=0,-
+		SIZ=8,-	
+		DTP=BN8-
+		FLG = DUP		 ; PTYKEY
+
+PSRREC: 
+		.QUAD	0			; Protocol type
+PSRTFLG:	.LONG	SYS_FLG_C_PSRREC	; Target
+		.LONG	0			; Spare
+PSRNAM:		.ASCIC	/RECORD / 		; This is a quad!
+		.LONG	5			; Control flags (def set)
+      		.LONG	8			; Limit
+       		.BLKL	8			; Counters
+PSRREC_SIZE = .-PSRREC
+ETHNAM:		.ASCIC	/ETHNET /
+
+PTYTBL:		.BLKQ	32	; Up to 32 types present
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 	30      ; 
+VD_COLS: 	.LONG 	60      ;
+VD_DISP2:	.LONG		; Display 2
+VD_ROW2:	.LONG 	3
+VD_COL2:	.LONG  	80      ; Position for DISP2
+VD_DISP3:	.LONG		; Display 3
+VD_ROW3:	.LONG 	30
+VD_COL3:	.LONG	20      ; Position for DISP3
+;
+;
+; Menu Items
+;
+M_LIST:		.ASCII	/List          /
+		.ASCII	/Modify Ptytyp /
+		.ASCII	/Add Ptytyp    /
+		.ASCII	/Delete Ptytyp /
+M_LIST_SIZE = .-M_LIST	
+FTYP_LIST: 	.ASCII	/Ethernet II   /
+		.ASCII	/IEEE 802.3    /
+		.ASCII	/Extended      /
+FTYP_LIST_SIZ=	.-FTYP_LIST
+
+PSR_MENU:
+; This may be made dynamic at some future time
+
+	.ASCII	/PSRDN4        /       ; 2
+	.ASCII	/PSRDN5        /       ; 3
+	.ASCII	/PSRSCS        /       ; 4
+	.ASCII	/PSRLAT        /       ; 5
+	.ASCII	/PSRMOP        /       ; 6
+	.ASCII	/PSRIP         /        ; 7
+	.ASCII	/PSRIPX        /       ; 8
+	.ASCII	/PSRDNS        /       ; 9
+	.ASCII	/PSRDTS        /       ; 10
+	.ASCII	/PSRARP        /       ; 11
+	.ASCII	/PSRETH        /       ; 12
+	.ASCII	/PSRREC        /       ; 13
+	.ASCII	/PSRBRD        /       ; 14
+	.ASCII	/UNASSIGNED    /       ; 15
+	.ASCII	/UNASSIGNED    /       ; 16
+	.ASCII	/RELATER       /       ; 17
+	.ASCII	/NAMER         /       ; 18
+PSR_MENU_SIZE = .-PSR_MENU  
+PSR_MENU_ITEMS = 17
+; 
+BIT_OPTIONS_MENU:
+	.ASCII	/Enable        /
+	.ASCII	/All Traffic   /
+	.ASCII	/Check PtyTyp  /
+	.ASCII	/Record All    /
+	.ASCII	/Record Filter /
+	.ASCII	/Relater Disab /
+BIT_OPTIONS_MENU_SIZE = .-BIT_OPTIONS_MENU
+; 
+;Menu Display Characteristics
+;
+M_DCS:		.WORD	14                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+MADDR:		.ADDRESS M_LIST             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+MSIZE:		.LONG   0		    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+;Dynamic Menu
+DM_LIST:        .BLKB	60*32		   ; Allow up to 300 items
+DMENU_END:	.LONG
+	.ALIGN	LONG
+
+DM_DCS:		.WORD	20                  ; size of element
+		.BYTE	DSC$K_DTYPE_T
+		.BYTE	DSC$K_CLASS_A
+		.ADDRESS DM_LIST             ; Pointer
+		.WORD	0		    ; DIGITS, SCALE
+		.BYTE	DSC$K_DTYPE_T	    ; AFLAGS
+		.BYTE	DSC$K_CLASS_S	    ; DIMCT
+;		.LONG	^X01E00000          ; DIMCT,AFLAGS,DIGITS,SCALE
+DM_SIZE:	.LONG   DMENU_END-DM_LIST	    ; Size of array
+		.LONG	20
+		.LONG 	1		    ; 
+		.LONG	20
+		.LONG 	1		    ; 
+
+
+; Optional Display Characteristics
+;
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 2
+W3:    		.LONG 3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+CHOICE:		.WORD
+UPCASE:		.LONG	TRM$M_TM_CVTLOW 	;Convert lower to upper case
+DELITM:		.LONG	SMG$M_REMOVE_ITEM       ; Remove selected item from menu
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	5
+PB_COL2:	.LONG	1      ; Position for DISP2
+PB_ROW2:	.LONG 	1
+PB_COL3:	.LONG	60      ; Position for DISP3
+PB_ROW3:	.LONG 	5
+;
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           ; Virtual Keyboard ID
+KB_BUF:		.BLKB	80	; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+;
+; Prompt strings and parameters
+; FAO
+STRINGOUT:	.BLKB	256
+STRINGOUT_D:	.LONG	.-STRINGOUT
+		.ADDRESS  STRINGOUT
+STRINGOUT2:	.BLKB	256
+FAOBUF:		.BLKB	132
+FAODESC:
+FAOLEN: 	.LONG		.-FAOBUF
+        	.ADDRESS        FAOBUF
+TEMPSTR_AC:	.BYTE	0		; Convert following to .ascic
+TEMPSTR:	.BLKB	32
+TEMPSTR_D:	.LONG	.-TEMPSTR
+		.ADDRESS  TEMPSTR
+EPTYTBL:
+	.ASCII	/Not set     /
+	.ASCII	/Enet typeII /
+	.ASCII  /IEEE 802.3  /
+	.ASCII	/IEEE SNAP   /
+EPTYTBL_SIZE = 12
+EPTYTBL_ENTRIES = 4
+
+
+;
+EXITMSG: 	.ASCID	/Press Return/
+NEWFILEMSG:	.ASCID	/Creating new File .../
+;
+UNKNWNE:	.ASCID	/(!XB!XB)/	;
+UNKNWNI:	.ASCID	/(!XB)/	;
+UNKNWNS:	.ASCID	/(!XB!XB!XB!XB!XB)/	;
+PTYETHMSG:	.ASCID	/Enter Protocol Type : /
+PTYIEEMSG:	.ASCID	/Enter DSAP          : /
+PTYEXTMSG:	.ASCID	/Enter PID           : /
+HIOSTMSG:	.ASCID	/Enter outstanding message limit  :/
+PSRENAMSG:	.ASCID	/Enable ? :/
+PSRDISMSG:	.ASCID	/Disable ? :/
+DISPNAME:	.ASCID	/ Enter display Name : /
+PSRRECSTR:	.ASCID	/!60< !8AC    !AS   !XL    !UL !>/
+DELRECSTR:	.ASCID	/ Delete ? [N]/
+FILWRTERR:	.ASCID	/ Could not write file. Error = !XL.../
+TYPMENSTR:	.ASCID	/!20<!AS!>/
+FLG_ENA:	.ASCID	/PSR Enable    = !AC/
+FLG_ALLTRAF:	.ASCID	/All Traffic   = !AC/
+FLG_NOCHECK:	.ASCID	/Type Check    = !AC/
+FLG_RECORDA:	.ASCID	/Record all    = !AC/
+FLG_RECORDF:	.ASCID	/Record Filter = !AC/
+BITMSGTBL:
+DISMSG:		.ASCIC	/Dis/
+ENAMSG:		.ASCIC	/Ena/
+RELDISSTR:	.ASCID	/!AD = !AC/
+	.ALIGN LONG
+FLGTBL:
+	.ADDRESS	FLG_ENA
+	.ADDRESS	FLG_ALLTRAF
+	.ADDRESS	FLG_NOCHECK
+	.ADDRESS	FLG_RECORDA
+	.ADDRESS	FLG_RECORDF
+FLGCNT = 5
+;
+;
+; Misc data areas
+	.ALIGN	LONG
+;
+OUTSTR:		.BLKB	12
+OUTSTR_D:	.LONG	.-OUTSTR
+		.ADDRESS  OUTSTR
+OUTINT:		.LONG
+ENETPTY_C:	.LONG	0
+BYTCNT:		.WORD
+
+;
+;	.End data definitions
+;
+	.PSECT PSRTBL_CODE,EXE,pic
+	.CALL_ENTRY	MAX_ARGS=0, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PSRTBL
+;
+; Open file 
+;
+	BSBW	CREATE_ENVIRONMENT
+;
+; Display Menu
+;
+
+START:
+	MOVAL	M_LIST,MADDR
+	MOVL	#M_LIST_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBC	R0,30$			; Assume any error = eof
+	CASEW	CHOICE,#1,#3
+10$:
+	.WORD	11$-10$
+	.WORD	12$-10$
+	.WORD	13$-10$
+	.WORD	14$-10$
+	RET
+11$:
+	BRW	1000$		; List
+12$:
+	BRW	2000$		; Add
+13$:
+	BRW	3000$		; Modify
+14$:
+	BRW	4000$		; Delete
+
+30$:    PUSHAL	VD_DISP                        ; Should never get here
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP3
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	RET				; EXIT
+
+1000$:
+	BICL	#RAB$M_EOF,PSRRAB+RAB$L_ROP	; do not Open eof
+	$CREATE	FAB = PSRFAB		;Open input file
+	CMPL	R0,#RMS$_CREATED		; New File?
+	BNEQU	1005$			; No
+;
+; This Section should only run once. The first time the system starts, the 
+; data file does not exist. Create it with the record and ethernet PSRs.
+;
+ 	$CONNECT RAB = PSRRAB		;Connect input stream
+	MOVAL	NEWFILEMSG,R1
+	BSBW	PRINT2
+	$PUT	RAB=PSRRAB 		; Write recorder rec
+	BSBW	ERROR_CHK
+	MOVQ	ETHNAM,PSRNAM
+	MOVL	#SYS_FLG_C_PSRETH,PSRTFLG
+	$PUT	RAB=PSRRAB 		; Write recorder rec
+	BSBW	ERROR_CHK
+	$CLOSE FAB=PSRFAB
+	BRW	START
+;
+1005$:	BSBW	ERROR_CHK
+ 	$CONNECT RAB = PSRRAB		;Connect input stream
+	BSBW	ERROR_CHK
+1010$:
+	$GET	RAB=PSRRAB
+	BLBS	R0,1020$
+	CMPL	R0,#RMS$_EOF		; Rec not found
+	BEQLU	1030$                   ; Get next
+	BSBW	ERROR_CHK		; NO = Error
+1020$:
+; Xlate frame type
+	MOVL	#256,STRINGOUT_D
+	MOVAL	PSRREC,R6
+	PUSHL	#XLT_EPT_OPT_V_FRM	; Include frame type
+	PUSHAL	STRINGOUT_D
+        ADDL3	#PSR_TBL_Q_PTYTYP,R6,-(SP)
+	CALLS	#3,G^PSRTBL_XLATE_ENETPTY
+	BSBW	ERROR_CHK
+	MOVL	#60,FAOLEN		; Reset len
+	PUSHL	PSR_TBL_L_LOST(R6)	; Max outstanding before discard
+	PUSHL	PSR_TBL_L_PSRID(R6)	; Target process ID
+	PUSHAL	STRINGOUT_D               ; ETYPE
+	ADDL3	#PSR_TBL_Q_DNAM,R6,-(SP) ; Name
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	PSRRECSTR
+	CALLS	#7,G^SYS$FAO
+	BSBW	ERROR_CHK
+	BSBW	PRINT
+	BRB	1010$
+1030$:
+	$CLOSE	FAB=PSRFAB             ; Yep
+	MOVAL	EXITMSG,R1
+	BSBW	READ_PROMPT                ; Exit Routine
+	BRW	START                  ; Again
+2000$:               		; MODIFY
+; Options:
+; Disable PSR
+; Modify oustanding frame limit
+; Enable recording
+	TSTL	PSRTBLCNT  		; Mapped?
+	BNEQU	2010$
+	PUSHAL	PSRTBLCNT  		; Count of entries found
+	PUSHAL	PSRTBL_A		; PSR table start addr
+	CALLS	#2,G^MAP_PSRTBL
+	BSBW	ERROR_CHK
+2010$:
+	MOVL	PSRTBLCNT,R9		; Count of entries
+	MOVL	PSRTBL_A,R6 
+	MOVAL	DM_LIST,R10	        ; Menu items
+2020$:
+	MOVL	#256,STRINGOUT_D
+	PUSHL	#XLT_EPT_OPT_V_FRM	; Include frame type
+	PUSHAL	STRINGOUT_D
+        ADDL3	#PSR_TBL_Q_PTYTYP,R6,-(SP)
+	CALLS	#3,G^PSRTBL_XLATE_ENETPTY
+	MOVL	#20,TMPDESC		; Reset len
+	MOVL	R10,TMPDESC+4		; Write here
+	PUSHAL	STRINGOUT_D
+	PUSHAL	TMPDESC
+	PUSHAL	TMPDESC
+	PUSHAL	TYPMENSTR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	ADDL	#20,R10			; Next menu slot
+	ADDL	#PSR_TBL_C_SIZE,R6	; Next table entry
+	SOBGTR	R9,2020$                ; Loop for all current
+; Display formatted recs in menu
+	MULL3	#20,PSRTBLCNT,DM_SIZE
+	pushal	cursor_flags                    ; Turn cursor off
+       	pushal	PB_BOARD
+       	calls	#2, g^smg$set_cursor_mode
+       	bsbw	error_chk
+       	PUSHAL	REVERSE                 	; Create menu
+       	PUSHAL	W3                              ; Menu options ...
+       	CLRL	-(SP)
+       	PUSHAL	SPACING
+       	PUSHAL	VERTICAL
+	PUSHAL	DM_DCS
+	PUSHAL	VD_DISP
+       	CALLS  	#7,G^SMG$CREATE_MENU            ; 
+       	BSBW	ERROR_CHK
+       	PUSHAL	CHOICE
+       	PUSHAL	VD_DISP
+       	PUSHAL	KB_BOARD
+       	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,2050$
+	CMPL	R0,#SMG$_EOF
+	BEQLU	2040$
+       	BSBW	ERROR_CHK
+2040$:	
+	BRW	START
+2050$:
+; Find choice and display on top line
+	MOVZWL	CHOICE,R1		; Index in lookup
+	DECL	R1
+	MOVL	#256,STRINGOUT_D
+	MULL	#PSR_TBL_C_SIZE,R1	; Offset to choice
+	MOVL	PSRTBL_A,R6		; Table top
+	ADDL	R1,R6			; Choice
+	PUSHL	#XLT_EPT_OPT_V_FRM	; Include frame type
+	PUSHAL	STRINGOUT_D
+        ADDL3	#PSR_TBL_Q_PTYTYP,R6,-(SP)
+	CALLS	#3,G^PSRTBL_XLATE_ENETPTY
+; xlate protocol type	
+	MOVL	#80,FAOLEN		; Reset len
+	PUSHL	PSR_TBL_L_LOST(R6)	; Max outstanding before discard
+	PUSHL	PSR_TBL_L_PSRID(R6)	; Target process ID
+	PUSHAL	STRINGOUT_D               ; ETYPE
+	ADDL3	#PSR_TBL_Q_DNAM,R6,-(SP) ; Name
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	PSRRECSTR
+	CALLS	#7,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT2
+; ask the questions:
+2060$:
+; Outstanding message limit
+	MOVAL	HIOSTMSG,R1
+	BSBW	READ_PROMPT             ; Get outstanding
+	TSTW	BYTCNT               	; Any Input ?
+	BEQL	2070$                   ; NO
+        PUSHAL  OUTINT                  ; Integer output
+        PUSHAL  KB_BUF                  ; Character input
+        CVTWL   BYTCNT,-(SP)            ; No. of bytes
+        CALLS   #3,G^LIB$CVT_DTB        ; Convert to number
+	CMPL	#2,OUTINT		; Must be >
+	BGTRU	2060$			; Try again if not
+	CMPL	#24,OUTINT		; Must be <
+	BLSSU	2060$			; Try again if not
+	MOVL	OUTINT,PSR_TBL_L_LOST(R6) ; Set it
+	CLRW	CHOICE
+2070$:
+; Translate and display bit options
+        PUSHAL  VD_DISP
+        CALLS   #1,G^SMG$ERASE_DISPLAY
+	CLRL	R11
+	MOVAL	FLGTBL,R10
+	MOVAL	BITMSGTBL,R9
+2080$:
+	MOVL	#80,FAODESC
+	EXTZV	R11,#1,PSR_TBL_L_CFLGS(R6),R1
+2100$:
+	PUSHAL	(R9)[R1]
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHL	(R10)[R11]
+        CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	BSBW	PRINT
+	AOBLSS	#FLGCNT,R11,2080$
+; 
+; Display menu
+	MOVAL	BIT_OPTIONS_MENU,MADDR		
+	MOVL	#BIT_OPTIONS_MENU_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP3
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP3
+	PUSHAL	KB_BOARD
+	CALLS	#4,G^SMG$SELECT_FROM_MENU
+	BLBC	R0,2200$			; Assume any error = eof
+; If choice was 6 (Relater disable) br to routine. Else toggle bit.
+	MOVZWL	CHOICE,R1
+	CMPL	#6,R1
+	BEQL	2300$
+
+; Reverse selected bit
+	DECL	R1
+	BBSC	R1,PSR_TBL_L_CFLGS(R6),2110$	; Br if was CLEAR
+        BBCS	R1,PSR_TBL_L_CFLGS(R6),2110$   ; SET
+2110$:
+	BRW	2070$
+2200$:
+        PUSHAL  VD_DISP3
+        CALLS   #1,G^SMG$ERASE_DISPLAY
+	BRW	START
+2300$:
+; Display PSR menu on left and (translated) bits set on right.
+; Menu selection toggles corresponding bit.
+;
+; Display current settings
+        PUSHAL  VD_DISP
+        CALLS   #1,G^SMG$ERASE_DISPLAY
+	MOVL	#2,R11
+	MOVAL	PSR_MENU,R10
+2310$:
+	MOVL	#80,FAODESC
+	MOVAL	DISMSG,R9
+	BBS	R11,PSR_TBL_L_RELDIS(R6),2320$
+	MOVAL	ENAMSG,R9
+2320$:
+	PUSHL	R9
+        PUSHL	R10
+	PUSHL	#14
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	RELDISSTR
+        CALLS	#6,G^SYS$FAO
+	BSBW	ERROR_CHK
+	BSBW	PRINT
+	ADDL	#14,R10
+	AOBLSS	#PSR_MENU_ITEMS+2,R11,2310$
+
+
+
+; Display menu
+	MOVAL	PSR_MENU,MADDR		
+	MOVL	#PSR_MENU_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP3
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP3
+	PUSHAL	KB_BOARD
+	CALLS	#4,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,2350$			
+	BRW	2200$			; Assume any error = eof
+; Selected bit = choice + 1
+2350$:
+	MOVZWL	CHOICE,R1
+	INCL	R1
+	BBSC	R1,PSR_TBL_L_RELDIS(R6),2360$	; Br if was CLEAR
+        BBCS	R1,PSR_TBL_L_RELDIS(R6),2360$   ; SET
+2360$:
+	BRW	2300$
+
+
+
+
+
+
+
+3000$:               ; ADD
+; Ask the questions...
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$ERASE_DISPLAY
+	MOVAL	PSRREC,R11	; This rec
+	MOVC5	#0,#0,#0,#PSRREC_SIZE,PSRREC	; Init new rec
+
+	MOVC5	#0,#0,#0,#PSRREC_SIZE,PSRREC	; Init outp rec
+	MOVAL	FTYP_LIST,MADDR		
+	MOVL	#FTYP_LIST_SIZ,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP3
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP3
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBC	R0,3030$			; Assume any error = eof
+        PUSHAL  VD_DISP3
+        CALLS   #1,G^SMG$ERASE_DISPLAY
+
+
+	CASEW	CHOICE,#1,#2
+3010$:
+	.WORD	3011$-3010$
+	.WORD	3012$-3010$
+	.WORD	3013$-3010$
+3011$:
+	BRW	3100$		; Ethernet
+3012$:
+	BRW	3200$		; IEEE
+3013$:
+	BRW	3300$		; Extended
+
+3030$:
+        PUSHAL  VD_DISP3
+        CALLS   #1,G^SMG$ERASE_DISPLAY
+	$CLOSE	FAB=PSRFAB
+	BRW	START	
+;
+; Prompt for Inputs - Any Input not answered causes Exit
+3100$:
+	MOVAL	PTYETHMSG,R1
+	BSBW	READ_PROMPT             ; Get PSRTYP
+	CMPW	#0,BYTCNT               ; Any Input ?
+	BNEQU	3120$                     ; Yes
+	BRW	3030$                	; No - Exit to Menu
+3120$:
+	CMPW	#4,BYTCNT               ; Must be 4 char
+	BNEQU	3100$                   ; No  - Try Again
+	CVTWL	BYTCNT,KB_DES		; Reset Len
+	PUSHAL	PSRPTYTYP		; Output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TZ_L	; Convert to Bin
+	BLBC	R0,3100$		; On error try again
+	MOVL	#80,KB_DES		; Rest Len
+	MOVAL	PSRREC,R6               	; New record
+	ADDL3	R6,#PSR_TBL_Q_PTYTYP,R5      ; PTY field
+	MOVB	#SYS_ETP_C_ETHERNET,SYS_ETP_B_FTYPE(R5)   ; Set Ethetnet type
+	ADDL	#SYS_ETP_W_ETYPII,R5    	; Protocol sub field
+; Reverse byte order for Ethernet
+	MOVB	PSRPTYTYP,1(R5)
+	MOVB	PSRPTYTYP+1,(R5)
+	BRW	3500$			; Rest of rec
+3200$:
+	MOVAL	PTYIEEMSG,R1
+	BSBW	READ_PROMPT             ; Get DSAP
+	CMPW	#0,BYTCNT               ; Any Input ?
+	BNEQU	3220$                   ; Yes
+	BRW	3030$                	; No - Exit to Menu
+3220$:
+	CMPW	#2,BYTCNT               ; Must be 2 char
+	BNEQU	3200$                   ; No  - Try Again
+	CVTWL	BYTCNT,KB_DES		; Reset Len
+	PUSHAL	PSRPTYTYP		; Output
+	PUSHAL	KB_DES			; Input
+	CALLS	#2,G^OTS$CVT_TZ_L	; Convert to Bin
+	BLBC	R0,3200$		; On error try again
+	MOVL	#80,KB_DES		; Rest Len
+	MOVAL	PSRREC,R6               	; New record
+	ADDL3	R6,#PSR_TBL_Q_PTYTYP,R5      ; PTY field
+	MOVB	#SYS_ETP_C_IEEE,SYS_ETP_B_FTYPE(R5)   ; Set Ethetnet type
+	MOVB	PSRPTYTYP,SYS_ETP_B_DSAP(R5)
+	BRW	3500$			; Rest of rec
+3300$:
+	MOVAL	PTYEXTMSG,R1
+	BSBW	READ_PROMPT             ; Get DSAP
+	CMPW	#0,BYTCNT               ; Any Input ?
+	BNEQU	3320$                   ; Yes
+	BRW	3030$                	; No - Exit to Menu
+3320$:
+	CMPW	#10,BYTCNT              ; Must be 10 char
+	BNEQU	3300$                   ; No  - Try Again
+	PUSHAL	PSRPTYTYP+4		; Output
+	PUSHAL	KB_BUF			; Input
+	PUSHL	#8			; Bytcnt
+	CALLS	#3,G^LIB$CVT_HTB	; Convert to Bin
+	BLBC	R0,3300$		; On error try again
+	MOVAL	KB_BUF,R3
+	ADDL	#8,R3
+	PUSHAL	PSRPTYTYP			; Output
+	PUSHL	R3			; Input
+	PUSHL	#2			; Bytcnt
+	CALLS	#3,G^LIB$CVT_HTB	; Convert to Bin
+	BLBC	R0,3300$		; On error try again
+
+	MOVAL	PSRREC,R6               	; New record
+	ADDL3	R6,#PSR_TBL_Q_PTYTYP,R5      ; PTY field
+	MOVB	#SYS_ETP_C_SNAP,SYS_ETP_B_FTYPE(R5)   ; Set Ethetnet type
+; Reverse byte order for SNAP
+	ADDL	#SYS_ETP_5_EPID,R5    	; Protocol sub field
+	MOVB	PSRPTYTYP,4(R5)
+	MOVB	PSRPTYTYP+4,3(R5)
+	MOVB	PSRPTYTYP+5,2(R5)
+	MOVB	PSRPTYTYP+6,1(R5)
+	MOVB	PSRPTYTYP+7,(R5)
+	BRW	3500$			; Rest of rec
+
+
+3500$:
+; Get target process for this type
+ 	MOVAL	PSR_MENU,MADDR		
+	MOVL	#PSR_MENU_SIZE,MSIZE
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	bsbw	error_chk
+ 	PUSHAL	REVERSE                 	; Create menu
+	PUSHAL	W3                              ; Menu options ...
+	CLRL	-(SP)
+	PUSHAL	SPACING
+	PUSHAL	VERTICAL
+	PUSHAL	M_DCS
+	PUSHAL	VD_DISP3
+	CALLS	#7,G^SMG$CREATE_MENU            ; 
+	BSBW	ERROR_CHK
+	PUSHAL	CHOICE
+	PUSHAL	VD_DISP3
+	PUSHAL	KB_BOARD
+	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,3510$			
+	BRW	3030$			; Assume any error = eof
+3510$:
+        PUSHAL  VD_DISP3
+        CALLS   #1,G^SMG$ERASE_DISPLAY
+; The converted menu choice (+1) is the bit to set 
+; This bit sets the target process for this protocol type
+	MOVZWL	CHOICE,OUTINT		; Make it long
+	INCL	OUTINT     		; Set this bit
+	BBSS	OUTINT,PSR_TBL_L_PSRID(R6),3520$
+3520$:
+; Get display name
+	MOVAL	DISPNAME,R1
+	BSBW	READ_PROMPT             ; Get DSAP
+	CMPW	#0,BYTCNT               ; Any Input ?
+	BNEQU	3530$                   ; Yes
+	BRW	3030$                	; No - Exit to Menu
+3530$:
+	CMPW	#7,BYTCNT               ; Up to 7 char allowed 
+	BLSSU	3520$                   ; Try again on error
+	ADDL3	R6,#PSR_TBL_Q_DNAM,R5	; Write name here
+	MOVZWL	BYTCNT,R1  		; Bytes to write
+	MOVB	R1,(R5)+		; Write count
+	MOVAL	KB_BUF,R2
+3540$:
+	MOVB	(R2)+,(R5)+              ; Move name
+	SOBGTR	R1,3540$
+3550$:
+; Set outstanding packet limit. If this number and the number of 
+; outstanding packets become equal the LISTENer will discard 
+; frames targeted for this process.
+	MOVAL	HIOSTMSG,R1
+	BSBW	READ_PROMPT             ; Get highest outstanding
+	CMPW	#0,BYTCNT               ; Any Input ?
+	BNEQU	3560$                   ; Yes
+	BRW	3030$                	; No - Exit to Menu
+3560$:
+        PUSHAL  OUTINT                  ; Integer output
+        PUSHAL  KB_BUF                  ; Character input
+        CVTWL   BYTCNT,-(SP)            ; No. of bytes
+        CALLS   #3,G^LIB$CVT_DTB        ; Convert to number
+	CMPL	#2,OUTINT		; Must be >
+	BGTRU	3560$			; Try again if not
+	CMPL	#24,OUTINT		; Must be <
+	BLSSU	3560$			; Try again if not
+	MOVL	OUTINT,PSR_TBL_L_LOST(R6) ; Set it
+; Now write the record
+; Open file
+	$OPEN	FAB = PSRFAB			; Open input file
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = PSRRAB2		;Connect input stream
+	BSBW	ERROR_CHK
+	$PUT	RAB=PSRRAB2		; Write change
+	BSBW	ERROR_CHK
+3650$:
+	$CLOSE FAB=PSRFAB
+	BRW	START
+4000$:     ; DELETE
+; Display EMU frame types in menu. Store unformatted frame types in 
+; lookup table. This will correspond to rec to delete.
+        MOVAL	PTYTBL,R8		; Lookup table
+	MOVAL	DM_LIST,R10	        ; Menu items
+	$OPEN	FAB = PSRFAB		;Open input file
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = PSRRAB		;Connect input stream
+	BSBW	ERROR_CHK
+	CLRL	R9			; Count recs
+4010$:
+	$GET	RAB=PSRRAB
+	BLBS	R0,4020$
+	CMPL	R0,#RMS$_EOF		; EOF?
+	BEQLU	4030$                     ; YES
+	BSBW	ERROR_CHK		; NO = Error
+4020$:
+	MOVL	#256,STRINGOUT_D
+	INCL	R9			; COunt recs
+	MOVAL	PSRREC,R6
+	MOVQ	PSR_TBL_Q_PTYTYP(R6),(R8)+	; Save in lookup tbl	
+	PUSHL	#XLT_EPT_OPT_V_FRM	; Include frame type
+	PUSHAL	STRINGOUT_D
+        ADDL3	#PSR_TBL_Q_PTYTYP,R6,-(SP)
+	CALLS	#3,G^PSRTBL_XLATE_ENETPTY
+	MOVL	#20,TMPDESC		; Reset len
+	MOVL	R10,TMPDESC+4		; Write here
+	PUSHAL	STRINGOUT_D
+	PUSHAL	TMPDESC
+	PUSHAL	TMPDESC
+	PUSHAL	TYPMENSTR
+	CALLS	#4,G^SYS$FAO
+	BSBW	ERROR_CHK
+	ADDL	#20,R10			; Next slot
+	BRB	4010$
+4030$:
+	$CLOSE	FAB=PSRFAB
+
+; Display formatted recs in menu
+	MULL3	#20,R9,DM_SIZE
+	pushal	cursor_flags                    ; Turn cursor off
+       	pushal	PB_BOARD
+       	calls	#2, g^smg$set_cursor_mode
+       	bsbw	error_chk
+       	PUSHAL	REVERSE                 	; Create menu
+       	PUSHAL	W3                              ; Menu options ...
+       	CLRL	-(SP)
+       	PUSHAL	SPACING
+       	PUSHAL	VERTICAL
+	PUSHAL	DM_DCS
+	PUSHAL	VD_DISP
+       	CALLS  	#7,G^SMG$CREATE_MENU            ; 
+       	BSBW	ERROR_CHK
+       	PUSHAL	CHOICE
+       	PUSHAL	VD_DISP
+       	PUSHAL	KB_BOARD
+       	CALLS	#3,G^SMG$SELECT_FROM_MENU
+	BLBS	R0,4050$
+	CMPL	R0,#SMG$_EOF
+	BEQLU	4040$
+       	BSBW	ERROR_CHK
+4040$:	
+	BRW	START
+4050$:
+	MOVZWL	CHOICE,R1		; Index in lookup
+	DECL	R1
+        MOVAL	PTYTBL,R8		; Lookup table
+	MOVQ	(R8)[R1],KEY_BUF
+; Confirm delete
+	$OPEN	FAB = PSRFAB		;Open input file
+	BSBW	ERROR_CHK
+ 	$CONNECT RAB = PSRRAB2		;Connect input stream
+	BSBW	ERROR_CHK
+	$GET	RAB=PSRRAB2
+	BSBW	ERROR_CHK
+	MOVAL	PSRREC,R6
+	PUSHL	#XLT_EPT_OPT_V_FRM	; Include frame type
+	PUSHAL	STRINGOUT_D
+        ADDL3	#PSR_TBL_Q_PTYTYP,R6,-(SP)
+	CALLS	#3,G^PSRTBL_XLATE_ENETPTY
+; xlate protocol type	
+	MOVL	#80,FAOLEN		; Reset len
+	PUSHL	PSR_TBL_L_LOST(R6)	; Max outstanding before discard
+	PUSHL	PSR_TBL_L_PSRID(R6)	; Target process ID
+	PUSHAL	STRINGOUT_D               ; ETYPE
+	ADDL3	#PSR_TBL_Q_DNAM,R6,-(SP) ; Name
+	PUSHAL	FAODESC
+	PUSHAL	FAOLEN
+	PUSHAL	PSRRECSTR
+	CALLS	#7,G^SYS$FAO
+	BSBW	ERROR_CHK
+	MOVAL	FAODESC,R1
+	BSBW	PRINT2
+	MOVAL	DELRECSTR,R1
+	BSBW	READ_PROMPT2
+	CMPB	#^A/Y/,KB_BUF		; Ok to delete?
+	BNEQU	4060$
+	$DELETE	RAB=PSRRAB2
+	BSBW	ERROR_CHK
+4060$:
+	$CLOSE	FAB=PSRFAB
+	BRW	START
+
+; Subroutines
+;
+READ_PROMPT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		PUSHAL	VD_DISP                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	UPCASE                  ; Make input UPCASE 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	R1                      ; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		BSBW	ERROR_CHK
+		RSB
+READ_PROMPT2:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		PUSHAL	VD_DISP2                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	UPCASE                  ; Make input UPCASE 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	R1                      ; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		BSBW	ERROR_CHK
+		RSB
+
+;
+; Print subroutines
+;
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+		RSB
+PRINT2:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHL	R1
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		BSBW	ERROR_CHK
+10$:		RSB
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Virtual Display
+;
+CR_DISP:
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK            		; Error Check
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP2
+	PUSHAL	VD_COL2
+        PUSHAL	VD_ROW2
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP3
+	PUSHAL	VD_COL3
+        PUSHAL	VD_ROW3
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+;
+; Create Pasteboard
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	BSBW	ERROR_CHK
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	BSBW	ERROR_CHK
+;
+; Associate the pasteboard and Virtual Display
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL2		;Column
+	PUSHAL	PB_ROW2		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP2
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+	PUSHAL	PB_COL3		;Column
+	PUSHAL	PB_ROW3		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP3
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	BSBW	ERROR_CHK
+50$:	RSB
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		BLBC	R0,10$
+		RSB
+10$:
+	MOVL	R0,R6			; Save Error
+	PUSHAL	VD_DISP
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	R6,R0			; Restore
+		RET
+
+
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=PSRTBL_XLATE_ENETPTY 
+; Modifications
+;	01-001	PB     			Creation
+;	01-002	PB	NOV 1992	Table is loaded at init only
+;					table size is now variable
+;		      			added option to force table rebuild 
+;		      			Simpler return coding
+;	01-003  PB      26_Apr-1993     Handler returns correct error. Removed
+;					access and param checks.
+;	01-004  PB      16-AUG-1993     If translation not found return
+;					converted input in brackets. (xxxx)
+;	02-001	PB	AUG 1996	Converted for V5
+;++ 
+;2 PSRTBL_XLATE_ENETPTY
+; Routine to translate the EMU formatted protocol type  field to
+; the registered name and optionaly, Ethernet frame type.
+; Note this routine is NOT the same as XLATE_ENETPTY. There are 
+; special requirements for the PSRTBL.
+;
+;3 Inputs
+; 		.address of .QUAD input. EMU Formatted protocol type 
+;		.address of desc pointing to outp. May be up to 255 bytes.
+;		.long by val optional flag field
+;4 Input_format
+;  field	ofs	len		desc
+; type		0	1	EMU defined frame type: type2, IEEE or extended
+; ETYYPE	6	2	2 byte protocol field when type2
+; DSAP		7	1	1 byte Destination SAP when IEEE
+; SNAP		3	5	5 byte extended PID when SNAP
+; Bytes 1,2 never written
+;4 Optional_flag 
+;	bit			When Set
+;	0		Include frame type translation
+;
+;3 Outputs	
+;	.ASCIC registered name
+;--
+
+	TSTL	ENETPTY_A		; = Entry count
+	BNEQU	10$                     ; Br if table is present
+
+        BSBW	MAKE_TABLE              ; If count = 0, Make Table
+10$: 
+	MOVL	4(AP),R8		; Input field
+	MOVQ	@8(AP),R6		; r6 = len, r7 = addr
+	MOVL	ENETPTY_C,R9            ; Loop Control
+	MOVL	ENETPTY_A,R11           ; Table Pointer
+;
+; Search loop
+;
+20$:	
+	CMPL	4(R8),4(R11)		; Top.long
+	BEQLU	40$                     ; Yes
+30$:
+	ADDL	#XLT_EPT_C_SIZE,R11			; Next entry
+	SOBGTR	R9,20$ 	                ; Loop to end of table
+	BRW	100$			; Match not found. 
+40$:	
+	CMPL	(R8),(R11)		; Bottom .long
+	BNEQU	30$                     ; Yes
+	ADDL	#XLT_EPT_AC_NAME,R11	; Set translation to return
+	BRW	200$
+100$:
+	CASEB	@8(AP),#1,#2
+110$:
+	.WORD	111$-110$
+	.WORD	112$-110$
+	.WORD	113$-110$
+111$:
+	MOVL	#2,R2		; Number of bytes to format
+	MOVAL	UNKNWNE,R3	; Formater
+	BRB	120$		; 		
+112$:
+	MOVL	#1,R2		; Number of bytes to format
+	MOVAL	UNKNWNI,R3	; Formater
+	BRB	120$		; 		
+113$:
+	MOVL	#5,R2		; Number of bytes to format
+	MOVAL	UNKNWNS,R3	; Formater
+	BRB	120$		; 		
+120$:
+	MOVL	#32,TEMPSTR_D	; reset
+	ADDL3	#3,R2,R5        ; Total params
+	ADDL3	#7,R8,R11	; 1st (reversed) byte
+130$:
+	MOVZBL	(R11),-(SP)	; Push param 
+	DECL	R11             ; Next param
+	SOBGTR	R2,130$         ; loop for all
+	PUSHAL	TEMPSTR_D         ; 
+	PUSHAL	TEMPSTR_D         ;
+	PUSHL	R3              ; Formatter
+	CALLS	R5,G^SYS$FAO
+	BLBS	R0,140$
+	RET
+140$:
+	MOVB	TEMPSTR_D,TEMPSTR_AC	; set string size
+	MOVAL	TEMPSTR_AC,R11
+200$:
+	CLRL	R6			; No outp yet
+	CMPL	#3,(AP)			; Options present?
+	BNEQ	300$
+	BBC	#0,12(AP),300$		; Br if option not set
+	MOVAL	EPTYTBL,R3              ; Table top
+	MOVZBL	@4(AP),R1               ; Entry
+	MULL	#EPTYTBL_SIZE,R1	; offset
+	ADDL	R1,R3			; This entry
+
+	MOVC3	#EPTYTBL_SIZE,(R3),(R7) 
+	ADDL	#EPTYTBL_SIZE,R7	; Mov outp pointer
+	MOVL	#EPTYTBL_SIZE,R6	; Set outp len
+300$:
+	MOVZBL	(R11),R1		; Get count
+	ADDL	R1,R6			; Set outp len
+	MOVC3	R1,1(R11),(R7)        	; Move xlation
+	MOVL	R6,@8(AP)		; Return final len
+	MOVL	#SS$_NORMAL,R0		; Success
+	RET				; Done
+
+
+MAKE_TABLE:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; Determine mem requirements:
+; Open file and check the allocation quantity. Use this number of blocks.
+;
+; 
+; Open table file
+;
+	$OPEN	FAB = PTYFAB		;Open input file
+	BLBS	R0,10$			;OK ?
+	RET				; Die
+10$: 	
+	$CONNECT RAB = PTYRAB		;Connect input stream
+ 	BLBS	R0,20$			;Branch if OK
+	RET				; Die
+20$:
+; Get mem
+	CLRL	-(SP)		; P0 Space
+	CLRL	-(SP)		; Access mode
+	PUSHAL	ENETPTY_A	; Returned address
+	PUSHL	PTYFAB+FAB$L_ALQ            ; No. of pages
+	CALLS	#4,G^SYS$EXPREG
+	BLBS	R0,45$          ; Br no error
+	RET			; Die
+; Load Table
+45$:
+	MOVL	ENETPTY_A,R11           ; Pointer
+	MOVL	#1,ENETPTY_C            ; Get 1st rec
+50$:	
+	MOVL	R11,PTYRAB+RAB$L_UBF    ; Write rec here
+	$GET	RAB = PTYRAB		; Get a record
+	BLBS	R0,60$			; If no error goto load routine
+	CMPL	R0,#RMS$_EOF		; Was error end of file
+	BEQLU	70$			; Yes - OK
+55$:	RET				; No - Die
+60$:	
+	ADDL	#XLT_EPT_C_SIZE,R11     ; Next slot
+	INCL	ENETPTY_C               ; Count entry
+	BRB	50$			; Next Rec
+70$:
+	DECL	ENETPTY_C                 ; Fix Count entry
+	$CLOSE	FAB=PTYFAB
+	RSB
+        
+
+
+		.END PSRTBL

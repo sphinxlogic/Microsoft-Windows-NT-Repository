@@ -1,0 +1,305 @@
+1 REPORTING  
+ Interactive programme to create and generate reports on the contents of
+ the EMU daabases.
+
+2 Inputs  
+	Files
+		MAPPER.DAT. EMU paramater file
+		*.RPT. Previously created report param files
+       Interactive
+	Top level menu:
+	     1. Display: 
+		Displays currently loaded or created report param file
+	     2. Load: 
+		Loads a previously created and saved report param file.
+		File names are displayed in menu for selection.
+	     3. Create:
+		Displays contents of MAPPER.DAT in menus. Paramaters
+		selected are included in report. If a param is
+		selected that is already in the report params, it is removed. 
+            4. Save:
+		Saves the cuurent report params in a file with type RPT.
+		The file name is selected by user.
+	     5. Create report:
+		Creates a raw report as per report params selected.
+	     6. Pre-defined reports:
+		Displays a menu of predefined reports. Selection causes
+		the selected report to be created
+
+2 Output
+ Report param file format:
+	Field		Siz		Desc
+	Param		8	The table.param of a param from MAPPER.DAT
+	Max Size	4	Max size outp field this param
+	Flags		4	Bit field:
+				Bit		When set
+				0	If not present do not include this box
+ Report Format
+	Comma seperated list of params selected by report params.
+	Formated such that each line contains 1 instance of each param
+	selected. If param does not exist or has already been displayed
+	then blank field is produced.
+3 Example_output
+       If a report asking for DECnet address and IP address is requested
+	and the box has 1 decnet address and 3 IP addresses then the 
+	following 4 records are written:
+	DECnet Address,IP Address
+	50.1,165.47.1.1
+	,165.47.1.2
+	,165.47.1.3
+	,,
+
+2 Returns
+	ANY from $RMS
+3 REPORTING_GETRSPACE 
+  Create section of size RPT_SEC_C_SIZE(256 Bytes) * RPTITMCNT to store 
+  results of paramater retrievals. 1 instance of each param that 
+  exists for the current boxid is stored here. 
+  Init the section with params from PRM section.
+ Also init the dynamic control string with 1x '!AD,' per item
+
+4 Inputs
+	None
+4 Outputs
+ The reporting secion is created and initalized.
+4 Returns
+  Any from  SYS$EXPREG, SYS$CRMPSC
+3 REPORTING_GETPSPACE 
+  Create section of size RPT_PRM_SECSIZ (16 pages) to store selected params
+  Format is same as for report param file. If saved, this section is 
+ written to file.
+4 Inputs
+	None
+4 Outputs
+	Max items is calculated and written
+	Current items is cleared
+4 Returns
+  Any from  SYS$EXPREG, SYS$CRMPSC
+3 REPORTING_DISPLAY
+  Displays the current report param file in the right screen as:
+   Protocol	ParamName  Flags	Spare
+3 REPORTING_WRITE_TITLES
+  Formats param file items into titles used in report as :
+  ' Protocol ParamName'
+   There is 1 title /entry. The pointers (len and addr) are held in
+   titlelist, and the translated strings in title_strings. This routine
+   builds these areas and the caller may then simply print them any number
+   of times therafter.
+4  Input
+   No params passed in. All I/O is hardcoded in this routine.
+   Areas Used:
+   report param section
+   MAPPER.dat 
+4 Output
+  The titles are translated into TITLES_STRINGS, and the pointers are
+  held in TITLELIST. Passing TITLLIST and the dynamic control string
+  build in GETRSPACE will produce 1 line of comma seperated titles.
+4 Returns
+  Any from $RMS, $FAO
+3 REPORTING_DISPLAY_REPORT
+ A menu containing all previously CREATED reports is displayed. Any item
+ selected causes that report to be displayed in the TPU editor.
+4 Inputs
+  	None
+4 Outputs
+  A new version of the selected report is always created. At edit exit
+ user may purge all previous versions.
+4 Returns
+  SS$_NORMAL
+3 REPORTING_CREATE_NEW
+  Create new report param file. Params are selected from menu and added
+ to the section. The section can be saved using REPORTING_SAVE.
+4 Inputs
+	None
+4 Outputs
+	RPTPRM section is cleared at begin and selectied items are then added
+	Current items is cleared then incermented for each add
+	If existing item is selected again, option to modify or delete
+	is offered
+4 Returns
+  Any from  SYS$EXPREG, SYS$CRMPSC
+3 REPORTING_PROC_PARAM
+  Process a selected paramater into the report pram list. 
+  Possible actions:
+	Param is not in list - add it
+	Param is in list - delete it. 
+4 Inputs
+	.address of .quad tbl.param
+4 Outputs
+	report param list section may be modified
+4 Returns
+3 REPORTING_CREATE_REPORT
+  Create report from report param file. 
+4 Inputs
+	Report param file curently in memory. Must have been previously
+	created or loaded.
+4 Outputs
+	Report file is created. Format is 1 instance per param per rec as
+	comma seperated list.
+4 Description
+  	A temporary file is created and populated with all params
+	selected from EMUDB. This file is the same format as EMUDB.
+	The temp file is then processed. Purpose here is to force
+	final param selection to follow EMUDB sort order. 
+ Each databse is probed and for each response, the corresponding field is
+ is formatted and filled in. If no response, the field is blanked.
+ Once all fields are written, the record is stored. If all fields are
+ blank, the next BOX is processed. The resulting display (in Excel) 
+ should look something like:
+ 
+  DECnet IV|DECnet V   |SCS Address|SCS Name|Lan Address | IP Addr |Name
+    1.1     49:00 ...   08-00-2b... CCCIx    08-00-2b...   1.2.3.4  CCCI4
+            49:01 ...                        AA-00-04...   1.2.3.5  ccci4.com
+							    1.2.3.6
+							    1.2.3.7
+         ---- blank rec ----------
+    1.2     49:00 ...   08-00-2b... CCCIx    08-00-2b...            CCCI2
+            49:01 ...                        AA-00-04...            CCCI2
+ The intended result is that all known values are present and can be 
+ futher formatted  easily.
+
+4 Returns
+  Any from  SYS$EXPREG, SYS$CRMPSC
+3 REPORTING_DISPSTATS
+  Displays statistics in top display to record progress when 
+  creating new report.
+4 Inputs
+	Init Flag. Optional. If present the counts and display are 
+	cleared and titles written.
+4 Outputs
+	Display on DISP1
+4 Returns
+	Any from $FAO
+3 REPORTING_MAKETEMPFILE
+  Create 2 teporary files with the list of params directed by RPTPRM section.
+
+4 Inputs
+	Report param section. 
+4 Outputs
+	Temporary files. Deleted after report creation.
+4 Returns
+  Any from  RMS
+3 REPORTING_ADDFIL2 
+  Called by sort routines when a duplicate record is detected in the 
+  input screen.
+4 Inputs
+	As by sort:
+		.addr rec1
+		.addr rec2
+		.len  rec1
+		.len  rec2
+		.long context 
+4 Outputs
+	The duplicate (rec2) is added to the second temp file and the 
+	return instructs this rec to be deleted from the 1st file.
+4 Returns
+  	SOR$_DELETE2
+3 REPORTING_LOAD
+  Displays known report param files in menu. Selection causes the 
+  selected file to be opened and loaded into RPTPRM section. 
+4 Inputs
+	Report param file as selected by user. 
+4 Outputs
+	Contents of RPTPRM secion overwritten. RPTITMCNT is updated
+4 Returns
+  Any from  SYS$EXPREG, SYS$CRMPSC
+3 REPORTING_CREATE_PREDEF
+  Displays further menu of 'canned' reports. Upon selection that report is 
+ created
+4 Inputs
+	None
+4 Outputs
+	report
+4 Returns
+  Any from  SYS$EXPREG, SYS$CRMPSC
+3 REPORTING_CREATE_SAVE
+	Saves contents of RPTPRM section to file. File name is set by
+	user - no check for dups. File type is always .RPTP Saved in
+	EMU5_DAT.
+4 Inputs
+	None
+4 Outputs
+	Report param file
+4 Returns
+  Any from  SYS$EXPREG, SYS$CRMPSC
+3 REPORTING_GETTABLE 
+ Routine to display all possible tables in a menu and after selection, set
+ the chosen table in the DB_MAP_L_TBL field in the input param
+4 Inputs:
+	.address of .long where .long table is written
+4 Outputs:
+ 	.long value of the table (symbols in _EMUDBDEF)
+4 Returns:
+	SS$_NORMAL	did it
+	Any from $RMS, $SMG
+3 EMUDB_READ  
+ Routine to read from EMUDB. Records are scanned and returned 1 by 1 
+ in sort order as specified by the key of reference. Each record is 
+ checked against the report level and if >, the record is skipped.
+ Each record is also checked against the current privs of the caller
+ and if insufficient, the record is (silently) skipped.
+ NOTE: The record is unlocked as soon as it is written to the caller's 
+ buffer. 
+
+4 Inputs
+ 1. KEY OF REFERENCE. EMU symbol denoting the key elements present to 
+    find a particular record.
+ 2 .long	Output buffer
+   .address of descriptor pointing to buffer where record is written
+    The key elements specified by the KRF argument must be supplied 
+    in the record format:
+    Protocol	.long
+    Boxid	.long
+    Table	.long
+    Instance	.long
+    Param	.long
+    Flags	.long
+    the len of the returned record is written in the descriptor.
+
+ 3. .long	search direction 
+ 4. .long report level
+ 5. .address record count. Count of recs returned kept here. Used to 
+	determine ROP field.
+ 6. Flags. Optional. If present AND = 1  the record is NOT unlocked 
+    immediately after read. By default the record is unlocked.
+ 7. RFA. optional .address of .quad where RFA is written. 
+    Note only bottom 6 bytes are written
+
+4 Key of reference:
+        DB_REC_KEY_PROTO	0       ; Protocol            
+        DB_REC_KEY_BOXID	1       ; BOXID               
+        DB_REC_KEY_TABLE	2       ; Table               
+        DB_REC_KEY_INST	3       ; Instance            
+        DB_REC_KEY_PARAM	4       ; Paramater           
+        DB_REC_KEY_PRO_BOX	5	; Protocol, boxid     
+        DB_REC_KEY_FULL	6	; Primary             
+        DB_REC_KEY_BOX_TAB	7	; Boxid, Table             
+	 DB_REC_KEY_TAB_PAR     8       ; Table, Param
+	 DB_REC_KEY_BX_TAB_PAR  9       ; Boxid, Table, Param
+
+ Symbols are in EMUDBDEF                                     
+4 Returns
+ R0 = status:
+	SS$_NORMAL	 Record found, filters passed and written to outp
+	SS$_INSFMAP      Could not find map record
+	SS$_BADPARAM	 Unknown key
+   Any error returned by RMS
+3 REPORTING_READ_RFA  
+ Routine to read from EMUTMP using record file address. Purpose here is to 
+ retrieve param and build record by row rather as RMS dictates, by column.
+ Notes:
+ The RFA file MUST be provided. To have this the caller must have previously
+ read using EMUTMP_READ. This routine restores the location and retrieves
+ the next record on the specified key.
+
+4 Inputs
+	 SAME AS REPORTING_READ. This routine simply sets the last
+	 read record as given by the RFA and then GTEs next sequntal
+	 rec
+
+4 Returns
+ R0 = status:
+	SS$_NORMAL	 Record found, filters passed and written to outp
+	SS$_BADPARAM	 The record count = 0 . Implies this is 1st read
+			 on this key. Not allowed for RFA access.
+   Any error returned by RMS, EMUTMP_READ

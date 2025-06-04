@@ -1,0 +1,202 @@
+	.TITLE	EMU_LIBR   
+	.IDENT	/V1-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001	MAY-1998	PB	Creation
+;	
+;++
+;1 EMU_LIBR   
+; Collection of routines used to implement help library maintenance.
+;--
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LIBRARY	"SYS$LIBRARY:STARLET.MLB"
+        .LIBRARY        "EMU5_LIB:EMU5.MLB"
+	$SSDEF
+	$LBRDEF
+	$LBRCTLDEF
+	$CREDEF
+	;	
+
+	.PSECT	EMU_LIBR_D,WRT,NOEXE,PIC,SHR,QUAD
+BUFF_DESC:	.QUAD   0
+MOD_DESC:	.QUAD	0
+TXTRFA:		.QUAD	0
+HLBFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL,MSE>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; 
+		DNA = HLB,-
+		DNS = HLBSIZ
+
+HLPFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL,MSE>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; 
+		DNA = HLP,-
+		DNS = HLPSIZ,-
+		ORG = SEQ,-
+		RAT = CR			; 
+HLPRAB:	
+	$RAB	FAB = HLPFAB,-		; pointer to FAB
+		RBF = HLPBUF,-		; o/p buffer 
+		RSZ = HLPBUFSIZ,-	; Write this many bytes
+		UBF = HLPBUF,-		; i/p buffer 
+		USZ = HLPBUFSIZ		; Write this many bytes
+LIBRTYPE:	.LONG	LBR$C_TYP_HLP
+LIBRFUNC:	.LONG	LBR$C_CREATE
+LIBRINDEX:	.LONG	0
+MOD_KEY:	.BLKB	64
+HLPBUFSIZ = 80
+HLPBUF:		.BLKB	HLPBUFSIZ
+FILENAME:	.BLKB	40
+FILENAME_LEN:	.LONG	0
+
+HLB:		.ASCII	/EMU5_HLP:DUMMY.HLB;/
+HLBSIZ =.-HLB
+HLB_DESC:	.LONG	.-HLB                    
+		.ADDRESS  HLB
+
+HLP:		.ASCII	/EMU5_HLP:DUMMY.HLP/
+HLPSIZ =.-HLP
+HLP_DESC:	.LONG	.-HLP
+		.ADDRESS  HLP
+
+LIBROPTS:	.LONG 	LBR$C_TYP_HLP      ; Type
+		.LONG	64                 ; Key len
+		.LONG	120		   ; Initial allocation
+		.LONG	1		   ; Indexes
+		.LONG	0		   ; Other allocation ?
+		.LONG	20		   ; Preallocate index entries
+		.LONG	5		   ; Max history recs
+		.LONG	CRE$C_VMSV3 	   ; Version
+		.LONG	CRE$C_HLPCASING    ; Casing
+		.BLKL	11                 ; DEC reserved
+
+		
+		
+
+	
+
+       .PSECT EMU_LIBR_EXE,EXE,NOWRT,LONG
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=LIBR_CREATE_HELP
+;++
+;2 LIBR_CREATE_HELP
+;	Create a help library. The library whose name is passed
+;	as a paramater is created and the records from the coresponding
+;	.hlp file are inserted into it.
+;3 Input
+;	.address of desc pointing to name. The name is converted
+;	to 2 file specifications:
+;	name.hlb		library
+;	name.hlp		help file
+;	The library is created. The help file must already exist and
+;	is inserted into the created library.
+;3 Output
+;	The library is created and populated.
+;	Note that ALL existing versions of the library are deleted before
+;	the new one is created.
+;3 Return
+;	SS$_NORMAL	OK
+;	Any return from:
+;		$RMS, LBR$
+;--
+	MOVQ	@4(AP),R6
+	CLRL	R10			; Init flg
+; Delete all previous versions
+
+	MOVL	R7,HLBFAB+FAB$L_FNA	; Location of name
+	MOVB	R6,HLBFAB+FAB$B_FNS	; Size of name
+1$:
+	$ERASE	FAB=HLBFAB              ; No error check
+	BLBS	R0,1$			; delete until no more
+; 
+	PUSHAL	LIBRTYPE
+	PUSHAL	LIBRFUNC
+	PUSHAL	LIBRINDEX
+	CALLS	#3,G^LBR$INI_CONTROL
+	BLBS	R0,10$
+	RET
+10$:
+	PUSHAL	HLB_DESC		; Default filname
+	PUSHAL	LIBROPTS		; Create options
+	PUSHL	4(AP)			; File name
+	PUSHAL	LIBRINDEX
+	CALLS	#4,G^LBR$OPEN
+	BLBS	R0,20$
+	RET
+20$:
+	MOVL	R7,HLPFAB+FAB$L_FNA	; Location of name
+	MOVB	R6,HLPFAB+FAB$B_FNS	; Size of name
+	$OPEN	FAB=HLPFAB
+	BLBS	R0,30$
+	RET
+30$:
+	$CONNECT RAB=HLPRAB
+	BLBS	R0,40$
+	RET
+40$:
+	$GET	RAB=HLPRAB
+	BLBS	R0,50$
+	BRW	200$
+50$:
+	CMPB	HLPBUF,#^A/1/			; 1 in 1st pos?
+	BNEQU	60$				; Br if Not (same module)
+	BRW	100$				; new mod processing
+60$:
+	MOVAL	HLPBUF,BUFF_DESC+4	
+	MOVZWL	HLPRAB+RAB$W_RSZ,BUFF_DESC	
+	PUSHAL	TXTRFA
+	PUSHAL	BUFF_DESC
+	PUSHAL	LIBRINDEX
+	CALLS	#3,G^LBR$PUT_RECORD
+	BLBS	R0,40$
+
+100$:
+; Get this module's name (key)
+; Note this is not universal. Assumes construction as in MIB_COMPLILE:
+;	offs	field
+;	0	if not blank then help txt level
+;	1-2	blank
+;	3	text. If offs 0 not blank, this is module name.
+;
+	BLBC	R10,120$				; Br if 1st entry
+	PUSHAL	LIBRINDEX			;
+	CALLS	#1,G^LBR$PUT_END		; End this module
+	BLBS	R0,110$
+        RET
+110$:
+	PUSHAL	TXTRFA
+	PUSHAL	MOD_DESC
+	PUSHAL	LIBRINDEX
+	CALLS	#3,G^LBR$INSERT_KEY
+	BLBS	R0,120$
+	RET
+120$:
+	MOVL	#1,R10
+	MOVAL	HLPBUF,R8	
+	MOVZWL	HLPRAB+RAB$W_RSZ,R9
+	ADDL	#4,R8				; Offset to text
+	SUBL	#4,R9				; Len
+	BGTR	130$				; Br if some
+	RET
+130$:
+	MOVC5	R9,(R8),#^A/ /,#64,MOD_KEY
+	MOVAL	MOD_KEY,MOD_DESC+4
+	MOVL	R9,MOD_DESC
+	BRW	60$
+
+200$:
+    	PUSHAL	LIBRINDEX
+	CALLS	#1,G^LBR$CLOSE
+	RET
+		.END								
+		
+

@@ -1,0 +1,819 @@
+<HTML>
+<HEAD>
+<TITLE>RuleWorks</TITLE>
+</HEAD>
+<BODY>
+
+<FONT FACE="Arial" SIZE=6 color="navy"><P ALIGN="RIGHT">RuleWorks</P></FONT>
+
+<B><I><FONT FACE="HELVETICA" SIZE=6 color="RED"><P ALIGN="RIGHT">
+Rules' Right-Hand Sides: Actions</P></B></I></FONT>
+
+<P>The right-hand side (RHS) is the "then" part of a rule. It consists of one or more actions. You can use the actions supplied by RuleWorks to perform the operations listed in the table below (each operation is listed with the constructs used to perform the operation).</P>
+
+</FONT><B><FONT FACE="Arial" SIZE=2><P>Table 4-1: RuleWorks Actions</P></b></font>
+<table border=1>
+<tr><td><b>Operation</b></td><td><b>Action</b></td></tr>
+<tr><td>Bind variables</td><td>BIND action</td></tr>
+<tr><td>Modify working memory</td>
+<td>MAKE action<BR>COPY action<BR>SPECIALIZE action<BR>MODIFY action<BR>
+REMOVE action<BR>REMOVE_EVERY action</td></tr>
+<tr><td>Work with compound values</td><td>FOR_EACH action</td></tr>
+<tr><td>Open and close files</td><td>OPENFILE action<BR>CLOSEFILE action</td></tr>
+<tr><td>Read input and write output</td><td>DEFAULT action<BR>WRITE action</td></tr>
+<tr><td>Use a catcher</td><td>AFTER action</td></tr>
+<tr><td>Save and restore the state of working memory and the conflict set</td>
+<td>SAVESTATE action<BR>ADDSTATE action<BR>RESTORESTATE action</td></tr>
+<tr><td>Return control to the calling module</td><td>RETURN action</td></tr>
+<tr><td>Invoke the RuleWorks command interpreter</td><td>DEBUG action</td></tr>
+<tr><td>Control the flow of program execution</td><td>IF … THEN … ELSE action<BR>
+WHILE … DO … action</td></tr>
+<tr><td>Stop program execution</td><td>QUIT action</td></tr>
+</table>
+
+<P>The first section of this chapter describes the format of RHS actions.  The rest of this chapter explains how to perform the operations listed in the table above<B>.</B> You can also use external routines as actions on the RHS.</P>
+<B><FONT FACE="HELVETICA" SIZE=5><P>The Format of RHS Actions</P>
+</B></FONT>
+<P>An RHS action consists of a left parenthesis, an action name and its arguments, and a right parenthesis. The format for specifying an action is shown below:  </P>
+<B><P>( <I>action-name [argument] </I> ...)</P>
+</B>
+<P>For example:</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>(write |This text will be printed.|)</P>
+</ul>
+</FONT>
+
+<P>Most RuleWorks actions require at least one argument. You can represent argument values with constants, bound variables, numeric expressions, or function calls. For example, the WRITE action above has one argument, a quoted symbolic atom.</P>
+<ul><B><P>Note: </B>If an action does not require arguments, you must still enclose the action name in parentheses.</P></ul>
+
+<P>Actions are allowed in rules, catchers, and in the ON- statements.</P>
+
+<P>Most RHS actions have no return value. The MAKE, MODIFY, COPY, and SPECIALIZE actions do return values, and these actions can be used as functions on the RHS.</P>
+
+<p>&nbsp;</p>
+<B><FONT FACE="HELVETICA" SIZE=5><P>Binding Variables  </P>
+</B></FONT>
+<P>Use the BIND action to bind a variable to a value. When you specify the BIND action with a variable and a right-hand-side expression, the run-time system evaluates the expression and binds the variable to the result. For example: </P>
+<ul><FONT FACE="Courier" SIZE=1><P>(bind &lt;x&gt; (&lt;x&gt; + 1))</P>
+</FONT></ul>
+
+<P>The run-time system evaluates the expression (&lt;X&gt; + 1) and  binds the variable &lt;Y&gt; to the result.</P>
+
+<P>The following action is from the example.  It shows the result of a MAKE action being used in a BIND action:</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>(bind &lt;new-object&gt;</P>
+<ul><P>      (make example-object ^next &lt;first-object&gt; ^last &lt;INSTANCE-ID&gt; ^value (&lt;val&gt; + 1)))</P>
+</ul>
+</ul>
+</FONT>
+
+<p>&nbsp;</p>
+<B><FONT FACE="HELVETICA" SIZE=5><P>Changing Working Memory</P>
+</B></FONT>
+<P>A RuleWorks program can modify the contents of working memory during execution.  RuleWorks provides actions that create new objects, change existing objects, and delete objects.</P>
+<B><FONT FACE="HELVETICA" SIZE=4><P>Creating Working-Memory Objects</P>
+</B></FONT>
+<P>You can create new objects with either the MAKE or the COPY action. The MAKE action creates a new object of the class you specify. The COPY action creates a new object of the same class as the original object.  You can also specify values for attributes with both the MAKE and COPY actions.</P>
+<B><I><P>Using the MAKE Action </P>
+</B></I>
+<P>Use the MAKE action to create an object. You must specify a declared object class name as the first argument to the MAKE action. After the class name you can specify zero or more attribute-value pairs.</P>
+
+<P>For example, the following MAKE action creates an object of class CONTEXT to initialize working memory:</P>
+<ul>
+<FONT FACE="Courier" SIZE=1><P>(ON-ENTRY</P>
+<ul><P>     (make context ^name tasks-to-do))</P>
+</FONT></ul>
+</ul>
+
+<P>This object is displayed as follows:</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>#1 1 [NIL] (CONTEXT  ^NAME TASKS-TO-DO)</P>
+</FONT></ul>
+
+<P>(The output above was produced by the WM command.)</P>
+
+<P>If you do not specify attribute names and values in a MAKE action, the run-time system creates an object with default values for the unspecified attributes. If the attribute has no default value, the run-time system uses the atom NIL for scalar attributes and the empty list, <FONT FACE="Courier" SIZE=2>(COMPOUND)</FONT>, for compound attributes.</P>
+
+<P>Consider the following rule:</P>
+<B><FONT FACE="HELVETICA" SIZE=2><P>Example: 4-4 Rule</P>
+</B></FONT>
+<ul><FONT FACE="Courier" SIZE=1><P>(rule convert-packages-to-parts:home-kiwi</P>
+<ul><P>        (active-context ^name convert-packages-to-parts)</P>
+<P>        (input-thing ^item home-kiwi ^$ID &lt;my-input-thing&gt;)</P>
+<P>     --&gt;</P>
+<P>        (remove &lt;my-input-thing&gt;)</P>
+<P>        (make box)</P>
+<P>        (make kiwicalc))</P>
+</ul></FONT>
+</ul>
+
+<P>&nbsp;</P>
+<P>Neither MAKE action in this rule specifies any attribute values. However, classes BOX and KIWICALC both have inherited default values. Therefore, the objects created by this rule do have some attributes with non-NIL values in them. They would be displayed as shown below:</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>#28 33 [CONVERT-PACKAGES-TO-PARTS:HOME-KIWI] (BOX  ^IS-EXPANDED NO)</P>
+<P>#29 34 [CONVERT-PACKAGES-TO-PARTS:HOME-KIWI] (KIWICALC  ^IS-EXPANDED NO  ^MEDIA-TYPE FD-35)</P>
+</FONT></ul>
+<P>(See Figure 2-1 for an illustration of the class inheritance hierarchy of the sample configuration program, KIWI.RUL.)</P>
+
+<P>The following example shows a MAKE action using the GET function to reference an attribute value indirectly: </P>
+<B><FONT FACE="HELVETICA" SIZE=2><P>Example: 4-2 MAKE Action using the GET Function</P>
+</B></FONT>
+<ul><FONT FACE="Courier" SIZE=1><P>(OBJECT-CLASS fruit</P>
+<ul><P>           ^fruit-name</P>
+<P>           ^color)</P>
+</ul><P>(rule make-a-similar-one</P>
+<ul><P>      (fruit ^$ID &lt;The-fruit&gt; ^fruit-name apple)</P>
+<P>--&gt;</P>
+<P>      (MAKE fruit ^fruit-name apple ^color (GET &lt;The-fruit&gt; ^color)))</P>
+</FONT></ul></ul>
+
+<FONT FACE="NewCenturySchlbk" SIZE=1><P>&nbsp;</P>
+</FONT><B><I><P>&#9;Using the COPY Action  </P>
+</B></I>
+<P>Use the COPY action to duplicate, or duplicate and modify, an existing object.  The first argument to the COPY action must be bound to a value of type INSTANCE-ID. The COPY action creates a new object of the same class as the one that was matched. After the $ID variable, you can specify zero or more attributes and their values.</P>
+
+<P>If you do not specify attribute names and values in a COPY action, the run-time system uses the values in the object that is being copied, and you get an exact duplicate (except for the INSTANCE-ID and the time-tag).  For example, if the following rule:</P>
+
+
+
+<ul><FONT FACE="Courier" SIZE=1><P>(rule copy-context</P>
+<ul><P>      (context ^$ID &lt;The-context&gt;)</P>
+<P>   --&gt;</P>
+<P>      (copy &lt;The-context&gt;))</P>
+</FONT></ul></ul>
+
+<P>fires on the object made in Using the MAKE Action, the result is the following object:</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>#2 2 [COPY-CONTEXT] (CONTEXT  ^NAME TASKS-TO-DO)</P>
+</FONT></ul>
+
+<B><FONT FACE="HELVETICA" SIZE=4><P>Changing the Class of a Working-Memory Object</B></FONT></p>
+
+<P>To convert an instance of a parent class to an instance of a descendent class, 
+use the SPECIALIZE action. By default, this action does not change any attribute 
+except for ^$INSTANCE-OF. You can specify attributes if you want.</P>
+
+<P>The following rule shows one possible use of the SPECIALIZE action:</P>
+
+<B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-3: Using the SPECIALIZE Action</P>
+</B></FONT>
+<ul><FONT FACE="Courier" SIZE=1><P>(rule specialize:os</P>
+<ul><P>        (active-context ^name specialize-operating-system)</P>
+<P>        (os ^$ID &lt;os-id&gt; ^name kiwos)</P>
+<P>       -(kiwos)</P>
+<P>       --&gt;</P>
+<P>        (specialize &lt;os-id&gt; kiwos ^name |KIWOS Operating System|)</P>
+<P>)</P>
+</FONT></ul></ul>
+
+<p><B><FONT FACE="HELVETICA" SIZE=4><P>Changing the Values in Working-Memory Objects </P>
+</B></FONT>
+<P>To change values in an object, use the MODIFY action with a value of type INSTANCE-ID. You can use any number of attribute-value pairs in a MODIFY action, even zero.  The changed object retains its old values for all other attributes; only the attributes you specify have their values replaced.  </P>
+<ul><B><FONT FACE="NewCenturySchlbk" SIZE=2><P>Note:</B>  &#9;When you modify an object, its time tag changes. However, its INSTANCE-ID remains the same.</P>
+</FONT></ul>
+<P>You can have more than one MODIFY action on a RHS; the changes are applied in the specified order.</P>
+
+<P>Suppose working memory contains the following BOX object:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>#29 35 [CONVERT-PACKAGES-TO-PARTS:BUSINESS-KIWI] (BOX ^IS-EXPANDED NO)</P>
+</FONT></ul>
+<P>and the following rule fires on it:</P>
+
+<B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-4:  Rule Expand-Part-Skeleton</P>
+</B></FONT>
+<ul><FONT FACE="Courier" SIZE=1><P>(rule expand-part-skeletons:box</P>
+<P>        (active-context ^name expand-part-skeletons)</P>
+<P>        (box ^$ID &lt;the-part&gt; ^is-expanded NO)</P>
+<P>     --&gt;</P>
+<P>        (modify &lt;the-part&gt;</P>
+<ul><P>                ^is-expanded YES</P>
+<P>                ^partnumber KI-9200</P>
+<P>                ^name |Kiwi-9200 CPU Base Unit|</P>
+<P>                ^price 999.95))</P>
+</FONT></ul></ul></ul>
+
+<P>After the rule fires, the BOX object is changed to:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>#29 68 [EXPAND-PART-SKELETONS:BOX] (BOX  ^PARTNUMBER KI-9200  ^NAME Kiwi-9200 CPU Base Unit  ^PRICE 999.95  ^IS-EXPANDED YES)</P>
+</FONT></ul>
+<B><FONT FACE="HELVETICA" SIZE=4><P>Deleting Objects from Working Memory</P>
+</B></FONT>
+<P>The REMOVE action deletes objects from working memory. You use REMOVE with one or more values of type INSTANCE-ID that indicate the WMOs to be deleted.</P>
+<P> For example, the following rule tallies up single item costs into a final total. This rule modifies the TOTAL-COST object and deletes each ITEM-COST object as soon as its cost is added to the total:</P>
+<B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-5:  Tallying Up Single Item Costs</P>
+</B></FONT>
+<ul><FONT FACE="Courier" SIZE=1><P>(rule sum-total-cost:sum</P>
+<P>        (active-context ^name sum-total-cost)</P>
+<P>        (total-cost ^$ID &lt;the-total&gt; ^cost &lt;val&gt;)</P>
+<P>        (item-cost ^cost &lt;the-cost&gt; ^$ID &lt;the-single-item-cost&gt;)</P>
+<P>     --&gt;</P>
+<P>        (modify &lt;the-total&gt; ^cost ( &lt;val&gt; + &lt;the-cost&gt;))</P>
+<P>        (remove &lt;the-single-item-cost&gt;))</P>
+</FONT></ul>
+
+<P>The REMOVE-EVERY action deletes all the working-memory objects that are instances of a specified visible class or its subclasses.   For example, the following ON-EXIT statement:</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>(on-exit</P>
+<ul><P>    (remove-every $ROOT))</P>
+</FONT></ul></ul>
+<P>deletes all visible WMOs as the entry block exits.</P>
+
+<p>&nbsp;</p>
+<p><B><FONT FACE="HELVETICA" SIZE=5><P>Working with Compound Values</P>
+</B></FONT>
+<P>The same syntax for matching and binding compound attributes is used for modifying compound attributes.</P>
+
+<P>The table below lists the RuleWorks functions that can be applied to compound values on the RHS.</P>
+<B><P>Table 4-2: Functions for Compound Values</P></b>
+<table border=1>
+<tr><td><b>Function</b></td><td><b>Description</b></td></tr>
+<tr><td>COMPOUND</td><td>Returns a new compound value from zero or more elements</td></tr>
+<tr><td>LENGTH</td><td>Returns the number of elements in a compound value</td></tr>
+<tr><td>NTH</td><td>Returns the value of the specified element</td></tr>
+<tr><td>POSITION</td><td>Returns the index position of an element in a compound value</td></tr>
+<tr><td>SUBCOMPOUND</td><td>Returns a compound value containing the specified subrange of a compound value (RHS only)</td></tr>
+</table>
+<P>&nbsp;</P>
+
+<B><FONT FACE="HELVETICA" SIZE=4><P>Modifying a Single Element</P>
+</B></FONT>
+<P>Changing the value of a single element of a compound attribute is called element-wise modification. You can change a single element and leave all other elements untouched. For example, the following MODIFY action replaces the first element of ^CARD-IN-SLOT but does not affect any other elements:</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>(modify &lt;the-box&gt; ^card-in-slot[1] memory)</P>
+</FONT></ul>
+
+<P>If the index expression used in an element-wise modification is greater than the current length of the compound value, elements other than the one specified may be changed. The specified element is set to the new value, as expected. In addition, all elements between the original end of the compound attribute and the new value receive the FILL value declared for that attribute (or NIL, if none was declared).</P>
+<P>For example, if the ^CARD-IN-SLOT attribute has the following value:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(compound memory memory keyboard fd-35)</P>
+</FONT></ul>
+
+<P>Then the following action:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(modify &lt;The-box&gt; ^card-in-slot[7] hd-30)</P>
+</FONT></ul>
+
+<P>sets the seventh element of ^CARD-IN-SLOT to the value HD-30, and sets the previously-untouched elements five and six to NIL, because no FILL value is declared for ^CARD-IN-SLOT. The new compound value of ^CARD-IN-SLOT is thus:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(compound memory memory keyboard fd-35 nil nil hd-30)</P>
+</FONT></ul>
+
+<B><FONT FACE="HELVETICA" SIZE=4><P>&#9;&#9;</P>
+<P>Modifying the Entire Compound Value</P>
+</B></FONT>
+<P>If you want to modify a compound attribute so that it has fewer elements than before, you must replace the entire attribute value. Typically this is done using the SUBCOMPOUND or the COMPOUND function to create an entirely new compound value. Continuing with the ^CARD-IN-SLOT example above, the following action:</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>(modify &lt;The-box&gt; ^card-in-slot (compound memory memory))</P>
+</FONT></ul>
+<P>has the effect of deleting all but the first two elements.</P>
+
+<B><FONT FACE="HELVETICA" SIZE=4><P>Using Common Idioms for Compound Values
+</P>
+</B></FONT>
+<P>Compound values are frequently used to represent stacks and queues.  This section shows the RuleWorks idioms for common operations on stacks and queues.</P>
+</FONT><B><I><P>Adding an Element to the Beginning of a Compound Attribute (Push) 
+  </P>
+</B></I>
+<P>To push a new value onto a stack, create a new compound value from the new scalar value plus the current compound value. For example:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>   (agenda ^$ID &lt;The-agenda&gt; ^tasks &lt;task-list&gt;)</P>
+<P>--&gt;</P>
+<P>   (MODIFY &lt;The-agenda&gt; ^tasks (COMPOUND start-up &lt;task-list&gt;))</P>
+</FONT></ul>
+
+<B><I><P>&#9;Removing an Element from the Beginning of a Compound Attribute (Pop) 
+ </P>
+</B></I>
+<P>To pop a value off a stack, replace the original compound attribute with a modified version that consists of elements 2 through the end.  For example:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>   (agenda ^$ID &lt;The-agenda&gt;)</P>
+<P>--&gt;</P>
+<P>   (MODIFY &lt;The-agenda&gt; ^tasks</P>
+<ul><P>                        (GET &lt;The-agenda&gt; ^tasks[2..$LAST]))</P>
+</FONT></ul></ul>
+
+<P>You could also use the SUBCOMPOUND function to pop a stack:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>   (agenda ^$ID &lt;The-agenda&gt; ^tasks &lt;task-list&gt;)</P>
+<P>--&gt;</P>
+<P>   (MODIFY &lt;The-agenda&gt; ^tasks</P>
+<ul><P>                        (SUBCOMPOUND &lt;task-list&gt; 2 $LAST))</P>
+</FONT></ul></ul>
+
+<B><I><P>Adding an Element to the End of a Compound Attribute (Append) 
+ </P>
+</B></I>
+<P>To append a value to the end of a queue, create a new compound value from the current compound value plus the new scalar value. For example:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>   (agenda ^$ID &lt;The-agenda&gt; ^tasks &lt;tasks&gt;)</P>
+<P>--&gt;</P>
+<P>   (MODIFY &lt;The-agenda&gt; ^tasks (COMPOUND &lt;tasks&gt; shut-down))</P>
+
+</FONT></ul>
+
+<B><I><P>Splicing A Compound Attribute 
+ </P>
+</B></I>
+<P>The following example removes a particular value from a compound attribute and advances the remaining elements to close the gap.</P>
+</FONT><B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-6:   Splicing a Compound Attribute</P>
+
+
+
+</B></FONT><ul><FONT FACE="Courier" SIZE=1>
+<P>(agenda ^$ID &lt;Agenda-wme&gt; ^tasks {&lt;tasks&gt; [+] &lt;value&gt;}) ;assume &lt;value&gt; is bound previously</P>
+<P>--&gt;</P>
+<P>   (bind &lt;p&gt; (POSITION &lt;tasks&gt; &lt;value&gt;))   ; get the index of &lt;value&gt;</P>
+<P>   (MODIFY &lt;Agenda-wme&gt; ^tasks</P>
+<ul><P>           (COMPOUND (SUBCOMPOUND &lt;tasks&gt; 1 (&lt;p&gt; - 1))</P>
+<P>                     (SUBCOMPOUND &lt;tasks&gt; (&lt;p&gt; + 1) $LAST)))</P>
+</FONT></ul></ul>
+
+<FONT FACE="NewCenturySchlbk" SIZE=1><P>&nbsp;</P>
+
+
+
+</FONT><B><I><P>&#9;Joining Compound Attributes 
+</P>
+</B></I>
+<P>The following example joins two compound values:</P>
+<B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-7:  Joining Compound Attributes</P>
+</B></FONT><ul><FONT FACE="Courier" SIZE=1><P>   (agenda ^$ID &lt;Agenda-1&gt; ^tasks &lt;list-1&gt;)</P>
+<P>   (agenda ^$ID { &lt;Agenda-2&gt; &lt;&gt; &lt;Agenda-1&gt; } ^tasks &lt;list-2&gt;)</P>
+<P>--&gt;</P>
+<P>   (MODIFY &lt;Agenda-2&gt; ^tasks</P>
+<ul><P>                      (COMPOUND &lt;list-1&gt; &lt;list-2&gt;))</P>
+</FONT></ul></ul>
+
+<FONT FACE="NewCenturySchlbk" SIZE=1><P>&nbsp;</P>
+
+</FONT><B><FONT FACE="HELVETICA" SIZE=4><P>Iterating Through a Compound Value
+ </P>
+</B></FONT>
+<P>You can use the FOR-EACH action to write a loop that executes once for each element in a compound value. The FOR-EACH action can include any number of RHS actions. Using the FOR-EACH action is more efficient than executing a rule multiple times to achieve the same result.</P>
+
+<P>For example, the following rule can be added to the program in the example, Using $ID Variables as Pointers, to reverse the list:</P>
+<B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-8:  Reversing the List</P>
+</B></FONT><ul><FONT FACE="Courier" SIZE=1><P> (rule reverse-compound</P>
+<ul><P>     (context ^name reverse)</P>
+<P>     (list-pointer ^$ID &lt;list-object&gt;</P>
+<P>                   ^list-ids &lt;ids&gt;)</P>
+<P>  --&gt;</P>
+<P>     (bind &lt;new-list&gt; (compound))</P>
+<P>     (for-each &lt;id&gt; in &lt;ids&gt;</P>
+<ul><P>         (bind &lt;new-list&gt; (compound &lt;id&gt; &lt;new-list&gt;)))</P>
+<P>     (modify &lt;list-object&gt; ^list-ids &lt;new-list&gt;))</P>
+</FONT></ul></ul></ul>
+
+<FONT FACE="NewCenturySchlbk" SIZE=1><P>&nbsp;</P>
+
+
+
+</FONT><B><FONT FACE="HELVETICA" SIZE=5><P>Performing Input and Output Operations
+ </P>
+</B></FONT>
+<P>RuleWorks programs can read input from and write output to a terminal or a file. You can use RuleWorks actions to: </P>
+
+
+<UL>
+<LI>Open files </LI>
+<LI>Set the default input source and output destination </LI>
+<LI>Read input </LI>
+<LI>Write output </LI>
+<LI>Close files</LI></UL>
+
+<B><FONT FACE="HELVETICA" SIZE=4><P>Opening Files
+</P>
+</B></FONT>
+<P> To open a file for reading or writing, use the OPENFILE action. Specify the action with a file identifier, a file specification, and one of the  keywords IN, OUT, or APPEND. If you specify IN, the action opens an existing file for reading only. If you specify OUT, the action creates a new file and opens it for writing only. If you specify APPEND, the action opens an existing file for writing and sets the file pointer to the end of the file.</P>
+
+<P>After opening a file, the action associates the file identifier with that file. For example, the following action opens the file CONFIG.DAT for reading and associates the file identifier INFIL with the file: </P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>(openfile infil config.dat in)</P>
+</FONT></ul>
+
+<P>The example shows the ON-ENTRY statement of an entry block that opens a file. First, the OPENFILE action opens the file named in the argument for writing and associates the file identifier DATA-IN with the file. Next, the IF...THEN...ELSE... action checks whether the open succeeded by using the IS-OPEN function.</P>
+
+<B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-9:  Opening a File with Error-Checking
+</P>
+
+
+
+</B></FONT>
+<ul><FONT FACE="Courier" SIZE=1><P>   (entry-block process_file</P>
+<ul><P>             (accepts &lt;input-file-name&gt; asciz)</P>
+<P>             (uses data_decls))</P>
+</ul><P>   (on-entry</P>
+<ul><P>       (openfile data-in &lt;input-file-name&gt; in)</P>
+<P>       (if ((is-open data-in) == NIL) then</P>
+<ul><P>           ;</P>
+<P>           ;  If we can't access the data file, complain then exit</P>
+<P>           ;</P>
+<P>           (write (crlf)|Error: File,| &lt;input-file-name&gt; |, does not|</P>
+<ul><P>                  (crlf)|       exist or is not readable.| (crlf))</P>
+</ul><P>           (quit) ) )</P>
+</ul><P>.</P>
+<P>.</P>
+<P>.</P>
+</ul><P>(end-block process-file)</P>
+</FONT></ul>
+
+
+<P>See Section C.1 for platform-specific restrictions on file names.</P>
+
+<P>Once a file has been opened and associated with a file identifier, you can use that file for input or output operations by specifying the file identifier with the following actions, functions, and commands:</P>
+
+<UL>
+<LI>ACCEPT-ATOM function (input)</LI>
+<LI>ACCEPTLINE_COMPOUND function (input) </LI>
+<LI>CLOSEFILE action and command (input and output) </LI>
+<LI>DEFAULT action and command (input and output) </LI>
+<LI>WRITE action (output)</LI></UL>
+
+<B><FONT FACE="HELVETICA" SIZE=4><P>Setting the Default Input Source and Output Destination
+</P>
+</B></FONT>
+<P>Use the DEFAULT action to set the default source for input operations or the destination for output operations. The argument values that you specify with the action determine the source or destination.  </P>
+
+<P>By default, input comes from the terminal. To set the source to a file, specify the DEFAULT action  with the file identifier of an open input file and  the keyword ACCEPT. Suppose INFIL is the file identifier for an open input file. The following action sets that file to be the default source for input:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(default infil accept)</P>
+</FONT></ul>
+
+
+
+<P>Once the default for input has been set to a file, all input required by the ACCEPT-ATOM and ACCEPTLINE-COMPOUND functions is taken from that file. To set the default back to the terminal, specify the symbol NIL with the keyword ACCEPT.</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(default nil accept)</P>
+</FONT></ul>
+
+<P> The terminal is also the default destination for output. To set the destination to a file, specify the DEFAULT action with the file identifier of an open output file and the keyword TRACE or WRITE. The keyword TRACE sets the destination for output from the TRACE command, and the keyword WRITE sets the destination for the WRITE action. Suppose OUTFIL is the file identifier for an open output file. The following action sets that output file to be the default destination for trace output:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(default outfil trace)</P>
+</FONT></ul>
+
+
+
+<P>Once the destination for trace output has been set to a file, all trace output produced by the run-time system is sent to that file. Likewise, if you substitute the keyword WRITE for TRACE, all output produced by the WRITE action is sent to that file.</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>(default outfil write)</P>
+
+
+
+
+</FONT></ul>
+<P>To set the default destination back to the terminal, specify the symbol NIL with the appropriate keyword. For example:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(default nil trace)</P>
+
+
+
+</FONT></ul>
+
+<B><FONT FACE="HELVETICA" SIZE=4><P>&#9;&#9;</P>
+<P>Reading Input </P>
+</B></FONT
+<P>The input functions ACCEPT-ATOM and ACCEPTLINE-COMPOUND read values from the terminal or a file.  By default, the input functions read input from the terminal. If you want to read from a file, call the input function with the file identifier of an open input file or change the default for input.   </P>
+<P>The input functions create atoms of the appropriate data types in exactly the same way as the compiler</P>
+
+<P>The examples in the following sections assume that the file identified by INFIL contains the lines shown in the example.</P>
+</FONT><B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-10: A Sample Input File
+</P>
+
+
+
+</B></FONT><ul><FONT FACE="Courier" SIZE=1><P>box  KiwiCalc  KiWindows</P>
+<P>mouse</P>
+<P>; this line blank as far as RuleWorks concerned</P>
+<P>memory</P>
+</FONT></ul>
+
+<P>Both input functions ignore any atoms between a semicolon (;) and the end of the line.</P>
+</FONT><B><I><P>&#9;Reading Scalar Atoms  </P>
+</B></I><FONT SIZE=2><P>The ACCEPT-ATOM function reads a single atom from the terminal or a file.  For example, the following rule uses the ACCEPT-ATOM function inside a MAKE action to take items from a file into a WMO:</P>
+</FONT><B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-11:  Reading Scalar Atoms</P>
+
+</B></FONT>
+<ul><FONT FACE="Courier" SIZE=1><P>(rule read-line-item:read-an-item</P>
+<ul><P>        (active-context ^name read-line-item)</P>
+<P>        (input-count ^count &lt;c&gt; ^$ID &lt;the-counter&gt;)</P>
+<P>        - (input-thing ^item END-OF-FILE)</P>
+<P>     --&gt;</P>
+<P>        (make input-thing ^item (accept-atom infil))</P>
+<P>        (modify &lt;the-counter&gt; ^count (&lt;c&gt; + 1)))</P>
+</FONT></ul></ul>
+
+<P>Each time this rule fires, the attribute ^ITEM in a new WMO is given the value read by the ACCEPT-ATOM function. Given the data shown in the example, the following objects are created:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>#17 17 [READ-LINE-ITEM:READ-AN-ITEM] (INPUT-THING  ^ITEM BOX)</P>
+<P>#18 19 [READ-LINE-ITEM:READ-AN-ITEM] (INPUT-THING  ^ITEM KIWICALC)</P>
+<P>#19 21 [READ-LINE-ITEM:READ-AN-ITEM] (INPUT-THING  ^ITEM KIWINDOWS)</P>
+<P>#20 23 [READ-LINE-ITEM:READ-AN-ITEM] (INPUT-THING  ^ITEM MOUSE)</P>
+<P>#21 25 [READ-LINE-ITEM:READ-AN-ITEM] (INPUT-THING  ^ITEM MEMORY)</P>
+<P>#22 27 [READ-LINE-ITEM:READ-AN-ITEM] (INPUT-THING  ^ITEM END-OF-FILE)</P>
+</FONT></ul>
+
+
+<P>When the ACCEPT-ATOM function reads past the end of a file, it returns the atom END-OF-FILE.</P>
+
+<P>The ACCEPT-ATOM function ignores blank lines between atoms.</P>
+</FONT><B><I><P>&#9;Reading Compound Values </P>
+</B></I>
+<P>The ACCEPTLINE-COMPOUND function reads a line of input consisting of zero or more atoms and returns a compound value. Unlike the ACCEPT-ATOM function, the ACCEPTLINE-COMPOUND function does not ignore blank lines. You can specify a default value that the function returns when it reads a blank line. This default value can be a compound value or a bound compound variable.</P>
+
+<P>For example, the MAKE action in the following rule calls the ACCEPTLINE-COMPOUND  function with the default value (COMPOUND NOTHING HERE):</P>
+</FONT><B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-12:  Reading Compound Values</P>
+
+
+
+</B></FONT><ul><FONT FACE="Courier" SIZE=1><P>(rule read-a-whole-line</P>
+<ul><P>     (active-context ^name read)</P>
+<P>     (input-count ^count &lt;c&gt; ^$ID &lt;the-counter&gt;)</P>
+<P>     - (input-thing ^line[1] END-OF-FILE)</P>
+<P>  --&gt;</P>
+
+<P>  (make input-thing ^line(acceptline-compound infil(compound nothing here)))</P>
+
+<P>     (modify &lt;the-counter&gt; ^count (&lt;c&gt; + 1)))</P>
+</FONT></ul></ul>
+
+<P>Given the data shown in the example, this rule makes the following objects:</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>#3 3 [READ-A-WHOLE-LINE] (INPUT-THING  ^LINE (COMPOUND BOX KIWICALC KIWINDOWS))</P>
+<P>#4 5 [READ-A-WHOLE-LINE] (INPUT-THING  ^LINE (COMPOUND MOUSE))</P>
+<P>#5 7 [READ-A-WHOLE-LINE] (INPUT-THING  ^LINE (COMPOUND NOTHING HERE))</P>
+<P>#6 9 [READ-A-WHOLE-LINE] (INPUT-THING  ^LINE (COMPOUND MEMORY))</P>
+<P>#7 11 [READ-A-WHOLE-LINE] (INPUT-THING  ^LINE (COMPOUND END-OF-FILE))</P>
+</FONT></ul>
+
+
+<P>If you want to specify a default value for ACCEPTLINE-COMPOUND, you must put a file identifier before the default value. If you want a default value even when reading from the default input source, use NIL for the file identifier.</P>
+
+<P>When the ACCEPTLINE-COMPOUND function reads past the end of a file, it returns a compound value containing the single element END-OF-FILE.</P>
+
+<B><FONT FACE="HELVETICA" SIZE=4><P>Writing Output
+</P>
+</B></FONT>
+<P>Use the WRITE action to send output to the terminal or a file. If you want to send output to a file, specify the action with the file identifier of an open output file or change the default for the WRITE action.    </P>
+
+<P>The arguments that you specify for a WRITE action are evaluated, and the output is written on the current output line with one space between values.  For example, suppose the variable &lt;ITEM&gt; is bound to COLOR-MONITOR and the variable &lt;PRICE&gt; is bound to 199.95.  You could use these variables in a WRITE action as follows:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(write item &lt;item&gt; costs &lt;price&gt;)</P>
+</FONT></ul>
+<P>This action displays the following output:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>ITEM COLOR-MONITOR COSTS 199.95</P>
+</FONT></ul>
+
+<P>The output is in capital letters because the RuleWorks compiler uppercases all unquoted symbols. To display output exactly the way you have entered it, enclose the text in vertical bars (|  | ). For example:</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>(write  | Item |  &lt;item&gt;  | costs |  &lt;price&gt;)</P>
+</FONT></ul>
+
+<P>This action displays:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>Item COLOR-MONITOR costs 199.95</P>
+</FONT></ul>
+
+<P>If the variable &lt;ITEM&gt; were also inside vertical bars, it would not be evaluated. To get the value of &lt;ITEM&gt; in lowercase letters, it would have to be quoted in the place it was bound, not in the WRITE action.</P>
+<P>Compound values are printed with one space between elements, but without any parentheses or the COMPOUND keyword. The following WRITE action:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(write  | This box contains the following cards: |  &lt;cards&gt;)</P>
+</FONT></ul>
+
+<P>could produce this output:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>This box contains the following cards: MEMORY MEMORY KEYBOARD</P>
+</FONT></ul>
+
+<P>You can control the format of your output by using the CRLF, TABTO, and RJUST functions to:   </P>
+
+<UL>
+<LI>Produce output on a new line  </LI>
+<LI>Specify the column in which to start writing output </LI>
+<LI>Produce right-justified output</LI></UL>
+
+<B><I><P>&#9;Producing Output on a New Line 
+ </P>
+</B></I>
+<P>To write output on a new line, use the CRLF function in a WRITE action.    For example:</P>
+</FONT><B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-13:  Producing Output on a New Line</P>
+
+</B></FONT>
+<ul><FONT FACE="Courier" SIZE=1><P>(rule verify-configuration:need-cpu-box</P>
+<ul><P>        (active-context ^name verify-configuration)</P>
+<P>        - (box)</P>
+<P>     --&gt;</P>
+<P>        (make error ^severity warning ^message |Missing CPU unit|)</P>
+<P>        (write  (crlf) |Caution: You need to buy the base CPU unit.|</P>
+<ul><P>                (crlf) |  Fixup: adding a CPU BOX to your order.|</P>
+<P>                (crlf))</P>
+</ul><P>        (make box))</P>
+</FONT></ul></ul>
+
+<P>The WRITE actions in this rule produce the following output:</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>Caution: You need to buy the base CPU unit.</P>
+<P>  Fixup: adding a CPU BOX to your order.</P>
+</FONT></ul>
+
+<B><I><P>&#9;Specifying the Column in Which to Start Writing Output 
+ </P>
+</B></I>
+
+<P>Use the TABTO function to specify in which column the WRITE action is to start writing output. Specify the column number with an integer or a variable bound to an integer. For example:  </P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>(TABTO 15)</P>
+</FONT></ul>
+
+
+
+<P>If the column you specify is to the left of the last column in which output  has been written, the WRITE action writes the output on a new line, starting  at the specified column.</P>
+
+<P>The following WRITE action displays the headers of three columns:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(write (crlf) |Part Number| (tabto 15) |Name| (tabto 65) |Price|)</P>
+</FONT></ul>
+
+
+<P>This action produces the following output:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>Part Number   Name                                              Price</P>
+
+
+
+</FONT></ul>
+
+<B><I><P>&#9;Producing Right-Justified Output 
+</P>
+</B></I>
+<P>The WRITE action writes output right justified in a field of a specified width if you use the RJUST function. Specify the width with an integer or a variable bound to an integer.  When a WRITE action contains the RJUST function, the WRITE action:</P>
+<ul>
+<P>1.&#9;Allocates a field of the width specified, beginning at the next possible  position on the output line</P>
+<P>2.&#9;Determines the number of character positions required by the output being  written</P>
+<P>3.&#9;Inserts spaces that cause the output to be right justified in the field</P>
+</ul>
+
+
+
+<P>If the output being written requires more character positions than you specify for the field, the WRITE action writes the output as if the RJUST function was not specified, that is, the WRITE action inserts one space and then writes the output.</P>
+
+<P>A call to the RJUST function must directly precede the value being written.  You can use the RJUST function after calls to the CRLF and TABTO functions.  For example:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(write (crlf) &lt;num&gt; (tabto 12) &lt;part-name&gt; (tabto 65) (rjust 10) &lt;price&gt;)</P>
+</FONT></ul>
+
+<P>You can also use the RJUST function to suppress the spaces that RuleWorks automatically inserts between values. For example:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(write |Item| &lt;item&gt; |costs $| (rjust 6) &lt;price&gt;) </P>
+
+
+
+</FONT></ul>
+
+<B><FONT FACE="HELVETICA" SIZE=4><P>Closing Files
+ </P>
+</B></FONT>
+<P>To close files, specify the CLOSEFILE action with the file identifiers of the files you want to close. The action closes the files associated with the file identifiers you specify and dissociates the identifiers from the files.  For example, to close files whose file identifiers are INFIL and OUTFIL, specify the following:   </P>
+<ul><FONT FACE="Courier" SIZE=1><P>(CLOSEFILE INFIL OUTFIL)</P>
+</FONT></ul>
+
+<P>Once you have closed a file, you can no longer use its file identifier with other actions, functions, or commands to perform input and output operations.  To use the files again, you must reopen them.</P>
+
+<P>If you do not close your files when control leaves the current entry block, the files remain open when control returns to that entry block.  If files are open when a program quits or exits, they are closed by the operating system.  </P>
+
+<p>&nbsp;</p>
+<B><FONT FACE="HELVETICA" SIZE=5><P>Saving and Restoring Working Memory
+ </P>
+</B></FONT>
+<P>
+You can copy the program state, that is, the state of working memory and the conflict set, to a file by using the SAVESTATE action. The SAVESTATE action is scoped to the entry block; thus, it saves only that portion of working memory that is currently visible.  The following action copies the program state to the file CONFIG.DAT:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(savestate config.dat)</P>
+</FONT></ul>
+
+<P>(See Section C.1 for platform-specific restrictions on file names.)</P>
+
+<P>Once you have saved the program state in a file, you can use the ADDSTATE  action to add the contents of the saved working memory stored in that file to the current program state. Like the SAVESTATE action, the ADDSTATE action is scoped to the entry block; it can create only those objects that are visible.  </P>
+<ul><FONT FACE="Courier" SIZE=1><P>(addstate config.dat)</P>
+</FONT></ul>
+
+
+
+<P>If you want to clear the program state and restore it to the state produced by the SAVESTATE action, use the RESTORESTATE action. Like SAVESTATE and ADDSTATE, the RESTORESTATE action is scoped to the entry block; it can create only those objects that are visible. Using ADDSTATE or RESTORESTATE to create objects whose declarations are currently unknown results in a run-time warning.</P>
+
+<P>Suppose you have used the SAVESTATE action to copy the program state to the file CONFIG.DAT. You can use the following action to clear and restore the program state to that recorded in the file CONFIG.DAT:   </P>
+<ul><FONT FACE="Courier" SIZE=1><P>(restorestate config.dat)</P>
+</FONT></ul>
+
+<P>The state of user-defined external routines, and of files, is not saved by the SAVESTATE action and thus cannot be added or restored with the ADDSTATE or RESTORESTATE action.</P>
+
+<P>If you change your OBJECT-CLASS declarations before using ADDSTATE or RESTORESTATE, the old saved file is useless.</P>
+
+<p>&nbsp;</p>
+<B><FONT FACE="HELVETICA" SIZE=5><P>Controlling the Flow of Program Execution
+ </P>
+</B></FONT>
+<P>RuleWorks provides two RHS actions that allow you to control the flow of execution, as in procedural languages: IF...THEN...ELSE and WHILE...DO...  These control actions are especially useful in ON-ENTRY statements, to allow an entry block to respond correctly to its input arguments.</P>
+
+<P>Both control actions evaluate a relational expression to determine which, if any, actions are executed. The next section explains relational expressions; the following two sections cover the IF...THEN...ELSE... and WHILE...DO...  actions in detail.</P>
+
+<B><FONT FACE="HELVETICA" SIZE=4><P>Relational Expressions
+ </P>
+</B></FONT>
+<P>Relational expressions on the RHS are similar to attribute-value tests on the LHS, except that relational expressions compare two values instead of an attribute and a value, and evaluate to TRUE or FALSE instead of producing a match or no match. The syntax for a simple relational expression is shown below: </P>
+
+<ul><B><P>(<I>value-1 predicate value-2</I>)</P></ul>
+</B>
+<P>The values may be any expression; the relational operators may be any one of the match predicates (see Table 3-2).  The restrictions on domain and shape (data type and scalar or compound) shown in the table also apply when you use the predicates in relational expressions. For example, assuming &lt;THE-ID&gt; is a $ID variable, the following code generates a compile-time warning:</P>
+
+
+<ul><FONT FACE="Courier" SIZE=1><P>(&lt;The-ID&gt; &lt; 20)</P></font>
+</ul>
+
+
+<P>because the less-than operator is valid only for numbers and symbols.  Assuming the variable &lt;COUNT&gt; is bound to either an INTEGER or a FLOAT value, the following code is correct:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>(&lt;count&gt; &lt; 20)</P>
+</FONT></ul>
+
+<P>If, at run-time, &lt;COUNT&gt; is bound to a value of any non-numeric type, the expression above generates no warnings, but it always evaluates to FALSE.</P>
+
+<P>Note that while relational expressions evaluate to either TRUE or FALSE, TRUE and FALSE themselves are not valid relational expressions in RuleWorks.</P>
+
+<P>You can use the relational operators AND, NOT, and OR to combine two (or invert one, in the case of NOT) simple relational expressions into a more  complex relational expression. For example:</P>
+<ul><FONT FACE="Courier" SIZE=1><P>((&lt;count&gt; = 20) OR (&lt;count&gt; &lt; 0))</P>
+
+
+
+</FONT></ul>
+<B><FONT FACE="HELVETICA" SIZE=4><P>&#9;&#9;</P>
+<P>Selecting Actions (Branching)
+ </P>
+</B></FONT>
+<P>The IF...THEN...ELSE... action allows you to select between two sets of actions based on the result of a relational expression (see previous section). The syntax of this action is shown in the following example. </P>
+</FONT><B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-14:  IF-THEN-ELSE Syntax</P>
+<ul><P>(IF (relational-expression) <BR>
+<ul>THEN RHS-action... <BR>
+[ELSE RHS-action...  ])</P>
+</B></FONT></ul></ul>
+
+<P>The RHS actions in the THEN clause are executed when the relational expression evaluates to TRUE; the actions in the ELSE clause (if any) are executed when the relational expression evaluates to FALSE. The example show IF...THEN...ELSE... actions in ON-ENTRY statements.</P>
+
+<B><FONT FACE="HELVETICA" SIZE=4><P>Repeating Actions (Looping)
+ </P>
+</B></FONT>
+<P>The WHILE...DO... action allows you to repeat (iterate) a set of actions based on the result of a relational expression (see Relational Expressions). The syntax of this action is shown below: </P>
+
+<B><P>Example 4-15: WHILE-DO Syntax</P>
+<ul><P>(WHILE) (</B><I>relational-expression<B> </I>DO </B><I>RHS-action...</P>
+</I></FONT></ul>
+
+<P>The RHS actions are repeated as long as the relational expression evaluates to TRUE. Remember to include an action that affects the relational expression somewhere in your loop. In the following example, Reading a File, in a Loop the BIND action at the end of the loop resets the variable &lt;IN-LINE&gt; which is part of the relational expression.</P>
+
+</FONT>
+<p>&nbsp;</p>
+<B><FONT FACE="HELVETICA" SIZE=5><P>Stopping Program Execution
+</P>
+</B></FONT>
+<P>Use the QUIT action to terminate execution of the current image and return control to the operating system without executing any ON-EXIT actions.  Valid arguments for QUIT include $FAILURE and $SUCCESS, as well as any integer.  RuleWorks substitutes either 0 or 1, as appropriate for the operating system, for $FAILURE and $SUCCESS.     </P>
+
+<P>The following example uses the QUIT action to terminate execution with a return value indicating success.</P>
+
+<ul><FONT FACE="Courier" SIZE=1><P>(rule success</P>
+<ul><P>        (context ^$ID &lt;context&gt; ^task complete)</P>
+<P>   --&gt;</P>
+<P>        (remove &lt;context&gt;)</P>
+<P>        (quit $success))</P>
+</ul></ul>
+
+<P>&nbsp;</P>
+
+
+
+</FONT><B><FONT FACE="HELVETICA" SIZE=2><P>Example 4-16:  Reading a File in a Loop</P>
+
+
+
+</B></FONT>
+<ul><FONT FACE="Courier" SIZE=1><P>;</P>
+<P>;               R E A D B O O K . R U L</P>
+<P>;</P>
+<P>;       Uses the shared declarations for the phone book</P>
+<P>;       contents, and reads PHONE.DAT for the actual names</P>
+<P>;       and numbers.</P>
+<P>;</P>
+<P>(entry-block read_phone_book</P>
+<ul><P>             (uses phone_book))</P>
+</ul><P>    (on-entry</P>
+<ul><P>        ;       First open the data file</P>
+<P>        ;</P>
+<P>        (openfile phone-data-file phone.dat in)</P>
+<P>        (if (nil == (is-open phone-data-file)) then</P>
+<ul><P>            (write (crlf) |Error:  unable to read phone.dat| (crlf))</P>
+<P>            (quit)</P>
+</ul><P>        )</P>
+<P>        ;       Next read first line and bind it to a variable</P>
+<P>        ;</P>
+<P>        (bind &lt;in-line&gt; (acceptline-compound phone-data-file))</P>
+<P>        ;</P>
+<P>        ;       Loop through file, making each line an object</P>
+<P>        ;</P>
+<P>        (while (&lt;in-line&gt; &lt;&gt; (compound end-of-file)) do</P>
+<ul><P>            ;</P>
+<P>            ;   Ignore lines without 3 fields; lines should look like:</P>
+<P>            ;          |Dave|   |Garter|  |555-5283|</P>
+<P>            ;</P>
+<P>            (if (3 == (length &lt;in-line&gt;)) then</P>
+<ul><P>                (make person</P>
+<ul><P>                        ^first-name  (nth &lt;in-line&gt; 1)</P>
+<P>                        ^last-name   (nth &lt;in-line&gt; 2)</P>
+<P>                        ^phone       (nth &lt;in-line&gt; 3))</P>
+</ul><P>            )</P>
+<P>            (bind &lt;in-line&gt; (acceptline-compound phone-data-file))</P>
+</ul><P>        )</P>
+<P>        (closefile phone-data-file)</P>
+</ul><P>    )</P>
+</ul><P>(end-block read_phone_book)  </P>
+</FONT></ul>
+
+
+
+
+
+<P>When this rule fires, the QUIT action causes the run-time system to stop executing recognize-act cycles immediately. The compiler provides a warning when any actions follow RETURN or QUIT actions.  </P></FONT></BODY>
+</HTML>

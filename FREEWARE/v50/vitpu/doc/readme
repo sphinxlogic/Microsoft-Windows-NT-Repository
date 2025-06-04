@@ -1,0 +1,142 @@
+There are 36 parts to the distribution of VI written in TPU. Below
+is a sequence of steps that should allow you to get VI up and running.
+
+    1)  You should pick a directory to place VI under. Three
+        subdirectories will be created during the unpacking process.
+        They are [.SRC], [.EXE], and [.DOC].  The directory names should
+        reveal the purposes of these directories.  You have probably
+        already done this since you are reading this file.  If not,
+        unpack the shar file and the directories will be created.
+
+    2)  You should then execute the makefile (@[.SRC]MAKE ALL) to make
+        the program.  During the execution of MAKE, several diagnostic
+        messages will be displayed.  You should only pay attention to
+        the final message that says that the section file was either
+        installed properly or was not.
+
+NOTE:
+        [.SRC]MAKE.COM invokes the $ INSTALL program to REPLACE the
+        VI$ROOT:[EXE]VI.GBL file IFF it is already installed.  One possible
+        diagnostic message from INSTALL says 
+
+%INSTALL-E-OPENIN, error opening VI$ROOT:<EXE>VI.GBL; as input
+-RMS-F-DEV, error in device name or inappropriate device type for operation
+
+        and can be ignored since, obviously, there is no such logical
+        name defined.
+
+        If you have previously installed VI on your machine, but, VI.GBL
+        is not 'installed', then you will get a diagnostic to the effect
+        of
+
+%INSTALL-W-FAIL, failed to DELETE entry for SOME_DEVICE:<SOME_DIRECTORY>VI.GBL
+-INSTALL-E-NOKFEFND, Known File Entry not found
+
+        This can also be ignored.
+
+        If you previously installed VI on your machine, and VI.GBL is
+        'installed', then this procedure will replace the old one with
+        what ever is the latest version of VI.GBL in VI$ROOT:[EXE].  You
+        MUST decide whether or not this is what you want to do.  You
+        should EDIT [.SRC]MAKE.COM and comment out the INSTALL
+        invocation if desired.
+
+    3)  Next, set default to [-.DOC] (from the SRC directory), and execute
+        the command "$ @VIDOC", and "$ @VIDOC HELP" to create a
+        printable vers>ion of the current documentation, as well as a
+        HELP file that VI can use.  When asked the question:
+
+            Name of library to install HELP files in?
+
+        you should probably answer, VI, unless you really desire to put
+        the help file into a library in another directory.  VI.TPU
+        contains the path VI$ROOT:[DOC]VI.HLB as the place where it will
+        work from, so if you do not place the help file in this library
+        (It will automatically be created for you), then you must edit
+        VI.TPU to contain the proper path.
+
+    4)  Here you have a decision to make.  I have written an interface to
+        callable TPU, [-.SRC]VI.MAR.  If you wish to use this interface,
+        then there must be a CLD definition for it installed in
+        DCLTABLES.  This is really only necessary for using VI as a
+        SUB-process, but I find it convienent to install the CLD so that
+        I do not have to wait for SET COMMAND to complete when I log in.
+        If do not wish to use the callable TPU interface then go to the
+        next step NOW, otherwise hang tight.
+
+        The CLD definition that needs to be installed is in
+        [-.EXE]VI.CLD.  If you do not have sufficient privileges to
+        install a new DCLTABLES you should get prepared to do so, or
+        find someone that will do it for you (now is not entirely
+        necessary, as you can skip to step 6, and do this later).
+
+        a)  Take the time to examine the CLD, and make sure it is ok for
+            your installation.  If you are on a cluster, then there is
+            some extra work that I won't describe here since I have
+            never done it.  Basically you need to do the following set
+            of commands.  (the dollar signs are provide by DCL in case
+            it wasn't obvious).
+
+            $ SET COMMAND [-.EXE]VI.CLD/TABLE=SYS$SHARE:DCLTABLES.EXE/OUT=-
+            _$ SYS$SHARE:DCLTABLES.EXE
+            $ MCR INSTALL
+            INSTALL>SYS$SHARE:DCLTABLES/REPLACE
+            INSTALL>EXIT
+
+        b)  This should be all that single CPU sites need to do.  If you
+            have a different arrangement at your sight that requires
+            something different, then you would know that better than I.
+            Remeber that you MUST logout and log back in to have the
+            updated DCLTABLES available to your process.  Step 8, below,
+            can not be done unless you either 1) do not do (c) below, or
+            2) you logout and log back in after reinstalling DCLTABLES.
+
+        c)  [-.EXE]VI.COM, and [-.EXE]VISETUP.COM contain uses of the
+            symbol, "VI".  This symbol is normally equated to
+            "EDIT/TPU".  Once you have made the changes necessary to
+            update DCLTABLES, then these references should be changed.
+            In [-.EXE]VI.COM, change VI to be "VI", instead of
+            "EDIT/TPU".  In [-.EXE]VISETUP.COM, delete the assignment to
+            the variable VI, as the comment there says to.
+
+    5)  Next, set default to [-.EXE] (from [.DOC]), and edit the file
+        VISETUP.COM.  This file must be executed by each user wishing to
+        use VI before they can use it.  You should change the definition
+        of VI$ROOT to be the parent directory of the directory you are
+        in NOW.  E.g.  if you are in the directory DUA0:[PUBLIC.VI.DOC],
+        then VI$ROOT should be defined to be DUA0:[PUBLIC.VI.].  Note
+        that this file potentially defines 3 symbols.  VI allows normal
+        use of VI, VIS allows use of the VI.COM procedure to run VI in a
+        subprocess, and VIEW allows READONLY editing of a file (as in
+        UNIX).
+
+    6)  The command file VI.COM is used to envoke VI in a sub-process
+        so that a minimal amount of overhead for image activation will
+        be incurred by the system.  In VI.COM, there are invocations of
+        the SET PROC/SUSPEND, and SET PROC/RESUME commands.  I use these
+        commands to suspend "kept" editors while they are not it use so
+        that they will be swapped out or trimmed by the SWAPPER in a
+        more timely manner.  This will allow their memory to be put to
+        use by other processes whenever possible (These processes can
+        grow quite large virtually as more and more buffers are created
+        and not deleted [tpuvi has a delete-buffer command]).  If you do
+        not wish to do this and/or do not have these facilities
+        available to you, then you should comment out these command
+        lines.
+
+    7)  Next, you should be ready to give VI a trial run.  Execute the
+        VISETUP.COM procedure in [.EXE].  Then type VI, and hit return.
+        You should be off and running.
+
+------------------------
+Gregg Wonderly
+Department of Mathematics
+Oklahoma State University
+
+INTERNET:      gregg@nemo.math.okstate.edu
+UUCP:          {ihnp4, rutgers, isucs1}!okstate!nemo.math.okstate.edu!gregg
+
+US MAIL:
+401 Mathematical Sciences
+Oklahoma State University
+Stillwater, OK  74078

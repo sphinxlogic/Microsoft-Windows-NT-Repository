@@ -1,0 +1,316 @@
+EVMS::SYSTEMS_GROUP 82.2
+
+				SHIP Kit Creation
+
+
+  This is an update on how to create a SHIP kit for V7.1-2 and
+  later using PCSI instead of VMSINSTAL.
+
+  OVERVIEW OF SHIP:
+
+  A SHIP kit provides images for VMS which are used both at boot
+  time, as well as then providing a means to install these images
+  onto a VMS system disk.  The design of SHIP was to use PCSI for
+  the installation, and create a REFERENCE kit which places the
+  files into the appropriate areas to allow use during boot.
+
+  SHIP kits can provide 3 things that are typically required to
+  boot a system.  Only those things that are required, must be
+  present.  However, not having them present can cause informational
+  messages that the user will see.  All of these items are checked
+  when the system is booted using the FOREIGN BOOTSTRAP flag:
+
+	b -flags 0,80000
+
+  The items that can be supplied are:
+
+  o New CPU routines.  This can OVERRIDE files that are on the
+    system disk or installation CD.
+
+  o New BOOT drivers.  Any driver that is needed by a device that
+    can be specified on the boot command line can be provided. 
+    The driver can OVERRIDE a driver on the system disk as long
+    as the device is specified on the command line.
+
+  o A new Firmware Revision Matrix file can be supplied when the
+    system is completely unknown.
+
+  It is also possible to cause other side effects on purpose, when
+  there is a need.  For instance, you can prevent the loading of a
+  device driver from the system disk by creating a bogus CONFIG
+  entry for file based autoconfiguration.  This is useful if the
+  driver can cause a crash.
+
+  The SHIP kit media can be ANY disk device capable of being
+  specified on the BOOT command line.  The typical media is a
+  FLOPPY, but a CD can also be used.  A typical command line
+  for Foreign booting is:
+
+	b -fl 0,80000 dqa0, dva0
+
+  The user will be prompted to determine which device the SHIP
+  kit is located on.  In this case, DVA0 would be a floppy kit.
+
+	b -fl 0,80000 dqa0
+
+  In this case, the SHIP kit can be on CD media, and the user
+  would need to swap the CDs (note: we have not fully tested
+  this).
+
+	b -fl 0,80000 dqa0, dqa1, dva0
+
+  This command is different than the first, in that it is explicitly
+  attempting to configure DQA0 and DQA1.  This can be needed if a
+  later SYSMAN IO AUTO would not configure the additional unit.  It
+  has been tested for the SYMBIOS 875 on a rawhide:
+
+	b -fl 0,80000 dka0, dkb0, dva0
+
+  In this case, DKA0 was the CD on the supported NCR 810, and DQB0
+  was the unknown SYMBIOS 875.  Because VMS could not autoconfigure
+  the SYMBIOS without the driver on the system disk, it is specified
+  on the command line to force the boot time configuration of the
+  driver.
+
+  NOTE:  In the examples above, the FIRST device on the command line
+  should ALWAYS be the device which is to be booted, the SHIP kit
+  can follow any position after that.  The FOREIGN boot command uses
+  console functionality normally used for boot fallback (i.e. try
+  this device, then this, then this... looking for a valid bootstrap).
+
+  KIT CREATION:
+
+  To create a SHIP kit using PCSI, you must first create the images,
+  as well as a .PCSI$DESCRIPTION and .PCSI$TEXT file.
+
+    PSCI$DESCRIPTION:
+
+    The following is an example for a MULTIA (we will also assume that
+    Multia needs DQDRIVER as a boot driver for the example):
+
+    File: UNSUPPORTED-AXPVMS-MULTIA-V0100--4.PCSI$DESCRIPTION
+
+    Contents (tabbed-in for the example):
+
+	product UNSUPPORTED AXPVMS MULTIA V1.0 patch ;
+	        apply to dec AXPVMS VMS version minimum V7.1-2 ;
+	
+	-- make sure that the kit will not install on V7.2.  This statement
+	-- along with the above "apply to" guarantees that the kit will
+	--instlal on V7.1-2 and any future hardware variants but nothing else.
+	
+	   if ( NOT < software DEC AXPVMS VMS version below  V7.2 > ) ;
+	        error BADVER abort ;
+	   end if ;
+	
+	-- move images
+	   scope bootstrap ;
+	        file [SYS$LDR]SYS$CPU_ROUTINES_0B04.EXE archive generation 0040110099 ;
+	        file [SYSEXE]FIRM_REV_MATRIX.DAT archive generation 0040110099 ;
+	        file [SYSEXE]APB.EXE archive generation 0040110099 ;
+	   end scope ;
+	
+	        file [SYSEXE]SYS$CONFIG.DAT archive generation 0040110099 ;
+	        file [SYSLIB]SYS$ICBM.EXE archive generation 0040110099 ;
+	        file [SYS$LDR]SYS$DQDRIVER.EXE archive generation 0040110099 ;
+	        file [SYS$LDR]SYS$PKWDRIVER.EXE archive generation 0040110099 ;
+	        file [SYS$LDR]SYS$EWDRIVER.EXE archive generation 0040110099 ;
+	        file [SYS$LDR]SYS$EWBTDRIVER.EXE archive generation 0040110099 ;
+	
+	-- move the release notes
+	        file [SYSHLP]MULTIA-V0100.RELEASE_NOTES generation 0040110099
+	                release notes ;
+	
+	-- Perform any post installation tasks that need to be done
+	      execute
+	           postinstall "@PCSI$SOURCE:[SYSUPD]PCSI_POSTINSTALL.COM"
+	           uses ([SYSUPD]PCSI_POSTINSTALL.COM, [SYSEXE]CONFIG.DAT) ;
+	
+	-- tell user the location of the release notes
+	    information RELEASE_NOTES phase after with helptext;
+	
+	end product;
+
+    This kit checks to ensure the right O/S version, and provides new images.
+
+    It also supplies a FIRM_REV_MATRIX.DAT that is used during the bootstrap and
+    has the additional record (in this example):
+
+	FIRM_CD_REV_MAJ = 5                     ! MUST BE UPDATED FOR NEW UPDATE CD
+	FIRM_CD_REV_MIN = 3                     ! RELEASES.
+	
+	SYS_TYPE        = 11                    ! NONAME type is being used for Multia
+	CPU_TYPE        = 4                     !HWRPB_CPU_TYPE$K_LCA
+	   FIRM_ABS_MAJ = 4
+	   FIRM_ABS_MIN = 5
+	   FIRM_REC_MAJ = 4
+	   FIRM_REC_MIN = 5
+	END_SYS_TYPE
+
+    The kit also runs a "standard" postinstall command which will do things such as
+    a WRITEBOOT for APB.  Sustaining engineering provides this file.
+
+    A new SYS$CONFIG.DAT is provided that contains the DQ driver record, which
+    will allow autoconfiguration of the device later.  And it includes SYS$ICBM
+    which does secondary unit loading.
+
+    A CONFIG.DAT file is also included that is only used during bootstrap, and
+    contains:
+
+	device		= "IDE"
+	 name		= DQ
+	 driver		= SYS$DQDRIVER
+	 adapter	= PCI
+	 id		= 0x522910B9
+	 boot_flags	= SYS_DEV, HW_CTRL_LTR
+	 flags		= DISK, BOOT
+	end_device
+
+    Note this is not a real Multia device (it is the ACER DQ record), it is
+    just an example.  It is included using the "uses" clause which puts it
+    into the kit, but will not install the file on the system later.
+
+    PSCI$TEXT:
+
+    The following is an example for a MULTIA .PCSI$TEXT:
+
+    File: UNSUPPORTED-AXPVMS-MULTIA-V0100--4.PCSI$TEXT
+
+    Contents (tabbed-in for the example):
+
+	=product UNSUPPORTED AXPVMS MULTIA V1.0 patch
+	1 'PRODUCT
+	=PROMPT Multia Support for OpenVMS V7.1-2
+	
+	This product provides UNSUPPORTED OpenVMS boot and runtime logic for
+	the "Multia" system, also known as the "UDB".  This is provided for
+	HOBBYIST USE ONLY.
+	
+	1 BADVER
+	=PROMPT Wrong Version of the Operating System
+	
+	This kit can only be installed on OpenVMS Alpha V7.1-2
+	Installation aborting.
+	
+	1 RELEASE_NOTES
+	=PROMPT The release notes are available in SYS$HELP:MULTIA-V100.RELEASE_NOTES
+	
+	1 'NOTICE
+	=PROMPT Copyright © 1999 Compaq Computer Corporation.  All Rights Reserved.
+	
+	1 'PRODUCER
+	=PROMPT Compaq Computer Corporation
+	
+	1 'LICENSE
+	=PROMPT This product requires a valid OpenVMS Alpha HOBBYIST License.
+
+  You also need to create release notes that will be placed in SYS$HELP.
+
+  Before the kit can be created, the media (in the example below a floppy) must be
+  initialized to contain the kit.  The following is a .COM file that does the
+  appropriate magic for creating a rooted file structure:
+
+	$ !
+	$ ! Copyright © 1998, by Digital Equipment Corporation, Maynard MA, USA
+	$ !
+	$ ! Creates SHIP media.  The disk must be a VMS rooted disk structure.
+	$ ! This will create a disk with a [SYS0.] and [.VMS$COMMON] root.
+	$ !
+	$ if P1 .eqs. "" then inquire P1 "Device"
+	$ if f$locate(":",P1) .eq. f$length(P1) then P1 = "''P1':"
+	$ if P2 .eqs. "" then inquire P2 "Label"
+	$ init  'P1'/system 'P2'
+	$ mount 'P1' 'P2'
+	$ cre/dir 'P1'[000000.sys0.sysexe]
+	$ cre/dir 'P1'[000000.sys0.sysupd]
+	$ cre/dir 'P1'[000000.sys0.sys$ldr]
+	$ cre/dir 'P1'[000000.vms$common.sysexe]
+	$ cre/dir 'P1'[000000.vms$common.sysupd]
+	$ cre/dir 'P1'[000000.vms$common.sys$ldr]
+	$ set file/enter='P1'[000000.sys0]syscommon.dir 'P1'[000000]vms$common.dir
+
+  Once executed, a floppy is initialized and ready for PCSI creation:
+
+	$ @SHIP$INIT_FLOPPY DVA0 MULTIA
+
+  The files that are needed for the SHIP kit must be collected together at this
+  point for ease of creation, in this case you would end up with a directory that
+  contained all the files.  Multia example:
+
+	Directory DISK$USER1:[FRED.MULTIA]
+
+	APB.EXE
+	CONFIG.DAT
+	FIRM_REV_MATRIX.DAT
+	MULTIA-V0100.RELEASE_NOTES
+	PCSI_POSTINSTALL.COM
+	SYS$CONFIG.DAT
+	SYS$CPU_ROUTINES_0B04.EXE
+	SYS$DQDRIVER.EXE
+	SYS$EWBTDRIVER.EXE
+	SYS$EWDRIVER.EXE
+	SYS$GYBDRIVER.EXE
+	UNSUPPORTED-AXPVMS-MULTIA-V0100--4.PCSI$DESCRIPTION
+	UNSUPPORTED-AXPVMS-MULTIA-V0100--4.PCSI$TEXT
+
+  The SHIP kit is then created by invoking PRODUCT PACKAGE:
+
+	$ product package MULTIA /source=[mydir]/material=[mydir]/dest=DVA0:[VMS$COMMON]
+
+  The floppy will then be created with all the correct files in all the
+  correct places.  It will also move the PSCI files to [VMS$COMMON] and
+  will create the file:  UNSUPPORTED-AXPVMS-MULTIA-V0100--4.PCSI$TLB
+  as well (this is one of the outputs of PRODUCT PACKAGE).
+
+  You now have a SHIP kit that can be used for booting a system.  You can
+  use BACKUP to create a floppy image that can be copied around the network,
+  and used to create other floppies:
+
+	$ BACKUP/IMAGE/NOALIAS DVA0: MULTIA.FLOPPY/SAVE/INTER
+
+  Note the /NOALIAS in the command.  If you miss this step, you will get
+  TWO copies of the files - since SYS0 and VMS$COMMON are aliased.
+
+  New floppies can be created by then:
+
+	$ INIT DVA0: MULTIA
+	$ MOUNT/FOR DVA0: MULTIA
+	$ BACKUP/IMAGE MULTIA.FLOPPY/SAVE DVA0:
+	$ DISM DVA0
+	$ MOU DVA0: MULTIA
+
+ NOTES:
+
+   o	If you do not need a new driver used for the foreign boot, you
+	do NOT need a CONFIG.DAT.  However, there will be error messages
+	that the user will see that are benign.  You can always include
+	a dummy file with a bogus record to make the message go away.
+
+   o	CONFIG.DAT is ONLY used during FOREIGN booting.  For non-foreign
+	runtime autoconfiguration, you need to update or replace SYS$CONFIG.DAT
+	on the system disk.
+
+   o	Devices NOT on the command line CANNOT be loaded from the SHIP media
+	during autoconfiguration without user intevention.  The driver usually
+	needs to be installed onto the system disk.  You *can* use the CONFIG.DAT
+	file to defeat autoconfig from finding a device driver on the system disk
+	by creating a bogus record that points to a non-existant driver image.
+
+   o	You can still boot a unknown platform without a FIRM_REV_MATRIX,
+	you need to use the boot flag to ignore the test (800).
+
+   o	You do NOT need a FIRM_REV_MATRIX for a known platform OR for
+	a DSR platform.  This means the "ppcc" postfix for the platform
+	and CPU architecture.  So, for example, the TSUNAMI platforms
+	are already all set.
+
+   o	You MIGHT want to have a new FIRM_REV_MATRIX *if* the system
+	requires a higher revision of the console/palcode than was
+	supplied in the release you are installing on top of.
+
+   o	You do NOT need network drivers or a new APB for remote (cluster)
+	boots.  Instead the APB and network drivers must be installed on
+	the system that you will boot FROM (i.e. the system disk on the
+	system used to serve the boot).
+
+

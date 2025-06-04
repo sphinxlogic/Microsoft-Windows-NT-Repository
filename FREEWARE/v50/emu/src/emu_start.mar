@@ -1,0 +1,225 @@
+	.title	emu_start 
+	.ident /v01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Modifications:
+; 001  KOB AUG 1993		CREATION 
+; 002  PB  OCT 1997	Mods for V5 - Changed directory logicals
+;++
+;1 EMU_START 
+; Starts the system. Running this process starts EMU_CONTROL process which
+; in turn starts all other processes.
+;2 Inputs
+; 	None
+;2 Outputs
+;	EMU_CONTROL.LOG file is written in EMU5_LOG:
+;3 Returns
+; None
+;--
+; Definitions
+	.library	/emu5_LIB:emu5.mlb/
+
+	$accdef
+	$dvidef
+	$iodef
+	$prcdef
+	$pqldef
+	$ssdef
+
+	.psect	rw_data, noexe, rd, wrt, long, pic, noshr	;Read/Write data
+fao_str_len	= 256
+fao_strl:	.long	fao_str_len
+fao_stra:	.address fao_str
+fao_str:	.blkb	fao_str_len
+
+;
+; Termination MBX params
+; 
+read_term_mbx:	.long	12				; arg counter
+evtflg:		.long	0				; event number
+trmchan:	.long	0				; channel
+       		.long	io$_readvblk			; function
+  		.address read_iosb			; io status block
+       		.long	term_ast		 	; ast routine
+       		.long	0				; ast param
+       		.address term_msg				; p1
+       		.long	acc$k_termlen			; p2
+		.long	0				; p3
+		.long	0				; p4
+		.long	0				; p5
+		.long	0				; p6
+;
+read_iosb:	.quad	0
+term_msg:	.blkb	acc$k_termlen
+
+; Device information param list
+	.ALIGN	long
+NULLARG:	.QUAD
+DEVIOSB:	.QUAD
+; Call frame
+GET_MBXUNIT:	
+	.LONG	8         ; No.
+	.LONG	0	  ; EFN
+DEVCHN:	.LONG	0         ; Chan
+	.LONG	0         ; Dev Name
+	.ADDRESS ITMLIST
+	.ADDRESS DEVIOSB  
+	.LONG	0	  ; AST addr
+	.LONG	0 	  ;AST Param
+	.ADDRESS NULLARG  ; DEC
+;
+ITMLIST:	.WORD	4
+		.WORD	DVI$_UNIT
+		.ADDRESS	TRMMBXUNIT
+		.ADDRESS	TRMMBXUNIT_LEN
+		.LONG	0			; List Terminator
+TRMMBXUNIT:	.LONG	0
+TRMMBXUNIT_LEN:	.WORD	0
+CREPRC_PID:	.LONG	0
+term_read_set:	.long	0
+
+	.psect	rd_data, noexe, rd, nowrt, long, pic, shr	;Read Only data
+zero:		.long	0
+creprc_stsflg:	.long	<prc$m_detach!prc$m_nouaf>
+creprc_sysuic:	.long	^x010004		; [1,4]
+
+creprc_quota:	.byte	pql$_astlm
+		.long	100
+		.byte	pql$_biolm
+		.long	50000
+		.byte	pql$_bytlm
+		.long	1000000
+		.byte	pql$_diolm
+		.long	100
+		.byte	pql$_enqlm
+		.long	100
+		.byte	pql$_fillm
+		.long	100
+		.byte	pql$_pgflquota
+		.long	80000
+		.byte	pql$_tqelm
+		.long	100
+		.byte	pql$_wsdefault
+		.long	2048
+		.byte	pql$_wsextent
+		.long	8096
+		.byte	pql$_wsquota
+		.long	4096
+		.byte	pql$_listend
+
+creprc_privs:	.long	-1
+		.long	-1
+creprc_error:	.ascid	/EMU5_LOG:EMU_CONTROL.ERR/
+creprc_output:	.ascid	/EMU5_LOG:EMU_CONTROL.LOG/
+creprc_input:	.ascid	/NLA0:/
+creprc_image:	.ascid	/EMU5_EXE:EMU_CONTROL.EXE/
+creprc_prcnam:	.ascid	/EMU_CONTROL/
+
+creprc_fao:	.ascid	/Created !AS (PID:!XL) on !%D/
+died_fao:	.ascid	/Process !AS (PID:!XL) died on !%D (Status:!XL)/
+wait_time:	.float	10
+
+
+	.psect	prog_code, rd, nowrt, exe, pic, shr, long
+	.CALL_ENTRY	MAX_ARGS=6, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_START
+
+	tstl	TRMCHAN		; 
+	beql	10$		
+	brw	20$		; Already have channel
+
+; Termination MBX
+10$:	clrl	-(sp)		; Logical Name
+	CLRL	-(SP)		; Access Mode
+	CLRL	-(SP)		; Protection Mask
+	PUSHL	#1056		; Buff Quota
+	PUSHL	#128		; Max Message Size
+	PUSHAL	TRMCHAN		; I/O Channel
+	clrl	-(sp)		; Temp Mailbox
+	CALLS	#7, g^SYS$CREMBX	; Create Mailbox
+	BSBW	ERROR_CHK       ; Fatal
+
+; Que MBX read with AST
+20$:	blbs	term_read_set, 30$ ; Already still a read outstanding
+	$QIO_G	read_term_mbx
+
+; Get MBX unit No.
+	MOVL	TRMCHAN,DEVCHN
+	$GETDVIW_G GET_MBXUNIT
+	BSBW	ERROR_CHK	; Fatal
+
+30$:	pushl   creprc_stsflg	; status flags
+	pushl	trmmbxunit	; termination mbx
+	pushl	creprc_sysuic	; uic
+	pushl	#4		; priority
+	pushal	creprc_prcnam	; process name
+	pushal	creprc_quota	; quotas
+	pushaq	creprc_privs	; all
+	pushal	creprc_error	; 
+	pushal	creprc_output	; 
+	pushal	creprc_input	; 
+	pushal	creprc_image	; image name
+	pushal	creprc_pid	; Update records pid 
+	calls	#12, g^sys$creprc
+	bsbw	error_chk	; 
+	
+; Inform of process creation
+	clrl	-(sp)		; time
+	pushl	creprc_pid	; process pid created
+	pushal	creprc_prcnam	; process name
+	movl	#fao_str_len, fao_strl
+	pushal	fao_strl	; 
+	pushal	fao_strl	; 
+	pushal	creprc_fao	; 
+	calls	#6, g^sys$fao	; 
+	bsbw	error_chk	; 
+
+	pushal	fao_strl	; 
+	calls	#1, g^lib$put_output
+	bsbw	error_chk	; 
+
+	movl	#1, r0
+	ret
+	
+
+	.sbttl	term_ast
+	.ENTRY	term_ast, ^M<>
+
+; Inform of process death
+	moval	term_msg, r10 
+	pushl	acc$l_finalsts(r10)
+	clrl	-(sp)		; time
+	pushl	creprc_pid	; process pid created
+	pushal	creprc_prcnam	; process name
+	movl	#fao_str_len, fao_strl
+	pushal	fao_strl	; 
+	pushal	fao_strl	; 
+	pushal	died_fao	; 
+	calls	#7, g^sys$fao	; 
+	bsbw	error_chk	; 
+
+	pushal	fao_strl	; 
+	calls	#1, g^lib$put_output
+	bsbw	error_chk	; 
+
+	clrl	term_read_set	; 
+
+	ret
+
+
+error_chk:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>,-
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	blbs	r0, 10$
+		$exit_s	r0
+10$:		rsb
+
+	.end 	emu_start

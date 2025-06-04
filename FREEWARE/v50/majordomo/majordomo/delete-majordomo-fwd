@@ -1,0 +1,63 @@
+$cf = $ENV{'UCX$MAJORDOMO_CF'};
+if ($majordomo_debug) {print "\$cf is $cf\n";}
+eval(`type $cf`) || &my_die("eval of majordomo.cf failed $@");
+
+$tmp = "/SYS\$SCRATCH/DELETE-FORWARD_$$";
+$status = 0;
+$tmp_filename;
+
+$defdir = `SHOW DEFAULT`;
+$defdir =~ s/\s//g;
+if ($majordomo_debug) {print "Default directory is $defdir\n";}
+
+# Go to the home directory specified by the .cf file
+chdir($homedir) || &my_die("Can't chdir(\"$homedir\"): $!");
+
+# All these should be in the standard PERL library
+unshift(@INC, $homedir);
+require "majordomo.pl";		# all sorts of general-purpose Majordomo subs
+require "majordomo-util.pl";	# all sorts of general-purpose Majordomo for
+				# config purposes
+
+if ($majordomo_debug) {&log_cf_stuff;}
+
+$my_system_name = &systemname;
+
+$tmp_filename = $tmp  . "_" . $my_system_name . ".COM";
+
+# Just being suresure. open_temp opens for append so need to clean up first.
+unlink($tmp_filename);
+
+&open_temp(TMP, $tmp_filename) || &my_die("Can't open $tmp_filename: $!\n");
+&cmds_to_file(TMP)             || &my_die("Error writing sommands to $tmp_filename: $!\n");
+close(TMP)                     || &my_die("Can't close $tmp_filename: $!\n");
+&execute_file($tmp_filename)   || &my_die("Error while executing $tmp_filename: $!\n");
+unlink($tmp_filename)          || warn "Error while deleting $tmp_filename: $!\n";
+
+&print_final;
+
+
+sub print_final
+{
+local($tmp_string);
+print
+"********************************************************************************
+Majordomo forwarding has been deleted. At this point Majordomo won't work until
+you create new forwarding. To do so run the CREATE-MAJORDOMO-FWD Perl script.
+********************************************************************************\n\n";
+}
+
+sub cmds_to_file
+{
+local($FH) = shift;
+local($tmp_string) = ();
+print $FH "\$ MAIL\n";
+print $FH "SET NOFORWARD/USER=MAJORDOM\n";
+print $FH "SET NOFORWARD/USER=MAJORDOMO\n";
+print $FH "SET NOFORWARD/USER=MAJORDOMO-OWNER\n";
+print $FH "SET NOFORWARD/USER=MAJORDOMO-SMTP\n";
+print $FH "SET NOFORWARD/USER=OWNER-MAJORDOMO\n";
+print $FH "SET NOFORWARD/USER=UCX\$MAJORDOM\n";
+print $FH "EXIT\n";
+print $FH "\$ EXIT\n";
+}

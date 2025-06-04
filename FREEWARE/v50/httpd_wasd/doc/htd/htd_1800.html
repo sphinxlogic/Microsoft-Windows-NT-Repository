@@ -1,0 +1,490 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.HTD]HTD_PERF.SDML">
+<META NAME="date" CONTENT="Thu, 25 Jan 2001 04:55:45">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Server Performance</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Technical Overview</H1>
+
+<A NAME="266">
+<H2>18 - Server Performance</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+18.1 - <A HREF="htd_1800.html#268" TARGET="_self">Simple File Request Turn-Around</A>
+<BR>18.2 - <A HREF="htd_1800.html#271" TARGET="_self">Scripting</A>
+<BR>18.3 - <A HREF="htd_1800.html#275" TARGET="_self">SSL</A>
+<BR>18.4 - <A HREF="htd_1800.html#276" TARGET="_self">Suggestions</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="htd_1900.html" TARGET="_self">next</A>] [<A HREF="htd_1700.html" TARGET="_self">previous</A>] [<A HREF="htd_0001.html"TARGET="_top" >contents</A>] [<A HREF="htd_1800.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> The server has a single-process, multi-threaded, asynchronous I/O design.&nbsp;
+On a single-processor system this is the most efficient approach.&nbsp;  On a
+multi-processor system it is limited by the single process context
+(with scripts executing within their own context).&nbsp;  For I/O constrained
+processing (the most common in general Web environments) the AST-driven
+approach is quite efficient.&nbsp;
+
+<P> The server has been tested with up to 60 concurrent requests originating
+from 6 different systems and continues to provide an even distribution of data
+flow to each client (albeit more slowly :^)  The author has also observed sites
+where traffic levels frequently reach 50 to 100 concurrent requests both for
+standard and proxy serving.&nbsp;
+
+<P> The test system was a lightly-loaded AlphaServer 2100 4/275, VMS v7.2 and
+DEC TCP/IP 5.0A. No <I>Keep-Alive:</I> functionality was employed so each
+request required a complete TCP/IP  connection and disposal.&nbsp;  DNS (name
+resolution) and access logging were disabled.&nbsp;  The server and test-bench utility
+were located on separate systems with 100 Mbps FDDI network interconnection.&nbsp;
+
+<P> As of v7.1 the performance data is collected using the &quot;ApacheBench&quot;
+utility (see <A HREF="htd_2000.html#286" TARGET="_self">20.7 - ApacheBench</A>).&nbsp;  Previous comparisons were
+performed using the WASD WWWRKOUT utility but it was felt the use of a more
+common tool would be the prefered option.&nbsp;  DCL procedures with sets of
+ApacheBench calls are used to benchmark requests.&nbsp;  These procedures and the
+generated output from benchmark runs (made available via
+$@<I>procedure</I>/OUTPUT=<I>filename</I>) are available in the
+
+<A TARGET="_top" HREF="/ht_root/exercise/perf_*ab*.*?httpd=index&readme=no">
+HT_ROOT:[EXERCISE]</A> directory.
+
+)
+<BLOCKQUOTE><CENTER><B>These results are indicative only!&nbsp;</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+On a clustered, multi-user system too many things vary slightly all the time.&nbsp; 
+Hence the batching of accesses, interleaved between servers, attempting provide
+a representative result.&nbsp;
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<A NAME="267">
+<H3><BR>OSU/Apache Comparison</H3>
+</A>
+
+<P> Until v5.3 a direct comparison of performance between OSU and WASd had not
+been made (even to satisfy the author's own occasional curiosity).&nbsp;  After a
+number of users with experience in both environments commented ...
+WASD <I>seemed</I> faster, was it?&nbsp; ... it was decided to make and
+provide comparisons using the same metrics used on WASD for some time.&nbsp;
+
+<P> Every endeavour has been made to ensure the comparison is as equitable as
+possible (e.g. each server executes at the same process priority, has a
+suitable cache enabled, runs on the same machine in the same relatively
+quiescent environmmnt.&nbsp;  Each test run was interleaved between
+each server to try and distribute any environment variations.&nbsp; Tests showing a
+port 7080 were to WASD, port 7777 to the OSU server, and port 8888 to Apache.&nbsp; 
+All servers were configured &quot;out-of-the-box&quot;, minimal changes (generally
+just path mappings), WASD executing via the FREEWARE_DEMO.COM procedure.&nbsp;
+
+<P> Of course performance is just one of a number of considerations in any
+software environment (otherwise we wouldn't be using VMS now would we?&nbsp; ;^)  No 
+specific conclusions are promoted by the author.&nbsp;  Readers may draw their own
+from the results recorded below.&nbsp;
+
+<P> For this document the results were derived using the WASD v7.1.1, CSWS
+V1.0-1 (VMS Apache 3.1.12), and OSU 3.9 servers.&nbsp;
+
+<A NAME="268">
+<H3><BR><U>18.1 - Simple File Request Turn-Around</U></H3>
+</A>
+
+<P> A series of tests using batches of accesses.&nbsp; The first test returned an
+empty file measuring response and file access time, without any actual
+transfer.&nbsp; The second requested a file of 64K characters, testing performance
+with a more realistic load.&nbsp; All were done using one and ten concurrent
+requests.&nbsp;  Note that the Apache measurement is &quot;out-of-the-box&quot; - the
+author could find no hint of a file cache, let-alone how to enable/disable one.&nbsp;
+
+<P><CENTER><B>Cache Disabled - Requests/Second</B></CENTER>
+
+<BR><CENTER>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=1>
+<TR><TD>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=0>
+<TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Response</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Concurrent</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>WASD</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>OSU</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Apache</U></TH></TR>
+<TR></TR>
+<TD ALIGN=left VALIGN=top>0K</TD><TD ALIGN=left VALIGN=top>1</TD><TD ALIGN=left VALIGN=top>86</TD><TD ALIGN=left VALIGN=top>31</TD><TD ALIGN=left VALIGN=top>18</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>0K</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>10</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>107</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>28</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>37</TD></TR>
+<TR></TR>
+<TD ALIGN=left VALIGN=top>64K</TD><TD ALIGN=left VALIGN=top>1</TD><TD ALIGN=left VALIGN=top>45</TD><TD ALIGN=left VALIGN=top>10</TD><TD ALIGN=left VALIGN=top>12</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>64K</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>10</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>50</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>14</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>36</TD></TR>
+</TABLE>
+</TD></TR>
+</TABLE>
+</CENTER><BR>
+
+
+<P><CENTER><B>Cache Enabled - Requests/Second</B></CENTER>
+
+<BR><CENTER>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=1>
+<TR><TD>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=0>
+<TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Response</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Concurrent</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>WASD</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>OSU</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Apache</U></TH></TR>
+<TR></TR>
+<TD ALIGN=left VALIGN=top>0K</TD><TD ALIGN=left VALIGN=top>1</TD><TD ALIGN=left VALIGN=top>285</TD><TD ALIGN=left VALIGN=top>44</TD><TD ALIGN=left VALIGN=top>15</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>0K</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>10</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>387</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>49</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>29</TD></TR>
+<TR></TR>
+<TD ALIGN=left VALIGN=top>64K</TD><TD ALIGN=left VALIGN=top>1</TD><TD ALIGN=left VALIGN=top>74</TD><TD ALIGN=left VALIGN=top>17</TD><TD ALIGN=left VALIGN=top>12</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>64K</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>10</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>103</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>26</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>39</TD></TR>
+</TABLE>
+</TD></TR>
+</TABLE>
+</CENTER><BR>
+
+
+<P> Result files:
+<UL>
+
+<LI>
+
+<A TARGET="_top" HREF="/ht_root/exercise/perf_files_nocache_ab_v711.txt">
+HT_ROOT:[EXERCISE]PERF_FILES_NOCACHE_AB_V711.TXT</A>
+
+<LI>
+
+<A TARGET="_top" HREF="/ht_root/exercise/perf_files_ab_v711.txt">
+HT_ROOT:[EXERCISE]PERF_FILES_AB_V711.TXT</A>
+
+</UL>
+
+
+<P> In comparison with v6.1 results the additional layer introduced into v7.0/1
+for handling ODS-2 and ODS-5 file systems does not appear to have noticably
+affected file access rates at all.&nbsp;  With both WASD cached and non-cached
+<B>throughput actually improves</B> at ten concurrent requests
+(probably due to the latency of the serial TCP/IP connection/disconnection in
+one-by-one, compared to several happening concurrently).&nbsp;
+
+<P> Note that the response and transfer benefits decline noticably with file
+size (transfer time).&nbsp;  The difference between cached and non-cached with the
+zero file size (no actual data transfer involved) gives some indication of the
+raw difference in response latency, some 200-300% improvement.&nbsp; This is a fairly
+crude analysis, but does give some indication of cache efficiencies.&nbsp;
+
+<P> Just one other indicative metric of the two servers, CPU time consumed
+during the file measurement runs.&nbsp;  The value for Apache was not measured as it
+would be distributed over an indeterminate number of child subprocessess.&nbsp;
+
+<P><CENTER><B>CPU Time Consumed (Seconds)</B></CENTER>
+
+<BR><CENTER>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=1>
+<TR><TD>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=0>
+<TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Cache</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>WASD</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>OSU</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Apache</U></TH></TR>
+<TR></TR>
+<TD ALIGN=left VALIGN=top>Disabled</TD><TD ALIGN=left VALIGN=top>22</TD><TD ALIGN=left VALIGN=top>136</TD><TD ALIGN=left VALIGN=top>-</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>Enabled</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>11</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>62</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>-</TD></TR>
+</TABLE>
+</TD></TR>
+</TABLE>
+</CENTER><BR>
+
+
+<A NAME="269">
+<H3><BR>File Transfer Rate</H3>
+</A>
+
+<P> Under similar conditions results indicate a potential transfer rate
+<B>well in excess of 1 Mbyte per second</B>.&nbsp;  This serves to
+demonstrate that server architecture should not be the limiting factor in file
+throughput.&nbsp;
+
+<P><CENTER><B>Transfer Rate - MBytes/Second</B></CENTER>
+
+<BR><CENTER>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=1>
+<TR><TD>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=0>
+<TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Response</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Concurrent</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>WASD</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>OSU</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Apache</U></TH></TR> 
+<TR></TR>
+<TD ALIGN=left VALIGN=top>4.0MB (7900 blocks)</TD><TD ALIGN=left VALIGN=top>1</TD><TD ALIGN=left VALIGN=top>1.5</TD><TD ALIGN=left VALIGN=top>0.5</TD><TD ALIGN=left VALIGN=top>1.5</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>4.0MB (7900 blocks)</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>10</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>1.6</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>0.4</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>2.2</TD></TR>
+</TABLE>
+</TD></TR>
+</TABLE>
+</CENTER><BR>
+
+
+<P> Result files:
+<UL>
+
+<LI>
+
+<A TARGET="_top" HREF="/ht_root/exercise/perf_xfer_ab_v71.txt">
+HT_ROOT:[EXERCISE]PERF_XFER_AB_V711.TXT</A>
+
+</UL>
+
+
+<P> Significantly, there were no dramatic drops in transfer rate between
+one and ten concurrent requests!&nbsp;  In fact an small increase in throughput!&nbsp;  The
+results for Apache indicate one occasion where a collection of subprocesses
+performs very well (with assistance from generous VCC_... cache
+settings).&nbsp; 
+
+<A NAME="270">
+<H3><BR>File Record Format</H3>
+</A>
+
+<P> The server can handle STREAM, STREAM_LF, STREAM_CR, FIXED and UNDEFINED
+record formats very much more efficiently than VARIABLE or VFC files.&nbsp;
+
+<P> With STREAM, FIXED and UNDEFINED files the assumption is that HTTP
+carriage-control is within the file itself (i.e. at least the newline (LF),
+all that is required required by browsers), and does not require additional
+processing.&nbsp;  With VARIABLE record files the carriage-control is implied and
+therefore each record requires additional processing by the server to supply
+it.&nbsp;  Even with variable record files having multiple records buffered by the
+HTTPd before writing them collectively to the network improving efficiency,
+stream and binary file reads are by Virtual Block and are written to the
+network immediately making the transfer of these very efficient indeed!&nbsp;
+
+<P> So significant is this efficiency improvement a module exists to
+automatically convert VARIABLE record files to STREAM-LF when detected by the
+file transfer module.&nbsp;  This is disabled by default but the user is strongly
+encouraged to enable it and to ensure that stream format files are provided
+to the server by other hypertext generating and processing utilitites.&nbsp;
+
+<A NAME="271">
+<H3><BR><U>18.2 - Scripting</U></H3>
+</A>
+
+<P> Persistant-subprocesses are probably the most efficient solution for
+child-process scripting under VMS.&nbsp; See &quot;Scripting Environment&quot; document.&nbsp; 
+The I/O still needs to be on-served to the client by the server.&nbsp;
+
+<P> A simple performance evaluation shows the relative merits of the four
+WASD scripting environments available, plus a comparison with OSU and Apache.&nbsp;
+
+<A TARGET="_top" HREF="/ht_root/src/cgiplus/cgiplustest.c">
+HT_ROOT:[SRC.CGIPLUS]CGIPLUSTEST.C</A>,
+
+which executes in both standard CGI and CGIplus environments, and an ISAPI
+example DLL,
+
+<A TARGET="_top" HREF="/ht_root/src/cgiplus/isapiexample.c">
+HT_ROOT:[SRC.CGIPLUS]ISAPIEXAMPLE.C</A>,
+
+which provides equivalent output.&nbsp;
+A series of accesses were made.&nbsp; The first test
+returned only the HTTP header, evaluating raw request turn-around time.&nbsp; The
+second test requested a body of 64K characters, again testing performance with
+a more realistic load.&nbsp;
+
+<P>
+<B>DECnet-based scripting</B>
+was tested using essentially the same environment as subprocess-based CGI,
+assessing the performance of the same script being executed using DECnet to
+manage the processes.&nbsp;  Three separate environments have been evaluated,
+WASD-DECnet-CGI, WASD-OSU-emulation and OSU.&nbsp; The OSU script used the
+WASD CGISYM.C utility to generate the required CGI symbols (also see
+<A HREF="htd_1800.html#274" TARGET="_self">WASD/OSU Comparison</A>).&nbsp;  DECnet Phase-IV was in use.&nbsp;
+
+<P><CENTER><B>CGI Scripting - Requests/Second</B></CENTER>
+
+<BR><CENTER>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=1>
+<TR><TD>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=0>
+<TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Response</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Concurrent</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>CGI</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>CGIplus</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>ISAPI</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>DECnet-CGI</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>OSU-emul</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>OSU</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Apache</U></TH></TR>
+<TR></TR>
+<TD ALIGN=left VALIGN=top>0KB</TD><TD ALIGN=left VALIGN=top>1</TD><TD ALIGN=left VALIGN=top>12.3</TD><TD ALIGN=left VALIGN=top>68.7</TD><TD ALIGN=left VALIGN=top>67.8</TD><TD ALIGN=left VALIGN=top>7.7</TD><TD ALIGN=left VALIGN=top>4.4</TD><TD ALIGN=left VALIGN=top>4.3</TD><TD ALIGN=left VALIGN=top>0.8</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>0KB</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>10</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>19.2</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>80.4</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>71.6</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>11.5</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>7.8</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>7.7</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>0.9</TD></TR>
+<TR></TR>
+<TD ALIGN=left VALIGN=top>64KB</TD><TD ALIGN=left VALIGN=top>1</TD><TD ALIGN=left VALIGN=top>7.8</TD><TD ALIGN=left VALIGN=top>31.8</TD><TD ALIGN=left VALIGN=top>32.1</TD><TD ALIGN=left VALIGN=top>6.0</TD><TD ALIGN=left VALIGN=top>3.5</TD><TD ALIGN=left VALIGN=top>2.9</TD><TD ALIGN=left VALIGN=top>0.7</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>64KB</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>10</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>13.7</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>34.6</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>33.8</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>8.9</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>6.4</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>5.9</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>0.9</TD></TR>
+</TABLE>
+</TD></TR>
+</TABLE>
+</CENTER><BR>
+
+
+<P> Result files:
+<UL>
+
+<LI>
+
+<A TARGET="_top" HREF="/ht_root/exercise/perf_scripts_ab_v711.txt">
+HT_ROOT:[EXERCISE]PERF_SCRIPTS_AB_V711.TXT</A>
+
+</UL>
+
+
+<A NAME="272">
+<H3><BR>Scripting Observations</H3>
+</A> 
+
+<P> Although these results are indicative only, they do show CGIplus and ISAPI
+to have a potential for improvement over standard CGI of up to 400%, a not
+inconsiderable improvement.&nbsp; Of course this test generates the output stream
+very simply and efficiently and so excludes any actual processing time that may
+be required by a &quot;real&quot; application.&nbsp;  <B>If the
+script/application has a large activation time the reduction in response
+latency could be even more significant</B> (e.g. Perl scripts and RDMS access
+languages).&nbsp;
+
+<A NAME="273">
+<H3><BR>DECnet Observations</H3>
+</A> 
+
+<P> This section comments on non-persistant scripts (i.e. those that must
+run-up and run-down with each request - general CGI behaviour).&nbsp; Although not
+shown here measurements of connection reuse show significant benefits in
+reduced response times, consistency of response times and overall throughput, 
+showing a difference of some 200% over non-reuse (similar improvements were
+reported with the OSU 3.3a server).&nbsp;
+
+<P> With ten simultaneous and back-to-back scripts and no connection reuse many
+more network processes are generated than just ten.&nbsp; This is due to the
+NETSERVER maintenance tasks such as log creation and purging, activating and
+deactivating the task, etc., adding latency into this script environment.&nbsp; The
+throughput was generally still lower than with subprocess-based scripting.&nbsp;
+
+<P> While earlier versions cautioned on the use of DECnet-based scripting this
+has been relaxed somewhat through connection reuse.&nbsp;
+
+<A NAME="274">
+<H3><BR>WASD/OSU Comparison</H3>
+</A> 
+
+<P> A direct comparison of CGI performance between WASD and OSU scripting is
+biased in favour of WASD, as OSU scripting is based on it's own protocol with
+CGI behaviour layered-in above scripts that require it.&nbsp; Therefore a non-CGI
+comparison was devised.&nbsp;  The script,
+
+<A TARGET="_top" HREF="/ht_root/script/face2face.com">
+HT_ROOT:[SCRIPT]FACE2FACE.COM</A>,
+
+is designed to favour neither environment, merely return the plain-text string
+&quot;Hello!&nbsp;&quot; as quickly as possible.&nbsp;
+
+<FONT COLOR="#333333"><PRE>
+  $! OSU and WASD scripting face-to-face in a script that favours neither unduly
+  $ if f$type(WWWEXEC_RUNDOWN_STRING) .nes. ""
+  $ then
+  $    write net_link "&lt;DNETTEXT&gt;"
+  $    write net_link "200 Success"
+  $    write net_link "Hello!"
+  $    write net_link "&lt;/DNETTEXT&gt;"
+  $ else
+  $    write sys$output "Content-Type: text/plain"
+  $    write sys$output ""
+  $    write sys$output "Hello!"
+  $ endif
+</PRE></FONT>
+
+<P><CENTER><B>Face-to-Face - Requests/Second</B></CENTER>
+
+<BR><CENTER>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=1>
+<TR><TD>
+<TABLE CELLSPACING=0 CELLPADDING=3 BORDER=0>
+<TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>&nbsp;</TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Concurrent</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>CGI</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>CGIplus</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>ISAPI</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>DECnet-CGI</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>OSU-emul</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>OSU</U></TH><TH BGCOLOR="#ffffcc" ALIGN=left VALIGN=top><U>Apache</U></TH></TR>
+<TR></TR>
+<TD ALIGN=left VALIGN=top>&quot;Hello!&nbsp;&quot;</TD><TD ALIGN=left VALIGN=top>1</TD><TD ALIGN=left VALIGN=top>17.5</TD><TD ALIGN=left VALIGN=top>n/a</TD><TD ALIGN=left VALIGN=top>n/a</TD><TD ALIGN=left VALIGN=top>n/a</TD><TD ALIGN=left VALIGN=top>n/a</TD><TD ALIGN=left VALIGN=top>12.6</TD><TD ALIGN=left VALIGN=top>n/a</TD></TR>
+<TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>&quot;Hello!&nbsp;&quot;</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>10</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>39.5</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>n/a</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>n/a</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>n/a</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>n/a</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>19.9</TD><TD BGCOLOR="#ffffcc" ALIGN=left VALIGN=top>n/a</TD></TR>
+</TABLE>
+</TD></TR>
+</TABLE>
+</CENTER><BR>
+
+
+<P> Result files are the same as for scripting metrics above.&nbsp;
+
+<A NAME="275">
+<H3><BR><U>18.3 - SSL</U></H3>
+</A>
+
+<P> At this time there are no definitive measurements of SSL performance (see
+<A HREF="htd_1400.html#218" TARGET="_self">14 - Secure Sockets Layer</A>).&nbsp;  One might expect that because of the
+CPU-intensive cryptography employed in SSL requests that performance,
+particularly where concurrent requests are in progress, would be significantly
+lower.&nbsp;  In practice SSL seems to provide more-than-acceptable responsiveness.&nbsp;
+
+<A NAME="276">
+<H3><BR><U>18.4 - Suggestions</U></H3>
+</A>
+
+<P> Here are some suggestions for improving the performance of the server,
+listed in approximate order of significance.&nbsp; Note that these will have
+proportionally less impact on an otherwise heavily loaded system.&nbsp;
+<OL>
+
+<LI> Disable host name resolution (configuration parameter [DNSLookup]).
+<B>DNS latency can slow request processing significantly!&nbsp;</B> 
+Most log analysis tools can convert numeric addresses so DNS resolution is
+often an unnecessary burden.&nbsp;
+<P>
+<LI> Ensure served files are not VARIABLE record format (see above).&nbsp; Enable
+STREAM-LF conversion using a value such as 250 (configuration parameter
+[StreamLF], and SET against required paths using mapping rules).&nbsp;
+<P>
+<LI> Use persistant-subprocess DCL/scripting (configuration parameter
+[ZombieLifeTime])
+<P>
+<LI> Use CGIplus-capable or ISAPI scripts whenever possible.&nbsp;
+<P>
+<LI> Enable caching (configuration parameter [Cache]).
+<P>
+<LI> Ensure the server account's WSQUO and WSEXTENT quotas are adequate.&nbsp;  A
+constantly paging server is a slow server!&nbsp;
+<P>
+<LI> Tune the network and DCL output buffer size to the Maximum Transfer Unit
+(MTU) of the server's network interface.&nbsp;  Using Digital TCP/IP Services (a.k.a.
+UCX) display the MTU.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  TCPIP&gt; SHOW INTERFACE
+                                                             Packets
+  Interface   IP_Addr         Network mask          Receive          Send     MTU
+ 
+   SE0        203.127.158.3   255.255.255.0          376960        704345    1500
+   LO0        127.0.0.1       255.0.0.0                 306           306       0
+</PRE></FONT>
+
+<P> In this example the MTU of the ethernet interface is 1500 (bytes).&nbsp;  Set the
+[BufferSizeNetWrite] configuration directive to be some multiple of this.&nbsp;  In
+the case of 1500, say 3000, 4500 or 6000.  Also set the [BufferSizeDclOutput]
+to the same value.&nbsp;  Rationale: always use completely filled network packets
+when transmitting data.&nbsp;
+<P>
+<LI> Disable logging (configuration parameter [Logging]).
+<P>
+<LI> Set the HTTP server process priority higher, say to 6 (use startup
+qualifier /PRIORITY=).  Do this after due consideration.&nbsp;  It will only improve
+response time if the system is also used for other, lower priority purposes.&nbsp; 
+It will not help if Web-serving is the sole acitivity of the system.&nbsp;
+<P>
+<LI> Reduce to as few as possible the number of mapping and authorization
+rules, particularly those that have conditions that require additional
+evaluation.&nbsp;  Also see <A HREF="htd_1000.html#120" TARGET="_self">10 - Mapping Rules</A>.&nbsp;
+<P>
+<LI> Use a pre-defined log format (e.g. &quot;common&quot;, configuration
+parameter [LogFormat]). User-specified formats require more processing for each
+enrty.&nbsp;
+<P>
+<LI> Disable request history (configuration parameter [RequestHistory]).
+<P>
+<LI> Disable activity statistics (configuration parameter [ActivityDays]).
+</OL>
+
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="htd_1900.html" TARGET="_self">next</A>] [<A HREF="htd_1700.html" TARGET="_self">previous</A>] [<A HREF="htd_0001.html"TARGET="_top" >contents</A>] [<A HREF="htd_1800.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

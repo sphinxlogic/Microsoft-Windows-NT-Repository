@@ -1,0 +1,344 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.SCRIPTING]SCRIPTING_CGIPLUS.SDML">
+<META NAME="date" CONTENT="Fri, 26 Jan 2001 12:57:24">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>CGIplus</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Scripting Environment</H1>
+
+<A NAME="58">
+<H2>3 - CGIplus</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+3.1 - <A HREF="scripting_0300.html#60" TARGET="_self">CGIplus Programming</A>
+<BR>3.2 - <A HREF="scripting_0300.html#62" TARGET="_self">Code Examples</A>
+<BR>3.3 - <A HREF="scripting_0300.html#63" TARGET="_self">Other Considerations</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="scripting_0400.html" TARGET="_self">next</A>] [<A HREF="scripting_0200.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0300.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> 
+
+<TABLE BORDER=0>
+<TR><TD VALIGN=top>
+<NOBR><FONT SIZE=+1><B>
+Common Gateway Interface ... 
+<B></FONT></NOBR>
+</TD><TD>
+<FONT SIZE=+1><B>
+plus lower latency,
+<BR>plus greater throughput,
+<BR>plus far less system impact!
+<B></FONT>
+</TD></TR>
+</TABLE>
+
+
+<P> I know, I know!&nbsp;  The term <U>CGIplus</U> is a bit <U>too
+cute</U> but I had to call it something!&nbsp;
+
+<P> CGIplus attempts to eliminate the overhead associated with creating the
+subprocess and then executing the image of a CGI script.&nbsp;  It does this by
+allowing the subprocess and any associated image/application to continue
+executing between uses, eliminating any startup overheads.&nbsp;  This reduces both
+the load on the system and the request latency.&nbsp;  In this sense these advantages
+parallel those offered by commercial HTTP server-integration APIs, such as
+Netscape NSAPI and Microsoft ISAPI, without the disadvantages of such
+proprietory interfaces, the API complexity, language dependency and server
+process integration.&nbsp;
+
+<P> Existing CGI scripts can rapidly and elegantly be modified to
+additionally support CGIplus.&nbsp; The capability of scripts to easily
+differentiate between and operate in both standard CGI and CGIplus
+environments with a minimum of code revision offers great versatility.&nbsp;  Many
+WASD scripts operate in both environments.&nbsp;
+
+<A NAME="59">
+<H3><BR>CGIplus Performance</H3>
+</A>
+
+<P> A simple performance evaluation indicates the advantage of CGIplus.&nbsp;  See
+&quot;Techncial Overview, Performance&quot; for some test results comparing the
+CGI and CGIplus environments.&nbsp;
+
+<P> Without a doubt, the subjective difference in activating the same script
+within the standard CGI and CGIplus environments is quite startling!&nbsp;
+
+<A NAME="60">
+<H3><BR><U>3.1 - CGIplus Programming</U></H3>
+</A>
+
+<P> <B>The script interface is still CGI</B>, with all the usual
+environment variables and input/output streams available, which means a new API
+does not need to be learned and existing CGI scripts are simple to modify.&nbsp;
+
+<P> See examples in
+<A TARGET="_top" HREF="/ht_root/src/CGIplus/*.*">HT_ROOT:[SRC.CGIPLUS]</A>
+
+
+<P> Instead of having the CGI variables available from the environment
+(generally accessed via the C Language <I>getenv()</I> standard library
+call) a CGIplus script must read the CGI variables from CGIPLUSIN.&nbsp; They are
+supplied as a series of records (lines) containing a CGI variable name (in
+upper-case), an equate symbol and then the variable value.&nbsp; The format may be
+easily parsed and as the value contains no encoded characters may be directly
+used.&nbsp;  The quantity of characters in each record depends on the size of the
+variable name and the length of the associated value.&nbsp;  The value can vary from
+zero, to tens, hundreds, even thousands of characters.&nbsp;  It is limited by the
+size of the CGIPLUSIN mailbox, which is in turn set by the
+[BufferSizeDclCgiPlusIn] configuration directive.&nbsp;
+
+<P> Requirements when using:
+<UL>
+
+<LI> The read will block between subsequent requests and so may be used to
+coordinate the application.&nbsp;
+<P>
+<LI> The first record read in any request can always be discarded.&nbsp;  This is
+provided so that a script may be synchronized outside of the general CGIplus
+variable read loop (the DCL and Perl examples use this feature).&nbsp;
+<P>
+<LI> The CGIplus variable stream should be completely read (up until the blank
+line, see below) before beginning any request processing.&nbsp;
+<P>
+<LI> The CGIplus variable stream should ALWAYS BE COMPLETELY READ (up until the
+blank line, see below).&nbsp;
+<P>
+<LI> An empty record (blank line) indicates the end of a single request's
+CGIplus variable stream.&nbsp; Reading MUST be halted at this stage.&nbsp;  Request
+processing may then commence.&nbsp;
+</UL>
+
+
+<P> After processing, the CGIplus script can loop, waiting to read the details
+of the next request from CGIPLUSIN.&nbsp;
+
+<P> Request output (to the client) is written to SYS$OUTPUT
+(&lt;stdout&gt;) as per normal CGI behaviour.&nbsp; <B>End of output
+MUST be indicated by writing a special EOF record to the output stream.&nbsp;</B> 
+A unique EOF sequence is  generated for each use of DCL via a zombie or CGIplus
+subprocess.&nbsp; A non-repeating series of bits most unlikely to occur in normal
+output is employed ... but there is still a very, very, very small
+chance of premature termination of output
+
+(one in 2^<SUP>224</SUP> I think!)
+See <A TARGET="_top" HREF="/ht_root/src/httpd/cgi.c">CGI.c</A> for how the value is
+generated.
+
+
+<P> The CGIplus EOF string is obtained by the script from the logical name
+CGIPLUSEOF, defined in the script subprocess' process table, using the
+scripting language's equivalent of F$TRNLNM(), SYS$TRNLNM(), or a getenv()
+call (in the C standard library).&nbsp; This string will always contain less than 64
+characters and comprise only printable characters.&nbsp; It must be written at the
+conclusion of a request's output to the output stream as a single record
+(line) but may also contain a &lt;CR&gt;&lt;LF&gt; or just
+&lt;LF&gt; trailing carriage-control (to allow for programming language
+requirements).&nbsp; It only has to be evaluated once, as the processing begins,
+remaining the same for all requests over the life-time of that instance of the
+script.&nbsp;
+
+<P> HTTP input (raw request body stream) is still available to a CGIplus script.&nbsp;
+
+<A NAME="61">
+<H3><BR>CGI Function Library</H3>
+</A>
+
+<P> A source code collection of C language functions useful for processing the
+more vexing aspects of CGI/CGIplus/RTE programming.&nbsp;  See
+<A HREF="scripting_0100.html#38" TARGET="_self">1.7 - Scripting Function Library</A>.&nbsp;
+
+<A NAME="62">
+<H3><BR><U>3.2 - Code Examples</U></H3>
+</A>
+
+<P> Of course a CGIplus script should only have a single exit point and should
+explicitly close files, free allocated memory, etc., after processing a
+request (i.e. not rely on image run-down to clean-up after itself).&nbsp; It is
+particularly important when modifying existing scripts to work in the CGIplus
+environment to ensure this requirement is met (who of us hasn't thought
+&quot;well, this file will close when the image exits anyway&quot;?)
+
+<P> It is a simple task to design a script to modify it's behaviour according
+to the environment it is executing in.&nbsp; Detecting the presence or absence of
+the CGIPLUSEOF logical is sufficient indication.&nbsp; The following C code fragment
+shows simultaneously determining whether it is a standard or CGIplus
+environment (and setting an appropriate boolean), and getting the CGIplus EOF
+sequence (if it exists).&nbsp;
+
+<FONT COLOR="#333333"><PRE>  int  IsCgiPlus;
+  char  *CgiPlusEofPtr;
+ 
+  IsCgiPlus = ((CgiPlusEofPtr = getenv("CGIPLUSEOF")) != NULL);
+</PRE></FONT>
+
+<P> The following C code fragment shows a basic CGIplus request loop, reading
+lines from CGIPLUSIN, and some basic processing to select required CGI
+variables for request processing.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  if (IsCgiPlus)
+  {
+     char  *cptr;
+     char  Line [1024],
+           RemoteHost [128];
+     FILE  *CgiPlusIn;
+ 
+     if ((CgiPlusIn = fopen (getenv("CGIPLUSIN"), "r")) == NULL)
+     {
+        perror ("CGIplus: fopen");
+        exit (0);
+     }
+ 
+     for (;;)
+     {
+        /* will block waiting for subsequent requests */
+        for (;;)
+        {
+           /* should never have a problem reading CGIPLUSIN, but */
+           if (fgets (Line, sizeof(Line), CgiPlusIn) == NULL)
+           {
+              perror ("CGIplus: fgets");
+              exit (0);
+           }
+           /* first empty line signals the end of CGIplus variables */
+           if (Line[0] == '\n') break;
+           /* remove the trailing newline */
+           if ((cptr = strchr(Line, '\n')) != NULL) *cptr = '\0';
+ 
+           /* process the CGI variable(s) we are interested in */
+           if (!strncmp (Line, "WWW_REMOTE_HOST=", 16))
+              strcpy (RemoteHost, Line+16);
+        }
+ 
+        <I>(process request, signal end-of-output)</I>
+     }
+  }
+</PRE></FONT>
+ CGI scripts can write output in record (line-by-line) or binary mode
+(more efficient because of buffering by the C RTL).&nbsp;  When in binary mode the
+output stream must be flushed immediately before and after writing the CGIplus
+EOF sequence (note that in binary a full HTTP stream must also be used).&nbsp; This
+code fragment shows placing a script output stream into binary mode and the
+flushing steps.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  /* reopen output stream so that the '\r' and '\n' are not filtered */
+  if ((stdout = freopen ("SYS$OUTPUT", "w", stdout, "ctx=bin")) == NULL)
+     exit (vaxc$errno);
+ 
+  do {
+ 
+     <I>(read request ...)</I>
+ 
+     /* HTTP response header */
+     fprintf (stdout, "HTTP/1.0 200 Success\r\nContent-Type: text/html\r\n\r\n");
+ 
+     <I>(other output ...)</I>
+ 
+     if (IsCgiPlus)
+     {
+        /* the CGIplus EOF must be an independant I/O record */
+        fflush (stdout);
+        fprintf (stdout, "%s", CgiPlusEofPtr);
+        fflush (stdout);
+     }
+ 
+  } while (IsCgiPlus);
+</PRE></FONT>
+ If the script output is not binary (using default &lt;stdout&gt;) it
+is only necessary to ensure the EOF string has a record-delimiting new-line.&nbsp; 
+
+<FONT COLOR="#333333"><PRE>  fprintf (stdout, "%s\n", CgiPlusEofPtr);
+</PRE></FONT>
+ Other languages may not have this same requirement.&nbsp;  DCL procedures are
+quite capable of being used as CGIplus scripts.&nbsp;
+
+<P> See examples in
+<A TARGET="_top" HREF="/ht_root/src/CGIplus/*.*">HT_ROOT:[SRC.CGIPLUS]</A>
+
+<BLOCKQUOTE><CENTER><B>Hint!&nbsp;</B></CENTER><HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE>
+
+Whenever developing CGIplus scripts/applications (unlike standard CGI) don't
+forget that after compiling, the old image must be purged from the server
+before trying out the new!!!  (I've been caught a number of times :^) 
+
+<P> Scripting subprocesses may be purged or deleted using (see
+&quot;Techncial Overview, Server Command Line Control&quot;):
+
+<FONT COLOR="#333333"><PRE>  $ HTTPD /DO=DCL=DELETE
+  $ HTTPD /DO=DCL=PURGE
+</PRE></FONT>
+<HR SIZE=1 WIDTH=70% ALIGN=center NOSHADE></BLOCKQUOTE>
+
+
+<A NAME="63">
+<H3><BR><U>3.3 - Other Considerations</U></H3>
+</A>
+
+<P> Multiple CGIplus scripts may be executing in subprocesses at any one time.&nbsp;
+This includes multiple instances of any particular script.&nbsp;  It is the server's
+task to track these, distributing appropriate requests to idle subprocesses,
+monitoring those currently processing requests, creating new instances if and
+when necessary, and deleting the least-used, idle CGIplus subprocesses when
+configurable thresholds are reached.&nbsp;  Of course it is the script's job to
+maintain coherency if multiple instances may result in resource conflicts or
+race conditions, etc., between the scripts.&nbsp;
+
+<P> The CGIplus subprocess can be given a finite life-time set by configuration
+parameter (see &quot;Technical Overview, Server Configuration&quot;).&nbsp;  If this
+life-time is not set then 
+the CGIplus will persist indefinitely (i.e. until purged due to soft-limits
+being reached, or explicitly purged/deleted).&nbsp;  When a life-time has been set the
+CGIplus subprocess is automatically deleted after being idle for the specified
+period (i.e. not having processed a request).&nbsp;  This can be useful in preventing
+sporadically used scripts from cluttering up the system indefinitely.&nbsp;
+
+<P> In addition, an idle CGIplus script can be terminated by the server at any
+time the subprocess soft-limit is reached (the subprocess SYS$DELPRC()ed) so
+resources should be largely quiescent when not actually processing.&nbsp; Of course a
+CGIplus subprocesses may also be manually terminated from the command line
+(e.g. STOP/ID=).
+
+<P> Some CGIplus scripting information and management is available via the
+server administration menu, see &quot;Technical Overview, Server Reports&quot;.&nbsp;
+
+<A NAME="64">
+<H3><BR>CGIplus Rule Mapping</H3>
+</A>
+
+<P> CGIplus scripts are differentiated from standard CGI scripts in the
+mapping rule configuration file using the &quot;script+&quot; and &quot;exec+&quot;
+directives.&nbsp;  See &quot;Technical Overview, Mapping Rules&quot;.&nbsp;
+
+<P> Scripts capable of operating in both standard CGI and CGIplus environments
+may simply be accessed in either via rules such as
+
+<FONT COLOR="#333333"><PRE>  exec /cgi-bin/* /cgi-bin/*
+  exec+ /cgiplus-bin/* /cgi-bin/*
+</PRE></FONT>
+ while specific scripts can be individually designated as CGIplus using
+
+<FONT COLOR="#333333"><PRE>  script+ /cgiplus_example* /cgi-bin/cgiplus_example*
+</PRE></FONT>
+
+<P> <B>Caution!&nbsp; </B> If changing CGIplus script mapping it is
+advised to restart the server rather than reloading the rules.&nbsp;  Some conflict
+is possible when using new rules while existing CGIplus scripts are executing.&nbsp;
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="scripting_0400.html" TARGET="_self">next</A>] [<A HREF="scripting_0200.html" TARGET="_self">previous</A>] [<A HREF="scripting_0001.html"TARGET="_top" >contents</A>] [<A HREF="scripting_0300.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

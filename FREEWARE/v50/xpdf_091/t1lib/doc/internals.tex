@@ -1,0 +1,240 @@
+%----------------------------------------------------------------------------
+% ----- File:        internals.tex 
+% ----- Author:      Rainer Menzner (rmz@neuroinformatik.ruhr-uni-bochum.de)
+% ----- Date:        1999-05-05
+% ----- Description: This file is part of the t1lib-documentation.
+% ----- Copyright:   t1lib is copyrighted (c) Rainer Menzner, 1996-1999. 
+%                    As of version 0.5, t1lib is distributed under the
+%                    GNU General Public Library License. The
+%                    conditions can be found in the files LICENSE and
+%                    LGPL, which should reside in the toplevel
+%                    directory of the distribution.  Please note that 
+%                    there are parts of t1lib that are subject to
+%                    other licenses:
+%                    The parseAFM-package is copyrighted by Adobe Systems
+%                    Inc.
+%                    The type1 rasterizer is copyrighted by IBM and the
+%                    X11-consortium.
+% ----- Warranties:  Of course, there's NO WARRANTY OF ANY KIND :-)
+% ----- Credits:     I want to thank IBM and the X11-consortium for making
+%                    their rasterizer freely available.
+%                    Also thanks to Piet Tutelaers for his ps2pk, from
+%                    which I took the rasterizer sources in a format
+%                    independent from X11.
+%                    Thanks to all people who make free software living!
+%----------------------------------------------------------------------------
+
+\newpage
+\section{Internals (incomplete)}
+\label{internals}%
+\vskip1cm
+\hrule
+\vskip0.5cm
+\begin{center}
+\sffamily\large
+{\Huge\bfseries Note!}\\
+This section is still very incomplete and some facts are not true
+anymore. This should be kept in mind. Currently I have no time to
+write this section. But I try to keep figure \ref{figure:t1data}
+consistent to the current releases. This may lead to inconsistencies
+between the text and the figure. 
+\end{center}
+\hrule
+\vskip1cm
+In this section, some information on internals of \tonelib\ is given. There is
+no need for an average user to read this section although having understood
+what is going on internally might be helpful if problems occur. 
+
+The basic idea of this section is to describe the data structures and to give
+information on when they are initialized, allocated and referenced. Figure
+\ref{figure:t1data} shows an image of the data-structures for the special case that
+the font with ID 0 has already been loaded and several size-instances have
+already been created. 
+%-- Figure: The data structures of t1lib
+\begin{figure}
+\begin{center}
+\includegraphics*[angle=90]{t1_data.eps}
+\end{center}
+\hrule\vskip3mm\small
+\caption{\label{figure:t1data}The internal data structures of \tonelib. The
+underlying substructures are shown only for the first font
+{\tt FontID=0}.} 
+\end{figure}
+As the figure indicates, the complete area may be split into three
+different sub-areas, thereby pointing out their logical functions.
+
+\subsection{Level 0: Global Data}
+\label{globaldata}%
+This area contains information needed for the overall organization of the
+\tonelib. Its contents and its size are thus determined at the time
+\tonelib\ is initialized. This is done based on the contents of the
+configuration file and the fontdatabase file. The entries in detail are:
+\begin{itemize}
+\item {\tt Filename-Searchpaths}: This entry essentially does not depend on
+  any other data. It consists of 4 \verb+\0+-terminated strings that are read
+  from the configuration file. They are referenced internally by the global
+  symbols
+  \verb+PFAB_ptr+, \verb+AFM_ptr+, \verb+ENC_ptr+ and \verb+FDB_ptr+
+  respectively. All these are declared as \verb+unsigned char *+. These
+  strings are used by \tonelib\ to locate the respective file types. If no
+  configuration file exists or some path declaration is missing, the
+  corresponding searchpath is set to ``\verb+.+'', causing \tonelib\ to only
+  search the current working directory. 
+\item \verb+no_fonts_ini+: This value is assigned after examining the
+  fontdatabase file. It is meant to store the number of fonts initially
+  declared in the fontdatabase file. In other words, it is assigned the
+  integer number located on the first line of the fontdatabase file.
+\item \verb+no_fonts+: The number of actually allocated fonts. Initially, this
+  quantity is identical to \verb+no_fonts_ini+. But if one creates a new
+  logical font by calling \verb+T1_CopyFont()+ this counter is incremented to
+  keep track of allocated fonts. \verb+no_fonts+ thus represents most large
+  \verb+FontID+ minus 1 that makes sense to specify to any function of
+  \tonelib. 
+\item \verb+no_fonts_limit+: The number of fonts for which memory is currently
+  allocated. This also is initially set to \verb+no_fonts_ini+ and is
+  automatically enlarged to a multiple of the initial value if a call to
+  \verb+T1_CopyFont()+ requires additional memory for logical fonts (see
+  \ref{logicalfonts}). 
+\item \verb+bitmap_pad+: This variable contains the number of bits to which
+  scanlines of bitmaps and antialiased bitmaps are padded. It is set during
+  initialization, either to a default value or to the value the application
+  specified before starting initialization using
+  \verb+T1_SetBimapPad()+. Allowed values are currently `8', `16' and `32'. 
+\item \verb+endian+: During initialization the hardware is checked for
+  representation of data in memory. If Big Endian is used, \verb+endian+ is
+  set to \verb+1+ and otherwise it is set to \verb+0+. \verb+endian+ is needed
+  at several times when an application or \tonelib\ itself must know the
+  byte order of words and long words.
+\item \verb+pFontArray+: This a pointer to an array of structures whose type
+  is referred to as \\
+  \verb+FONTPRIVATE+ in \tonelib. The contents of these
+  structures will be described below. After \tonelib\ has been
+  initialized, memory is allocated for exactly \verb+no_fonts_ini+
+  structures. This memory pool may be enlarged later if the one wants to make
+  use of logical fonts, for example. The data in these structures initially is
+  not specified. It is written with meaningful values when a font is loaded
+  into memory. The index to access this array-elements is the well known font
+  identification number (\verb+FontID+).
+\item \verb+pFontFileNameIDArray+: A pointer to a memory area where the
+  font file names corresponding to the \verb+FontID+s are stored. During
+  initialization, \tonelib\ looks for font files with extension \verb+.pfa+
+  and \verb+.pfb+. The basename of the file found is stored in this area and
+  if the font is to be loaded later, its font file name is looked up here.
+\end{itemize}
+We should now discuss the entries of the structures of type
+\verb+FONTPRIVATE+. The term \verb+FONTPRIVATE+ indicates that every font
+needs its own structure area. As mentioned earlier, this area is initialized
+when the corresponding font is loaded.
+\begin{itemize}
+\item \verb+pAFMData+: A pointer to a memory area where Adobe Font Metric data
+  of the font is stored. The memory area itself is build by the
+  \verb+parse_afm+-package which is supplied by Adobe System and included in
+  \tonelib. This happens while a font is loaded. In case there is no AFM file
+  for the font in question, this pointer is given the value \verb+NULL+. 
+\item \verb+pType1Data+: A pointer to the data area where the Type 1
+  information is stored. The known PostScript Type 1 objects
+  Charstrings-dictionary, Subroutines, Othersubroutines and
+  Fontinfo-dictionary are located here. The memory is filled with data during
+  parsing the font file when the font is loaded.
+\item \verb+pFontEnc+: A pointer to an optional external encoding
+  vector. During initialization, this pointer is set to \verb+NULL+, thus
+  indicating that by default the font's internal encoding should be used.
+  If a font is reencoded using a previously loaded encoding vector from an
+  encoding file, this pointer simply is assigned the address of a valid
+  encoding array somewhere in memory.
+\item \verb+vm_base+: The base address of the virtual memory required by the
+  font. Unlike the original rasterizer, which allocated virtual memory in
+  chunks of a fixed size, t1lib uses another principle. Since it is \`a
+  priori not obvious how many virtual memory a font consumes, \tonelib\ tries
+  to load a font repeatedly and increases the amount of virtual memory during
+  every trial. In order not to waste memory, the memory is reallocated to the
+  needed size when the font is completely loaded. Finally, the starting
+  address of the virtual memory is needed when a font is to be unloaded and
+  the memory it consumes is to be given back to system. 
+\item \verb+pFontSizeDeps+: A pointer to the area where the size dependent
+  data is to be stored. This data essentially consists of generated glyphs
+  plus some administrative item (see \ref{sizedependentfontdata}).
+\item \verb+FontMatrix+: A matrix of four \verb+double+-values specifying the
+  font matrix. If the FontInfo-dictionary of the font file defines a
+  FontMatrix, it is copied to this location. If not, a default matrix is
+  used which does no transformation and scales to $1/1000$~bp.
+\item \verb+FontTransform+: A matrix that will be concatenated with the
+  FontMatrix to produce the final transformation of the characters. It is this
+  matrix that is modified if a font is to be slanted or extended.
+\item \verb+slant+: A slant factor for the current font. Note that this 
+  value is initially 0, even for italic font. Only artificially slanting a
+  font leads to values different from 0.
+\item \verb+extend+: The horizontal extension factor for the current font. Its
+  default value is 1 and the font is thus rendered at its natural width.
+\item \verb+physical+: This is a switch that marks a font either being
+  ``physical'' or ``logical''. A physical font by definition is a font for
+  which a Type 1 font file is available and for which thus Level 1
+  (size-independent) data is present (see Fig.\ 5.1). In contrast, the term 
+  ``logical font'' refers to a structure of type \verb+FONTPRIVATE+ whose
+  entry \verb+pType1Data+ points to Level 1 data of another (physical)
+  font. This \verb+FONTPRIVATE+-structure is created by calling
+  \verb+T1_CopyFont()+ with the identification number of an existing physical
+  font as argument (see \ref{logicalfonts}).
+\item \verb+refcount+: This counter keeps track on how much logical fonts
+  refer to the physical font that is represented by the current structure of
+  type \verb+FONTPRIVATE+. In this since, \verb+refcount+ is only meaningful for
+  physical fonts. It is necessary to keep track of the reference of logical
+  fonts because if this font would be removed from memory by calling
+  \verb+T1_DeleteFont()+, the Level 1 font data memory area would be given back
+  to the system but the logical fonts referring to that font would still
+  expect to find Type 1 or Font Metric data at this address. By checking
+  \verb+refcount+, \verb+T1_DeleteFont()+ can check for logical fonts referring
+  to the font in question and prevent from removing this font from memory.
+  
+  In structures describing logical fonts, \verb+refcount+ is used to
+  store the information which physical font this logical font is
+  referring to. This information is also needed by
+  \verb+T1_DeleteFont()+ since when removing logical fonts, the
+  reference counter of the corresponding physical font has to be
+  decremented.
+\item \verb+space_position+: This variable stores the encoding index of the
+  ``space''-character of the current font. If the space character does not
+  appear in the current font's encoding, \verb+space_position+ is assigned
+  -1. It follows that \verb+space_position+
+  is assigned when (1) a font loaded and (2) every time a
+  font is reencoded. Why is it convenient to store the position of the space
+  character in the encoding vector? The properties of the space character are
+  set apart from the other characters' properties not only by the fact that it
+  does not produce any colored pixels but also by that it may shrink and
+  stretch in \tonelib. As a consequence a space character is treated by simply
+  inserting a horizontal escapement of the width of the space
+  character---corrected by the quantity \verb+space_off+ that a user may
+  specify (see \ref{generatingbitmaps}). This involves always checking every
+  character for being the space character and since the encoding principle is
+  used in \tonelib, every check needs a call to \verb+strcmp()+. This overhead
+  is avoided if the position of space is stored.
+\end{itemize} 
+\subsection{Level 1: Size-Independent Font Data}
+\label{sizeindependentfontdata}%
+Size-independent data may be split into three categories as indicated in
+figure \ref{figure:t1data}. The external encoding is optional and is generated
+by loading an encoding file as described in \ref{encoding}. It is simply an
+array of 256 pointers to \verb+unsigned char+ and an ensemble of 256
+\verb+\0+-terminated strings. Each pointer references one of the 256 strings
+in order. The strings are the characters' names to be defined in a
+\tonelib-encoding file.
+
+The internal Type 1 data structures hold all data specified in a type font
+file. I do not want to describe these data structures here, because this could
+fill a book. Adobe has made the description of the Type 1 font format
+available to the public. 
+
+The Adobe Font Metrics area is entirely created by the
+\verb+parse_afm+-package. Adobe has made this available by means of the file
+\verb+parseAFM.shar+ which is a shell-archive and included in \tonelib\ in the
+subdirectory \verb+parse_afm+.
+
+\subsection{Level 2: Size-Dependent Font Data}
+\label{sizedependentfontdata}%
+
+$\ldots$
+
+%%% Local Variables: 
+%%% mode: latex
+%%% TeX-master: "t1lib_doc"
+%%% End: 

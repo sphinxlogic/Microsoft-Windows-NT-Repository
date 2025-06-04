@@ -1,0 +1,1692 @@
+	.TITLE	EMU_COMPILE 
+	.IDENT	/V1-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;
+; 001	JUL-1997	PB	Creation
+;++
+;1 EMU_COMPILE 
+; Program to compile and execute rule files within the EMU system.
+;2 Inputs:
+; This is a standalone interactive programme. The user inputs a file name
+; to be compiled and executed.  
+;  
+;2 Outputs
+; As directed by the statements.
+;2 Language_Primer
+; This is a simple language used to manipulate the various databases.
+; The statements contain record selection criteria followed by 
+; actions to perform on or with those records. Initialy, the purpose is
+; to provide a means to scan EMUDB.DAT and create relations that exist
+; in the internal structures. In it's next iteration, it will supply
+; the inputs to analysis functions.
+;3 Components
+; Record selection is accomplished by specifying 1 or more database 
+; records. A database record always consists of:
+;	 database.table.param.instance.box
+; This is reduced to:
+;	database	(keyword)
+;	table		(keyword)
+;	Param		(numeric)
+;	Instance	(keyword or numeric)
+;	box		(
+; and is formed as symbol(db.keyword.box) where symbol is a user supplied
+; numeric keyword, db is one of the existing databases, keyword is
+; the phrase used in translation of the paramater and index is 1 of: 
+; Action is in form of an if statement ans uses the previously 
+; defined symbols to test conditions and perform the execution requested.
+;4 Symbols
+; The symbols are numeric and may be in range 1 - 2730 and may be reused.
+; They 
+; They essentialy index an area of memory (8k) used to store the RFA of the
+; record. 
+;4   
+;--
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"
+	$DSCDEF
+        $IODEF          ;Define I/O functions and modifiers
+	$SSDEF
+	$SMGDEF
+	$TRMDEF
+	EMUSNMPDEF
+
+	.PSECT	EMU_COMPILE_D,WRT,NOEXE,PIC,SHR,QUAD
+
+SYMSEC_A:	.QUAD	0
+DEFSIZ:		.LONG	800		; Number of pages (8 rec/pag)
+OUTPFAB:	
+	$FAB	FAC = <PUT>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; 
+		DNA = MIBDIR,-
+		DNS = MIBDIRSIZ,-
+		ORG = SEQ,-
+		RAT = CR			; 
+OUTPRAB:	
+	$RAB	FAB = OUTPFAB,-		; pointer to FAB
+		RBF = OUTBUF,-		; o/p buffer 
+		RSZ = OUTBUFSIZ,-		; Write this many bytes
+		UBF = OUTBUF,-		; i/p buffer 
+		USZ = OUTBUFSIZ		; Write this many bytes
+;
+HLPFAB:	
+	$FAB	FAC = <PUT>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; 
+		DNA = HLPDIR,-
+		DNS = HLPDIRSIZ,-
+		ORG = SEQ,-
+		RAT = CR			; 
+HLPRAB:	
+	$RAB	FAB = HLPFAB,-		; pointer to FAB
+		RBF = HLPBUF,-		; o/p buffer 
+		RSZ = HLPBUFSIZ,-	; Write this many bytes
+		UBF = HLPBUF,-		; i/p buffer 
+		USZ = HLPBUFSIZ		; Write this many bytes
+
+
+INFAB:	$FAB	FAC = <GET>,-			; Access
+		DNA = MIBDIR,-
+		DNS = MIBDIRSIZ,-
+		ORG = SEQ,-
+		RAT = CR			; 
+
+INRAB:	$RAB	FAB = INFAB,-		; pointer to FAB
+		RBF = INBUF,-		; o/p buffer 
+		RSZ = INBUFSIZ,-	; Write this many bytes
+		UBF = INBUF,-		; i/p buffer 
+		USZ = INBUFSIZ		; Write this many bytes
+;
+SYMFAB:	
+	$FAB	FAC = <GET,UPD,PUT>,-	; Access
+		SHR = <GET,PUT,UPD>,-	; 
+		DNA = MIBDIR,-
+		DNS = MIBDIRSIZ,-
+		ORG = SEQ,-
+		RAT = CR			; 
+SYMRAB:	
+	$RAB	FAB = SYMFAB,-		; pointer to FAB
+		RBF = OUTBUF,-		; o/p buffer 
+		RSZ = OUTBUFSIZ,-		; Write this many bytes
+		UBF = OUTBUF,-		; i/p buffer 
+		USZ = OUTBUFSIZ		; Write this many bytes
+;
+; Record buffers
+INBUFSIZ = 255
+INBUF:		.BLKB	INBUFSIZ
+OUTBUFSIZ = 132
+OUTBUF:		.BLKB	OUTBUFSIZ
+HLPBUFSIZ = 80
+HLPBUF:		.BLKB	HLPBUFSIZ
+FILENAME:	.BLKB	40
+FILENAME_LEN:	.LONG	0
+MIBDIR:		.ASCII	/EMU5_MIB:/
+MIBDIRSIZ = .-MIBDIR
+HLPDIR:		.ASCII	/EMU5_HLP:/
+HLPDIRSIZ = .-HLPDIR
+
+	.ALIGN LONG
+; File extentions:
+EMDEXT:		.ASCII	/.MC1/
+HLPEXT:		.ASCII	/.HLP/
+; FAO
+FAOBUF:		.BLKB	132
+FAODESC:
+FAOLEN:		.LONG	.-FAOBUF
+		.ADDRESS  FAOBUF
+TMPDESC:	.QUAD   0
+TMPDESC2:	.QUAD   0
+TMPSYM:		.QUAD	0
+RECDESC:	.QUAD	0
+NUMSYMENT:	.LONG	0
+LCNT:		.LONG	0
+HLPENTCNT:	.LONG	0
+HLPLINCNT:	.LONG	0
+;
+
+; Messages
+FILEPRMPT:	.ASCID	/ Filename>/
+NOFILMSG:	.ASCID	/ Could not open file !AD/
+CONTMSG:	.ASCID	/ Continue? (^Z if no)>/
+READERRMSG:	.ASCID	/ File Read Error : !XL/
+FMTERRMSG:	.ASCID	/ Following record has unexpected format:/
+RECMSG:		.ASCID	/!AD/
+ADDSYMMSG:	.ASCID	/ Symbol '!AD' is not in table. Add? [Y]:/
+ADDSYMMSG1:	.ASCID	/ FULL Object ID: /
+ADDSYMMSG2:	.ASCID	/ Type? (2-6,30,40-47) /
+ADDSYMMSG3:	.ASCID	/ Permanent? [N] /
+OUTPFMT:	.ASCID	\!AD/!AD/!AD/!AD/\
+STATSFMT:	.ASCID	/Lines read = !UL, Symobls written = !UL/
+HLPSTATS:	.ASCID	/Help entries = !UL, Lines = !UL/
+;
+KEYLIST:
+BEGIN:		.ASCID	/BEGIN/
+IMPORTS:	.ASCID	/IMPORTS/
+OBJTYP:		.ASCID	/OBJECT-TYPE/
+SYNTAX:		.ASCID	/SYNTAX/
+ACCESS:		.ASCID	/ACCESS/
+STATUS:		.ASCID	/STATUS/
+DESCRIPTION:	.ASCID	/DESCRIPTION/
+OBJID:		.ASCID	/OBJECT IDENTIFIER/
+VALUE:		.ASCID	/::=/
+FROM:		.ASCID	/FROM/
+COMMENT:	.ASCID	/--/
+SEQUENCE:	.ASCID	/SEQUENCE/
+SEQUENCEOF:	.ASCID	/SEQUENCE OF/
+OBJIDA:		.ASCII	/OBJECT I/
+OBJIDL = .-OBJIDA
+NONEA:		.ASCII	/NONE/
+NONEL = .-NONEA
+TBLKEY:		.ASCII	/Table/
+	.ALIGN	LONG
+;
+; Virtual Display Parameters
+;
+VD_DISP:	.LONG		; Virtual Display ID
+VD_ROWS: 	.LONG 45
+VD_COLS: 	.LONG 80
+VD_DISP2:	.LONG		; Display 2
+VD_ROW2:	.LONG 	3
+VD_COL2:	.LONG	80      ;
+;
+; Optional Display Characteristics
+;
+;
+; Pasteboard Paramenters
+;
+PB_BOARD:	.LONG 		; Pasteboard ID
+PB_COL:		.LONG	1      
+PB_ROW:		.LONG 	5
+PB_BOARD2:	.LONG 		; Pasteboard ID 2
+PB_COL2:	.LONG	1      ; Position for DISP2
+PB_ROW2:	.LONG 	1
+; Virtual Keyboard Parameters
+;
+KB_BOARD:	.LONG           	; Virtual Keyboard ID
+KB_BUF:		.BLKB	80		; Input buffer
+KB_DES:		.LONG	.-KB_BUF
+		.ADDRESS KB_BUF
+
+BORDER:		.LONG	SMG$M_BORDER
+REVERSE:	.LONG	SMG$M_REVERSE
+HORIZONTAL:	.LONG	SMG$K_HORIZONTAL
+VERTICAL:	.LONG	SMG$K_VERTICAL
+BLOCK:		.LONG	SMG$K_BLOCK
+W2:		.LONG 	2
+W3:    		.LONG 	3
+BOLD:		.LONG	SMG$M_BOLD
+SPACING:	.LONG	SMG$M_DOUBLE_SPACE
+FORMAT:		.LONG	SMG$M_FIXED_FORMAT
+ERASE:		.LONG	SMG$M_ERASE_MENU
+CURSOR_FLAGS:	.LONG	<SMG$M_CURSOR_OFF!SMG$M_SCROLL_JUMP>
+UPCASE:		.LONG	TRM$M_TM_CVTLOW 	;Convert lower to upper case
+CHOICE:		.WORD
+BYTCNT:		.WORD
+CURCOL:		.LONG   1
+CURROW:		.LONG   1
+SAVE_DISP:	.LONG	0		; Saved char
+SCR_WID:	.LONG	80
+SCR_HEIGHT:	.LONG	48
+
+;
+
+
+; Misc
+SEQARRAY:	.BLKB	48		; Stores count and 1st occurence
+SPACES:		.ASCII	/    /
+CUROBJ:		.BLKL	48
+CURSYN:		.BLKB	48
+CURACC:		.BLKB	24
+HLPLVL2:	.ASCII	/2   /
+HLPLVL1:	.ASCII	/1   /
+HLPLVL:		.LONG	1	; Flag
+RESULT:		.LONG	0
+STRIDX:		.LONG	0
+SBSIDX:		.LONG	0
+VALSYM:		.ASCII	/:=/
+TAB:		.BYTE	9		; TAB char
+       .PSECT EMU_COMPILE_C,EXE,NOWRT,LONG
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=EMU_COMPILE
+;
+   	BSBW	CREATE_ENVIRONMENT
+;
+; Get mem to contain recs
+	CLRL	-(SP)		; P0 Space
+	CLRL	-(SP)		; Access mode
+	PUSHAL	SYMSEC_A	; Returned address
+	PUSHL	DEFSIZ            ; No. of pages
+	CALLS	#4,G^SYS$EXPREG
+	BLBS	R0,1$          ; Br no error
+	$EXIT_S	R0
+; Get file name to process.
+1$:
+	PUSHAL	FILEPRMPT
+	CALLS	#1,G^MC1_READ_PROMPT
+	CALLS	#0,G^MC1_ERROR_CHK		; Any error exits (EOF)
+; Open the file
+	MOVAL	KB_BUF,INFAB+FAB$L_FNA	; Location of name
+	MOVB	BYTCNT,INFAB+FAB$B_FNS	; Size of name
+	$OPEN	FAB=INFAB
+	CALLS	#0,G^MC1_ERROR_CHK
+	$CONNECT RAB=INRAB
+	CALLS	#0,G^MC1_ERROR_CHK
+	MOVW	#INBUFSIZ,INRAB+RAB$W_RSZ
+; Parse the file name to create others.
+; 
+	LOCC	#^A/:/,BYTCNT,KB_BUF    ; Find ':'
+	TSTL	R0			; Found?
+	BNEQ	10$			; Br if no
+	MOVAL	KB_BUF,R1
+10$:
+	MOVL	R1,R5			; Set start of filename
+	LOCC	#^A/./,BYTCNT,KB_BUF    ; Find '.'
+	SUBL3	R5,R1,FILENAME_LEN	; Len of filename
+	MOVC3	FILENAME_LEN,(R5),FILENAME
+; Open output files
+; .MC1 file
+; Set type
+	MOVAL	FILENAME,R11
+	ADDL	FILENAME_LEN,R11
+	MOVL	EMDEXT,(R11)	
+	MOVAL	FILENAME,OUTPFAB+FAB$L_FNA	; Location of name
+	ADDL3	#4,FILENAME_LEN,R1
+	MOVB	R1,OUTPFAB+FAB$B_FNS		; Size of name
+	$CREATE	FAB=OUTPFAB
+	CALLS	#0,G^MC1_ERROR_CHK
+	$CONNECT RAB=OUTPRAB
+	CALLS	#0,G^MC1_ERROR_CHK
+	MOVW	#OUTBUFSIZ,OUTPRAB+RAB$W_RSZ
+; .HLP file
+; Open the file
+; Set type
+	MOVL	HLPEXT,(R11)	
+	MOVAL	FILENAME,HLPFAB+FAB$L_FNA	; Location of name
+	ADDL3	#4,FILENAME_LEN,R1
+	MOVB	R1,HLPFAB+FAB$B_FNS		; Size of name
+	$CREATE	FAB=HLPFAB
+	CALLS	#0,G^MC1_ERROR_CHK
+	$CONNECT RAB=HLPRAB
+	CALLS	#0,G^MC1_ERROR_CHK
+	MOVW	#HLPBUFSIZ,HLPRAB+RAB$W_RSZ  
+READ:
+; Read input file until EOF.
+; For each rec sea the text for KEYWORD and if found, call appropriate routine.
+;
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_READ_MIB
+	BLBS	R0,20$
+	CMPL	#RMS$_EOF,R0             ; End of file?
+	BNEQU	10$                     ; Br if no
+	BRW	END_OF_INPUT            ; Good end
+10$:
+	MOVL	#132,FAODESC            ; 
+	PUSHL	R0                      ; Error message
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	READERRMSG
+	CALLS	#4,G^SYS$FAO
+	CALLS	#0,G^MC1_ERROR_CHK
+	BSBW	PRINT                   ; Print it
+	PUSHAL	CONTMSG              ; Wants to continue?
+	CALLS	#1,G^MC1_READ_PROMPT             ;
+	BLBS	R0,READ                 ; Br if yes
+	BRW	END_OF_INPUT            ; No
+20$:
+; Sea this rec for recognised keyword
+1000$: 
+	TSTL	TMPDESC			; Ignore null len recs
+	BEQL	READ
+        PUSHAL	BEGIN
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHAL	TMPDESC
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING
+	BLBC	R0,1010$
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_PRS_BEGIN
+	BRW	READ
+1010$:
+        PUSHAL	IMPORTS
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHAL	TMPDESC
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING
+	BLBC	R0,1020$
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_PRS_IMPORTS
+	BRW	READ
+1020$:
+        PUSHAL	OBJTYP
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHAL	TMPDESC
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING
+	BLBC	R0,1030$
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_PRS_OBJTYP
+	BRW	READ
+1030$:
+        PUSHAL	SYNTAX
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHAL	TMPDESC
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING
+	BLBC	R0,1040$
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_PRS_SYNTAX
+	BRW	READ
+1040$:
+        PUSHAL	ACCESS
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHAL	TMPDESC
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING
+	BLBC	R0,1050$
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_PRS_ACCESS
+	BRW	READ
+1050$:
+        PUSHAL	STATUS
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHAL	TMPDESC
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING
+	BLBC	R0,1060$
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_PRS_STATUS
+	BRW	READ
+1060$:
+        PUSHAL	DESCRIPTION
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHAL	TMPDESC
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING
+	BLBC	R0,1070$
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_PRS_DESCRIPTION
+	BRW	READ
+1070$:
+        PUSHAL	OBJID
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHAL	TMPDESC
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING
+	BLBC	R0,1080$
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_PRS_OBJID
+	BRW	READ
+1080$:
+        PUSHAL	VALUE
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHAL	TMPDESC
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING
+	BLBC	R0,1090$
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_PRS_VALUE
+	BRW	READ
+1090$:
+        PUSHAL	SEQUENCE
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHAL	TMPDESC
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING
+	BLBC	R0,1100$
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_PRS_SEQUENCE
+1100$:
+	BRW	READ
+
+END_OF_INPUT:
+	$CLOSE FAB=SYMFAB
+	$CLOSE FAB=INFAB
+	$CLOSE FAB=HLPFAB
+; Write schema
+	MOVL	SYMSEC_A,R10			; Top of table
+	MOVZWL	#MC_SYMT_C_LEN,R9		; Entry size
+	MOVL	NUMSYMENT,R11			; Entries
+	MOVAL	OUTBUF,TMPDESC+4                ; Make rec desc
+10$:
+	MOVL	#132,TMPDESC
+	ADDL3	#MC_SYMT_A_ACC,R10,-(SP)	; access
+	PUSHL	MC_SYMT_L_ACCL(R10)	 	; Len
+	ADDL3	#MC_SYMT_A_TYP,R10,-(SP)	; Type
+	PUSHL	MC_SYMT_L_TYPL(R10)	 	; Len
+	ADDL3	#MC_SYMT_A_NAME,R10,-(SP)	; Name
+	PUSHL	MC_SYMT_L_NAMEL(R10)	 	; Len
+	ADDL3	#MC_SYMT_A_OID,R10,-(SP)	; OBJID
+	PUSHL	MC_SYMT_L_OIDL(R10)	 	; Len
+	PUSHAL  TMPDESC
+	PUSHAL  TMPDESC
+	PUSHAL	OUTPFMT
+        CALLS	#11,G^SYS$FAO
+	BLBS	R0,20$
+	RET
+20$:
+	MOVW	TMPDESC,OUTPRAB+RAB$W_RSZ	; Set len of rec
+	$PUT	RAB=OUTPRAB
+	BLBS	R0,30$
+	RET
+30$:
+	ADDL   	R9,R10			; Next location
+	SOBGTR	R11,10$			; Loop to end
+	$CLOSE FAB=OUTPFAB
+	PUSHAL	SAVE_DISP	
+	PUSHAL  PB_BOARD
+	CALLS	#1,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+	PUSHAL	VD_DISP         			; Delete Environment
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+       	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	$EXIT_S	R0					; Die
+; Subroutines
+; Print subroutines
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC1_READ_PROMPT   
+
+		MOVL	4(AP),R1
+		PUSHAL	VD_DISP                 ; Output display
+		CLRL	-(SP)                   ; Blank 
+		PUSHAL	BYTCNT                  ; Bytes to display
+		CLRL	-(SP)                   ; Blank 
+		CLRL	-(SP)		           ; Timeout 
+		PUSHAL	UPCASE                  ; Make input UPCASE 
+		CLRL	-(SP)                   ; Blank 
+		PUSHL	R1                      ; Output DSC
+		PUSHAL	KB_DES                  ; Input buf
+		PUSHAL	KB_BOARD                ; Input ID
+		CALLS	#10,G^SMG$READ_STRING
+		RET				; Process any err on return
+
+PRINT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP
+		CALLS	#2,G^SMG$PUT_LINE
+		CALLS	#0,G^MC1_ERROR_CHK
+		RSB
+
+PRINT22:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		MOVL	#1,CURCOL
+		MOVL	#2,CURROW
+		PUSHAL	CURCOL			; Column (1)
+		PUSHAL	CURROW			; Row (2)
+		PUSHAL	VD_DISP2
+		CALLS	#3,G^SMG$SET_CURSOR_ABS
+		CALLS	#0,G^MC1_ERROR_CHK
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		CALLS	#0,G^MC1_ERROR_CHK
+		RSB
+PRINT23:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+		MOVL	#1,CURCOL
+		MOVL	#3,CURROW
+		PUSHAL	CURCOL			; Column (1)
+		PUSHAL	CURROW			; Row (2)
+		PUSHAL	VD_DISP2
+		CALLS	#3,G^SMG$SET_CURSOR_ABS
+		CALLS	#0,G^MC1_ERROR_CHK
+		PUSHAL	FAODESC
+		PUSHAL	VD_DISP2
+		CALLS	#2,G^SMG$PUT_LINE
+		CALLS	#0,G^MC1_ERROR_CHK
+		RSB
+PRINT_STATS:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+; Print Status lines
+; 
+	MOVL	#132,FAODESC
+	PUSHL 	NUMSYMENT		; Symbol count
+	PUSHL   LCNT			; Line count
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	STATSFMT
+	CALLS	#5,G^SYS$FAO 
+	BSBW	PRINT22
+;
+	MOVL	#132,FAODESC
+	PUSHL 	HLPLINCNT		; Help lines
+	PUSHL   HLPENTCNT		; Help entries
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	HLPSTATS
+	CALLS	#5,G^SYS$FAO 
+	BSBW	PRINT23
+	RSB
+
+;
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC1_ERROR_CHK   
+
+	BLBC	R0,10$
+	RET
+10$:
+	MOVL	R0,R6
+	PUSHAL	SAVE_DISP	
+	PUSHAL  PB_BOARD
+	CALLS	#1,G^SMG$RESTORE_PHYSICAL_SCREEN	; No error check
+	PUSHAL	VD_DISP         	; Delete Environment
+	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	PUSHAL	VD_DISP2
+       	CALLS	#1,G^SMG$DELETE_VIRTUAL_DISPLAY
+	MOVL	R6,R0
+	$EXIT_S	R0				; Die
+;
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_READ_MIB   
+;++
+;2 MC_READ_MIB   
+; Read a line from the MIB.
+;3 Inputs
+; .addr of .quad where rec descriptor (less comments) is returned.
+; Assumes file is open, connected.
+; Also replaces non-printable chars with 'space'
+;--
+	$GET	RAB=INRAB
+	BLBS	R0,10$			; Br no err
+	RET
+10$:
+; Make desriptor for input rec
+	INCL	LCNT			; Count line read
+	MOVAL INBUF,RECDESC+4
+	MOVZWL INRAB+RAB$W_RSZ,RECDESC
+	BNEQ	20$                     ; Br if not null len rec 
+	MOVQ	RECDESC,@4(AP)          ; return 0 len desc
+	MOVL	#SS$_NORMAL,R0
+	RET			        
+20$:
+	MOVAL INBUF,RECDESC+4
+; Strip out any commented text - comment is any text following '--'
+        PUSHAL	COMMENT
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHAL	RECDESC
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING  
+	BLBC	R0,30$
+; Reset descriptor to ignore comment and any following text.
+; STR$FIND_FIRST_SUBSTRING apparently starts the char count at 1 (not 0)
+;
+	SUBL3	#1,STRIDX,RECDESC		; Reset rec len
+30$:
+; Convert any uprintable chars to spaces
+	MOVQ	RECDESC,R6		; R6 = LEN, R7=ADDR
+	ADDL3	R6,R7,R8
+50$:
+	CMPB	(R7),#^A/ /		; Printable?
+	BLSSU	60$			; Br if not
+	AOBLSS	R8,R7,50$
+	BRB	70$
+60$:
+	MOVB	#^A/ /,(R7)
+	AOBLSS	R8,R7,50$
+70$:
+; Check if rec is all blanks. if so return 0 len rec.
+	MOVQ	RECDESC,R6
+	CLRL	R1
+80$:
+	CMPB	#^A/ /,(R7)+
+	BNEQU	90$
+	SOBGTR	R6,80$
+	CLRL	RECDESC
+90$:
+	MOVQ	RECDESC,@4(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+; Keyword processors
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_PRS_BEGIN 
+;++
+;2 MC_PRS_BEGIN 
+; Place holder. Future routine to process BEGIN statement.
+;--
+	MOVL	#SS$_NORMAL,R0
+	RET
+;
+;
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_PRS_SEQUENCE
+;++
+;2 MC_PRS_SEQUENCE
+; Parse sequence statement. Purpose here is to identify the following
+; entries that are part of a table and therfore included in the help 
+; library as level 2 entries.
+;3 Sample
+;               LIfEntry ::=
+;                   SEQUENCE {
+;                       locIfHardType
+;                           DisplayString,
+;                       locIfLineProt
+;                           INTEGER,
+;                             	.
+;				.
+;				.
+;                       locIfOutputQueueDrops
+;                           INTEGER
+;                   }
+;
+; 
+; This keyword occurs in 2 statements. The SEQUENCE OF is not interesting.
+; We want the string SEQUENCE {.
+;--
+	MOVQ	@4(AP),RECDESC
+	MOVQ	RECDESC,R6
+	LOCC	#^A/{/,R6,(R7)         ; SEQUENCE statement?
+        TSTL	R0		
+	BNEQ	10$			; Br if so
+	MOVL	#SS$_NORMAL,R0
+	RET
+10$:
+; The next line contains the 1st entry name of this sequence. 
+; Store this, count it and count the number of entries following.
+; Each entry is on 2 lines: the name on the 1st and datatype on next
+; Count the entries and ignore datatypes.
+;
+	CLRQ	SEQARRAY		; Make new array
+20$:
+	PUSHAL	RECDESC
+	CALLS	#1,G^MC_READ_MIB
+	BLBS	R0,30$
+	RET
+30$:
+	PUSHAL	TMPDESC2		; Write addr,len here
+	PUSHAL	RECDESC			; String to sea for next word
+	CALLS	#2,G^MC_GET_TOKEN	; Finds next word
+	BLBS	R0,40$
+	RET				; Assume eor
+40$:
+	INCL	SEQARRAY		; COunt entry
+	MOVQ	TMPDESC2,R6
+	MOVB	R6,SEQARRAY+4		; COunt of string len
+	MOVC3	R6,(R7),SEQARRAY+5 	; String
+50$:
+; Process rest of statement. End is reached when we find '}'
+;
+	PUSHAL	RECDESC
+	CALLS	#1,G^MC_READ_MIB
+	BLBS	R0,55$
+	RET
+; This rec should end with ','. If not then next should be '}'
+55$:
+	TSTL	RECDESC		; rec = 0 len?
+	BEQL	50$		; If so, ignore
+	MOVQ	RECDESC,R6
+	LOCC	#^A/,/,R6,(R7)         ; ','?
+        TSTL	R0		
+	BNEQ	100$			; Br if so
+60$:
+	PUSHAL	RECDESC
+	CALLS	#1,G^MC_READ_MIB        ; Get next (should be last)
+	BLBS	R0,70$
+	RET
+70$:
+	TSTL	RECDESC		; rec = 0 len?
+	BEQL	60$		; If so, ignore
+80$:
+	MOVQ	RECDESC,R6
+	LOCC	#^A/}/,R6,(R7)         ; END SEQUENCE statement?
+        TSTL	R0		
+	BEQL	90$			; Br if not
+	MOVL	#SS$_NORMAL,R0
+	RET
+90$:
+	CLRQ	SEQARRAY		; Lost our place
+	MOVL	#SS$_DATACHECK,R0       ; error
+	RET
+
+100$:
+	PUSHAL	RECDESC
+	CALLS	#1,G^MC_READ_MIB        ; Get next (should be last)
+	BLBS	R0,110$
+	RET
+110$:
+	TSTL	RECDESC		; rec = 0 len?
+	BEQL	100$		; If so, ignore
+	INCL	SEQARRAY
+	BRW	50$
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_PRS_SEQUENCEOF 
+;++
+;2 MC_PRS_SEQUENCEOF 
+; Parse SYNTAX statement containing SEQUENCE OF. Purpose here is to identify 
+; the following entry that is part of a table and therfore included in the help 
+; library as a level 2 entry.  This routine will be reached via the SYNTAX
+; parser - it looks specificaly for this keyword.
+;3 Sample
+;               lifTable OBJECT-TYPE
+;                   SYNTAX  SEQUENCE OF LIfEntry
+;                   ACCESS  not-accessible
+;                   STATUS  mandatory
+;                   DESCRIPTION
+;                            "A list of interface entries."
+;                   ::= { linterfaces 1 }
+;
+; This keyword occurs in 2 statements. The SEQUENCE OF is the introducer
+; and contains the name of the table entry point. The entry point will be
+; the next object in the mib and the 1st level 2 entry in this table.
+; simply extract the entry name and set up the SEQARRAY (as in SEQUENCE) 
+; with 1 entry.
+;--
+	MOVQ	@4(AP),RECDESC
+	ADDL3	RECDESC,RECDESC+4,R8	; eor	
+	MOVL	#4,R6			; GET 4TH WORD
+10$:
+	PUSHAL	TMPDESC2		; Write addr,len here
+	PUSHAL	RECDESC			; String to sea for next word
+	CALLS	#2,G^MC_GET_TOKEN	; Finds next word
+	BLBS	R0,20$
+	RET				; Assume eor
+; Returns next word in TMPDESC2
+; Adjust inpt desc for next sea:
+20$:
+	ADDL3	TMPDESC2,TMPDESC2+4,R1	; addr of end this token
+	SUBL3	R1,R8,RECDESC		; Len of remaining string
+	MOVL	R1,RECDESC+4		; New desc
+	SOBGTR	R6,10$			; Do 4 x	
+; Set seqarray to signal next entry is level 2 help:
+	MOVL	#1,SEQARRAY		; 1 entry
+	MOVB	TMPDESC2,SEQARRAY+4	; Byte count
+	MOVQ	TMPDESC2,R6
+	MOVC3	R6,(R7),SEQARRAY+5	; String
+	MOVL	#SS$_NORMAL,R0
+	RET
+	
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_PRS_IMPORTS  
+;++
+;2 MC_PRS_IMPORTS  
+;
+; Parse IMPORTS statement and find all occurences of FROM. The next
+; symbol will be a filename. Find this file and add it's contents to 
+; the symbol section. For each entry scan the symbol table and discard
+; any entry that already exists in the table.
+;--
+	MOVQ	@4(AP),RECDESC
+10$:
+        PUSHAL	FROM
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHAL	RECDESC
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING
+	BLBS	R0,20$        		; Br if found
+15$:
+; Find if curr rec was last in IMPORTS statement
+	MOVQ	RECDESC,R6
+	LOCC	#^A/;/,R6,(R7)          ; Last rec in IMPORT statement?
+        TSTL	R0		
+	BNEQ	18$			; Br if so
+	PUSHAL	RECDESC
+	CALLS	#1,G^MC_READ_MIB
+	BLBS	R0,10$
+18$:
+	RET				; Some err
+20$:
+	ADDL	STRIDX,RECDESC+4	; reset pointer to 'FROM'
+	SUBL	STRIDX,RECDESC		; new len
+	PUSHAL	TMPDESC2		; Write addr,len here
+	PUSHAL	RECDESC			; String to sea for next word
+	CALLS	#2,G^MC_GET_TOKEN	; Finds next word
+	BLBS	R0,30$
+	RET				; Assume eor
+30$:
+	ADDL	TMPDESC2,RECDESC+4      ; Reset pointer past keyword
+	SUBL	TMPDESC2,RECDESC        ; Addust remaining len
+	PUSHAL	TMPDESC2		; Write addr,len here
+	PUSHAL	RECDESC			; String to sea for next word
+	CALLS	#2,G^MC_GET_TOKEN	; Finds next word
+	BGTR	40$			; Br if more rec
+	MOVL	#SS$_BADPARAM,R0
+	RET
+40$:
+; TMPDESC2 should now be a descriptor pointing to the file name to open.
+; Concatinate the extension. (.MC1)
+; Make sure last char is not ';'
+	MOVQ 	TMPDESC2,R6				
+	LOCC	#^A/;/,R6,(R7)          ; 
+        TSTL	R0		
+	BEQL	45$			; Br if not there
+	DECL	R6			; Else 1 less char
+45$:
+	MOVC3	R6,(R7),CURSYN			; Not use at present
+	MOVAL	CURSYN,R7			; 
+	ADDL	R6,R7
+	MOVL	EMDEXT,(R7)	                ; Move extension
+; Attempt to open the file
+	MOVAL	CURSYN,SYMFAB+FAB$L_FNA	 	; Set location filename
+	ADDB3	#4,R6,SYMFAB+FAB$B_FNS	; Size of name
+	$OPEN	FAB=SYMFAB
+	BLBC	R0,50$			; Br on error
+	$CONNECT RAB=SYMRAB
+	BLBS	R0,60$			; Br no err
+50$:
+	MOVL	#132,FAODESC
+	PUSHL	SYMFAB+FAB$L_FNA	; File name
+	MOVZBL	SYMFAB+FAB$B_FNS,-(SP)	; Len
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	NOFILMSG
+	CALLS	#5,G^SYS$FAO
+	CALLS	#0,G^MC1_ERROR_CHK
+	BSBW	PRINT
+	PUSHAL	CONTMSG
+	CALLS	#1,G^MC1_READ_PROMPT
+	CALLS	#0,G^MC1_ERROR_CHK		; If ^z then exit
+	BRW	15$			; Continue
+60$:
+; Set up section to receive symbols
+	MOVL	SYMSEC_A,R10			; Top
+	MULL3	#MC_SYMT_C_LEN,NUMSYMENT,R11    ; Offset to next avail
+	ADDL	R11,R10
+; Read file to end and add ALL symbols.
+65$:
+	$GET	RAB=SYMRAB
+	BLBS	R0,70$                  ; ASSUME any error = EOF
+	$CLOSE	FAB=SYMFAB
+	BRW	15$			; Continue rest of IMPORTS
+70$:
+; Ensure room in table:
+	ADDL3	#MC_SYMT_C_LEN,R10,R1		; This entry
+        CMPL	R1,SYMSEC_A+4			; Last possible
+	BLEQ	75$				; Br OK
+	MOVL	#SS$_INSFMEM,R0		; Error
+	$EXIT_S	R0
+; Make rec desc
+75$:
+	MOVZWL SYMRAB+RAB$W_RSZ,R6	; len
+	MOVAL  OUTBUF,R7		; Addr
+        ADDL3   R6,R7,R8	                ; addr lad byte
+; Each of 4 fields (always present) is ascii seperated by single '/'
+; ObjId
+	LOCC	#^A?/?,R6,(R7)			; Fin ' '
+	SUBL3	R7,R1,MC_SYMT_L_OIDL(R10)       ; Len
+	MOVC3	MC_SYMT_L_OIDL(R10),(R7),MC_SYMT_A_OID(R10)
+	SUBL3	R1,R8,R6			; Len of rest
+	DECL	R6
+	ADDL3	#1,R1,R7			; Next field
+; Name
+	LOCC	#^A?/?,R6,(R7)			; Fin ' '
+	SUBL3	R7,R1,MC_SYMT_L_NAMEL(R10)       ; Len
+	MOVC3	MC_SYMT_L_NAMEL(R10),(R7),MC_SYMT_A_NAME(R10)
+	SUBL3	R1,R8,R6			; Len of rest
+	DECL	R6
+	ADDL3	#1,R1,R7			; Next field
+; Type
+	LOCC	#^A?/?,R6,(R7)			; Fin ' '
+	SUBL3	R7,R1,MC_SYMT_L_TYPL(R10)       ; Len
+	MOVC3	MC_SYMT_L_TYPL(R10),(R7),MC_SYMT_A_TYP(R10)
+	SUBL3	R1,R8,R6			; Len of rest
+	DECL	R6
+	ADDL3	#1,R1,R7			; Next field
+; Access
+	LOCC	#^A?/?,R6,(R7)			; Fin ' '
+	SUBL3	R7,R1,MC_SYMT_L_ACCL(R10)       ; Len
+	MOVC3	MC_SYMT_L_ACCL(R10),(R7),MC_SYMT_A_ACC(R10)
+	INCL	NUMSYMENT			; Count it
+	ADDL	#MC_SYMT_C_LEN,R10		; Nextentry
+	BSBW	PRINT_STATS			; Print stats
+    	BRW	65$  
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_PRS_OBJTYP 
+;++ 
+;2 MC_PRS_OBJTYP 
+; locate the object name and record it in curobj
+;--
+	MOVQ	@4(AP),R6
+	ADDL3	R6,R7,R8
+10$:
+	CMPB	#^A/ /,(R7)
+	BNEQU	20$
+	AOBLEQ	R8,R7,10$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+20$:
+; Find ' '(Len of this symbol)
+        SUBL3	R7,R8,R6		; Len of remaining rec
+	BLEQ	30$			; Br if no len
+	LOCC	#^A/ /,R6,(R7)		; Find ' '
+	TSTL	R0			; Found?
+	BNEQ	40$			; Br if yes
+; did not find 
+30$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+40$:
+	SUBL3	R7,R1,R2		; Len of this symbol
+	BGTR	45$			; Br if len .NE. 0
+	MOVL	#SS$_BADPARAM,R0
+	RET
+45$:
+; Set current obj type
+        MOVL	R2,CUROBJ		; Len
+	MOVC3	R2,(R7),CUROBJ+4	; String
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_PRS_SYNTAX
+;++
+;2 MC_PRS_SYNTAX
+; locate the display syntax and record it in cursyn
+;--
+	MOVQ	@4(AP),R6
+	ADDL3	R6,R7,R8
+; find if syntax is SEQUENCE OF:
+        PUSHAL	SEQUENCEOF
+	PUSHAL	SBSIDX
+ 	PUSHAL	STRIDX
+	PUSHL	4(AP)
+	CALLS   #4,G^STR$FIND_FIRST_SUBSTRING
+	BLBC	R0,10$                             ; Br if not
+	PUSHL	4(AP)
+	CALLS	#1,G^MC_PRS_SEQUENCEOF       ; sets this entry as Help Lvl2
+
+10$:
+	CMPB	#^A/ /,(R7)
+	BNEQU	20$
+	AOBLEQ	R8,R7,10$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+20$:
+; Find ' '(Len of this symbol)
+        SUBL3	R7,R8,R6		; Len of remaining rec
+	BLEQ	30$			; Br if no len
+	LOCC	#^A/ /,R6,(R7)		; Find ' '
+	TSTL	R0			; Found?
+	BNEQ	40$			; Br if yes
+; did not find 
+30$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+40$:
+	MOVL	R1,R7			; Update pointer
+; Find next non-blank
+45$:
+	CMPB	#^A/ /,(R7)
+	BNEQU	50$
+	AOBLEQ	R8,R7,45$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+50$:
+
+	SUBL3	R7,R8,R2		; Len of this symbol
+	CMPL	#8,R2			; Check if > max allowed
+	BGTR	60$			; Br if no
+	MOVL	#8,R2			; Set to max
+60$:
+	MOVL	R2,CURSYN
+	MOVC3	R2,(R7),CURSYN+4
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_PRS_ACCESS 
+;++
+;2 MC_PRS_ACCESS 
+;
+; locate the access type and record it in curacc
+;--
+	MOVQ	@4(AP),R6
+	ADDL3	R6,R7,R8
+10$:
+	CMPB	#^A/ /,(R7)
+	BNEQU	20$
+	AOBLEQ	R8,R7,10$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+20$:
+; Find ' '(Len of this symbol)
+        SUBL3	R7,R8,R6		; Len of remaining rec
+	BLEQ	30$			; Br if no len
+	LOCC	#^A/ /,R6,(R7)		; Find ' '
+	TSTL	R0			; Found?
+	BNEQ	40$			; Br if yes
+; did not find 
+30$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+40$:
+	MOVL	R1,R7			; Update pointer
+; Find next non-blank
+45$:
+	CMPB	#^A/ /,(R7)
+	BNEQU	50$
+	AOBLEQ	R8,R7,45$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+50$:
+
+	SUBL3	R7,R8,R2		; Len of this symbol
+	CMPL	#8,R2                   ; CHeck if > max allowed
+	BGTR	60$                     ; br no
+	MOVL	#8,R2                   ; set to max
+60$:
+	MOVL	R2,CURACC
+	MOVC3	R2,(R7),CURACC+4
+	MOVL	#SS$_NORMAL,R0
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_PRS_STATUS   
+;++
+;2 MC_PRS_STATUS   
+; Place holder. Future routine to process STATUS statement.
+;--
+	MOVQ	@4(AP),R6
+	ADDL3	R6,R7,R8
+; Ignore
+	MOVL	#SS$_NORMAL,R0
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_PRS_DESCRIPTION
+;++
+;2 MC_PRS_DESCRIPTION
+;
+; Add the text following to the help file. Direct access and table names
+; are displayed as menu entries. Table entries are not and so are not
+; accessible as level 1 help entries. These are made as level 2 as follows:
+; The SEQUENCE processor determines the number of entries that wll follow as
+; table entries and stores this number as the name of the 1st entry in
+; the SEQARRAY structure. This routine process this as follows:
+; If the count of table elements is 0 then skip to 'l1'
+; If help level is currently 2 then skip to 'L2'
+; If current obj does not match 1st entry then skip to 'l1'
+; Set help level 2
+; l2:
+; move help level 2 and name to hlpbuf and write
+; decrement count
+; rest of process
+; l1:
+; move help level 1 and name to hlpbuf and write
+;--
+	MOVQ	@4(AP),R6 	
+	ADDL3	R6,R7,R8        	; R8 = eor
+	TSTL	SEQARRAY		; Level 2 outstanding?
+	BEQL	50$                     ; Br of not
+	BLBC	HLPLVL,40$		; Br if level 2 already set
+; There are outstanding level 2 items waiting and we are at level.
+; Determine if we are at the 1st entry.
+	MOVZBL	SEQARRAY+4,R1		; Get len 1st ent
+	CMPL	R1,CUROBJ		; Lens .eq.?	
+	BNEQU	50$			; No - can't match
+; Make descriptors for case_blind compare. 
+	MOVL	R1,TMPDESC
+	MOVAL	CUROBJ+4,TMPDESC+4
+	MOVZBL	SEQARRAY+4,TMPDESC2
+	MOVAL	SEQARRAY+5,TMPDESC2+4
+	PUSHAL	TMPDESC
+	PUSHAL	TMPDESC2
+	CALLS	#2,G^STR$CASE_BLIND_COMPARE
+	BLBS	R0,50$			; Br no match
+; Found 1st entry
+40$:
+	MOVL	#2,HLPLVL		; Signal level 2 in progress	
+	MOVL	HLPLVL2,HLPBUF          ; Set level 2
+	DECL	SEQARRAY		; One less entry
+	BNEQ	60$			; Br if more entries
+	MOVL	#1,HLPLVL		; Signal end	
+	BRB	60$
+50$:
+	MOVL	HLPLVL1,HLPBUF
+60$:	
+	MOVC3	CUROBJ,CUROBJ+4,HLPBUF+4
+	ADDW3	#4,CUROBJ,HLPRAB+RAB$W_RSZ
+	ADDW3	#4,CUROBJ,HLPRAB+RAB$W_USZ
+	$PUT	RAB=HLPRAB
+	BLBS	R0,CONTINUE
+	RET
+CONTINUE:
+	INCL	HLPENTCNT		; Count help entry
+;read next rec and find ". COpy everything between the " " to the help entry.
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_READ_MIB
+	BLBS	R0,20$			; Br no err
+        RET				; Return error
+20$:
+	MOVQ	TMPDESC,R6
+	TSTL	R6			; null rec?
+	BNEQ	25$                     ; Br if not
+	BRW	80$			; Ignore if so
+25$:
+	ADDL3	R7,R6,R8		; Eor
+	LOCC	#^A/"/,R6,(R7)		; Find ' '
+	TSTL	R0			; Found?
+	BNEQ	40$			; Br if yes
+; did not find 
+30$:
+	MOVL	#SS$_BADPARAM,R0
+	RET
+40$:
+	ADDL3	#1,R1,R7		; move beyond "
+50$:
+	SUBL3	R7,R8,R6		; Len of remaining rec
+	LOCC	#^A/"/,R6,(R7)		; Find ' '
+	TSTL	R0			; Found?
+	BNEQ	60$			; Br if yes
+; did not find 
+	MOVL	SPACES,HLPBUF   	; Ensure entry is indented so as not
+	MOVC3	R6,(R7),HLPBUF+4        ; to confuse help level.
+	ADDW3	#4,R6,HLPRAB+RAB$W_RSZ
+	ADDW3	#4,R6,HLPRAB+RAB$W_USZ
+	$PUT	RAB=HLPRAB
+	BLBS	R0,80$
+	RET
+60$:
+; Last line
+	MOVL	SPACES,HLPBUF   	; Ensure entry is indented
+	DECL	R6			; Don't write "
+	MOVC3	R6,(R7),HLPBUF+4
+	ADDW3	#4,R6,HLPRAB+RAB$W_RSZ
+	ADDW3	#4,R6,HLPRAB+RAB$W_USZ
+	$PUT	RAB=HLPRAB
+	INCL	HLPLINCNT		; Count help line written
+	BSBW	PRINT_STATS
+	RET
+
+80$:
+	INCL	HLPLINCNT		; Count help line written
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_READ_MIB
+	BLBS	R0,90$			; Br no err
+        RET				; Return error
+90$:
+	MOVQ	TMPDESC,R6
+	TSTL	R6
+	BEQL	80$			; Ignore null len recs
+	ADDL3	R7,R6,R8		; Eor
+100$:
+	CMPB	#^A/ /,(R7)
+	BNEQU	110$
+	AOBLEQ	R8,R7,100$
+	MOVL	#SS$_BADPARAM,R0
+	RET
+110$:
+	BRW	50$
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_PRS_OBJID   
+;++
+;2 MC_PRS_OBJID   
+; Process object definition string and produce schema entry.
+;
+;3 Input 
+; .addr of desc pointing to current rec
+;3 Output
+; Fully qualified schema for this object.
+;
+;3 Returns:
+;	BADPARAM	unexpected rec format
+;	NORMAL		Symbol written
+;	INSVMEM		Symbol table overflow
+;
+;3 Example
+;
+;  'experimental OBJECT IDENTIFIER ::= { internet 3 }'
+;  Result should be experimental = Internet (1.3.6.1) + .1
+; = 1.3.6.1.1
+;--
+	MOVQ	@4(AP),R6	; R6 = len, r7= Addr
+	ADDL3	R6,R7,R8	; R8 = eor
+; Locate the 'parent' symbol (Internet in above examp)
+; Find '{'
+	LOCC	#^A/{/,R6,(R7)		; Find '{'
+	TSTL	R0			; Found?
+	BNEQ	10$			; Br if yes
+; did not find 
+	MOVL	#SS$_BADPARAM,R0
+	RET
+10$:
+; Extract symbol
+	INCL	R1			; Move past '{'
+	SUBL3	R1,R8,R2		; R2 = len of rest of rec
+	MOVL	R2,TMPDESC2
+	MOVL	R1,TMPDESC2+4		; Make inpt desc
+	PUSHAL	TMPSYM                  ; len,addr of next token
+	PUSHAL	TMPDESC2		; Record desc
+	CALLS	#2,G^MC_GET_TOKEN	; Finds next word
+	BLBS	R0,20$
+	RET
+20$:
+	PUSHAL	TMPSYM
+	CALLS	#1,G^MC_FIND_SYM           ; If not found r1 = addr next avail ent
+	BLBS	R0,50$                  ; if found r-=norm, r1=addr
+; If not found we can let the user define it.
+	PUSHAL	TMPSYM
+	CALLS	#1,G^MC_USER_ADD_SYM   
+	BLBS	R0,50$
+	RET
+
+; Now find this sym
+50$:
+	MOVL	R1,RESULT		; Save here for later use
+	PUSHL	4(AP)			; Record desc
+	PUSHAL	TMPDESC                 ; len,addr of next token
+	CALLS	#2,G^MC_GET_TOKEN	; Finds next word
+	BLBS	R0,60$
+	RET
+; Find if we have it in table
+60$:
+	PUSHAL	TMPDESC
+	CALLS	#1,G^MC_FIND_SYM           ; If not found r1 = addr next avail ent
+	BLBC	R0,70$                  ; Br if NOT found
+	MOVL	#SS$_NORMAL,R0		; OK
+	RET
+70$:
+; Add this sym to the table
+; R1 = place to add
+; tmpsym  = desc point to parent
+; tmpdesc = desc point to new sym
+; Result = addr in table of 'parent' symbol
+; Get the 'value' of the new symbol...
+	MOVL	R1,R10			; Save target addr
+	ADDL	TMPSYM,TMPSYM+4		; Adjust pointer past sym name
+	SUBL3	TMPSYM+4,R8,TMPSYM	; Len remaining in this rec
+	PUSHAL	TMPDESC2		; Len,addr of next token  
+	PUSHAL	TMPSYM			; String to sea
+	CALLS	#2,G^MC_GET_TOKEN	; Finds next token
+	BLBS	R0,80$                  ; Br if got it
+	RET
+80$:
+; Write new symbol
+	MOVL	RESULT,R11			; Addr of parent
+	MOVQ	TMPDESC,R6
+	MOVL	R6,MC_SYMT_L_NAMEL(R10)    ; len of name
+	MOVC3	R6,(R7),MC_SYMT_A_NAME(R10) ; Name
+	MOVL	MC_SYMT_L_OIDL(R11),MC_SYMT_L_OIDL(R10)    ; init len of OID
+	MOVC3	MC_SYMT_L_OIDL(R11),MC_SYMT_A_OID(R11),MC_SYMT_A_OID(R10)
+	ADDL3	MC_SYMT_L_OIDL(R11),#MC_SYMT_A_OID,R2	  ; offs to end str
+	MOVB	#^A/./,(R10)[R2]		; Add seperator
+	INCL	R2
+	MOVQ	TMPDESC2,R6
+	MOVC3	R6,(R7),(R10)[R2]	; Concat new value 
+	ADDL	R6,MC_SYMT_L_OIDL(R10)  	; Fix new len 
+ 	INCL	MC_SYMT_L_OIDL(R10)  		; Fix new len 
+; This is type OBJECT IDENTIFIER and access NONE. (say so)
+; Type
+	MOVL	#OBJIDL,MC_SYMT_L_TYPL(R10)       ; Len
+	MOVC3	MC_SYMT_L_TYPL(R10),OBJIDA,MC_SYMT_A_TYP(R10)
+; Access (none)
+	MOVL	#NONEL,MC_SYMT_L_ACCL(R10)       ; Len
+	MOVC3	MC_SYMT_L_ACCL(R10),NONEA,MC_SYMT_A_ACC(R10)
+	INCL	NUMSYMENT			; Count it
+	ADDL	#MC_SYMT_C_LEN,R10		; Nextentry
+	BSBW	PRINT_STATS			; Print stats
+	MOVL	#SS$_NORMAL,R0
+	RET
+;
+;
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_USER_ADD_SYM     
+;++
+;2 MC_USER_ADD_SYM     
+; Request user to add unknown symbol. If an unknown symbol is encountered
+; this user may add it here to allo compilation to continue. Otherwise
+; processing will likely stop (usualy by stack dump) (sorry 'bout that).
+; 
+;3 Inputs:
+; addr of desc pointing to symbol name
+;3 Outp
+; R0 either normal or error (symbol not added)
+; If symbol is added then 1 more symbol in table
+; R1 = addr of added sym (if added)
+;--
+	MOVQ	@4(AP),R6
+	movl	#132,FAODESC
+	PUSHL	R7			; Addr
+	PUSHL	R6			; Len
+	PUSHAL	FAODESC
+	PUSHAL	FAODESC
+	PUSHAL	ADDSYMMSG
+	CALLS	#5,G^SYS$FAO
+	BLBS	R0,10$
+	RET
+10$:
+	PUSHAL	FAODESC
+	CALLS	#1,G^MC1_READ_PROMPT
+	BLBS	R0,20$
+	RET
+20$:
+	TSTW	BYTCNT
+	BEQL	40$
+	CMPB	#^A/N/,KB_BUF
+	BNEQU	40$
+30$:
+	MOVL	RMS$_EOF,R0             ; Return eof
+	RET
+40$:
+; Add this symbol.
+; Get ObjId
+	PUSHAL	ADDSYMMSG1
+	CALLS	#1,G^MC1_READ_PROMPT
+	TSTW	BYTCNT
+	BEQL	30$			; Br if no answer
+
+; Write to symbol table and symbol file 
+	MOVL	SYMSEC_A,R10			; Top of table
+	MULL3	#OUTBUFSIZ,NUMSYMENT,R11  	; Offset to next avail
+	ADDL	R11,R10				; Next avail
+	ADDL	#OUTBUFSIZ,R11                  ; Check space
+	CMPL	SYMSEC_A,R11
+	BGEQ	50$				; Br OK
+	MOVL	#SS$_INSFMEM,R0		; Error
+	RET 
+50$:
+	MOVL	R6,MC_SYMT_L_NAMEL(R10)    	; Len of name
+	MOVC3	R6,(R7),MC_SYMT_A_NAME(R10)  ; Name
+	MOVZWL	BYTCNT,MC_SYMT_L_OIDL(R10)  	; Len OID
+	MOVC3	BYTCNT,KB_BUF,MC_SYMT_A_OID(R10)  ; OID
+	INCL	NUMSYMENT			; Count it
+	MOVW	#OUTBUFSIZ,SYMRAB+RAB$W_RSZ	; Set len of rec
+        MOVL    R10,SYMRAB+RAB$L_RBF     	; Location
+        MOVL    R10,SYMRAB+RAB$L_UBF     	; Location
+	$PUT	RAB=SYMRAB
+	BSBW	PRINT_STATS			; Print stats
+	MOVL	R10,R1				; Return addr of new entry
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_PRS_VALUE 
+;++
+;2 MC_PRS_VALUE 
+;
+; Exmple of line this routine processes:
+;
+;       ::= { system 2 }
+;
+; Locate 'parent' symbol (system) in table
+; add '.value (2)  and create new symbol
+; For example
+; if system = 1.2.3.4.5 then this will become 1.2.3.4.5.2
+; This is the last entry in the MIB for this OBJECT-TYPE
+; Therfore write out this rec.
+;--
+	MOVQ	@4(AP),R6	; R6 = len, r7= Addr
+	ADDL3	R6,R7,R8	; R8 = eor
+; Locate the 'parent' symbol (System in above examp)
+; Find '{'
+	LOCC	#^A/{/,R6,(R7)		; Find '{'
+	TSTL	R0			; Found?
+	BNEQ	10$			; Br if yes
+; did not find 
+	MOVL	#SS$_BADPARAM,R0
+	RET
+10$:
+; Extract symbol
+; Make desc to find 'next'
+	ADDL3	#1,R1,TMPSYM+4		; Adjust pointer past sym name
+	SUBL3	R1,R8,TMPSYM		; Len remaining in this rec
+	PUSHAL	TMPDESC2		; Write addr,len here
+	PUSHAL	TMPSYM			; String to sea for next word
+	CALLS	#2,G^MC_GET_TOKEN	; Finds next word
+	BLBS	R0,20$                  ; Br if got it
+	MOVL	#SS$_BADPARAM,R0        ; Not found
+	RET
+20$:
+	PUSHAL	TMPDESC2                ; 'parent' symbol
+	CALLS	#1,G^MC_FIND_SYM        ; If not found r1 = addr next avail ent
+	BLBS	R0,50$                  ; if found r-=norm, r1=addr
+	MOVL	#SS$_ITEMNOTFOUND,R0    ; We should have had this symbol
+	RET                             ; But didn't (so FOAD)
+50$:
+; Add this sym to the table
+; tmpdesc2  = desc point to parent
+; R1 = addr in table of 'parent' symbol
+; Get the 'value' of the new symbol...
+	MOVL	R1,RESULT		; Save 
+	ADDL	TMPDESC2,TMPDESC2+4	; Adjust pointer past sym name
+	SUBL3	R2,R8,TMPDESC2		; Len remaining in this rec
+	PUSHAL	TMPDESC			; Write addr,len here
+	PUSHAL	TMPDESC2		; String to sea for next word
+	CALLS	#2,G^MC_GET_TOKEN	; Finds next word
+	BLBS	R0,80$                  ; Br if got it
+	RET
+80$:
+; calc next available position:
+	MOVL	SYMSEC_A,R10		; Top of table
+	MOVL	NUMSYMENT,R11		; No. of entries
+	MULL	#MC_SYMT_C_LEN,R11 	
+	ADDL	R11,R10			; Next entry
+	ADDL3	#MC_SYMT_C_LEN,R10,R9	; check for room
+	CMPL	R9,SYMSEC_A+4		; Enough?
+	BLEQ	90$			; Br OK
+	MOVL	#SS$_INSFMEM,R0		; Error
+	RET 
+; Write new symbol
+; Include the type and access fields
+90$:
+	MOVL	RESULT,R11			; Addr of parent
+	MOVAL	CUROBJ,R6
+	MOVL	(R6),MC_SYMT_L_NAMEL(R10)    ; len of name
+	MOVC3	(R6),4(R6),MC_SYMT_A_NAME(R10) ; Name
+	MOVL	MC_SYMT_L_OIDL(R11),MC_SYMT_L_OIDL(R10)    ; init len of OID
+	MOVC3	MC_SYMT_L_OIDL(R11),MC_SYMT_A_OID(R11),MC_SYMT_A_OID(R10)
+	ADDL3	MC_SYMT_L_OIDL(R11),#MC_SYMT_A_OID,R2	  ; offs to end str
+	MOVB	#^A/./,(R10)[R2]		; Add seperator
+	INCL	R2
+	MOVQ	TMPDESC,R6
+	MOVC3	R6,(R7),(R10)[R2]	; Concat new value 
+	ADDL	R6,MC_SYMT_L_OIDL(R10)  	; Fix new len 
+ 	INCL	MC_SYMT_L_OIDL(R10)  		; Fix new len 
+	MOVL	CURACC,MC_SYMT_L_ACCL(R10)
+        MOVC3	CURACC,CURACC+4,MC_SYMT_A_ACC(R10)
+	MOVL	CURSYN,MC_SYMT_L_TYPL(R10)
+        MOVC3	CURSYN,CURSYN+4,MC_SYMT_A_TYP(R10)
+	INCL	NUMSYMENT 			; Count entry
+	BSBW	PRINT_STATS
+	MOVL	#SS$_NORMAL,R0
+	RET
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_FIND_SYM   
+;++
+;2 MC_FIND_SYM 
+; Find previously created symbol in symbol table.
+;  
+;3 Inputs
+; Desc point to symbol to search for
+;3 Outputs
+; R0 = either normal or not found 
+; R1 = either add of located sym or loca of next avail position
+; Fast search: If top .long matches then check rest of rec.
+;--
+	MOVL	SYMSEC_A,R10            ; Top of list
+	MOVL	NUMSYMENT,R11		; Loop cnt
+	BEQL	30$			; Br if no recs
+	MOVQ	@4(AP),R6
+; Fast sea: If top .long (LEN) matches then check rest of rec.
+10$:
+	CMPL 	MC_SYMT_L_NAMEL(R10),R6
+	BEQLU	40$
+20$:
+	ADDL	#MC_SYMT_C_LEN,R10
+	SOBGTR	R11,10$
+30$:
+	MOVL	R10,R1                  ; Next available location
+	MOVL	#SS$_NOSUCHOBJ,R0	; Did not locate symbol
+	RET
+40$:
+	CMPC3	R6,(R7),MC_SYMT_A_NAME(R10)
+	BNEQ	20$			; No match
+	MOVL	R10,R1                  ; Symbol location
+	MOVL	#SS$_NORMAL,R0          ; Match
+	RET
+;
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MC_GET_TOKEN  
+;++
+;2 MC_GET_TOKEN
+; Find next token (next occurence of non-whitespace) in string.
+;  
+;3 Inputs
+; Desc point to string to search
+; addr of .quad where descriptor of found word is written
+;3 Outputs:
+; R0 = either normal or badparam (not found, 0 len etc) 
+;--
+	MOVQ	@4(AP),R6
+	ADDL3	R6,R7,R8
+
+; Find next non-blank
+10$:
+	CMPB	#^A/ /,(R7)
+	BNEQU	20$
+15$:
+	AOBLEQ	R8,R7,10$
+	MOVL	#SS$_BADPARAM,R0        ; All blanks
+	RET
+20$:
+	CMPB	TAB,(R7)                ; If this char is TAB
+	BEQL	15$                     ; Then continue loop
+; Len of this symbol 
+; Defined by next occurence of (in order) TAB, SPACE, EOR
+        SUBL3	R7,R8,R6		; Len of remaining rec
+	MOVL	R7,R3			; Start sea here
+30$:
+	CMPB	TAB,(R3)
+	BEQL	40$
+	CMPB	#^A/ /,(R3)
+	BEQL	40$
+	AOBLSS	R8,R3,30$
+40$:
+	SUBL3	R7,R3,R2		; Len of this symbol
+	BLEQ	15$			; Br if len .LE. 0
+	MOVL	8(AP),R6
+	MOVL	R2,(R6)			; Return len
+	MOVL	R7,4(R6)		; Return addr
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+CREATE_ENVIRONMENT:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+;
+; Create Pasteboards
+;
+	PUSHAL	PB_BOARD
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	CALLS	#0,G^MC1_ERROR_CHK
+	PUSHAL	PB_BOARD2
+	CALLS	#1,G^SMG$CREATE_PASTEBOARD
+	CALLS	#0,G^MC1_ERROR_CHK
+; Save the current screen set up. Attempt to set it to 48x80. Restore
+; on exit
+	CLRL	-(SP)                         ; 1st row
+	CLRL	-(SP)                         ; Last row
+	PUSHAL	SAVE_DISP		      ; Saved screen ID
+	PUSHAL 	PB_BOARD		      ; Our id
+	CALLS	#4,G^SMG$SAVE_PHYSICAL_SCREEN
+	CALLS	#0,G^MC1_ERROR_CHK
+; 
+	CLRL	-(SP)                         ; No colour change
+	CLRL	-(SP)                         ;      "
+	PUSHAL	VD_ROWS			      ; Actual height set
+	PUSHAL	SCR_HEIGHT		      ; Try for 48
+	PUSHAL	VD_COLS			      ; Actual wid
+	PUSHAL  SCR_WID			      ; Try 132
+	PUSHAL	PB_BOARD
+	CALLS	#7,G^SMG$CHANGE_PBD_CHARACTERISTICS
+	CALLS	#0,G^MC1_ERROR_CHK
+	SUBL	#4,VD_ROWS			; Set our page len
+;
+
+	PUSHAL	BORDER
+	PUSHAL	VD_DISP
+	PUSHAL	VD_COLS
+        PUSHAL	VD_ROWS
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	CALLS	#0,G^MC1_ERROR_CHK
+;
+ 	PUSHAL	BORDER
+	PUSHAL	VD_DISP2
+	PUSHAL	VD_COL2
+        PUSHAL	VD_ROW2
+	CALLS	#4,G^SMG$CREATE_VIRTUAL_DISPLAY
+	CALLS	#0,G^MC1_ERROR_CHK
+;
+; Create Virtual Keyboard
+;
+	PUSHAL	KB_BOARD
+	CALLS	#1,G^SMG$CREATE_VIRTUAL_KEYBOARD
+	CALLS	#0,G^MC1_ERROR_CHK
+;
+; Associate the pasteboards and Virtual Displays
+;
+	PUSHAL	PB_COL		;Column
+	PUSHAL	PB_ROW		;Row
+	PUSHAL	PB_BOARD
+	PUSHAL	VD_DISP
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	CALLS	#0,G^MC1_ERROR_CHK
+;
+	PUSHAL	PB_COL2		;Column
+	PUSHAL	PB_ROW2		;Row
+	PUSHAL	PB_BOARD2
+	PUSHAL	VD_DISP2
+	CALLS	#4,G^SMG$PASTE_VIRTUAL_DISPLAY
+	CALLS	#0,G^MC1_ERROR_CHK
+;
+	pushal	cursor_flags                    ; Turn cursor off
+	pushal	PB_BOARD
+	calls	#2, g^smg$set_cursor_mode
+	RSB
+
+
+
+	.END	EMU_COMPILE

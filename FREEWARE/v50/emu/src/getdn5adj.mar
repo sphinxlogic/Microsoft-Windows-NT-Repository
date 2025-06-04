@@ -1,0 +1,648 @@
+	.TITLE	GETDN5ADJ
+	.IDENT	/01-001/
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+;++
+;1 GETDN5ADJ
+; This routine will return all adjacencies the specified node currently sees.
+;
+;2 Modifications:
+; 01 001	Jun-1998	PB	Creation
+;2 Inputs
+;	Node number	Word by val DECnet address in net fmt
+;	Output		Long adddress of desc pointing to output
+;	Count		.address of .long where number of adjacencies
+;			found is written.
+;2 Output
+; For each adjacency found:
+;	.ascic	circuit the adjacecy is on (circuit name)
+;	.ascic	NETs of adjacent node
+;	.byte	adjacent node type
+;2 Returns:
+;	SS$_NORMAL	Request successful, data written
+;	SS$_UNREACHABLE	Failed to receive response from target
+;	SS$_DATACHECK	Some error returned - detail in output 
+; 	SS$_REJECT	Connection rejected by remote node
+; 	SS$_ABORT	Condition handler called - unhandled error
+;	SS$_ACCVIO	Can' read input params or can't write outp 
+;	SS$_BUFFEROVF	Outp buffer not large enough 
+
+; CMIP errors are signaled by returning SS$_DATACHECK and the error detail
+; is returned as data.
+;--
+; Data
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LIBRARY	"EMU5_LIB:EMU5.MLB"    ; Temp loc of inet defs
+
+	EMUCMIPDEF
+	EMUCNTDEF
+	$IODEF
+	$SSDEF
+		
+NUM=0
+VER=5
+DECO=0
+UECO=0
+;
+		.PSECT	GETDN5ADJ_DATA,WRT,NOEXE,QUAD
+TEMPBUF:	.BLKB	16384
+TEMPBUF_DESC:	.LONG	.-TEMPBUF
+		.ADDRESS  TEMPBUF
+CIRCBUF:	.BLKB	2048
+CIRCBUF_DESC:	.LONG	.-CIRCBUF
+		.ADDRESS  CIRCBUF
+CIRCLIST:	.BLKB	512
+CIRCCNT:	.LONG	0
+CONTEXT:	.LONG	0
+CONTEXT2:	.LONG	0
+USER_DESC:	.QUAD	0
+USER_DESC2:	.QUAD	0
+NCB_DESC:	.WORD	NCB_LEN
+		.WORD	0
+		.ADDRESS	-
+			NCB
+NCB:		.BLKB	40
+NCB_LEN=<.-NCB>
+IOSB:		.QUAD	0
+NET_CHAN:	.WORD	0
+NET_DEVICE:	.ASCID	/_NET:/
+NODE_ADDRESS:	.LONG	51391
+NCB_CTRSTR:	.ASCID	?!UL::"19=/?<NUM><NUM>
+NCB_OPTDATA:	.ASCIC	<VER><DECO><UECO>
+		.BLKB	17-<.-NCB_OPTDATA>
+		.ASCII	/"/
+OPT_LEN=<.-NCB_OPTDATA>
+;
+;
+ROUCIRCREQ:	.BYTE 	^XA1,^X82,^X00,^X23,^X02,^X01,^X08,-
+			^X02,^X01,^X03,^X30,^X82,^X00,^X19,-
+			^X80,^X0A,^X2B,^X0C,^X02,^X87,^X73,-
+			^X02,^X01,^X01,^X04,^X02,^XA3,^X04,-
+			^X05,^X00,^X5D,^X00,^XAB,^X82,^X00,-
+			^X03,^X81,^X01,^X01
+ROUCIRCREQ_LEN = .- ROUCIRCREQ
+;
+ROUADJREQ:	.BYTE   ^XA1,^X82,^X00,^X33,^X02,^X01,^X09,-
+			^X02,^X01,^X03,^X30,^X82,^X00,^X29,-
+			^X80,^X0B,^X2B,^X0C,^X02,^X87,^X73,-
+			^X02,^X01,^X01,^X04,^X02,^X00,^XA3,-
+			^X10,^X05,^X00,^X5A
+PT1_LEN = .-ROUADJREQ
+LEN1:		.BYTE	0	; Len of entity +2 
+		.BYTE	01 	; DNS encloded
+CIRCID:		.BLKB	32
+CIRCPT3:	.BYTE	^X5D,^X00,^XAB,^X82,^X00,^X06,^X81,-
+			^X01,^X01,^X81,^X01,^X00
+CIRCPT3_LEN = .-CIRCPT3
+ROUADJREQ_LEN: 	.LONG				; Calculated
+
+INTLTIM:	.QUAD    0
+FIVE_SEC:	.ASCII	/0000 00:00:05.00/
+FIVE_SEC_D:	.LONG	.-FIVE_SEC
+		.ADDRESS  FIVE_SEC
+
+;
+	.PSECT	GETDN5ADJ_CODE,EXE,NOWRT,QUAD
+	.CALL_ENTRY	MAX_ARGS=5, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETDN5ADJ
+; Get and Validate Params
+	PROBER	#0,#2,4(AP)  		; Read address?
+	BEQL	100$			; Br if no
+	MOVQ	@8(AP),R6     		; R6 = len, R7 = addr retbuf
+	PROBEW	#0,R6,(R7)     		; Write?
+	BEQL	100$			; no
+	BRB	PARAMS_OK		; OK
+100$:
+	MOVL	#SS$_ACCVIO,R0		; Signal error
+	RET
+PARAMS_OK:
+;If this is the first call then get a channel and convert the ascii timeout 
+; to bin.
+ 
+	TSTW	NET_CHAN        ; have a chan?
+	BNEQ	10$		; Br if yes
+	$ASSIGN_S	CHAN=NET_CHAN,-
+		 	DEVNAM=NET_DEVICE
+	BLBS	R0,5$
+	RET
+5$:
+	PUSHAL	INTLTIM
+	PUSHAL	FIVE_SEC_D
+	CALLS	#2,G^SYS$BINTIM
+	BLBS	R0,10$
+	RET
+;
+10$:
+; Get the IDs of all routing circuits on this node...
+; From the response, build a list of circuit names used in 
+; call to get adjacencies. 
+;
+SEND_MESSAGE:
+	MOVL	#16384,TEMPBUF_DESC
+	MOVQ	TEMPBUF_DESC,R6
+        PUSHL	4(AP)
+	CALLS	#1,G^MAK_ADJ_LINK               ; Make link to target node
+	BSBW	ERROR_CHK
+	CLRL 	R10			; Len of final response
+	$QIOW_S	-
+		CHAN=NET_CHAN,-
+		FUNC=#IO$_WRITEVBLK,-   ; Req
+		IOSB=IOSB,-
+		P1=ROUCIRCREQ,-
+		P2=#ROUCIRCREQ_LEN
+	BSBW	ERROR_CHK
+
+70$:           
+; Set timer to ensure we do not wait forever for a node not responding
+; If timer expires before response, IOSB will contain SS$_ABORT.
+
+	$SETIMR_S-
+		DAYTIM=INTLTIM,-
+		ASTADR=GETDN5ADJ_TIMEOUT             ; AST address
+	$QIOW_S	-
+		CHAN=NET_CHAN,-
+		FUNC=#IO$_READVBLK,-    ; Resp
+		IOSB=IOSB,-
+		P1=(R7),-
+		P2=R6
+	BSBW	ERROR_CHK
+
+	$CANTIM_S			; Cancel timer
+        CMPB	#CMIP_PDU_INVOKE,(R7)   ; More?
+	BNEQU 	80$		        ; No - end
+	CVTWL	IOSB+2,R11              ; Rec byte count
+	ADDL	R11,R10 		; Total bytes rec'ed
+	ADDL	R11,R7			; Move pointer
+	SUBL	R11,R6			; Deduct used part of buffer
+	TSTL	R6			; Any buffer left?
+	BGTRU	70$			; OK - get more
+80$:
+; This is the last response frame. 
+; Write the total len into the temp descriptor.
+; At this point there are 3 possible statuses:
+;	A1 = Current frame in linked reply (More to come)
+;	A2 = Last frame in linked reply (or only response in single)
+;	A3 = Some error returned - Detail is in returned frame.
+;	A4 = Reject - connection rejected - detail is in returned frame
+; If A1 then store frame in outp, adjust pointers and read again
+; If return is A2 then store frame in outp, adjust pointer and return NORMAL 
+; If reject (A4) is returned then return REJECT (obviously!)
+; else return DATACHECK to signal  failure to caller and indicate where 
+; detail is.
+; The data field contains the CMIP encoded error.
+;
+	CMPB	#CMIP_PDU_RESPONSE,(R7)	; Normal end?
+	BNEQU	100$
+	CVTWL	IOSB+2,R11               ; Rec byte count
+	ADDL	R11,R10 			; Total bytes rec'ed
+	MOVL	R10,R6			; Deduct used part of buffer
+; Reset desc to len of ret data, original addr
+        MOVL	R6,TEMPBUF_DESC
+	MOVAL	TEMPBUF,TEMPBUF_DESC+4
+	BRW	200$			; Process return
+100$:
+ 	CMPB	#CMIP_PDU_REJECT,(R7)	; Rejected?
+	BNEQU	110$
+	MOVL	#SS$_REJECT,R0
+	RET
+110$:
+	MOVL	#SS$_DATACHECK,R0       ; Other error
+	RET
+
+200$:
+; Extract circuit names
+	CLRL	CONTEXT
+	CLRL	CIRCCNT
+	MOVAL	CIRCLIST,R10
+210$:
+	MOVL	#2048,CIRCBUF_DESC
+	PUSHAL	CONTEXT
+	PUSHAL	CIRCBUF_DESC
+	PUSHAL	TEMPBUF_DESC
+	CALLS	#3,G^CMIP_XTRPARAM
+	BLBS	R0,220$
+	RET
+220$:
+	CMPL    R0,#SS$_NORMAL
+	BNEQU	250$
+	MOVAL	CIRCBUF,R4
+	MOVZBL	21(R4),R9   		; get len of circ name
+	INCL	R9			; Include count
+	MOVC3	R9,21(R4),(R10)
+	INCL	CIRCCNT
+	ADDL	R9,R10
+	BRW	210$			; Get more
+250$:
+	$CANCEL_S	CHAN=NET_CHAN
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS!IO$M_ABORT,-
+		IOSB=IOSB
+
+; Get adjacencies for each circ in list
+;
+	MOVAL	CIRCLIST,R11  		; Top of circ list
+	MOVQ	@8(AP),USER_DESC	; final outp
+	CLRQ	USER_DESC2
+	CLRL	@12(AP)			; No returns yet
+300$:
+	MOVL	#16384,TEMPBUF_DESC      ; reset
+	PUSHAL	TEMPBUF_DESC
+	PUSHL	R11
+	PUSHL	4(AP)
+	CALLS	#3,G^GETADJ_GETADJ
+	BLBS	R0,500$
+	TSTL	TEMPBUF_DESC		; ANy outp?
+	BNEQ	500$
+	BRW	1000$
+
+
+
+500$:
+	PUSHL	12(AP)			; Count
+	PUSHAL	USER_DESC		; Outp
+	PUSHAL	TEMPBUF_DESC		; Input
+	PUSHL	R11			; Circ name
+	CALLS	#4,G^GETADJ_EXTRACT_ADJ
+	BLBS	R0,510$
+	BRW	1000$			; Exit
+510$:
+        ADDL	USER_DESC,USER_DESC2	; Total len used
+	ADDL	USER_DESC,USER_DESC+4	; Move pointer
+	SUBL3	USER_DESC,@8(AP),USER_DESC	; new len
+	SOBGTR	CIRCCNT,520$            ; Loop for all circuits
+        MOVL	USER_DESC2,@8(AP)        ; No more - set return 
+	MOVL	#SS$_NORMAL,R0		; Set status
+	BRW	1000$                   ; Exit
+
+520$:
+; Next circuit name
+	MOVZBL	(R11),R1		; Get len                
+	INCL	R1                      ; Include len
+	ADDL	R1,R11                  ; Next circ name
+	BRW	300$                    ; Process 
+
+1000$:
+; Here is only valid exit point. We must deaccess (drop link) before
+; exit.
+	MOVL	R0,R7                   ; Save status
+	$CANCEL_S	CHAN=NET_CHAN
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS!IO$M_ABORT,-
+		IOSB=IOSB
+	MOVL	R7,R0                   ; Restore status
+	RET
+
+; Subroutines
+;
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	CMPL	R0,#SS$_NORMAL
+       	BNEQU	20$	                ; Que error
+	CMPW	IOSB,#SS$_NORMAL        
+       	BNEQU	10$	                ; Returns error 
+	RSB				; No err
+10$:
+	MOVZWL	IOSB,R0			; Error in IOSB
+20$:
+	MOVL	R0,R7                   ; Save error
+	$CANCEL_S	CHAN=NET_CHAN
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS!IO$M_ABORT,-
+		IOSB=IOSB
+	MOVL	R7,R0                   ; Restore error
+	RET
+;
+
+	.CALL_ENTRY	MAX_ARGS=3, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETADJ_GETADJ
+;++
+;2 GETADJ_GETADJ
+;	Gets the adjacencies on the specified circuit. It is assumed
+;	that the link has been previously made. 
+;2 Inputs
+;	.word decnet address to link to
+;	.address of .ascic circuit name adjaceies are on
+;	.address of desc pointing to output
+;2 Outputs
+;	CMIP encoded frame containing the result of:
+;	NCL>SHOW NODE xxxxx ROUTING CIRCUIT yyyyy ADJACENCY * ALL
+;	Where:
+;		xxxx is a (PV) node to link to
+;		yyyy is the .ascic circuit name
+;	The outp desc is written with the returned length
+;--
+        PUSHL	4(AP)
+	CALLS	#1,G^MAK_ADJ_LINK               ; Make link to target node
+	BSBW	ERROR_CHK
+
+
+; The protocol unit is in 3 parts:
+; 1st part is hardcoded
+; 2nd part is circ name as counted string
+; 3 part is hardcoded
+; There are 2 lens to calculate:
+
+
+
+300$:
+	MOVQ	@12(AP),R6         ;
+	CLRL 	R10			; Len of final response
+	CLRL	@12(AP)			; No return yet
+	MOVZBL	@8(AP),R9		; Len
+	INCL	R9			; Include
+	MOVAL	CIRCID,R8               ; Write circ name here
+	MOVC3	R9,(R11),(R8)		; Insert circ name
+	ADDL	R9,R8			; End of id
+	MOVC3	#CIRCPT3_LEN,CIRCPT3,(R8)
+	ADDB3	#1,R9,LEN1		; Len of entity (includes count)
+;calc len of message
+	CLRL	ROUADJREQ_LEN 
+	ADDB3	#PT1_LEN,LEN1,ROUADJREQ_LEN 
+	ADDL	#CIRCPT3_LEN,ROUADJREQ_LEN   
+	INCL	ROUADJREQ_LEN   	; Adjust for count inclusion above
+
+
+; Send request
+	
+	$QIOW_S	-
+		CHAN=NET_CHAN,-
+		FUNC=#IO$_WRITEVBLK,-   ; Req
+		IOSB=IOSB,-
+		P1=ROUADJREQ,-
+		P2=ROUADJREQ_LEN
+	BSBW	ERROR_CHK
+370$:           
+	$SETIMR_S-
+		DAYTIM=INTLTIM,-
+		ASTADR=GETDN5ADJ_TIMEOUT             ; AST address
+	$QIOW_S	-
+		CHAN=NET_CHAN,-
+		FUNC=#IO$_READVBLK,-    ; Resp
+		IOSB=IOSB,-
+		P1=(R7),-
+		P2=R6
+	BLBS	R0,375$
+	
+	BRW	1000$			; exit
+375$:
+	BLBS	IOSB,379$
+	TSTL	R10
+	BNEQ	378$
+	MOVZWL	IOSB,R0
+378$:
+	BRW	1000$
+379$:
+
+	$CANTIM_S			; Cancel timer
+        CMPB	#CMIP_PDU_INVOKE,(R7)   ; More?
+	BNEQU 	380$		        ; No - end
+	CVTWL	IOSB+2,R1               ; Rec byte count
+	ADDL	R1,R10 			; Total bytes rec'ed
+	ADDL	R1,R7			; Move pointer
+	SUBL	R1,R6			; Deduct used part of buffer
+	TSTL	R6			; Any buffer left?
+	BLEQU	380$			; Br none
+	BRW	370$                    ; OK - get more    
+380$:
+
+; This is the last response frame. 
+; Write the total len into the temp descriptor.
+; At this point there are 3 possible statuses:
+;	A1 = Current frame in linked reply (More to come)
+;	A2 = Last frame in linked reply (or only response in single)
+;	A3 = Some error returned - Detail is in returned frame.
+;	A4 = Reject - connection rejected - detail is in returned frame
+; If A1 then store frame in outp, adjust pointers and read again
+; If return is A2 then return NORMAL 
+; If reject is returned then return REJECT (obviously!)
+; else return DATACHECK to signal  failure to caller and indicate where 
+; detail is.
+	CMPB	#CMIP_PDU_RESPONSE,(R7)	; Normal end?
+	BNEQU	400$
+	CVTWL	IOSB+2,R1               ; Rec byte count
+	ADDL	R1,R10 			; Total bytes rec'ed
+	MOVL	#SS$_NORMAL,R0
+	BRW	1000$			; Process return
+400$:
+ 	CMPB	#CMIP_PDU_REJECT,(R7)	; Rejected?
+	BNEQU	410$
+	MOVL	#SS$_REJECT,R0
+	BRW	1000$			; exit
+410$:
+	MOVL	#SS$_DATACHECK,R0       ; Other error
+	BRW	1000$			; exit
+
+1000$:
+	MOVL	R0,R7                   ; Save status
+	$CANCEL_S	CHAN=NET_CHAN
+	$QIOW_S	CHAN=NET_CHAN,-
+		FUNC=#IO$_DEACCESS!IO$M_ABORT,-
+		IOSB=IOSB
+	MOVL	R7,R0                   ; Restore status
+	MOVL	R10,@12(AP)		; Return len
+	RET
+
+
+
+
+	.CALL_ENTRY	MAX_ARGS=4, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETADJ_EXTRACT_ADJ
+;++
+;2 GETADJ_EXTRACT_ADJ
+; Extracts selected params from CMIP encoded frame and places them in
+; user output.
+;2 Inputs
+;	.address of .ascic circuit name adjaceies are on
+; 	.address of desc pointing to CMIP encoded input frame(s)
+;	.address of desc pointing to output
+;	.address of .long where count of adjacencies is returned
+;2 Outputs
+;  Adjacency params in format:
+;	offs		desc
+;	0	.ascic circuit name following adjacent NET is on
+;	32	.ascic NET (OSI addr) in network format
+;	56	.long	node type.
+;  Count of recs written is returnd in P4. Note this is NOT cleared
+; on entry. 	
+;3 Node_types
+;	0      Phase V end
+;	1      Non DNA router
+;	2      Phase V router
+;	3      Phase V L1
+;	4      Phase V L2
+;	5      Phase IV  end
+;	6      Phase IV L1
+;	7      Phase IV L2
+;	8      Phase IV Router
+;2 Returns
+;	SS$_NORMAL	OK
+;	SS$_BUFFEROVF	Outp buff too small (partial return)
+; Any from CMIP_XTRPARAM
+;--
+        CLRL	CONTEXT2
+	MOVQ	@12(AP),R6
+	CLRL	R10				; Final outp len
+50$:
+	MOVL	#2048,CIRCBUF_DESC		; Re-use 
+ 	PUSHAL 	CONTEXT2
+        PUSHAL	CIRCBUF_DESC			; Return
+	PUSHL	8(AP)               	 	; input block
+	CALLS	#3,G^CMIP_XTRPARAM
+	BLBS	R0,100$
+	RET
+100$:
+; If return = NOMORE then end; else process this return and do again
+        CMPL	#SS$_NOMOREITEMS,R0
+	BNEQ	110$
+	MOVL	R10,@12(AP)
+	MOVL	#SS$_NORMAL,R0
+	RET
+110$:
+; Scan return and for any selected params present, include in outp
+; Params are returned in order; Params extracted:
+;	5 node type
+;	12 Router NETs	(may be multiples)
+;	14 endnode NETs	(may be multiples)
+;
+	MOVQ	CIRCBUF_DESC,R8
+150$:
+; Find param 5 (Type)
+	CLRL	R11			; Don't kno type yet
+	CMPL	#5,ECP_XTPM_L_PARAM(R9)	; Param 5?
+	BEQL	200$
+160$:
+; Next param
+	ADDL3	#4,(R9),R1		; Len to next
+	ADDL	R1,R9
+	SUBL	R1,R8
+	BGTR	150$
+	BRW	50$			; Next block
+200$:
+; Ensure enough space
+	CMPL	#DN5ADJ_C_BLKSIZ,R6
+	BLEQ	210$
+	MOVL	R10,@12(AP)
+	MOVL	#SS$_BUFFEROVF,R0
+	RET
+210$:
+; Store node type (remove CMIP encoding)
+	MOVL	ECP_XTPM1_L_DLEN(R9),R1
+	BEQL	250$			 ; Br if zero len
+	MOVZBL	ECP_XTPM1_C_DVAL(R9),R11 ; Save val here
+; Find either router of endnode NETs
+250$:
+	CMPL	#12,ECP_XTPM_L_PARAM(R9)	; router?
+	BEQL	300$
+	CMPL	#14,ECP_XTPM_L_PARAM(R9)	; endnode?
+	BEQL	300$
+	TSTL	ECP_XTPM_L_PARAM(R9)		; Start new block?
+	BNEQ	260$                            ; NO
+	BRW	150$				; Start next
+260$:
+; Next param
+	ADDL3	#4,(R9),R1		; Len to next
+	ADDL	R1,R9
+	SUBL	R1,R8
+	BGTR	250$
+	BRW	50$			; Next block
+300$:
+; Store NET , count adjacency
+	MOVL	ECP_XTPM_L_NUMP(R9),R1  ; Number of primitives
+	BEQL	260$			 ; Br if zero 
+	ADDL3	#ECP_XTPM_C_1STSLOT,R9,R5 ; Offs to ist
+310$:
+	MOVL	ECP_XTPM_L_DLEN(R5),R2   ; Len this prim
+	BEQL	350$			 ; Br if 0 len
+	ADDL3	#ECP_XTPM_C_DVAL,R5,R4	 ; Value
+	ADDL3	#DN5ADJ_B24_NET,R7,R3
+	MOVB	ECP_XTPM_L_DLEN(R5),(R3)+	 ; insert len
+
+320$:
+	MOVB	(R4)+,(R3)+
+	SOBGTR	R2,320$
+
+; Store circ name
+	MOVL	4(AP),R4
+	MOVZBL	(R4),R2
+	INCL	R2
+	ADDL3	#DN5ADJ_B32_CIRC,R7,R3
+330$:
+	MOVB	(R4)+,(R3)+
+	SOBGTR	R2,330$
+
+ 	MOVL	R11,DN5ADJ_L_TYPE(R7)	 ; Set Type
+	INCL	@16(AP)
+	ADDL	#DN5ADJ_C_BLKSIZ,R7	; Nex outp
+	SUBL	#DN5ADJ_C_BLKSIZ,R6	; Remaining buff
+	ADDL	#DN5ADJ_C_BLKSIZ,R10	; Used buff
+350$:
+	ADDL3	#8,ECP_XTPM_L_DLEN(R5),R2
+	ADDL	R2,R5
+	SOBGTR	R1,310$
+
+	BRW	260$
+
+
+
+	.CALL_ENTRY	MAX_ARGS=1, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=MAK_ADJ_LINK
+;++
+;2 MAK_ADJ_LINK
+; Creates DECnet/OSI link to CML application on requested address
+;2 Inputs
+; DECnet address
+;2 Outputs
+; None
+;2 Returns
+; Any return from $FAO, $QIO 
+;--
+	MOVW	#NCB_LEN,NCB_DESC		; Make 1st part NCB
+	$FAO_S	CTRSTR=NCB_CTRSTR,-
+		OUTLEN=NCB_DESC,-
+		OUTBUF=NCB_DESC,-
+		P1=4(AP)
+	BLBS	R0,10$
+	RET
+10$:
+	MOVAL	NCB,R10
+	MOVZWL	NCB_DESC,R11     
+	MOVC3	#OPT_LEN,NCB_OPTDATA,(R10)[R11]	; 2nd part 
+	ADDW2	#OPT_LEN,NCB_DESC
+	$QIOW_S	-
+		CHAN=NET_CHAN,-			; Make link
+		FUNC=#IO$_ACCESS,-
+		IOSB=IOSB,-
+		P2=#NCB_DESC
+	RET
+;; Condition Handler. 
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETDN5ADJ_HANDLER
+	$UNWIND_S			; Unwind Stack
+	MOVL	#SS$_ABORT,R0		; Crash and Burn
+	RET
+
+	.CALL_ENTRY	MAX_ARGS=12, HOME_ARGS=TRUE, -
+			INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			LABEL=GETDN5ADJ_TIMEOUT
+	PUSHL	NET_CHAN
+	CALLS	#1,G^SYS$CANCEL
+	RET
+	.end	

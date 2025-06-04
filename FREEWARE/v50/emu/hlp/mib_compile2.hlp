@@ -1,0 +1,132 @@
+1 MIB_COMPILE2
+ Programme to read .MC1 files from MIB_COMPILE1 and convert the entries
+ for direct use by MIBWALKER and EMU utilities.
+
+
+2 Inputs
+ Any .MC1 file previously generated (and possible subsequetialy edited)
+ by MIB_COMPILE1.
+
+ 
+3 Input_rec_fmt
+ 
+ Field		     Desc
+ ObjID		     ASN.1 encoded object ID
+ ObjName	     Name as in MIB
+ Mdatatype	     As given in SYNTAX statemenmt in MIB
+ Access	     As given in ACCESS statemenmt in MIB
+ 
+  Each field is .ascii with a '/' seperating the fields             
+  This file is editable before input to MIB_COMPILE2
+ 
+2 Output
+ The Binary file, named with the same name as input but with extension
+ .MC2. e.g. File rfc1287-mib.mc1 is processed into rfc1287-mib.MC2.
+3 Outp_rec_fmt
+ Field		Offs	len		desc
+ Objid         0         64      .ascic ASN.1 encoded object id             
+ Name          64        64      .ascic Name of the object                  
+ Type          128        4       symbol showing object type (detail below)  
+ access        132        4       symbol showing access
+ Entry type	136	   4	  direct, or table part (see below)
+ Spare		140	   4	  Align/spare
+                                                                          
+2 Description
+
+ The intention is to group like entries together. Like entries are either
+ standalone (get directly on objid works) and part of a logical 
+ division within the MIB or table entries.  An example of how tables are 
+ specified follows: (output from MIB_COMPILE1)
+1.3.6.1.2.1.3.1/atTable/SEQUENCE OF AtEntry/not-accessible/
+1.3.6.1.2.1.3.1.1/atEntry/AtEntry/not-accessible/
+1.3.6.1.2.1.3.1.1.1/atIfIndex/INTEGER/read-write/
+1.3.6.1.2.1.3.1.1.2/atPhysAddress/PhysAddress/read-write/
+1.3.6.1.2.1.3.1.1.3/atNetAddress/NetworkAddress/read-write/
+1.3.6.1.2.1.4.1/ipForwarding/INTEGER/read-write/
+ This is the Address Translation (at) table. The name is of the table is 
+ the name specified when type is SEQUENCE OF.... (atTable). The entry point 
+ to the table in this case is atEntry. This entry specifies the len of the 
+ objid that is common to this table (1.3.6.1.2.1.3.1.1). This programme
+ uses that to determine the entries in the table. Given all that, 
+ an entry is specified
+ as either direct (not a table entry) or as a table part (table name, table
+ entry point or table entry)
+2 MC2_READ_FILE  
+ Reads an input record and parses it into descriptors.
+3 Inputs
+ None - it is assumed the file is open before this call
+3 Outp
+ 4 descriptors pointing to each of the 4 fields in the rec.
+2 MC2_GET_ACCESS  
+ Sets the internal symbol showing access to this object.
+
+3 Inputs
+ addr of descriptor pointing to ascii access
+3 Outp
+ Bit pattern showing r/w access written to current outp record
+3 Returns
+ If access is any combination of r/w then ss$_normal
+ If no access (none,not-accessible) then SS$_NOFILACC   
+2 MC2_GET_TYPE 
+ Converts the datatype keyword supplied by the MIB to the code used by EMU.
+
+3 Inputs
+ addr of desc pointing to type keyword
+3 Output
+ keyword is converted to code and written to current record.
+ The conversion is through a hardcoded table in this routine.
+4 Conversion_table
+ Keyw	  	   Desc			
+ TimeTick	 Time ticks
+ OBJECT I	 Object Identifier
+ DisplayS	 Display String
+ INTEGER 	 Integer
+ SEQUENCE	 Sequence
+ Gauge   	 Gauge
+ Physical	 Physical Address (MAC)
+ Counter 	 COunter
+ IpAddres	 IP Addr
+ NetworkA	 Network Addr (IP)
+ OCTET ST	 Octet string
+ BridgeID	 Bridge Id
+ MacAddre	 Mac (Physical)
+ FddiSMTS	 SMT STATION ID - Process as BridgeID
+ FddiMACL	 Mac (Physical)
+
+ ASSUME if type is unknown it is NONE - That is table top of table entry. 
+2 MC2_SET_NAME 
+ Sets the name of the object in the output record.
+
+3 Inputs
+ addr of desc pointing to objecty name
+
+3 Name is written as .ascic to current record
+2 MC2_SET_OBJID
+ The .ascic input object id is converted to a standard SNMP object string.
+
+3 Inputs
+ addr of desc pointing to object identifier
+3 Output
+ Id is written as asn.1 encoded objid (preceded by count byte)
+ Get 1st 2 'leaves' These should ALWAYS be 1.3 and convert to 43. ISO in it's
+ wisdom dicates that the formula for the 1st encoded digit will always be:
+ 	digit1*40+digit2	
+2 MC_PROCESS_TABLE  
+ This routine called when an access of SEQUENCE OF... is encountered.
+ In brief:
+ This record becomes the table name
+ Next record is table top and entry point
+ Any subsequent record with ObjId matching the table top Id is an entry.
+ Process records until 1st rec beyond the table is encountered.
+2 DISPLAY_ERROR
+ Displays any processing errors on the user display.
+3 Input:
+ P1 value of filed type in error to display
+ Addr of desciptor pointing to ascii param to display
+3 Output
+ The message is formatted with the input params and displayed
+3 Field_types
+ 	Data Type 
+ 	Access    
+ 	Name      
+ 	Object Id 

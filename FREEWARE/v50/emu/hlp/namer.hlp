@@ -1,0 +1,46 @@
+1 NAMER   
+ This programme maintains the name to address translation table.
+ Any routine establishing a name for a device deposits that name here
+ along with keying information for later comparisons and lookups.
+	
+2 Namer database
+ Common Header The 64 byte header common to all internal databases.
+ PID		The PID of the sender. This serves to identify the 
+		protocol this name has been seen on. A name when defined
+		by the user sets this field to 0 . This is then
+		interpreted by lookups as the 'prefered' name.
+ 2ndkey	A further unique id to distiguish multiple names. This is
+		a 16 bit CRC of the .ascii name
+ Name		.ascii string containg only printable characters.
+2 Notes
+	The basic unit of transaction - the key - in this db is the ascii
+	name qualified by the PID and 2nd key . The len of the key is held 
+	in the  header as in all DBs and the len of the name is the len 
+	of the key - 8.  
+2 NAM_VALIDATE_NAME   
+ Routine to validate that the input name :
+	is not longer than NAM_DB_C_MAXNAMSIZ 
+	contains only printable characters
+ Note that the checking is in this order - if the name is too long, the 
+ next check is not done, and so on.
+3 Input
+	.address of namer frame. The frame must be type add.
+3 Output
+ 	Any unpritable char is replaced by '?'
+3 Returns
+	SS$_NORMAL	Name is written
+	SS$_BADPARAM	Namer frame is not add type
+	SS$_BUFFEROVF	Name is too long - not written
+			Len of name is < 1
+	SS$_DATACHECK	Name contains unprintable characters
+2 MAP_NAMERDB   
+ Routine to create and initialise the NAMER db. This is a standard routine
+ that any DB creator executes on it's own DB:
+	Acquire exclusive lock on this database. 
+		Fatal error if not granted.
+	Open file - if file not opened used hardcoded defaults.
+	Create section. Fatal error ir we did not CREATE.
+	Initalise with either file contents or defaults
+	Write section size (in pages) to LVB
+	Convert lock to CW
+	That's it!

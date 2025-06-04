@@ -1,0 +1,315 @@
+        .title  GETIFCNT    
+        .ident  /V05-001/ 
+;	© 2000 P. Beaudoin
+;  This software is supplied as is and the usual warranty
+;  is implied - none. You may use, abuse, modify or
+;  or ignore this software as you see fit but are
+;  encouraged to give credit, as is good practice
+;  when stealing with permission
+; 
+; Get Interface counts via snmp               
+; Program will get all interface counts for the IP addresses
+; listed at ADDR: , process and store them in IFCNT.DAT
+; Use DISP_IFCNT to view results
+;
+        .library        /sys$library:lib.mlb/
+	.library	/emu5_LIB:emu5.mlb/
+	EMUSYSDEF
+	EMUCTRLDEF
+	EMUSNMPDEF
+	EMUCMIPDEF
+	$TRMDEF
+	$LCKDEF
+        .psect  rw_data, noexe, rd, wrt, quad, pic, noshr       
+
+RETURN:		.BLKB	4096
+RETURN_D:	.LONG	.-RETURN
+		.ADDRESS  RETURN
+QRESULT:	.BLKQ	12
+CURTIME:	.QUAD	0
+NOW:		.QUAD	0
+	.ALIGN	LONG
+
+IFIDXFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		ORG = IDX,-			; Keyed file (Finally)
+		RFM = FIX,-
+		MRS = 128,-                       ; Largest rec
+		GBC = 10,-                        ; Use global buffers
+		DNM = <IFIDX.DAT>,-	; Default Filename 
+		FNM = <IFIDX>,-			; Filename 
+		XAB = IFIDXXAB0                  ; Keys
+
+IFIDXRAB:	
+		$RAB  FAB = IFIDXFAB,-		; pointer to FAB
+		RBF = IFIDXREC_BUF,-		; i/o buffer 
+		RSZ = IFIDXREC_SIZE,-		; Write this many bytes
+		UBF = IFIDXREC_BUF,-		; i/o buffer 
+		USZ = IFIDXREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		KBF = IFIDXREC_BUF,-		; Key location
+		KSZ = 8
+
+IFIDXXAB0:	$XABKEY	REF = 0,-  	; IP addr,IF INDEX
+		DTP = BN8,-             ; Key = 8 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+                NXT = IFIDXXAB1
+IFIDXXAB1:	$XABKEY	REF = 1,-  	; IP addr,IF INDEX
+		DTP = BN4,-             ; Key = 8 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+
+IFIDXRAB2:	
+		$RAB  FAB = IFIDXFAB,-		; pointer to FAB
+		RBF = IFIDXREC_BUF,-		; i/o buffer 
+		RSZ = IFIDXREC_SIZE,-		; Write this many bytes
+		UBF = IFIDXREC_BUF,-		; i/o buffer 
+		USZ = IFIDXREC_SIZE,-		; 
+		RAC = SEQ,-			; seq access
+		ROP = NLK			; Do not lock rec
+  
+
+;
+IFIDXREC_BUF:
+IFIDX_IF: 		.LONG	0       ; If index
+IFIDX_ADDR:		.LONG	0 	; Ip addr
+; Last sample
+IFIDX_TIME:		.QUAD	0	; Sample time
+IFIDX_INOCTETS:		.QUAD	0 	; 20               
+IFIDX_INUCASTPKTS:	.QUAD	0 	; 24              
+IFIDX_INNUCASTPKTS:	.QUAD	0 	; 28               
+IFIDX_INDISCARDS:	.QUAD	0 	; 32               
+IFIDX_INERRORS:		.QUAD	0 	; 36               
+IFIDX_INUNKNOWNPROTOS:	.QUAD	0 	; 40               
+IFIDX_OUTOCTETS:	.QUAD	0 	; 44               
+IFIDX_OUTUCASTPKTS:	.QUAD	0 	; 48               
+IFIDX_OUTNUCASTPKTS:	.QUAD	0 	; 52               
+IFIDX_OUTDISCARDS:	.QUAD	0 	; 56               
+IFIDX_OUTERRORS:	.QUAD	0 	; 60               
+IFIDX_OUTQLEN:		.QUAD	0 	; 64                
+IFIDXREC_SIZE = .-IFIDXREC_BUF
+
+
+
+
+
+IFCNTFAB:	
+	$FAB	FAC = <GET,PUT,UPD,DEL>,-	; Access
+		SHR = <GET,PUT,UPD,DEL,MSE>,-	; Share with ...
+		FOP = CIF,-			; Create if absent
+		ORG = IDX,-			; Keyed file (Finally)
+		RFM = FIX,-
+		MRS = IFCNTREC_SIZE,-                       ; Largest rec
+		DNM = <IFCNT.DAT>,-	; Default Filename 
+		FNM = <IFCNT>,-			; Filename 
+		XAB = IFCNTXAB0                  ; Keys
+
+IFCNTRAB:	$RAB	FAB = IFCNTFAB,-		; pointer to FAB
+		RBF = IFCNTREC_BUF,-		; i/o buffer 
+		RSZ = IFCNTREC_SIZE,-		; Write this many bytes
+		UBF = IFCNTREC_BUF,-		; i/o buffer 
+		USZ = IFCNTREC_SIZE,-		; 
+		RAC = KEY,-			; Keyed file
+		ROP = NLK,-			; Do not lock rec
+		KBF = IFCNTREC_BUF,-		; Key location
+		KSZ = 8
+
+IFCNTXAB0:
+		$XABKEY	REF = 0,-  	; IP addr,If
+		DTP = BN8,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 8,-                 ; Key len (dups not allowed)
+		FLG = DUP,-
+		NXT = IFCNTXAB1
+IFCNTXAB1:
+		$XABKEY	REF = 1,-  	; IP addr
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 0,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP,-
+		NXT = IFCNTXAB2
+IFCNTXAB2:
+		$XABKEY	REF = 2,-  	; Interface
+		DTP = BN4,-             ; Key = 4 bytes binary (ascending)
+		POS = 4,-               ; Key position
+		SIZ = 4,-               ; Key len (dups allowed)
+		FLG = DUP
+;
+IFCNTREC_BUF:	
+IFCNT_KEY:
+IFCNT_IF:		.LONG	0	; IF
+IFCNT_ADDR:		.LONG	0	; ipaddr
+IFCNT_TIME:		.QUAD	0	
+; Differences 
+IFCNT_INOCTETS:		.LONG	0 ;   16               
+IFCNT_INUCASTPKTS:	.LONG	0 ;   20             
+IFCNT_INNUCASTPKTS:	.LONG	0 ;   24              
+IFCNT_INDISCARDS:	.LONG	0 ;   28              
+IFCNT_INERRORS:		.LONG	0 ;   32              
+IFCNT_INUNKNOWNPROTOS:	.LONG	0 ;   36              
+IFCNT_OUTOCTETS:	.LONG	0 ;   40              
+IFCNT_OUTUCASTPKTS:	.LONG	0 ;   44             
+IFCNT_OUTNUCASTPKTS:	.LONG	0 ;   48              
+IFCNT_OUTDISCARDS:	.LONG	0 ;   52              
+IFCNT_OUTERRORS:	.LONG	0 ;   56              
+IFCNT_OUTQLEN:		.LONG	0 ;   60               
+IFCNTREC_SIZE = .-IFCNTREC_BUF        ; = 64
+;	
+
+
+
+WAIT_INTERVAL:  .FLOAT  3600           ; Time between Screen updates
+IFCNT:		.LONG	0
+CURIP:		.LONG	0
+        .psect  prog_code, rd, nowrt, exe, pic, shr, quad
+
+        .CALL_ENTRY     MAX_ARGS=0, -
+                        HOME_ARGS=TRUE, -
+                        INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        PRESERVE=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+                        LABEL=GETIFCNT
+
+;
+; Open both files. If index does not exist then exit, if data does not
+; exist, create it
+;
+	$OPEN	FAB=IFIDXFAB
+	BLBS	R0,10$
+	RET
+10$:
+	$CONNECT RAB=IFIDXRAB
+	BLBS	 R0,15$
+	RET
+15$:
+	$CONNECT RAB=IFIDXRAB2
+	BLBS	 R0,20$
+	RET
+20$:
+	$CREATE	FAB=IFCNTFAB
+	BLBS	R0,30$
+	RET
+30$:
+	$CONNECT	RAB=IFCNTRAB
+	BLBS	R0,40$
+	RET
+40$:
+
+START:
+; Rewind index to start, get 1st rec sequentialy
+	CLRL	CURIP
+	$REWIND	RAB=IFIDXRAB2 
+5$:
+        $GET	RAB=IFIDXRAB2 
+	BLBS	R0,10$
+; Assume any error is EOF
+	PUSHAL	WAIT_INTERVAL
+	CALLS	#1,G^LIB$WAIT
+	BRW	START
+10$:
+	CMPL	IFIDX_ADDR,CURIP
+	BEQLU	5$
+	MOVL	IFIDX_ADDR,CURIP
+; Extract IP addr, get IF counts for all IF
+	MOVL	#4096,RETURN_D
+
+	PUSHL	#SNMP_IFT_C_COUNT
+	PUSHAL	IFCNT
+	PUSHAL	RETURN_D
+	PUSHAL	IFIDX_ADDR 
+	CALLS	#4,G^SNMP_GET_IFTBL
+	BLBC	R0,5$
+20$:
+100$:
+	MOVQ	EXE$GQ_SYSTIME,CURTIME		; Store current time
+	TSTL	IFCNT   	; Any interfaces?
+	BEQL	5$		; Br if none
+	MOVAL	RETURN,R8       ; Data
+        CLRL	R11		; Loop control
+
+; Make key and find this rec in index. If not found, create it
+105$:
+	MOVL	(R8),IFIDX_IF
+	MOVB	#RAB$C_KEY,IFIDXRAB+RAB$B_RAC   ; Indexed read
+        $GET	RAB=IFIDXRAB 
+	BLBS	R0,110$
+        BRW	1000$				; Create this rec
+110$:
+; Make key. New rec is always created.
+
+	MOVL	(R8),IFCNT_IF
+	MOVL	IFIDX_ADDR,IFCNT_ADDR
+	MOVQ	CURTIME,IFCNT_TIME
+	MOVB	#RAB$C_KEY,IFCNTRAB+RAB$B_RAC   ; Indexed write
+	MOVAL	IFIDX_INOCTETS,R7		; Last sample
+        ADDL3	#8,R8,R9			; This sample
+	MOVL	#12,R10				; Loop control
+	MOVAL	QRESULT,R5
+120$:
+; Create differences array
+	PUSHL	R5
+	PUSHL	R7
+	PUSHL	R9
+	CALLS	#3,G^LIB$SUBX
+	BLBS	R0,130$
+	RET
+130$:
+	TSTL	4(R5)				; > 4 byte result?
+	BEQL	140$                            ;     or count reset?
+	BRW	1000$				; Skip process if so
+140$:
+150$:
+	ADDL	#8,R7
+	ADDL	#8,R9
+	ADDL	#8,R5
+	SOBGTR	R10,120$
+; Pick .longs from quad results
+
+	PUSHAL	IFIDX_TIME
+	PUSHAL	CURTIME
+	calls	#2,G^TIMEDIFF_SEC  
+	BSBW	ERROR_CHK
+   	TSTL	R1
+	BNEQ	155$
+	BRW	1000$
+155$:
+	MOVL	#12,R10				; Loop control
+	MOVAL	QRESULT,R5
+	MOVAL	IFCNT_INOCTETS,R9
+160$:
+	EDIV	R1,(R5),(R9)+,R2
+	ADDL	#8,R5
+	SOBGTR	R10,160$
+	$PUT	RAB=IFCNTRAB
+	BLBS	R0,170$
+	RET
+170$:
+1000$:
+; Replace last sample with current and update index
+	MOVAL	IFIDX_INOCTETS,R7		; Last sample
+        ADDL3	#8,R8,R9			; This sample
+	MOVL	#12,R10				; Loop control
+	MOVQ	CURTIME,IFIDX_TIME
+180$:
+	MOVQ	(R9)+,(R7)+
+	SOBGTR	R10,180$
+	$UPDATE	RAB=IFIDXRAB 
+	BLBS	R0,190$
+	RET
+190$:
+	AOBLSS	IFCNT,R11,200$
+	BRW	5$
+200$:
+	ADDL	#SNMP_IFT_C_CNTSIZ,R8
+	BRW	105$
+		
+ERROR_CHK:
+	.JSB_ENTRY	INPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>, -
+			OUTPUT=<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	BLBS	R0,20$
+	RET
+20$:	RSB
+
+        .END	GETIFCNT

@@ -1,0 +1,366 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.10.1">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.HTD]HTD_CACHE.SDML">
+<META NAME="date" CONTENT="Thu, 25 Jan 2001 04:55:45">
+<!--
+WASD VMS Hypertext Services, Copyright (c) 1996-2001 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Cache</TITLE>
+</HEAD>
+<BODY BGCOLOR="#ffffff" TEXT="#000000" LINK="#0000ff" VLINK="#0000ff">
+<H1>WASD Hypertext Services - Technical Overview</H1>
+
+<A NAME="257">
+<H2>17 - Cache</H2>
+</A><FONT SIZE=-1>
+<BLOCKQUOTE>
+<NOBR>
+17.1 - <A HREF="htd_1700.html#260" TARGET="_self">Cache Suitability Considerations</A>
+<BR>17.2 - <A HREF="htd_1700.html#262" TARGET="_self">Cache Content Validation</A>
+<BR>17.3 - <A HREF="htd_1700.html#263" TARGET="_self">Cache Configuration</A>
+<BR>17.4 - <A HREF="htd_1700.html#264" TARGET="_self">Cache Control</A>
+<BR>17.5 - <A HREF="htd_1700.html#265" TARGET="_self">Circumventing The Cache</A>
+</NOBR>
+</BLOCKQUOTE>
+</FONT>
+[<A HREF="htd_1800.html" TARGET="_self">next</A>] [<A HREF="htd_1600.html" TARGET="_self">previous</A>] [<A HREF="htd_0001.html"TARGET="_top" >contents</A>] [<A HREF="htd_1700.html"TARGET="_top" >full-page</A>]
+<HR SIZE=2 NOSHADE>
+
+
+<P> WASD HTTPd provides an optional, configurable, monitorable file data and
+revision time cache.&nbsp; File data, so that requests for documents can be
+fulfilled without reference to the underlying file system, potentially
+reducing request latency and more importantly improving overall server
+performance and system impact, and file revision time, so that requests
+specifying an &quot;If-Modified-Since:&quot; header can also benefit from the
+above.&nbsp;
+
+<P> Note that it is a file-system cache.&nbsp; Only documents generated from the
+file system are cached, not from any potentially dynamic sources, such as
+scripts, directory listings, SSI documents, etc.&nbsp; The reason should be obvious.&nbsp;
+Only the file system provides a reliable mechansim for ensuring the validity
+of the cached data (i.e. has the original changed in some way since loaded?)
+
+<P> Files are cached according to <B>mapped</B> path (not
+necessarily the same path supplied with the request) and not by the file name
+represented by any path.&nbsp; This is a design decision targeted at avoiding any
+access to RMS before searching the cache.&nbsp; For example, the ambiguous reference
+to the directory
+
+<FONT COLOR="#333333"><PRE>  /ht_root/
+</PRE></FONT>
+ may result in the following file being accessed (due to home page
+resolution)
+
+<FONT COLOR="#333333"><PRE>  HT_ROOT:[000000]HOME.HTML
+</PRE></FONT>
+ and the contents returned to the client and consequently cached.&nbsp; Each
+time the path &quot;/ht_root/&quot; is subsequently requested it will be path hit
+and serviced from the cache entry without any recourse to RMS.&nbsp;
+
+<P> Of course the same file may be requested with the unambigious path
+
+<FONT COLOR="#333333"><PRE>  /ht_root/home.html
+</PRE></FONT>
+ which is completely different to the first instance, although ultimately
+accessing the same file.&nbsp; Hence one file may be cached multiple times against
+distinct paths.&nbsp; Although isolated instances of this are possible, the
+likelihood of significant resources being consumed in practice should be quite
+low.&nbsp;
+
+<A NAME="258">
+<H3><BR>Why Implement Caching?&nbsp;</H3>
+</A>
+
+<P> Caching, in concept, attempts to improve performance by keeping data in
+storage that is faster to access than it's usual location.&nbsp; The performance
+improvement can be assessed in three basic ways; reduction of
+<UL>
+
+<LI> response when accessing the data (latency and transfer time)
+<LI> processing involved (CPU cycles)
+<LI> impact on the usual storage location (file system I/O)
+</UL>
+
+
+<P> This cache is provided to address all three.&nbsp; Where networks are
+particularly responsive a reduction in request latency can often be noticable.&nbsp;
+It is also suggested a cache &quot;hit&quot; may consume less CPU cycles than the
+equivalent access to the (notoriously expensive) VMS file system.&nbsp; Where
+servers are particularly busy or where disk subsystems particularly loaded a
+reduction in the need to access the file system can significantly improve
+performance while simultaneously reducing the impact of the server on other
+system activities.&nbsp; The author's feeling is though, that for most VMS sites
+high levels of hits are not a great concern, and for these caching can easily
+be left disabled, particularly if the file system's virtual I/O cache is
+enabled.&nbsp;
+
+<P> A comparison between cached and non-cached performance is provided in
+<A HREF="htd_1800.html#266" TARGET="_self">18 - Server Performance</A>.&nbsp;
+
+<P> Why take so long to implement caching?&nbsp; (introduced in version 4.5) Well,
+WASD's intranet services are not particularly busy sites.&nbsp; This coupled with
+powerful hardware has meant performance has not been an overriding concern.&nbsp;
+However, this cache module came about because I felt like creating it and it
+was an obvious lack of functionality within the server, not because WASD (the
+organisation) needed it.&nbsp;
+
+<A NAME="259">
+<H3><BR>Terminology</H3>
+</A>
+
+<P> This is what is meant when used.&nbsp;
+<UL>
+
+<LI> &quot;hit&quot; refers to a request path being found in cache.&nbsp; If the data
+is still valid the request can be supplied from cache.&nbsp;
+<LI> &quot;load&quot;ing the cache refers to reading the contents of a file into
+cache memory.&nbsp;
+<LI> &quot;valid&quot; means that the file from which the cached data was
+originally read has not had it's revision date changed (the implication being
+is the file contents have not changed.&nbsp;
+</UL>
+
+
+<A NAME="260">
+<H3><BR><U>17.1 - Cache Suitability Considerations</U></H3>
+</A>
+
+<P> A cache is not always of benefit!&nbsp;  It's cost may outweigh it's return.&nbsp;
+
+<P> Any cache's efficiencies can only occur where subsets of data are
+consistently being demanded.&nbsp; Although these subsets may change slowly over
+time a consistent and rapidly changing aggregate of requests lose the benefit
+of more readily accessable data to the overhead of cache management, due to the
+constant and continuous flushing and reloading of cache data.&nbsp; This server's
+cache is no different, it will only improve performance if the site
+experiences some consistency in the files requested.&nbsp; <B>For sites that
+have only a small percentage of files being repeatedly requested it is
+probably better that the cache be disabled.&nbsp;</B> The other major
+consideration is available system memory.&nbsp; On a system where memory demand is
+high there is little value in having cache memory sitting in page space,
+trading disk I/O and latency for paging I/O and latency.&nbsp; <B>On
+memory-challenged systems cache is probably best disabled.&nbsp;</B>
+
+<P> <B>To help assessment of the cache's efficiency for any given site
+monitor the administration menu's cache report</B>.&nbsp;
+
+<P> Two sets of data provide complementary information, cache activity and
+file request profile.&nbsp;
+<UL>
+
+<LI> <B>Activity information</B> summarizes the cache search
+behaviour, in particular that of the hash table.&nbsp;
+
+<P> The &quot;searched&quot; item, indicates the number of times the cache has
+been searched.&nbsp; Most importantly, this may include paths that can never be
+cached because they represent non-file requests (e.g. directory listings).&nbsp;
+Requests involving scripts, and some others, never attempt a cache search.&nbsp;
+
+<P> The &quot;hit&quot; item, indicates the number of times the hash table
+directly provided a cached path.&nbsp;  This is very efficient.&nbsp;
+
+<P> The &quot;miss&quot; item, indicates the number of times the hash table
+directly indicated a path was not cached.&nbsp;  This is decisive and is also very
+efficient.&nbsp;
+
+<P> The &quot;collision&quot; item, indicates the number of times multiple paths
+resolved to the same hash table entry.&nbsp; Collisions require further processing
+and are far less efficient.&nbsp; The sub-items, &quot;collision hits&quot; and
+&quot;collision misses&quot; indicate the number of times that further processing
+resulted in a found or not-found cache item.&nbsp;
+
+<P> A large number of cache misses compared to searches may only indicate a
+large number of non-cacheable requests and so depending on that further datum
+is not of great concern.&nbsp; A large proportion of collisions (say greater than
+12.5%) is however, indicating either the hash table size needs increasing
+(1024 should be considered a minimum) or the hashing algorithm in the software
+need reviewing :^)
+<P>
+<LI> <B>Files information</B> summarizes the site's file request
+profile.&nbsp;
+
+<P> With the &quot;loads not hit&quot; item, the count represents the cumulative
+number of files loaded but never subsequently hit.&nbsp; If this percentage is high
+it means most files loaded are never hit, indicating the site's request
+profile is possibly unsuitable for caching.&nbsp;
+
+<P> The item &quot;hits&quot; respresents the cumulative, total number of hits
+against the cumulative, total number of loads.&nbsp; The percentage here can range
+from zero to many thousands of percent :^) with less than 100% indicating poor
+cache performance and from 200% upwards better and good performance.&nbsp; The items
+&quot;1-9&quot;, &quot;10-99&quot; and &quot;100+&quot; show the count and percentage
+of total hits that occured when a given entry had experienced hits within that
+range (e.g. if an entry has had 8 previous hits, the ninth increments the
+&quot;1-9&quot; item whereas the tenth and eleventh increments the &quot;10-99&quot;
+item, etc.)
+
+<P> Other considerations also apply when assessing the benefit of having a
+cache.&nbsp; For example, a high number and percentage of hits can be generated
+while the percentage of &quot;loads not hit&quot; could be in the also be very
+high.&nbsp; The explanation for this would be one or two frequently requested files
+being hit while most others are loaded, never hit, and flushed as other files
+request cache space.&nbsp; In situations such as this it is difficult to judge
+whether cache processing is improving performance or just adding overhead.&nbsp;
+</UL>
+
+
+<A NAME="261">
+<H3><BR>Recommendation</H3>
+</A>
+
+<P> Monitor the site's cache behaviour and adjust parameters from an assessment
+based on the guidelines above.&nbsp;
+
+<P> Again, the author's suggestion is, that for most VMS sites, high levels of
+access are not a great concern, and for these caching can easily be left
+disabled.&nbsp;
+            
+
+<A NAME="262">
+<H3><BR><U>17.2 - Cache Content Validation</U></H3>
+</A>
+
+<P> The cache will automatically revalidate the file data after a specified
+number of seconds ([CacheValidateSeconds] configuration parameter), by
+comparing the original file revision time to the current revision time.&nbsp; If
+different the file contents have changed and the cache contents declared
+invalid.&nbsp; If found invalid the file transfer then continues outside of the
+cache with the new contents being concurrently reloaded into the cache.&nbsp;
+
+<P> Cache validation is also always performed if the request uses
+&quot;Pragma: no-cache&quot; (i.e. as with the Netscape Navigator
+<I>Reload</I> function).&nbsp; Hence there is no need for any explicit flushing
+of the cache under normal operation.&nbsp; If a document does not immediately
+reflect any changes made to it (i.e. validation time has not been reached)
+validation (and consequent reload) can be &quot;forced&quot; with a browser
+reload.&nbsp;
+
+<P> If a site's contents are relatively static the validation seconds could be
+set to an extended period (say 3600 seconds, one hour) and then rely on an
+explicit &quot;reload&quot; to force validation of a changed file.&nbsp;
+
+<P> The entire cache may be purged of cached data either from the server
+administration menu or using command line server control, as in the following
+example
+
+<FONT COLOR="#333333"><PRE>  $ HTTPD /DO=CACHE=PURGE
+</PRE></FONT>
+
+<A NAME="263">
+<H3><BR><U>17.3 - Cache Configuration</U></H3>
+</A>
+
+<P> The cache is controlled using HTTPD$CONFIG file configuration directives.&nbsp; 
+A number of parameters control the cache's behaviour.&nbsp;  See the example
+configuration file HT_ROOT:[EXAMPLE]HTTPD$CONFIG.CONF.&nbsp;
+<UL>
+
+<LI> <B>Cache</B>
+enables and disables caching.&nbsp;
+<P>
+<LI> <B>CacheChunkKBytes</B>
+sets the granularity of memory blocks allocated to file data (in kilobytes).&nbsp; 
+To reduce the number of, and possible blocks sizes of memory, being requested
+(potentially improving memory allocation performance) data allocated to cache
+is done in multiples of this chunk size.&nbsp;
+<P>
+<LI> <B>CacheEntriesMax</B> and <B>CacheTotalKBytesMax</B>
+provide growth limits to cache expansion.&nbsp;  Maximum entries limits the number of
+files loaded into the cache before entries begin to be reused (flushing the
+original contents).&nbsp;  Maximum total kilobytes allocated to the cache provides a
+ceiling on the memory consumed.&nbsp; These parameters operate to limit each other
+(i.e. if one reaches it's limit before the other, the other will not grow
+further either).&nbsp;
+<P>
+<LI> <B>CacheFileKBytesMax</B>
+provides a limit on file size (in kilobytes).&nbsp;  Files larger than the specified
+limit will never be cached.&nbsp;
+<P>
+<LI> <B>CacheFrequentHits</B> and
+<B>CacheFrequentSeconds</B> attempt to reduce unproductive reuse of
+cache entries by providing the cache with some indication of what constitutes
+a frequently hit entry.&nbsp; If it is frequently hit then it should not be
+immediately reused when there is a demand for cache space.&nbsp; The first parameter
+sets the number of hits an entry must sustain before being a candidate for
+&quot;CacheFrequentSeconds&quot; assessment.&nbsp; If a file has been hit at least
+&quot;CacheFrequentHits&quot; times in total and the last hit was within the
+number of seconds set by &quot;CacheFrequentSeconds&quot; it will not be flushed
+and reused.&nbsp; If it has not been hit within the specified period it will be
+reused.&nbsp;
+<P>
+<LI> <B>CacheHashTableEntries</B> sets the size of the hash table,
+used to rapidly index into the cached paths.&nbsp; Generally bigger is better (each
+entry consumes four bytes, hence 1024 entries consume 4096 bytes).&nbsp; Due to the
+hashing algorithm employed the size should be in magnitudes of two (e.g. 1024,
+2048, etc.), if not, the specified amount is <I>rounded down</I> to the
+nearest (e.g. 1000 to 512).
+<P>
+<LI> <B>CacheValidateSeconds</B>
+The interval after which a cache entry's original, content revision time
+is revalidated against the file's current revision time.&nbsp;  If not the same the
+contents are declared invalid and reloaded.&nbsp;  Setting this to a greater period
+reduces disk I/O but revised files may not be obvious within an acceptable
+timer unless a re-validation is forced with a <I>reload</I>.&nbsp;
+</UL>
+
+
+<A NAME="264">
+<H3><BR><U>17.4 - Cache Control</U></H3>
+</A>
+
+<P> The cache may be enabled, disabled and purged from the server
+administration menu (see <A HREF="htd_1500.html#236" TARGET="_self">15 - Server Administration</A>).&nbsp; In addition the
+same control may be exercised from the command line (see
+<A HREF="htd_0500.html#64" TARGET="_self">5.3.2 - Server Command Line Control</A>) using
+
+<FONT COLOR="#333333"><PRE>  $ HTTPD /DO=CACHE=ON
+  $ HTTPD /DO=CACHE=OFF
+  $ HTTPD /DO=CACHE=PURGE
+</PRE></FONT>
+
+<P> If cache parameters are altered in the configuration file the server must
+be restarted to put these into effect.&nbsp;  Disabling the cache on an ad hoc basis
+(from menu or command line) does not alter the contents in any way so it can
+merely be reenabled with use of the cache's previous contents resuming.&nbsp;  In
+this way comparisions between the two environments may more easily be made.&nbsp;
+
+<A NAME="265">
+<H3><BR><U>17.5 - Circumventing The Cache</U></H3>
+</A>
+
+<P> There are often good reasons for bypassing or avoiding the cache.&nbsp;  For
+instance, where a document is being refreshed within the cache revalidation
+period specified by [CacheValidateSeconds] (see
+<A HREF="htd_1700.html#262" TARGET="_self">17.2 - Cache Content Validation</A>).&nbsp; There are two mechanisms available for
+bypassing or invalidating the file cache.&nbsp;
+<OL>
+
+<P>
+<LI> SET the path to the file or files as NOCACHE (see
+<A HREF="htd_1000.html#133" TARGET="_self">10.3.5 - SET Rule</A>).&nbsp;  This directs the server to always get the file
+from the file-system.&nbsp;
+
+<FONT COLOR="#333333"><PRE>  SET /path/not/to/cache/* NOCACHE
+</PRE></FONT>
+<P>
+<LI> Specify a version component when requesting the file.&nbsp;  WASD never caches a
+file if the request contains a version component.&nbsp;  It does not need to be a
+full version number, a semi-colon is sufficient.&nbsp;  For example:
+
+<FONT COLOR="#333333"><PRE>  /ht_root/robots.txt;
+</PRE></FONT>
+<P>
+</OL>
+
+
+<P>
+<HR SIZE=2 NOSHADE>
+[<A HREF="htd_1800.html" TARGET="_self">next</A>] [<A HREF="htd_1600.html" TARGET="_self">previous</A>] [<A HREF="htd_0001.html"TARGET="_top" >contents</A>] [<A HREF="htd_1700.html"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

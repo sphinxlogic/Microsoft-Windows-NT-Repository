@@ -1,0 +1,2029 @@
+  	.TITLE	MONLAV
+	.IDENT	/V3.1/
+
+; This program will dump information about Ethernet based clusters.  It
+; uses the cluster multicast message to gather information about clusters.
+
+; Author = David Gagne
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.DISABLE	GLOBAL
+
+	$IODEF				;Define I/O functions and modifiers
+	$NMADEF				;Define Network Management parameters
+	$LNMDEF				;Define logical name parameters
+	$RMSDEF				;Define RMS data structs,status codes
+	$SSDEF				; define System error codes
+	$LIBDEF				; Define Library macros
+
+	.SHOW	MEB
+
+	.EXTERNAL	LIB$GET_INPUT
+	.EXTERNAL	LIB$PUT_OUTPUT
+	.EXTERNAL	SYS$FAO
+
+; Modification history
+;
+;	3.1	Lee Leahy					30 Jan 91
+;		01 Updated LAVc protocol version.
+;		02 Defined the MOP code for the DEMFA.
+;
+;	3.0	Lee Leahy					26 Oct 90
+;		01 Modified to support multi-adapter Local Area Clusters.
+;		02 Updated the device table.
+;		03 Added support for the DEMFA.
+;
+;	2.0	David Gagne
+;		01 Add the hardware address to the displays.
+
+	.PSECT	DATA	PAGE, RD, WRT, NOEXE
+
+; RMS data structures for reading MONLAV.DAT
+
+IO_FAB:	$FAB	FNM=<MONLAV.DAT>,ORG=SEQ,FAC=<GET>
+IO_RAB:	$RAB	FAB=IO_FAB, UBF=RECORD, USZ=256
+
+; QIO data structures for the LAVC channel.
+
+; Setmode parameter buffer
+
+SETPARM:
+	.WORD	NMA$C_PCLI_PTY		; Protocol type
+		.LONG	^X0760
+	.WORD	NMA$C_PCLI_BFN		; Number of buffers to save
+		.LONG	4
+	.WORD	NMA$C_PCLI_BUS		; Max. receivable buffer size
+		.LONG	1500
+	.WORD	NMA$C_PCLI_MLT		; All multicast addresses
+		.LONG	NMA$C_STATE_ON
+
+	.WORD	NMA$C_PCLI_CON		;  Set controller mode
+		.LONG	NMA$C_LINCN_NOR
+
+	.WORD	NMA$C_PCLI_RES		;  Protocol restart.
+		.LONG	NMA$C_LINRES_ENA
+
+SETPARMLEN = .-SETPARM
+
+SETPARMDSC:
+	.LONG		SETPARMLEN
+	.ADDRESS	SETPARM
+
+; Read buffer for LAVC multicast hello messages
+
+RCVBUF:
+	.BLKB	1504
+
+RCVBUFLEN = .-RCVBUF
+
+; Place to store incoming P5 buffer
+
+RCVP5:
+RCVDA:	.BLKB	6
+RCVSA:	.BLKB	6
+RCVPTY:	.BLKB	2
+
+; QIO data structures for the MOP (SYSTEM ID) channel.
+
+; P2 parameter buffer for finding devices of other nodes.
+
+SIDPARM:
+	.WORD	NMA$C_PCLI_PTY		; Protocol Type
+		.LONG	^X0260
+
+	.WORD	NMA$C_PCLI_CON		;  Set controller mode
+		.LONG	NMA$C_LINCN_NOR
+
+	.WORD	NMA$C_PCLI_RES		;  Protocol restart.
+		.LONG	NMA$C_LINRES_ENA
+
+SIDPARMLEN = .-SIDPARM
+
+SIDPARMDSC:
+	.LONG		SIDPARMLEN
+	.ADDRESS	SIDPARM
+
+; P2 transmit data buffer for sending request SYSID messages.
+
+XMTP2BUF:
+	.BYTE	05			; SYSTEM ID request code
+	.BYTE	00			; Reserved
+XMTRCPT:
+	.WORD	4242			; Receipt number (to be returned)
+
+XMTP2LEN = .-XMTP2BUF
+
+; Address of the node whose Device ID we would like to find.
+
+SIDADDR:
+	.BLKB	6
+
+; Read buffer for receiving System IDs
+
+RCVBUF2:
+	.BLKB	1504
+
+RCVBUFLEN2 = .-RCVBUF2
+
+; Place to store incoming P5 buffer
+
+RCVP52:
+RCVDA2:	.BLKB	6
+RCVSA2:	.BLKB	6
+RCVPT2:	.BLKB	2
+
+; Node name descriptor
+
+NAMDSC:
+	.LONG	6			; Node name is always 6 characters
+	.LONG	RCVBUF+25		; Node name is always at byte 25
+					; in the receive buffer
+IDDESC:
+	.LONG	40			; maximum Identifier string length
+IDSTR:
+	.BLKL	1			; address of ID string
+
+;	Save the previous node name.
+
+PREVIOUS_NODE:	.BLKQ	1
+
+; Message structures
+
+; General message buffer
+
+LINE_LENGTH	=	80
+
+FAODESC:
+FAOLEN:	.LONG		LINE_LENGTH
+	.ADDRESS	FAOBUF
+FAOBUF:
+	.BLKB		LINE_LENGTH
+
+	.MACRO	 MSG	message_text, ?label
+	.SAVE_PSECT
+	.PSECT	TEXT	RD, NOWRT, NOEXE
+label:	.ASCID	"message_text"
+	.RESTORE_PSECT
+	.ADDRESS	label
+	.ENDM	MSG
+
+	.ALIGN	LONG
+
+NONAME:
+	.ASCID	"!5UW = !AS"
+
+HDR_MSGS:
+	MSG	<MONLAV - Ethernet LAVC monitoring program. Version 3.1>
+	.LONG	0
+
+INP_MSGS:
+	MSG	<Monitor requests available:>
+	MSG	<  1) Monitor a single cluster node>
+	MSG	<  2) Monitor all nodes in a specific cluster>
+	MSG	<  3) Monitor all nodes in all clusters>
+	MSG	<  4) Monitor all nodes is all clusters,  LTM display>
+	MSG	<  any other input will stop the program>
+	.LONG	0
+
+IOMSG:
+	.ASCID	"!/The contents of the 2nd longword in the IOSB is !XL"
+NDMSG:
+	.ASCID	"No device found.  Please define ETH appropriately."
+
+DNEMSG:
+	.ASCID	"MONLAV complete.  Thank you for your continued support."
+BLNKMSG:
+	.ASCID	""
+
+; Output strings for monitoring a single cluster node
+
+	.ALIGN	LONG
+
+M1_HDR:
+	MSG	<  Monitor output from a single cluster node>
+	MSG	<  ----------------------------------------->
+	.LONG	0
+
+M1NAME:
+	.ASCID	"    Node name:                 !AS"
+M1NODE:
+	.ASCID	"    Node number:               !2UB.!UW"
+M1ADDR:
+	.ASCID	"    Node address:              !XB-!XB-!XB-!XB-!XB-!XB"
+M1GRUP:
+	.ASCID	"    Cluster Group Number:      !UW"
+M1CMCA:
+	.ASCID	"    Cluster Multicast Address: AB-00-04-01-!XB-!XB"
+M1IDEN:
+	.ASCID	"    Identifier:                !AS"
+M1DTYP:
+	.ASCID	"    Ethernet controller:       !UB = !AS"
+M1HWA:
+	.ASCID	"    Hardware address:          !XB-!XB-!XB-!XB-!XB-!XB"
+M1NHWA:
+	.ASCID	"    Hardware address:          None found"
+M1NOTC:
+	.ASCID	"    This node is not in a cluster or cannot be monitored."
+
+; Output strings for monitoring all nodes in a specific cluster
+
+	.ALIGN	LONG
+
+M2_HDR:
+	MSG	<  Monitor output from all nodes in a specific cluster>
+	MSG	<  --------------------------------------------------->
+	.LONG	0
+
+M2GHDR:
+	.ASCID	"  ====================================================                     "
+M2GRUP:
+	.ASCID	"  !UW) Cluster Group Number: !UW (AB-00-04-01-!XB-!XB)"
+M2IDEN:
+	.ASCID	"  Identifier: !AS"
+
+	.ALIGN	LONG
+
+M2_HDR2:
+	MSG	<            System         LAN        Device Device    Node         LAN>
+	MSG	<      Name    ID    Hardware Address   Name   Type    Number   DECnet Address>
+	MSG	<     ------ ------  -----------------  ---- --------  ------- ----------------->
+	.LONG	0
+
+M2INFO:
+	.LONG	LINE_LENGTH
+	.ADDRESS	M2INFO_BUF
+M2INFO_BUF:
+	.BLKB	LINE_LENGTH
+
+M2INF1:		.ASCID	'!3UB) !6AD  !5UW                   '
+M2INF2:		.ASCID	'!XB-!XB-!XB-!XB-!XB-!XB'
+M2INF3:		.ASCID	'  !4AC !2UB=!5AS'
+M2INF4:		.ASCID	'  !7<!2UW.!UW!> !XB-!XB-!XB-!XB-!XB-!XB'
+
+M2NIN3:
+	.ASCID	"None found             "
+M2NOTC:
+	.ASCID	"    This cluster does not exist or cannot be monitored."
+
+LTM_MCA:	.ASCID	'AB-00-04-01-!XB-!XB      CLUSTER_!UW'
+LTM_DECNET:	.ASCID	'!XB-!XB-!XB-!XB-!XB-!XB      !AD'
+LTM_HWA:	.ASCID	'!XB-!XB-!XB-!XB-!XB-!XB      !AD_!AS'
+
+; Output strings for monitoring all nodes in all clusters
+
+	.ALIGN	LONG
+
+M3_HDR:
+	MSG	<  Monitor output from all nodes in all clusters>
+	MSG	<  --------------------------------------------->
+	.LONG	0
+
+M3TRLR:
+	.ASCID	"    Total of !UW cluster!%S and !UL cluster node!%S found."
+M3NOTC:
+	.ASCID	"    No clusters found."
+
+; Strings for various device names
+
+	.MACRO	LAN_DEVICE	value, dev_name, ?label
+	.ENABLE	LOCAL_BLOCK
+	.SAVE_PSECT
+	.PSECT	TEXT
+label:	.ASCII	"dev_name"
+DEV_NAME_LEN	=	. - label
+	.PSECT	DEV_NAME_TABLE	QUAD, RD, NOWRT, NOEXE
+	.IF	NOT_DEFINED	DEV_NAME_TABLE
+DEV_NAME_TABLE:
+	.ENDC
+	.LONG	DEV_NAME_LEN		; Build the string descriptor.
+	.ADDRESS	label
+	.PSECT	DEV_TYPE_TABLE	RD, NOWRT, NOEXE
+	.IF	NOT_DEFINED	DEV_TYPE_TABLE
+DEV_TYPE_TABLE:
+	.ENDC
+	.BYTE	value
+	.RESTORE_PSECT
+	.DISABLE	LOCAL_BLOCK
+	.ENDM	LAN_DEVICE
+
+	LAN_DEVICE	 1, DEUNA
+	LAN_DEVICE	 5, DEQNA
+	LAN_DEVICE	11, DELUA
+	LAN_DEVICE	17, LANCE
+	LAN_DEVICE	23, DEBNA
+	LAN_DEVICE	37, DELQA
+	LAN_DEVICE	39, DESVA
+	LAN_DEVICE	65, DEBNI
+	LAN_DEVICE	66, DEMNA
+	LAN_DEVICE	75, DEQTA
+	LAN_DEVICE	93, DEMFA
+
+	.LONG		0		; End of list.
+
+DEVNR:	.ASCID	"Noans"
+DEVUK:	.ASCID	"Unkwn"
+DEVMS:	.ASCID	"Misng"
+
+DEVDSC:	.BLKQ	1			; General device name descriptor
+DEVID:	.BLKB	1			; Device ID from SYSID response
+HWA:	.BLKB	6			; Device HWA from SYSID response
+
+; Buffers, variables, and strings for the time control of the program
+
+HOURS:	.BLKB	1			; Storage of requested input
+MINUTES:.BLKB	1
+SECONDS:.BLKB	1
+
+; The following variable are for reading input from the user after prompting.
+
+INPSTRDSC:				; Input buffer descriptor
+	.LONG		0
+	.ADDRESS	INPSTR
+
+INPSTR:	.BLKB		18		; Input buffer
+
+INPSIZ:	.BLKL	1			
+
+; The prompts are defined next.
+
+RPRMT:	.ASCID	"Which monitor request would you like to make: "
+HPRMT:	.ASCID	"How many hours   would you like to monitor: "
+MPRMT:	.ASCID	"How many minutes would you like to monitor: "
+SPRMT:	.ASCID	"How many seconds would you like to monitor: "
+APRMT:	.ASCID	"Enter the address of the node (ex: AA-00-04-00-75-4C): "
+CPRMT:	.ASCID	"Which Cluster Group Code: "
+
+; Input variables from prompts
+
+TESTNO:	.BLKB	1			; Test number
+DSTADR: .BLKB	6			; Address to look for
+CGC:	.BLKW	1			; Cluster Group Code to look for
+
+ENDTIM:	.BLKQ	1			; Time to end test
+TIME:	.BLKQ	1			; Temporary time buffer
+DTIME:	.ASCID	/0 !2ZB:!2ZB:!2ZB.00/	; String for calculating delta time
+
+; Miscellaneous variables
+
+CMCA:	.BLKW	1			; Cluster Multicast Address (last
+					; two bytes)
+CLUSNO:	.BLKW	1			; Cluster number - used to count
+					; the number of clusters
+RCVTRY:	.BLKL	1			; Counter for receive attempts
+IOSB:	.BLKQ	1			; I/O status block
+IOSB_HWA:	.BLKQ	1		; I/O status block for MOP requests.
+
+; Device names
+
+	.ALIGN	LONG
+
+DEVADR:
+	MSG	ETH		; Units to use for test.
+	MSG	ESA0
+	MSG	ETA0
+	MSG	EXA0
+	MSG	EZA0
+	MSG	FXA0
+	MSG	XEA0
+	MSG	XQA0
+	.LONG	0
+
+; Channels - one for LAVC and one for Remote Console
+
+CHNLAV:	.BLKL	1
+CHNRMC:	.BLKL	1
+
+	.PSECT	CODE	PAGE, RD, NOWRT, EXE
+
+	.ENTRY	START,^M<>
+
+; See if ther is a MONLAV.DAT file and read in the IDs if ther are any
+
+	BSBW	DO_FILE
+
+; Assign both channels to the first device found which is available
+
+	CLRL	R5			; Check each channel name to see if one
+10$:	TSTL	DEVADR(R5)		; is available until one is found: the
+	BEQL	30$			; first name checked is "ETH", a dummy
+	MOVL	DEVADR(R5),R4		; name which can be defined to the
+	$ASSIGN_S-			; device desired if either:
+		DEVNAM=(R4),-		;      1) An unregistered device is used
+		CHAN=CHNLAV		;  or  2) One device is prefered
+	BLBS	R0,20$			; If success, assign the 2nd channel
+	ADDL	#4,R5			; Skip to next device name
+	CMPW	R0,#SS$_NOSUCHDEV	; Was the error "no such device"?
+	BEQL	10$			; If yes, try next device name
+	BSBW	ERROR			; Else, exit with error
+
+20$:	$ASSIGN_S-			; Assign the 2nd channel to the same
+		DEVNAM=(R4),-		; device name
+		CHAN=CHNRMC
+	BLBS	R0,ASSIGN_OK		; If success, continue
+	BSBW	ERROR			; Else, exit with an error
+
+; No device was found.
+
+30$:	BSBW	BLANK			; No device was found, so say so and
+	PUSHAB	NDMSG			; then exit.
+	CALLS	#1, OUTPUT_LINE
+	BRW	EXIT
+
+ASSIGN_OK:
+
+; Start up the first channel for examining LAV packets.
+
+	$QIOW_S	FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>,-
+		CHAN=CHNLAV,-
+		IOSB=IOSB,-
+		P2=#SETPARMDSC
+
+	BLBS	R0,START_REQ_OK1
+	BSBW	ERROR
+
+START_REQ_OK1:
+	MOVZWL	IOSB,R0
+	BLBS	R0,START_IO_OK1
+	BSBW	ERROR
+
+START_IO_OK1:
+
+; Start up the second channel for getting the device ID and name.
+
+	$QIOW_S	FUNC=#<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>,-
+		CHAN=CHNRMC,-
+		IOSB=IOSB,-
+		P2=#SIDPARMDSC
+
+	BLBS	R0,START_REQ_OK2
+	BSBW	ERROR
+
+START_REQ_OK2:
+
+	MOVL	IOSB,R0
+	BLBS	R0,START_IO_OK2
+	BSBW	ERROR
+
+START_IO_OK2:
+
+; Print program header
+
+	BSBW	BLANK
+	PUSHAB	HDR_MSGS
+	CALLS	#1, OUTPUT_TEXT
+
+GET_TEST:
+
+; Print the prompt that requests which monitor request the user wants.  This
+; is also the top of the loop that allows the user to make multiple monitor
+; requests.
+
+	BSBW	BLANK
+	PUSHAB	INP_MSGS
+	CALLS	#1, OUTPUT_TEXT
+	BSBW	BLANK
+
+; Read the user's input to our prompt for the number of the test to run.
+
+	MOVL	#2,INPSTRDSC		; Set number of bytes to read
+	PUSHAB	INPSIZ			; Push input size parameter
+	PUSHAB	RPRMT			; Push prompt string parameter
+	PUSHAB	INPSTRDSC		; Push String descriptor parameter
+	CALLS	#3,G^LIB$GET_INPUT	; Read the user's input
+
+; Convert the input to a test number.
+
+	CLRL	R1			; Start with zero in test number
+	CLRL	R2			; Clear # of input characters done
+10$:	CMPW	R2,INPSIZ		; Have we processed all the input?
+	BGEQU	20$			; If EQL, yes
+	MOVZBL	INPSTR(R2),R0		; Get an input character
+	SUBL2	#^A/0/,R0		; Convert to a digit
+	MULL2	#^D10,R1		; Shift current decimal digits
+	ADDL2	R0,R1			; Add new digit
+	INCL	R2			; Bump # of input characters done
+	BRB	10$			; Check next character
+
+; Clear the per-test global variables.
+
+20$:	CLRL	NODCNT
+	CLRB	HOURS
+	CLRB	MINUTES
+	CLRB	SECONDS
+
+; Now perform the appropriate test based on the test number.
+
+	MOVB	R1,TESTNO		; Store test number for later
+	CMPL	R1,#1			; Check if test #1
+	BNEQ	30$			; If NEQ, no
+	BSBW	TEST_1			; Do test
+	BRW	GET_TEST		; Check for another test to run
+30$:	CMPL	R1,#2			; Check if test #2, #3, or #4
+	BLSS	50$			; No - branch
+	CMPL	R1,#4			; Check if test #2, #3, or #4
+	BGTRU	50$			; No - branch
+	BSBW	TEST_2			; Do test
+	BRW	GET_TEST		; Check for another test to run
+
+; Not a supported test, so exit.
+
+50$:
+	BRW	EXIT			; Not any of above, so exit
+
+; Test #1
+;
+; This test will monitor a single node.  It will request that the user enter
+; the node's address.  We then wait for a message from that address.  If we
+; don't get a message in 500 reads, then we exit and state that the node
+; is not in a cluster or not able to be monitored.  If a message from that
+; address is received, a report on that node is displayed.
+
+TEST_1:
+
+	BSBW	GET_TIME
+	BSBW	BLANK
+	BSBW	GET_ADDR		; Get the target node's address
+	BSBW	SET_TIME
+
+;==========================================================================
+; Print the header
+
+	BSBW	BLANK
+	PUSHAB	M1_HDR
+	CALLS	#1, OUTPUT_TEXT
+
+; Read messages until we find one from the target node or until we've
+; looked for the requested amount of time.
+
+RCV_T1:
+
+; Check if we've been looping for the requested amount of time.
+
+	$GETTIM_S-			; Get current time
+		TIMADR=TIME
+	CMPL	TIME+4,ENDTIM+4		; Did we look long enough?
+	BEQL	10$			; If equal, need to check low longword
+	BLSSU	20$			; If LSSU, continue
+	BRW	NOTC_T1			; Else end search for the node
+10$:	CMPL	TIME,ENDTIM		; Check low longword
+	BLSSU	20$			; If LSSU, continue
+	BRW	NOTC_T1			; Else, end search for the node
+
+20$:	$QIOW_S	FUNC=#IO$_READVBLK!IO$M_NOW,-
+		CHAN=CHNLAV,-
+		IOSB=IOSB,-
+		P1=RCVBUF,-
+		P2=#RCVBUFLEN,-
+		P5=#RCVP5
+
+	BLBS	R0,RCV_REQ_OK_T1
+	BSBW	ERROR
+
+RCV_REQ_OK_T1:
+	MOVZWL	IOSB,R0
+	BLBS	R0,RCV_IO_OK_T1
+	CMPW	R0,#SS$_ENDOFFILE
+	BEQL	RCV_T1
+	BSBW	ERROR
+
+RCV_IO_OK_T1:
+
+; Check if this is a multicast message.  If not, throw it away and look for
+; another message.
+
+	BLBC	RCVDA, 10$		; Ignore packet if sent to physical
+
+; Now check to see if the source address is the desired one.
+
+	CMPL	DSTADR,RCVSA		; First part of address okay?
+	BNEQ	10$			; If not, read another one
+	CMPW	DSTADR+4,RCVSA+4	; Second part of address okay?
+	BEQL	PRINT_T1		; If so, print it
+
+10$:
+	BRW	RCV_T1			; Else, read another one
+
+PRINT_T1:
+
+; The address was the desired one, so print the results
+
+;==========================================================================
+; Print the node name
+
+	PUSHAB	NAMDSC
+	PUSHAB	M1NAME
+	CALLS	#2, FAO_LINE
+
+;==========================================================================
+; Print the node number
+
+	CMPL	#^X000400AA,DSTADR	; Is this a DECnet address?
+	BNEQ	10$			; If NEQ, no, so don't print it
+	MOVZWL	DSTADR+4,R0
+	BICW	#^XFC00,R0
+	MOVZBL	DSTADR+5,R1
+	ASHL	#-2,R1,R1
+
+	PUSHL	R0
+	PUSHL	R1
+	PUSHAB	M1NODE
+	CALLS	#3, FAO_LINE
+
+;==========================================================================
+; Print the node address
+
+10$:
+	MOVZBL	DSTADR+5, -(SP)
+	MOVZBL	DSTADR+4, -(SP)
+	MOVZBL	DSTADR+3, -(SP)
+	MOVZBL	DSTADR+2, -(SP)
+	MOVZBL	DSTADR+1, -(SP)
+	MOVZBL	DSTADR, -(SP)
+	PUSHL	M1ADDR
+	CALLS	#7, FAO_LINE
+
+;==========================================================================
+; Print the cluster group code number
+
+	MOVZWL	RCVBUF+6, -(SP)
+	PUSHAB	M1GRUP
+	CALLS	#2, FAO_LINE
+
+;==========================================================================
+; Print the cluster multicast address
+
+	MOVW	RCVBUF+6,CMCA
+	ADDW	#^D256,CMCA
+
+	MOVZBL	CMCA+1, -(SP)
+	MOVZBL	CMCA, -(SP)
+	PUSHAB	M1CMCA
+	CALLS	#3, FAO_LINE
+
+;==========================================================================
+; Print the Ethernet controller ID and name
+
+	MOVL	DSTADR,SIDADDR
+	MOVW	DSTADR+4,SIDADDR+4
+	MOVB	#^XFF, HWA		; Set no hardware address found flag.
+	BSBW	GET_IDHWA
+	PUSHAB	DEVDSC
+	PUSHL	DEVID
+	PUSHAB	M1DTYP
+	CALLS	#3, FAO_LINE
+
+;========================================================================
+; Check the IDTBL for an entry for this cluster group code and
+; print the Identifier if one is found
+
+	MOVZWL	RCVBUF+6,R0		; get the cluster group code of interest
+	BSBW	FIND_ID			; try find an ID string for this
+					; cluster group code
+	CMPW	R0,#0			; did we find an ID?
+	BEQL	DO_HWA			; no, => DO_HWA and continue
+
+; Do the FAO for M1IDEN and print this ID
+
+	MOVL	R0,IDSTR		; set up the template descriptor
+	PUSHAB	IDDESC
+	PUSHAB	M1IDEN
+	CALLS	#2, FAO_LINE
+
+;==========================================================================
+; Print the Hardware address (if none, print "none found")
+
+DO_HWA:
+	CMPB	HWA,#^XFF
+	BNEQ	20$
+	PUSHAB	M1NHWA
+	CALLS	#1, OUTPUT_LINE
+	BRB	30$
+
+20$:	
+	MOVZBL	HWA+5, -(SP)
+	MOVZBL	HWA+4, -(SP)
+	MOVZBL	HWA+3, -(SP)
+	MOVZBL	HWA+2, -(SP)
+	MOVZBL	HWA+1, -(SP)
+	MOVZBL	HWA, -(SP)
+	PUSHAB	M1HWA
+	CALLS	#7, FAO_LINE
+
+30$:
+
+;==========================================================================
+
+	RSB
+
+NOTC_T1:
+
+; We could not find a multicast message from the node, so print the
+; appropriate output.
+
+;==========================================================================
+; Print the node number
+
+	CMPL	#^X000400AA,DSTADR	; Is this a DECnet address?
+	BNEQ	10$			; If NEQ, no, so don't print it
+	MOVZWL	DSTADR+4,R0
+	BICW	#^XFC00,R0
+	MOVZBL	DSTADR+5,R1
+	ASHL	#-2,R1,R1
+
+	PUSHL	R0
+	PUSHL	R1
+	PUSHAB	M1NODE
+	CALLS	#3, FAO_LINE
+
+;==========================================================================
+; Print the node address
+
+10$:
+	MOVZBL	DSTADR+5, -(SP)
+	MOVZBL	DSTADR+4, -(SP)
+	MOVZBL	DSTADR+3, -(SP)
+	MOVZBL	DSTADR+2, -(SP)
+	MOVZBL	DSTADR+1, -(SP)
+	MOVZBL	DSTADR, -(SP)
+	PUSHAB	M1ADDR
+	CALLS	#7, FAO_LINE
+
+;==========================================================================
+; Print the "node not in a cluster" message
+
+	PUSHAB	M1NOTC
+	CALLS	#1, OUTPUT_LINE
+
+;==========================================================================
+
+	RSB				; Return to caller
+
+
+; Test #2 & Test #3
+;
+; 2) This test will monitor all nodes in a specific cluster.
+; 3) This test will monitor all nodes in all clusters.
+; 4) This test will monitor all nodes in all clusters and generate an LTM display.
+
+TEST_2:
+	BSBW	GET_TIME
+	CMPB	TESTNO, #2		; Skip over GET_CGC if not test 2.
+	BNEQ	10$			; Tests 3 or 4 - branch.
+	BSBW	BLANK
+	BSBW	GET_CGC
+10$:	BSBW	SET_TIME
+
+;==========================================================================
+; Print the header
+
+	CLRW	CLUSNO			; Start with no clusters
+	MOVAB	M2_HDR, R1		; Get the header address.
+	CMPB	TESTNO, #2		; Check for test 2.
+	BEQL	20$			; Test 2 - branch.
+	MOVAB	M3_HDR, R1		; Get the header address.
+	CMPB	TESTNO, #4		; Skip if test 4.
+	BEQL	RCV_T2			; Test 4 - branch.
+
+20$:
+	PUSHL	R1			; Set the header address.
+	BSBW	BLANK
+	CALLS	#1, OUTPUT_TEXT		; Display the header.
+
+; Read and store messages for time requested.  Then print the results.
+
+RCV_T2:
+
+; Check if we've been looping for the requested amount of time.
+
+	$GETTIM_S-			; Get current time
+		TIMADR=TIME
+	CMPL	TIME+4,ENDTIM+4		; Did we look long enough?
+	BEQL	10$			; If equal, need to check low longword
+	BLSSU	20$			; If LSSU, continue
+	BRW	PRINT_T2		; Else stop monitoring
+10$:	CMPL	TIME,ENDTIM		; Check low longword
+	BLSSU	20$			; If LSSU, continue
+	BRW	PRINT_T2		; Else, stop monitoring
+
+20$:	$QIOW_S	FUNC=#IO$_READVBLK!IO$M_NOW,-
+		CHAN=CHNLAV,-
+		IOSB=IOSB,-
+		P1=RCVBUF,-
+		P2=#RCVBUFLEN,-
+		P5=#RCVP5
+
+	BLBS	R0,RCV_REQ_OK_T2
+	BSBW	ERROR
+
+RCV_REQ_OK_T2:
+	MOVZWL	IOSB,R0
+	BLBS	R0,RCV_IO_OK_T2
+	CMPW	R0,#SS$_ENDOFFILE
+	BEQL	RCV_T2
+	BSBW	ERROR
+
+RCV_IO_OK_T2:
+
+; If this is not a multicast packet or if this packet is not for the cluster
+; we are monitoring (test 2 only), then ignore the packet.
+
+	BLBC	RCVDA, 22$		; Ignore packet if sent to physical
+	CMPB	TESTNO, #2		; Only check CGC for test 2.
+	BNEQ	10$			; Test 3 or 4 - branch.
+	CMPW	CGC,RCVBUF+6		; Ignore packet if not in the
+	    				; specified cluster
+	BNEQ	22$			; If NEQ, then wrong cluster
+	
+; Check to see if this node is already in the node table.  To match, the
+; address and the cluster group code have to match an entry in the table.
+; This allows us to log nodes that were in more than one cluster during the
+; time of the monitoring.
+
+10$:	CLRL	R1			; Clear the number of entries checked
+	MOVAL	NODTBL,R2		; Start at beginning of table
+20$:	CMPL	R1,NODCNT		; Have we checked the entire table?
+	BGEQU	40$			; If GEQU, yes, so insert the node
+	CMPL	#^X000400AA,RCVSA	; Is this a DECnet address?
+	BNEQ	25$			; No - branch.
+	CMPL	RCVSA,(R2)		; Does the address match?
+	BNEQ	30$			; If NEQ, no, try next table entry
+	CMPW	RCVSA+4,4(R2)		; Does address match
+	BNEQ	30$			; If NEQ, no, try next table entry
+	BRB	27$
+
+22$:
+	BRW	RCV_T2
+
+25$:
+	CMPL	RCVSA, 24(R2)		; Does the address match?
+	BNEQ	30$			; No - branch.
+	CMPW	RCVSA+4,28(R2)		; Does the address match?
+	BNEQ	30$			; No - branch.
+
+27$:
+	CMPW	RCVBUF+6,6(R2)		; Does cluster group code match?
+	BEQL	22$			; If EQL, yes, node already in table
+
+30$:
+	INCL	R1			; Bump our counter
+	ADDL	#NODSIZ,R2		; Bump table entry pointer
+	BRB	20$			; Check next entry
+
+; The node was not in the table, so add it if there are entries left.  If
+; there is space, the R2 is already pointing to an empty slot.
+
+35$:
+	BRW	PRINT_T2
+
+40$:
+	CMPL	NODCNT,#MAXNOD		; Is the table full?
+	BGEQU	35$			; If GEQU, yes, so print results
+
+; Store this node's information.
+
+	MOVL	RCVSA, HWA		; Store 1st part of LAN hardware address
+	MOVW	RCVSA+4, HWA		; Store 2nd part of LAN hardware address
+	MOVL	RCVSA,(R2)+		; Store 1st part of LAN DECnet address
+	MOVW	RCVSA+4,(R2)+		; Store 2nd part of LAN DECnet address
+	MOVW	RCVBUF+6,(R2)+		; Store cluster group code
+	MOVL	RCVBUF+14+10+1,(R2)+	; Store 1st part of name
+	MOVW	RCVBUF+14+10+1+4,(R2)+	; Store 2nd part of name
+	MOVB	RCVBUF+14+10, (R2)+	; Save the node name length.
+	MOVL	RCVSA,SIDADDR		; Set up to call GET_IDHWA
+	MOVW	RCVSA+4,SIDADDR+4	; Set up to call GET_IDHWA
+	PUSHL	R2
+	ADDL	# 1 + 8 + 6, R2		; Skip some of the fields.
+	MOVW	RCVBUF+8+4,(R2)+	; Store SCSSYSTEMID
+	MOVQ	#^A'        ', (R2)	; Assume no device specified.
+	MOVQ	#^A'        ', 8(R2)	; Assume no device specified.
+	CLRB	(R2)			; No device name specified.
+	CMPW	IOSB+2, # 14 + 97	; Check the LAVC protocol version.
+	BLSSU	50$			; Prior to V1.3 - branch.
+	MOVQ	RCVBUF+14+74, (R2)	; Save the device name.
+	MOVQ	RCVBUF+14+74+8, 8(R2)
+	MOVL	RCVBUF+14+90, HWA	; Save the LAN hardware address.
+	MOVW	RCVBUF+14+90+4, HWA+2
+
+50$:
+	BSBW	GET_IDHWA		; Get device information
+	POPL	R2
+	MOVB	DEVID,(R2)+		; Store Device ID
+	MOVQ	DEVDSC,(R2)+		; Store Device name descriptor
+	MOVL	HWA,(R2)+		; Store HWA
+	MOVW	HWA+4,(R2)+		; Store HWA
+	INCL	NODCNT			; One more node stored
+	BRW	RCV_T2			; Read next message
+
+PRINT_T2:
+
+; If this is test 2, we should just start printing.  But if we do all the
+; same checking for test 2 as we do for test 3, the output will still be
+; the same.  So we will not special case test 2.
+
+; If no nodes were found, print the appropriate message.
+
+	TSTL	NODCNT			; Any nodes found?
+	BNEQ	PRINT_T2_START		; Print the cluster information
+	BSBW	BLANK
+	CMPB	TESTNO, #2		; Check for test 2.
+	BNEQ	10$			; Test 3 or 4 - branch.
+	INCW	CLUSNO			; Count this cluster
+	MOVW	CGC,CMCA
+	ADDW	#^D256,CMCA
+	PUSHAB	M2GHDR
+	CALLS	#1, OUTPUT_LINE
+
+	MOVZBL	CMCA+1, -(SP)
+	MOVZBL	CMCA, -(SP)
+	MOVZWL	CGC, -(SP)
+	PUSHL	CLUSNO
+	PUSHL	M2GRUP
+	CALLS	#5, FAO_LINE
+	BSBW	BLANK
+	PUSHAB	M2NOTC
+	BRB	20$
+10$:	PUSHAB	M3NOTC
+20$:	CALLS	#1, OUTPUT_LINE
+	RSB
+
+PRINT_T2_START:
+	CMPB	TESTNO, #4		; Check for test 4.
+	BNEQ	PRINT_T2NEXT		; No - branch.
+	BSBW	BLANK
+
+PRINT_T2NEXT:
+
+; Locate the lowest cluster group code in the table (other than zero).  If
+; none are found, then exit.
+
+	CLRQ	PREVIOUS_NODE		; No previous node name.
+	BSBW	GET_SMCGC		; Get the smallest CGC in the table
+	TSTW	CGC			; Did we get one?
+	BNEQ	PRINT_CLUSTER		; If NEQ, yes, so print a report
+	CMPB	TESTNO, #3		; Check for test 3.
+	BNEQ	10$			; Test 2 or 4 - branch.
+	BSBW	BLANK
+	BSBW	BLANK
+	PUSHAB	M2GHDR
+	CALLS	#1, OUTPUT_LINE
+	PUSHL	NODCNT
+	PUSHL	CLUSNO
+	PUSHAB	M3TRLR
+	CALLS	#3, FAO_LINE
+10$:	RSB
+
+PRINT_CLUSTER:
+
+; Print the information about each entry in the table.
+
+;==========================================================================
+; Print the cluster group number/multicast address and header
+
+	MOVW	CGC,CMCA
+	ADDW	#^D256,CMCA
+	CMPB	TESTNO, #4		; Skip header for test 4.
+	BNEQ	10$			; Not test 4 - branch.
+
+	MOVZWL	CGC, -(SP)		; Cluster group code.
+	MOVZBL	CMCA+1, -(SP)		; Cluster multicast address.
+	MOVZBL	CMCA, -(SP)
+	PUSHAB	LTM_MCA
+	CALLS	# 4, FAO_LINE		; Format the multicast address.
+	BRW	DO_LTM
+
+10$:
+	BSBW	BLANK
+	TSTW	CLUSNO			; Is this the first cluster?
+	BEQL	20$			; If EQL, yes, only one blank line
+	BSBW	BLANK
+
+20$:
+	INCW	CLUSNO			; Count this cluster
+	PUSHAB	M2GHDR
+	CALLS	#1, OUTPUT_LINE
+	MOVZBL	CMCA+1, -(SP)
+	MOVZBL	CMCA, -(SP)
+	MOVZWL	CGC, -(SP)
+	PUSHL	CLUSNO
+	PUSHAB	M2GRUP
+	CALLS	#5, FAO_LINE
+
+;========================================================================
+; Check the IDTBL for an entry for this cluster group code and
+; print the Identifier if one is found
+
+	MOVZWL	CGC,R0			; get the cluster group code of interest
+	BSBW	FIND_ID			; try find an ID string for this
+					; cluster group code
+	CMPW	R0,#0			; did we find an ID?
+	BEQL	DO_HDR			; no, => DO_HWA and continue
+
+; Do the FAO for M2IDEN and print this ID
+
+	MOVL	R0,IDSTR		; set up the template descriptor
+	PUSHAB	IDDESC
+	PUSHAB	M2IDEN
+	CALLS	#2, FAO_LINE
+
+;==========================================================================
+; Print the table header
+
+DO_HDR:
+	BSBW	BLANK
+	PUSHAB	M2_HDR2
+	CALLS	#1, OUTPUT_TEXT
+
+;==========================================================================
+; Print the information about each node - in a loop
+
+DO_LTM:
+	CLRL	R1			; Start our node counter at zero
+
+NEXT_NODE:
+	BSBW	GET_NODE		; Get next node to print
+	TSTL	R2			; Did we get one?
+	BNEQ	30$			; If NEQ, yes, so print it
+	BRW	PRINT_T2NEXT		; Else we're done with this cluster
+
+25$:
+	BRW	PRINT_LTM		; Display the LTM data.
+
+30$:	CLRW	6(R2)				; Clear the CGC so we don't look at
+						; this entry any more in GET_NODE
+	CMPB	TESTNO, #4			; Check for test 4.
+	BEQL	25$				; LTM display - branch.
+	MOVL	#3+1+1+6+2+5+2+17,M2INFO	; Set the blank fill length.
+	MOVAB	M2INFO_BUF, M2INFO+4
+	PUSHR	# ^M < R0, R1, R2, R3, R4, R5 >
+	MOVC5	#0, (SP), #^A' ', #LINE_LENGTH, M2INFO_BUF	; Blank fill the string.
+	POPR	# ^M < R0, R1, R2, R3, R4, R5 >
+	MOVAB	8(R2), R0			; Get node name address.
+	CMPL	(R0), PREVIOUS_NODE		; Check for same node name.
+	BNEQ	31$				; No, another node - branch.
+	CMPW	4(R0), 4+PREVIOUS_NODE		; Check for same node name.
+	BEQL	32$				; Yes - branch.
+
+31$:
+	INCL	R1			; Bump our counter - for printing
+	MOVQ	R1,-(SP)
+	MOVQ	(R0), PREVIOUS_NODE	; Set the next node name.
+	MOVL	#LINE_LENGTH,M2INFO	; Set the line length.
+	$FAO_S	CTRSTR=M2INF1,-
+		OUTLEN=M2INFO,-
+		OUTBUF=M2INFO,-
+		P1=R1,-
+		P2=#6, -
+		P3=R0, -
+		P4=30(R2)			; SCS system ID.
+	MOVQ	(SP)+, R1			; Restore buffer address.
+
+32$:
+	MOVQ	R1,-(SP)
+	CMPL	24(R2), #^X000400AA		; Check for DECnet address.
+	BEQL	33$				; Yes - branch.
+	MOVZWL	M2INFO, R0			; Get the line length.
+	SUBL	#17, R0				; Remove the blank LAN address.
+	ADDL	R0, M2INFO+4			; Set the next buffer piece.
+	SUBW3	R0, #LINE_LENGTH, M2INFO	; Set remainder of message.
+	MOVAB	6+24(R2), R1			; Set end of LAN hardware address.
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	PUSHAW	M2INFO
+	PUSHAB	M2INFO
+	PUSHAB	M2INF2
+	CALLS	#9, G^ SYS$FAO
+	MOVQ	(SP), R1			; Restore buffer address.
+
+33$:
+	MOVZWL	M2INFO, R0			; Get the line length.
+	ADDL	R0, M2INFO+4			; Set the next buffer piece.
+	SUBW3	R0, #LINE_LENGTH, M2INFO	; Set remainder of message.
+	PUSHAB	16(R2)				; Device type descriptor address.
+	MOVZBL	15(R2), -(SP)			; Device type ID value.
+	PUSHAB	32(R2)				; Device name address.
+	PUSHAW	M2INFO
+	PUSHAB	M2INFO
+	PUSHAB	M2INF3
+	CALLS	#6, G^ SYS$FAO			; Format the string.
+	MOVQ	(SP), R1			; Restore buffer address.
+	MOVZWL	M2INFO, R0			; Get the line length.
+	ADDL	R0, M2INFO+4			; Set the next buffer piece.
+	SUBW3	R0, #LINE_LENGTH, M2INFO	; Set remainder of message.
+	CMPL	(R2), #^X000400AA		; Check for DECnet address.
+	BNEQ	35$				; No DECnet info - branch.
+	MOVAB	6(R2), R1			; Set end of LAN DECnet address.
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	EXTZV	#0, #10, 4(R2), -(SP)		; DECnet node number.
+	EXTZV	#10, #6, 4(R2), -(SP)		; DECnet area number.
+	PUSHAW	M2INFO
+	PUSHAB	M2INFO
+	PUSHAB	M2INF4
+	CALLS	#11, G^ SYS$FAO
+	MOVZWL	M2INFO, R0			; Get the line length.
+	ADDL	R0, M2INFO+4			; Set the next buffer piece.
+
+35$:
+	MOVAB	M2INFO_BUF, R0
+	SUBL3	R0, M2INFO+4, M2INFO	; Set the buffer length.
+	MOVL	R0, M2INFO+4		; Set the buffer address.
+	PUSHAB	M2INFO
+	CALLS	#1, OUTPUT_LINE		; Display the node line.
+	MOVQ	(SP)+,R1
+	BRW	NEXT_NODE		; Go to top of loop
+
+PRINT_LTM:
+
+;
+;		Compute the node name length.
+;
+
+	MOVZBL	14(R2), R1		; Get the node name length.
+
+10$:
+	CMPB	-1+8(R2)[R1], # ^A' '	; Check for a space.
+	BNEQ	20$			; No, node name length found - branch.
+	SOBGTR	R1, 10$			; Set the next node name length.
+
+20$:
+	MOVB	R1, 14(R2)		; Set the node name length.
+
+;
+;		Display the DECnet address and the node name.
+;
+
+	CMPL	# ^X 000400AA, (R2)	; Check for DECnet address.
+	BNEQ	30$			; No, hardware address only - branch.
+	MOVAB	6(R2), R1		; Set the end of the DECnet address
+
+	PUSHAB	8(R2)			; Node name address.
+	MOVZBL	14(R2), -(SP)		; Length of the node name.
+	MOVZBL	-(R1), -(SP)		; DECnet LAN address.
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	PUSHAB	LTM_DECNET
+	CALLS	# 9, FAO_LINE		; Display DECnet LAN address and SCSNODE.
+
+30$:
+
+;
+;		Display the LAN hardware address if available.
+;
+
+	CMPL	# ^X 000400AA, 24(R2)		; Check for LAN hardware address.
+	BEQL	50$				; No hardware address - branch.
+	MOVAB	24+6(R2), R1			; Set the end of the LAN address.
+	MOVAB	32+1(R2), M2INFO+4		; Set the device name address.
+	MOVZBL	32(R2), M2INFO			; Set the device name length.
+	BNEQ	40$				; Device name is available - branch.
+	MOVQ	16(R2), M2INFO			; Set the device type name.
+
+40$:
+	PUSHAB	M2INFO				; Device name address.
+	PUSHAB	8(R2)				; SCSNODE name address.
+	MOVZBL	14(R2), -(SP)			; Node name length.
+	MOVZBL	-(R1), -(SP)			; LAN hardware address.
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	MOVZBL	-(R1), -(SP)
+	PUSHAB	LTM_HWA
+	CALLS	# 10, FAO_LINE			; Display the LAN hardware address.
+
+50$:
+	BRW	NEXT_NODE
+
+GET_IDHWA:
+
+; Get the node's device ID, device name, and HWA.  This is done by requesting
+; a SYSID message from the node.  The response (if any) contains the device
+; ID.  From the device ID, we will select the correct device name.  Upon
+; completion of this routine, DEVID (a byte) will have the device ID and
+; DEVDSC will point to the device name.  The response also contains the
+; hardware address.
+
+	CLRB	DEVID			; Clear the Device ID number
+	MOVQ	DEVNR,DEVDSC		; Set the device name to no response
+
+; Transmit the request ID message to the node we want to find out about.
+
+	$QIOW_S	FUNC=#IO$_WRITEVBLK,-
+		CHAN=CHNRMC,-
+		IOSB=IOSB_HWA,-
+		P1=XMTP2BUF,-
+		P2=#XMTP2LEN,-
+		P5=#SIDADDR
+
+	BLBS	R0,DXMT_REQ_OK
+	BSBW	ERROR
+
+DXMT_REQ_OK:
+	MOVL	IOSB_HWA,R0
+	BLBS	R0,DXMT_IO_OK
+	BSBW	ERROR
+
+DXMT_IO_OK:
+
+; Receive the SYSID response.  If there is no data ready to receive, then the
+; Ethernet driver will return immediately with SS$_ENDOFFILE.
+
+	CLRL	RCVTRY			; Clear the number of read attempts
+
+DRCV:
+	$QIOW_S	FUNC=#IO$_READVBLK!IO$M_NOW,-
+		CHAN=CHNRMC,-
+		IOSB=IOSB_HWA,-
+		P1=RCVBUF2,-
+		P2=#RCVBUFLEN2,-
+		P5=#RCVP52
+
+	BLBS	R0,DRCV_REQ_OK
+	BSBW	ERROR
+
+DRCV_REQ_OK:
+	MOVL	IOSB_HWA,R0
+	BLBS	R0,DRCV_IO_OK
+	CMPW	IOSB_HWA,#SS$_ENDOFFILE
+	BEQL	DRCV_TRY
+	BSBW	ERROR
+
+DRCV_TRY:
+	CMPL	RCVTRY,#4000		; Have we tried enough times?
+	BGTR	20$			; If GTR, yes, so message is lost
+	INCL	RCVTRY			; Count this attempt
+	BRB	DRCV			; Try again
+
+20$:
+	RSB				; Return to caller
+
+DRCV_IO_OK:
+
+; Check that this is a SYSTEM ID message from the correct node.
+
+	CMPB	RCVBUF2,#7		; Is this a SYSTEM ID message?
+	BNEQ	DRCV_TRY		; If NEQ, no, try again
+	CMPL	RCVSA2,SIDADDR		; Correct node?
+	BNEQ	DRCV_TRY		; If NEQ, no
+	CMPW	RCVSA2+4,SIDADDR+4	; Correct node?
+	BNEQ	DRCV_TRY		; If NEQ, no
+
+; We received a message from the remote node.  Look for the Device ID entry
+; in this SYSID message.
+
+	MOVL	#4,R3			; Skip over SYSID header
+
+; Loop through the entries in the SYSID looking for the Device ID entry.
+
+10$:	CMPW	R3,IOSB_HWA+2		; Any buffer left to look at?
+	BLSSU	20$			; If LSSU, yes, so look for more
+	BRW	50$			; Else report Device ID missing
+20$:	CMPW	RCVBUF2(R3),#^D100	; Is this the device ID entry?
+	BEQL	30$			; If EQL, yes
+	MOVZBL	RCVBUF2+2(R3),R1	; Get size of this entry
+	ADDL	#3,R3			; Skip over entry type and size
+	ADDL	R1,R3			; Skip over entry value
+	BRW	10$			; Check next entry
+
+; The Device ID was found.  Store the Device ID and select a device name.
+
+30$:	ADDL	#3,R3			; Skip over Device ID header
+	MOVB	RCVBUF2(R3),DEVID	; Store the Device ID
+	MOVZBL	DEVID, R2		; Get the Device ID value.
+	CLRL	R3			; Set the table index.
+
+40$:
+	TSTL	DEV_NAME_TABLE[R3]	; Check for an entry.
+	BEQL	60$			; None - branch.
+	MOVQ	DEV_NAME_TABLE[R3], -	; Copy the string descriptor.
+		DEVDSC
+	CMPB	R2, DEV_TYPE_TABLE[R3]	; Is this the ID value.
+	BEQL	70$			; Yes - branch.
+	INCL	R3
+	BRB	40$
+
+50$:
+	CLRB	DEVID			; No Device ID was found
+	MOVQ	DEVMS,DEVDSC		; Device ID is missing
+	BRB	70$
+
+60$:
+	MOVQ	DEVUK,DEVDSC		; This is an unknown device
+
+70$:
+
+; Now look for the Hardware address in the SYSID response.
+
+	MOVL	#4,R3			; Skip over SYSID header
+
+; Loop through the entries in the SYSID looking for the HWA entry.
+
+310$:	CMPW	R3,IOSB_HWA+2		; Any buffer left to look at?
+	BLSSU	320$			; If LSSU, yes, so look for more
+	BRW	340$			; Else report HWA missing
+320$:	CMPW	RCVBUF2(R3),#^D7	; Is this the HWA entry?
+	BEQL	330$			; If EQL, yes
+	MOVZBL	RCVBUF2+2(R3),R1	; Get size of this entry
+	ADDL	#3,R3			; Skip over entry type and size
+	ADDL	R1,R3			; Skip over entry value
+	BRW	310$			; Check next entry
+
+; The HWA was found.  Store the HWA.
+
+330$:	ADDL	#3,R3			; Skip over HWA header
+	MOVL	RCVBUF2(R3),HWA		; Store first longword
+	MOVW	RCVBUF2+4(R3),HWA+4	; Store last word
+	RSB
+340$:
+	RSB
+
+GET_ADDR:
+
+; Get the address to look for from the user.
+
+	MOVL	#18,INPSTRDSC		; Maximum input size is 18 bytes
+	PUSHAB	INPSIZ			; Place to store # of bytes entered
+	PUSHAB	APRMT			; Prompt to display
+	PUSHAB	INPSTRDSC		; Place to store input string
+	CALLS	#3,G^LIB$GET_INPUT
+
+	CLRL	R1			; Index to next input character
+	CLRL	R3			; Index to next address byte
+
+; Get the first digit of the next address byte.
+
+10$:	MOVZBL	INPSTR(R1),R0		; Get next input character
+	INCL	R1			; Bump input character index
+	CMPB	R0,#^A/A/		; Is this a letter or greater?
+	BGEQU	20$			; If GEQU, yes, so branch
+	SUBL3	#^A/0/,R0,R2		; Convert digit character to digit
+	BRB	30$			; Get the next input character
+20$:	SUBL2	#^A/A/,R0		; Convert letter character to digit
+	ADDL3	#^D10,R0,R2		; Add ten to have correct digit
+
+; Get the second digit of the next address byte.
+
+30$:	MULL2	#^D16,R2		; Put the first digit into its place
+	MOVZBL	INPSTR(R1),R0		; Get next input character
+	INCL	R1			; Bump input character index
+	CMPB	R0,#^A/A/		; Is this a letter or greater?
+	BGEQU	40$			; If GEQU, yes, so branch
+	SUBL2	#^A/0/,R0		; Convert digit character to digit
+	BRB	50$			; Go to add the second digit
+40$:	SUBL2	#^A/A/,R0		; Convert letter character to digit
+	ADDL2	#^D10,R0		; Add ten to have correct digit
+50$:	ADDL	R0,R2			; Add lower digit to address
+
+; Store this address byte and see if we need to do more.
+
+	MOVB	R2,DSTADR(R3)		; Store this address byte
+	INCL	R3			; Bump to next address byte
+	CMPL	R3,#^D06		; Have we processed 6 bytes?
+	BLSS	60$			; Branch if not, more to do
+	RSB				; Else return to caller
+60$:	INCL	R1			; Skip over "-" in input string
+	BRW	10$			; Do next address byte
+
+
+GET_CGC:
+
+; Get cluster group code to watch for.
+
+10$:	MOVL	#5,INPSTRDSC
+	PUSHAB	INPSIZ
+	PUSHAB	CPRMT
+	PUSHAB	INPSTRDSC
+	CALLS	#3,G^LIB$GET_INPUT
+	TSTW	INPSIZ			; Do we have any input?
+	BEQL	10$			; If not, ask again
+
+; Convert character string to cluster group code.
+
+	CLRL	R1			; Start with zero
+	CLRW	R2			; Start at offset 0 in string
+
+20$:	MOVZBL	INPSTR(R2),R0		; Get next input character
+	SUBL2	#^A/0/,R0		; Convert character to a digit
+	MULL2	#^D10,R1		; Shift current results
+	ADDL2	R0,R1			; Add new digit
+	INCW	R2			; Increment counter/index
+	CMPW	R2,INPSIZ		; Have we processed all characters?
+	BLSSU	20$			; If LSSU, no, so loop again
+	MOVW	R1,CGC			; Store cluster group code
+	RSB
+
+GET_TIME:
+
+; Get number of hours to run test for
+
+GET_HOUR:
+	BSBW	BLANK
+	MOVL	#6,INPSTRDSC
+	PUSHAB	INPSIZ
+	PUSHAB	HPRMT
+	PUSHAB	INPSTRDSC
+	CALLS	#3,G^LIB$GET_INPUT
+
+; Convert number of hours
+
+	CLRL	R1
+	CLRW	R2
+NUM_LOOP2:
+	MOVZBL	INPSTR(R2),R0
+	SUBL2	#^A/0/,R0
+	MULL2	#^D10,R1
+	ADDL2	R0,R1
+	INCW	R2
+	CMPW	R2,INPSIZ
+	BLSS	NUM_LOOP2
+	CMPL	R1,#^D23
+	BGTR	GET_HOUR
+	MOVL	R1,HOURS
+
+; Get number of minutes to run test for
+
+GET_MINUTE:
+	MOVL	#6,INPSTRDSC
+	PUSHAB	INPSIZ
+	PUSHAB	MPRMT
+	PUSHAB	INPSTRDSC
+	CALLS	#3,G^LIB$GET_INPUT
+
+; Convert number of minutes
+
+	CLRL	R1
+	CLRW	R2
+NUM_LOOP3:
+	MOVZBL	INPSTR(R2),R0
+	SUBL2	#^A/0/,R0
+	MULL2	#^D10,R1
+	ADDL2	R0,R1
+	INCW	R2
+	CMPW	R2,INPSIZ
+	BLSS	NUM_LOOP3
+	CMPL	R1,#^D59
+	BGTR	GET_MINUTE
+	MOVL	R1,MINUTES
+
+; Get number of seconds to run test for
+
+GET_SECOND:
+	MOVL	#6,INPSTRDSC
+	PUSHAB	INPSIZ
+	PUSHAB	SPRMT
+	PUSHAB	INPSTRDSC
+	CALLS	#3,G^LIB$GET_INPUT
+
+; Convert number of seconds
+
+	CLRL	R1
+	CLRW	R2
+NUM_LOOP4:
+	MOVZBL	INPSTR(R2),R0
+	SUBL2	#^A/0/,R0
+	MULL2	#^D10,R1
+	ADDL2	R0,R1
+	INCW	R2
+	CMPW	R2,INPSIZ
+	BLSS	NUM_LOOP4
+	CMPL	R1,#^D59
+	BGTR	GET_SECOND
+	MOVL	R1,SECONDS
+	RSB
+
+SET_TIME:
+
+; Determine the time to stop the test
+
+; Now put the total time into one string
+
+	MOVL	#LINE_LENGTH,FAOLEN
+	$FAO_S	CTRSTR=DTIME,-
+		OUTLEN=FAOLEN,-
+		OUTBUF=FAODESC,-
+		P1=HOURS,-
+		P2=MINUTES,-
+		P3=SECONDS
+
+; Change the ASCII string for the time to a quadword value.
+
+	$BINTIM_S-
+		TIMBUF=FAODESC,-
+		TIMADR=TIME
+	MNEGL	TIME+4,TIME+4
+	MNEGL	TIME,TIME
+	SBWC	#0,TIME+4
+
+; Now get the present time and add the test time to get the end time.
+
+	$GETTIM_S-
+		TIMADR=ENDTIM
+	ADDL	TIME,ENDTIM
+	ADWC	TIME+4,ENDTIM+4
+	RSB
+
+
+GET_SMCGC:
+
+; Locate the smallest CGC in the table (other than zero) and store its value
+; in CGC.  If none are found, store a zero in CGC.
+
+	MOVQ	R0,-(SP)		; Save R0 and R1
+	CLRL	R1			; Start our counter at zero
+	CLRL	R0			; Start with no CGC found
+	MOVAL	NODTBL,R2		; Start at beginning of table
+
+10$:	TSTW	6(R2)			; Is this a node in the table?
+	BEQL	30$			; If EQL, no, so check next entry
+
+; Is this node the first node found?  If so, save it, else compare its CGC
+; with the smallest CGC found so far.
+
+	TSTL	R0			; Did we find a CGC yet?
+	BEQL	20$			; If EQL, no, so save this one
+	CMPW	6(R2),R0		; Is the new one smaller?
+	BGEQU	30$			; If GEQU, no, so skip this node
+20$:	MOVW	6(R2),R0		; Save this as the smallest CGC
+
+; Skip to next node and continue if there are more nodes to look at.
+
+30$:	ADDL	#NODSIZ,R2		; Skip to next entry in table
+	INCL	R1			; Bump node counter
+	CMPL	R1,NODCNT		; Are we done?
+	BLSSU	10$			; If LSSU, no, so loop
+	MOVW	R0,CGC			; Return smallest CGC or zero
+	MOVQ	(SP)+,R0		; Restore R0 and R1
+	RSB
+
+
+GET_NODE:
+
+; Locate the next node in the table to be printed.  The Cluster Group Code
+; must match the value in CGC.  We will locate the next node in the matching
+; cluster alphabetically.  We will return the address of the table entry 
+; found in R2.  If there is no entry for this cluster, then we will return 
+; a zero in R2.
+
+	PUSHR	# ^M < R0, R1 >
+	CLRL	R1			; Start our counter at zero
+	CLRL	R0			; Start with no node found
+	MOVAL	NODTBL,R2		; Start at beginning of table
+
+10$:	CMPW	6(R2),CGC		; Is this a node in our cluster?
+	BNEQ	30$			; If NEQ, no, so check next node
+
+; Is this node the first node found?  If so, save it, else compare it with
+; the previous node.
+
+	TSTL	R0			; Did we find a node yet?
+	BEQL	20$			; If EQL, no, so save this one
+	PUSHR	# ^M < R0, R1, R2, R3, R4 >
+	CMPC3	#6, 8(R2), 8(R0)	; Correct alphabetical choice?
+	POPR	# ^M < R0, R1, R2, R3, R4 >
+	BGTR	30$			; Yes - branch.
+	BLSS	20$			; No, replace with new node.
+	PUSHR	# ^M < R0, R1, R2, R3, R4 >
+	MOVZBL	32(R0), R3		; Get device name length.
+	MOVZBL	32(R2), R4		; Get device name length.
+	CMPC5	R4, 1+32(R2), #^A' ', -	; Check for better choice.
+		R3, 1+32(R0)
+	POPR	# ^M < R0, R1, R2, R3, R4 >
+	BGEQU	30$			; Not a better choice - branch.
+
+20$:
+	MOVL	R2,R0			; Save this as the smallest node
+
+; Skip to next node and continue if there are more nodes to look at.
+
+30$:
+	ADDL	#NODSIZ,R2		; Skip to next entry in table
+	INCL	R1			; Bump node counter
+	CMPL	R1,NODCNT		; Are we done?
+	BLSSU	10$			; If LSSU, no, so loop
+	MOVL	R0,R2			; Return pointer to smallest node
+	POPR	# ^M < R0, R1 >
+	RSB
+
+EXIT:
+	BSBW	BLANK
+	PUSHAB	DNEMSG
+	CALLS	#1, OUTPUT_LINE
+	BSBW	BLANK
+
+	$DASSGN_S-
+		CHAN=CHNLAV
+	$DASSGN_S-
+		CHAN=CHNRMC
+
+	$EXIT_S
+
+BLANK:
+
+; Print blank line
+
+	PUSHAB	BLNKMSG
+	CALLS	#1, OUTPUT_LINE
+	RSB
+
+	.ENTRY	OUTPUT_TEXT	^M < R2 >
+
+;		Display the specified messages.
+
+	MOVL	4(AP), R2		; Get the message table.
+
+10$:
+	PUSHL	(R2)+			; Check for a message to display.
+	BEQL	20$			; No more lines to display - branch.
+	CALLS	#1, OUTPUT_LINE		; Display the text line.
+	BLBS	R0, 10$			; Success, display next line - branch.
+
+20$:
+	RET				; Return the display status.
+
+	.ENTRY	FAO_LINE	^M < R2, R3 >
+
+;		Initialize the string descriptor.
+
+	MOVL	#LINE_LENGTH, FAOLEN
+
+;		Format the line.
+
+	SUBL3	# 1, (AP), R2		; Account for the format string.
+	MOVAL	8(AP)[R2], R3		; Get the last parameter.
+
+10$:
+	PUSHL	-(R3)			; Build the parameter list.
+	SOBGTR	R2, 10$			; Add all the parameters.
+	PUSHAL	FAOLEN			; Set the return length address.
+	PUSHAB	FAODESC			; Set the buffer descriptor address.
+	PUSHL	-(R3)			; Set the format string.
+	ADDL3	# 2, -(R3), R1		; Set the argument count.
+	CALLS	R1, G^ SYS$FAO		; Format the string.
+	BLBC	R0, 20$			; Format error - branch.
+
+;		Display the text string.
+
+	PUSHAB	FAODESC
+	CALLS	# 1, OUTPUT_LINE
+
+20$:
+	RET
+
+	.ENTRY	OUTPUT_LINE	^M<>
+	CALLG	(AP), G^ LIB$PUT_OUTPUT	; Display the text line.
+	RET
+
+; An error has occured, so print R0 value and 2nd longword of IOSB.
+
+ERROR:	PUSHL	R0			; Pass R0 error code
+	CALLS	#1,RBL$ERCODE		; Print error code
+
+; Print IOSB 2nd longword value in hex
+
+	PUSHL	IOSB+4
+	PUSHAB	IOMSG
+	CALLS	#2, FAO_LINE
+	BRW	EXIT			; Now exit normally
+
+	.PAGE
+
+; RBL$ERCODE
+;
+; This subroutine accepts a VMS error code in binary
+; and print the message on the terminal.
+;
+; INPUT:	4(AP) = Error Code
+;
+; OUTPUT:	all registers saved except R0 and R1
+;
+; CALLING SEQ:	PUSHx	error code
+;		CALL_S	#1,RBL$ERCODE
+;
+
+	.ENTRY	RBL$ERCODE,^M<R3,R4>
+
+	MOVL	4(AP),R3		; Get error code
+
+	$GETMSG_S-			; Convert error code to message
+		MSGID=R3,-
+		MSGLEN=ERRMSG_LEN,-
+		BUFADR=ERRMSG_BUF_DESC
+
+	PUSHAB	ERRMSG_BUF_DESC
+	CALLS	#1, OUTPUT_LINE
+
+	RET				; Return to caller
+
+; DO_FILE
+; This is a macro program to open a text file MONLAV.DAT and read records
+; which are basically a cluster group number followed by an ASCII styring 
+; of characters which are the identifier for a given cluster.
+;
+; Inputs: None
+;
+; Outputs: 
+;	The records in the text file are converted and placed in the table
+; 	IDTBL as pairs of cluster group numbers, and up to 40 characters
+;	of text.
+
+DO_FILE:
+; fill the IDTBL with spaces
+
+	MOVAB	IDTBL,R0		; address of the ID table
+	MULL3	#IDSIZ,#MAXID,R1	; size of IDTBL => R1
+	MOVC5	#0,(R0),#^X20,-		; fill with spaces ( 020 hex )
+		R1,(R0)
+
+; OPEN the MONLAV.DAT file
+	$OPEN		FAB=IO_FAB	; open the file
+	BLBS	R0,2$			; branch if no error
+	BRW	DO_FILE.ERR		; error
+2$:	$CONNECT	RAB=IO_RAB	; connect the RAB
+	BLBS	R0,10$			; branch if no errror
+	BRW	DO_FILE.ERR		; error
+
+10$:
+; clear out the data area used to read in records
+
+	MOVAB	RECORD,R0	; get the address of the record storage area
+	MOVC5	#0,(R0),#0,-	; fill it with zeros
+		#256,(R0)
+; Read a record
+	CMPL	IDCNT,#MAXID	; have we reached max allowable entries?
+	BLSSU	15$		; no keep going @ 15$ with read of next record
+	$CLOSE	FAB=IO_FAB	; yes, close the file and ...
+	BRW	100$		; => 100$
+
+15$:	$GET	RAB=IO_RAB		; get the next record in the file
+	CMPL	#RMS$_EOF, R0		; end of file?
+	BNEQ	20$			; no => 20$
+	$CLOSE	FAB=IO_FAB		; yes, close the file
+	BRW	100$			; go to 100$
+20$:
+	BLBS	R0,22$			; branch if no error
+	BRW	DO_FILE.ERR		; error
+22$:	MOVL	#0,SKIPLEN		; we have processed zero characters
+					; form this record so far
+	MOVAB	RECORD,R2		; get the addresss of the beginnning
+					; of the string
+	BSBW	SKIPWS			; skip white space & control characters
+					; updating SKILEN, and R2 as it goes
+	BSBW	FLDLEN			; get the length of the first field
+	CMPB	R0,#MAXCGLEN		; is string too long?
+	BLEQ	25$			; branch if not too too long
+	MOVW	SS$_SSFAIL,R0
+	BRW	DO_FILE.ERR
+
+; Convert the leading numeric characters to an integer
+
+25$:	CLRL	R1			; Start with zero as CGN
+	CLRL	R4			; Clear # of input characters done
+30$:	CMPW	R4,R0			; Have we processed the field
+	BGEQU	40$			; If EQL, yes
+	MOVZBL	(R2),R3			; Get an input character
+	SUBL2	#^A/0/,R3		; Convert to a digit
+	MULL2	#^D10,R1		; Shift current decimal digits
+	ADDL2	R3,R1			; Add new digit
+	INCL	R4			; Bump # of input characters done
+	INCL	R2
+	INCL	SKIPLEN			; count up the characters already 
+					; processsed
+	BRB	30$			; Check next character
+
+40$:
+; the conversion should be done, check the result
+
+	CMPL	R1,#65536		; is it too large?
+	MOVL	#SS$_SSFAIL,R0		; assume failure
+	BLEQU	41$
+	BRW	DO_FILE.ERR			; yes, => error
+
+; check the identifier string for illegal characters in the first 40
+
+41$:	MOVAB	RECORD,R2	; get the beginning of the record
+	ADDL	SKIPLEN,R2	; add the characters already processed
+	BSBW	SKIPWS		; skip any more white space
+	BSBW	STRLEN		; get the number of characters in the ID 
+				; string
+	CMPL	R0,#40		; is it too long?
+	BLEQ	50$		; no, its OK,.. => 40$ and continue
+	MOVL	#40,R0		; its too long,... only take the first 40
+50$:
+
+; add the new cgn/identifier to the 
+
+	MOVAB	IDTBL,R3
+	MULL3	#IDSIZ,IDCNT,R4	; size of laready inserted entry
+	ADDL	R4,R3		; make R3 point to the next available entry
+	MOVW	R1,(R3)+	; store the cluster group number
+	PUSHR	#^M<R0,R1,R2,R3,R4,R5>	; preserve registers
+	MOVC3	R0,(R2),(R3)	; copy the identifier
+	POPR	#^M<R0,R1,R2,R3,R4,R5>	; preserve registers
+	INCL	IDCNT		; count the new identifier
+	BRW	10$		; do next entry
+
+100$:
+	MOVL	IDCNT,R4	; get the number of IDs logged into the table
+	MOVAL	IDTBL,R5
+
+;110$:	MOVAL	2(R5),IDDSC+4
+;	PUSHAB	IDDSC
+;	PUSHL	(R5)
+;	PUSHAB	NONAME
+;	CALLS	#3, FAO_LINE
+;
+;	ADDL	#IDSIZ,R5
+;	SOBGTR	R4,110$
+;
+
+DO_FILE.ERR:
+	RSB				; all done
+
+
+SKIPWS:
+;
+; INPUTS:
+;	R2 - the address of a character string which may or may not contain
+;	     white space at the beginning...
+;
+; OUTPUTS:
+;	R2 will poont to the first "non-white space" character in the string
+;	  or a carriage return
+;	SKIPLEN is incremented for each white space character found
+
+SKIPWS.NEXT:
+	CMPB	(R2),#^X15	; is it a carriage return?
+	BEQL	SKIPWS.DONE	; if yes => DONE
+	CMPB	(R2),#^X021	; is it a white space character
+	BLSSU	SKIPWS.CONT	; yes, => NEXT
+SKIPWS.DONE:
+	RSB			; no,... we're done!
+SKIPWS.CONT:
+	INCL	SKIPLEN		; show that we skipped another character in this
+				; string
+	INCL	R2		; point to the next character
+	BRB	SKIPWS		; go and check next character
+
+FLDLEN:
+;
+; This routine returns the length of the next field in a string,...
+; fields are seperated by spaces, tabs, or CR's
+;
+; INPUTS:
+;	R2 - points to the beginning of the field
+;
+; OUTPUTS:
+;	R0 contains the length in characters of the field
+;
+	PUSHL	R2
+	MOVL	#0,R0			; set up R0 as an index
+FLDLEN.NEXT:
+	CMPB	(R2),#^A' '		; is next character white space?
+	BLEQ	FLDLEN.DONE		; yes => DONE
+	INCL	R0			; add one more to the length
+	INCL	R2			; point to the next char
+	BRB	FLDLEN.NEXT		; do the next
+FLDLEN.DONE:
+	POPL	R2			; restore R2
+	RSB				; all done
+
+STRLEN:
+;
+;	This routine returns the length of a string up to but not including
+;	a tab or a carriage return
+;
+; INPUTS:
+;	R2 points to the beginning of the string
+;
+; OUTPUTS:
+;	R0 will contain the length of the string
+;
+	CLRL	R0		; zero the length output
+STRLEN.NEXT:
+	CMPB	(R2)[R0],#^X15	; is the next character a carriage control?
+	BEQL	STRLEN.DONE	; yes,... => DONE
+	CMPB	(R2)[R0],#^X10	; is the next character a tab?
+	BEQL	STRLEN.DONE	; yes,... => DONE
+	CMPB	(R2)[R0],#^X020	; is it a space or better?
+	BLSSU	STRLEN.DONE	; no,.. its a control character,.. its illegal
+				; so return now with the length of legal
+				; characters in R0
+	INCL	R0		; bump the length
+	BRB	STRLEN.NEXT	; do next character
+STRLEN.DONE:
+	RSB
+
+
+; FIND_ID
+;
+; This routine searches the IDTBL for an entry with the cluster group
+; code that matches what is spoecified in GGC
+;
+; Inputs:
+;	R0 contains the cluster group code of interest
+;
+; Outputs:
+;	R0 will point to the first character in the ID string
+;	   if one is found,.. 
+;	OR
+;	R0 = 0 if no match
+;
+FIND_ID:
+	PUSHR	#^M<R1,R2>	; preserve registers
+	CLRL	R2		; count of loops made
+	MOVAB	IDTBL,R1	; base address of ID table
+FIND_ID.NEXT:
+	CMPL	R2,IDCNT	; have we already searched the whole table?
+	BGEQU	FIND_ID.NOMATCH	; yes => NOMATCH
+	CMPW	R0,(R1)		; does this entry match?
+	BEQL	FIND_ID.MATCH	; yes, => match
+	INCL	R2		; count the number of entries searched
+	ADDL	#IDSIZ,R1	; make R1 point to the next entry
+	BRB	FIND_ID.NEXT	; check the next entry
+
+FIND_ID.MATCH:
+
+	ADDL3	#2,R1,R0	; store the address of the ID string in R0
+	BRB	FIND_ID.EXIT	; exit
+
+FIND_ID.NOMATCH:
+
+	MOVL	#0,R0		; Indicate no match found
+;	BRB	FIND_ID.EXIT	; exit
+
+FIND_ID.EXIT:
+	POPR	#^M<R1,R2>	; restore registers
+	RSB
+
+	.PSECT	DATA
+
+	.ALIGN	QUAD
+
+; Structures used to build error message from error code
+
+ERRMSG_BUF_DESC:
+ERRMSG_LEN:
+	.LONG	256
+	.ADDRESS-
+		ERRMSG_BUF
+ERRMSG_BUF:
+	.BLKB	256
+
+; Table for information on nodes already found.
+
+; Each entry consists of:
+;
+;	 0:  6 bytes of LAN DECnet address
+;	 6:  2 bytes of cluster group code
+;	 8:  6 bytes of node name
+;	14:  1 byte  of node name length
+;	15:  1 byte  of DEVICE ID
+;	16:  8 bytes of DEVICE NAME descriptor
+;	24:  6 bytes of LAN hardware address
+;	30:  2 bytes of SCSSYSTEMID
+;	32: 16 bytes of DEVICE name
+;	48:  
+
+NODSIZ = 6+2+6+1+1+8+6+2+16
+
+MAXNOD = 2000
+
+NODCNT:	.LONG	0
+NODTBL:	.BLKB	MAXNOD*NODSIZ
+
+; Symbolic constants and data structures for storing the Identifier Strings
+; from MONLAV.DAT
+
+IDDSC:
+	.LONG	40
+	.LONG	0
+
+RECORD:					; to hold a single RNS record read from
+	.BLKL	256			; MONLAV.DAT
+
+
+MAXCGLEN = 5				; maximum length of the ascii string
+					; that can represent a CGN
+IDSIZ = 42				; size of a valid ID entry,...
+					; 2 bytes for Cluster group number
+					; 40 bytes for the ID string
+MAXID = 100				; we will deal with up to 100 IDs
+
+SKIPLEN:	.BLKL	1		; count of characters already 
+					; processed for a given record from the 
+					; MONLAV.DAT file
+IDCNT:	.LONG	0			; number of IDs
+IDTBL:	.BLKB	MAXID*IDSIZ		; Table of IDs
+
+	.END	START

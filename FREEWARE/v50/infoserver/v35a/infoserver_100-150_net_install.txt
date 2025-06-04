@@ -1,0 +1,60 @@
+	 Network Update Procedure for InfoServer 100/150 Systems
+
+Important Note:
+
+In order to do a network update, your InfoServer must have disk functions
+enabled.  InfoServer 150/VXT systems are normally the only systems that do
+not have disk functions enabled.  If SHOW FUNCTIONS does not tell you that
+disk services are enabled, you cannot do a network update until you obtain
+the function CD and install it.
+
+The Software:
+
+    Copy:	TAPE::ESS$KITS:[V35A]SYSBOOT.EXE
+		TAPE::ESS$KITS:[V35A]HELP.MEM
+
+Installing:
+
+WARNING:	Failure to follow this procedure carefully may crash
+		your VMS client system.  You have been warned.
+
+1) 	Copy the software to a VMS system where you have a
+	privileged account.
+
+
+2)	Log into the InfoServer.  Create a service for the boot
+	partition.
+
+	InfoServer> CREATE SERVICE BOOT_PAR FOR DK1:BOOT_PARTITION
+
+3)	Log into the VMS client system.  You will need a privileged account.
+	Bind to the service.
+
+	$ MCR ESS$LADCP BIND/WRITE/SYSTEM BOOT_PAR
+
+4)	From VMS, initialize the virtual disk.  This will destroy the
+	old version of the InfoServer software.  If anything goes wrong
+	after this point, you will need to go back to step 1.
+
+	$ INIT/SYS DAD$BOOT_PAR IS_SYS
+
+5)	Mount the disk on the VMS client.
+
+	$ MOUNT DAD$BOOT_PAR IS_SYS
+
+6)	Create the system directories.
+
+	$ CREATE/DIRECTORY DAD$BOOT_PAR:[SYSD.SYSEXE]/OWN=SYSTEM
+
+7)	Copy the new software over.
+
+	$ COPY/CONTIG SYSBOOT.EXE DAD$BOOT_PAR:[SYSD.SYSEXE]
+	$ COPY/CONTIG HELP.MEM	DAD$BOOT_PAR:[SYSD.SYSEXE]
+
+8)	Reboot the InfoServer.
+
+	InfoServer> REBOOT YES
+
+9)	When the InfoServer boots successfully, dismount the virtual disk.
+
+$ DISMOUNT/UNLOAD DAD$BOOT_PAR

@@ -1,0 +1,349 @@
+MODULE ANNOTATE;
+
+!*****************************************************************************
+!*                                                                           *
+!*  COPYRIGHT (c) 1990  BY                                                   *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.                   *
+!*  ALL RIGHTS RESERVED.                                                     *
+!*                                                                           *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED    *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE    *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER    *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY    *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY    *
+!*  TRANSFERRED.                                                             * 
+!*                                                                           *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE    *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT    *
+!*  CORPORATION.                                                             *
+!*                                                                           *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS    *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.                  *
+!*                                                                           *
+!*****************************************************************************
+
+INCLUDE FILE 'Annotate_ImageRec.SCI';
+
+TYPE GlobalRec: RECORD
+	AbsoluteAddress:	INTEGER,
+	RelativeAddress:	INTEGER,
+	GlobalSymbolTreePtr:	TREEPTR(STRING) TO INTEGER,
+	Image:			POINTER TO ImageRec,
+END RECORD;
+
+EXTERNAL PROCEDURE Read_Map() OF POINTER TO ImageRec;
+EXTERNAL PROCEDURE BitBucket(INTEGER, FIXED STRING(132));
+
+EXTERNAL PROCEDURE HexToInteger(STRING) OF INTEGER;
+EXTERNAL PROCEDURE IntegerToHex(VALUE INTEGER, REFERENCE FIXED STRING(9));
+
+EXTERNAL PROCEDURE ResetAddressSpace(VALUE INTEGER);
+EXTERNAL PROCEDURE DefineAddress(VALUE INTEGER, VALUE POINTER TO GlobalRec);
+EXTERNAL PROCEDURE LookupAddress(VALUE INTEGER) OF POINTER TO GlobalRec;
+
+DECLARE images: TREE(STRING) OF POINTER TO ImageRec;
+
+! Have we found a global symbol's address in the log file?
+
+DECLARE changed_a_base_address: BOOLEAN;
+
+! Number of global symbols whose absolute address is known.
+
+DECLARE address_count: INTEGER;
+
+! An 'array' whose index is the absolute address of a global symbol,
+! and whose value is a structure, GlobalRec, with the name of the
+! symbol, its image, and also its absolute address.
+
+DECLARE addresses: TREE(INTEGER) OF GlobalRec;
+
+PROCEDURE FoundGlobalAddress(
+	image: STRING,
+	global: STRING,
+	hexaddr: STRING) OF BOOLEAN;
+
+	DECLARE addr, reladdr: INTEGER;
+	DECLARE ptr: POINTER TO ImageRec;
+
+	addr = HexToInteger(hexaddr);
+
+	IF NOT EXISTS(images(image)) THEN
+		RETURN FALSE;
+	END IF;
+
+	ptr = images(image);
+
+	reladdr = ptr->.Globals->(global);
+
+	ptr->.BaseAddress = addr - reladdr;
+
+	changed_a_base_address = TRUE;
+
+	RETURN TRUE;
+END PROCEDURE;
+
+PROCEDURE BuildAddressSpace;
+	DECLARE known_image_count, abs_addr, base_addr: INTEGER;
+	DECLARE iptr: TREEPTR(STRING) TO POINTER TO ImageRec;
+	DECLARE aptr: TREEPTR(INTEGER) TO GlobalRec;
+	DECLARE grptr: POINTER TO GlobalRec;
+	DECLARE gptr: TREEPTR(STRING) TO INTEGER;
+	DECLARE the_image: POINTER TO ImageRec;
+
+	IF NOT changed_a_base_address THEN
+		RETURN;
+	END IF;
+
+	PRUNE addresses;
+
+	known_image_count = 0;
+	address_count = 0;
+
+	! Loop through the images, finding those whose base address
+	! we know.
+
+	iptr = FIRST(images);
+	WHILE iptr <> NIL;
+
+		! Is the base address of this image known?
+
+		the_image = VALUE(iptr);
+		base_addr = the_image->.BaseAddress;
+
+		IF base_addr <> 0 THEN
+
+			! Yes.  Add all of its global symbols into the
+			! address space.
+
+			known_image_count = known_image_count + 1;
+
+			gptr = FIRST(the_image->.Globals->);
+
+			WHILE gptr <> NIL;
+				abs_addr = base_addr +
+					VALUE(gptr);
+
+				address_count = address_count + 1;
+
+				addresses(abs_addr).AbsoluteAddress =
+					abs_addr;
+
+				addresses(abs_addr).RelativeAddress =
+					VALUE(gptr);
+
+				addresses(abs_addr).GlobalSymbolTreePtr = gptr;
+
+				addresses(abs_addr).Image = the_image;
+
+				gptr = NEXT(gptr);
+			END WHILE;
+		END IF;
+
+		iptr = NEXT(iptr);
+	END WHILE;
+
+	IF known_image_count = 0 THEN
+		RETURN;
+	END IF;
+
+	! Now we have the addresses in sorted order (implicit in the
+	! TREE(INTEGER) OF ... structure).  But it isn't easy to do
+	! a binary search on this structure.  So lets put them into
+	! a read array.  But SCAN doesn't support them, so we'll
+	! call out to C for this purpose.
+
+	CALL ResetAddressSpace(address_count);
+
+	aptr = FIRST(addresses);
+	WHILE aptr <> NIL;
+		abs_addr = SUBSCRIPT(aptr);
+		grptr = VALUEPTR(aptr);
+
+		CALL DefineAddress(abs_addr, grptr);
+
+		aptr = NEXT(aptr);
+	END WHILE;
+END PROCEDURE;
+
+! Character set definitions:
+
+SET alpha		('A' .. 'Z');
+SET numeric		('0' .. '9');
+SET hd			( numeric OR 'A' .. 'F' );
+
+SET init_chars		( alpha OR '$' OR '_' );
+SET symbol_chars	( init_chars OR numeric );
+
+SET whitespace		(' ' OR '	' OR s'eol' );
+
+! Token definitions:
+
+TOKEN t_pc		CASELESS
+			{ hd [hd [hd [hd [hd [hd [hd [hd]]]]]]] };
+
+TOKEN t_dixmain		CASELESS
+			{ 'Dixmain address=' hd... };
+
+TOKEN t_gpx		CASELESS
+			{ 'gpx$InitOutput address=' hd... };
+
+TOKEN t_mfb		CASELESS
+			{ 'mfb$InitOutput address=' hd... };
+
+TOKEN t_scn		CASELESS
+			{ 'scn$InitOutput address=' hd... };
+
+TOKEN t_start_stack_dump CASELESS
+			{ 'stack dump follows:' };
+
+TOKEN t_whitespace	IGNORE
+			{ whitespace... };
+
+MACRO m_dixmain TRIGGER { s: t_dixmain };
+	DECLARE b: BOOLEAN;
+	b = FoundGlobalAddress(
+		'DECW$SERVER_DIX',			!Image
+		'DECW$DIX_MAIN',			!Global
+		s[INDEX(s, '=')+1..]);			!Address
+
+	IF NOT b THEN
+		WRITE 'Found address information, but the expected map hasn''t been loaded.';
+		WRITE '		',s;
+		WRITE '';
+	END IF;
+END MACRO;
+
+MACRO m_gpx TRIGGER { s: t_gpx };
+	DECLARE b: BOOLEAN;
+	b = FoundGlobalAddress(
+		'DECW$SERVER_DDX_GA',			!Image
+		'GPX$INITOUTPUT',			!Global
+		s[INDEX(s, '=')+1..]);			!Address
+
+	IF NOT b THEN
+		WRITE 'Found address information, but the expected map hasn''t been loaded.';
+		WRITE '		',s;
+		WRITE '';
+	END IF;
+END MACRO;
+
+MACRO m_mfb TRIGGER { s: t_mfb };
+	DECLARE b: BOOLEAN;
+	b = FoundGlobalAddress(
+		'DECW$SERVER_DDX_GC',			!Image
+		'MFB$INITOUTPUT',			!Global
+		s[INDEX(s, '=')+1..]);			!Address
+
+	IF NOT b THEN
+		WRITE 'Found address information, but the expected map hasn''t been loaded.';
+		WRITE '		',s;
+		WRITE '';
+	END IF;
+END MACRO;
+
+MACRO m_scn TRIGGER { s: t_scn };
+	DECLARE b: BOOLEAN;
+	b = FoundGlobalAddress(
+		'DECW$SERVER_DDX_GE',			!Image
+		'SCN$INITOUTPUT',			!Global
+		s[INDEX(s, '=')+1..]);			!Address
+
+	IF NOT b THEN
+		WRITE 'Found address information, but the expected map hasn''t been loaded.';
+		WRITE '		',s;
+		WRITE '';
+	END IF;
+END MACRO;
+
+MACRO m_stack_dump TRIGGER { t_start_stack_dump {v:t_pc}... };
+	DECLARE ptr: TREEPTR(INTEGER) TO STRING;
+	DECLARE gptr: POINTER TO GlobalRec;
+	DECLARE s: FIXED STRING(80);
+	DECLARE rel_addr, abs_addr: INTEGER;
+	DECLARE h: FIXED STRING(9);
+
+	WRITE '';
+	WRITE 'Found a stack dump!';
+	WRITE '';
+
+	CALL BuildAddressSpace;
+
+	IF address_count = 0 THEN
+		WRITE 'There are no known absolute addresses!';
+		RETURN;
+	END IF;
+
+	WRITE 'AbsAddr  = Routine                          + Rel Addr in Image                ';
+	WRITE '--------   --------------------------------   --------    ---------------------';
+
+	ptr = FIRST(v);
+	WHILE ptr <> NIL;
+		abs_addr = HexToInteger(VALUE(ptr));
+		gptr = LookupAddress(abs_addr);
+
+		CALL IntegerToHex(abs_addr, h);
+
+		s = ' ';
+		s[1 .. 8] = h[1 .. 8];
+
+		IF gptr <> NIL THEN
+
+			rel_addr = abs_addr - gptr->.AbsoluteAddress;
+			CALL IntegerToHex(rel_addr, h);
+
+			s[12 .. 43]	= SUBSCRIPT(gptr->.GlobalSymbolTreePtr);
+			s[47 .. 54]	= h[1 .. 8];
+			s[59 ..]	= gptr->.Image->.Name->;
+		END IF;
+
+		WRITE s;
+
+		ptr = NEXT(ptr);
+	END WHILE;
+
+	WRITE '';
+END MACRO;
+
+PROCEDURE ANNOTATE MAIN OF INTEGER;
+	DECLARE p: POINTER TO ImageRec;
+	DECLARE filename, imagename: STRING;
+	DECLARE image_count: INTEGER;
+
+	! Read the first map.
+
+	image_count = 0;
+	p = Read_Map();
+
+	WHILE p <> NIL;
+		! File the ImageRec structure by the name of
+		! the image it describes.  This will be useful
+		! when we find an address in the image which
+		! gives us a clue what the base address is.
+
+		images(p->.Name->) = p;
+		image_count = image_count + 1;
+
+		! Read the next map.
+
+		p = Read_Map();
+	END WHILE;
+
+	IF image_count = 0 THEN
+		WRITE 'No images successfully read!';
+		RETURN 4;
+	END IF;
+
+	WRITE '';
+
+	changed_a_base_address = TRUE;
+
+	READ PROMPT('Enter name of server log file: ') filename;
+
+	START SCAN
+		INPUT FILE filename
+		OUTPUT PROCEDURE BitBucket;
+
+	RETURN 1;
+END PROCEDURE;
+
+END MODULE;
