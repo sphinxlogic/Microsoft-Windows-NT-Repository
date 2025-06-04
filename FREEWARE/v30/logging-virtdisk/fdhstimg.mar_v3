@@ -1,0 +1,1970 @@
+	.TITLE	FDHostTIMG - VAX/VMS VIRT DISK Host Process (image backup on tape)
+	.IDENT	'V01-001e'
+; Copyright 1991 Glenn C. Everhart
+; all rights reserved
+;
+; FACILITY:
+; 
+; Host process for FD: unit that uses physical backed up image
+; of a disk and treats it as if it were a disk. Device type
+; or geometry must be specified, and the utility can either
+; do its' access to a VMS Backup image of the disk, or to
+; a straight dump of a disk, and can be told to skip files
+; so that handling the Nth saveset on a tape is possible.
+;
+; Command format:
+; FDHost/switches FDn: filespec
+;
+; FDHOST/CLEAR will zero the ref. count only...nothing more.
+; Note deassign normally will NOT be via command (I don't see how a
+; command could ever be read) but via exit AST. We could in principle arrange
+; an I/O that fddrv would store somewhere, so that if this process exited the
+; fddrv driver would be informed of it and could complete the I/O AND set
+; itself offline, but I am uncomfortable with this kind of jiggery-pokery.
+; Better to just let the ref count be zeroed, since that's the only "dirty" trace
+; around. This may allow playing some games later with multiple hosts also.
+;   The expectation is that an fd: unit being assigned will have FDHOST/CLEAR
+; run on the FD: unit before assigning it if the unit was set incorrectly.
+;
+; Note: define VMS$V5 to build for Version 5.x of VMS.
+;
+vms$v5=0
+; 
+; AUTHOR:
+; 
+; G. EVERHART
+; 11/17/1991 - Initial coding
+; Notes: 100 block cache; see cachecnt parameter
+; Initially no support for CRC or xor block checking (apart from
+; skipping XOR blocks)
+; No xor block expansion in skipping because we must NOT
+; overshoot the end of file.
+;
+; Revised to allow /cache:n switch to specify from 1 to 1000
+; tape blocks. CRC checking and xor block code present.
+;--
+	.PAGE
+	.SBTTL	EXTERNAL AND LOCAL DEFINITIONS
+
+	.LIBRARY /SYS$SHARE:LIB/
+; 
+; EXTERNAL SYMBOLS
+; 
+
+	$ADPDEF				;DEFINE ADAPTER CONTROL BLOCK
+	$CRBDEF				;DEFINE CHANNEL REQUEST BLOCK
+	$DCDEF				;DEFINE DEVICE CLASS
+	$DDBDEF				;DEFINE DEVICE DATA BLOCK
+	$DEVDEF				;DEFINE DEVICE CHARACTERISTICS
+	$DPTDEF				;DEFINE DRIVER PROLOGUE TABLE
+	$EMBDEF				;DEFINE ERROR MESSAGE BUFFER
+	$IDBDEF				;DEFINE INTERRUPT DATA BLOCK
+	$IODEF				;DEFINE I/O FUNCTION CODES
+	$IRPDEF				;DEFINE I/O REQUEST PACKET
+	$PRDEF				;DEFINE PROCESSOR REGISTERS
+	$PCBDEF				;DEFINE PCB OFFSETS
+	$SCSDEF
+	$SBDEF
+	$STSDEF
+	$STSDEF		; Symbols for returned status.
+	$DVIDEF		; Symbols for $GETDVI service.
+	$DCDEF		; Symbols for device type.
+	$SSDEF				;DEFINE SYSTEM STATUS CODES
+	$UCBDEF				;DEFINE UNIT CONTROL BLOCK
+	$VECDEF				;DEFINE INTERRUPT VECTOR BLOCK
+
+; 
+; No need for direct UCB access here; this is done via the driver
+; itself. We just worry about the files, etc.
+; 
+
+	$FIBDEF			; Symbols for file information block.
+	$IODEF			; Symbols for QIO functions.
+	$DVIDEF			; Symbols for $GETDVI calls.
+	$TPADEF			; Symbols for LIB$TPARSE calls.
+; Macro to check return status of system calls.
+;
+	.MACRO	ON_ERR	THERE,?HERE
+	BLBS	R0,HERE
+	BRW	THERE
+HERE:	.ENDM	ON_ERR
+; definitions of offsets into vms backup savesets
+bbh$w_size=0
+bbh$w_opsys=2
+bbh$w_subsys=4
+bbh$w_applic=6	;1 => normal, 2 => xor block
+bbh$l_number=8
+;spares 20 bytes
+bbh$w_structlev=32
+bbh$w_volnum=34
+bbh$l_crc=36
+bbh$l_blocksize=40	; size of blocks in saveset (not data size; data+hdrs)
+bbh$l_flags=44
+; ignore the rest for now
+brh$w_rsize=0	;record size
+brh$w_rtype=2	;0=null, 1=summary, 2=volume, 3=file, 4=vbn, 5=physvol, 6=lbn, 7=fid
+brh$l_flags=4
+brh$l_address=8	;holds start lbn for lbn records
+brh$l_spare=12
+; data begins at offset 16 for rsize bytes
+; block hdr length is exact. Add 16 to rec hdr length to get to next record.
+; ignore the rest.
+	.PSECT	FDHostD_DATA,RD,WRT,NOEXE,LONG
+
+; Device geometry
+; Use this table for "large" devices so that container files of
+; sizes matching known geometry devices are made to appear to
+; have exactly the known geometry. This will avoid a LOT of special
+; case testing and allow insertion of more device geometries as we
+; like
+	.macro	Geotbl blks,cyl,trk,sect,id
+	.irpc x,<id>
+	.ascii /x/
+	.endr
+	.long	blks	;Number of blks on device
+	.word	cyl	;number cylinders
+	.byte	trk	;number tracks/cyl
+	.byte	sect	;number sectors/track
+	.endm
+; Geoms MUST be in increasing order of size.
+Geoms:
+;		blks	cyl	trk	sect	id
+	Geotbl  800,	1,	80,	10,	RX50
+	Geotbl	4800,	200,	2,	12,	RK05
+	Geotbl	10240,	256,	2,	40,	RL01 ;(sect=256 bytes)
+	Geotbl	20480,	512,	2,	40,	RL02 ;(Sect=256 bytes)
+	Geotbl	27126,	411,	3,	22,	RK06
+	GeoTbl	53790,	815,	3,	22,	RK07
+	GeoTbl	131680,	823,	5,	32,	RM03
+	GeoTbl	138672,	1024,	8,	17,	RD53
+	GeoTbl	171798,	411,	19,	22,	RP04
+	GeoTbl	242606,	559,	14,	31,	RM80 ; (or RB80)
+	GeoTbl	340670,	815,	19,	22,	RP06
+	GeoTbl	500384,	823,	19,	32,	RM05
+	GeoTbl	891072,	1248,	14,	51,	RA81
+	GeoTbl	1008000,630,	32,	50,	RP07
+	GeoTbl	1216665,1423,	15,	57,	RA82
+	.Long	0,0,0,0,0		;list terminator
+dvl:	.long	0
+DESBLK:
+	.LONG	0
+	.ADDRESS	XITHDL		;EXIT HANDLER ADDRESS
+	.long	0
+	.address	dvl
+	.LONG	0,0			;REST OF EXIT HANDLER CONTROL BLK
+;
+DEFAULT_DEVICE:
+	.ASCID	/SYS$DISK/
+
+	$ATRDEF
+	$FABDEF
+	$FATDEF
+	$FIBDEF
+	$IODEF
+	$NAMDEF
+	$RMSDEF
+	$XABDEF
+	.ALIGN LONG
+DFAB_BLK: $FAB FNM=<FD0.DSK>,XAB=FNXAB,FAC=<BIO,get,put>,rfm=fix,DNM=<FDCONT.DSK>,mrs=512
+DRAB_BLK: $RAB FAB=DFAB_BLK,BKT=0,RBF=RECBUF,UBF=RECBUF,USZ=512
+	.align	long
+RECBUF:	.BLKL	128	;512 BYTES = 128 LONGS
+	.long	0,0	;safety
+;
+FNXAB:	$XABFHC	; XAB STUFF TO GET LBN, SIZE
+	.BLKL	20 ;SAFETY
+	.ALIGN LONG
+IOSTATUS: .BLKQ 1
+
+VDV_BUF:			; Buffer to hold device name for FD unit.
+	.BLKB	40
+VDV_BUF_SIZ = . - VDV_BUF
+
+VDV_BUF_DESC:			; Descriptor pointing to VDVice name.
+	.LONG	 VDV_BUF_SIZ
+	.ADDRESS VDV_BUF
+
+VPID:				; Owner of VDVice (if any).
+	.BLKL	1
+
+VDV_ITEM_LIST:			; VDVice list for $GETDVI.
+	.WORD	 VDV_BUF_SIZ	; Make sure we a have a physical device name.
+	.WORD	 DVI$_DEVNAM
+	.ADDRESS VDV_BUF
+	.ADDRESS VDV_BUF_DESC
+	.WORD	 4		; See if someone has this device allocated.
+	.WORD	 DVI$_PID
+	.ADDRESS VPID
+	.LONG	 0
+	.WORD	 4
+	.WORD	 DVI$_DEVCLASS	; Check for a terminal.
+	.ADDRESS VDV_CLASS
+	.LONG	 0
+	.LONG	 0		; End if item list.
+
+VDV_CLASS:
+	.LONG	1
+
+mbx_BUF:			; Buffer to hold mbxice name.
+	.BLKB	40
+mbx_BUF_SIZ = . - mbx_BUF
+
+mbx_BUF_DESC:			; Descriptor pointing to mbxice name.
+	.LONG	 mbx_BUF_SIZ
+	.ADDRESS mbx_BUF
+
+mPID:				; Owner of mbxice (if any).
+	.BLKL	1
+
+mbx_ITEM_LIST:			; mbxice list for $GETDVI.
+	.WORD	 mbx_BUF_SIZ	; Make sure we a have a physical device name.
+	.WORD	 DVI$_DEVNAM
+	.ADDRESS mbx_BUF
+	.ADDRESS mbx_BUF_DESC
+	.WORD	 4		; See if someone has this device allocated.
+	.WORD	 DVI$_PID
+	.ADDRESS mPID
+	.LONG	 0
+	.WORD	 4
+	.WORD	 DVI$_DEVCLASS	; Check for a terminal.
+	.ADDRESS mbx_CLASS
+	.LONG	 0
+	.LONG	 0		; End if item list.
+
+mbx_CLASS:
+	.LONG	1
+
+DEFNAM:
+
+WRK:	.BLKL	4	;SCRATCH INTEGER
+; descriptor string for getting numeric values read in
+wrkstr:	.word	20	;length 
+	.byte	dsc$k_dtype_t	;text
+	.byte	1	;static
+	.address	wrkdat
+wrkdat:	.blkb	20
+	.byte	0,0,0,0	;safety
+; DESCRIPTOR FOR VDn: "FILENAME"
+	.ALIGN LONG
+VDFNM:	.WORD	 255.	;LENGTH
+VDFTP:	.BYTE	DSC$K_DTYPE_T	;TEXT TYPE
+	.BYTE	1	; STATIC STRING
+	.ADDRESS	VDFNMD
+VDFNMD:	.BLKB	256.	; DATA AREA
+;
+VDCHN:	.LONG	0	;CHANNEL HOLDERS
+;
+MBCHN:	.long	0	; channel for mailbox used to communicate with fddrv
+MBUCB:	.long	0	; UCB address for mailbox
+weakflg: .long	0	;1 if "weak" mode used
+crcfg:	.long	0	;flag that crc is in use
+xrg11:	.long	0	;counter for entries to xor block getgrp
+rg11:	.long	0	;retry counter
+yrg11:	.long	0	;overall safety counter
+joggle:	.long	0
+icrcfg:	.long	0	;neg=ignore crc; 0=normal; pos=force crc use
+ixorfg:	.long	0	;ignore xor flag, ignore if nonzero
+cacds:	.ascid	/CACHE/	; use eventually for cache:n spec
+icrcds:	.ascid	/IGNCRC/	;ignore CRC flag
+fcrcds:	.ascid	/FRCCRC/	;force CRC flag
+igxords: .ascid	/IGNXOR/	;ignore XOR groups if set
+CLRDS:	.ASCID	/CLEAR/
+BACDS:	.ASCID	/IMAGE/	;IMAG SWITCH, means not vms backup, just device image
+SKIPds:	.ascid	/SKIP/	;SKIP NO. FILES BEFORE START
+TYPDS:	.ASCID	/TYPE/	;DRIVE TYPE (FOR GEOMETRY)
+TRKDS:	.ASCID	/TRK/	;TRACKS
+CYLDS:	.ASCID	/CYL/
+SECDS:	.ASCID	/SEC/
+;ASDSC:	.ASCID	/ASSIGN/
+fileds:	.ascid	/FILE/	;use if file, not tape
+;DASDSC:	.ASCID	/DEASSIGN/
+P1DSC:	.ASCID	/UNIT/
+P2DSC:	.ASCID	/FNAM/
+	.EVEN
+; DESCRIPTOR FOR DVn:DSKFIL "FILENAME"
+; (this will be a tape here most of the time)
+	.ALIGN LONG
+DDFNM:	.WORD	 255.	;LENGTH
+DDFTP:	.BYTE	DSC$K_DTYPE_T	;TEXT TYPE
+	.BYTE	1	; STATIC STRING
+DDFNA:	.ADDRESS	DDFNMD
+DDFNMD:	.BLKB	256.	; DATA AREA
+DDCHN:	.LONG	0
+;
+;TYPE descriptor (GETS TEXT)
+	.ALIGN LONG
+TYPFNM:	.WORD	 255.	;LENGTH
+KYFTP:	.BYTE	DSC$K_DTYPE_T	;TEXT TYPE
+	.BYTE	1	; STATIC STRING
+KYFNA:	.ADDRESS	TYPFNMD
+TYPFNMD: .BLKB	256.	; DATA AREA
+trks:	.long	0	;tracks/cyl
+cyls:	.long	0	;cylinders
+secs:	.long	0	;sectors/track
+backfg:	.long	1	;backup mode flag
+fsflg:	.long	0	;1 if file structured (i.e. using saveset file on disk)
+skps:	.long	0	;files to skip
+currec:	.long	0	;record on tape currently (in current file)
+curlblk: .long	0	; lo blk in current record
+opcnt:	.long	0	;count of operations (for LRU stuff)
+xoradr:	.long	0	;start of xor area
+xorsiz:	.long	0	;xor grp size
+xormx=22
+xseq1:	.long	0
+xbadcrc: .long	0,0
+xcnt:	.long	0
+cachecntmx=1000+xormx
+cachecnt: .long	100	;cache size (must be 1 or more)
+; store cache tape offsets here with the format
+;	tape-record	start LBN of data contained  end LBN	op count of last use
+	.align long
+cacheidx:
+	.rept	cachecntmx
+	.long	0,0,0,0
+	.endr
+
+;
+;
+; Data area for "disk"
+;
+	.align long
+; This is needed for the first block read-in, since prior to that we don't
+;know the block size on the tape. Once we get things started, we extend
+;the region and start using the cache as buffers for our data directly.
+fd_longs=16384		; maximal sized tape blk
+fd_data::
+	.BLKL fd_longs
+	.blkl	128	;guard area for safety during debug...
+fd_tbf:	.long	1	;block factor for tape blks in 512 byte units
+fd_siz:	.long	0	;actual size of blks
+; ucb data area
+HSTUCB:	.LONG	0	;HOST UCB ADDRESS
+;OURPID:	.LONG	0	;PID OF THIS PROCESS
+iosb:	.long	0,0,0,0	;iosb
+ioprog:	.long	0	; i/o in progress flag if nonzero
+; BUFFER FOR COPIES OF DRIVR DATA
+BUFHDR:	.LONG	0,0,0,0,0
+BUF:	.BLKL	8192.	; DATA AREA
+	.LONG	0,0	;SAFETY BUFFERS
+SETFD:	.LONG	0	;DECLARE PROCESS
+	.LONG	0	;PID
+HSTFZ:	.LONG	1	;DISK SIZE
+	.LONG	0,0,0,0	;EXTRA STUFF FOR OTHER CALLS
+SETFDL=.-SETFD
+	.LONG	0,0,0,0,0	;SAFETY
+HSTFSZ:	.LONG	0	;DISK SIZE
+vmsiz:	.long	0	; # bytes for memory area
+vmloadr: .long	0	; low address
+vmhiadr: .long	0	; high address
+vmblks:	.long	0	; # blks in region
+;
+	.PSECT	FDHostD_CODE,RD,WRT,EXE,LONG
+	.ENTRY	FDHostD,^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+; only fdn: name on command line
+	clrl	curlblk
+	clrl	currec
+	clrl	skps
+	PUSHAB	WRK		;PUSH LONGWORD ADDR FOR RETLENGTH
+	PUSHAB	VDFNM		;ADDRESS OF DESCRIPTOR TO RETURN
+	PUSHAB	P1DSC		; GET P1 (VDn: UNIT)
+	CALLS	#3,G^CLI$GET_VALUE	;GET VALUE OF NAME TO VDFNM
+	ON_ERR	FDHostD_EXIT
+290$:
+	clrl	clrcnt	;flag clear count if 1
+	PUSHAB	clrds	; 'CLEAR'
+	CALLS	#1,G^CLI$PRESENT	; IS /CLEAR USED?
+	CMPL	R0,#CLI$_PRESENT	; IF EQ YES
+	BNEQ	293$
+	incl	clrcnt			; FLAG CLEARING USAGE
+	BRW	295$			;ON CLEAR DON'T BOTHER WITH 2ND FILENAME
+293$:
+	PUSHAB	WRK		; GET 2ND FILE (REAL FILE) LONGWORD FOR LEN
+	PUSHAB	DDFNM		; & ITS DESCRIPTOR
+	PUSHAB	P2DSC		; & PARAMETER NAME 'P2'
+	CALLS	#3,G^CLI$GET_VALUE	; GET FNM
+	ON_ERR	fdhostd_EXIT
+	clrl	fsflg		;say not file structured
+;	pushab	fileds	;see if /file
+;	calls	#1,g^cli$_present
+;	cmpl	r0,$cli$_present	;there?
+;	bneq	150$			;in neq no
+;	incl	fsflg
+;150$:
+;	tstl	fsflg			;if not fs, get channel
+;	bneq	151$
+; Initial version has file structured operations commented out or simply not
+; yet filled in. I want to get it working with tapes first and will deal
+; with disk savesets later.
+	$ASSIGN_S -				; Get a channel to the 
+		DEVNAM=DDFNM,-		; device for host file
+		CHAN=DDCHN
+	ON_ERR	fdhostd_EXIT
+;	brw	151$
+;150$:
+;; Don't open the file unless using file-structured access..otherwise we just use
+;; logical QIOW$ calls.
+;; OPEN THE FILE, CHECK ITS INITIAL LBN
+;; IF ERROR OR NOT CONTIG, EXIT...
+;; DO VIA OPENING FILE AND READING ITS' STATBLOCK VIA
+;; QIO...
+;; SET UP FOR FILENAME WE REALLY FOUND IN FAB...
+;	MOVL	DDFNA,DFAB_BLK+FAB$L_FNA	;SET UP FILENAME ADDR
+;	MOVB	DDFNM,DFAB_BLK+FAB$B_FNS	;AND LENGTH
+;	brb	159$
+;149$:	brw	fdhostd_exit
+;159$:
+;	$OPEN	FAB=DFAB_BLK
+;	BLBC	R0,149$		; FAILURE IF FILE WON'T OPEN
+;; FNXAB HAS INFO ON LBN, SIZE
+;;	MOVL	FNXAB+XAB$L_SBN,HSTLBN	; GET HOST'S start LBN (0 IF NON CONTIG.)
+;	MOVL	FNXAB+XAB$L_HBK,HSTFSZ	; GET FILE SIZE. (CHECK THAT BELOW)
+;; No need to decrement size, but must make it a multiple of 64
+;; blocks for a 64-sector geometry.
+;;	DECL	HSTFSZ		;;;COUNT DOWN 1 TO ACCOUNT FOR BOOT BLOCK
+;	BICL2	#63,HSTFSZ	;;;MAKE A MULTIPLE OF 64 BLKS
+;	MOVL	HSTFSZ,HSTFZ		;FILE SIZE
+;	$CONNECT	RAB=DRAB_BLK	;FINISH OPEN
+;	BLBC	R0,149$		; FAILURE IF FILE WON'T OPEN
+;151$:
+; got channel or file to tape or pseudotape saveset. Now get geometry
+	movl	#0,secs	;default geometry
+	movl	#0,trks		;is 64/1/n
+	movl	#0,cyls
+; Use these zeroes to flag that nothing has been entered so we can
+; fill in backup file's info unless something was given explicitly.
+;try and parse /type:dvtp for known geometry.
+	PUSHAB	typds	; 'type'
+	CALLS	#1,G^CLI$PRESENT	; IS /type USED?
+	CMPL	R0,#CLI$_PRESENT	; IF EQ YES
+	bneq	295$			; if no /type given, ignore
+	PUSHAB	WRK		; GET LONGWORD FOR LEN of type
+	PUSHAB	TYPFNM		; & ITS DESCRIPTOR
+	PUSHAB	TYPDS		; & PARAMETER NAME 'TYPE'
+	CALLS	#3,G^CLI$GET_VALUE	; GET FNM
+	ON_ERR	fdhostd_EXIT
+; now kyfnmd should contain data of key string as text
+	movl	wrk,typfnm	;store data length of returned string
+	movab	geoms,r2	;get tbl offset
+152$:	cmpl	(r2)+,typfnmd	;all types are 4 chars long
+	beql	153$		;if eql got the geom.
+	addl2	#8,r2		;else pass to next entry
+	tstl	4(r2)		;got to end of tbl?
+	bneq	152$		;no, try next
+	brw	295$		;if no find, skip /type processing
+153$:	tstl	(r2)+		;pass no. blks
+	movzwl	(r2)+,cyls	;store cylinders
+	movzbl	(r2)+,trks	;trks/cyl
+	movzbl	(r2)+,secs	;and sect/trk
+295$:
+	movl	#1,backfg		;set backup at first
+	pushab	bacds	;'imag' ; defaulted in .cld file is /imag switch
+	calls	#1,g^cli$present	;did user say /back
+	cmpl	r0,#cli$_present	;if neql no
+	bneq	154$			; so branch if no /back seen
+	clrl	backfg	;/image switch means no vms backup
+154$:
+	clrl	icrcfg		;default crc treatment
+	pushab	icrcds		;see if /igncrc spec'd
+	calls	#1,g^cli$present	;did user say so?
+	cmpl	r0,#cli$_present	;if eql yes
+	bneq	601$
+	decl	icrcfg		;if ignore crc spec'd flag is <0
+601$:
+	pushab	fcrcds		;/frccrc spec'd?
+	calls	#1,g^cli$present	;did user say so?
+	cmpl	r0,#cli$_present	;if eql yes
+	bneq	602$
+	incl	icrcfg		;if force crc spec'd flag is >0
+602$:
+	clrl	ixorfg
+	pushab	igxords		;/ignxor spec'd?
+	calls	#1,g^cli$present	;did user say so?
+	cmpl	r0,#cli$_present	;if eql yes
+	bneq	603$
+	incl	ixorfg		;if ignore xor spec'd flag is >0
+603$:
+;check if user specified separate geometry
+	pushab	cylds		;user specify a number of cylinders?
+	CALLS	#1,G^CLI$PRESENT
+	CMPL	R0,#CLI$_PRESENT
+	bneq	155$		;if neq no /cyl:nnnn given
+;get no. cyls.
+	pushab	wrk		;ret length longword
+	pushab	wrkstr		;scratch string
+	pushab	cylds		;get nnnn from /cyl switch
+	calls	#3,g^cli$get_value	;get value of lbn
+	on_err fdhostd_Exit	;skip on error
+; string in wrkdat
+	pushl	#17		;mask, ignore blanks
+	pushl	#4		;4 bytes in result
+	pushab	cyls		;where to store result
+	pushab	wrkstr
+	calls	#4,g^ots$cvt_tu_l	;convert text to binary
+	on_err fdhostd_Exit
+155$:
+	movl	#100,cachecnt
+	pushab	cacds		;/cache:n spec'd?
+	calls	#1,g^cli$present
+	cmpl	r0,#cli$_present
+	bneq	256$		;if not spec'd leave at default
+	pushab	wrk
+	pushab	wrkstr
+	pushab	cacds		;get the value
+	calls	#3,g^cli$get_value	;get value of cache
+	on_err fdhostd_Exit	;skip on error
+;convert to binary
+	pushl	#17		;mask, ignore blanks
+	pushl	#4		;4 bytes in result
+	pushab	cachecnt		;where to store result
+	pushab	wrkstr
+	calls	#4,g^ots$cvt_tu_l	;convert text to binary
+	on_err fdhostd_Exit
+	cmpl	cachecnt,#1	;ensure in limits
+	bgtr	257$
+	movl	#1,cachecnt	;must have one buffer anyway
+257$:
+	cmpl	cachecnt,#xormx	;if too small can't do xor stuff
+	bgeq	1258$
+	incl	ixorfg		;flag can't do xors
+	clrl	xorsiz
+1258$:
+	cmpl	cachecnt,#<cachecntmx-xormx>	;over max?
+	blss	258$
+	movl	#<cachecntmx-xormx>,cachecnt	;if so clamp
+258$:
+256$:
+	pushab	trkds		;user specify a number of cylinders?
+	CALLS	#1,G^CLI$PRESENT
+	CMPL	R0,#CLI$_PRESENT
+	bneq	156$		;if neq no /trk:nnnn given
+;get no. trks.
+	pushab	wrk		;ret length longword
+	pushab	wrkstr		;scratch string
+	pushab	trkds		;get nnnn from /trk switch
+	calls	#3,g^cli$get_value	;get value of lbn
+	on_err fdhostd_Exit	;skip on error
+; string in wrkdat
+	pushl	#17		;mask, ignore blanks
+	pushl	#4		;4 bytes in result
+	pushab	trks		;where to store result
+	pushab	wrkstr
+	calls	#4,g^ots$cvt_tu_l	;convert text to binary
+	on_err fdhostd_Exit
+156$:
+	pushab	secds		;user specify a number of cylinders?
+	CALLS	#1,G^CLI$PRESENT
+	CMPL	R0,#CLI$_PRESENT
+	bneq	157$		;if neq no /sec:nnnn given
+;get no. sectors.
+	pushab	wrk		;ret length longword
+	pushab	wrkstr		;scratch string
+	pushab	secds		;get nnnn from /sec switch
+	calls	#3,g^cli$get_value	;get value of lbn
+	on_err fdhostd_Exit	;skip on error
+; string in wrkdat
+	pushl	#17		;mask, ignore blanks
+	pushl	#4		;4 bytes in result
+	pushab	secs		;where to store result
+	pushab	wrkstr
+	calls	#4,g^ots$cvt_tu_l	;convert text to binary
+	on_err fdhostd_Exit
+157$:
+	pushab	skipds		;user specify skips?
+	CALLS	#1,G^CLI$PRESENT
+	CMPL	R0,#CLI$_PRESENT
+	bneq	158$		;if neq no /skip:nnnn given
+;get no. skips
+	pushab	wrk		;ret length longword
+	pushab	wrkstr		;scratch string
+	pushab	skipds		;get nnnn from /skip switch
+	calls	#3,g^cli$get_value	;get value of string
+	on_err fdhostd_Exit	;skip on error
+; string in wrkdat
+	pushl	#17		;mask, ignore blanks
+	pushl	#4		;4 bytes in result
+	pushab	skps		;where to store result
+	pushab	wrkstr
+	calls	#4,g^ots$cvt_tu_l	;convert text to binary
+	on_err fdhostd_Exit
+158$:
+
+; MUST HAVE ASSIGNMENT TO VD: UNIT IN ANY CASE.
+	$ASSIGN_S -
+		DEVNAM=VDFNM,-	; GET CHANNEL FOR VDn:
+		CHAN=VDCHN
+	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+	$GETDVI_S -
+		CHAN=vdchn,-	; Command line has device name.
+		ITMLST=VDV_ITEM_LIST
+	BLBS	R0,140$
+	BRW	FDHostd_EXIT
+140$:
+	tstl	clrcnt
+	beql	1162$
+	brw	162$
+1162$:
+;	bneq	162$		;if just clearing ref count, no need for mbx
+; Set up mailbox channel
+	$crembx_s prmflg=#0,chan=mbchn,maxmsg=#576,bufquo=#5760,-
+		promsk=#0
+	On_ERR	fdhostd_exit
+; need to get UCB address here somehow...
+	$GETDVI_S -
+		CHAN=mbchn,-	; Command line has device name.
+		ITMLST=mbx_item_list
+	BLBS	R0,176$
+161$:	BRW	FDHostd_EXIT
+176$:
+; This is a good time to set up the tape unit since we want it set up
+; already by the time we start.
+	clrl	currec		;set record zero
+	clrl	curlblk		;lo blk=0 too
+	$qiow_s	chan=ddchn,func=#io$_rewind,iosb=iosb	;rewind the tape first
+	tstl	skps		;skipping any files
+	beql	230$		;if eql no, so don't bother messing with tape
+; skip "skps" files on tape
+	movl	skps,r6		;count filoes to skip
+	tstl	backfg		;vms backup mode?
+	beql	231$		;if eql no
+	mull2	#3,r6		;if not, skip 3n files
+231$:
+	movl	r6,wrk+4
+;	$qiow_s	#2,ddchn,#io$_skipfile,iosb,,,wrk+4,,,,,
+	clrq	-(sp)
+	clrq	-(sp)
+	pushl	#0
+	pushl	r6
+	clrq	-(sp)
+	pushab	iosb
+	movzwl	#io$_skipfile,-(sp)
+	movzwl	ddchn,-(sp)
+	pushl	#2
+	calls	#12,g^sys$qiow
+	On_ERR	fdhostd_exit
+	movl	iosb,r0
+	On_ERR	fdhostd_exit
+;skip r6 files
+230$:
+	tstl	backfg		;backup must skip 1 more
+	beql	232$
+	movl	#1,wrk
+	clrq	-(sp)
+	clrq	-(sp)
+	pushl	#0	;homemade qio because VMS macro is DUMB!! (Dos-11 and RSX macros
+	pushl	#1	;were much smarter! The VMS macro-32 language is okm but the
+	clrq	-(sp)	;$qiow_s macro is not well written)
+	pushab	iosb
+	movzwl	#io$_skipfile,-(sp)
+	movzwl	ddchn,-(sp)
+	pushl	#2
+	calls	#12,g^sys$qiow
+;	$qiow_s	#2,ddchn,#io$_skipfile,iosb,,,#1,,,,,
+;	$qiow_s	chan=ddchn,func=#io$_skipfile,iosb=iosb,p1=wrk
+	On_ERR	fdhostd_exit
+	movl	iosb,r0
+	On_ERR	fdhostd_exit
+232$:
+; tape is now positioned at start of the file we desire.
+;now get blocksize by reading a record of tape
+;	movab	fd_data,r5
+;	movl	r5,wrk+4
+	$qiow_s	chan=ddchn,func=#io$_readlblk,iosb=iosb,p1=fd_data,p2=#65535
+	On_ERR	fdhostd_exit
+; check iosb, if ok, get real count
+	blbs	iosb,235$	;if low bit on, looks ok
+	brw	fdhostd_exit
+235$:
+	movzwl	iosb+2,r5	;r5=count xferred
+	movl	r5,fd_siz	;store
+	tstl	backfg		;vms backup mode should subtract block header slop
+	beql	234$
+	cmpl	bbh$l_blocksize+fd_data,r5	;use recorded block count
+	beql	236$
+;recorded byte count not the same as we observed by reading. Doesn't look like
+; a saveset! Skip out now.
+	brw	fdhostd_exit	;skip out
+236$:
+; check crc (when we get more time and info; Backup uses CRC16 and autodin
+; polynomials (120001 octal and hex edb88320) but I don't have exact info
+; on which and where...nevertheless I *HAVE* found out...
+	movab	fd_data,r9	;pass data address for block
+; we can't use crc unless we know crc exists in the data. however, perhaps
+; it is valid to say if crc is ok in initial block, it exists in the saveset and can
+;be used.
+	jsb	crcck		;check crc error
+	movl	r0,crcfg
+	decl	crcfg		;crc flag nonzero if first blk crc was off
+	tstl	icrcfg		;/igncrc or /frccrc flags set?
+	beql	604$		;if not skip
+	blss	605$		;if <0 then disable crc
+;flag was >0
+	clrl	crcfg		;assume first forcing CRC use
+	brb	604$
+605$:	movl	#1,crcfg	;disable crc use
+604$:
+;	on_error fdhostd_Exit	;skip out via r0 code if bad CRC
+; Note we HAVE to be more tolerant of CRC errors once we get going and try
+; to get data from further down the tape.
+	subl2	#512,r5		;rough data size
+234$:	ashl	#-9,r5,r5		;shift off cruft
+	movl	r5,fd_tbf	;save as (approx) blocking factor
+; then skip back a record
+	movl	#-1,wrk
+;	$qiow_s	#2,ddchn,#io$_skiprecord,#iosb,#-1,,,,,
+	clrq	-(sp)
+	clrq	-(sp)
+	pushl	#0
+	pushl	wrk	;pass rec cnt by ref
+	clrq	-(sp)
+	pushab	iosb
+	movzwl	#io$_skiprecord,-(sp)
+	movzwl	ddchn,-(sp)
+	pushl	#2
+	calls	#12,g^sys$qiow
+	On_ERR	fdhostd_exit
+	movl	iosb,r0
+	On_ERR	fdhostd_exit
+; Now set up our cache by allocating amount desired.
+; For this go-round, let us assume we want to cache 100 tape blocks.
+; Use method suitable for really large caches since lib$get_vm is limited
+; to a few hundred pages and that often will NOT be sufficient.
+	movl	fd_Siz,r4	;get size of tape blocks (so we can read to cache
+				; area directly, saving zillions of movc3's.)
+	addl2	#511,r4		;round up to a full block
+	ashl	#-9,r4,r4	;make block count
+; handle space for xor blocks
+;;;
+; Since we want to handle xor areas as the top of the cache area in one
+; $expreg, we must find the xor factor sooner.
+	pushl	r0
+	pushl	r3
+	pushl	r4
+	tstl	backfg		;be very sure it's /backup mode
+	beql	366$		;skip if not
+	movab	fd_data,r3	;get to data area
+	movzwl	(r3),r4		;get size of record
+367$:	addl2	r4,r3		;get past block hdr
+	movab	fd_Data,r0
+	addl2	fd_siz,r0	;end of what was read
+	cmpl	r3,r0	;past end of buffer?
+	blss	365$		;if so just end
+	brw	fdhostd_exit	; (serious error if no info; exit)
+365$:	movzwl	(r3),r4		;get record size
+	addl2	#16,r4		;pass hdr
+	cmpw	brh$w_rtype(r3),#1	;summary record?
+	bneq	1365$
+	pushl	r3
+	addl2	#16,r3
+	jsb	getxor		;get xor factor
+	popl	r3
+	brb	366$		;then proceed
+1365$:
+	brb	367$		;else check next in buffer
+366$:
+	popl	r4
+	popl	r3
+	popl	r0
+;;;
+	clrl	r5
+	tstl	backfg		;in backup mode?
+	beql	1234$
+	movl	xorsiz,r5	;number of xor blocks (use top of region for these if we must)
+	beql	1234$
+	cmpl	xorsiz,#xormx	;only handle 20 blk or less groups
+	bleq	1233$
+	clrl	r5		;zero our extra xor area count
+	incl	ixorfg		;set no xor forced flag
+	clrl	xorsiz		;flag we can't do xors
+	brb	1234$
+1233$:	mull2	fd_siz,r5	;make a mem size out of it
+	ashl	#-9,r5,r5	;get blks for a moment
+1234$:
+; now r5 contains either 0 or # blks for xor area
+;finish prep for expreg call now.
+	mull2	cachecnt,r4	;multiply by number of such blocks in our cache
+	addl2	r5,r4		;add in xor blk area if any
+	movl	r4,r5		;store in r5 also for later test
+	ashl	#9,r4,r4	;and turn it back into a byte count
+	addl2	#1024,r4	;add a K for good luck
+	movl	r4,vmsiz	;save size needed
+;now use $expreg to get some space
+	clrl	-(sp)	; region 0 (p0 space)
+	clrl	-(sp)	;access mode (user)
+	moval	vmloadr,-(sp)	;low/high address area
+	movl	r5,-(sp)	;blocks to cover
+	addl2	#2,(sp)		;+ a bit of slop
+	calls	#4,g^sys$expreg	;get some space
+	on_err fdhostd_exit	;just exit if we got an error allocating space
+	subl3	vmloadr,vmhiadr,r0	;get address delta
+	ashl	#-9,r0,r0	;make a block count
+	cmpl	r0,r5		;enough?
+	bgtr	233$		;if gtr, then all's well
+	brw	fdhostd_exit	;else foo, skip out
+233$:
+	movl	vmhiadr,xoradr	;xor addr at high mem
+	subl	#512,xoradr	;buffer blk
+	movl	xorsiz,r0	;number of blks in xor group
+;have to do this after fd_siz is filled in
+	mull2	fd_siz,r0	;make a memory amount
+	subl2	r0,xoradr	;and get start address
+				;saving for later use.
+;
+;memory in cache now looks OK.  Since we use a separate table earlier as the
+;index (cacheidx) which has taperec, data LBN start, and op-count (so we can deal
+;with a LRU index) we don't need to mess with these data areas at all. The
+;assembler init's the index for us.
+
+; Got now the actual device name of the mailbox
+; Let the kernel call perform the UCB lookup for us.
+;
+; FOUND A UNIT. NOW DECLARE EXIT HANDLER TO CLEAN UP
+; IF WE GET A $FORCEX TO TERMINATE THE HOST PROCESS.
+	PUSHAB	DESBLK		; ADDRESS OF DESBLK
+	CALLS	#1,G^SYS$DCLEXH	; DECLARE EXIT HANDLER
+; NOW GET OUR PID FOR USE LATER
+;
+162$:
+	$CMKRNL_S -
+		ROUTIN=BASHUCB,ARGLST=K_ARG
+; Now we have the PID for our process in OURPID and are ready to tell
+; the driver we're here!
+	tstl	clrcnt
+	beql	1161$
+	brw	161$
+1161$:
+;	bneq	161$		;exit now if just zeroing count
+; Note we must modified func code from io$_format to something with
+; a modifier bit set so FDDRV will treat this as OUR special QIO.
+; store geometry of disk
+; NOTE: When we get a usable description of Backup format, the physical volume
+;block contains the correct geometry for the saveset. This should be used as
+; the default if no explicit geometry information is supplied.
+; Examining some dumps shows the offsets from the start of the data area of
+; they physical volume record are:
+; sectors: byte 6
+; tracks:  byte 11
+; cyls:    word at 16
+; blocks: longword at 22 off the start (i.e. after 16 byte header info)
+; So let's do it...
+	brb	170$
+171$:	brw	fdhostd_exit	;major lossage if invalid geometry
+170$:
+	tstl	backfg		;/backup format?
+	beql	164$		;if eql no, so no info is in data area
+     	tstl	trks		;data given explicitly?
+     	bneq	164$		;yes, no default
+; if trks=0 then sectors and cylinders better also be zero or
+; we have an invalid configuration.
+;  It is possible, I suppose, to allow overrides of only one of these
+; but most of the time such an override would just be a user mistake
+; and it's better just to scram rather than produce an invalid or almost
+; valid volume. Such a thing seems likely to screw up VMS...
+	tstl	secs
+	bneq	171$
+	tstl	cyls
+	bneq	171$
+	movab	fd_data,r3	;get to data area
+	movzwl	(r3),r4		;get size of record
+167$:	addl2	r4,r3		;get past block hdr
+	movab	fd_Data,r0
+	addl2	#65535,r0
+	cmpl	r3,r0	;past end of buffer?
+	blss	165$		;if so just end
+	brw	fdhostd_exit	; (serious error if no info; exit)
+165$:	movzwl	(r3),r4		;get record size
+	addl2	#16,r4		;pass hdr
+	cmpw	brh$w_rtype(r3),#5	;physvol record?
+	beql	166$		;if eql yes, get data
+	cmpw	brh$w_rtype(r3),#1	;summary record?
+	bneq	1165$
+	pushl	r3
+	addl2	#16,r3
+	jsb	getxor		;get xor factor
+	popl	r3
+1165$:
+	brb	167$		;else check next in buffer
+166$:	addl2	#16,r3		;pass record hdr
+; following offsets seen empirically
+	movzbl	6(r3),secs	;store sectors
+	movzbl	11(r3),trks	;and tracks
+	movzwl	16(r3),cyls	;and cylinders
+; Having better docs, get the geometry in a less fragile
+; way. The offsets above are not guaranteed but getgeom's
+; method IS guaranteed to be correct.
+	jsb	getgeom		;get geometry correctly
+164$:
+; nowe compute device size
+	movl	secs,r2		;get size of device now
+	mull2	trks,r2		;sect*trks*cyls
+	mull2	cyls,r2		;r2 now has blocks
+	movl	r2,hstfz
+	movl	r2,hstfsz	;store as device size
+; note hstfz should equal 22(r3) if a backup set.
+	MOVL	OURPID,SETFD+4	;STORE PID (IPID!!!)
+	movl	HSTFSZ,setfd+8	;size of disk (preset also)
+	movl	mbucb,setfd+12		; Comm mailbox UCB address
+	CLRL	SETFD		; flag that this is the setup
+	movl	#setfdl,r4	; length of buffer
+	movl	trks,setfd+16	;let fddrv know our geometry
+	movl	secs,setfd+20	;trks,sects, cyls
+	movl	cyls,setfd+24
+	$qiow_s chan=vdchn, -
+	iosb=#iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+	clrl	ioprog		; no i/o in progress yet
+; now we're ready to await work from the driver
+	clrl	opcnt
+EVTLOOP:
+	incl	opcnt		;bump operation count
+; When FDDRV has work, it sends the buffer header it has via a
+; mailbox message. Read that here to get our indication there
+; is something to do, and incidentally to get initial info on I/O
+; direction and size.
+;
+; Read the mailbox to get our data
+; Use QIOW$ to assure that we don't do anything until there is work.
+; (this also avoids having to use internal routines to control
+;  host execution.)
+	$qiow_s efn=#10,chan=mbchn,-
+	iosb=#iosb,func=#io$_readlblk,p1=bufhdr,p2=#20
+	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+;	$qiow_s efn=#1,chan=vdchn,func=#io$_format,p1=#setfd,p2=#setfdl
+;SHOULD NOW HAVE HEADER...
+; Check call is not spurious. Driver sets 255 in buffer header when it
+; gets done an i/o for client, and puts 0 or 1 there for a real
+; transfer.
+	cmpl	bufhdr,#2
+	bgtru	evtloop		;if not really doing i/o, spurious ef
+				; set, just ignore
+	MOVL	#1,IOPROG	;FLAG AN I/O IN PROGRESS THAT NEEDS TO
+				;BE COMPLETED
+	CMPL	BUFHDR,#1	;1=WRITE, SOMETHING'S WAITING IN THE DRIVER
+	beql	writeop
+	jmp	readop
+;	BNEQ	READOP
+; writing the virtual disk. In this case this won't actually do much of anything
+; save throw the data away after grabbing it from the driver. There is NO
+; intention here of supporting writing to a tape as though it were a disk,
+; seeing that the hardware doesn't support such things.
+WRITEOP:
+; BUFHDR+8 CONTAINS BYTECOUNT FOR DATA PART OF TRANSFER
+	MOVL	#20,SETFD+8	;BUFFER HEADER size
+	ADDL2	BUFHDR+8,SETFD+8	;SO ADD HEADER SIZE
+	MOVL	#3,SETFD	;GET DATA
+	MOVAB	BUFHDR,SETFD+4	;BUFFER HDR ADDRESS
+	movl	#ss$_nowrt,setfd+12	;wrtlock indicator
+	movl	#setfdl,r4
+; get the data via a transfer that completes in the FDT area of fddrv.
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=#iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+; then complete user's I/O transaction
+; LOADS DATA INTO LOCAL BUFFER FROM DRIVER
+	MOVL	#1,SETFD	;TERMINATE I/O PACKET
+	MOVL	BUFHDR,SETFD+4	;SAVE TRANSFER DIRECTION
+	MOVL	BUFHDR+4,SETFD+8	; BLOCK #
+	MOVL	BUFHDR+8,SETFD+12	; NO. BYTES IN BUFFER
+	MOVZWL	#SS$_NOWRT,SETFD+16	; IOSB 1
+	CLRL	SETFD+20	; IOSB 2	; ALWAYS fail
+	movl	#setfdl,r4
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=#iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+; NOW DONE TRANSFER
+	CLRL	IOPROG	; SAY NO I/O IN PROCESS IF WE ARE FORCED TO EXIT
+	JMP	EVTLOOP
+; reading the virtual disk
+READOP:
+; READING DATA TO CLIENT. MUST GET DATA, THEN SEND TO DRIVER.
+	MOVL	BUFHDR+4,R0	;GET BLOCK NUMBER
+;	INCL	R0		;MAP TO VBN
+	MOVL	R0,DRAB_BLK+RAB$L_BKT	;SET IT UP
+	movw	#512.,drab_blk+rab$w_rsz ;512 byte blks
+; LOOP OVER BLKS IN REQUEST
+	movl	bufhdr+8,r6	;get bytecount to move
+	addl2	#511,r6		;round up
+	ashl	#-9,r6,r6		;convert to blks
+; r6 is not messed up by movc3...
+	movab	buf,r7		;scratch buffer address
+				;(8K + header)
+	movl	#1,setfd+12	;initial success return
+16$:
+	movl	drab_blk+rab$l_bkt,r5	;r5 gets block number
+					;desired
+	jsb	mov2rec		;move tape to desired record
+; r0 returns i/o status
+; r9 returns address of cache containing data image
+; r5 remains block no.
+	movl	setfd+12,r1	;see if errors recorded
+	blbc	r1,176$		;if so, leave first one
+	movl	r0,setfd+12	;return i/o code
+176$:
+	jsb	getdat
+	tstl	r10		;if lo blk# negative, serious error
+	bgeq	1176$
+	brw	fdhostd_exit	;lose
+1176$:
+;r9 returns with start byte of this block
+;	$read	rab=drab_blk
+
+;	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+;;	pushl	r6
+;;	movl	drab_blk+rab$l_bkt,r6	;pass block number to crypt
+;;	jsb	decrypt		; decrypt recbuf
+;;	popl	r6
+;	movab	recbuf,r9	;data from here
+	movl	r7,r8		;data to here
+	MOVC3	#512,(r9),(R8)	; STORE THE DATA IN OUR SPACE
+	addl2	#512,r7		;pass this blk's data
+	incl	drab_blk+rab$l_bkt ;pass this blk in file too
+	decl	r6		;count down blks to do
+	bgtr	16$		;copy all blks
+	movab	buf,r2
+	ADDL3	#20,BUFHDR+8,SETFD+8	; GET LENGTH TO XFER
+	MOVAB	BUFHDR,SETFD+4	;BUFFER HDR ADDRESS
+	MOVL	#2,SETFD	;HOST TO DRIVER COPY
+	movl	#setfdl,r4
+;	movl	#1,setfd+12	;success...
+	movl	bufhdr+8,setfd+16	;/length sent
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=#iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+; NOW DATA IS IN DRIVER SPACE AS REQUIRED
+COMMON:
+; NOW TERMINATE THE I/O AND AWAIT MORE WORK.
+	MOVL	#1,SETFD	;TERMINATE I/O PACKET
+	MOVL	BUFHDR,SETFD+4	;SAVE TRANSFER DIRECTION
+	MOVL	BUFHDR+4,SETFD+8	; BLOCK #
+	MOVL	BUFHDR+8,SETFD+12	; NO. BYTES IN BUFFER
+	MOVZWL	#SS$_NORMAL,SETFD+16	; IOSB 1
+	CLRL	SETFD+20	; IOSB 2	; ALWAYS SUCCESS
+	movl	#setfdl,r4
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=#iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+	CLRL	IOPROG	; SAY NO I/O IN PROCESS IF WE ARE FORCED TO EXIT
+	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+; NOW DONE TRANSFER
+	JMP	EVTLOOP
+; BE SURE WE DON'T LEAVE THE CHANNELS ASSIGNED TO THE DEVICES
+; EITHER...
+	$DASSGN_S CHAN=VDCHN
+	RET
+FDHostd_exit:
+	tstl	ioprog	;i/o going?
+	beql	1$	;if no, branch
+	brw	ioxit	;else cleaN UP
+1$:
+	RET
+;
+; KERNEL ARG LIST
+K_ARG:
+	.LONG	2	;2 ARGS: fd device name, mb device name
+	.ADDRESS	VDV_BUF_DESC
+	.address	mbx_buf_desc
+
+; BASHUCB - AREA TO MESS UP UCB WITH OUR FILE DATA
+; BEWARE BEWARE BEWARE
+;  runs in KERNEL mode ... HAS to be right.
+
+	.ENTRY	BASHUCB,^M<R2,R3,R4,R5,R6,R7,R8>
+; TAKEN LOOSELY FROM ZERO.MAR
+; Obtains host's PID, and also sets up correct size in driver UCB
+; both by cylinder and by block.
+	.if	df,$$xdt
+	jsb	g^ini$brk	;call xdt
+	.endc
+	.if	ndf,vms$v5
+	MOVL	G^SCH$GL_CURPCB,R4	;;; NEED OUR PCB
+	.iff
+	MOVL	G^CTL$GL_PCB,R4		;;; NEED OUR PCB (VMS V5)
+;;; (gets it in internal form, just as needed)
+	.endc
+;;; NEED IPID FOR DRIVER'S CALL TO SCH$POSTEF TO THIS HOST!!
+	MOVL	PCB$L_PID(R4),OURPID	;;;SAVE OUR PID IN INTERNAL FORM
+	JSB	G^SCH$IOLOCKW		;;; LOCK I/O DATABASE
+	CLRL	HSTUCB			;;; ZERO "HOST" UCB
+	tstl	clrcnt		;;;just zeroing count?
+	bneq	126$
+	movl	8(ap),r1		;;;get mailbox info first
+	jsb	g^ioc$searchdev
+	blbc	r0,59$			;;;on failure, give up
+	movl	r1,mbucb		;;;store away mailbox UCB
+126$:	MOVL	4(AP),R1		;;; ADDRESS DVC NAME DESCRIPTORS
+	JSB	G^IOC$SEARCHDEV		;;; GET UCB ADDRESS INTO R1
+	BLBS	R0,60$
+59$:	BRW	BSH_XIT
+60$:
+; BUGGER THE UCB
+; ASSUMES FILE LBN AND SIZE ALREADY RECORDED
+; ALSO ASSUMES THAT ZERO LBN OR SIZE MEANS THIS ENTRY NEVER CALLED.
+; (REALLY ONLY WORRY ABOUT ZERO SIZE; IF WE OVERMAP A REAL DEVICE
+; THEN ZERO INITIAL LBN COULD BE OK.)
+;
+; Set device size. Since this is true of any disk, just use the offsets.
+; No need for duplicating the UCB defs here.
+	tstl	clrcnt		;;;just zeroing use count
+	beql	127$		;;;if eql, no, normal ops
+	movw	#1,ucb$w_refc(r1)	;;;zero ref count (in case it got set -1)
+;;; (note we set it to 1 so it decrements to 0 on our exit.)
+	BICW	#UCB$M_ONLINE,UCB$W_STS(R1) ;;; FLAG OFFLINE
+	BICW	#UCB$M_VALID,UCB$W_STS(R1) ;;; AND VOL INVALID
+	brb	128$		;;;exit, success
+127$:
+;
+	tstw	ucb$w_refc(r1)	;;;fix up stray ref counts
+	bneq	140$		;;;
+142$:	movw	#1,ucb$w_refc(r1)	;;;if it was 0, keep from getting 65535
+	brb	141$
+140$:
+	cmpw	ucb$w_refc(r1),#65533	;;;small neg numbers also look bugus
+	bgtru	142$			;;;so fix these up also
+141$:
+	MOVL	HSTFSZ,UCB$L_MAXBLOCK(R1) ;;; (SAVE SIZE TWICE, FOR RMS
+	MOVL	HSTFSZ,R0		;;; GET HOST SIZE IN CYLINDERS
+	ASHL	#-6,R0,R0		;;; GET # CYLINDERS IN SIZE NOW
+	MOVW	R0,UCB$W_CYLINDERS(R1)	;;; SAVE IN UCB FOR REST OF VMS
+; This computation is redone in fddrv itself, but do it here also.
+; It assumes in fddrv that there are 64 sectors/cylinder.
+	BISW	#UCB$M_ONLINE,UCB$W_STS(R1) ;;; FLAG ONLINE NOW
+	BISW	#UCB$M_VALID,UCB$W_STS(R1) ;;; AND VOL VALID
+;;; THAT'S IT... SHOULD BE OK NOW.
+128$:	MOVL	#SS$_NORMAL,R0
+BSH_XIT:
+	PUSHL	R0
+	JSB	G^SCH$IOUNLOCK		;;; UNLOCK I/O DATABASE (DROP IPL)
+	POPL	R0			;;; REMEMBER R0
+	RET	;;; BACK TO USER MODE NOW
+ourpid:	.long	0	;;;store this locally
+CLRCNT:	.long	0	;1 if clearing ref cnt ucb$w_refc
+;;;(avoid paging problems in kernel)
+; EXIT HANDLER
+; CLEARS I/O ASSIGNMENT TO FD: UNIT
+;
+	.ENTRY	XITHDL,^M<R2,R3,R4,R5,R6>
+ioxit:	TSTL	IOPROG
+	BEQL	1$
+	MOVL	#1,SETFD	;TERMINATE I/O PACKET
+	MOVL	BUFHDR,SETFD+4	;SAVE TRANSFER DIRECTION
+	MOVL	BUFHDR+4,SETFD+8	; BLOCK #
+	MOVL	BUFHDR+8,SETFD+12	; NO. BYTES IN BUFFER
+	MOVZWL	#SS$_ACCVIO,SETFD+16	; IOSB 1
+	CLRL	SETFD+20	; IOSB 2	; FAILURE
+	movl	#setfdl,r4
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=#iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+1$:
+	CLRL	SETFD	;DECLARE/UNDECLARE
+	PUSHAB	DESBLK		; ADDRESS OF DESBLK
+	CALLS	#1,G^SYS$CANEXH	; CANCEL EXIT HANDLER
+	clrl	setfd+4	;FLAG NOBODY HOME NOW
+	clrl	setfd+8
+	movl	#setfdl,r4
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=#iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+; declare host no longer is home.
+	RET			; FINISH EXIT
+;
+; MOV2REC - move to a record
+;	movl	drab_blk+rab$l_bkt,r5	;r5 gets block number
+					;desired
+;	jsb	mov2rec		;move tape to desired record
+; r0 returns i/o status
+; r9 returns address of cache containing data image
+; r5 remains block no.
+;	movl	setfd+12,r1	;see if errors recorded
+;	blbc	r1,176$		;if so, leave first one
+;	movl	r0,setfd+12	;return i/o code
+;176$:
+;	jsb	getdat
+;r9 returns with start byte of this block
+;cacheidx has index to cache from vmloadr to vmhiadr in blocks size fd_siz
+;backfg says if backup
+;fd_tbf = approx blk factor (exact if not backup)
+;curlblk = lo blk of currec position
+;currec=current record on tape
+;opcnt=operation counter
+fdxj:
+	popl	r7
+	popl	r6
+	popl	r5
+	popl	r4
+	tstl	(sp)+	;junk jsb call
+	brw	fdhostd_exit
+	.globl	mov2rec
+mov2rec:
+	pushl	r4
+	pushl	r5
+	pushl	r6
+	pushl	r7
+	movl	#50,yrg11	;final counter, abs max tries for a block
+	movl	#3,xrg11	;count max times into getgrp
+	movl	#1,r0	;success return initially
+;first seek data in cache
+777$:	clrl	r9
+	jsb	cachluk	;return r9=cache blk if we find blk
+	tstl	r9	;got data?
+	beql	1101$
+	brw	1$
+1101$:
+;	bneq	1$
+;get approx. idea how far to move to get to data.
+	subl3	curlblk,r5,r4	;r4 = blks to move
+	clrl	r11		;adjust flag setup
+14$:	divl2	fd_tbf,r4	;divide by blk factor
+	tstl	backfg
+	bneq	114$
+;in image mode too we have to back up an extra record to get
+; to before the record that curlblk points at (as reset after
+; getdat call)
+	tstl	r4
+	bgeq	114$		;if r4 is non negative skip
+	decl	r4		;else skip back one more
+114$:
+; this should give desired skip count
+; adjust since we need to read forward, so decrement one
+	incl	joggle
+	decl	r4
+;normally, save at start, cachluk would find blks in current buffer.
+	beql	2$	;if skip count=0, no qio
+	movl	r4,wrk+4
+	addl3	r4,currec,r1	;be sure we don't skip back to before file mark
+	bgeq	17$		;if >= 0 all's ok
+;foo...too far back. clamp.
+	mnegl	currec,r4	;go back only to after filemark
+	movl	r4,wrk+4
+	beql	2$		;if zero skip the qio
+17$:
+;	$qiow_s	#2,ddchn,#io$_skipfile,iosb,,,r6,,,,,
+;	$qiow_s chan=ddchn,func=#io$_skiprecord,iosb=iosb,p1=wrk+4
+;	$qiow_s #2,ddchn,#io$_skiprecord,iosb,wrk+4,,,,,
+	clrq	-(sp)
+	clrq	-(sp)
+	pushl	#0
+	pushl	wrk+4
+	clrq	-(sp)
+	pushab	iosb
+	movzwl	#io$_skiprecord,-(sp)
+	movzwl	ddchn,-(sp)
+	pushl	#2
+	calls	#12,g^sys$qiow
+	on_err fdxj	;failure to skip is a BIG problem
+;note this checks that the qio gets issued only
+	addl2	r4,currec	;maintain current position
+	movl	iosb,r0		;result code of I/O
+;if we hit EOF, something went wrong really grossly. 
+;	cmpw	r0,#ss$_endfile	;so check eof
+;	bneq	2$		;if not branch
+;foo...saw eof...
+;if backing up go fwd 1
+;	tstl	r4
+;	bgtr	102$		;if going fwd skip
+;	jsb	resetrec1	;reposition to start of file
+;	brb	2$
+;102$:
+; if going forward, back up a couple records. By ignoring xor blks
+; we normally should never overshoot but it is possible to get a
+; multivolume saveset. In that case these two routines will need
+; to be aware of changing volumes on the tapes too. Because this
+; is awkward as heck, it is STRONGLY discouraged and not supported
+; initially at least. (Bad enough to thrash (potentially) between
+; long separated areas of A tape without having to have a human
+; swapping tapes heavily into the bargain.)
+;	jsb	resetend	;position at end, or on next volume...
+;
+2$:
+; find a slot in cache we can use
+	jsb	cachget	;r9 returns data addr
+			;r8 returns index location
+	movl	#11,rg11
+6$:	movl	r9,wrk+4
+; count down absolute max counts to ensure we can never get into infinite
+; loop situations here.
+	decl	yrg11		;count down, max 50 shots
+	bgeq	506$		;if still >= 0 all's still ok
+	movzwl	#ss$_volinv,r0	;return nasty error status
+	brw	1$		;else just give up, return SOMETHING
+506$:
+;	$qiow_s	chan=ddchn,func=#io$_readlblk,iosb=iosb,p1=wrk+4,p2=fd_siz
+	clrq	-(sp)
+	clrq	-(sp)
+	pushl	fd_siz
+	pushl	r9		;address
+	clrq	-(sp)	;no asts
+	pushab	iosb
+	movzwl	#io$_readlblk,-(sp)
+	movzwl	ddchn,-(sp)
+	pushl	#2
+	calls	#12,g^sys$qiow
+	on_err fdxj	;can't do i/o => fatal
+; iosb errs need more tolerance
+	incl	currec		;should be past 1 more rec.
+	movl	iosb,r0		;get i/o result
+;	cmpw	r0,#ss$_endfile	;so check eof
+;	bneq	106$		;if not branch
+;foo...saw eof...
+;if backing up go fwd 1
+;	tstl	r4
+;	bgtr	102$		;if going fwd skip
+;	jsb	resetrec1	;reposition to start of file
+;	brb	106$
+;105$:
+; if going forward, back up a couple records. By ignoring xor blks
+; we normally should never overshoot but it is possible to get a
+; multivolume saveset. In that case these two routines will need
+; to be aware of changing volumes on the tapes too. Because this
+; is awkward as heck, it is STRONGLY discouraged and not supported
+; initially at least. (Bad enough to thrash (potentially) between
+; long separated areas of A tape without having to have a human
+; swapping tapes heavily into the bargain.)
+;	jsb	resetend	;position at end, or on next volume...
+;
+;;;;;
+106$:
+	incl	r4		;account for read now
+	mull2	fd_tbf,r4	;mult by blk factor
+	addl2	r4,curlblk	;maintain blk position if not backup
+				;(handle backup in getdat if needed)
+	tstl	backfg		;skip xors fast here
+	beql	5$
+; see if xor block (if xor, applic field=2, else 1)
+	cmpw	#1,bbh$w_applic(r9)	;if attr ne 1 then it's either xor or gross error
+	bneq	8$		;so go ahead only if not xor
+; Check crc before seeing if local I/O was good. Good CRC should mean data ok
+	tstl	crcfg
+	bneq	208$		;if no crcs here, skip check
+	jsb	crcck		;crc ok?
+	blbc	r0,8$		;if not try reading more
+208$:
+; if we get error on the I/O, also retry
+; (might be OK to rely only on CRC; if doing so comment next inst.)
+	movl	iosb,r0
+	blbs	r0,5$		;if i/o was ok, branch
+;skip up to 10 losing records
+;note fine-tuning below may attempt reposition also
+8$:	decl	rg11		;count down
+	bleq	206$
+	brw	6$		;and read next
+206$:
+;	bgtr	6$		;and read next
+; if we can't find the data, try xor group
+	decl	xrg11		;only do this at most 3 times per blk looked
+	bleq	205$		;for...otherwise just give it up
+; (xrg11 prevents long infinite loops via positioning screwups and
+;  xor block failures due to getting wrong group. These should never
+;  occur, but tape hardware is NOT always error free and this kind
+;  of thing must be guarded against.)
+	tstl	ixorfg		;if ignore xor forced skip also
+	bneq	205$		;even if it otherwise would be OK
+	jsb	grpget		;total failure...try using xor group
+	blbc	r0,205$
+;seems we got it ok. Look in cache for data
+	brw	777$
+205$:
+; return an erroneous record since we can't do any better
+	movzwl	#ss$_volinv,r0	;return nasty error status
+	brw	1$
+;	brw	fdxj	;fatal error...can't get good record
+5$:
+; lo blk this record should be old lo blk + r4*fd_tbf
+	tstl	backfg
+	bneq	1111$
+	movl	currec,curlblk
+	mull2	fd_tbf,curlblk	;tightly couple currec & curlblk in image mode
+; (curlblk gets reset to fd_tbf later as result of getrec.)
+1111$:
+;maintain cache index
+; this has to reflect what we just read, not where we are now
+; so subtract off a block's worth
+	movl	currec,(r8)
+	movl	curlblk,4(r8)
+	subl2	fd_tbf,4(r8)
+	movl	curlblk,8(r8)	;end lbn if image
+	decl	8(r8)		;account for origin no.
+	movl	opcnt,12(r8)
+	blbs	r0,3$		;if i/o worked ok, all well
+;failure on i/o
+;no help for it if image, but can try more if backup
+	tstl	backfg
+	bneq	3$
+	brw	1$
+;	beql	1$		;just exit if image tape
+;had error and it's vms backup
+3$:
+;ok i/o but test for xor blk or wrong numbewr and finetune position
+;then fix curlblk and rest of cache index.
+;get limits of this blk
+	jsb	getlims		;r10 returns as lbn, r11 as high lbn
+	tstl	r10		;r10 must be >0
+	bgeq	1110$
+; neg r10 on return means data looked wrong...maybe an xor or such...
+;note this can ONLY happen in backup mode
+	clrl	(r8)
+	clrl	4(r8)
+	clrl	8(r8)
+	clrl	12(r8)		;remove the index entry so we don't reuse junk
+	movl	r5,r10		;best guess is read next record
+	subl2	fd_tbf,r10	;so arrange to just do so
+	movl	joggle,r11
+	pushl	r1
+	pushl	r2
+	ediv	#3,r11,r1,r2
+	tstl	r2		;remainder 0?
+	bneq	1103$		;if not branch
+	subl2	fd_tbf,r10	;so arrange to just do so
+;however jog it off a possible loop if we can
+1103$:	popl	r2
+	popl	r1
+	movl	r10,r11
+	brb	110$		;also don't update index
+1110$:
+	movl	r10,curlblk	;keep the info around
+	tstl	backfg		;backup mode?
+	beql	110$		;if not branch
+	movl	r11,8(r8)	;set correct end LBN
+	movl	r10,4(r8)	;and start LBN
+110$:
+;check our blk is found. Do repositioning separately here since we
+;must avoid an infinite loop.
+	cmpl	r5,r10		;block in range?
+	blssu	10$		;branch if not
+	cmpl	r5,r11		;test high range
+	blequ	1$		;if too high, fall through
+				;(equal means ok)
+10$:
+; the desired block is not the one we read in.
+; if we have had an error reading, do not mess around, just return an
+; error; this is flagged by r0 containing an error code and is done
+; to prevent infinite loops.
+	blbs	r0,11$
+	movl	#ss$_fcpreaderr,r0	;flag things are really messed up
+	brw	1$			;and leave
+11$:	subl3	r10,r5,r4		;how far are we from the block we want?
+; desired blk - lo blk this buffer -> r4
+;round up to next record multiple on tape
+	subl3	rg11,#10,r10		;get number of retries that may have been tried
+	tstl	r4
+	bgtr	111$
+	subl2	fd_tbf,r4		;back up 1 more
+					;to get back
+	bitl	#3,joggle		;sometimes...
+	beql	111$
+	subl2	fd_tbf,r4		;back up 1 more
+					;to get back
+; back up two where we had troubles finding things
+111$:	brw	14$			;reuse code for actual I/O
+;block is in memory now.
+;r0 should reflect status
+1$:
+	popl	r7
+	popl	r6
+	popl	r5
+	popl	r4
+;
+	rsb
+; getdat - At entry, r9 points to the data block and r5 has the
+; desired block number.
+; on exit r9 should point to data area we want
+getdat:
+	pushr #^m<r0,r1,r2,r3,r4,r5,r6,r7>
+	tstl	backfg		;backup mode?
+	beql	10$		;if not branch
+	movl	#-1,r10		;flag if we find nothing sensible
+	movzwl	(r9),r0		;count of bytes in block hdr
+	movl	r9,r1		;use r1 as work area
+;pass block hdr
+	addl2	r0,r1
+;following records are preceded by 16 byte headers
+3$:	movzwl	(r1),r2		;get record size
+	bleq	2$		;if invalid, skip out
+	cmpw	#6,2(r1)	;see if this is an LBN record
+	beql	1$		;if yes branch
+;wrong record type; pass it.
+	addl2	r2,r1		;get..
+	addl2	#16,r1		;to next record start
+;sanity test next
+	subl3	r9,r1,r3	;check if we've gotta be past record
+	cmpl	r3,fd_siz	;see if bigger than our blocks
+	bgtru	2$		;if so branch
+	brb	3$
+1$:	movl	brh$l_address(r1),r10	;low blk
+	ashl	#-9,r2,r11	;get number blks in this record
+	decl	r11		;since we're getting rec. nos, must
+				;allow for offset of 1
+;(start rec=5, nrecs=4 means top record=8, not 9)
+	addl2	r10,r11		;r11 is now high block
+	subl3	r10,r5,r3	;r3 now is offset into block
+	blss	2$		;skip if error
+	ashl	#9,r3,r3	;make a byte offset
+	addl2	#16,r3		;pass header to data
+	addl2	r1,r3		;now r3 is data
+	movl	r3,r9
+2$:
+	popr #^m<r0,r1,r2,r3,r4,r5,r6,r7>
+	rsb
+10$:
+;assume r8 points at cache index area for this data
+	movl	4(r8),r10	;lo lbn
+	movl	8(r8),r11	;hi lbn
+	subl3	r10,r5,r0	;r0 = blk offset (desired - min this cache blk)
+	ashl	#9,r0,r0	;make a byte offset
+	addl2	r0,r9		;point r9 at our blk
+	popr #^m<r0,r1,r2,r3,r4,r5,r6,r7>
+	rsb
+;find block containing block # in r5 in cache if it is there
+;r9 returns address if found, else remains zero
+cachluk:
+	pushl	r0
+	pushl	r1
+	pushl	r2
+	pushl	r3
+	clrl	r9
+	movab	cacheidx,r0	;start of cache
+	movl	r0,r2		;need this later
+	movl	cachecnt,r1	;number cache items
+1$:	cmpl	r5,4(r0)	;blk number less than cache min?
+	blssu	2$		;if so branch to next entry
+	cmpl	r5,8(r0)	;r5 higher than end lbn of cached entry?
+	bgtru	2$		;if so update and keep looking
+; found the block
+	movl	opcnt,12(r0)	;update cache's used time
+	subl3	r2,r0,r3	;r3 gets offset to cache entry
+	ashl	#-4,r3,r3	;shift off low 4 bits (4 longs=16 bytes)
+				;to get offset in entries
+	mull2	fd_siz,r3	;mult by blocksize  to get addr offset
+	addl3	vmloadr,r3,r9	;return start addr of block in r9
+	brb	3$
+2$:	addl2	#16,r0	;pass to next cache index item
+	sobgtr	r1,1$		;keep looping if no find yet
+; if we fall thru it isn't there...
+3$:
+	movl	r0,r8		;return cache index in r8
+	popl	r3
+	popl	r2
+	popl	r1
+	popl	r0
+	rsb
+cachget:
+; r9=data addr, r8=index addr on return
+	pushr #^m<r0,r1,r2,r3,r4,r5,r6,r7,r10,r11>
+	movab	cacheidx,r0	;start of cache
+	movl	r0,r2		;need this later
+	movl	r0,r4
+	movl	cachecnt,r1	;number cache items
+	movl	#^xffffffff,r3	;"min" offset
+1$:	tstl	12(r0)		;empty entry?
+	beql	2$		;if so grab it
+	cmpl	r3,12(r0)	;see if use cnt < curr min
+	blequ	4$		;if r3 (min) lt this, this more recent
+	movl	r0,r4		;r4=min candidate
+	movl	12(r0),r3	;new min
+4$:
+	addl2	#16,r0		;next index
+	sobgtr	r1,1$		;seek
+; no unused entries found...look for min
+	movl	r4,r0		;use min. used (LRU) entry
+2$:	subl3	r2,r0,r3	;offset to cache entry
+	clrl	(r0)		;clear out all of cache index
+	movl	#-1,4(r0)		;except LRU "time"
+	movl	#-1,8(r0)		;so we don't mistake identity anywhere
+; assume -1 is not a valid block number.
+	ashl	#-4,r3,r3	;shift off low 4 bits (4 longs=16 bytes)
+				;to get offset in entries
+	mull2	fd_siz,r3	;mult by blocksize  to get addr offset
+	addl3	vmloadr,r3,r9	;return start addr of block in r9
+	movl	opcnt,12(r0)	;store current op into cache index
+	movl	r0,r8		;return index loc
+	popr #^m<r0,r1,r2,r3,r4,r5,r6,r7,r10,r11>
+	rsb
+getlims:
+;r10=lo lbn,r11=hi lbn on return
+; trivial implementation..use getdat but preserve r9 across the call
+	pushl	r9
+	jsb	getdat
+	popl	r9
+	rsb
+; crc check
+; entry: r9 points to data block
+; exit: r9 and data blk unaltered, r0=1 if ok, else 2
+crcini:	.long	0
+
+; The data block is CRC checked using the autodin II polynomial
+; as below, with the CRC field zero. The header itself is CRCd with
+; the CRC16 polynomial also. XOR blocks xor everything after the
+; block label record.
+pn:	.long	^XEDB88320	;autodin polynomial
+tbl:	.blkl	16
+pg:	.long	2
+	.address	pn
+wta:	.address	tbl
+ini:	.long	-1
+;data descriptor
+dtnm:	.word	65535	;fill in real length
+	.byte	dsc$k_dtype_t	;text string
+	.byte	1	;fixed
+dtad:	.address	dtad	;address of data, really...fill in
+; fill in address of real data
+crcset:	pushr	#^M<r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	movw	fd_siz,dtnm	;fill in data size
+	movl	r9,dtad
+	callg g^pg,g^lib$crc_table	;generate crc table
+	movl	#1,crcini	;do tbl once only
+	popr	#^M<r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	rsb
+; the crc routine's tests are commented presently.
+crcck:
+	tstl	crcini
+	bneq	1$
+	jsb	crcset	;set up our CRC block so the CRC instruction will work right
+1$:	pushl	r3
+	pushl	r4	;ned some regs
+	pushl	r5
+	pushl	r6
+	movl	#1,r0	;assume ok
+	movl	r9,dtad	;point at real data
+	movl	bbh$l_crc(r9),r3	;save crc
+	clrl	bbh$l_crc(r9)		;clear for comparison
+;chksum of hdr at 254-255 = crc16 of hdr
+	movw	254(r9),r4
+; let this crc be 0 at start also.
+	clrw	254(r9)
+; assume that for block crc calc, header crc was in place
+; already.
+	movzwl	dtnm,r5		;length
+	movl	dtad,r6		;data addr
+	pushl	r3	;crc inst trashes
+; put in other possibilities to allow me to see which works
+	pushl	r11
+	movab	tbl,r11
+	crc	(r11),ini,r5,(r6)
+	popl	r11
+	popl	r3
+	mcoml	r0,r0		;complement r0 for crc
+	cmpl	r0,r3		;crc match?
+	beql	2$		;yes, ok
+	movl	#2,r0		;else flag err
+	brb	3$
+2$:	movl	#1,r0
+3$:	movw	r4,254(r9)	;restore hdr chksum
+	movl	r3,bbh$l_crc(r9)
+	popl	r6
+	popl	r5
+	popl	r4
+	popl	r3
+	rsb
+;
+; GETGEOM  -  get geometry out of physical disk
+; data record (vms backup only)
+; entry: r3 points at record
+; exit: secs, trks, cyls, hstfz have device size
+getgeom:
+	pushr #^m<r0,r1,r2,r3,r4,r5,r6,r7>
+	movzwl	-16(r3),r7	;size of record
+	addl2	r3,r7		;highest address (for end check)
+	addl3	#2,r3,r0	;point at data types with r0
+; 58 = sectors
+; 59 = trks
+; 60 = cylinders
+; 61 = device size types
+100$:
+	movzwl	(r0)+,r1	;size of data
+	beql	200$		;zero size means should be the end
+	movzwl	(r0)+,r2	;type flag
+	movl	(r0),r4		;get data (maybe with up to 3 bytes junk)
+	addl2	r1,r0		;pass data
+; now if this data is interesting pick it out
+	cmpw	#58,r2		;sectors?
+	bneq	1$		;if not skip
+	movzbl	r4,secs		;else save data
+1$:	cmpw	#59,r2		;tracks?
+	bneq	2$
+	movzbl	r4,trks		;save tracks if so
+2$:	cmpw	#60,r2		;cylinders?
+	bneq	3$
+	movzwl	r4,cyls		;save cylinders if so
+3$:	cmpw	#61,r2		;overall size?
+	bneq	4$
+	movl	r4,hstfz	;save size if so
+4$:
+	cmpl	r0,r7
+	blssu	100$		;if not at end keep looking
+200$:
+	popr #^m<r0,r1,r2,r3,r4,r5,r6,r7>
+	rsb
+getxor:
+	pushr #^m<r0,r1,r2,r3,r4,r5,r6,r7>
+	movzwl	-16(r3),r7	;size of record
+	addl2	r3,r7		;highest address (for end check)
+	addl3	#2,r3,r0	;point at data types with r0
+; 58 = sectors
+; 59 = trks
+; 60 = cylinders
+; 61 = device size types
+100$:
+	movzwl	(r0)+,r1	;size of data
+	beql	200$		;zero size means should be the end
+	movzwl	(r0)+,r2	;type flag
+	movl	(r0),r4		;get data (maybe with up to 3 bytes junk)
+	addl2	r1,r0		;pass data
+; now if this data is interesting pick it out
+	cmpw	#14,r2		;xor factor?
+	bneq	1$		;if not skip
+	movzwl	r4,xorsiz	;else save data
+	incl	xorsiz		;bump xorsize to include xor block
+	cmpl	xorsiz,#xormx	;too big to use?
+	bleq	200$		;if leq no, looks ok
+	incl	ixorfg		;else flag no xor action
+1$:
+	cmpl	r0,r7
+	blssu	100$		;if not at end keep looking
+200$:
+	popr #^m<r0,r1,r2,r3,r4,r5,r6,r7>
+	rsb
+;
+; GRPGET - get a complete XOR group
+; Assumes we are positioned approximately at the correct record but
+; that it gives invalid CRC and that we have to drop back to use the
+; XOR groups. Action is as follows:
+; 1. Backspace 1.5 xor groups back to ensure we pass an xor record
+;    and can find one reading forward
+; 2. Read data until we get an xor record (for the preceding group)
+; 3. Read data into fd_buf fixed area and check CRC
+; 4. Use sequence number to place data of good CRC records into xor
+;    area at xoradr and up. Invalid CRC data does not get copied
+;    there. (Trust the CRC even if hardware error is signalled.)
+; 5. If a bad CRC is encountered, flag it
+; 6. Read next record. If same sequence number as last and last was
+;    bad CRC, and this CRC is good, erase bad CRC flag and copy
+;    data.
+; 7. Continue until we get an XOR block (or have read xorsiz sequence
+;    numbers)
+; 8. If a second bad crc block is found (noting that it might disappear by
+;    having the seq # rerecorded) we fail and just return an error
+; 9. If only one bad CRC is found, zero that block and regenerate it
+;    from the XOR of the other XORSIZ-1 blocks in the group
+;10. Get a cache area in the normal region and copy all the blocks in
+;    the xor group into the normal cache (one at a time), filling in the
+;    header appropriately. Return success,
+; entry: r5 is block number desired, opcnt, currec, and curlblk
+;  are set up. rg11 has counted down from 10 retries, so initially one
+;  needs to back up by 10 records plus the xorsiz*1.5 count.
+grpget:
+	pushr	#^m<r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	tstl	crcfg		;can't do this unless we have crc
+	beql	2$
+1$:	brw	9999$
+2$:	tstl	xorsiz		;enough space for xors?
+	beql	1$		;if not exit fast
+	movl	#2,r0		;assume we can't get data this way either
+	clrq	xseq1
+	clrq	xbadcrc		;initialize locally used data
+	clrl	xcnt
+;first back up appropriate no. records
+	movl	xorsiz,wrk
+	ashl	#-1,wrk,wrk	;xorsiz/2
+	addl2	xorsiz,wrk	;+xorsiz
+; since we will sometimes bounce around to get here, try and see if
+;we should back up another 10 records. If we seem to be in the right xor group, 
+;don't move too far off.
+;this will probably be the usual path.
+	subl3	curlblk,r5,r11	;see if we are near desired blk
+	bgtr	5$
+	mnegl	r11,r11		;r11 is "distance" to desired lbn
+5$:	cmpl	r11,xorsiz	;see if over xorsiz
+	bleq	6$		;if closer than xorsiz do NOT skip back too far
+	addl2	#10,wrk		;+10
+	subl2	rg11,wrk	;-rg11 (if didn't do all retries)
+6$:
+	cmpl	wrk,currec	;don't back up past start of file
+	bleq	7$		;if leq all well
+	movl	currec,wrk	;else just go back to start
+7$:
+	mnegl	wrk,wrk		;negate since we skip back
+;	$qiow_s	#2,ddchn,#io$_skiprecord,#iosb,#-1,,,,,
+	clrq	-(sp)
+	clrq	-(sp)
+	pushl	#0
+	pushl	wrk	;pass rec cnt by ref
+	clrq	-(sp)
+	pushab	iosb
+	movzwl	#io$_skiprecord,-(sp)
+	movzwl	ddchn,-(sp)
+	pushl	#2
+	calls	#12,g^sys$qiow
+	addl2	wrk,currec	;set current record as it should be
+	mull2	fd_tbf,wrk	;get approx new lblk
+	addl2	wrk,curlblk	;and update that
+	On_ERR	9999$
+	movl	iosb,r0
+	On_ERR	9999$
+; now search for an xor record so we can start at "current" xor group
+; (as of the call here, that is.)
+	movl	#35,r2	;safety count
+10$:	$qiow_s	chan=ddchn,func=#io$_readlblk,iosb=iosb,p1=fd_data,p2=fd_siz
+	incl	currec
+	addl2	fd_tbf,curlblk
+	On_ERR	9999$
+	movl	iosb,r0
+	On_ERR	9999$
+	decl	r2
+	bgtr	19$
+	brw	9999$		;lose on countdown
+19$:	cmpw	#2,bbh$w_applic+fd_data
+	bneq	10$
+; here should be positioned at first real record of this xor group
+; zero out data area first
+	movl	xorsiz,r7
+	movl	xoradr,r8	;data area
+16$:
+	pushl	r5
+	pushl	r0
+	movc5	#0,(r8),#0,fd_siz,(r8)	;;;!!! check format...zero a blk
+	popl	r0
+	popl	r5
+	addl2	fd_siz,r8
+	sobgtr	r7,16$				;do all buffers
+;read it and get low seq number etc.
+	movl	xorsiz,r6	;number seq #s to do
+	$qiow_s	chan=ddchn,func=#io$_readlblk,iosb=iosb,p1=fd_data,p2=fd_siz
+	incl	currec
+	addl2	fd_tbf,curlblk
+	On_ERR	9999$
+	movab	fd_data,r9
+	movl	bbh$l_number(r9),xseq1	;low seq number
+	movl	xseq1,r11		;store for later comparison in loop too
+	movl	xoradr,xcnt		;store addr of data area
+	jsb	crcck			;see if data crc is ok
+	blbs	r0,11$			;if crc is ok branch
+;bad crc...
+	tstl	xbadcrc		;bad crc seen already?
+	beql	12$
+	tstl	xbadcrc+4
+	beql	13$
+113$:	brw	9999$		;fail if see 3rd bad crc
+13$:
+	movl	xbadcrc,xbadcrc+4	;push down bad crc
+12$:
+	movl	bbh$l_number(r9),xbadcrc	;store seq # with bad crc
+;go retry now
+	brb	20$
+11$:
+;see if we can pop up bad crc # from earlier seq #
+;noop for first go...
+	movl	xcnt,r8
+	pushl	r5
+	pushl	r0
+	movc3	fd_siz,(r9),(r8)	;copy the data
+	popl	r0
+	popl	r5
+20$:
+; here loop to get next record(s)
+	$qiow_s	chan=ddchn,func=#io$_readlblk,iosb=iosb,p1=fd_data,p2=fd_siz
+	incl	currec
+	addl2	fd_tbf,curlblk
+	On_ERR	9999$
+	movl	bbh$l_number(r9),r11	;sequence number this record
+	jsb	crcck			;see if data crc is ok
+	blbs	r0,21$			;if crc is ok branch
+;bad crc...
+	tstl	xbadcrc		;bad crc seen already?
+	beql	22$
+	tstl	xbadcrc+4
+	beql	23$
+	brw	9999$		;fail if see 3rd bad crc
+23$:
+	movl	xbadcrc,xbadcrc+4	;push down bad crc
+22$:
+	movl	bbh$l_number(r9),xbadcrc	;store seq # with bad crc
+;go retry now
+	cmpw	#1,bbh$w_applic(r9)	;another xor blk seen here?
+	bneq	100$			;if so branch and see about xor fixup
+	brb	20$
+21$:
+;crc good.
+;see if we can pop up bad crc # from earlier seq #
+;noop for first go...
+	cmpl	r11,xbadcrc		;same seq # as late bad crc?
+	bneq	25$			;if neq can't help it
+	movl	xbadcrc+4,xbadcrc	;pop old bad crc
+	clrl	xbadcrc+4		;and clean up evidence there had been another
+25$:
+;see if a repeat of prev rec so must back down xcnt
+	subl	xseq1,r11		;offset in seq #s
+; sanity check of seq #
+;see we don't get too far
+	movl	xorsiz,r10
+	ashl	#1,r10,r10	;2*xorsiz
+	cmpl	r11,r10		;seq # diff > 2*xorsiz?
+	blss	26$		;if lss not too far out yet
+28$:	brw	9999$		;else fail the operation
+26$:
+	mull2	fd_siz,r11		;turn into addr offset
+	addl3	xcnt,r11,r8		;form data addr
+	cmpl	r8,vmhiadr		;ensure not too high
+	bgtru	28$			;if so fail
+	pushl	r5
+	pushl	r0
+	movc3	fd_siz,(r9),(r8)	;copy the data
+	popl	r0
+	popl	r5
+;this automatically overwrites data if it was multiply recorded
+;we zeroed all first...
+	cmpw	#1,bbh$w_applic(r9)	;another xor blk seen here?
+	bneq	100$			;if so branch and see about xor fixup
+;not an xor block and not end so get more
+	brw	20$			;go grab next record folks
+100$:
+;now have all data
+;must xor if it makes sense to do so
+	tstl	xbadcrc+4		;got a 2nd bad crc?
+	bneq	28$			;if nonzero we have...can't recover
+;now we just do xors and put data into the cache
+;assume success (unless we find illegal block format)
+	movl	#1,r0
+	movl	xbadcrc,r11		;bad-crc block seq
+	beql	105$
+	subl2	xseq1,r11		;get offset to data
+	movl	r11,xcnt		;save base of our area
+;loop over all blks forming xor, stashing in extra blk
+	movl	xoradr,r7	;base addr
+	movl	fd_siz,r4
+	ashl	#-2,r4,r4		;form long count
+103$:	movl	fd_siz,r8
+	movl	xorsiz,r6	;# blks
+	clrl	r10		;accum
+102$:	xorl2	(r7),r10
+	addl2	r8,r10		;next block offset
+	sobgtr	r6,102$		;do all blks
+	movl	r10,(r11)+	;store xor data
+	tstl	(r7)+		;pass a word
+	sobgtr	r4,103$		;do all longs of all buffers
+;nbow xors are all computed; fill in 1st (xorsiz-1) blks into cache
+105$:	movl	xorsiz,r6	;get # blks to do
+	decl	r6		;(does not include xor blk)
+	movl	xoradr,r7	;where data is
+110$:	jsb	cachget		;find cache slot
+	pushl	r5
+	pushl	r0
+	movc3	fd_siz,(r7),(r9)	;store data
+	popl	r0
+	popl	r5
+	movw	#256,(r9)	;label size=256 always
+;fill in directory
+	movl	currec,(r8)	;curr. record approx
+	movl	opcnt,12(r8)	;lru counter
+	jsb	getlims		;get blk lims
+	tstl	r10		;negative lo lbn?
+	bgeq	120$
+	clrl	12(r8)		;lose and declare failure
+	clrl	(r8)
+	movl	#4,r0		;losing return
+	brb	9999$
+120$:	movl	r10,4(r8)	;save lo lbn
+	movl	r11,8(r8)	;and hi lbn
+	movl	r10,curlblk	;best estimate of current lbn
+	addl2	fd_siz,r7	;to next address
+	sobgtr	r6,110$		;do for all
+	movl	#1,r0		;all's well if here
+9999$:
+	popr	#^m<r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	rsb
+	.END FDHostD

@@ -1,0 +1,139 @@
+%TITLE 'GET_LAVINFO'
+MODULE GET_LAVINFO (IDENT='V1.0') =
+BEGIN
+!++
+! FACILITY: 	    FINGER
+!
+! ABSTRACT: 	    Reads in system load info from LAV device.
+!
+! MODULE DESCRIPTION:
+!
+!   description
+!
+! AUTHOR:   	    M. Madison
+!   	    	    Copyright © 1994, MadGoat Software.
+!   	    	    ALL RIGHTS RESERVED.
+!
+! CREATION DATE:    30-APR-1990
+!
+! MODIFICATION HISTORY:
+!
+!   30-APR-1990	V1.0	Madison	    Initial coding.
+!--
+    LIBRARY 'SYS$LIBRARY:STARLET';
+
+    EXTERNAL ROUTINE
+    	LIB$SYS_FAO 	: ADDRESSING_MODE (GENERAL);
+
+%SBTTL 'GET_LAVINFO'
+GLOBAL ROUTINE GET_LAVINFO (STR_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   description
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   GET_LAVINFO  str
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	STR 	= .STR_A    : BLOCK [,BYTE];
+
+    LOCAL
+	CHANNEL	: WORD UNSIGNED,
+	BUFFER  : VECTOR[3,LONG,SIGNED],
+	syi_itmlst	: $ITMLST_DECL (ITEMS = 3),
+	STATUS,
+	DAYS,
+	HOURS,
+	MINUTES,
+	SECONDS,
+	vms_version	: $BBLOCK[8],
+	hw_name		: $BBLOCK[32],
+	hw_name_len,
+	hw_model;
+
+    BUILTIN
+	MULF,
+	CVTFL;
+
+    EXTERNAL
+	EXE$GL_ABSTIM	: LONG UNSIGNED ADDRESSING_MODE (GENERAL);
+
+    $ITMLST_INIT (ITMLST = syi_itmlst,
+	(ITMCOD	= SYI$_VERSION,
+	 BUFSIZ	= %ALLOCATION(vms_version),
+	 BUFADR = vms_version),
+	(ITMCOD = SYI$_HW_NAME,
+	 BUFSIZ = %ALLOCATION(hw_name),
+	 BUFADR = hw_name,
+	 RETLEN	= hw_name_len),
+	(ITMCOD = SYI$_HW_MODEL,
+	 BUFSIZ	= %ALLOCATION(hw_model),
+	 BUFADR	= hw_model));
+
+    hw_name_len = 0;
+
+    $GETSYIW (ITMLST = syi_itmlst);
+
+    SECONDS = .EXE$GL_ABSTIM;
+
+    MINUTES = .SECONDS / 60;
+    SECONDS = .SECONDS MOD 60;
+
+    HOURS = .MINUTES / 60;
+    MINUTES = .MINUTES MOD 60;
+
+    DAYS = .HOURS / 24;
+    HOURS = .HOURS MOD 24;
+
+!    LIB$SYS_FAO (%ASCID'!AD running OpenVMS !AS !AD at !%D!/Uptime: !UL !2ZL:!2ZL:!2ZL!/',
+    LIB$SYS_FAO (%ASCID'OpenVMS !AS !AD at !%D  Uptime: !UL !2ZL:!2ZL:!2ZL!/',
+	    0, STR, !.hw_name_len, hw_name,
+	    (IF .hw_model GTR 1023 THEN %ASCID'AXP' ELSE %ASCID'VAX'),
+	    %ALLOCATION(vms_version), vms_version, 0,
+    	    .DAYS, .HOURS, .MINUTES, .SECONDS);
+
+    STATUS = $ASSIGN (DEVNAM=%ASCID'LAV0:', CHAN=CHANNEL);
+    IF NOT .STATUS THEN RETURN SS$_NORMAL;
+
+    STATUS = $QIOW (CHAN=.CHANNEL, FUNC=IO$_READVBLK, P1=BUFFER,
+			P2=%ALLOCATION (BUFFER));
+
+    $DASSGN (CHAN=.CHANNEL);
+    IF NOT .STATUS THEN RETURN SS$_NORMAL;
+
+    MULF (BUFFER [0], %REF (%E'100.0'), BUFFER [0]);
+    CVTFL (BUFFER [0], BUFFER [0]);
+    MULF (BUFFER [1] ,%REF (%E'100.0'), BUFFER [1]);
+    CVTFL (BUFFER [1], BUFFER [1]);
+    MULF (BUFFER [2], %REF (%E'100.0'), BUFFER [2]);
+    CVTFL (BUFFER [2], BUFFER [2]);
+    LIB$SYS_FAO (%ASCID'!ASLoad Ave: !UL.!2ZL !UL.!2ZL !UL.!2ZL!/',
+    	0, STR, str,
+	.BUFFER [0] / 100, .BUFFER [0] MOD 100,
+	.BUFFER [1] / 100, .BUFFER [1] MOD 100,
+	.BUFFER [2] / 100, .BUFFER [2] MOD 100,
+	.DAYS, .HOURS, .MINUTES, .SECONDS);
+
+    SS$_NORMAL
+
+END; ! GET_LAVINFO
+
+END
+ELUDOM

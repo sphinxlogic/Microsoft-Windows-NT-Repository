@@ -1,0 +1,994 @@
+%title 'NMAIL library module'
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1991, 1992, 1993, 1994
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	15-Mar-1985
+!
+! Revision history:
+!
+!   01  26-Sep-1985
+!	Change global literals to global variables.
+!	Add 'time first attempted' field to control record.
+!
+!   02  14-Oct-1985
+!	Add flag bit definitions SHO$V_xxx, CAN$V_xxx
+!
+!   03	19-Oct-1985
+!	Add $PRVMSK macro to generate quadword privilege masks
+!                               
+!   04  04-Nov-1985
+!	Add EXTERNAL ROUTINE NM$CHKCURPRIV
+!
+!   05	14-Nov-1985
+!	Add definition of NM$S_SHO_BUF and assorted literals;
+!	add itemlist macros
+!
+!   06  03-Dec-1985
+!	Add EXTERNAL ROUTINEs for new NM$WRITE_RPT_xxxx code in
+!	the NM$REPORTIO module (moved from NM$SHOW); add $MSGVEC
+!	macro.
+!
+!   07	21-Mar-1986
+!	Add externals for MAXRET variables
+!
+!   08	11-Apr-1986
+!	Add entry points for exec-mode services; add $STR macro
+!	for runtime descriptor initialisation; change definitions
+!	of all NM$GT_xxx strings to be byte vectors.
+!
+!   09	22-Apr-1986
+!	Add SHO$V_XPRIV flag, add STP$x_mumble flags,
+!	add CTL$V_CC to control record, remove unused STR$mumble 
+!	definitions
+!
+!   10	24-Apr-1986
+!	Make control record format be 3.  Add new SHO$V_xxx flags.
+!
+!   11	08-Sep-1986
+!	Remove old timeout control cells, add new ones: changes in
+!	network QIO timeout processing.
+!
+!   12	23-Sep-1986
+!	Remove NM$CLISUBS externals
+!
+!   13	19-Nov-1986
+!	Add external declaration for NM$CCO_RPT
+!
+!   14	26-Jun-1987
+!	Add external declaration for NM$READ_CTL_EOK, add new
+!	control record flag CTL$V_NORET
+!
+!   15	10-Aug-1987
+!	Add symbols and external routines for ANALYZE command
+!
+!   16	24-Aug-1987
+!	Add NM$TESTNUM routine
+!
+!   17	26-Aug-1987
+!	Add START QUEUE stuff
+!
+!   18	31-Aug-1987
+!	Add RFM and RAT fields to control record
+!
+!   19  23-Apr-1988
+!	Add trace-related stuff
+!
+!   20	28-Jan-1989
+!	Changes to support MAIL-11 3.1, in particular
+!	to allow compound documents to be carried.  Includes
+!	introduction of format5 control files.
+!
+!   21	5-Feb-1988
+!	Remove NM$READ_CTL_EOK, NM$READ_CTL_BLK_EOK; they are
+!	no longer used.
+!
+!   22	7-Feb-1989
+!	Remove NM$GET_QUE_FILEID
+!
+!   23	12-Feb-1989
+!	Add NM$GL_RET_PRIO, NM$GL_SUM_PRIO.
+!	Remove NM$GL_MAXRET, NM$GT_LNM_MAXRET
+!
+!   24	14-Feb-1989
+!	Add NM$GT_JOBRET, NM$GT_JOBSUM.
+!
+!   25 	18-Feb-1989
+!	Add CTL$V_CAN, CAN$V_RTS.
+!
+!   26	21-Feb-1989
+!	Add NM$USER_MSG, CTL$V_NFY.
+!
+!   27	23-Feb-1989
+!	Add routine NM$RESUBMIT_JOB
+!
+!   28	24-Feb-1989
+!	Add routine NM$FREESTR
+!
+!   29  27-Feb-1991
+!	Add routine NM$MASSAGE_QSTATUS.  Also add temporary local
+!	definitions for new queue status bits from 1990-design 
+!	queue manager (these will eventually appear in STARLET).
+!
+!   30	7-Mar-1991
+!	Add routine NM$TRIM
+!
+!   31	19-Feb-1992
+!	Remove temporary queue status definitions (see edit 29)
+!
+!   32	13-Mar-1992
+!	Increase NCB size to 512 bytes to allow for fullname
+!	support (DNA Phase V)
+!
+!   33	7-May-1992
+!	Fold in ALPHA mods made by Cathy Wright:
+!	. Change psect definitions; the ALPHA compilers don't
+!	  allow code and data in the same psect.  The change
+!	  is harmless on VAX so we do it unconditionally.
+!	. Add back the temporary local definitions removed in
+!	  edit 31; ALPHA is still using the old queue manager
+!
+!  34	3-Jul-1992
+!	Make PLIT psect noexecute on ALPHA (on VAX, making it
+!	execute saves an image section).  Add LINK psect.
+!
+!  35	7-Jul-1992
+!	$ENABLE is obsolete
+!
+!  36	12-Aug-1992
+!	Oh screw it; use default psect attributes on ALPHA.
+!	This may result in having more image sections than is
+!	strictly necessary, but it's all too complicated to mess
+!	with at the moment.
+!
+!  37	22-Sep-1993
+!	Make USS entry points "weak" to hack around the fact that 
+!	there are now calls to the exec-mode services from modules 
+!	which get linked into all Nmail images.  Make them "general 
+!	addressing-mode" since they're now in a separate protected image.
+!
+!  38	4-Oct-1993
+!	. Set up new 'initial' psect on VAX
+!	. Replace compiler-identity checks %bliss(xx) by
+!	  machine-identity checks %target(xx) as more appropriate
+!	. Add ALIAS attribute to strings which are typically passed
+!	  indirectly via item-list or RMS structure
+!	The above changes restrict us to Bliss-32 V4.7 or later on VAX.
+!
+!  39	29-Oct-1993
+!	Add $DEBUG macro
+!
+!  40	15-Nov-1993
+!	Add some symbols for new ANALYZE QUEUE/REPAIR qualifiers
+!
+!  41	18-Nov-1993
+!	Support for more information about cancellation - includes
+!	introduction of format6 control record.
+!
+!  42	28-Nov-1993
+!	Extension image support.
+!
+!  43	3-Dec-1993
+!	. Add network I/O statistics block
+!	. Remove filespec prefixes
+!
+!  44	17-Dec-1993
+!	Tweaks to extension support
+!
+!  45	13-Jan-1994
+!	Add NM$SHOW_JOB entry point
+!
+!  44   2-Mar-1994
+!	Additions to extension support (for symbiont statistics)
+!
+!--
+
+
+
+!
+! Need a few library symbols
+!
+library 'sys$library:starlet';
+
+!
+! Pull in definitions for the NM$_xxx condition codes.
+! This require file is produced by MESSAGE/SDL.
+!
+require 'nm$message';
+
+!
+! Simple literals
+!
+literal
+    true  = 1,
+    false = 0;
+
+!
+! PUTMSG message flags
+!
+literal
+    put_txt = 1 ^ 16,
+    put_idn = 1 ^ 17,
+    put_sev = 1 ^ 18,
+    put_fac = 1 ^ 19,
+    put_all = put_txt or put_idn or put_sev or put_fac;
+
+!
+! Buffer sizes
+!
+literal
+    nm$s_ctl_buf = 512,		! Control file I/O
+    nm$s_err_buf = 256,		! Reads from error message file
+    nm$s_rcv_buf = 256,		! Network receives
+    nm$s_mbx_buf = 32,		! Network mailbox messages
+    nm$s_con_dat = 16,		! Size of connect data
+    nm$s_ncb_buf = 512,		! Size of NCB buffer
+    nm$s_sho_buf = 256,		! Buffer for 'show' output
+    nm$s_msg_buf = 256;		! Buffer for GETMSGing
+
+!
+! Sizes of job controller type things
+!
+literal
+    nm$s_quenam  = 32,		! Queue name length
+    nm$s_usernam = 32,		! User name length
+    nm$s_filename= 39,		! Filename length
+    nm$s_filespec= 255,		! Filespec length
+    nm$k_maxque  = 32,		! Maximum number of execution queues
+    nm$k_maxfile = 32;		! Maximum files per job
+
+!
+! Other assorted parameters
+!
+literal
+    nm$s_lnm     = 256,		! Length of logical name equivalence
+    nm$s_prcnam  = 16,		! Process name size
+    nm$k_tr_len  = 16,		! Length of traced data
+    nm$k_brktmo  = 60;		! Timeout on $BRKTHRU output
+
+!
+! Device name / directory ID / file ID info from NAM block
+! (These three fields are assumed to be contiguous; the composite
+!  value uniquely identifies a file)
+!
+literal
+    nm$s_fileid = nam$s_dvi + nam$s_did + nam$s_fid;
+
+!
+! Callout data structure, for Nmail extension routines
+! called from NM_MAILSHR.EXE or NM$DAEMON.EXE.
+!
+macro
+    nmx$l_size       =  0,0,32,0 %,	! Count of longwords following
+    nmx$l_version    =  4,0,32,0 %,	! Interface version (high word = major)
+    nmx$a_start      =  8,0,32,0 %,	! Initialisation
+    nmx$a_sendaddr   = 12,0,32,0 %,	! Routine to modify address
+    nmx$a_finish     = 16,0,32,0 %,	! Termination (normal/abnormal)
+    nmx$a_symbstart  = 20,0,32,0 %,	! Job initialisation 
+    nmx$a_symbstats  = 24,0,32,0 %,	! Job-step statistics routine
+    nmx$a_symbfinish = 28,0,32,0 %;	! Job termination 
+literal
+    nmx$s_nmxblk    = 32,		! Structure size in bytes
+    nmx$k_version   = (1^16)+2;		! High word = major, low word = minor
+
+!
+! Network I/O statistics block
+!
+macro
+    stat$l_links    =  0,0,32,0 %,	! Logical links connected
+    stat$l_msgs_tx  =  4,0,32,0 %,	! Messages transmitted
+    stat$l_bytes_tx =  8,0,32,0 %,	! Bytes transmitted
+    stat$l_msgs_rx  = 12,0,32,0 %,	! Messages received
+    stat$l_bytes_rx = 16,0,32,0 %;	! Bytes received
+literal
+    stat$s_stats    = 20;		! Structure size in bytes
+
+!
+! Program section definiton
+!
+macro
+    $nmail_psects =
+	psect 
+	%if %target(vax)
+	%then
+	    own     = _nmail$data (write,   noexecute, noshare),
+	    global  = _nmail$data (write,   noexecute, noshare),
+	    plit    = _nmail$plit (nowrite, execute,   share  ),
+	    initial = _nmail$init (nowrite, execute,   share  ),
+	    code    = _nmail$code (nowrite, execute,   share  );
+	%else 
+	%if %target(alpha)
+	%then
+	    own     = _nmail$data,
+	    global  = _nmail$data,
+	    plit    = _nmail$plit,
+	    initial = _nmail$init,
+	    code    = _nmail$code,
+	    link    = _nmail$link;
+	%else
+	    %errormacro('unknown target')
+	%fi
+	%fi
+    %,
+
+    read_only = 
+	psect(_nmail$plit)
+    %,
+ 
+    read_write =
+	psect(_nmail$data)
+    %;
+        
+!
+! Macro to create a single flag definition, where 
+! the bit number is specified by the user.  Also, the
+! offset-in-structure can be specified.
+!
+macro
+    $bitdef(tag,xxx,off,nbit) =
+    	literal %name(tag,'$m_',xxx) = 1 ^ nbit;
+	macro %name(tag,'$v_',xxx) = off,nbit,1,0 %quote %;
+    %;
+
+!
+! Macro to create several flag definitions -- bit numbers are
+! assigned sequentially by the macro.  The structure offset
+! is always zero.
+!
+macro 
+    $bits(tag)[xxx] =  
+	%if not %identical(xxx,-)
+	%then
+	    $bitdef(tag,xxx,0,%count)
+	%fi
+    %;
+
+!                                       
+! Descriptor structure
+!
+macro 
+    descrip = block[dsc$c_s_bln,byte] % ;
+
+!
+! Descriptor intialisation
+!
+macro
+    $dynamic = word(0), 
+    	       byte(dsc$k_dtype_t, dsc$k_class_d),
+    	       long(0)        
+    % ,
+
+    $static  = word(0), 
+    	       byte(dsc$k_dtype_t, dsc$k_class_s),
+    	       long(0)
+    % ,
+
+    $str(x)  = descrip 
+	       initial(%charcount(x), uplit byte(x))
+    % ;    
+
+!
+! Macro to create a counted string
+!
+macro
+    $ascic(str) =
+	uplit byte (%ascic str)
+    % ;
+
+!
+! Macro to create a quadword privilege mask and
+! return its address
+!
+macro 
+    $prvmsk [] =
+	begin
+	own ___msk : block[8,byte] read_only preset($$$genprv(%remaining));
+	___msk
+	end
+    %,
+
+    $$$genprv [priv] =
+    	[%name('PRV$V_',priv)] = 1
+    %;
+
+!
+! Itemlist macros
+!
+macro
+    $itemlist [] =
+	%if (%length/4)*4 neq %length %then %error('incorrect args') %fi
+	vector[(%length/4) * 3 + 1]
+	initial($$$item[%remaining], long(0))
+     %,
+
+    $$$item [code, len, addr, retlen] =
+    	word(len), word(code), long(addr), long(retlen)
+    %;
+
+!
+! Message vector builder
+!
+macro
+    $msgplit [] =
+	uplit (
+	      word(%length, put_txt^-16),
+	      long(%remaining)
+	      ) : vector
+    %,
+
+    $msgvec [] =
+	vector[%length+1]
+	initial(word(%length, put_txt^-16), long(%remaining))
+    %;
+
+!
+! Generic block offsets
+!
+macro
+    byte0 = 0,0,8,0 %,
+    byte1 = 1,0,8,0 %,
+    byte2 = 2,0,8,0 %,
+    byte3 = 3,0,8,0 %,
+    byte4 = 4,0,8,0 %,
+    byte5 = 5,0,8,0 %,
+    byte6 = 6,0,8,0 %,
+    byte7 = 7,0,8,0 %,
+
+    word0 = 0,0,16,0 %,
+    word1 = 2,0,16,0 %,
+    word2 = 4,0,16,0 %,
+    word3 = 6,0,16,0 %,
+
+    long0 = 0,0,32,0 %,
+    long1 = 4,0,32,0 %;
+
+!
+! New queue status bits; as of VMS V5.5, these are
+! defined in STARLET.  Until then, we define them
+! locally.
+!
+%if not %declared(qui$m_queue_busy)
+%then
+    literal qui$m_queue_busy      		= 65536;
+    literal qui$m_queue_undefined 		= 131072;
+    literal qui$m_queue_available   		= 262144;
+    literal qui$m_queue_disabled            	= 524288;
+    literal qui$m_queue_auto_start_inactive 	= 1048576;
+    literal qui$m_queue_stop_pending 		= 2097152;
+    macro qui$v_queue_busy 			= 0,16,1,0 %; 
+    macro qui$v_queue_undefined 		= 0,17,1,0 %; 
+    macro qui$v_queue_available 		= 0,18,1,0 %; 
+    macro qui$v_queue_disabled 			= 0,19,1,0 %; 
+    macro qui$v_queue_auto_start_inactive 	= 0,20,1,0 %; 
+    macro qui$v_queue_stop_pending 		= 0,21,1,0 %; 
+%fi
+
+
+!
+! Quadword arithmetic
+!
+macro
+    $movq (src, dest) =
+	begin
+	bind qs = src : vector[2], qd = dest : vector[2];
+	qd[0] = .qs[0];
+	qd[1] = .qs[1];
+	end
+    %,
+
+    $cmpq (src, dest) =
+    	begin
+        builtin cmpm;
+        cmpm(2, src, dest)
+        end
+    %,
+
+    $zeroq(src) =
+	begin
+	bind qs = src : vector[2];
+        (.qs[0] eql 0 and .qs[1] eql 0)
+	end
+    %,
+
+    $subq (op1, op2, dest) =
+    	begin
+        builtin subm;
+	subm(2, op1, op2, dest)
+        end
+    %,
+
+    $addq (op1, op2, dest) =
+    	begin
+        builtin addm;
+	addm(2, op1, op2, dest)
+        end
+    %;
+
+!
+! Macros to disguise some differences between VAX and ALPHA
+!
+macro
+    $setstatus(mch, sts) =
+	begin
+	map mch : ref block[,byte];
+	%if %target(vax)
+	%then
+	    mch[chf$l_mch_savr0] = (sts);
+	%else
+	%if %target(alpha)
+	%then
+	    mch[chf$il_mch_savr0_low]  = (sts);
+	    mch[chf$il_mch_savr0_high] = 0;
+	%else
+	    %errormacro('unknown target')
+	%fi
+	%fi
+	end
+    %;
+
+!
+! Crude debugging-output macro.  Not intended to be
+! left in the code permanently, since it uses a different
+! output buffer for every invocation.
+!
+macro 
+    $debug(string)[] =
+	begin
+	external routine lib$put_output : addressing_mode(general);
+	%if %length gtr 1 
+	%then
+    	    local __proto : $str(string);
+	    local __buff  : vector[80,byte] alias;
+	    local __dsc   : descrip initial (80,__buff);
+	    $fao(__proto, __dsc, __dsc, %remaining);
+	    lib$put_output(__dsc)
+	%else
+    	    local __msg : $str(string);
+	    lib$put_output(__msg)
+	%fi
+	end
+    %;
+
+!
+! NM$FILEIO routines
+!
+external routine
+    nm$create_ctl_file		: addressing_mode(word_relative) novalue,
+    nm$open_ctl_file		: addressing_mode(word_relative) novalue,
+    nm$close_ctl_file		: addressing_mode(word_relative) novalue,
+    nm$rundown_ctl		: addressing_mode(word_relative) novalue,
+    nm$read_ctl			: addressing_mode(word_relative),
+    nm$read_by_rfa		: addressing_mode(word_relative) novalue,
+    nm$update_ctl		: addressing_mode(word_relative) novalue,
+    nm$write_ctl		: addressing_mode(word_relative) novalue,
+    nm$get_rfa			: addressing_mode(word_relative) novalue,
+    nm$point_rfa		: addressing_mode(word_relative) novalue,
+    nm$rewind_ctl		: addressing_mode(word_relative) novalue,
+    nm$point_eof_ctl		: addressing_mode(word_relative) novalue,
+    nm$flush_ctl		: addressing_mode(word_relative) novalue,
+    nm$pad_blk_ctl		: addressing_mode(word_relative) novalue,
+    nm$chk_aligned		: addressing_mode(word_relative),
+    nm$read_ctl_blk		: addressing_mode(word_relative),
+    nm$write_ctl_blk		: addressing_mode(word_relative) novalue,
+    nm$get_vbn      		: addressing_mode(word_relative),
+    nm$point_vbn		: addressing_mode(word_relative) novalue;
+  
+!
+! NM$REPORTIO routines
+!
+external routine
+    nm$create_rpt_file		: addressing_mode(word_relative) novalue,
+    nm$create_rptsho_file	: addressing_mode(word_relative) novalue,
+    nm$close_rpt_file		: addressing_mode(word_relative) novalue,
+    nm$rundown_rpt		: addressing_mode(word_relative) novalue,
+    nm$read_rpt			: addressing_mode(word_relative) novalue,
+    nm$update_rpt		: addressing_mode(word_relative) novalue,
+    nm$write_rpt		: addressing_mode(word_relative) novalue,
+    nm$write_rpt_fao		: addressing_mode(word_relative) novalue,
+    nm$write_rpt_vec		: addressing_mode(word_relative) novalue,
+    nm$write_rpt_blk		: addressing_mode(word_relative) novalue,
+    nm$rewind_rpt		: addressing_mode(word_relative) novalue,
+    nm$cco_rpt			: addressing_mode(word_relative) novalue,
+    nm$pad_blk_rpt		: addressing_mode(word_relative) novalue,
+    nm$get_vbn_rpt		: addressing_mode(word_relative);
+
+!
+! NM$ERRORIO routines
+!
+external routine
+    nm$open_err_file		: addressing_mode(word_relative),
+    nm$close_err_file		: addressing_mode(word_relative),
+    nm$read_err			: addressing_mode(word_relative);
+
+!
+! NM$TRACE routines
+!
+external routine 
+    nm$open_trace		: addressing_mode(word_relative) novalue,
+    nm$close_trace		: addressing_mode(word_relative) novalue,
+    nm$write_trace		: addressing_mode(word_relative) novalue;
+
+!
+! NM$NETIO routines
+!
+external routine
+    nm$net_connect		: addressing_mode(word_relative) novalue,
+    nm$net_disconnect		: addressing_mode(word_relative) novalue,
+    nm$net_send			: addressing_mode(word_relative) novalue,
+    nm$net_receive		: addressing_mode(word_relative) novalue,
+    nm$net_abort		: addressing_mode(word_relative) novalue;
+
+!
+! NM$MAIL routines
+!
+external routine
+    nm$submit_job		: addressing_mode(word_relative);
+
+!
+! NM$SEND routines
+!
+external routine
+    nm$send_mail		: addressing_mode(word_relative);
+
+!
+! NM$SHOW routines
+!
+external routine
+    nm$show_queue		: addressing_mode(word_relative),
+    nm$show_job			: addressing_mode(word_relative),
+    nm$do_show_display		: addressing_mode(word_relative) novalue;
+
+!
+! NM$CANCEL routines
+!
+external routine
+    nm$cancel_entry		: addressing_mode(word_relative);
+    
+!
+! NM$RELEASE routines
+!
+external routine
+    nm$release_entry		: addressing_mode(word_relative);
+    
+!
+! NM$STOP routines
+!
+external routine
+    nm$stop_queues		: addressing_mode(word_relative);
+
+!
+! NM$START routines
+!
+external routine
+    nm$start_queues		: addressing_mode(word_relative);
+
+!
+! NM$REPAIR routines
+!
+external routine
+    nm$repair			: addressing_mode(word_relative);
+
+!
+! NM$SUBS routines
+!
+external routine
+    nm$rms_error		: addressing_mode(word_relative),
+    nm$get_filespec		: addressing_mode(word_relative) novalue,
+    nm$unique_name		: addressing_mode(word_relative) novalue,
+    nm$opr_msg			: addressing_mode(word_relative),
+    nm$user_msg			: addressing_mode(word_relative),
+    nm$parse_token		: addressing_mode(word_relative),
+    nm$trim			: addressing_mode(word_relative),
+    nm$chk_ctl_file		: addressing_mode(word_relative),
+    nm$trnlnm			: addressing_mode(word_relative),
+    nm$load_strings		: addressing_mode(word_relative) novalue,
+    nm$get_defdata		: addressing_mode(word_relative),
+    nm$get_extension		: addressing_mode(word_relative),
+    nm$testnum			: addressing_mode(word_relative),
+    nm$chkpriv			: addressing_mode(word_relative),
+    nm$chkcurpriv		: addressing_mode(word_relative),
+    nm$freestr			: addressing_mode(word_relative),
+    nm$username			: addressing_mode(word_relative);
+
+!
+! NM$QUESUBS routines
+!
+external routine
+    nm$sndjbc			: addressing_mode(word_relative),
+    nm$getqui			: addressing_mode(word_relative),
+    nm$get_que_list		: addressing_mode(word_relative),
+    nm$next_queue		: addressing_mode(word_relative),
+    nm$find_entry		: addressing_mode(word_relative),
+    nm$resubmit_job		: addressing_mode(word_relative),
+    nm$pokeuser			: addressing_mode(word_relative),
+    nm$massage_qstatus		: addressing_mode(word_relative);
+
+!
+! NM$USS routines
+!
+external routine
+    nm$uss_create_ctl_file	: addressing_mode(general) weak,
+    nm$uss_close_ctl_file	: addressing_mode(general) weak,
+    nm$uss_submit_job		: addressing_mode(general) weak;
+
+!
+! NM$DATA read-only data
+!
+external
+    nm$gt_version		: vector[,byte] addressing_mode(word_relative),
+    nm$gt_def_delta		: vector[,byte] addressing_mode(word_relative),
+    nm$gt_min_delta		: vector[,byte] addressing_mode(word_relative),
+    nm$gt_def_expiry		: vector[,byte] addressing_mode(word_relative),
+    nm$gq_def_delta		: vector[2] addressing_mode(word_relative),
+    nm$gq_min_delta		: vector[2] addressing_mode(word_relative),
+    nm$gq_def_expiry		: vector[2] addressing_mode(word_relative),
+    nm$gt_work_def		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_show_fspec		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_show_def		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_err_fspec		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_err_def		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_tr_fspec		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_tr_def		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_queue			: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_jobname		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_jobrpt		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_jobsum		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_jobret		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_daemon		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_prcnam		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_lnmtbl		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_lnm_expire		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_lnm_delta		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_lnm_trace		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gt_lnm_extn		: vector[,byte] addressing_mode(word_relative) alias,
+    nm$gl_sndtmo		: addressing_mode(word_relative),
+    nm$gl_rcvtmo		: addressing_mode(word_relative),
+    nm$gl_rpt_prio		: addressing_mode(word_relative),
+    nm$gl_ret_prio		: addressing_mode(word_relative),
+    nm$gl_sum_prio		: addressing_mode(word_relative),
+    nm$gl_abort_send		: addressing_mode(word_relative) volatile,
+    nm$gl_phase			: addressing_mode(word_relative) volatile,
+    nm$gl_trace			: bitvector[%bpval] addressing_mode(word_relative),
+    nm$iostats			: block[stat$s_stats,byte] addressing_mode(word_relative),
+    nm$nmx			: block[nmx$s_nmxblk,byte] addressing_mode(word_relative);
+
+
+!
+! Library routines
+!
+external routine
+    lib$asn_wth_mbx		: addressing_mode(general),
+    lib$get_ef		        : addressing_mode(general),
+    lib$get_vm		        : addressing_mode(general),
+    lib$free_vm		        : addressing_mode(general),
+    lib$sfreen_dd	        : addressing_mode(general),
+    lib$cvt_dtb			: addressing_mode(general),
+    lib$insert_tree		: addressing_mode(general),
+    lib$traverse_tree		: addressing_mode(general),
+    lib$file_scan		: addressing_mode(general),
+    lib$file_scan_end		: addressing_mode(general),
+    lib$find_image_symbol	: addressing_mode(general),
+    str$copy_dx			: addressing_mode(general),
+    str$copy_r			: addressing_mode(general),
+    str$concat			: addressing_mode(general),
+    str$append			: addressing_mode(general),
+    str$get1_dx			: addressing_mode(general),
+    str$free1_dx		: addressing_mode(general),
+    str$match_wild		: addressing_mode(general),
+    str$trim			: addressing_mode(general),
+    str$upcase			: addressing_mode(general);
+
+!
+! Control file master record
+!
+macro
+    ctl$b_flags  = 0,0,8,0   % ,	! Flags byte
+    ctl$b_form   = 1,0,8,0   % ,	! File format (version number)
+    ctl$w_nm     = 2,0,16,0  % ,	! Always ascii 'NM'
+    ctl$w_natt   = 4,0,16,0  % ,	! Number of attempts made, 0=none
+    ctl$w_mxatt  = 6,0,16,0  % ,	! Maximum attempts allowed, 0=infinite
+    ctl$q_qued   = 8,0,0,0   % ,	! Absolute time queued, 0=unknown
+    ctl$q_time	 = 16,0,0,0  % ,	! Absolute time last attempted, 0=never
+    ctl$q_expir  = 24,0,0,0  % ,	! Absolute /EXPIRE time, 0=default 
+    ctl$q_delta  = 32,0,0,0  % , 	! Requeue delta time, 0=default
+    ctl$q_first  = 40,0,0,0  % ,	! Absolute time first attempted, 0=never
+    ctl$b_rfm	 = 48,0,8,0  % ,	! Record format
+    ctl$b_rat	 = 49,0,8,0  % ,	! Record attributes
+    ctl$b_org    = 50,0,8,0  % ,	! File organization
+    ctl$b_rsv1   = 51,0,8,0  % ,	! -Spare-
+    ctl$l_sysatt = 52,0,32,0 % ,	! System attributes bits
+    ctl$l_sotvbn = 56,0,32,0 % ,	! VBN containing first block of text
+    ctl$l_eotvbn = 60,0,32,0 % ,	! VBN containing last block of text
+    ctl$w_eotoff = 64,0,16,0 % ,	! Offset-in-block past end of text
+    ctl$w_canrfa0= 66,0,16,0 % ,	! RFA of
+    ctl$w_canrfa2= 68,0,16,0 % ,	!  cancellation
+    ctl$w_canrfa4= 70,0,16,0 % ;	!   record
+literal
+    ctl$k_nm   = 'NM',			! Constant in the 'NM' field 
+    ctl$k_form = 6,	       		! Current format is '6'
+    ctl$s_hdr  = 72;			! Size of format 6 control record
+
+!
+! Control record flag bits
+!
+$bits(ctl, 
+	norpt,				! Do not report on this one
+	summ,				! Send summary at end of run
+	noret,				! Do not return text to sender
+	can,				! Cancelled by request
+	blk,				! Attempt to send in block mode
+	nfy,				! Notify user of first-run result
+	-,				! -spare-
+	for				! Message is foreign document
+	);
+
+!
+! Address record
+!
+macro
+    addr$b_flags = 0,0,8,0  % ,		! Flags byte
+    addr$b_err   = 1,0,8,0  % ,		! Error type  (err$k_xxx)
+    addr$w_rfa0  = 2,0,16,0 % ,		! RFA of
+    addr$w_rfa2  = 4,0,16,0 % ,		!  error
+    addr$w_rfa4  = 6,0,16,0 % ,		!   text
+    addr$q_time  = 8,0,0,0 % ,		! Absolute time sent/failed/attempted
+    addr$t_text  = 16,0,8,0 % ;		! First byte of address text
+literal
+    addr$s_hdr = 16;			! Size of header (i.e. all except text)
+
+!
+! Address record flag bits
+!
+$bits(addr,
+	done,				! Sent ok, or hard error
+	-,				! -spare-
+	-,				! -spare-
+	-,				! -spare-
+	run,				! Being processed this run
+	pass,				! To be processed this pass
+	msg,				! Message exists
+	-				! -spare-
+	);
+
+!
+! Error message header record
+!
+macro
+    err$b_type = 0,0,8,0 % ;		! Error type
+literal
+    err$s_hdr = 1;
+
+!
+! Error type codes. Note that these values are assumed by code
+! all over the place and should therefore not be changed.
+!
+literal
+    err$k_sent  = 0,			! Sent ok
+    err$k_unk   = 0,			! (Not yet analysed)
+    err$k_hard  = 1,			! Hard
+    err$k_soft  = 2,			! Soft
+    err$k_expir = 3,			! Soft, expired
+    err$k_canc  = 4,			! Soft, cancelled
+    err$k_zzzz  = 5;			! Maximum code in use, plus one
+
+!
+! Cancellation message header record
+!
+macro
+    can$b_type = 0,0,8,0  %,		! Cancel type
+    can$r_rsv1 = 1,0,24,0 %,		! -Spare-
+    can$l_rsv2 = 4,0,32,0 %,		! -Spare-
+    can$q_time = 8,0,0,0  %,		! Cancellation time
+    can$t_user = 16,0,0,0 %;		! User who cancelled - variable size
+literal
+    can$s_hdr  = 16;			! Size of header (not including username)
+
+!
+! Cancel type codes, disjoint from error type codes
+!
+literal
+    can$k_can  = 16+0,			! Normal cancel command
+    can$k_3rdp = 16+1,			! Third-party cancel (/USER)
+    can$k_rep  = 16+2,			! Queue repair
+    can$k_zzzz = 16+3;			! Max code in use, plus one
+
+!
+! Phase codes, used only for tracing purposes
+!
+literal
+    ph$k_null = 0,			! Inactive
+    ph$k_conn = 1,			! Connecting
+    ph$k_from = 2,			! From
+    ph$k_addr = 3,			! Address
+    ph$k_to   = 4,			! To-list
+    ph$k_cc   = 5,			! CC-list
+    ph$k_subj = 6,			! Subject
+    ph$k_attr = 7,			! Attributes
+    ph$k_text = 8,			! Message text
+    ph$k_sts  = 9,			! Waiting for status
+    ph$k_disc = 10,			! Disconnecting
+    ph$k_txt1 = 11,			! Untraced message text (NM$TRACE use)
+    ph$k_txt2 = 12;			! Ditto
+
+!
+! SHOW modes. Again, assumptions exist about ordering and values
+!
+literal
+    sho$k_brief = 0,			! /BRIEF
+    sho$k_mid   = 1,			! the default
+    sho$k_full  = 2;			! /FULL
+
+! 
+! SHOW flags.
+!
+$bits(sho, 				!
+	all,                            ! /ALL
+	user,                           ! /USER=xxx
+	xpriv,                          ! Omit private info
+	sent,                           ! /STATUS=SENT
+	unse,                           ! /STATUS=UNSENT
+	fail,                           ! /STATUS=FAILED
+	expi,                           ! /STATUS=EXPIRED
+	canc                            ! /STATUS=CANCELLED
+	);                              !
+
+! 
+! CANCEL flags
+!
+$bits(can,				!
+	log,				! /LOG
+	user,				! /USER=xxx
+	rts				! /RETURN
+	);                              !
+
+!
+! RELEASE bits
+!
+$bits(rel,
+	log,				! /LOG
+	user				! /USER=xxx
+	);                              !
+
+!
+! STOP flags
+!
+$bits(stp,				!
+	log,				! /LOG
+	okno,				! /OKNONE
+	del				! /DELETE
+	);				!
+
+!
+! START flags
+!
+$bits(str,				!
+	log				! /LOG
+	);				!
+
+!
+! ANALYZE/REPAIR flags
+!
+$bits(anl,				! 
+	log,				! /LOG (not used)
+	repair,				! /REPAIR 
+	conf,				! /CONFIRM
+	hold,				! /HOLD
+	rts,				! /RETURN
+	before,				! /BEFORE=date
+	since				! /SINCE=date
+	);				!
+
+!
+! End of NM$LIBRARY
+!

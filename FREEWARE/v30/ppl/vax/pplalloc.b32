@@ -1,0 +1,218 @@
+module ppl$alloc (ident='V57-001', addressing_mode (external=general)) =
+begin
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1986 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+!
+
+!++
+!
+! FACILITY:	PPL Facility of the VAX RTL (Parallel Processing Library)
+!
+! ABSTRACT:
+!
+!	This module contains code to manage allocation of memory in
+!	*the* PPL global section.
+!	It contains no user-visible services.
+!
+! ENVIRONMENT:	VAX/VMS user mode
+!
+! AUTHOR: Peter D Gilbert, CREATION DATE:  7-OCT-1986
+!
+! MODIFIED BY:
+!
+!	X01-000		Original
+!
+!	X01-001		Set the Ident to 'X01-000'.		CMF  26-Jan-1987
+!
+!	X01-002		To correct Ident to match cms res num.	CMF  26-JAN-1987
+!
+!	V051-001	Replaced references to CTX[CTX_L_PPLSECT_ADR] and the
+!			local variable, PPLSECT, with the global variable
+!			PPL$$GL_PPLSECT.			WWS  09-Sep-1988
+!
+!	V53-001		Replaced UTIL$OUTPUT by DEBUG_MSG_	WWS  28-Apr-1989
+!
+!	V53-002		Changed DEBUG_MSG_ to take a string	WWS  09-May-1989
+!			literal instead of an %ascid
+!
+!	V53-003		Removed the pass of ppl$gl_pplsect to	PJC  15-Aug-1989
+!			ppl$$init_bitmap
+!	V57-001		EVMS/Alpha port: Removed local use of	PJC  12-Nov-1991
+!			builtin, placed in ppllib.req
+!-
+library	'sys$library:starlet';
+library	'sys$library:xport';
+undeclare %quote $descriptor;
+library	'obj$:ppllib';
+require 'rtlin:rtlpsect';
+declare_psects (ppl);
+
+forward routine
+	ppl$$allocate,
+	ppl$$deallocate,
+	ppl$$init_bitmap:	novalue;
+
+linkage
+	jsb_bits = jsb(	! Linkage for ppl$$alloc_bits (ppl$$dealloc_bits)
+	    register=5,	! Number of bits to allocate (number of bits to free)
+	    register=0,	! Byte length of bitmap (offset of first bit to free)
+	    register=6)	! Address of the bitmap
+	  : nopreserve (0,1,2,3) preserve (5,6) notused (4,7,8,9,10,11);
+
+external routine
+	ppl$$alloc_bits:	jsb_bits,
+	ppl$$dealloc_bits:	jsb_bits;
+
+external
+	ppl$$gl_pplsect	: ref pplsect_block,
+	ppl$$gl_context	: ref ctx_block;	! Our context
+
+
+! This module makes use of the fact that alc_k_quantum is a power of two
+! to avoid some multiplies and divides, using shifts instead.
+!
+assert_(is_power_of_two_(alc_k_quantum))
+literal
+	k_lg_quantum =	ln2_(alc_k_quantum);	! Log2 of alc_k_quantum
+
+global routine ppl$$allocate (
+	size		! Number of bytes to allocate
+	) =
+begin
+local
+	xsize,
+	frees:	word,
+	offset;
+
+
+    ! Allocate some memory in *the* PPL section, and return the byte offset
+    ! within the section of the allocated storage, or 0 if we were unable
+    ! to allocate any storage.
+    !
+    xsize = (.size + alc_k_quantum-1) ^ -k_lg_quantum;	! Quantums to allocate
+    while true do
+	begin
+	frees = .ppl$$gl_pplsect[pplsect_w_bitmap_frees];	! Save number of frees
+	offset = ppl$$alloc_bits (.xsize,
+	    .ppl$$gl_pplsect[pplsect_l_bitmap_len],
+	     ppl$$gl_pplsect[pplsect_a_bitmap]);
+	debug_msg_(2, 'Index: !UL, !XL = ppl$$allocate(!XL)',
+	    .ppl$$gl_context[ctx_l_my_index], .offset, .size);
+	if .offset geq 0 then exitloop;
+	if .frees eql .ppl$$gl_pplsect[pplsect_w_bitmap_frees]
+	then
+	    return 0;
+	end;
+    return .ppl$$gl_pplsect[pplsect_l_bitmap_off] + .offset ^ k_lg_quantum;
+
+end; !ppl$$allocate
+
+
+
+global routine ppl$$deallocate (
+	size,		! Number of bytes to allocate
+	offset		! Byte offset within the section of the storage
+	) =
+    begin
+    local
+	xsize;
+
+
+    xsize = (.size + alc_k_quantum-1) ^ -k_lg_quantum;	! Quantums to deallocate
+    adawi (%ref(1), ppl$$gl_pplsect[pplsect_w_bitmap_frees]);	! Bump the clock
+    ppl$$dealloc_bits (.xsize,
+	(.offset - .ppl$$gl_pplsect[pplsect_l_bitmap_off]) ^ -k_lg_quantum,
+	ppl$$gl_pplsect[pplsect_a_bitmap]);
+    adawi (%ref(1), ppl$$gl_pplsect[pplsect_w_bitmap_frees]);	! Bump the clock
+
+    return ss$_normal;
+
+end; !ppl$$deallocate
+
+global routine ppl$$init_bitmap : novalue =
+    begin
+    !
+    ! Based on pplsect_l_size, we need to initialize the bitmap.
+    !
+    ! Since we must allocate %upval bytes of zero past the end of the bitmap
+    ! (this is required by the ppl$$alloc_bits routines), and each other bit
+    ! in the bitmap represents alc_k_quantum bytes, we want to set bmsize
+    ! (the size of the bitmap in bytes) to the smallest value such that:
+    !
+    !	.bmsize + %upval + .bmsize * %bpunit * alc_k_quantum
+    !		geq 
+    !	.pplsect[pplsect_l_size] - %fieldexpand_(pplsect_a_bitmap,0)
+    !
+    literal
+	k_bm = %fieldexpand_(pplsect_a_bitmap,0),
+	k_denom = %bpunit * alc_k_quantum + 1;
+    local
+	bmsize,		! Number of bytes for the bitmap.
+	temp;
+
+    bmsize = (.ppl$$gl_pplsect[pplsect_l_size]-k_bm-%upval+(k_denom-1))/k_denom;
+
+
+    ! So far, so good.  But the storage we manage should be quantum aligned.
+    ! Align the first piece on a quantum, and the rest will follow.
+    !
+    temp = ((k_bm + .bmsize + %upval) + (alc_k_quantum-1))
+	    and not (alc_k_quantum-1);
+    ppl$$gl_pplsect[pplsect_l_bitmap_off] = .temp;  ! Byte offset to first piece
+
+
+    ! Figure the number of bytes of storage we'll manage.
+    !
+    temp = (.ppl$$gl_pplsect[pplsect_l_size] - .temp) and not (alc_k_quantum-1);
+    if (.temp and (alc_k_quantum-1)) neq 0 then return signal (ppl$_badlogic);
+
+
+    ! The alignment may've freed a few more bytes for the bitmap.
+    ! So what?  Well, grab them back anyway.
+    !
+    bmsize = .ppl$$gl_pplsect[pplsect_l_size] - .temp - k_bm - %upval;
+    ppl$$gl_pplsect[pplsect_l_bitmap_len] = .bmsize;
+
+
+    ! Now it's possible that the above calculation is off slightly.
+    ! To guard against that possibility, we take care to set, in the bitmap,
+    ! *only* those bits that correspond to valid quantums.
+    !
+    temp = .temp ^ -k_lg_quantum;		! Number of quantums
+    if .temp gtru .bmsize * %bpunit then return signal (ppl$_badlogic);
+
+
+    ! Set the first .temp bits of the bitmap.
+    !
+    begin local ptr;
+    ptr = ch$fill (not 0, .temp / %bpunit, ppl$$gl_pplsect[pplsect_a_bitmap]);
+    ch$fill (0, .bmsize + %upval - .temp / %bpunit, .ptr);	! Clear the rest
+    .ptr = 1^(.temp mod %bpunit) - 1;		! Set the miscellaneous bits
+    end;
+
+end; !ppl$$init_bitmap
+
+
+end
+eludom	

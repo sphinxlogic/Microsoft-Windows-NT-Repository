@@ -1,0 +1,572 @@
+
+
+
+
+	.library	/sys$login:peb/
+	.library	/sys$library:lib/
+	$prvdef
+	$Maildef
+	$hlpdef
+        $notesdef
+	$NOTESMSGDEF
+	NOTEITEMS
+	$ttdef
+ 	$tt2def
+	$brkdef
+	$Fscndef
+
+
+
+
+in_fab:	$fab	fac=<get>,dnm=<Notes$library:.Note>,nam=nam,-
+		shr=<put,get,del,upd>
+in_rab:	$rab	fab=in_fab,usz=10000,rsz=10000,ubf=buffer,rbf=buffer,-
+		rac=key,ksz=4,kbf=KEY
+
+
+
+
+out_fab:	$fab	fac=<get,put,upd>
+out_rab:	$rab	fab=out_fab,usz=10000,rsz=10000,ubf=buffer, -
+			rbf=buffer
+
+
+
+buffer:	.blkb	10000
+
+
+
+nam:    $nam    rsa=result,-
+                rss=200,-
+                esa=exp,-
+                ess=200
+
+result:	.blkb	200
+exp:	.blkb	200
+
+
+key:	.blkl	1
+
+input:	.long	100
+	.long	input+8
+	.blkb	100
+
+
+file_cont:	.blkl	1
+
+Source:	.ascid	/SOURCE/
+target:	.ascid	/TARGET/
+
+open_in:	.ascid	/Open the input conf file/
+
+
+	.MACRO	CHECK	AR0,AERROR,?L3
+	BLBS	AR0,L3
+	$exit_s	code=AR0
+L3:	NOP
+	.ENDM	CHECK
+
+
+
+	.entry	rebuild,0
+
+; get the source file name
+
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  source
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+	pushaq	open_in
+	calls	#1,g^lib$put_output
+
+
+; get some details about the input file
+;
+; Topics and Replies
+; High_Uid 
+; Topics
+
+	movw	input, find_in
+	movab	input+8, find_in+4
+
+
+        pushaw  find_out
+        pushaw  find_in
+        pushal  file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+
+	pushaq	get_mod
+	calls	#1,g^lib$put_output
+
+
+
+        pushaw  null
+        pushaw  open_m
+        pushal  file_cont
+        calls   #3,G^Notes$notefile_modify
+	check	r0,error
+
+
+
+
+	movw	input_title_len, set_t
+	movw	input_notice_len, set_n
+
+
+        pushaw  null
+        pushaw  null
+        pushal  file_cont
+        calls   #3,G^Notes$notefile_end
+        check   r0,error	
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_det,outbuf=out,outlen=out,-
+		p1=entrytotal,-
+		p2=notefile_high_uid,-
+		p3=notefile_numnotes
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+; open that file
+
+	movb	input, in_fab+fab$b_fns
+	movab	input+8, in_fab+fab$l_fna
+
+	$open	fab=in_fab
+	check	r0,error
+
+
+
+	$connect	rab=in_rab
+	check	r0,error
+
+
+
+	$get	rab=in_rab
+	check	r0,error
+
+
+
+	cvtbl   NAM+NAM$B_RSL,Descr
+	movab	result,Descr+4
+
+	pushaq	descr
+	calls	#1,g^lib$put_output
+
+; ===================================================
+
+; create the output file
+
+
+	movl    #100,xinput         
+	Pushaw  xInput
+	pushaq  xInput
+	pushaq  target
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+	movw	xInput, notes_open_i_create
+	movab	xInput+8, notes_open_i_create+4
+
+	movw	xInput, set_ok
+	movab	xInput+8, set_ok+4
+
+	pushaq	cre_o
+	calls	#1,g^lib$put_output
+
+
+
+        pushaw  notes_open_o
+        pushaw  notes_open_i_create
+        pushal  file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+
+        pushaw  null
+        pushaw  null
+        pushal  file_cont
+        calls   #3,G^Notes$notefile_end
+        check   r0,error
+
+	movl	result_spec_len, descr
+	movab	result_spec, descr+4
+
+	pushaq	descr
+	calls	#1,g^lib$put_output
+
+
+
+
+	movb	descr, out_fab+fab$b_fns
+	movl	descr+4, out_fab+fab$l_fna
+
+	$open	fab=out_fab
+	check	r0,error
+
+	$connect	rab=out_rab
+	check	r0,error
+
+
+
+
+
+; set the detils
+
+	pushaq	set_det
+	calls	#1,g^lib$put_output
+
+	$get	rab=out_rab
+	check	r0,error
+
+	movl	entrytotal, buffer+92+4
+	movl	notefile_numnotes, buffer+100	
+	movl	notefile_high_uid, buffer+92
+
+	$update	rab=out_rab
+	check	r0,error
+
+; **************************************************************
+
+	movl	#^x40000000, uid
+	decl	uid
+
+
+	$rab_store	rab=out_rab,rac=key,ksz=#4,kbf=note,krf=#0
+
+	calls	#0,g^lib$init_timer
+
+	incl	notefile_high_uid
+
+	pushaq	dlm
+	calls	#1,g^lib$put_output
+
+
+loop:	nop
+
+	incl	uid
+
+
+
+
+
+	cmpl	Uid, notefile_high_uid
+	bneq	10$
+	brw	end
+10$:	nop
+
+
+	$rab_store	rab=in_rab,rac=key,ksz=#4,kbf=uid,krf=#0
+
+	$get	rab=in_rab
+	blbs	r0,20$
+	MOVL    R0,VEC+4
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_uid1,outbuf=out,outlen=out,-
+		p1=uid,-
+		p2=notefile_high_uid
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+        $PUTMSG_S       MSGVEC=VEC
+	brw	loop
+20$:	nop
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_uid,outbuf=out,outlen=out,-
+		p1=buffer,-
+		p2=buffer+74,-
+		p3=buffer+72
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	movl	buffer+72, note
+
+
+	incl	fred
+; ------------------------------------------------
+
+
+	$rab_store	rab=in_rab,rac=key,ksz=#4,kbf=note,krf=#1
+
+1000$:	$get	rab=in_rab
+	blbs	r0,40$
+	MOVL    R0,VEC+4
+        $PUTMSG_S       MSGVEC=VEC
+	brw	loop
+40$:	nop
+
+
+	cmpl	buffer+72, note
+	beql	70$
+	brw	loop
+70$:	nop
+
+
+
+
+	movw	in_rab+rab$w_rsz, out_rab+rab$w_rsz
+
+	$put	rab=out_rab
+	check	r0,error
+
+	$rab_store	rab=in_rab,rac=seq
+
+	brw	1000$
+
+
+end:	nop
+
+	calls	#0,g^lib$show_timer
+
+
+
+	pushaq	dlm
+	calls	#1,g^lib$put_output
+
+	$close	fab=in_fab
+	check	r0,error
+
+	$close	fab=out_fab
+	check	r0,error
+
+
+        pushaw  null
+        pushaw  set_ok
+        pushal  file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+
+        pushaw  null
+        pushaw  set_n
+        pushal  file_cont
+        calls   #3,G^Notes$notefile_modify
+        check   r0,error
+
+
+error:	ret
+
+note:		.blkl	1
+
+ctr_uid1:	.ascid	/Trying UID !XL  (High UID !XL)/
+ctr_uid:	.ascid	/UID !XL is note !UW.!UW/
+
+uid:	.blkl	1
+
+default_name:	.ascii	/Notes$library:.note/
+default_name_len = . - default_name
+
+create_not_len_st:	.ascii	/The PAN REBUILD was interupted DONT USE THIS FILE !/
+create_not_len = . - create_not_len_st
+
+create_tit_st:	.ascii	/WARNING! WARNING! File not completely rebuilt/
+create_tit_len = . - create_tit_st
+
+notes_open_i_create:   	.word   0
+                	.word   notes$k_notefile_file_name
+                	.long   0
+                	.long   0
+;
+			.word   default_name_len
+                	.word   notes$k_notefile_default_name
+			.long   default_name
+			.long   0
+;
+			.word	4
+			.word	notes$k_notefile_create
+			.long	flag
+			.long	0
+;
+			.word	create_not_len
+			.word	notes$k_notefile_notice
+			.long	create_not_len_st
+			.long	0
+;
+			.word	create_tit_len
+			.word	notes$k_notefile_title
+			.long	create_tit_st
+			.long	0
+;
+			.word	4
+			.word	notes$k_notefile_writelock
+			.long	flag
+			.long	0
+;
+                	.long   0
+
+
+flag:	.long	1
+
+
+notes_open_o:	.word   150
+                .word   notes$k_notefile_result_spec
+                .long   result_spec
+                .long   result_spec_len
+;
+		.long	0
+
+descr:	.blkl	2
+
+
+result_spec:		.blkb	150
+result_spec_len:	.blkl	1
+
+cre_o:	.ascid	/create the output file/
+
+null:	.blkl	20
+
+
+
+find_in:		.word   0
+                	.word   notes$k_notefile_file_name
+                	.long   0
+                	.long   0
+;
+			.word   default_name_len
+                	.word   notes$k_notefile_default_name
+			.long   default_name
+			.long   0
+;
+			.long	0
+
+
+; Topics and Replies
+; High_Uid 
+; Topics
+
+
+ctr_det:	.ascid	/entrytotal = !UL, high_uid = !XL, numnotes = !UL/
+
+
+
+;   entrytotal	/ Topics and Replies = !UL/
+;   notefile_numnotes  /Topics = !UL/
+
+find_out:	.word	4
+		.word	notes$k_notefile_entrytotal
+		.long	entrytotal
+		.long	0
+;
+		.word	4
+		.word	notes$k_notefile_high_uid
+		.long	notefile_high_uid
+		.long	0
+;
+
+		.word	4
+		.word	notes$k_notefile_numnotes
+		.long	notefile_numnotes
+		.long	0
+;
+			.word	100
+			.word	notes$k_notefile_notice
+			.long	input_notice
+			.long	input_notice_len
+;
+			.word	100
+			.word	notes$k_notefile_title
+			.long	input_title
+			.long	input_title_len
+;
+		.long	0
+
+
+input_notice:		.blkb	100
+input_notice_len:	.blkl	1
+
+input_title:		.blkb	100
+input_title_len:	.blkl	1
+
+entrytotal:		.blkl	1
+notefile_high_uid:	.blkl	1
+notefile_numnotes:	.blkl	1
+
+out:	.long	300
+	.long	out+8
+	.blkb	300
+
+set_det:	.ascid	/setting conf level details/
+
+fred:	.blkl	1
+
+
+
+
+
+VEC:    .LONG   2
+        .BLKL   1
+        .LONG   0
+        .LONG   0
+
+ctr_te:	.ascid	/buffer !XL     buffer+72 !XL/
+
+
+set_ok:			.word   0
+                	.word   notes$k_notefile_file_name
+                	.long   0
+                	.long   0
+;
+			.word   default_name_len
+                	.word   notes$k_notefile_default_name
+			.long   default_name
+			.long   0
+;
+set_n:			.word	0
+			.word	notes$k_notefile_notice
+			.long	input_notice
+			.long	0
+;
+set_t:			.word	0
+			.word	notes$k_notefile_title
+			.long	input_title
+			.long	0
+;
+			.word   4
+                	.word   notes$k_notefile_moderate
+                	.long   flag
+                	.long   0
+
+;
+			.long	0
+
+
+xinput:	.long	100
+	.long	xinput+8
+	.blkb	100
+
+
+dlm:
+.ascid	/-----------------------------------------------------------------/
+
+
+get_mod:	.ascid	/%PAN-I-MODP, Enable moderator status/
+
+open_m:         .word   4
+                .word   notes$k_notefile_moderate
+                .long   moderate
+                .long   0
+;
+                .long   0
+
+
+
+moderate:       .long   1       ; we want to be a Goderator  !!
+
+
+
+
+	.end	

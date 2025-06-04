@@ -1,0 +1,865 @@
+module ppl$names (IDENT = 'V57-001', addressing_mode (external=general)) =
+begin
+
+!
+!			  COPYRIGHT (c) 1986 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:
+!		PPL ( Parallel Processing Library )
+!
+! ABSTRACT:
+!
+!
+! ENVIRONMENT:
+!
+!
+!--
+!<BLF/PAGE>
+
+!++
+!
+! AUTHOR:	Peter D. Glibert, CREATION DATE: (10-10-86)
+!
+!
+! MODIFIED BY:
+!
+! 	Peter D. Gilbert, (10-10-86): VERSION 00
+!
+! X01-000	- Original version
+!
+! X01-001	- Added comments, headers and Ident		CMF  28-JAN-1987
+!
+! X01-002	- Assert that S_Q_UNAMES is quadword-aligned.	PDG  11-Feb-1987
+!
+! X01-003	- Added get_next_full barrier locator routine.	DLR  4-JUL-1987
+!
+! V05-001	- Changed references to SS$_NORMAL in PPL$$Name_Lookup, which
+!		    have nothing to do with system services, to PPL$_NORMAL
+!								WWS  8-Jul-1988
+!								
+! V051-001	- Replaced references to CTX[CTX_L_PPLSECT_ADR] with
+!		    PPL$$GL_PPLSECT,  reformatted debugging messages
+!								WWS  9-Sep-1988
+! V053-001	- Changed DEBUG_MSG_ to take a string literal
+!		    instead of an %ascid			WWS  9-MAY-1989
+!
+! V053-001	- Routine ppl$$name_delete changed to free storage,
+!		    ppl$$name_mark_delete added which marks the name
+!		    as deleted. The new routine ppl$$name_search
+!		    searches for the name and returns the id.
+!								HPO  6-JUN-1989
+! V053-002	- Routines ppl$$get_next_full and ppl$$get_next
+!		    eliminated since not used any more.		HPO 23-JUN-1989 
+!
+! V053-003	- Routines ppl$$name_get_object_base and
+!		  ppl$$name_get_next_object added for
+!		  PPL$DELETE_VM_ZONE				HPO 29-AUG-1989
+!
+! V057-001	- EVMS/Alpha port: rework buitins and add	PJC 12-NOV-1991
+!		  volatile to block definition.
+!--
+!<BLF/PAGE>
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+
+library	'sys$library:starlet';
+library	'sys$library:xport';
+undeclare %quote $descriptor;
+library	'obj$:ppllib';
+require 'rtlin:rtlpsect';
+
+!
+! FORWARD ROUTINE
+!
+forward routine
+	ppl$$name_lookup,
+	ppl$$name_search,
+	ppl$$name_mark_delete,
+	ppl$$name_delete,
+	ppl$$name_get_object_base,
+	ppl$$name_get_next_object;
+
+!
+! MACROS:
+!
+
+!+
+! Define our module-specific fields in the pplsect area.
+!-
+
+$unit_field
+    s_fields =
+	set
+	$overlay(pplsect_a_names)
+	s_0 =			[$bytes(0)],
+
+	s_w_uname_adds=		[xword],	! Count of name additions
+	s_w_uname_dels=		[xword],	! Count of name deletions
+
+	s_l_fill=		[xlong],	! ***unused***
+
+	s_q_unames=		[$bytes(0)],	! Queue for user-defined names
+	$overlay(s_q_unames)
+	s_l_unames_f=		[xlong],	! Forward link (self-relative)
+	s_l_unames_b=		[xlong],	! Backward link (self-relative)
+	$continue
+
+	s_1 =			[$bytes(0)]
+	tes;
+assert_(%fieldexpand_(s_q_unames,0) mod %qalign eql 0)
+!+
+! Make sure everything fits within the size of our portion
+!-
+
+literal	s_size = %fieldexpand(s_1,0)-%fieldexpand(s_0,0);
+assert_(s_size leq pplsect_s_names)
+
+%if s_size lss pplsect_s_names
+%then
+    %message ('PPLSECT_S_NAMES can be reduced from ',
+	%number(pplsect_s_names), ' to ', %number(s_size))
+%fi
+
+!+
+! Fields that define a name and associated storage.
+! The name itself follows immediately after the data area.
+!-
+
+$unit_field
+    nam_fields =
+	set
+	nam_l_flink =	[xlong],		! Self-relative forward link
+	nam_l_blink =	[xlong],		! Self-relative backward link
+	nam_w_length =	[xword],		! Length of the name
+	nam_v_deleted =	[xword],		! Name is pending deletion
+	nam_l_size =	[xlong],		! Size of the data portion
+	nam_a_data =	[$bytes(0)]		! The data portion
+	tes;
+literal	nam_s_bln=	$field_set_units;	! Size in bytes
+
+%if VAX
+%then
+macro   nam_block=      $bblock[nam_s_bln] field(nam_fields) %;
+%fi
+
+%if EVAX
+%then
+macro	nam_block=	volatile $bblock[nam_s_bln] field(nam_fields) %;
+%fi
+
+assert_(%fieldexpand_(nam_a_data,0) mod %qalign eql 0)	! Ensure aligned data
+assert_(nam_s_bln leq init_k_nam)			! Check size estimate
+
+!+
+! The data size immediately precedes the data.  Other code may use this fact.
+!-
+
+assert_(%fieldexpand_(nam_l_size,0)+%upval eql %fieldexpand_(nam_a_data,0))
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! OWN STORAGE:
+!
+
+!
+! PSECT DECLARATION:
+!
+declare_psects (ppl);
+
+!
+! EXTERNAL REFERENCES:
+!
+external routine
+	ppl$$allocate,
+	ppl$$deallocate;
+
+external
+	ppl$$gl_pplsect :   ref pplsect_block,
+	ppl$$gl_context	:   ref ctx_block;	! Our context
+
+
+%SBTTL 'ROUTINE: PPL$$NAME_LOOKUP - Searches the Name/ID list for the name.'
+!
+global routine ppl$$name_lookup (
+	name:	ref $bblock [dsc$c_s_bln],	! Name string (input)
+	virt:	ref vector [1],			! Virtual address (output)
+	size,					! Size
+	proto:	ref $bblock			! Prototype, if creating
+	) =
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine searches the Name/Id list to determine if an element
+!	of the same name already exists.  If the name was found then
+!	a successful message is returned along with the virtual address
+!	of the element.
+!
+!	In the event that the name is not found in the list, the successful
+!	message PPL$_CREATED is returned and the address of the newly created
+!	element is returned.
+!
+!	If a size is not specified when calling this routine and the name
+!	is not found to exist in the list, then the element will not
+!	be created.
+!
+!	If the element is not found and there is no more memory to create
+!	the element, then the error mesage PPL$_INSVIRMEM will be returned
+!	to the user.
+!	
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$$NAME_LOOKUP ( name, virt, size, proto )
+!
+! FORMAL PARAMETERS:
+!
+!	NAME
+!	VMS USAGE	:  char_string
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	The name of the element that will be searched for in the Name/ID
+!	List.
+!
+!	VIRT
+!	VMS USAGE	:  identifier  
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The ID of the element that was searched for.  This is returned
+!	to the user if the element was found in the list or if the
+!	element was created.
+!
+!	SIZE
+!	VMS USAGE	:  varying_arg
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  value
+!
+!	The size of the element block to be created.  The size of the
+!	element block varies depending on the type of element that
+!	is being created ( i.e. a spin lock or a semaphore ).  If
+!	the size is specified as zero, then nothing will be created
+!	if it is not currently in existance.
+!
+!	PROTO
+!	VMS USAGE	:  vector_longword_unsigned  
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	This argument reapresents the type of element block to be
+!	created.  If the element is a semaphore, then a CSB block
+!	is appended to the Name/ID list.  If the element is a
+!	spin lock, then a SLB block is appended.
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/ID List.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The Name/Id List.
+!
+! COMPLETION CODES:
+!
+!	PPL$_CREATED	The name was created.
+!
+!	PPL$_INSVIRMEM	Name not found, and couldn't create it.
+!
+!	PPL$_NORMAL	The name was found.
+!
+!	PPL$_NOSUCHNAM	Name not found, and no creation requested (size = 0).
+!
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+begin	!ppl$$name_lookup
+
+
+local
+	nam	    :   ref nam_block,
+	created	    :   ref nam_block,
+	name_len    :   unsigned long,
+	status;
+
+bind
+	s = ppl$$gl_pplsect :	ref pplsect_block_(s_fields);
+
+
+    if name[base_] eql 0 then
+	debug_msg_(2,'Index: !UL, (ppl$$name_lookup) anonymous object',
+		    .ppl$$gl_context[ctx_l_my_index]) 
+    else
+	debug_msg_(2,'Index: !UL, (ppl$$name_lookup) nmlen= !UW!_name= !AF',
+		    .ppl$$gl_context[ctx_l_my_index], .name[dsc$w_length], 
+		    .name[dsc$w_length], .name[dsc$a_pointer]);
+
+
+    created = 0;
+    while	!we don't have a name, look for it
+	(local
+	    start:	ref nam_block;
+
+	!+
+	! Look for the name
+	!-
+	start = s[s_q_unames] - %fieldexpand_(nam_l_flink,0);
+	nam = first_sr_(start[base_], nam_l_flink);
+	if ( name[base_] eql 0 ) then	!*** or (.name[dsc$w_length] eql 0)
+	    nam = start[base_];		!no name - don't look for anon object
+	while (nam[base_] neq start[base_]) do
+	    (	!match when this name is not deleted & when strings are equal
+	    if not .nam[nam_v_deleted] and
+		    .nam[nam_w_length] eql .name[dsc$w_length]
+		    and ch$eql (.nam[nam_w_length],
+				nam[nam_a_data]+.nam[nam_l_size],
+				.name[dsc$w_length], .name[dsc$a_pointer]) then
+		EXITLOOP FALSE;		! We found it!
+	    nam = next_sr_(nam[base_], nam_l_flink);
+	    )
+	)
+    do
+	begin
+
+	!+
+	! We couldn't find it -- see whether we should create it.
+	! If we created it *once* already (and some fool deleted it
+	! already), don't create it again.
+	!-
+	if (.size eql 0) or (.created neq 0) then
+	    return ppl$_nosuchnam;
+
+	!+
+	! Try to create it.  If not successful, return an error message.
+	!-
+	if (name[base_] neq 0) then	!creating a non-null name
+	    name_len = .name[dsc$w_length]
+	else				!creating anonymous object
+	    name_len = 0;
+	created = ppl$$allocate (.size + .name_len +
+				    %fieldexpand_(nam_a_data,0));
+	if (.created leq 0) then return ppl$_insvirmem;
+
+	!+
+	! Initialize the name block
+	!-
+	created = s[base_] + .created;
+	created[nam_l_size] = .size;
+	created[nam_v_deleted] = 0;   ! make sure the bit is off
+	ch$move (.size, proto[base_], created[nam_a_data]);
+	if name[base_] neq 0 then
+	    (
+	    created[nam_w_length] = .name_len;
+	    ch$move (.name_len, .name[dsc$a_pointer],
+			created[nam_a_data]+.size);
+	    );
+	!+
+	! Insert it at the end of the queue, and go looking for it again.
+	!-
+	while insqti(created[nam_l_flink], s[s_q_unames]) do 0;
+
+	!+
+	! ... Unless it has no name.
+	!-
+	if (name[base_] eql 0) then
+	    (
+	    nam = created[base_];
+	    EXITLOOP;
+	    );
+	end;
+
+!+
+! We found it!
+!-
+
+    !+
+    ! Return the virtual address, and a success status.
+    !-
+
+    virt[0] = nam[nam_a_data];
+
+    !+
+    ! If we created something, and our creation is not what we found,
+    ! then mark our creation as being deleted.
+    !-
+
+    if created[base_] eql 0
+    then
+	return ppl$_normal
+    elif created[base_] eql nam[base_]
+    then
+	return ppl$_created
+    else
+	begin
+	testbitssi(created[nam_v_deleted]);
+	return ppl$_normal;
+	end;		! End ELSE to determine if element of name already exists
+
+end;			! End of Routine PPL$$NAME_LOOKUP
+
+
+
+%SBTTL 'ROUTINE: PPL$$NAME_SEARCH- Looks up a name and gets the id'
+!
+global routine ppl$$name_search (
+	name:	ref $bblock [dsc$c_s_bln],	! Name (optional input)
+	virt:   ref vector[1] 			! Virtual address (opt input)
+	) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine searches the Name/ID list for an element name and
+!	if it is found, gives back the id of the element.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$$NAME_SEARCH ( NAME, VIRT )
+!
+! FORMAL PARAMETERS:
+!
+!	NAME
+!	VMS USAGE	:  char_string
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	The name of the element that will be searched for in the Name/ID
+!	List.
+!
+!	VIRT
+!	VMS USAGE	:  identifier  
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write
+!	MECHANISM	:  by reference
+!
+!	The ID of the element that was searched for.  This is returned
+!	to the user if the element was found.
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/ID List.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The Name/ID List.
+!
+! COMPLETION CODES:
+!
+!
+!	PPL$_NORMAL	The name was found, and deleted.
+!
+!	PPL$_NOSUCHNAM	Name was not found.
+!
+!	PPL$_WORNUMARG  The argument count was not = 2
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+    begin
+
+
+local
+	nam	    :   ref nam_block,
+	name_len    :   unsigned long,
+	status;
+
+bind
+	s = ppl$$gl_pplsect :	ref pplsect_block_(s_fields);
+
+
+    if name[base_] eql 0 then
+	debug_msg_(2,'Index: !UL, (ppl$$name_lookup) anonymous object',
+		    .ppl$$gl_context[ctx_l_my_index]) 
+    else
+	debug_msg_(2,'Index: !UL, (ppl$$name_lookup) nmlen= !UW!_name= !AF',
+		    .ppl$$gl_context[ctx_l_my_index], .name[dsc$w_length], 
+		    .name[dsc$w_length], .name[dsc$a_pointer]);
+
+
+    if
+	begin
+	(local
+	    start:	ref nam_block;
+
+	!+
+	! Look for the name
+	!-
+	start = s[s_q_unames] - %fieldexpand_(nam_l_flink,0);
+	nam = first_sr_(start[base_], nam_l_flink);
+	if ( name[base_] eql 0 ) then	!*** or (.name[dsc$w_length] eql 0)
+	    nam = start[base_];		!no name - don't look for anon object
+	while (nam[base_] neq start[base_]) do
+	    (	!match when this name is not deleted & when strings are equal
+	    if not .nam[nam_v_deleted] and
+		    .nam[nam_w_length] eql .name[dsc$w_length]
+		    and ch$eql (.nam[nam_w_length],
+				nam[nam_a_data]+.nam[nam_l_size],
+				.name[dsc$w_length], .name[dsc$a_pointer]) then
+		(
+		EXITLOOP FALSE;		! We found it!
+		);
+	    nam = next_sr_(nam[base_], nam_l_flink);
+	    )
+	)
+	end		! End of IF
+    then
+	begin
+
+	!+
+	! We couldn't find it.
+	!-
+
+	return ppl$_nosuchnam;
+	end		! End of IF where we couldn't find the name.
+    else
+	begin
+
+	!+
+	! We found it!
+	!-
+
+	    virt[0] = nam[nam_a_data];
+	    return ppl$_normal;
+	end;		!End of ELSE where we found the name
+
+end;			! End of Routine PPL$$NAME_SEARCH
+
+
+%SBTTL 'ROUTINE: PPL$$NAME_MARK_DELETE- Looks up a name and marks deletion'
+!
+global routine ppl$$name_mark_delete (
+	virt: ref vector[1] 			! Virtual address 
+	) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine searches the Name/ID list for an element name and
+!	marks it deleted. It assumes that the id is correct.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$$NAME_MARK_DELETE ( VIRT )
+!
+! FORMAL PARAMETERS:
+!
+!
+!	The name of the element that will be searched for in the Name/ID
+!	List.
+!
+!	VIRT
+!	VMS USAGE	:  identifier  
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read
+!	MECHANISM	:  by reference
+!
+!	The ID of the element that was searched for.  This is returned
+!	to the user if the element was found in the list or if the
+!	element was created.
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/ID List.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The Name/ID List.
+!
+! COMPLETION CODES:
+!
+!
+!	PPL$_NORMAL	The name was found, and deleted.
+!
+!	PPL$_NOSUCHNAM	Name was not found.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+    begin
+
+
+local
+	nam	    :   ref nam_block;
+
+
+!+
+! assume that the id is correct!
+!-
+
+nam = .virt[0] - %fieldexpand_(nam_a_data,0);
+
+
+
+if testbitssi(nam[nam_v_deleted]) then
+	    return ppl$_nosuchnam	! Someone else deleted it
+else
+    return ppl$_normal;
+
+end;			! End of Routine PPL$$NAME_MARK_DELETE
+
+%SBTTL 'ROUTINE: PPL$$NAME_DELETE- Looks up a name and deletes it from Name/ID list.'
+!
+global routine ppl$$name_delete (
+	virt: ref vector[1]				! Virtual address 
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine searches the Name/ID list for an element name and
+!	delets it from the list. It assumes that the id is correct.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$$NAME_DELETE ( VIRT )
+!
+!
+!	VIRT
+!	VMS USAGE	:  identifier  
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The ID of the element that was searched for.  This is returned
+!	to the user if the element was found in the list or if the
+!	element was created.
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/ID List.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The Name/ID List.
+!
+! COMPLETION CODES:
+!
+!
+!	PPL$_NORMAL	The name was found, and deleted.
+!
+!	PPL$_NOSUCHNAM	Name was not found.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+begin
+
+local
+	next	    :   ref nam_block,
+	delete	    :   ref nam_block,
+	nam	    :   ref nam_block,
+	status,
+	ofs;
+
+
+
+
+!+
+! assume that the id is correct!
+!-
+
+nam = .virt[0] - %fieldexpand_(nam_a_data,0);
+
+
+if (.nam[nam_v_deleted] NEQ 0) then
+    (
+    next = next_sr_(nam[base_],nam_l_flink);
+    while remqti(next[nam_l_flink],delete) do;
+    ofs = .nam - PPL$$GL_PPLSECT[BASE_];
+    status = ppl$$deallocate(.nam[nam_w_length]+.nam[nam_l_size]+
+				%fieldexpand_(nam_a_data,0), .ofs);
+    return ppl$_normal;	    ! normal delete return
+    )
+else
+	    return ppl$_nosuchele;   ! someone else deleted it
+
+end;			! End of Routine PPL$$NAME_DELETE
+
+
+%SBTTL 'ROUTINE: PPL$$NAME_GET_NEXT_OBJECT  address of next object'
+!
+global routine ppl$$name_get_next_object (
+	virt:  ref vector[1] 	! next ppl object address
+	) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns the address of the
+!	next element.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$$NAME_GET_NEXT_OBJECT (  VIRT )
+!
+! FORMAL PARAMETERS:
+!
+!
+!	VIRT
+!	VMS USAGE	:  identifier  
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write
+!	MECHANISM	:  by reference
+!
+!	The address of the next element.
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/ID List.
+!
+!
+! COMPLETION CODES:
+!
+!
+!	PPL$_NORMAL	The name was found.
+!	PPL$_NOSUCHELE	No more elements available
+!
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+    begin
+
+
+
+local
+	nam	    :   ref nam_block,
+	start	    :	ref nam_block;
+
+
+bind
+	s = ppl$$gl_pplsect :	ref pplsect_block_(s_fields);
+
+
+	!+
+	! Look for the name
+	!-
+	start = s[s_q_unames] - %fieldexpand_(nam_l_flink,0);
+
+	nam = .virt[0] - %fieldexpand_(nam_a_data,0);
+
+
+
+	nam = next_sr_(nam[base_], nam_l_flink);
+	if ( nam[base_] eql start[base_] ) then	! end of object list
+	    RETURN PPL$_NOSUCHELE
+	else
+	virt[0] = nam[nam_a_data];
+	return ppl$_normal;
+
+    end;			! End of Routine PPL$$NAME_GET_NEXT_OBJECT
+
+%SBTTL 'ROUTINE: PPL$$NAME_GET_OBJECT_BASE get address of first object'
+!
+global routine ppl$$name_get_object_base (
+	virt:  ref vector[1] 	! first ppl object address
+	) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns the address of the
+!	first element.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$$NAME_GET_OBJECT_BASE (  VIRT )
+!
+! FORMAL PARAMETERS:
+!
+!
+!	VIRT
+!	VMS USAGE	:  identifier  
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write
+!	MECHANISM	:  by reference
+!
+!	The address of the first element.
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/ID List.
+!
+!
+! COMPLETION CODES:
+!
+!
+!	PPL$_NORMAL	The name was found.
+!
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+    begin
+
+
+
+local
+	nam	    :   ref nam_block,
+	start	    :	ref nam_block;
+
+
+bind
+	s = ppl$$gl_pplsect :	ref pplsect_block_(s_fields);
+
+
+
+
+	!+
+	! get the first object name
+	!-
+	start = s[s_q_unames] - %fieldexpand_(nam_l_flink,0);
+	nam = first_sr_(start[base_], nam_l_flink);
+	virt[0] = nam[nam_a_data];
+	return ppl$_normal;
+
+    end;			! End of Routine PPL$$NAME_GET_OBJECT_BASE
+
+end
+eludom

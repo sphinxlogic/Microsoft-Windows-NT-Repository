@@ -1,0 +1,265 @@
+ 
+
+1  SEND
+   Sends messages to users or terminals within the VMScluster.
+
+   Format
+
+     SEND  [/qualifiers] destination[,...] [message]
+
+   Command Qualifiers    Defaults
+
+   /BOTTOM
+   /CLUSTERWIDE          /NOCLUSTERWIDE
+   /LOG                  /NOLOG
+   /NODE=node
+   /PROMPT               /PROMPT
+   /TERMINAL=terminal
+   /TOP
+   /USER=user
+   /WAIT[=time]          /NOWAIT
+ 
+
+2  Parameters
+ 
+
+destination
+
+   Specifies one or more users or terminals to receive the
+   message(s) being sent. The following destination formats are
+   supported:
+
+   user           The name of a user on the DECnet node to which you
+                  are connected.
+   terminal       The name of a terminal on the DECnet node to which
+                  you are connected.
+   node::user     The name of a user on another DECnet node in the
+                  VMScluster.
+   node::terminal The name of a terminal on another DECnet node in
+                  the VMScluster.
+ 
+
+message
+
+   Specifies the text of the message to send. If this parameter is
+   omitted, you will be prompted for one or more messages.
+
+                                  NOTE
+
+      DCL uppercases everything on the command line that is not
+      surrounded by double quote (") characters, so you should
+      use double quotes if you want to preserve the case of your
+      message.
+ 
+
+2  Qualifiers
+ 
+
+/BOTTOM
+
+   Specifies that the message should be written to the bottom line
+   of the destination terminal(s). This qualifier has no effect on
+   messages sent to terminals without the DEC_CRT characteristic.
+ 
+
+/CLUSTERWIDE
+
+      /CLUSTERWIDE
+      /NOCLUSTERWIDE (D)
+
+   Controls whether a message should be sent to all DECnet nodes
+   of the VMScluster. For a terminal destination, this means
+   questioning all of the nodes of the VMScluster to determine the
+   DECnet node on which the terminal is located.
+
+   This qualifier is positional, so it has a different effect
+   depending upon where it appears within the command line. If it
+   appears directly after the SEND command, then it applies to all
+   destinations. If it appears directly after a destination, then it
+   applies to that destination only.
+ 
+
+/LOG
+
+      /LOG
+      /NOLOG (D)
+
+   Controls whether information is displayed about the status of
+   the command and/or the messages sent. For user destinations, the
+   information displayed includes:
+
+   o  the number of terminals that received the message;
+
+   o  the number of terminals for which SEND timed-out trying to
+      send the message (see /WAIT for more information);
+
+   o  the number of terminals for which SEND messages have been
+      disabled (see Disabling for more information).
+
+   This qualifier is positional, so it has a different effect
+   depending upon where it appears within the command line. If it
+   appears directly after the SEND command, then it applies to all
+   destinations. If it appears directly after a destination, then it
+   applies to that destination only.
+ 
+
+/NODE
+
+      /NODE=node
+
+   Specifies the DECnet node name that should appear in messages
+   sent to remote DECnet nodes. CMKRNL privilege is required to use
+   this qualifier.
+ 
+
+/PROMPT
+
+      /PROMPT (D)
+      /NOPROMPT
+
+   Controls whether a prompt is displayed when reading messages to
+   be sent. The prompt will either take the form ``name:'' for users
+   or terminals on the same DECnet node, or ``(node)name:'' for
+   users or terminals on another DECnet node. The first destination
+   specified on the command line is used to build the prompt,
+   though the message text entered will be sent to all destinations
+   specified. If an error is detected while sending messages to this
+   destination, then a new prompt will be generated based on the
+   next destination, etc.
+
+                                  NOTE
+
+      You can spawn a subprocess by starting the line with $.
+ 
+
+/TERMINAL
+
+      /TERMINAL=terminal
+
+   Specifies the terminal name that should appear in messages sent
+   to users on the same DECnet node. CMKRNL privilege is required to
+   use this qualifier.
+ 
+
+/TOP
+
+   Specifies that the message should be written to the top line
+   of the destination terminal(s). This qualifier has no effect on
+   messages sent to terminals without the DEC_CRT characteristic.
+ 
+
+/USER
+
+      /USER=user
+
+   Specifies the username that should appear in messages sent.
+   CMKRNL privilege is required to use this qualifier.
+ 
+
+/WAIT
+
+      /WAIT[=time]
+      /NOWAIT (D)
+
+Specifies the amount of time (in seconds) to allow for a message to
+be sent. By default, SEND will wait for 5 seconds before ``timing
+out'' on a particular terminal. 5 seconds is the minimum amount of
+time to wait. /WAIT, or /WAIT=0, means to wait indefinitely for the
+message to be sent.
+ 
+
+2  Disabling
+   You can turn off receipt of SEND messages with the following DCL
+   command:
+
+   $ SET BROADCAST=NOUSER1
+
+   which disables broadcast messages from the USER1 broadcast class,
+   the broadcast class used by SEND.
+ 
+
+2  Spawning
+   You can spawn a subprocess from within SEND by specifying $ as
+   the first character of message text. If $ is the only thing
+   on the line, then a subprocess will be created running DCL
+   and control will be passed to that subprocess. If a command
+   appears after the $, then the command will be executed in a
+   subprocess and control will be returned to SEND once the command
+   is finished.
+ 
+
+2  Examples
+
+   1.$ SEND SMITHJB "Hello"
+
+     This example shows how to send a single message to a user
+     on the same DECnet node. The message displayed on SMITHJB's
+     terminal(s) will look like:
+
+       user(terminal) - Hello
+
+     where ``user'' is your username and ``terminal'' is your
+     terminal name.
+
+   2.$ SEND WKUVX1::SMITHJB "Hello"
+
+     This example shows how to send a single message to a user on
+     a different DECnet node. The message displayed on SMITHJB's
+     terminal(s) will look like:
+
+       (node)user - Hello
+
+     where ``node'' is the name of the DECnet node to which you are
+     connected and ``user'' is your username. This message format
+     would not be used if you were logged into WKUVX1. Messages to
+     ``node::user'' where ``node'' is the name of the DECnet node
+     to which you are connected are treated the same as messages to
+     ``user.''
+
+   3.$ SEND SMITHJB
+             SMITHJB: Hello
+             SMITHJB: How are you?
+
+     This example shows how to send multiple messages to a user
+     on the same node. SEND will keep prompting for more messsages
+     until a blank line or Ctrl-Z is read. The prompt for sending
+     a message to a user or terminal on a remote node looks like
+     (node)name:.
+
+   4.$ SEND SMITHJB
+             SMITHJB: Hello
+     %SEND-E-NOTLOGIN, User SMITHJB is not logged in
+     $
+
+     This example demonstrates the error message that is displayed
+     when you attempt to send a message to a user that is not logged
+     in.
+
+   5.$ SEND SMITHJB
+             SMITHJB: Hello
+     %SEND-E-NOTRCVING, SMITHJB is not receiving messages
+     $
+
+     This example demonstrates the error message that is displayed
+     when you attempt to send a message to a user or terminal that
+     has disabled SEND messages. You can disable SEND messages with
+     the following DCL command:
+
+       $ SET BROADCAST=NOUSER1
+
+   6.$ SEND SMITHJB/LOG
+             SMITHJB: Hello
+     %SEND-S-SENT, SMITHJB 1 terminals received, 0 timed out,0 not receiving
+
+     This example demonstrates the information that is displayed as
+     a result of the /LOG qualifier.
+
+   7.$ SEND SMITHJB
+             SMITHJB: $ MAIL
+     MAIL>
+
+     This example shows how to spawn a subprocess from within SEND.
+     If a command appears after the $, then the command will be
+     executed and control will return to SEND once the spawned
+     command is finished. If no command appears after the $, then
+     the subprocess will begin prompting for commands.

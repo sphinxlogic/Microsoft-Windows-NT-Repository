@@ -1,0 +1,98 @@
+%title 'nm$chmode'
+module nm$chmode(
+              ident='03',
+    	      addressing_mode(external=general)
+    	      ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	28-Jun-1992
+!
+! Revision history:
+!
+!   01  28-Jun-1992
+!	Reworked from NM$CHMODE.MAR as part of Alpha port
+!
+!   02	12-Aug-1992
+!	Change entries in the PLV routine list from quad 
+!	to long (FT3 change to the exec)
+!
+!   03	20-Sep-1993
+!	We no longer need to reflect signals from exec mode
+!	to user mode.  As a result, we can get rid of all
+!	the jacket routines in this module.
+!
+!--
+
+!
+! Sanity clause
+!
+%if not %bliss(bliss32e)
+%then
+    %error('this module is for 32-bit alpha compilations')
+%fi
+
+!
+! Library declarations
+!
+library 'sys$library:lib';
+library 'nm$library';
+
+!
+! Define program sections
+!
+$nmail_psects;
+psect
+    nodefault = _nmail$vec (write,noexecute,noshare,vector);
+
+!
+! External routines
+!
+external routine
+    nm$uss_create_ctl_file,
+    nm$uss_close_ctl_file,
+    nm$uss_submit_job;
+
+%sbttl 'privileged library vector'
+
+!
+! List of exec-mode service routines
+!
+own
+    servlist : vector[3] 
+	       initial (
+		    nm$uss_create_ctl_file,
+		    nm$uss_close_ctl_file,
+		    nm$uss_submit_job
+		    );
+
+!
+! This structure is what causes the image activator to
+! hook up the user-written system services in the
+! Nmail image.   The change-mode vectors are automatically
+! generated for the stated entry points.
+!
+own
+    plv      : block[plv$s_plvdef, byte] psect (_nmail$vec)
+	       preset (
+		    [plv$l_type] = plv$c_typ_cmod,
+		    [plv$l_exec_routine_count] = 3,
+		    [plv$ps_exec_routine_list] = servlist
+		    );
+
+end
+eludom

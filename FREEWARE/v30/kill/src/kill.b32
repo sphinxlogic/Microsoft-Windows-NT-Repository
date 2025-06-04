@@ -1,0 +1,2129 @@
+%TITLE	'KILL'
+MODULE kill (MAIN = main, IDENT = 'V1.1')=
+BEGIN
+!+
+!
+!  File:	KILL.B32
+!  Author:	Darrell Burkhead
+!		COPYRIGHT © 1993, MADGOAT SOFTWARE.  ALL RIGHTS RESERVED.
+!  Date:	September 21, 1993
+!  Description:
+!
+!	Kill (or $FORCEX) processes selected by one of the following methods:
+!
+!	1) All processes of the specified username (if you provide a partial
+!	   username, KILL will match all usernames that start with the
+!	   partial username, like SHOW USERS),
+!	2) All disconnected processes, or
+!	3) A specific process (by PID).
+!
+!	Note: KILL won't allow you to kill yourself.
+!
+!	This program is based on Hunter Goatley's KILL.MAR.
+!
+!  Revision History:
+!
+!	V1.1	Darrell Burkhead	10-MAY-1994 11:03
+!		Added support for a list of node names in the /NODE qualifier.
+!		Also, added some options at the confirmation prompt.  Answering
+!		with "K" or "k" means to kill the process in question. 
+!		Answering with "F" or "f" means to $FORCEX the process in
+!		question.
+!
+!		Made /DISCONNECTED a positional qualifier instead of a
+!		separate syntax.  Note: this means that you now need to
+!
+!			$ KILL/DISC *
+!
+!		to kill all disconnected processes on the local node.
+!
+!	V1.1-2	Darrell Burkhead	10-JAN-1994 15:28
+!		Fixed a bug having to do with suspended processes.  $GETJPI
+!		will return partial information for a suspended process on
+!		the same node as the caller, but not for a process on another
+!		node.  Added some $GETJPI calls to get everything but the
+!		image name if a process is suspended.  Currently, the image
+!		name is the only information requested that cannot be returned
+!		for a suspended process.
+!
+!	V1.1-1	Darrell Burkhead	 5-OCT-1993 16:25
+!		Added support for letting DCL parse the command.  If a
+!		KILL command hasn't been set, the command line is
+!		reconstructed and parsed with the CLD table linked into
+!		KILL.  Thanks Dan Wing.
+!
+!	V1.0	Darrell Burkhead	21-SEP-1993 13:37
+!		Creation.
+!
+!-
+SWITCHES ADDRESSING_MODE (EXTERNAL = GENERAL, NONEXTERNAL = WORD_RELATIVE);
+
+LIBRARY 'SYS$LIBRARY:LIB';			!Include $PCBDEF macros
+LIBRARY	'KILL_DEFS';				!Include KILL data structures
+
+EXTERNAL ROUTINE
+	CLI$DCL_PARSE,
+	CLI$DISPATCH,
+	CLI$PRESENT,
+	CLI$GET_VALUE,
+	LIB$CREATE_VM_ZONE,
+	LIB$DELETE_VM_ZONE,
+	LIB$FREE_VM,
+	LIB$GET_FOREIGN,
+	LIB$GET_INPUT,
+	LIB$GET_VM,
+	LIB$INSERT_TREE,
+	LIB$TRAVERSE_TREE,
+	OTS$CVT_TZ_L,
+	STR$FREE1_DX,
+	STR$MATCH_WILD,
+	STR$PREFIX;
+
+EXTERNAL
+	CLI$_PRESENT,
+	CLI$_NEGATED,
+	CLI$_LOCPRES,
+	CLI$_LOCNEG,
+	CLI$_ABSENT,
+	LIB$_INPSTRTRU,
+	LIB$_KEYALRINS,
+	OTS$_INPCONERR,
+	STR$_MATCH,
+!
+	kill_table,
+	kill_killed,				!Killed process xxxxxxxx
+	kill_forcex,				!Forcex process xxxxxxxx
+	kill_invuser,				!Bad username length
+	kill_invpid,				!Invalid PID
+	kill_invnode,				!Invalid node
+	kill_errinfo,				!Error $GETJPIing process xxx
+	kill_errkill,				!Error killing process xxxxxxxx
+	kill_errforcex,				!Err forcexing process xxxxxxxx
+	kill_noprocs,				!No matching processes found
+	kill_suicide;				!Attempt to kill yourself by
+						!...PID
+FORWARD ROUTINE
+	main,					!Transfer address
+	already_parsed,				!Check for KILL in command
+						!...tables
+	build_cluster_queue,			!Get the cluster members
+	add_cluster_node,			!Allocate and add an entry
+	in_cluster_queue,			!Compare a wildcarded node
+						!...name to the cluster members
+	delete_node_queue,			!Free memory for a node queue
+	parse_common,				!Parse params and quals
+	parse_node,				!Parse the /NODE qualifier
+	parse_id,				!Parse the /ID qualifier
+	parse_user,				!Parse the user parameter
+	alloc_user,				!Allocate memory for a user
+	free_user,				!Free the memory for a user
+	fix_image_name,				!Trim the dir spec from the
+						!...image name
+	kill_by_pid,				!Kill by PID
+	getjpi_loop,				!Call $GETJPI until out of
+						!...processes
+	kill_by_user,				!Kill by user
+	kill_a_process,				!Attempt to kill the curr proc
+	tree_compare_rtn,			!Compare and allocation rtns
+	tree_alloc_rtn;				!...for LIB$INSERT_TREE
+
+OWN
+	my_pid		: LONG VOLATILE,	!This process's PID
+	pid_list	: VECTOR[max_pids,LONG] VOLATILE,
+	pid_list_len	: LONG INITIAL(0) VOLATILE,
+	user_zone	: LONG INITIAL(0),	!Zone id for uquedef allocation
+	user_queue	: uquedef VOLATILE	!The queue of usernames on the
+			  PRESET(		!...command line
+				[uque_l_flink]	= user_queue,
+				[uque_l_blink]	= user_queue),
+	pque_zone	: LONG INITIAL(0),	!Zone id for pquedef allocation
+	proc_queue	: pquedef VOLATILE	!The queue of saved procs
+			  PRESET([pque_l_flink]	= proc_queue,
+				 [pque_l_blink]	= proc_queue),
+	proc_found	: LONG INITIAL(0),	!A flag indicating whether
+						!...any processes were found
+	tree_head_a	: LONG INITIAL(0),	!Head of the sorted proc tree
+	tree_zone	: LONG INITIAL(0),	!Zone id for tree node alloc
+	cluster_queue	: clusdef VOLATILE	!The queue of cluster members
+			  PRESET([clus_l_flink]	= cluster_queue,
+				 [clus_l_blink]	= cluster_queue),
+	cluster_zone	: LONG INITIAL(0),	!Zone id for clusdef allocation
+	wild_node	: INITIAL(0) VOLATILE;	!Low bit set if the value of
+						!.../NODE has a wildcard char
+BIND
+	susp_image 	= UPLIT(%ASCIC'--suspended--'),
+	id_qual		= %ASCID'IDENTIFICATION';
+
+
+MACRO
+	set_image_name(length, buffer, jpi_node)=
+	    CH$COPY(	length, buffer,		!Copy something into the
+			%C' ',			!...image name slot (pad with
+			image_display_len,	!...blanks)
+			jpi_node[pnod_t_imagebuf])%;
+
+
+%SBTTL	'MAIN'
+ROUTINE main=
+BEGIN
+!+
+!
+!  Routine:		MAIN
+!
+!  Description:
+!
+!	Parse the KILL command and attempt to kill (or forcex) the selected
+!	processes.
+!
+!  Parameters:
+!
+!	None.
+!
+!  Return Value:
+!
+!	Image exit status.
+!
+!  Implicit Inputs:
+!
+!	id_qual		- string descriptor containing IDENTIFICATION.
+!	kill_table	- the CLD table for the KILL command.
+!	my_pid		- longword to receive the PID of this process.
+!
+!  Side Effects:
+!
+!	May kill one or more processes.
+!-
+REGISTER
+	status;					!Holds RTL status values
+
+BIND
+	kill_cmd	= %ASCID'KILL ',
+	disc_qual	= %ASCID'DISCONNECTED';
+
+LOCAL
+	cmd_desc	: $BBLOCK[DSC$C_S_BLN],
+	jpi_list	: $ITMLST_DECL(ITEMS=1),
+	iosb		: VECTOR[4,WORD];
+!
+! Get my PID.
+!
+    $ITMLST_INIT(ITMLST=jpi_list,
+	(ITMCOD	= JPI$_PID,
+	 BUFADR	= my_pid));
+    status = $GETJPIW(	PIDADR	= %REF(0),	!Get info about this process
+			ITMLST	= jpi_list,
+			IOSB	= iosb);
+    IF .status THEN status = .iosb[0];
+    IF NOT .status THEN RETURN .status;		!On error, return the status
+
+    IF already_parsed()
+    THEN status = 				!KILL command parsed by DCL
+	(IF CLI$PRESENT(id_qual)		!...fake the CLI$DISPATCH
+	 THEN kill_by_pid()			!Call the KILL/ID routine
+	 ELSE kill_by_user())			!Call the KILL user routine
+    ELSE BEGIN					!Build the command string and
+						!....parse the command
+	$INIT_DYNDESC(cmd_desc);
+
+	status = LIB$GET_FOREIGN(cmd_desc);	!Get the foreign command
+	IF NOT .status THEN RETURN .status;	!On error, return the status
+
+	status = STR$PREFIX(cmd_desc, kill_cmd);!Add on the KILL command
+	IF NOT .status THEN RETURN .status;	!On error, return the status
+
+	status = CLI$DCL_PARSE(			!Parse the command
+		cmd_desc, kill_table, LIB$GET_INPUT);
+	IF NOT .status				!On error, return the status
+	THEN RETURN(.status OR STS$M_INHIB_MSG);!...already signaled
+
+	status = CLI$DISPATCH();		!Call the appropriate kill_ rtn
+
+	END;					!End of parse by hand
+
+    RETURN(					!Return status to the caller
+	IF .status EQL RMS$_EOF
+	THEN SS$_NORMAL				!Ctrl-Z pressed, not an error
+	ELSE .status);				!Return final status
+END;						!End of routine main
+
+
+%SBTTL	'ALREADY_PARSED'
+ROUTINE already_parsed =
+!+
+!
+!  Routine:		ALREADY_PARSED
+!
+!  Description:
+!
+!	Test whether the KILL command was parsed by DCL.
+!
+!  Parameters:
+!
+!	none.
+!
+!  Return Value:
+!
+!	R0	- Status,
+!		  CLI$_IVQUAL, if the KILL command hasn't been parsed.
+!		  SS$_NORMAL, if the KILL command has been parsed.
+!
+!  Implicit Inputs:
+!
+!	id_qual		- string descriptor containing IDENTIFICATION.
+!
+!  Side Effects:
+!
+!	None.
+!-
+BEGIN
+EXTERNAL ROUTINE
+	LIB$SIG_TO_RET	: BLISS ADDRESSING_MODE(GENERAL);
+
+ENABLE
+	LIB$SIG_TO_RET;			!Return signaled condition codes
+
+    CLI$PRESENT(id_qual);			!If DCL didn't parse the KILL
+						!...command, this routine will
+						!...signal CLI-W-IVQUAL, which
+						!...will be returned
+    RETURN SS$_NORMAL;				!Otherwise, DCL did parse it
+						!...return success
+END;						!End of already_parsed
+
+
+%SBTTL	'BUILD_CLUSTER_QUEUE'
+ROUTINE build_cluster_queue=
+BEGIN
+!+
+!
+!  Routine:	BUILD_CLUSTER_QUEUE
+!
+!  Functional Description:
+!
+!	This routine calls $GETSYI repeatedly to get the names of the cluster
+!	members (including this node).  If the local node is not a member of
+!	the cluster, then the queue should only contain the local node.
+!
+!  Formal parameters:
+!
+!	None.
+!
+!  Implicit inputs:
+!
+!	cluster_queue	- queue of cluster members.
+!	cluster_zone	- zone id for cluster_queue entry allocation.
+!
+!  Returns:
+!
+!	R0	- Status,
+!		  Any errors returned by $GETSYI, LIB$GET_VM, or
+!		  LIB$CREATE_VM_ZONE.
+!
+!  Side effects:
+!
+!	Creates the clusdef zone.
+!-
+REGISTER
+	status;
+
+LOCAL
+	iosb		: VECTOR[4,WORD],
+	all_nodes	: INITIAL(-1),
+	syi_list	: $ITMLST_DECL(ITEMS=2),
+	member		: LONG INITIAL(0) VOLATILE,
+	nodebuf		: $BBLOCK[max_node_len] VOLATILE,
+	nodelen		: LONG INITIAL(0) VOLATILE;
+
+
+    status = LIB$CREATE_VM_ZONE(		!Create the VM zone for clusdef
+		cluster_zone,			!...allocation
+		%REF(LIB$K_VM_FIXED), %REF(clus_s_clusdef),
+		%REF(LIB$M_VM_EXTEND_AREA));
+    IF NOT .status THEN RETURN .status;		!On error, return the status
+
+    $ITMLST_INIT(ITMLST=syi_list,
+	(ITMCOD	= SYI$_NODENAME,
+	 BUFADR	= nodebuf,
+	 BUFSIZ	= %ALLOCATION(nodebuf),
+	 RETLEN	= nodelen),
+	(ITMCOD	= SYI$_CLUSTER_MEMBER,
+	 BUFADR	= member,
+	 BUFSIZ	= 1));
+
+    DO BEGIN					!Cluster loop
+
+	status = $GETSYIW(			!Get the current node name
+		CSIDADR	= all_nodes,
+		ITMLST	= syi_list,
+		IOSB	= iosb);
+	IF .status THEN status = .iosb[0];
+	IF .status AND .member
+	THEN status = add_cluster_node(		!Add this node to the queue
+			.nodelen, nodebuf);
+    END WHILE .status;				!End of cluster loop
+
+    IF .status EQL SS$_NOMORENODE
+    THEN IF .cluster_queue[clus_l_flink] EQLA cluster_queue
+	THEN BEGIN				!No nodes found, non-cluster
+
+	    status = $GETSYIW(			!Get the local node name
+		CSIDADR	= %REF(0),
+		ITMLST	= syi_list,
+		IOSB	= iosb);
+	    IF .status THEN status = .iosb[0];
+	    IF .status
+	    THEN status = add_cluster_node(	!Add this node to the queue
+				.nodelen, nodebuf);
+
+	    END					!End of non-cluster node
+	ELSE status = SS$_NORMAL;		!Already filled the queue
+	    
+    RETURN .status;				!Return status to the caller
+END;						!End of build_cluster_queue
+
+
+%SBTTL	'ADD_CLUSTER_NODE'
+ROUTINE add_cluster_node(nodelen, nodebuf_a)=
+BEGIN
+!+
+!
+!  Routine:	ADD_CLUSTER_NODE
+!
+!  Functional Description:
+!
+!	This routine adds a node to the cluster queue.
+!
+!  Formal parameters:
+!
+!	nodelen		- length of the node name
+!	nodebuf_a	- address of a buffer containing the node name.
+!
+!  Implicit inputs:
+!
+!	cluster_queue	- the queue of cluster members.
+!	cluster_zone	- zone id from which to allocate the queue entry
+!
+!  Returns:
+!
+!	R0	- Status
+!		  Any errors returned by LIB$GET_VM.
+!
+!  Side effects:
+!
+!	None.
+!-
+REGISTER
+	status;
+
+BUILTIN	INSQUE;
+
+LOCAL
+	node_ptr	: REF clusdef;
+
+    status = LIB$GET_VM(			!Get memory for the entry
+			%REF(clus_s_clusdef),
+			node_ptr, cluster_zone);
+    IF .status
+    THEN BEGIN					!Got memory, initialize it
+	BIND desc = node_ptr[clus_q_nodedesc] : $BBLOCK;
+
+	desc[DSC$W_LENGTH] = .nodelen;		!Set up the descriptor
+	desc[DSC$B_CLASS] = DSC$K_CLASS_S;
+	desc[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+	desc[DSC$A_POINTER] = node_ptr[clus_t_nodebuf];
+	CH$MOVE(.desc[DSC$W_LENGTH],		!Copy the node name
+		.nodebuf_a, node_ptr[clus_t_nodebuf]);
+	INSQUE(.node_ptr,			!Insert at the tail of the
+		.cluster_queue[clus_l_blink]);	!...queue
+
+	END;					!End of memory allocated
+
+    RETURN .status;				!Return status to the caller
+END;						!End of add_cluster_node
+
+
+%SBTTL	'IN_CLUSTER_QUEUE'
+ROUTINE in_cluster_queue(node_a)=
+BEGIN
+!+
+!
+!  Routine:	IN_CLUSTER_QUEUE
+!
+!  Functional Description:
+!
+!	This routine tests whether a wildcarded node name matches any of the
+!	current cluster members.
+!
+!  Formal parameters:
+!
+!	node_a		- address of descriptor containing the wildcarded node
+!
+!  Implicit inputs:
+!
+!	cluster_queue	- the queue of cluster members.
+!
+!  Returns:
+!
+!	R0	- Status,
+!		  1, if a match is found
+!		  0, otherwise
+!
+!  Side effects:
+!
+!	None.
+!-
+REGISTER
+	status;
+
+LOCAL
+	node_ptr	: REF clusdef;
+
+    node_ptr = .cluster_queue[clus_l_flink];	!Point to the queue head
+
+    WHILE .node_ptr NEQA cluster_queue		!Loop until out of nodes
+    DO BEGIN
+
+	status = STR$MATCH_WILD(		!Check for a wildcard match
+		node_ptr[clus_q_nodedesc], .node_a);
+	IF .status EQL STR$_MATCH
+	THEN RETURN 1;				!Found a match return success
+
+	node_ptr = .node_ptr[clus_l_flink];	!Move to the next entry
+
+	END;					!End of node loop
+
+    RETURN 0;					!No match found
+END;						!End of in_cluster_queue
+
+
+%SBTTL	'DELETE_NODE_QUEUE'
+ROUTINE delete_node_queue(queue_a)=
+BEGIN
+!+
+!
+!  Routine:	DELETE_NODE_QUEUE
+!
+!  Functional Description:
+!
+!	This routine deallocates all of the memory associated with a node
+!	queue.
+!
+!  Formal parameters:
+!
+!	queue_a		- the address of the head of the queue to delete.
+!
+!  Implicit inputs:
+!
+!	cluster_zone	- the zone from which queue entries are allocated.
+!
+!  Returns:
+!
+!	R0	- Status.
+!		  Any errors returned by LIB$FREE_VM or LIB$DELETE_VM_ZONE
+!
+!  Side effects:
+!
+!	The clusdef zone is deleted.
+!-
+REGISTER
+	status		: LONG INITIAL(SS$_NORMAL);
+
+BIND
+	queue		= .queue_a	: clusdef;
+
+LOCAL
+	node_ptr	: REF clusdef;
+
+BUILTIN	REMQUE;
+
+    WHILE(REMQUE(.queue[clus_l_flink], node_ptr) NEQ 3)
+    DO BEGIN					!Loop through the cluster queue
+
+	status = LIB$FREE_VM(			!Free the memory for this node
+		%REF(clus_s_clusdef), node_ptr, cluster_zone);
+	IF .status THEN EXITLOOP;		!On error, get out
+
+	END;					!End of cluster loop
+
+    RETURN .status;				!Return status to the caller
+END;						!End of delete_node_queue
+
+
+%SBTTL	'PARSE_COMMON'
+ROUTINE parse_common(qinfo_a, local_flag, def_qinfo)=
+BEGIN
+!+
+!
+!  Routine:	PARSE_COMMON
+!
+!  Functional Description:
+!
+!	This routine parses the KILL command and returns all of the relevant
+!	parameter/qualifier information.
+!
+!  Formal parameters:
+!
+!	qinfo_a		- address of a structure to be filled in with
+!			  information about the qualfiers present.
+!	local_flag	- low bit set if we are checking for a local qualifier.
+!			  (Optional).
+!	def_qinfo	- longword bitmask for the global qualifiers.
+!			  (Optional).
+!
+!  Implicit inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!
+!  Side effects:
+!
+!	None.
+!-
+REGISTER
+	status;
+
+BIND
+	qinfo		= .qinfo_a	: qualdef,
+	confirm_qual	= %ASCID'CONFIRM',
+	log_qual	= %ASCID'LOG',
+	forcex_qual	= %ASCID'FORCEX',
+	kill_qual	= %ASCID'KILL';
+
+BUILTIN	NULLPARAMETER;
+
+MACRO
+	check_local_qual(qual)=			!Set or clear the bit for qual
+	BEGIN					!...depending on local status
+
+	status = CLI$PRESENT(%NAME(qual, '_qual'));
+	qinfo[%NAME('qual_v_', qual)] =
+		(IF .status EQL CLI$_LOCPRES	!Locally present
+		 THEN 1				!Set it
+		 ELSE IF .status EQL CLI$_LOCNEG!Locally negated
+		 THEN 0				!Clear it
+		 ELSE .dqinfo[			!Otherwise, use the default
+			%NAME('qual_v_', qual)]);
+
+	END%;					!End of macro check_local_qual
+
+!
+! Get the state of /CONFIRM, /LOG, and /FORCEX.
+!
+    IF NOT NULLPARAMETER(local_flag) AND .local_flag
+    THEN BEGIN					!Checking for local qualifiers
+	LOCAL dqinfo	: qualdef;
+
+	dqinfo[qual_l_flags] =			!Handle an omitted parameter
+		(IF NULLPARAMETER(def_qinfo)
+		 THEN 0 ELSE .def_qinfo);
+	check_local_qual(confirm);		!Handle the local instances
+	check_local_qual(log);			!...of positional qualifiers
+!
+! /FORCEX and /KILL are handled differently.
+!
+	qinfo[qual_v_forcex] =
+	(IF CLI$PRESENT(forcex_qual) EQL CLI$_LOCPRES
+	 THEN 1					!Local forcex override
+	 ELSE IF CLI$PRESENT(kill_qual) EQL CLI$_LOCPRES
+	 THEN 0					!Local kill override
+	 ELSE .dqinfo[qual_v_forcex]);		!Use the global value
+
+	END					!End of local qualifiers
+    ELSE BEGIN					!Checking for global qualifiers
+
+	qinfo[qual_v_confirm] = CLI$PRESENT(confirm_qual);
+	qinfo[qual_v_log] = CLI$PRESENT(log_qual);
+	qinfo[qual_v_forcex] =			!Default is /KILL
+			CLI$PRESENT(forcex_qual);
+
+	END;					!End of global qualifiers
+
+    RETURN SS$_NORMAL;				!Return status to the caller
+
+END;						!End of parse_common
+
+
+%SBTTL	'PARSE_NODE'
+ROUTINE parse_node(node_que_a)=
+BEGIN
+!+
+!
+!  Routine:	PARSE_NODE
+!
+!  Functional Description:
+!
+!	This routine gets the value(s) of the /NODE qualifier.
+!
+!  Formal parameters:
+!
+!	node_que_a	- the address of the head of a queue to receive the
+!			  node names parsed from /NODE.
+!
+!  Implicit inputs:
+!
+!	cluster_zone	- zone id for node-queue entry allocation.
+!	wild_node	- set the low bit if any of the node names read have a
+!			  wildcard character (* or %).
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!  Side effects:
+!
+!	Memory is allocated for the node queue.  No memory will be allocated
+!	if no node names were present.
+!-
+REGISTER
+	status;
+
+LOCAL
+	new_node	: REF clusdef,
+	num_nodes	: INITIAL(0);
+
+BIND
+	node_que	= .node_que_a : clusdef,
+	node_qual	= %ASCID'NODE';
+
+BUILTIN	INSQUE;
+
+    IF CLI$PRESENT(node_qual)
+    THEN BEGIN					!/NODE present (value required)
+
+	status = 0;
+	WHILE .status NEQ SS$_NORMAL		!Loop until out of node names
+	DO BEGIN
+
+	    num_nodes = .num_nodes+1;		!Count the # node names parsed
+	    status = LIB$GET_VM(		!Allocate a new node to fill in
+			%REF(clus_s_clusdef), new_node);
+	    IF .status
+	    THEN BEGIN
+		BIND node = new_node[clus_q_nodedesc] : $BBLOCK;
+
+		node[DSC$W_LENGTH] = max_node_len;
+		node[DSC$B_CLASS] = DSC$K_CLASS_S;
+		node[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+		node[DSC$A_POINTER] = new_node[clus_t_nodebuf];
+		status = CLI$GET_VALUE(		!Get the /NODE value
+				node_qual, node, node);
+		IF (NOT CH$FAIL(CH$FIND_CH(
+			.node[DSC$W_LENGTH], .node[DSC$A_POINTER], %C'*')) OR
+		    NOT CH$FAIL(CH$FIND_CH(
+			.node[DSC$W_LENGTH], .node[DSC$A_POINTER], %C'%')))
+		THEN wild_node = 1;		!Wildcarded node set flag
+		IF .status AND NOT in_cluster_queue(node)
+		THEN BEGIN			!Bad node name
+
+		    SIGNAL(kill_invnode, 1, node);!Signal the error
+		    status = kill_invnode OR STS$M_INHIB_MSG;
+
+		    END				!End of bad node name
+		ELSE INSQUE(.new_node,		!Append to the node queue
+				.node_que[clus_l_blink]);
+		END;				!End of allocated node
+
+	    IF NOT .status THEN EXITLOOP;	!On error get out to report it
+	    END;				!End of /NODE loop
+
+	IF .num_nodes GTR 1			!More than one node name
+	THEN wild_node = 1;			!...specified, show them
+	END					!End of /NODE present
+    ELSE status = SS$_NORMAL;
+
+    RETURN .status;				!Return status to the caller
+END;						!End of parse_node
+
+
+%SBTTL	'PARSE_ID'
+ROUTINE parse_id=
+BEGIN
+!+
+!
+!  Routine:	PARSE_ID
+!
+!  Functional Description:
+!
+!	This routine pulls the values from the /ID qualifier and saves them
+!	in a PID vector.  It assumes that the /ID qualifier is present.
+!
+!  Formal parameters:
+!
+!	None.
+!
+!  Implicit inputs:
+!
+!	id_qual		- string descriptor containing IDENTIFICATION.
+!	pid_list	- a longword vector of PIDs specified with the /ID
+!			  qualifier.
+!	pid_list_len	- the number of PIDs inserted in the list so far.
+!
+!  Returns:
+!
+!	R0	- Status
+!		  kill_invpid, if a PID is found that is not a hex number
+!
+!  Side effects:
+!
+!	None.
+!-
+REGISTER
+	status;
+
+LOCAL
+	pid_desc	: $BBLOCK[DSC$C_S_BLN];
+
+    $INIT_DYNDESC(pid_desc);
+
+    status = CLI$GET_VALUE(id_qual, pid_desc);	!Get the first PID string
+    IF NOT .status THEN RETURN .status;		!On error, return the status
+						!...at least one value required
+!
+! Don't worry about running out of room in pid_list.  With 255 available slots,
+! it is impossible to specify enough pids to overflow.
+!
+    DO BEGIN					!/ID value loop
+
+	status = OTS$CVT_TZ_L(			!Convert the PID to a longword
+			pid_desc, pid_list[.pid_list_len]);
+	IF .status EQL OTS$_INPCONERR
+	THEN BEGIN				!Unable to convert
+
+	    SIGNAL(kill_invpid, 1, pid_desc);	!Signal and set up a return
+	    status = kill_invpid OR		!...value that won't resignal
+			STS$M_INHIB_MSG;
+
+	    END					!End of unable to convert
+	ELSE pid_list_len = .pid_list_len+1;
+
+	IF .status
+	THEN status = CLI$GET_VALUE(		!Try to get the next PID
+			id_qual, pid_desc);
+
+    END WHILE .status;				!Loop until error or out of
+						!...pids
+    IF .status EQL CLI$_ABSENT
+    THEN status = SS$_NORMAL;			!Out of PIDs, not an error
+
+    STR$FREE1_DX(pid_desc);			!Free the last PID read
+    RETURN .status;				!Return status to the caller
+END;						!End of parse_id
+
+
+%SBTTL	'PARSE_USER'
+ROUTINE parse_user(qinfo : qualdef)=
+BEGIN
+!+
+!
+!  Routine:	PARSE_USER
+!
+!  Functional Description:
+!
+!	This routine parses the list of usernames from the user parameter.
+!	It assumes that the username parameter is present.
+!
+!  Formal parameters:
+!
+!	qinfo		- longword bitmask showing the states of the global
+!			  qualifiers.
+!
+!  Implicit inputs:
+!
+!	user_queue	- the queue of usernames
+!
+!  Returns:
+!
+!	R0	- Status
+!		  kill_invuser, bad username length
+!
+!  Side effects:
+!
+!	None.
+!-
+REGISTER
+	status,
+	done	: INITIAL(0);
+
+BIND
+	username	= %ASCID'USERNAME';
+
+BUILTIN	INSQUE;
+
+LOCAL
+	uque_ptr	: REF uquedef,
+	local_qinfo	: qualdef PRESET([qual_l_flags] = 0),
+	parsed_user	: $BBLOCK[DSC$C_S_BLN];
+
+    $INIT_DYNDESC(parsed_user);
+
+    WHILE NOT .done				!Loop through the usernames
+    DO BEGIN
+
+	status = alloc_user(uque_ptr);		!Allocate a user-queue entry
+	IF .status
+	THEN BEGIN
+
+	    status = CLI$GET_VALUE(		!Get the next username
+		username, parsed_user);
+	    IF .status EQL SS$_NORMAL
+	    THEN done = 1;			!This is the last username
+
+	    IF .parsed_user[DSC$W_LENGTH] EQL 0 OR
+		.parsed_user[DSC$W_LENGTH] GTRU max_username_len
+	    THEN BEGIN				!Bad username length
+
+		SIGNAL(kill_invuser,		!Signal the error
+			1, parsed_user);	!...don't resignal the return
+		status = kill_invuser OR STS$M_INHIB_MSG;
+
+		END				!End of bad username
+	    ELSE BEGIN				!Username OK
+		REGISTER src_len;
+
+		uque_ptr[uque_l_ulength] = src_len =
+		(IF (BIND last_char = .parsed_user[DSC$A_POINTER]+
+					.parsed_user[DSC$W_LENGTH]-1 : BYTE;
+		     .last_char EQL %C'*')	!Fix then length
+		 THEN .parsed_user[DSC$W_LENGTH]-1
+		 ELSE .parsed_user[DSC$W_LENGTH]);
+		CH$MOVE(.src_len,		!Copy the username
+			.parsed_user[DSC$A_POINTER],
+			uque_ptr[uque_t_ubuffer]);
+
+		status = parse_common(		!Check for local qualifier
+			uque_ptr[uque_l_qinfo],	!...overrides
+			1, .qinfo);
+		IF .status
+		THEN BEGIN
+		    BIND
+			lcl_qinfo = uque_ptr[uque_l_qinfo] : qualdef;
+
+		    lcl_qinfo[qual_v_disconnected] =
+			CLI$PRESENT(%ASCID'DISCONNECTED');
+		    uque_ptr[uque_l_nqhead] =	!Set up an empty queue
+			uque_ptr[uque_l_nqtail] = uque_ptr[uque_q_nqueue];
+		    status = parse_node(	!Get the /NODE value(s)
+				uque_ptr[uque_q_nqueue]);
+		    END;			!End of fill in the node queue
+		IF .status
+		THEN INSQUE(.uque_ptr,		!Append to the user queue
+			.user_queue[uque_l_blink]);
+		END;				!End of username OK
+	    END;				!End of allocated user
+
+	IF NOT .status THEN EXITLOOP;		!On error get out to report it
+	END;					!End of user loop
+
+    STR$FREE1_DX(parsed_user);			!Free the dynamic descriptors
+    RETURN .status;				!Return status to the caller
+END;						!End of parse_user
+
+
+%SBTTL	'ALLOC_USER'
+ROUTINE alloc_user(user_a_a)=
+BEGIN
+!+
+!
+!  Routine:	ALLOC_USER
+!
+!  Functional Description:
+!
+!	This routine allocates a uquedef to store user information.
+!
+!  Formal parameters:
+!
+!	user_a_a	- the address of a longword to receive the address of
+!			  the uquedef.
+!
+!  Implicit inputs:
+!
+!	user_zone	- zone from which uquedefs are allocated
+!
+!  Returns:
+!
+!	R0	- Status
+!		  Any error worth aborting the $GETJPI loop.
+!
+!  Side effects:
+!
+!	The user_zone is created if it did not already exist.
+!-
+REGISTER
+	status,					!Holds RTL status values
+	ast_stat;
+
+BIND	user_a	= .user_a_a	: REF uquedef;
+
+    ast_stat = $SETAST(ENBFLG=0);		!Turn off interruptions (avoid
+						!...creating the zone twice)
+    IF .user_zone EQLA 0
+    THEN BEGIN					!Create the VM zone
+
+	status = LIB$CREATE_VM_ZONE(
+		user_zone, %REF(LIB$K_VM_FIXED),
+		%REF(uque_s_uquedef), %REF(LIB$M_VM_EXTEND_AREA));
+	IF NOT .status THEN RETURN .status;	!On error, return the status
+
+	END;					!End of create the zone
+    IF .ast_stat EQL SS$_WASSET
+    THEN $SETAST(ENBFLG=1);			!Reenable ASTs
+
+    status = LIB$GET_VM(%REF(uque_s_uquedef),	!Allocate a uquedef
+			user_a, user_zone);
+
+    RETURN .status;				!Return status to the caller
+END;						!End of alloc_user
+
+
+%SBTTL	'FREE_USER'
+ROUTINE free_user(user_ptr)=
+BEGIN
+!+
+!
+!  Routine:	FREE_USER
+!
+!  Functional Description:
+!
+!	This routine frees the virtual memory allocated for a uquedef.
+!
+!  Formal parameters:
+!
+!	user_ptr	- address of the uquedef
+!
+!  Implicit inputs:
+!
+!	user_zone	- zone from which uquedefs are allocated
+!
+!  Returns:
+!
+!	R0	- LIB$FREE_VM status
+!
+!  Side effects:
+!
+!	None.
+!-
+BIND
+	user	= .user_ptr	: uquedef;
+
+    delete_node_queue(user[uque_q_nqueue]);	!Free the node-queue entries
+    RETURN(LIB$FREE_VM(%REF(uque_s_uquedef),	!Deallocate this user
+		user_ptr, user_zone));
+END;						!End of free_user
+
+
+%SBTTL	'FIX_IMAGE_NAME'
+ROUTINE fix_image_name(image_len, image_buf_a, jpi_info_a)=
+BEGIN
+!+
+!
+!  Routine:	FIX_IMAGE_NAME
+!
+!  Functional Description:
+!
+!	This routine trims the device and directory off of the front of an
+!	image name returned by $GETJPI.
+!
+!  Formal parameters:
+!
+!	image_len	- length of the original image name
+!	image_buf_a	- address of the original image name
+!	jpi_info_a	- address of a structure in which to place the
+!			  resultant image name
+!
+!  Implicit inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!
+!  Side effects:
+!
+!	None.
+!-
+BIND
+	jpi_info	= .jpi_info_a	: pnoddef;
+
+LOCAL
+	image_name_len	: LONG,
+	image_ptr	: REF $BBLOCK,
+	temp_ptr	: REF $BBLOCK;
+
+    IF .image_len GTRU 0
+    THEN BEGIN					!Image name returned
+!
+! Set up for the directory strip loop.
+!
+	image_name_len = .image_len;
+	image_ptr = .image_buf_a;
+
+	WHILE NOT CH$FAIL(			!Loop until out of directories
+			temp_ptr = CH$FIND_CH(
+					.image_name_len, .image_ptr, %C']'))
+	DO BEGIN				!Found another dir spec
+
+	    image_name_len =			!Shift past the directory
+			.image_name_len - CH$DIFF(.temp_ptr, .image_ptr) - 1;
+	    image_ptr = CH$PLUS(.temp_ptr,1);
+
+	    END;				!End of directory skip loop
+
+	temp_ptr = CH$FIND_CH(			!Now search for an extension
+			.image_name_len, .image_ptr, %C'.');
+	IF NOT CH$FAIL(.temp_ptr)		!Found the extension?
+	THEN image_name_len =			!Yes, adjust the length so that
+			CH$DIFF(.temp_ptr,	!...the extension is omitted
+				.image_ptr);
+
+	IF .image_name_len GTRU 15
+	THEN image_name_len = 15;		!Truncate big image names
+
+	END					!End of image name found
+    ELSE BEGIN					!No image name
+	MACRO dcl = %ASCII'*DCL'%;
+
+	image_name_len = %CHARCOUNT(dcl);	!Use *DCL
+	image_ptr = UPLIT(dcl);
+
+	END;					!End of DCL image
+
+    set_image_name(.image_name_len, .image_ptr,	!Copy the resultant image name
+			jpi_info);
+
+    RETURN SS$_NORMAL;				!Return status to the caller
+END;						!End of fix_image_name
+
+
+%SBTTL	'KILL_BY_PID'
+GLOBAL ROUTINE kill_by_pid=
+BEGIN
+!+
+!
+!  Routine:	KILL_BY_PID
+!
+!  Functional Description:
+!
+!	This routine is called to handle a KILL/ID command.
+!
+!  Formal parameters:
+!
+!	None.
+!
+!  Implicit inputs:
+!
+!	my_pid		- this process's PID
+!	pid_list	- a longword vector of PIDs specified with the /ID
+!			  qualifier.
+!	pid_list_len	- the number of PIDs in the list.
+!
+!  Returns:
+!
+!	R0	- Status
+!		  Any error worth aborting the $GETJPI loop.
+!
+!  Side effects:
+!
+!	May kill one or more processes.
+!
+!-
+REGISTER
+	status;					!Holds RTL status values
+
+LOCAL
+	jpi_node	: pnoddef VOLATILE	!$GETJPI returns
+			  PRESET([pnod_l_prcnamlen]	= 0,
+				 [pnod_l_termlen]	= 0,
+				 [pnod_l_nodelen]	= 0),
+	iosb		: VECTOR[4,WORD],
+	image_len	: LONG INITIAL(0) VOLATILE,
+	image_buf	: $BBLOCK[NAM$C_MAXRSS] VOLATILE,
+	suspended	: LONG,
+	itmlst_ptr	: REF $BBLOCK,
+	jpi_list1	: $ITMLST_DECL(ITEMS=7),
+	jpi_list2	: $ITMLST_DECL(ITEMS=1),
+	susp_list	: $ITMLST_DECL(ITEMS=6);
+
+BIND
+	qinfo	= jpi_node[pnod_l_qinfo]	: qualdef;
+
+    status = parse_common(
+		jpi_node[pnod_l_qinfo]);	!Parse common qualifiers.
+    IF NOT .status THEN RETURN .status;		!On error, return the status
+    status = parse_id();			!Parse the /ID qualifier
+    IF NOT .status THEN RETURN .status;		!On error, return the status
+!
+! Set up for the $GETJPI calls.
+!
+    itmlst_ptr =				!Point to item list to use
+    (IF .qinfo[qual_v_confirm]			!Confirming the kill, so we
+     THEN BEGIN					!...need to get full proc info
+
+	$ITMLST_INIT(ITMLST=jpi_list1,		!Initialize the list
+		(ITMCOD	= JPI$_PRCNAM,
+		 BUFADR	= jpi_node[pnod_t_prcnambuf],
+		 BUFSIZ	= max_prcnam_len,
+		 RETLEN	= jpi_node[pnod_l_prcnamlen]),
+		(ITMCOD	= JPI$_IMAGNAME,
+		 BUFADR	= image_buf,
+		 BUFSIZ	= NAM$C_MAXRSS,
+		 RETLEN	= image_len),
+		(ITMCOD	= JPI$_MODE,
+		 BUFADR	= jpi_node[pnod_l_mode]),
+		(ITMCOD	= JPI$_STS,
+		 BUFADR	= jpi_node[pnod_l_pcbsts]),
+		(ITMCOD	= JPI$_USERNAME,
+		 BUFADR	= jpi_node[pnod_t_userbuf],
+		 BUFSIZ	= max_username_len),
+		(ITMCOD	= JPI$_TERMINAL,
+		 BUFADR	= jpi_node[pnod_t_termbuf],
+		 BUFSIZ	= max_term_len,
+		 RETLEN	= jpi_node[pnod_l_termlen]),
+		(ITMCOD	= JPI$_NODENAME,
+		 BUFADR	= jpi_node[pnod_t_nodebuf],
+		 BUFSIZ	= max_node_len,
+		 RETLEN	= jpi_node[pnod_l_nodelen]));
+	$ITMLST_INIT(ITMLST=susp_list,		!Initialize the list
+		(ITMCOD	= JPI$_PRCNAM,
+		 BUFADR	= jpi_node[pnod_t_prcnambuf],
+		 BUFSIZ	= max_prcnam_len,
+		 RETLEN	= jpi_node[pnod_l_prcnamlen]),
+		(ITMCOD	= JPI$_MODE,
+		 BUFADR	= jpi_node[pnod_l_mode]),
+		(ITMCOD	= JPI$_STS,
+		 BUFADR	= jpi_node[pnod_l_pcbsts]),
+		(ITMCOD	= JPI$_USERNAME,
+		 BUFADR	= jpi_node[pnod_t_userbuf],
+		 BUFSIZ	= max_username_len),
+		(ITMCOD	= JPI$_TERMINAL,
+		 BUFADR	= jpi_node[pnod_t_termbuf],
+		 BUFSIZ	= max_term_len,
+		 RETLEN	= jpi_node[pnod_l_termlen]),
+		(ITMCOD	= JPI$_NODENAME,
+		 BUFADR	= jpi_node[pnod_t_nodebuf],
+		 BUFSIZ	= max_node_len,
+		 RETLEN	= jpi_node[pnod_l_nodelen]));
+
+	jpi_list1
+	END					!End of need full proc info
+     ELSE BEGIN					!Only need the process name
+
+	$ITMLST_INIT(ITMLST=jpi_list2,		!Initialize the list
+		(ITMCOD	= JPI$_PRCNAM,
+		 BUFADR	= jpi_node[pnod_t_prcnambuf],
+		 BUFSIZ	= max_prcnam_len,
+		 RETLEN	= jpi_node[pnod_l_prcnamlen]));
+
+	jpi_list2
+	END);					!End of only need proc name
+
+    wild_node = 1;				!Display the node name
+
+    INCRA pid_ptr FROM pid_list[0]		!Loop through the stored PIDs
+		  TO pid_list[.pid_list_len-1] BY 4
+    DO BEGIN
+
+	IF (jpi_node[pnod_l_pid] = ..pid_ptr) EQL .my_pid
+	THEN SIGNAL(kill_suicide, 1, .my_pid)	!Trying to kill yourself, eh?
+	ELSE BEGIN				!Killing somebody else is OK
+
+	    status = $GETJPIW(			!Get process info
+		PIDADR = jpi_node[pnod_l_pid],
+		IOSB	= iosb,
+		ITMLST	= .itmlst_ptr);
+	    IF .status THEN status = .iosb[0];
+	!
+	! If $GETJPI returns SS$_SUSPENDED, then the length of the image
+	! name was set to 0, but all of the other information (process name,
+	! terminal name, username, mode, pcbsts) will be filled in as normal.
+	!
+	    IF .status EQL SS$_SUSPENDED
+	    THEN BEGIN				!Process is suspended
+
+		set_image_name(			!Set the image name
+			.susp_image<0,8,0>, CH$PLUS(susp_image,1), jpi_node);
+		status = $GETJPIW(		!Get rest of process info
+			PIDADR = jpi_node[pnod_l_pid],
+			IOSB	= iosb,
+			ITMLST	= susp_list);
+		IF .status THEN status = .iosb[0];
+
+		END				!End of suspended process
+	    ELSE IF .status AND .qinfo[qual_v_confirm]
+	    THEN fix_image_name(		!Fix the image name returned
+			.image_len, image_buf, jpi_node);
+
+	    IF .status
+	    THEN BEGIN				!Got proc info, kill it
+
+		IF .status THEN 
+		status = kill_a_process(	!Kill (or forcex) process
+				jpi_node);
+		IF NOT .status THEN EXITLOOP;	!On error, abort
+
+		END				!End of got proc info
+	    ELSE IF .status EQL SS$_NOPRIV
+	    THEN EXITLOOP			!No privilege, abort the loop
+	    ELSE BEGIN				!...process info
+
+		SIGNAL(kill_errinfo, 1,		!Signal an error that we
+			.jpi_node[pnod_l_pid],	!...couldn't do the $GETJPI
+			.status);
+		status = SS$_NORMAL;		!Ignore this error
+
+		END;				!End of error getting proc info
+	    END;				!End of killing somebody else
+	END;					!End of pid vector loop
+
+    RETURN .status;				!Return status to the caller
+END;						!End of kill_by_pid
+
+
+%SBTTL	'GETJPI_LOOP'
+ROUTINE getjpi_loop(pidctx, jpi_list_a, jpi_node_a, rtn_a, param)=
+BEGIN
+!+
+!
+!  Routine:	GETJPI_LOOP
+!
+!  Functional Description:
+!
+!	This routine repeatedly calls $GETJPI until it is out of processes.
+!	For each process returned, it calls the routine passed in with 2
+!	parameters: jpi_node and the optional user parameter.
+!
+!  Formal parameters:
+!
+!	pidctx		- the $GETJPI context.
+!	jpi_list_a	- the address of the item list to use with $GETJPI
+!	jpi_node_a	- the address of the pnoddef to be filled in by the
+!			  $GETJPI calls.
+!	rtn_a		- the address of the routine to call
+!	param		- the optional user parameter.
+!
+!  Implicit inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!  Side effects:
+!
+!	None.
+!-
+REGISTER
+	status;
+
+BIND
+	jpi_node	= .jpi_node_a	: VOLATILE pnoddef;
+
+BUILTIN	NULLPARAMETER;
+
+LOCAL
+	iosb	: VECTOR[4,WORD];
+
+    DO BEGIN					!$GETJPI loop
+
+	status = $GETJPIW(			!Get the necessary process info
+		PIDADR	= pidctx,
+		IOSB	= iosb,
+		ITMLST	= .jpi_list_a);
+	IF .status
+	THEN status = .iosb[0];			!Check the IOSB status
+	IF .status
+	THEN status = (.rtn_a)(jpi_node,	!Call the user-provided rtn
+			IF NULLPARAMETER(param)
+			THEN 0			!Omitted, pass value 0
+			ELSE .param);		!OK, pass the param
+
+    END WHILE .status;				!Loop until error or out of
+						!...processes
+
+    RETURN(IF .status EQL SS$_NOMOREPROC	!Return status to the caller
+	   THEN SS$_NORMAL			!...ignore this error
+	   ELSE .status);
+END;						!End of getjpi_loop
+
+
+%SBTTL	'ADD_USER_PROCESS'
+ROUTINE add_user_process(jpi_node_a, qinfo : qualdef) =
+BEGIN
+!+
+!
+!  Routine:	ADD_USER_PROCESS
+!
+!  Functional Description:
+!
+!	This routine is called in response to finding a candidate process to
+!	kill (or forcex).  It verifies that this process is a valid candidate,
+!	i.e., it verifies that you are not trying to kill yourself and that, if
+!	the command was KILL/DISC, this is a disconnected process.  Once the
+!	process is verified, it is either added to the sort tree of processes
+!	to kill (/CONFIRM) or killed immediately (/NOCONFIRM).
+!
+!  Formal parameters:
+!
+!	jpi_node_a	- the address of the pnoddef to be filled in by the
+!			  $GETJPI calls.
+!	qinfo		- a bitmask describing the qualifiers present for
+!			  this user.
+!
+!  Implicit inputs:
+!
+!	proc_found	- a flag indicating whether any processes were found
+!	tree_head_a	- the address of a longword containing the head of the
+!			  tree of processes so far.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!  Side effects:
+!
+!	None.
+!-
+REGISTER
+	status	: INITIAL(SS$_NORMAL);
+
+BIND
+	jpi_node	= .jpi_node_a	: pnoddef;
+
+LOCAL
+	iosb		: VECTOR[4,WORD],
+	node_ptr	: REF pnoddef;
+
+    IF .jpi_node[pnod_l_pid] EQL .my_pid
+    THEN RETURN(.status);			!Don't try to kill this process
+
+    IF .qinfo[qual_v_disconnected]		!Fill in the rest of the info
+    THEN BEGIN					!...for a disconnected process
+	LOCAL
+	    jpi_ptr	: REF $BBLOCK,
+	    jpi_list1	: $ITMLST_DECL(ITEMS = 3),
+	    jpi_list2	: $ITMLST_DECL(ITEMS = 1);
+
+	IF NOT (.jpi_node[pnod_l_termlen] GTRU 0 AND
+		.jpi_node[pnod_l_phystermlen] EQL 0)
+	THEN RETURN(.status);			!Not a disconnected process
+
+	jpi_ptr =
+	(IF .qinfo[qual_v_confirm]
+	 THEN BEGIN
+
+	    $ITMLST_INIT(ITMLST = jpi_list1,	!/CONFIRM list
+		(ITMCOD	= JPI$_PRCNAM,
+		 BUFADR	= jpi_node[pnod_t_prcnambuf],
+		 BUFSIZ	= max_prcnam_len,
+		 RETLEN	= jpi_node[pnod_l_prcnamlen]),
+		(ITMCOD	= JPI$_USERNAME,
+		 BUFADR	= jpi_node[pnod_t_userbuf],
+		 BUFSIZ	= max_username_len),
+		(ITMCOD	= JPI$_NODENAME,
+		 BUFADR	= jpi_node[pnod_t_nodebuf],
+		 BUFSIZ	= max_node_len,
+		 RETLEN	= jpi_node[pnod_l_nodelen]));
+	    jpi_list1
+
+	    END					!End of /CONFIRM list
+	ELSE BEGIN				!/NOCONFIRM, need less info
+
+	    $ITMLST_INIT(ITMLST=jpi_list2,	!All we need is the process
+		(ITMCOD	= JPI$_PRCNAM,		!...name
+		 BUFADR	= jpi_node[pnod_t_prcnambuf],
+		 BUFSIZ	= max_prcnam_len,
+		 RETLEN	= jpi_node[pnod_l_prcnamlen]));
+	    jpi_list2
+
+	    END);				!End of /NOCONFIRM
+
+	status = $GETJPIW(			!Fill in the missing info
+			PIDADR	= jpi_node[pnod_l_pid],
+			IOSB	= iosb,
+			ITMLST	= .jpi_ptr);
+	IF .status THEN status = .iosb[0];	!Check the IOSB status
+	END;					!End of /DISCONNECTED
+
+    IF .status AND .qinfo[qual_v_confirm]
+    THEN BEGIN					!Get the image name
+	LOCAL
+	    image_len	: LONG INITIAL(0) VOLATILE,
+	    image_buf	: $BBLOCK[NAM$C_MAXRSS] VOLATILE,
+	    image_list	: $ITMLST_DECL(ITEMS = 1);
+
+	$ITMLST_INIT(ITMLST=image_list,		!Image name list
+		(ITMCOD	= JPI$_IMAGNAME,
+		 BUFADR	= image_buf,
+		 BUFSIZ	= NAM$C_MAXRSS,
+		 RETLEN	= image_len));
+
+	status = $GETJPIW(
+			PIDADR	= jpi_node[pnod_l_pid],
+			IOSB	= iosb,
+			ITMLST	= image_list);
+	IF .status THEN status = .iosb[0];
+
+	IF .status EQL SS$_SUSPENDED
+	THEN BEGIN				!Process is suspended
+
+	    set_image_name(			!Set the image name
+			.susp_image<0,8,0>, CH$PLUS(susp_image,1),
+			jpi_node);
+	    status = SS$_NORMAL;		!Still OK to kill
+
+	    END					!End of suspended process
+	ELSE IF .status
+	THEN fix_image_name(			!Fix the image name returned
+			.image_len, image_buf, jpi_node);
+	END;
+
+    IF .status AND .jpi_node[pnod_l_pid] NEQ .my_pid
+    THEN BEGIN					!Got process info, not this
+						!...process
+	proc_found = 1;				!At least on process found.
+	IF .qinfo[qual_v_confirm]
+	THEN BEGIN				!Confirming the kill
+
+	    status = LIB$INSERT_TREE(		!Sort it
+				tree_head_a, jpi_node,
+				%REF(0), tree_compare_rtn,
+				tree_alloc_rtn, node_ptr);
+	    IF .status EQL LIB$_KEYALRINS
+	    THEN CH$MOVE(			!Duplicate process info
+		pnod_s_pnoddef-12, jpi_node[pnod_l_pid],
+		node_ptr[pnod_l_pid]);
+
+	    END					!End of confirming
+	ELSE status = kill_a_process(jpi_node);	!Not confirming, just kill it
+					
+	END;					!End of got process info
+
+    RETURN .status;				!Return status to the caller
+END;						!End of add_user_process
+
+
+%SBTTL	'KILL_BY_USER'
+GLOBAL ROUTINE kill_by_user=
+BEGIN
+!+
+!
+!  Routine:	KILL_BY_USER
+!
+!  Functional Description:
+!
+!	This routine is called to handle a KILL user command.
+!
+!  Formal parameters:
+!
+!	None.
+!
+!  Implicit inputs:
+!
+!	user_queue	- address of the head of a queue of usernames specified
+!			  on the command line
+!
+!  Returns:
+!
+!	R0	- Status
+!		  Any error worth aborting the $GETJPI loop.
+!
+!  Side effects:
+!
+!	May kill one or more processes.
+!
+!-
+REGISTER
+	status;					!Holds RTL status values
+
+BUILTIN	REMQUE;
+
+LOCAL
+	jpi_node	: pnoddef VOLATILE	!$GETJPI returns
+			  PRESET([pnod_l_prcnamlen]	= 0,
+				 [pnod_l_termlen]	= 0,
+				 [pnod_l_nodelen]	= 0),
+	def_qinfo	: qualdef,
+	pidctx		: LONG,
+	pscan_list1	: $ITMLST_DECL(ITEMS=1),
+	pscan_list2	: $ITMLST_DECL(ITEMS=2),
+	pscan_list3	: $ITMLST_DECL(ITEMS=3),
+	pscan_ptr	: REF $BBLOCK,
+	jpi_list1	: $ITMLST_DECL(ITEMS=7),
+	jpi_list2	: $ITMLST_DECL(ITEMS=2),
+	jpi_list3	: $ITMLST_DECL(ITEMS=3),
+	jpi_ptr		: REF $BBLOCK,
+	user_ptr	: REF uquedef;
+
+BIND
+	qinfo	= jpi_node[pnod_l_qinfo]	: qualdef;
+
+    status = parse_common(def_qinfo);		!Parse the common qualifiers
+    IF .status
+    THEN status = build_cluster_queue();	!Set up to check /NODE
+    IF .status
+    THEN status = parse_user(.def_qinfo);	!Parse the user parameter
+    IF .status
+    THEN status = delete_node_queue(		!Free the cluster queue
+				cluster_queue);
+    IF NOT .status THEN RETURN .status;		!On error, return the status
+!
+! Set up for the $GETJPI calls.  Since /CONFIRM and /DISCONNECTED are
+! positional qualifiers, we need to initialize all 3 item lists (since all
+! of them might be used).
+!
+    $ITMLST_INIT(ITMLST=jpi_list1,		!/CONFIRM list
+	(ITMCOD	= JPI$_PID,
+	 BUFADR	= jpi_node[pnod_l_pid]),
+	(ITMCOD	= JPI$_PRCNAM,
+	 BUFADR	= jpi_node[pnod_t_prcnambuf],
+	 BUFSIZ	= max_prcnam_len,
+	 RETLEN	= jpi_node[pnod_l_prcnamlen]),
+	(ITMCOD	= JPI$_MODE,
+	 BUFADR	= jpi_node[pnod_l_mode]),
+	(ITMCOD	= JPI$_STS,
+	 BUFADR	= jpi_node[pnod_l_pcbsts]),
+	(ITMCOD	= JPI$_TERMINAL,
+	 BUFADR	= jpi_node[pnod_t_termbuf],
+	 BUFSIZ	= max_term_len,
+	 RETLEN	= jpi_node[pnod_l_termlen]),
+	(ITMCOD	= JPI$_USERNAME,
+	 BUFADR	= jpi_node[pnod_t_userbuf],
+	 BUFSIZ	= max_username_len),
+	(ITMCOD	= JPI$_NODENAME,
+	 BUFADR	= jpi_node[pnod_t_nodebuf],
+	 BUFSIZ	= max_node_len,
+	 RETLEN	= jpi_node[pnod_l_nodelen]));
+    $ITMLST_INIT(ITMLST=jpi_list2,		!/NOCONFIRM list
+	(ITMCOD	= JPI$_PID,
+	 BUFADR	= jpi_node[pnod_l_pid]),
+	(ITMCOD	= JPI$_PRCNAM,
+	 BUFADR	= jpi_node[pnod_t_prcnambuf],
+	 BUFSIZ	= max_prcnam_len,
+	 RETLEN	= jpi_node[pnod_l_prcnamlen]));
+    $ITMLST_INIT(ITMLST=jpi_list3,		!List for the minimal info
+	(ITMCOD	= JPI$_PID,			!...necessary to find disc.
+	 BUFADR	= jpi_node[pnod_l_pid]),	!...processes
+	(ITMCOD	= JPI$_TERMINAL,
+	 BUFADR	= jpi_node[pnod_t_termbuf],
+	 BUFSIZ	= max_term_len,
+	 RETLEN	= jpi_node[pnod_l_termlen]),
+	(ITMCOD	= JPI$_TT_PHYDEVNAM,
+	 BUFADR	= jpi_node[pnod_t_phystermbuf],
+	 BUFSIZ	= max_term_len,
+	 RETLEN	= jpi_node[pnod_l_phystermlen]));
+
+    REMQUE(.user_queue[uque_l_flink], user_ptr);!Remove the first user
+
+    DO BEGIN					!Loop through the queue entries
+
+	qinfo = .user_ptr[uque_l_qinfo];	!Use this user's qualifiers
+	jpi_ptr	= (IF .qinfo[qual_v_disconnected]
+		   THEN jpi_list3		!Use the /DISCONNECTED list
+		   ELSE IF .qinfo[qual_v_confirm]
+		   THEN jpi_list1		!Use the /CONFIRM list
+		   ELSE jpi_list2);		!Use the /NOCONFIRM list
+
+	IF .user_ptr[uque_l_nqhead] EQLA user_ptr[uque_q_nqueue]
+	THEN BEGIN				!No nodes in the queue
+
+	    IF .user_ptr[uque_l_ulength] EQL 0 AND
+		NOT .qinfo[qual_v_disconnected]
+	    THEN pidctx = -1			!Username of * specified
+	    ELSE BEGIN
+
+		pscan_ptr =
+		(IF .qinfo[qual_v_disconnected]
+		 THEN IF .user_ptr[uque_l_ulength] EQL 0
+		    THEN BEGIN
+
+			$ITMLST_INIT(ITMLST=pscan_list1,
+				(ITMCOD	= PSCAN$_MODE,
+				 BUFADR	= JPI$K_INTERACTIVE,
+				 BUFSIZ = 0));
+			pscan_list1
+
+			END			!End of disconnected only
+		    ELSE BEGIN
+
+			$ITMLST_INIT(ITMLST=pscan_list2,
+				(ITMCOD	= PSCAN$_USERNAME,
+				 BUFADR	= user_ptr[uque_t_ubuffer],
+				 BUFSIZ = .user_ptr[uque_l_ulength],
+				 RETLEN	= PSCAN$M_PREFIX_MATCH),
+				(ITMCOD	= PSCAN$_MODE,
+				 BUFADR	= JPI$K_INTERACTIVE,
+				 BUFSIZ	= 0));
+			pscan_list2
+
+			END			!End of disc. for a user
+		 ELSE BEGIN
+
+		    $ITMLST_INIT(ITMLST=pscan_list1,
+			(ITMCOD	= PSCAN$_USERNAME,
+			 BUFADR	= user_ptr[uque_t_ubuffer],
+			 BUFSIZ = .user_ptr[uque_l_ulength],
+			 RETLEN	= PSCAN$M_PREFIX_MATCH));
+		    pscan_list1
+
+		    END);			!End of all procs for a user
+		status = $PROCESS_SCAN(		!Set up $GETJPI context
+			PIDCTX	= pidctx,	!
+			ITMLST	= .pscan_ptr);
+
+		END;				!End of call $PROCESS_SCAN
+
+	    IF .status
+	    THEN status = getjpi_loop(		!Stick processes in a tree
+			.pidctx, .jpi_ptr, jpi_node,
+			add_user_process, .qinfo);
+	    END					!End of empty node queue
+	ELSE BEGIN				!Node queue not empty
+	    REGISTER
+		cur_node	: REF clusdef;
+
+	    pscan_ptr =
+	    (IF .user_ptr[uque_l_ulength] EQL 0
+	     THEN IF .qinfo[qual_v_disconnected]
+		THEN BEGIN			!All disconnected on a node
+
+		    $ITMLST_INIT(ITMLST=pscan_list2,
+			(ITMCOD	= PSCAN$_NODENAME,
+			 BUFADR	= 0,
+			 BUFSIZ	= 0,
+			 RETLEN	= PSCAN$M_WILDCARD),
+			(ITMCOD	= PSCAN$_MODE,
+			 BUFADR	= JPI$K_INTERACTIVE,
+			 BUFSIZ	= 0));
+		    pscan_list2
+
+		    END				!End of all disc. on a node
+		ELSE BEGIN			!All users on a node
+
+		    $ITMLST_INIT(ITMLST=pscan_list1,
+			(ITMCOD	= PSCAN$_NODENAME,
+			 BUFADR	= 0,
+			 BUFSIZ	= 0,
+			 RETLEN	= PSCAN$M_WILDCARD));
+		    pscan_list1
+
+		    END				!End of all users on a node
+	     ELSE IF .qinfo[qual_v_disconnected]
+		THEN BEGIN			!All disconnected for a user
+
+		    $ITMLST_INIT(ITMLST=pscan_list3,
+			(ITMCOD	= PSCAN$_NODENAME,
+			 BUFADR	= 0,
+			 BUFSIZ	= 0,
+			 RETLEN	= PSCAN$M_WILDCARD),
+			(ITMCOD	= PSCAN$_USERNAME,
+			 BUFADR	= user_ptr[uque_t_ubuffer],
+			 BUFSIZ = .user_ptr[uque_l_ulength],
+			 RETLEN	= PSCAN$M_PREFIX_MATCH),
+			(ITMCOD	= PSCAN$_MODE,
+			 BUFADR	= JPI$K_INTERACTIVE,
+			 BUFSIZ	= 0));
+		    pscan_list3
+
+		    END				!End of disconnected for user
+		ELSE BEGIN			!All for a user (on a node)
+
+		    $ITMLST_INIT(ITMLST=pscan_list2,
+			(ITMCOD	= PSCAN$_NODENAME,
+			 BUFADR	= 0,
+			 BUFSIZ	= 0,
+			 RETLEN	= PSCAN$M_WILDCARD),
+			(ITMCOD	= PSCAN$_USERNAME,
+			 BUFADR	= user_ptr[uque_t_ubuffer],
+			 BUFSIZ = .user_ptr[uque_l_ulength],
+			 RETLEN	= PSCAN$M_PREFIX_MATCH));
+		    pscan_list2
+
+		    END);			!End of match user and node
+
+	    cur_node = .user_ptr[uque_l_nqhead];
+	    WHILE .cur_node NEQA user_ptr[uque_q_nqueue]
+	    DO BEGIN				!Loop through the nodes
+		BIND node = cur_node[clus_q_nodedesc] : $BBLOCK;
+
+		pscan_ptr[ITM$L_BUFADR] = .node[DSC$A_POINTER];
+		pscan_ptr[ITM$W_BUFSIZ] = .node[DSC$W_LENGTH];
+
+		status = $PROCESS_SCAN(		!Set up the $GETJPI context
+			PIDCTX	= pidctx,
+			ITMLST	= .pscan_ptr);
+		IF .status
+		THEN status = getjpi_loop(	!Stick processes in a tree
+			.pidctx, .jpi_ptr, jpi_node,
+			add_user_process, .qinfo);
+		IF .status
+		THEN cur_node = .cur_node[clus_l_flink]
+		ELSE EXITLOOP;			!On error get out to report it
+
+		END;				!End of node-queue loop
+	    END;				!End of process node queue
+
+	free_user(.user_ptr);			!Finished with this entry, OK
+						!...to free it
+	IF NOT .status THEN EXITLOOP;		!On error get out to report it
+
+    END WHILE (REMQUE(.user_queue[uque_l_flink], user_ptr) NEQ 3);
+						!Loop until the queue is empty
+    IF .status
+    THEN BEGIN
+	IF NOT .proc_found
+	THEN status = kill_noprocs		!No processes found
+	ELSE IF .tree_head_a NEQA 0
+	THEN status = LIB$TRAVERSE_TREE(	!/CONFIRM procs saved, kill
+		tree_head_a, kill_a_process);	!...them
+	END;
+
+    RETURN .status;				!Return status to the caller
+END;						!End of kill_by_user
+
+
+%SBTTL	'KILL_A_PROCESS'
+ROUTINE kill_a_process(jpi_info_a)=
+BEGIN
+!+
+!
+!  Routine:	KILL_A_PROCESS
+!
+!  Functional Description:
+!
+!	This routine kill the current process under inspection.  If /CONFIRM
+!	was specified (or defaulted) on the command line, then it will prompt
+!	for confirmation of the kill.  If /LOG was specified (or defaulted) on
+!	then command line, then it will display an informational message after
+!	the process is killed.
+!
+!  Formal parameters:
+!
+!	jpi_info_a	- address of a structure containing all of the
+!			  necessary information returned by $GETJPI
+!
+!  Implicit inputs:
+!
+!	wild_node	- low bit set if the node name should appear on the
+!			  confirm line.
+!
+!  Returns:
+!
+!	R0	- Status
+!		  RMS$_EOF, if Ctrl-Z was pressed, this error will burrow its
+!			way out of KILL and be caught by MAIN.
+!		  Any error worth aborting the $GETJPI loop.
+!
+!  Side effects:
+!
+!	May kill a process.
+!
+!-
+REGISTER
+	status,					!Holds RTL status values
+	confirm	: LONG INITIAL(0),		!Temp storage of y or n answer
+	done	: LONG INITIAL(0),		!Got a yes or no answer
+	forcex	: LONG INITIAL(0);		!Kill or Forcex?
+
+BIND
+	jpi_info	= .jpi_info_a			: pnoddef,
+	qinfo		= jpi_info[pnod_l_qinfo]	: qualdef;
+
+OWN
+	answer	: $BBLOCK[DSC$C_S_BLN]		!Reuse the same descriptor
+		  PRESET([DSC$W_LENGTH]	= 0,
+			 [DSC$B_CLASS]	= DSC$K_CLASS_D,
+			 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			 [DSC$A_POINTER]= 0);
+
+MACRO
+	fao_pre_args=				!1st half of common fao args
+		 question_desc, question_desc,
+		(IF .qinfo[qual_v_forcex]	!Pick the appropriate verb
+		 THEN forcex_act		!Forcex
+		 ELSE kill_act),		!Kill
+		max_username_len,		!Display the username
+		jpi_info[pnod_t_userbuf]%,	!...
+	fao_post_args=				!2nd half of common fao args
+		.jpi_info[pnod_l_prcnamlen],	!Display the process name
+		jpi_info[pnod_t_prcnambuf],	!...
+		(IF .term_ptr EQLA jpi_info[pnod_t_termbuf]
+		 THEN space			!Terminal, prefix with a space
+		 ELSE dash),			!Proc type, prefix with a dash
+		.term_name_len, .term_ptr,	!Terminal (or process type)
+		image_display_len,		!Display image name
+		jpi_info[pnod_t_imagebuf]%;	!...
+
+    forcex = .qinfo[qual_v_forcex];		!Save the /FORCEX status
+
+    IF .qinfo[qual_v_confirm]
+    THEN BEGIN					!Confirm the delete
+	BIND
+	    conf_fao1	= %ASCID'!AS !AF !6AD !15AF !AS!8AD !AD <N>? ',
+	    conf_fao2	= %ASCID'!AS !AF !15AF !AS!8AD !AD <N>? ',
+	    kill_act	= %ASCID'Kill  ',	!We can mix kills and forcexes
+	    forcex_act	= %ASCID'Forcex',	!...so set to the same length
+	    space	= %ASCID' ',
+	    dash	= %ASCID'-',
+	    network	= UPLIT(%ASCII'NET-'),
+	    batch	= UPLIT(%ASCII'BAT-'),
+	    subproc	= UPLIT(%ASCII'SUB-'),
+	    detached	= UPLIT(%ASCII'DET-'),
+	    system	= UPLIT(%ASCII'SYS-');
+
+	LOCAL
+	    term_ptr		: REF $BBLOCK,
+	    term_name_len	: LONG,
+	    question		: $BBLOCK[80],
+	    question_desc	: $BBLOCK[DSC$C_S_BLN]
+				  PRESET([DSC$W_LENGTH]	= %ALLOCATION(question),
+					 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+					 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+					 [DSC$A_POINTER]= question);
+
+	term_ptr =				!Point to the terminal name
+	(IF .jpi_info[pnod_l_termlen] EQL 0	!This process does not have a
+	 THEN BEGIN				!...terminal
+
+	    term_name_len = 4;			!Names are of the form xxx-
+	    IF .jpi_info[pnod_l_mode] EQL JPI$K_NETWORK
+	    THEN network			!Network process
+	    ELSE IF .jpi_info[pnod_l_mode] EQL JPI$K_BATCH
+	    THEN batch				!Batch process
+	    ELSE IF .jpi_info[pnod_l_mode] EQL JPI$K_INTERACTIVE
+	    THEN subproc			!Subprocess
+	    ELSE IF (.jpi_info[pnod_l_pcbsts] AND PCB$M_LOGIN) NEQ 0
+	    THEN detached			!Detached process
+	    ELSE system				!System process
+
+	    END					!End of no terminal
+	ELSE BEGIN				!Proc has a terminal
+
+	    term_name_len = .jpi_info[pnod_l_termlen];
+	    jpi_info[pnod_t_termbuf]		!Use that terminal name
+
+	    END);				!End of has a terminal
+
+	status =				!Format the question string
+	(IF .wild_node				!Pick a control string
+	 THEN $FAO(				!Format with the node name
+		conf_fao1, fao_pre_args,
+		.jpi_info[pnod_l_nodelen],	!Display the node name
+		jpi_info[pnod_t_nodebuf],	!...
+		fao_post_args)
+	 ELSE $FAO(				!Format w/out the node name
+		conf_fao2, fao_pre_args, fao_post_args));
+	IF NOT .status THEN RETURN .status;	!On error, return the status
+
+	DO BEGIN
+
+	status=LIB$GET_INPUT(			!Ask the question
+			answer,			!...where to put the result
+			question_desc);		!...the question descriptor
+
+	IF NOT .status				!Error (or Ctrl-Z),
+	THEN RETURN .status			!...return it
+	ELSE IF .answer[DSC$W_LENGTH] GTRU 0	!Got an answer?
+	THEN BEGIN				!Yes,
+	    BIND ans = .answer[DSC$A_POINTER] : UNSIGNED BYTE;
+
+	    confirm =				!Set the confirm bit, if we
+	    (IF ((.ans EQLU %C'F') OR		!...got a positive answer
+		 (.ans EQLU %C'f'))
+	     THEN BEGIN
+		forcex = 1;			!Override with $FORCEX
+		1
+		END
+	     ELSE IF ((.ans EQLU %C'K') OR
+			(.ans EQLU %C'k'))
+	     THEN BEGIN
+		forcex = 0;			!Override with KILL
+		1
+		END
+	     ELSE ((.ans EQLU %C'Y') OR		!Check for normal confirmation
+		   (.ans EQLU %C'y')));
+
+	    done = (.confirm OR			!Determine if we're done
+		     (.ans EQLU %C'N') OR	!...
+		     (.ans EQLU %C'n'));	!...
+
+	    END
+	ELSE BEGIN				!Zero length answer
+
+	    done=1;				!We're done
+	    confirm=0;				!Use the default answer (no)
+
+	    END;
+	END WHILE NOT(.done);			!Loop until an answer is given
+
+	IF NOT .confirm THEN RETURN(SS$_NORMAL);!Not confirmed, skip this proc
+
+	END;					!End of confirm the delete
+
+    status =
+    (IF .forcex
+     THEN $FORCEX(PIDADR= jpi_info[pnod_l_pid],	!$FORCEX the process
+		  CODE	= SS$_FORCEDEXIT)
+     ELSE $DELPRC(PIDADR= jpi_info[pnod_l_pid]));!Kill the process
+
+    IF .status AND .qinfo[qual_v_log]		!Success, log it?
+    THEN SIGNAL(				!Yes,
+	(IF .forcex
+	 THEN kill_forcex			!$FORCEX message
+	 ELSE kill_killed),			!Kill message
+	2, .jpi_info[pnod_l_prcnamlen], jpi_info[pnod_t_prcnambuf])
+    ELSE IF NOT .status				!Error?
+    THEN BEGIN					!Yes,
+
+	SIGNAL((IF .forcex			!Signal an error message
+		THEN kill_errforcex		!$FORCEX error message
+		ELSE kill_errkill),		!Kill error message
+		2, .jpi_info[pnod_l_prcnamlen], jpi_info[pnod_t_prcnambuf],
+		.status);			!Also signal the original err
+	status =				!Set up the return status
+	(IF .status EQL SS$_NOPRIV		!No privilege?
+	 THEN .status OR STS$M_INHIB_MSG	!Keep the original error,
+						!...(don't resignal it)
+	 ELSE SS$_NORMAL);			!Don't pass on the error,
+						!...assume it was local to
+						!...this attempt
+	END;					!End of error killing
+
+    RETURN .status;				!Return status to the caller
+
+END;						!end of KILL_A_PROCESS
+
+
+%SBTTL	'TREE_COMPARE_RTN'
+ROUTINE tree_compare_rtn(new_node_a, old_node_a)=
+BEGIN
+!+
+!
+!  Routine:	TREE_COMPARE_RTN
+!
+!  Functional Description:
+!
+!	This routine compares a node to be inserted with an existing tree
+!	node.  Nodes are sorted by username, node name, and process name (in
+!	that order of precedence).
+!
+!  Formal parameters:
+!
+!	new_node_a	- address of the node to insert
+!	old_node_a	- address of the comparison node
+!
+!  Implicit inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Comparison result
+!		  -1, if new_node < old_node
+!		  0, if new_node = old_node (same PID)
+!		  1, if new_node > old_node
+!
+!  Side effects:
+!
+!	None.
+!-
+REGISTER
+	compare_val;
+
+BIND
+	new_node	= .new_node_a	: pnoddef,
+	old_node	= .old_node_a	: pnoddef;
+
+    IF .new_node[pnod_l_pid] EQL .old_node[pnod_l_pid]
+    THEN RETURN 0;				!These nodes are equal
+
+    compare_val = CH$COMPARE(			!Compare usernames
+		max_username_len, new_node[pnod_t_userbuf],
+		max_username_len, old_node[pnod_t_userbuf]);
+    IF .compare_val EQL 0			!Same username
+    THEN compare_val = CH$COMPARE(		!Compare node names
+		.new_node[pnod_l_nodelen], new_node[pnod_t_nodebuf],
+		.old_node[pnod_l_nodelen], old_node[pnod_t_nodebuf],
+		%C' ');
+    IF .compare_val EQL 0			!Same node name
+    THEN compare_val = CH$COMPARE(		!Compare process names
+		.new_node[pnod_l_prcnamlen], new_node[pnod_t_prcnambuf],
+		.old_node[pnod_l_prcnamlen], old_node[pnod_t_prcnambuf],
+		%C' ');
+    RETURN .compare_val;			!Return the result of the final
+						!...comparison
+END;						!End of tree_compare_rtn
+
+
+%SBTTL	'TREE_ALLOC_RTN'
+ROUTINE tree_alloc_rtn(insert_node_a, new_node_a_a)=
+BEGIN
+!+
+!
+!  Routine:	TREE_ALLOC_RTN
+!
+!  Functional Description:
+!
+!	This routine is called to allocate a new tree node and fill in the
+!	data portion (everthing after the first 3 longwords).
+!
+!  Formal parameters:
+!
+!	insert_node_a	- address of a node containing the values to fill in
+!			  the node allocated.
+!	new_node_a_a	- address of a longword to receive the node allocated
+!
+!  Implicit inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!		  Any errors returned by LIB$GET_VM or LIB$CREATE_VM_ZONE
+!
+!  Side effects:
+!
+!	The tree_zone is created if it did not already exist.
+!-
+REGISTER
+	status,
+	ast_stat;
+
+BIND
+	insert_node	= .insert_node_a	: pnoddef;
+
+    ast_stat = $SETAST(ENBFLG=0);		!Turn off interruptions (avoid
+						!...creating the zone twice)
+    IF .tree_zone EQLA 0
+    THEN BEGIN					!Create the VM zone
+
+	status = LIB$CREATE_VM_ZONE(
+		tree_zone, %REF(LIB$K_VM_FIXED),
+		%REF(pnod_s_pnoddef), %REF(LIB$M_VM_EXTEND_AREA));
+	IF NOT .status THEN RETURN .status;	!On error, return the status
+
+	END;					!End of create the zone
+    IF .ast_stat EQL SS$_WASSET
+    THEN $SETAST(ENBFLG=1);			!Reenable ASTs
+
+    status = LIB$GET_VM(%REF(pnod_s_pnoddef),	!Allocate a tree node
+			.new_node_a_a, tree_zone);
+    IF .status
+    THEN BEGIN					!Got it, now fill it in
+	BIND new_node = ..new_node_a_a	: pnoddef;
+
+	CH$MOVE(pnod_s_pnoddef-12,		!Copy everything but the stuff
+		insert_node[pnod_l_pid],	!...that is used by the tree
+		new_node[pnod_l_pid]);		!...routines
+
+	END;					!End of node allocated
+
+    RETURN .status;				!Return status to the caller
+END;						!End of tree_alloc_rtn
+
+END						!End of module begin
+ELUDOM

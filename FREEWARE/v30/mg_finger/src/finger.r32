@@ -1,0 +1,92 @@
+LIBRARY 'SYS$LIBRARY:STARLET';
+LIBRARY 'FIELDS';
+
+    BUILTIN
+    	INSQUE, REMQUE;
+
+    _DEF (QUE)
+    	QUE_L_HEAD  	= _LONG,
+    	QUE_L_TAIL  	= _LONG
+    _ENDDEF (QUE);
+
+    LITERAL
+    	INF_S_USERNAME	= 32,
+    	INF_S_TERMINAL	= 32,
+    	INF_S_ACCPOR	= 32,
+    	INF_S_NODE  	= 16,
+    	INF_S_IMAGE 	= 256,
+	INF_S_OWNER	= 32;
+
+    _DEF (INF)
+    	INF_L_FLINK 	= _LONG,
+    	INF_L_BLINK 	= _LONG,
+    	INF_W_USERNAME	= _WORD,
+    	INF_T_USERNAME	= _BYTES (INF_S_USERNAME),
+    	INF_W_TERMINAL	= _WORD,
+    	INF_T_TERMINAL	= _BYTES (INF_S_TERMINAL),
+    	INF_W_ACCPOR	= _WORD,
+    	INF_T_ACCPOR	= _BYTES (INF_S_ACCPOR),
+    	INF_W_NODE  	= _WORD,
+    	INF_T_NODE  	= _BYTES (INF_S_NODE),
+    	INF_W_IMAGE 	= _WORD,
+    	INF_T_IMAGE 	= _BYTES (INF_S_IMAGE),
+	INF_W_OWNER	= _WORD,
+	INF_T_OWNER	= _BYTES (INF_S_OWNER)
+    _ENDDEF (INF);
+
+    MACRO
+    	INIT_DYNDESC (STR) [] =
+    	    BEGIN
+    	    	__INIT_DYNDESC1 (STR
+    	    	    %IF NOT %NULL (%REMAINING) %THEN , %REMAINING %FI)
+    	    END%,
+    	__INIT_DYNDESC1 (STR) [] =
+    	    BLOCK [STR, DSC$W_LENGTH;   DSC$K_S_BLN,BYTE] = 0;
+    	    BLOCK [STR, DSC$B_CLASS;    DSC$K_S_BLN,BYTE] = DSC$K_CLASS_D;
+    	    BLOCK [STR, DSC$B_DTYPE;    DSC$K_S_BLN,BYTE] = DSC$K_DTYPE_T;
+    	    BLOCK [STR, DSC$A_POINTER;  DSC$K_S_BLN,BYTE] = 0;
+    	    %IF NOT %NULL (%REMAINING) %THEN ; __INIT_DYNDESC1 (%REMAINING) %FI%,
+
+    	FREE_STRINGS (STR) [] =
+    	    BEGIN
+    	    	EXTERNAL ROUTINE STR$FREE1_DX : BLISS ADDRESSING_MODE (GENERAL);
+    	    	__FREE_STRING1 (STR
+    	    	    %IF NOT %NULL (%REMAINING) %THEN , %REMAINING %FI)
+    	    END%,
+    	__FREE_STRING1 (STR) [] =
+    	    STR$FREE1_DX (STR);
+    	    %IF NOT %NULL (%REMAINING) %THEN ; __FREE_STRING1 (%REMAINING) %FI%,
+
+    	INSTXT (STR, QUE, COUNT) =
+    	    BEGIN
+    	    	LOCAL TXT : REF TXTDEF;
+    	    	BIND __INSTXT_S = STR : BLOCK [,BYTE];
+    	    	EXTERNAL ROUTINE LIB$GET_VM : BLISS ADDRESSING_MODE (GENERAL);
+    	    	LIB$GET_VM (%REF (TXT_S_TXTDEF+.__INSTXT_S [DSC$W_LENGTH]),
+    	    	    TXT);
+    	    	TXT [TXT_W_COUNT] = %IF %NULL (COUNT) %THEN 0 %ELSE COUNT %FI;
+    	    	TXT [TXT_W_LEN] = .__INSTXT_S [DSC$W_LENGTH];
+    	    	CH$MOVE (.__INSTXT_S [DSC$W_LENGTH],
+    	    	    .__INSTXT_S [DSC$A_POINTER], TXT [TXT_T_TEXT]);
+    	    	INSQUE (.TXT, QUE);
+    	    END%,
+
+    	FREETXT (TXT) =
+    	    BEGIN
+    	    	BIND __FREETXT_T = TXT : REF TXTDEF;
+    	    	EXTERNAL ROUTINE LIB$FREE_VM : BLISS ADDRESSING_MODE (GENERAL);
+    	    	LIB$FREE_VM (%REF (TXT_S_TXTDEF+.__FREETXT_T [TXT_W_LEN]),
+    	    	    __FREETXT_T);
+    	    END%,
+
+    	G_HAT (RTN) [] =
+    	    RTN : BLISS ADDRESSING_MODE (GENERAL)
+    	    %IF NOT %NULL (%REMAINING) %THEN , G_HAT (%REMAINING) %FI%,
+
+    	INIT_QUEUE (X) [] =
+    	    BEGIN
+    	    	BIND Q = X : QUEDEF;
+    	    	Q [QUE_L_TAIL] = Q [QUE_L_HEAD] = Q [QUE_L_HEAD];
+    	    END
+    	    %IF NOT %NULL (%REMAINING) %THEN ; INIT_QUEUE (%REMAINING) %FI
+    	%;

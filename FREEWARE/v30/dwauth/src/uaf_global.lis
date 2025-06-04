@@ -1,0 +1,430 @@
+
+UAF_GLOBAL                                                      22-NOV-1993 11:29:16    VAX C      V3.2-044                 Page 1
+X-2                                                              3-NOV-1993 09:58:59    [PILANT.HACK.DWAUTH.BL2]UAF_GLOBAL.C;70 (1)
+
+
+
+    1        	#module uaf_global "X-2"
+    2        	
+    3        	/*
+    4        	**++
+    5        	**  FACILITY:	Authorization record maintenance utility
+    6        	**
+    7        	**  MODULE DESCRIPTION:
+    8        	**
+    9        	**		This module contains the global storage definitions and
+   10        	**		the global storage initialization routine.
+   11        	**
+   12        	**  AUTHORS:	L. Mark Pilant		CREATION DATE:  25-Nov-1992
+   13        	**
+   14        	**  MODIFICATION HISTORY:
+   15        	**
+   16        	**	X-2	LMP		L. Mark Pilant,		28-JAN-1993  13:24
+   17        	**		Convert to C from BLISS sources.
+   18        	**
+   19        	**	X-1	LMP		L. Mark Pilant,		25-NOV-1992
+   20        	**		Original version.
+   21        	**
+   22        	**--
+   23        	*/
+   24        	
+   25        	/*
+   26        	**
+   27        	**  INCLUDE FILES
+   28        	**
+   29        	*/
+   30        	
+   31        	#include string
+   77        	
+   78        	#include <decw$include:mrmappl>
+32137        	
+32138        	#include "uaf_header"
+33558        	
+
+UAF_GLOBAL                                                      22-NOV-1993 11:29:16    VAX C      V3.2-044                 Page 2
+X-2                                                              3-NOV-1993 09:58:59    [PILANT.HACK.DWAUTH.BL2]UAF_GLOBAL.C;70 (2)
+
+             	
+33559        	/* Define the macro used to populate the formatting table. */
+33560        	
+33561        	#define		ITEM_ENTRY(uai_code, widget_code, bytcnt, faoctrstr, flags, padchr)					\
+33562        			    {													\
+33563        			    uaf_r_item_table[uai_code].item_l_widget = widget_code;						\
+33564        			    uaf_r_item_table[uai_code].item_r_flag_overlay.item_b_flags = flags;				\
+33565        			    uaf_r_item_table[uai_code].item_b_pad_char = padchr;						\
+33566        			    uaf_r_item_table[uai_code].item_w_byte_cnt = bytcnt;						\
+33567        			    strcpy (uaf_r_item_table[uai_code].item_r_fao_ctrs, faoctrstr);					\
+33568        			    uaf_r_item_table[uai_code].item_l_fao_ctrs_len = strlen (faoctrstr);				\
+33569        			    uaf_r_item_table[uai_code].item_a_fao_ctrs_ptr = &uaf_r_item_table[uai_code].item_r_fao_ctrs;	\
+33570        			    }
+33571        	
+33572        	/* The following storage is used for the user authorization information.
+33573        	** This information is (defined) local to this routine; only the actual
+33574        	** item list is defined globally.
+33575        	**
+33576        	** This information is copied from the static item list (here) to the
+33577        	** dynamic item list.
+33578        	**
+33579        	**  The storage quantities must parallel the definitions in UAFDEF.H
+33580        	*/
+33581        	
+33582        	static char			uaf_t_usr_account[MAX_ACCOUNT];		/* UAF$T_ACCOUNT */
+33583        	static unsigned short int	uaf_w_usr_astlm;			/* UAF$W_ASTLM */
+33584        	static unsigned char		uaf_b_batch_access_p[ACCESS_SIZE];	/* UAF$B_BATCH_ACCESS_P */
+33585        	static unsigned char		uaf_b_batch_access_s[ACCESS_SIZE];	/* UAF$B_BATCH_ACCESS_S */
+33586        	static unsigned short int	uaf_w_usr_biolm;			/* UAF$W_BIOLM */
+33587        	static unsigned long int	uaf_l_usr_bytlm;			/* UAF$L_BYTLM */
+33588        	static char			uaf_t_usr_clitables[MAX_CLITABLE];	/* UAF$T_CLITABLES */
+33589        	static unsigned long int	uaf_l_usr_cputim;			/* UAF$L_CPUTIM */
+33590        	static unsigned char		uaf_q_usr_def_priv[QUADWORD];		/* UAF$Q_DEF_PRIV */
+33591        	static char			uaf_t_usr_defcli[MAX_DEFCLI];		/* UAF$T_DEFCLI */
+33592        	static char			uaf_t_usr_defdev[MAX_DEFDEV];		/* UAF$T_DEFDEV */
+33593        	static char			uaf_t_usr_defdir[MAX_DEFDIR];		/* UAF$T_DEFDIR */
+33594        	static unsigned long int	uaf_l_usr_dfwscnt;			/* UAF$L_DFWSCNT */
+33595        	static unsigned char		uaf_b_dialup_access_p[ACCESS_SIZE];	/* UAF$B_DIALUP_ACCESS_P */
+33596        	static unsigned char		uaf_b_dialup_access_s[ACCESS_SIZE];	/* UAF$B_DIALUP_ACCESS_S */
+33597        	static unsigned short int	uaf_w_usr_diolm;			/* UAF$W_DIOLM */
+33598        	static unsigned short int	uaf_w_usr_enqlm;			/* UAF$W_ENQLM */
+33599        	static unsigned char		uaf_q_usr_expiration[QUADWORD];		/* UAF$Q_EXPIRATION */
+33600        	static unsigned short int	uaf_w_usr_fillm;			/* UAF$W_FILLM */
+33601        	static unsigned long int	uaf_l_usr_flags;			/* UAF$L_FLAGS */
+33602        	static unsigned long int	uaf_l_usr_jtquota;			/* UAF$L_JTQUOTA */
+33603        	static unsigned char		uaf_q_usr_lastlogin_i[QUADWORD];	/* UAF$Q_LASTLOGIN_I */
+33604        	static unsigned char		uaf_q_usr_lastlogin_n[QUADWORD];	/* UAF$Q_LASTLOGIN_N */
+33605        	static char			uaf_t_usr_lgicmd[MAX_LGICMD];		/* UAF$T_LGICMD */
+33606        	static unsigned char		uaf_b_local_access_p[ACCESS_SIZE];	/* UAF$B_LOCAL_ACCESS_P */
+33607        	static unsigned char		uaf_b_local_access_s[ACCESS_SIZE];	/* UAF$B_LOCAL_ACCESS_S */
+33608        	static unsigned short int	uaf_w_usr_logfails;			/* UAF$W_LOGFAILS */
+33609        	static unsigned short int	uaf_w_usr_maxacctjobs;			/* UAF$W_MAXACCTJOBS */
+33610        	static unsigned short int	uaf_w_usr_maxdetach;			/* UAF$W_MAXDETACH */
+33611        	static unsigned short int	uaf_w_usr_maxjobs;			/* UAF$W_MAXJOBS */
+33612        	static unsigned char		uaf_b_network_access_p[ACCESS_SIZE];	/* UAF$B_NETWORK_ACCESS_P */
+33613        	static unsigned char		uaf_b_network_access_s[ACCESS_SIZE];	/* UAF$B_NETWORK_ACCESS_S */
+33614        	static char			uaf_t_usr_owner[MAX_OWNER];		/* UAF$T_OWNER */
+
+UAF_GLOBAL                                                      22-NOV-1993 11:29:16    VAX C      V3.2-044                 Page 3
+X-2                                                              3-NOV-1993 09:58:59    [PILANT.HACK.DWAUTH.BL2]UAF_GLOBAL.C;70 (2)
+
+33615        	static unsigned long int	uaf_l_usr_pbytlm;			/* UAF$L_PBYTLM */
+33616        	static unsigned long int	uaf_l_usr_pgflquota;			/* UAF$L_PGFLQUOTA */
+33617        	static unsigned short int	uaf_w_usr_prccnt;			/* UAF$W_PRCCNT */
+33618        	static unsigned char		uaf_b_usr_pri;				/* UAF$B_PRI */
+33619        	static unsigned char		uaf_b_usr_primedays;			/* UAF$B_PRIMEDAYS */
+33620        	static unsigned char		uaf_q_usr_priv[QUADWORD];		/* UAF$Q_PRIV */
+33621        	static unsigned char		uaf_q_usr_pwd_date[QUADWORD];		/* UAF$Q_PWD_DATE */
+33622        	static unsigned char		uaf_b_usr_pwd_length;			/* UAF$B_PWD_LENGTH */
+33623        	static unsigned char		uaf_q_usr_pwd_lifetime[QUADWORD];	/* UAF$Q_PWD_LIFETIME */
+33624        	static unsigned char		uaf_q_usr_pwd2_date[QUADWORD];		/* UAF$Q_PWD2_DATE */
+33625        	static unsigned char		uaf_b_usr_quepri;			/* UAF$B_QUEPRI */
+33626        	static unsigned char		uaf_b_remote_access_p[ACCESS_SIZE];	/* UAF$B_REMOTE_ACCESS_P */
+33627        	static unsigned char		uaf_b_remote_access_s[ACCESS_SIZE];	/* UAF$B_REMOTE_ACCESS_S */
+33628        	static unsigned short int	uaf_w_usr_shrfillm;			/* UAF$W_SHRFILLM */
+33629        	static unsigned short int	uaf_w_usr_tqcnt;			/* UAF$W_TQCNT */
+33630        	static unsigned long int	uaf_l_usr_uic;				/* UAF$L_UIC */
+33631        	static char			uaf_t_usr_username[MAX_USERNAME];	/* UAF$T_USERNAME */
+33632        	static unsigned long int	uaf_l_usr_wsextent;			/* UAF$L_WSEXTENT */
+33633        	static unsigned long int	uaf_l_usr_wsquota;			/* UAF$L_WSQUOTA */
+33634        	
+
+UAF_GLOBAL                                                      22-NOV-1993 11:29:16    VAX C      V3.2-044                 Page 4
+X-2                                                              3-NOV-1993 09:58:59    [PILANT.HACK.DWAUTH.BL2]UAF_GLOBAL.C;70 (3)
+
+             	
+33635        	/*
+33636        	**
+33637        	**  DEFINE THE GLOBAL STORAGE.
+33638        	**
+33639        	*/
+33640        	
+33641        	/* Storage needed by several modules. */
+33642        	
+33643        	globaldef char			*default_sysuaf_file_name = "SYSUAF";	/* Authorization file default file name */
+33644        	globaldef char			*default_sysuaf_file_type = ".DAT";	/* Authorization file default file type */
+33645        	
+33646        	/* Define the default file specification to use for the authorization
+33647        	** file.  The rules for determining this are a little strange:
+33648        	**
+33649        	** If the NONSHARED_UAI_CONTEXT symbol is defined, it means this utility
+33650        	** is to run on a VMS version 5.x system.  In this situation, the $GETUAI and
+33651        	** $SETUAI system services to not know how to deal with the authorization
+33652        	** file being opened outside the services.  For this reason, the default
+33653        	** specification should be SYS$SYSTEM:SYSUAF.DAT, to allow the (internal)
+33654        	** $CREUAI and $DELUAI services to use the same file.
+33655        	**
+33656        	** If the NONSHARED_UAI_CONTEXT symbol is not defined, it means this utility
+33657        	** is to run on a VMS version 6.x system.  In this situation, the $GETUAI
+33658        	** and $SETUAI system service are able to deal with the authorization
+33659        	** file being opened outside the services.  (Because of changes made to
+33660        	** the context is handled and exec mode accessing of files.) */
+33661        	
+33662        	#ifdef NONSHARED_UAI_CONTEXT
+33663        	globaldef char			*default_sysuaf_file_spec = "SYS$SYSTEM:SYSUAF.DAT";	/* Authorization filed default spec */
+33664        	#else
+33665   X    	globaldef char			*default_sysuaf_file_spec = "SYS$DISK:SYSUAF.DAT";	/* Authorization filed default spec */
+33666        	#endif /* NONSHARED_UAI_CONTEXT */
+33667        	
+33668        	/* The following storage is defined first, to allow storage following to
+33669        	** be correctly sized.
+33670        	**
+33671        	** NOTE:  These lists are maintained in memory to allow for the insertion
+33672        	**	  of new entries in alphabetical order.  Because it is not possible
+33673        	**	  to get all the entries currently in a list box, there is no way
+33674        	**	  to determine where a new entry is to be inserted, without outside
+33675        	**	  (the list box) help. */
+33676        	
+33677        	globaldef struct USRLSTDEF	uaf_r_group_list = 0;				/* Group user name list head */
+33678        	globaldef struct USRLSTDEF	uaf_r_master_list = 0;				/* Complete user list (from the file) */
+33679        	globaldef struct USRLSTDEF	uaf_r_user_list = 0;				/* User name list head */
+33680        	
+33681        	/* Remaining global storage. */
+33682        	
+33683        	globaldef unsigned int		uaf_l_current_group_max;			/* Count of entries in group list */
+33684        	globaldef unsigned int		uaf_l_current_user_index;			/* Index of current user */
+33685        	globaldef unsigned int		uaf_l_current_user_max;				/* Count of entries in user list */
+33686        	globaldef unsigned int		uaf_l_current_user_uic;				/* Current user UIC */
+33687        	globaldef int			uaf_l_main_operation;				/* Operation (i.e., create, modify, etc.) */
+33688        	globaldef Widget		uaf_r_access_pri_window_widget;			/* Primary access restriction window widget info */
+33689        	globaldef Widget		uaf_r_access_sec_window_widget;			/* Secondary access restriction window widget info */
+33690        	globaldef XtAppContext		uaf_r_app_context;				/* Application context */
+
+UAF_GLOBAL                                                      22-NOV-1993 11:29:16    VAX C      V3.2-044                 Page 5
+X-2                                                              3-NOV-1993 09:58:59    [PILANT.HACK.DWAUTH.BL2]UAF_GLOBAL.C;70 (3)
+
+33691        	globaldef struct ITMDEF		(*uaf_r_current_group_info)[] = 0;		/* Current group UAF info */
+33692        	globaldef struct ITMDEF		(*uaf_r_current_user_info)[] = 0;		/* Current user UAF info */
+33693        	globaldef Display		*uaf_r_entry_display;				/* Display id for authorization entry window */
+33694        	globaldef Widget		uaf_r_entry_popup_menu_widget;			/* Entry window popup menu */
+33695        	globaldef Widget		uaf_r_entry_top_level_widget;			/* Entry window widget shell info */
+33696        	globaldef Widget		uaf_r_entry_window_widget;			/* Entry window widget info */
+33697        	globaldef Widget		uaf_r_error_dialog_widget;			/* Error dialog box widget */
+33698        	globaldef Display		*uaf_r_file_display;				/* Display id for file selection window */
+33699        	globaldef Widget		uaf_r_file_top_level_widget;			/* File selction widget shell info */
+33700        	globaldef Widget		uaf_r_file_window_widget;			/* File selection widget info */
+33701        	globaldef struct UAFLAG		uaf_r_flags;					/* Miscellaneous utility flags */
+33702        	globaldef Widget		uaf_r_id_popup_menu_widget;			/* Identifier window popup menu */
+33703        	globaldef Widget		uaf_r_identifier_window_widget;			/* Identifier window widget info */
+33704        	globaldef struct FMTABL		uaf_r_item_table[UAI$_MAX_ITEM_CODE];		/* Entry window info format table */
+33705        	globaldef Display		*uaf_r_main_display;				/* Display id for main window */
+33706        	globaldef Widget		uaf_r_main_shell_widget;			/* Main window widget shell info */
+33707        	globaldef Widget		uaf_r_main_top_level_widget;			/* Main window widget shell info */
+33708        	globaldef Widget		uaf_r_main_window_widget;			/* Main window widget info */
+33709        	globaldef MrmHierarchy		uaf_r_mrm_hierarchy;				/* Hierarchy info for .UID file(s) */
+33710        	globaldef Widget		uaf_r_system_id_window_widget;			/* System identifier window widget info */
+33711        	globaldef struct ITMDEF		(*uaf_r_template_info)[];			/* Modification template information */
+33712        	globaldef Cursor		uaf_r_wait_cursor_entry;			/* Entry window wait cursor id */
+33713        	globaldef Cursor		uaf_r_wait_cursor_main;				/* Main window wait cursor id */
+33714        	globaldef Widget		uaf_r_widget_id_array[uaf$c_max_widget_code];	/* Array of Widget IDs in use */
+33715        	globaldef char			uaf_t_current_groupname[sizeof uaf_r_group_list.uaf$t_usrlst_name];	/* Current group name */
+33716        	globaldef char			uaf_t_current_username[sizeof uaf_r_user_list.uaf$t_usrlst_name];	/* Current username */
+33717        	globaldef char			*uaf_t_default_filter = "*";			/* Default username filter */
+33718        	globaldef char			*uaf_t_default_username = "DEFAULT";		/* Default account username */
+33719        	globaldef char			*uaf_t_no_date_time = "(none)";			/* String to use when no date/time present */
+33720        	globaldef char			*uaf_t_pre_expired = "(pre-expired)";		/* String to use when no pwd chg dat/time present */
+33721        	globaldef char			uaf_t_username_filter[sizeof uaf_r_user_list.uaf$t_usrlst_name];	/* Current username filter string */
+33722        	globaldef unsigned short int	uaf_w_uai_context[2];				/* $xxxUAI context cell */
+33723        	
+
+UAF_GLOBAL                                                      22-NOV-1993 11:29:16    VAX C      V3.2-044                 Page 6
+X-2                                                              3-NOV-1993 09:58:59    [PILANT.HACK.DWAUTH.BL2]UAF_GLOBAL.C;70 (4)
+
+             	
+33724        	globaldef struct ITMDEF		uaf_r_user_auth_info[] =			/* $xxxUAI item list */
+33725        					{
+33726        					 {sizeof uaf_t_usr_account,		UAI$_ACCOUNT,		uaf_t_usr_account,	0},
+33727        					 {sizeof uaf_w_usr_astlm,		UAI$_ASTLM,		&uaf_w_usr_astlm,	0},
+33728        					 {sizeof uaf_b_batch_access_p,		UAI$_BATCH_ACCESS_P,	&uaf_b_batch_access_p,	0},
+33729        					 {sizeof uaf_b_batch_access_s,		UAI$_BATCH_ACCESS_S,	&uaf_b_batch_access_s,	0},
+33730        					 {sizeof uaf_w_usr_biolm,		UAI$_BIOLM,		&uaf_w_usr_biolm,	0},
+33731        					 {sizeof uaf_l_usr_bytlm,		UAI$_BYTLM,		&uaf_l_usr_bytlm,	0},
+33732        					 {sizeof uaf_t_usr_clitables,		UAI$_CLITABLES,		uaf_t_usr_clitables,	0},
+33733        					 {sizeof uaf_l_usr_cputim,		UAI$_CPUTIM,		&uaf_l_usr_cputim,	0},
+33734        					 {sizeof uaf_q_usr_def_priv,		UAI$_DEF_PRIV,		uaf_q_usr_def_priv,	0},
+33735        					 {sizeof uaf_t_usr_defcli,		UAI$_DEFCLI,		uaf_t_usr_defcli,	0},
+33736        					 {sizeof uaf_t_usr_defdev,		UAI$_DEFDEV,		uaf_t_usr_defdev,	0},
+33737        					 {sizeof uaf_t_usr_defdir,		UAI$_DEFDIR,		uaf_t_usr_defdir,	0},
+33738        					 {sizeof uaf_l_usr_dfwscnt,		UAI$_DFWSCNT,		&uaf_l_usr_dfwscnt,	0},
+33739        					 {sizeof uaf_b_dialup_access_p,		UAI$_DIALUP_ACCESS_P,	&uaf_b_dialup_access_p,	0},
+33740        					 {sizeof uaf_b_dialup_access_s,		UAI$_DIALUP_ACCESS_S,	&uaf_b_dialup_access_s,	0},
+33741        					 {sizeof uaf_w_usr_diolm,		UAI$_DIOLM,		&uaf_w_usr_diolm,	0},
+33742        					 {sizeof uaf_w_usr_enqlm,		UAI$_ENQLM,		&uaf_w_usr_enqlm,	0},
+33743        					 {sizeof uaf_q_usr_expiration,		UAI$_EXPIRATION,	uaf_q_usr_expiration,	0},
+33744        					 {sizeof uaf_w_usr_fillm,		UAI$_FILLM,		&uaf_w_usr_fillm,	0},
+33745        					 {sizeof uaf_l_usr_flags,		UAI$_FLAGS,		&uaf_l_usr_flags,	0},
+33746        					 {sizeof uaf_l_usr_jtquota,		UAI$_JTQUOTA,		&uaf_l_usr_jtquota,	0},
+33747        					 {sizeof uaf_q_usr_lastlogin_i,		UAI$_LASTLOGIN_I,	uaf_q_usr_lastlogin_i,	0},
+33748        					 {sizeof uaf_q_usr_lastlogin_n,		UAI$_LASTLOGIN_N,	uaf_q_usr_lastlogin_n,	0},
+33749        					 {sizeof uaf_t_usr_lgicmd,		UAI$_LGICMD,		uaf_t_usr_lgicmd,	0},
+33750        					 {sizeof uaf_b_local_access_p,		UAI$_LOCAL_ACCESS_P,	&uaf_b_local_access_p,	0},
+33751        					 {sizeof uaf_b_local_access_s,		UAI$_LOCAL_ACCESS_S,	&uaf_b_local_access_s,	0},
+33752        					 {sizeof uaf_w_usr_logfails,		UAI$_LOGFAILS,		&uaf_w_usr_logfails,	0},
+33753        					 {sizeof uaf_w_usr_maxacctjobs,		UAI$_MAXACCTJOBS,	&uaf_w_usr_maxacctjobs,	0},
+33754        					 {sizeof uaf_w_usr_maxdetach,		UAI$_MAXDETACH,		&uaf_w_usr_maxdetach,	0},
+33755        					 {sizeof uaf_w_usr_maxjobs,		UAI$_MAXJOBS,		&uaf_w_usr_maxjobs,	0},
+33756        					 {sizeof uaf_b_network_access_p,	UAI$_NETWORK_ACCESS_P,	&uaf_b_network_access_p,0},
+33757        					 {sizeof uaf_b_network_access_s,	UAI$_NETWORK_ACCESS_S,	&uaf_b_network_access_s,0},
+33758        					 {sizeof uaf_t_usr_owner,		UAI$_OWNER,		uaf_t_usr_owner,	0},
+33759        					 {sizeof uaf_l_usr_pbytlm,		UAI$_PBYTLM,		&uaf_l_usr_pbytlm,	0},
+33760        					 {sizeof uaf_l_usr_pgflquota,		UAI$_PGFLQUOTA,		&uaf_l_usr_pgflquota,	0},
+33761        					 {sizeof uaf_w_usr_prccnt,		UAI$_PRCCNT,		&uaf_w_usr_prccnt,	0},
+33762        					 {sizeof uaf_b_usr_pri,			UAI$_PRI,		&uaf_b_usr_pri,		0},
+33763        					 {sizeof uaf_b_usr_primedays,		UAI$_PRIMEDAYS,		&uaf_b_usr_primedays,	0},
+33764        					 {sizeof uaf_q_usr_priv,		UAI$_PRIV,		uaf_q_usr_priv,		0},
+33765        					 {sizeof uaf_q_usr_pwd_date,		UAI$_PWD_DATE,		uaf_q_usr_pwd_date,	0},
+33766        					 {sizeof uaf_b_usr_pwd_length,		UAI$_PWD_LENGTH,	&uaf_b_usr_pwd_length,	0},
+33767        					 {sizeof uaf_q_usr_pwd_lifetime,	UAI$_PWD_LIFETIME,	uaf_q_usr_pwd_lifetime,	0},
+33768        					 {sizeof uaf_q_usr_pwd2_date,		UAI$_PWD2_DATE,		uaf_q_usr_pwd2_date,	0},
+33769        					 {sizeof uaf_b_usr_quepri,		UAI$_QUEPRI,		&uaf_b_usr_quepri,	0},
+33770        					 {sizeof uaf_b_remote_access_p,		UAI$_REMOTE_ACCESS_P,	&uaf_b_remote_access_p,	0},
+33771        					 {sizeof uaf_b_remote_access_s,		UAI$_REMOTE_ACCESS_S,	&uaf_b_remote_access_s,	0},
+33772        					 {sizeof uaf_w_usr_shrfillm,		UAI$_SHRFILLM,		&uaf_w_usr_shrfillm,	0},
+33773        					 {sizeof uaf_w_usr_tqcnt,		UAI$_TQCNT,		&uaf_w_usr_tqcnt,	0},
+33774        					 {sizeof uaf_l_usr_uic,			UAI$_UIC,		&uaf_l_usr_uic,		0},
+33775        					 {sizeof uaf_t_usr_username,		UAI$_USERNAME,		uaf_t_usr_username,	0},
+33776        					 {sizeof uaf_l_usr_wsextent,		UAI$_WSEXTENT,		&uaf_l_usr_wsextent,	0},
+33777        					 {sizeof uaf_l_usr_wsquota,		UAI$_WSQUOTA,		&uaf_l_usr_wsquota,	0},
+33778        	
+33779        	/* Terminate the item list. */
+
+UAF_GLOBAL                                                      22-NOV-1993 11:29:16    VAX C      V3.2-044                 Page 7
+X-2                                                              3-NOV-1993 09:58:59    [PILANT.HACK.DWAUTH.BL2]UAF_GLOBAL.C;70 (4)
+
+33780        	
+33781        					 {0,				0,			0,			0}
+33782        					};
+33783        	
+
+UAF_GLOBAL                                                      22-NOV-1993 11:29:16    VAX C      V3.2-044                 Page 8
+X-2                                                              3-NOV-1993 09:58:59    [PILANT.HACK.DWAUTH.BL2]UAF_GLOBAL.C;70 (5)
+
+             	
+33784        	extern void AUTHORIZE$INIT_GLOBAL ()
+33785        	{
+33786    1   	/*
+33787    1   	**++
+33788    1   	**  FUNCTIONAL DESCRIPTION:
+33789    1   	**
+33790    1   	**	This routine is called to initialize all the global storage.
+33791    1   	**
+33792    1   	**  FORMAL PARAMETERS:
+33793    1   	**
+33794    1   	**	None
+33795    1   	**
+33796    1   	**  RETURN VALUE:
+33797    1   	**
+33798    1   	**      None
+33799    1   	**
+33800    1   	**  SIDE EFFECTS:
+33801    1   	**
+33802    1   	**      None
+33803    1   	**
+33804    1   	**--
+33805    1   	*/
+33806    1   	
+33807    1   	/* Initialize the global strings. */
+33808    1   	
+33809    1   	memset (uaf_t_current_groupname, 0, sizeof uaf_t_current_groupname);
+33810    1   	memset (uaf_t_current_username, 0, sizeof uaf_t_current_username);
+33811    1   	memset (uaf_t_username_filter, 0, sizeof uaf_t_username_filter);
+33812    1   	
+33813    1   	/* Initialize the widget ID array. */
+33814    1   	
+33815    1   	memset (uaf_r_widget_id_array, 0, sizeof uaf_r_widget_id_array);
+33816    1   	
+33817    1   	/* Initialize the dynamic item lists. /
+33818    1   	
+33819    1   	uaf_r_current_group_info = 0;
+33820    1   	uaf_r_current_user_info = 0;
+33821    1   	
+33822    1   	/* Set up an empty template item list. */
+33823    1   	
+33824    1   	uaf_r_template_info = calloc (1, 4);				/* Just the longword terminator */
+33825    1   	
+33826    1   	/* Set up the $xxUAI context cell. */
+33827    1   	
+33828    1   	uaf_w_uai_context[0] = -1;
+33829    1   	uaf_w_uai_context[1] = -1;
+33830    1   	
+33831    1   	/* Initialize the master, group, and user list heads. */
+33832    1   	
+33833    1   	uaf_r_group_list.uaf$l_usrlst_flink = &uaf_r_group_list.uaf$l_usrlst_flink;
+33834    1   	uaf_r_group_list.uaf$l_usrlst_blink = &uaf_r_group_list.uaf$l_usrlst_flink;
+33835    1   	
+33836    1   	uaf_r_master_list.uaf$l_usrlst_flink = &uaf_r_master_list.uaf$l_usrlst_flink;
+33837    1   	uaf_r_master_list.uaf$l_usrlst_blink = &uaf_r_master_list.uaf$l_usrlst_flink;
+33838    1   	
+33839    1   	uaf_r_user_list.uaf$l_usrlst_flink = &uaf_r_user_list.uaf$l_usrlst_flink;
+
+UAF_GLOBAL                                                      22-NOV-1993 11:29:16    VAX C      V3.2-044                 Page 9
+X-2                                                              3-NOV-1993 09:58:59    [PILANT.HACK.DWAUTH.BL2]UAF_GLOBAL.C;70 (5)
+
+33840    1   	uaf_r_user_list.uaf$l_usrlst_blink = &uaf_r_user_list.uaf$l_usrlst_flink;
+33841    1   	
+33842    1   	/* Initialize the item formatting table.  This is done at run time because I
+33843    1   	** do not know how to get C to set up the table at compile time (without having
+33844    1   	** to fill each entry in order). */
+33845    1   	
+33846    1   	ITEM_ENTRY (UAI$_ACCOUNT,	uaf$c_entry_account,		MAX_ACCOUNT,	"",	ITEM_M_FLAG_ASC +
+33847    1   												ITEM_M_FLAG_MAX,	' ');
+33848    1   	ITEM_ENTRY (UAI$_ASTLM,		uaf$c_entry_astlm,		WORD,		"!UW",	ITEM_M_FLAG_VAL,	'\0');
+33849    1   	ITEM_ENTRY (UAI$_BIOLM,		uaf$c_entry_biolm,		WORD,		"!UW",	ITEM_M_FLAG_VAL,	'\0');
+33850    1   	ITEM_ENTRY (UAI$_BYTLM,		uaf$c_entry_bytlm,		LONGWORD,	"!UL",	ITEM_M_FLAG_VAL,	'\0');
+33851    1   	ITEM_ENTRY (UAI$_CLITABLES,	uaf$c_entry_clitable,		MAX_CLITABLE,	"",	ITEM_M_FLAG_CSTR +
+33852    1   												ITEM_M_FLAG_MAX,	' ');
+33853    1   	ITEM_ENTRY (UAI$_CPUTIM,	uaf$c_entry_cpu,		LONGWORD,	"",	ITEM_M_FLAG_SPC,	'\0');
+33854    1   	ITEM_ENTRY (UAI$_DEFCLI,	uaf$c_entry_cli,		MAX_DEFCLI,	"",	ITEM_M_FLAG_CSTR +
+33855    1   												ITEM_M_FLAG_MAX,	' ');
+33856    1   	ITEM_ENTRY (UAI$_DEFDEV,	0,				MAX_DEFDEV,	"",	ITEM_M_FLAG_CSTR +
+33857    1   												ITEM_M_FLAG_MAX,	' ');
+33858    1   	ITEM_ENTRY (UAI$_DEFDIR,	0,				MAX_DEFDIR,	"",	ITEM_M_FLAG_CSTR +
+33859    1   												ITEM_M_FLAG_MAX,	' ');
+33860    1   	ITEM_ENTRY (UAI$_DFWSCNT,	uaf$c_entry_wsdef,		LONGWORD,	"!UL",	ITEM_M_FLAG_VAL,	'\0');
+33861    1   	ITEM_ENTRY (UAI$_DIOLM,		uaf$c_entry_diolm,		WORD,		"!UW",	ITEM_M_FLAG_VAL,	'\0');
+33862    1   	ITEM_ENTRY (UAI$_ENQLM,		uaf$c_entry_enqlm,		WORD,		"!UW",	ITEM_M_FLAG_VAL,	'\0');
+33863    1   	ITEM_ENTRY (UAI$_EXPIRATION,	uaf$c_entry_expiration,		QUADWORD,	"",	ITEM_M_FLAG_DAT,	'\0');
+33864    1   	ITEM_ENTRY (UAI$_FILLM,		uaf$c_entry_fillm,		WORD,		"!UW",	ITEM_M_FLAG_VAL,	'\0');
+33865    1   	ITEM_ENTRY (UAI$_JTQUOTA,	uaf$c_entry_jtquota,		LONGWORD,	"!UL",	ITEM_M_FLAG_VAL,	'\0');
+33866    1   	ITEM_ENTRY (UAI$_LASTLOGIN_I,	uaf$c_entry_lastlogin_i,	QUADWORD,	"",	ITEM_M_FLAG_DAT,	'\0');
+33867    1   	ITEM_ENTRY (UAI$_LASTLOGIN_N,	uaf$c_entry_lastlogin_n,	QUADWORD,	"",	ITEM_M_FLAG_DAT,	'\0');
+33868    1   	ITEM_ENTRY (UAI$_LGICMD,	uaf$c_entry_lgicmd,		MAX_LGICMD,	"",	ITEM_M_FLAG_CSTR +
+33869    1   												ITEM_M_FLAG_MAX,	' ');
+33870    1   	ITEM_ENTRY (UAI$_LOGFAILS,	uaf$c_entry_logfails,		WORD,		"!UW",	ITEM_M_FLAG_VAL,	'\0');
+33871    1   	ITEM_ENTRY (UAI$_MAXACCTJOBS,	uaf$c_entry_maxacctjobs,	WORD,		"!UW",	ITEM_M_FLAG_VAL,	'\0');
+33872    1   	ITEM_ENTRY (UAI$_MAXDETACH,	uaf$c_entry_maxdetach,		WORD,		"!UW",	ITEM_M_FLAG_VAL,	'\0');
+33873    1   	ITEM_ENTRY (UAI$_MAXJOBS,	uaf$c_entry_maxjobs,		WORD,		"!UW",	ITEM_M_FLAG_VAL,	'\0');
+33874    1   	ITEM_ENTRY (UAI$_OWNER,		uaf$c_entry_owner,		MAX_OWNER,	"",	ITEM_M_FLAG_CSTR +
+33875    1   												ITEM_M_FLAG_MAX,	' ');
+33876    1   	ITEM_ENTRY (UAI$_PBYTLM,	uaf$c_entry_pbytlm,		LONGWORD,	"!UL",	ITEM_M_FLAG_VAL,	'\0');
+33877    1   	ITEM_ENTRY (UAI$_PGFLQUOTA,	uaf$c_entry_pgflquo,		LONGWORD,	"!UL",	ITEM_M_FLAG_VAL,	'\0');
+33878    1   	ITEM_ENTRY (UAI$_PRCCNT,	uaf$c_entry_prclm,		WORD,		"!UW",	ITEM_M_FLAG_VAL,	'\0');
+33879    1   	ITEM_ENTRY (UAI$_PRI,		uaf$c_entry_prio,		BYTE,		"!UB",	ITEM_M_FLAG_VAL,	'\0');
+33880    1   	ITEM_ENTRY (UAI$_PWD_DATE,	uaf$c_entry_pwd_date,		QUADWORD,	"",	ITEM_M_FLAG_DAT,	'\0');
+33881    1   	ITEM_ENTRY (UAI$_PWD_LENGTH,	uaf$c_entry_pwd_length,		BYTE,		"!UB",	ITEM_M_FLAG_VAL,	'\0');
+33882    1   	ITEM_ENTRY (UAI$_PWD_LIFETIME,	uaf$c_entry_pwd_lifetime,	QUADWORD,	"",	ITEM_M_FLAG_DAT,	'\0');
+33883    1   	ITEM_ENTRY (UAI$_PWD2_DATE,	uaf$c_entry_pwd2_date,		QUADWORD,	"",	ITEM_M_FLAG_DAT,	'\0');
+33884    1   	ITEM_ENTRY (UAI$_QUEPRI,	uaf$c_entry_queprio,		BYTE,		"!UB",	ITEM_M_FLAG_VAL,	'\0');
+33885    1   	ITEM_ENTRY (UAI$_SHRFILLM,	uaf$c_entry_shrfillm,		WORD,		"!UW",	ITEM_M_FLAG_VAL,	'\0');
+33886    1   	ITEM_ENTRY (UAI$_TQCNT,		uaf$c_entry_tqelm,		WORD,		"!UW",	ITEM_M_FLAG_VAL,	'\0');
+33887    1   	ITEM_ENTRY (UAI$_UIC,		uaf$c_entry_uic,		LONGWORD,	"!%U",	ITEM_M_FLAG_SPC,	'\0');
+33888    1   	ITEM_ENTRY (UAI$_USERNAME,	uaf$c_entry_username,		MAX_USERNAME,	"",	ITEM_M_FLAG_ASC,	' ');
+33889    1   	ITEM_ENTRY (UAI$_WSEXTENT,	uaf$c_entry_wsextent,		LONGWORD,	"!UL",	ITEM_M_FLAG_VAL,	'\0');
+33890    1   	ITEM_ENTRY (UAI$_WSQUOTA,	uaf$c_entry_wsquo,		LONGWORD,	"!UL",	ITEM_M_FLAG_VAL,	'\0');
+33891    1   	
+33892    1   	/* Other miscellaneous initialization. */
+33893    1   	
+33894    1   	uaf_l_current_group_max = 0;
+33895    1   	uaf_l_current_user_index = 0;
+33896    1   	uaf_l_current_user_max = 0;
+
+UAF_GLOBAL                                                      22-NOV-1993 11:29:16    VAX C      V3.2-044                 Page 10
+X-2                                                              3-NOV-1993 09:58:59    [PILANT.HACK.DWAUTH.BL2]UAF_GLOBAL.C;70 (5)
+
+33897    1   	
+33898    1   	}
+
+ 
+ 
+Command Line
+------------
+ 
+CC/LIST=UAF_GLOBAL/OBJECT=UAF_GLOBAL UAF_GLOBAL
+

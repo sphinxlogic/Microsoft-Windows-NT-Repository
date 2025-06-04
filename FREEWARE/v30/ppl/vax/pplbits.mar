@@ -1,0 +1,323 @@
+	.TITLE	PPL$BITS		Allocate and Deallocate Bits
+	.IDENT	/X-2/		; File: PPLBITS.MAR Edit: PDG1009
+
+;****************************************************************************
+;*									    *
+;*  COPYRIGHT (c) 1978, 1980, 1982, 1984 BY				    *
+;*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+;*  ALL RIGHTS RESERVED.						    *
+;* 									    *
+;*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+;*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+;*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+;*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+;*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+;*  TRANSFERRED.							    *
+;* 									    *
+;*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+;*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+;*  CORPORATION.							    *
+;* 									    *
+;*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+;*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+;* 									    *
+;*									    *
+;****************************************************************************
+
+;++
+; FACILITY: Resource allocation library
+;
+; ABSTRACT:  Dynamic virtual memory allocation and deallocation.
+;
+;	PPL$$ALLOC_BITS and PPL$$DEALLOC_BITS are procedures that provide
+;	low-level interlocked allocation and deallocation of consecutive
+;	bits in a bitmap.
+;
+; ENVIRONMENT: User access mode, Multi-thread reentrant
+;
+; AUTHOR: Peter D Gilbert,  9-Oct-1986
+;
+; MODIFIED BY:
+;
+;	1-009	9-Oct-1986	PDG	Original (for PPL)
+;		This is a liberal theft from LIBVMPAGE.MAR (version 1-008)
+;		written by Richard Grove.
+;	V57-001 12-Nov-1991	PJC	
+;		EVMS/ALPHA port: Added machine specific jsb entries and
+;		reworked code to cross compile properly (as done in the
+;		original LIBVMPAGE.MAR).  Added a data psect.
+;--
+
+	.SBTTL	DECLARATIONS
+;
+; LIBRARY MACRO CALLS:
+;
+
+;
+; EXTERNAL DECLARATIONS:
+;
+	.DSABL	GBL
+	.EXTRN	PPL$_BADLOGIC			; Internal logic error detected
+;
+; CONDITIONAL ASSEMBLY OPTIONS
+;
+; LIB$$MULTI_CPU
+;	If defined, interlocked instructions (BBCCI, BBSSI, ADAWI) are used
+;	to update the bitmap structures. Interlocked instructions are required
+;	for multi-thread operation, but are not needed on VMS V4 clusters.
+;
+  LIB$$MULTI_CPU = 1				; Use interlocked instructions
+;
+; MACROS:
+;
+
+; Macros for updating control blocks in a suitably interlocked fashion
+
+	.MACRO	BBSSX	POS, BASE, L
+.IF DEFINED LIB$$MULTI_CPU			; Multiprocessor interlocked
+	BBSSI	POS, BASE, L
+.IF_FALSE					; Uniprocessor non-interruptible
+	BBSS	POS, BASE, L
+.ENDC
+	.ENDM
+
+	.MACRO	BBCCX	POS, BASE, L
+.IF DEFINED LIB$$MULTI_CPU			; Multiprocessor interlocked
+	BBCCI	POS, BASE, L
+.IF_FALSE					; Uniprocessor non-interruptible
+	BBCC	POS, BASE, L
+.ENDC
+	.ENDM
+
+
+;
+; EQUATED SYMBOLS:
+;
+
+;
+; PSECT DECLARATIONS:
+;
+	.PSECT _PPL$CODE PIC,USR,CON,REL,LCL,SHR,EXE,RD,NOWRT,QUAD,NOVEC
+        .PSECT _PPL$DATA PIC,USR,CON,REL,LCL,NOSHR,NOEXE,RD,WRT,QUAD
+;
+; OWN STORAGE:
+;
+
+;
+; GLOBAL STORAGE:
+;
+
+	.SBTTL	PPL$$ALLOC_BITS		Allocate bits from bitmap
+
+;++
+; FUNCTIONAL DESCRIPTION:
+;
+;	Allocate n contiguous bits from a bitmap
+;
+; INPUT PARAMETERS:
+;
+;	R0	Length of the bitmap in bytes
+;	R5	Number of bits to allocate
+;	R6	Address of the bitmap
+;
+; OUTPUT PARAMETERS:
+;
+;	R0	Bit position of first bit allocated, -1 if not allocated
+;
+; REGISTERS MODIFIED:
+;
+;	R0:R3
+;
+; REGISTER ALLOCATION WITHIN ROUTINE:
+;
+;	R0/R1	Byte count and pointer for scan of bitmap bytes
+;	R2	Bit offset within bit map
+;	R3	Temp
+;	R5	Number of bits to allocate
+;	R6	Base of bitmap
+;
+; The bitmap must have 4 bytes of 0 at the end, so that a 32-bit CMPV for the
+; last valid bit will not go beyond the end of the bitmap.
+;--
+	.PSECT	_PPL$CODE
+
+PPL$$ALLOC_BITS::
+        .if     defined EVAX
+        .JSB32_ENTRY
+        .endc
+
+	MOVL	R6, R1				; Set starting address
+	TSTL	R0				; Check number of bytes
+	BNEQ	JUMP_IN				; Jump into the loop
+NOT_FOUND:
+	MNEGL	#1, R0
+	RSB
+
+; Advance bitmap byte pointers (R0/R1) to a reasonable place to try allocation
+;
+; If the request size is 16 pages or greater, scan for a byte followed by a byte
+; with all 1's. For smaller sizes, find the next non-zero byte.
+;
+NEXT_BYTE:
+	INCL	R1				; Advance one byte in bitmap
+	DECL	R0
+	BLEQ	NOT_FOUND			; End of bitmap
+JUMP_IN:
+	CMPL	R5, #15				; Two cases, depending on size
+	BLSS	10$
+	PUSHL	R2				; *AMACRO BUG* Save a couple
+	PUSHL	R3				; *AMACRO BUG*  of scratch registers
+	MOVL	R0,R2				; *AMACRO BUG* Copy the arguments
+	MOVL	R1,R3				; *AMACRO BUG*  to the scratch registers
+	LOCC	#-1, R2, 1(R3)			; Large: find a byte of 1's
+	POPL	R3				; *AMACRO BUG* Restore the
+	POPL	R2				; *AMACRO BUG*  saved registers
+	TSTW	R0				; *AMACRO BUG* Did we find anything?
+	BEQL	NOT_FOUND			; None in this bitmap
+	TSTB	-(R1)				; String may start in preceding byte
+	BNEQ	FIND_BIT
+	INCL	R1				; Preceding byte was all 0
+	DECL	R0
+	BRB	FIND_BIT
+
+10$:	TSTB	(R1)				; Small: find a non-zero byte
+	BNEQ	FIND_BIT
+	SKPC	#0, R0, (R1)			; Skip a number of 0 bytes
+	BEQL	NOT_FOUND			; End of bitmap
+
+FIND_BIT:
+	SUBL3	R6, R1, R2			; Convert to bit offset
+	ASHL	#3, R2, R2			; R2 = bit offset wrt R6
+	ADDL3	#7, R2, R3			; R3 = highest bit in byte
+	FFS	R2, #8, (R6), R2		; Advance R2 to first 1-bit
+	BEQL	NEXT_BYTE			; Another thread got the bit
+
+	CMPL	R5, #1
+	BNEQ	FIND_32				; More than 1 page to allocate
+;
+; Allocate exactly 1 bit
+;
+ALLOC_1:
+	BBCCX	R2, (R6), FIND_BIT		; Another thread got the bit
+	BRB	RETURN_BITS			; Return the allocated bits
+;
+; Allocate 2 to 32 pages of memory
+;
+FIND_32:
+	CMPL	R5, #32
+	BGTR	FIND_MANY			; More than 32 pages to allocate
+
+10$:	CMPV	R2, R5, (R6), #-1		; Look for consecutive 1-bits
+	BEQL	CLAIM_BITS
+	AOBLEQ	R3, R2, 10$			; Perhaps further along in byte
+	BRB	NEXT_BYTE			; Next byte of bitmap
+;
+; Allocate more than 32 pages of memory
+;
+FIND_MANY:
+	CMPV	R2, #32, (R6), #-1		; Find first 32 bits
+	BEQL	10$
+	AOBLEQ	R3, R2, FIND_MANY		; Perhaps further along in byte
+	BRB	NEXT_BYTE			; Next byte of bitmap
+
+10$:	MOVL	R5, R3				; R3 = number still to scan
+20$:	ADDL2	#32, R2				; Adjust bit pointer and count
+	SUBL2	#32, R3
+	CMPL	R3, #32				; More longwords to do?
+	BLEQ	LAST_32				; No, do last segment
+	CMPV	R2, #32, (R6), #-1		; Next 32 bits
+	BEQL	20$				; On a roll
+;
+; Adjust bitmap byte count (R0) and byte pointer (R1) to continue the scan
+; at a point beyond the many-bit segment that has just failed.
+;
+ADJUST_BYTE:
+	FFC	R2, #32, (R6), R2		; Advance R2 to first 0-bit
+	ASHL	#-3, R2, R2			; Convert bit offset to byte offset
+	ADDL2	R1, R0				; Point R0 past the end
+	ADDL3	R2, R6, R1			; Set byte pointer
+	SUBL2	R1, R0				; Set byte count
+	BRW	NEXT_BYTE			; Try byte scan again
+
+LAST_32:CMPV	R2, R3, (R6), #-1		; Check last segment
+	BNEQ	ADJUST_BYTE			; Almost, but not quite
+
+	ADDL2	R3, R2				; Reset R2 to first bit of string
+	SUBL2	R5, R2
+;
+; Allocate R5 bits starting at R2
+;
+CLAIM_BITS:
+	CLRL	R3				; R3 = number claimed
+10$:	BBCCX	R2, (R6), LOST_CLAIM		; Another thread got the bit
+	INCL	R2
+	AOBLSS	R5, R3, 10$
+	SUBL2	R3, R2				; Set R2 to first bit
+;
+; Successful allocation
+;
+RETURN_BITS:
+	MOVL	R2, R0				; Return offset to first allocated bit
+	RSB
+
+;
+; Conflict with another thread, give back bits claimed and try again
+;
+;	R2 = Bit offset of failing bit
+;	R3 = Number of bits claimed
+;
+LOST_CLAIM:
+	ASHL	#-3, R3, -(SP)			; Number of bytes to skip
+	BRB	20$				; Give back any bits claimed
+10$:	DECL	R2				; Give back a bit
+	BBSSX	R2, (R6), 90$			; Bugcheck
+20$:	SOBGEQ	R3, 10$
+
+	SUBL2	(SP), R0			; Adjust byte count and pointer
+	ADDL2	(SP)+, R1
+	BRW	FIND_BIT			; Try again
+
+90$:	MOVL	#PPL$_BADLOGIC, R0		; Bugcheck
+	RET
+
+	.SBTTL	PPL$$DEALLOC_BITS	Deallocate bits from bitmap
+
+;++
+; FUNCTIONAL DESCRIPTION:
+;
+;	Deallocate n virtually contiguous bits
+;
+; INPUT PARAMETERS:
+;
+;	R0	Offset of first bit to deallocate
+;	R5	Number of bits to deallocate
+;	R6	Address of the bitmap
+;
+; REGISTERS MODIFIED:
+;
+;	R0:R1
+;
+; ABNORMAL RETURN:
+;
+;	In the event of an error, RET to external caller with status in R0
+;--
+	.PSECT	_PPL$CODE
+
+PPL$$DEALLOC_BITS::
+
+        .if     defined EVAX
+        .jsb32_entry
+        .endc
+
+	ADDL2	R5, R0				; Past last bit to deallocate
+	MOVL	R5, R1				; Set counter
+	BRB	30$
+20$:	BBSSX	R0, (R6), 90$			; Deallocation error if set
+30$:	DECL	R0
+	SOBGEQ	R1, 20$
+	RSB
+
+90$:	MOVL	#PPL$_BADLOGIC, R0		; Bugcheck
+	RET
+
+	.END

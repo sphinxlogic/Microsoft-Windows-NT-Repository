@@ -1,0 +1,826 @@
+/*****************************************************************************
+ *									     *
+ *  Copyright (c) 1983-1092						     *
+ *  by Digital Equipment Corporation, Maynard, Mass.			     *
+ * 									     *
+ *  This software is furnished under a license and may be used and  copied   *
+ *  only  in  accordance  with  the  terms  of  such  license and with the   *
+ *  inclusion of the above copyright notice.  This software or  any  other   *
+ *  copies  thereof may not be provided or otherwise made available to any   *
+ *  other person.  No title to and ownership of  the  software  is  hereby   *
+ *  transferred.							     *
+ * 									     *
+ *  The information in this software is subject to change  without  notice   *
+ *  and  should  not  be  construed  as  a commitment by Digital Equipment   *
+ *  Corporation.							     *
+ * 									     *
+ *  Digital assumes no responsibility for the use or  reliability  of  its   *
+ *  software on equipment which is not supplied by Digital.		     *
+ *									     *
+ *****************************************************************************/
+/**
+*
+* FACILITY:	 SDL 
+*
+* ABSTRACT:	 Routine to read an sdl intermediate file written by the
+*		 sdl outtree routine.  
+*
+* ENVIRONMENT:	 VAX/VMS
+*
+* AUTHOR:	 
+*		Kathleen Duthie
+*
+* CREATION DATE: 
+*		November 22, 1983
+*
+**/
+
+/*
+* MODIFIED BY:
+*
+*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   15-Feb-1984	|  kd	|  New module for SDL V2.0
+________________!_______!______________________________________________________
+   18-Nov-1984	|  kd	| 3-0. Add ident field. Make changes to process new
+		|	|      typename field in the nodes.
+________________!_______!______________________________________________________
+   20-May-1987	|  jw	| X3.1-0  Added nod$t_return_name processing
+________________!_______!______________________________________________________
+   14-Jul-1987	|  jw	| X3.1-1  Added check to see if the typeinfo2 field
+		|	|	  should contain the address of a structure or
+		|	|	  entry declaration).  If so, the data is
+		|	|	  interpreted as the "linear order number"
+		|	|	  (index into the node_address array) used to
+		|	|	  assign the appropriate address to
+		|	|	  nod$a_typeinfo2.
+		|	|
+		|	|	  Note:  This change corresponds to a change
+		|	|	  in SDLOUTTRE.PLI, both of which comprise
+		|	|	  the one bug fix (SDL_BUGS Note 63).
+________________!_______!______________________________________________________
+   19-Jul-1987	|  jw	| X3.1-2  Removed the check described in the previous
+		|	|	  entry; added a similar check for ENTRY
+		|	|	  RETURNS ADDRESS to the get_list routine.
+		|	|	  The entry node's nod$a_typeinfo2 field will
+		|	|	  be assigned the address of the head node
+		|	|	  (which points to the object node) if the
+		|	|	  entry node has a data type of typ$k_address
+		|	|	  and if the head node follows the entry node.
+		|	|	  
+		|	|	  Also, changed the initialization of
+		|	|	  node_index to 2, to remain consistent with
+		|	|	  the starting linear order number generated
+		|	|	  the OUTTREE module (SDLOUTTRE.PLI).
+		|	|
+		|	|	  Both of these modifications should complete
+		|	|	  the fixes to the problems described in Note
+		|	|	  63 of the SDL_BUGS Notes file.
+________________!_______!______________________________________________________
+   21-Jul-1987	|  jw	| X3.1-3  Fixed bug reported in SDL_BUGS Note 65:
+		|	|	  UNIONs were not always being included in the
+		|	|	  definition of "aggregate."  Added a check
+		|	|	  in the GET_NODE routine to make sure that the
+		|	|	  linear order number of a UNION's item node is 
+		|	|	  used for ADDRESS(union-name) and PARAMETER
+		|	|	  of type union-name (corresponding change made
+		|	|	  in module OUTTREE).
+________________!_______!______________________________________________________
+   22-Jul-1987	|  jw	| X3.1-4  Fixed bug reported in SDL_BUGS Note 66:
+		|	|	  (A corresponding fix was made in module
+		|	|	  OUTTREE.)  Added processing of type nodes
+		|	|	  in routine get_list.
+________________!_______!______________________________________________________
+   26-Oct-1987	|  jw	| X3.1-5  Fixed RETURNS NAMED bug - bad intermediate
+		|	|	  code produced.  In SDLNODMSK.IN, removed the
+		|	|	  msk$v_return_name field at the end of the
+		|	|	  union.  This field would have made the NODE
+		|	|	  MASK info larger than 2 bytes -- thus causing
+		|	|	  incompatibility with older SDL intermediate
+		|	|	  files.  In SDLOUTTRE.PLI, implemented the
+		|	|	  following kludge:  When processing an entry
+		|	|  	  entry node, used msk$v_offset to flag a
+		|	|	  return name.  Made sure that under no
+		|	|	  circumstances does ENTRY use the real offset
+		|	|	  field/flag.  Shortened the mask$w_fields
+		|	|	  initialization value by one bit.
+		|	|	  In this file, implemented the same kludge
+		|	|	  by interpreting a set OFFSET flag as a
+		|	|	  return_name flag when the node type is ENTRY.
+________________!_______!______________________________________________________
+   28-Jan-1988	|  PG	| X3.2-0  Add STRING CONSTANT
+		|	|	    Read in string size and allocate
+		|	|	    accordingly
+________________!_______!______________________________________________________
+   16-Feb-1988	|  jg	| X3.2-1  Add processing for user data type, literal
+		|	|	   node, and conditional node.
+		|	|	  Replace magic number 12 for end node type
+		|	|	   with nod$k_endnode, now defined in
+		|	|	   SDLNODEF.SDL.  Here it was defined in a
+		|	|	   %replace statement, which is marginally
+		|	|	   better that the raw 12 in SDLOUTTRE.
+________________|_______|______________________________________________________
+   09-Apr-1992	|  jak	| EV1-1
+________________|_______|______________________________________________________
+   17-Apr-1992  |  jak  | EV1-5   Major changes.
+________________|_______|______________________________________________________
+   23-Apr-1992	|  jak	| EV1-6 Added code to read in nod$t_maskstr.
+________________|_______|______________________________________________________
+   27-Apr-1992	|  jak	| EV1-7 Moved READ_FILE functionality to here.
+________________|_______|______________________________________________________
+    5-May-1992	|  jak	| EV1-8 Change to get "node type" byte before "mask".
+		|	|	Catch record length error to detect old format file.
+________________|_______|______________________________________________________
+   10-Dec-1992	|  jak	| EV1-20 Change to use AGGR_SYM.LINK field.
+		|	|	Change calls to enter_symbol.
+________________|_______|______________________________________________________
+   12-Jan-1993	|  jak  |	Changed to use HAS_OBJECT flag.
+________________|_______|______________________________________________________
+   22-Mar-1993	|	| EV1-21A Clear UNRESOLVED if the node is not kept in READ_FILE.
+________________|_______|______________________________________________________
+    6-May-1993	|  jak	| EV1-25 Bug fix: when reading a non-aggr TYPEDEF node, 
+		|	|	user_sym.link(i) should point to preceeding node 
+		|	|	rather than node itself.
+________________|_______|______________________________________________________
+    8-Nov-1993	|  aem	| EV1-32 Removed EV1-25.  The tree built from an SDI
+		|	|        file is not meant to be identical to the tree
+		|	|	 for an SDL file.  Only typedefs,structs,
+		|	|	 constants...etc are found in the tree - these
+		|	|	 nodes are identified with the nod$v_declared
+		|	|	 bit set - we should look for that when processing
+		|	|	 them.
+________________|_______|______________________________________________________
+    16-Feb-1995	|  aem	| EV1-41 Made a local variable into a parameter for 
+		|	|        port to Alpha.  For VAX, this variable 
+		|	|	 always contained the value assigned for the 
+		|	|	 same variable in the previous call of the routine.
+		|	|	 This isn't true on Alpha.  This problem was 
+		|	|	 causing SDL to have and ACCVIO.  
+________________|_______|______________________________________________________
+    12-Mar-1996	|  aem	| EV1-52 Fixed problems with pointer(pointer) and 
+		|	|	 pointer(pointer(usertype)).  The typeinfo2
+		|	|	 fields weren't being connected.
+		|	|	 Read in fields FIXFLAGS2 and BOUNDARY to fix
+		|	|	 difference in output generated form SDI files.
+________________|_______|______________________________________________________
+**/
+%replace MODULE_IDENT by 'EV1-52';
+
+
+/**
+* FUNCTIONAL DESCRIPTION: INTREE
+*
+*	This routine reads an intermediate tree file that was produced by
+*	the OUTTRE routine with the SDL/PARSE=filespec command.  File parameter 
+*	must be already opened by caller as a SEQUENTIAL INPUT file.
+*
+*	If CURRENT_NODE = NULL(), then the routine is being called by SDLMAIN and 
+*	reads this intermediate form of SDL source code and produces the 
+*	tree necessary for the language backends.  This tree looks exactly
+*	like the tree that would have been produced, had the SDL parser 
+*	produced it from the original source.
+*
+*	If CURRENT_NODE ^= NULL(), then this is called from SDLACTION for the READ statement.
+*	The routine reads this intermediate form of SDL source code
+*	and extracts sufficient information to define constants, aggregate
+*	names, and user-defined types for the current compilation.  Constants
+*	are just entered into const_sym.  Aggregate names and user-defined
+*	type names are entered into aggr_sym and user_sym respectively, and
+*	also included in the output tree as item nodes with the DECLARED
+*	attribute.
+*
+* FORMAL PARAMETERS:
+*
+*	sdifile  -	The input file already opened by caller.
+*	current_node -  NULL() for call from SDLMAIN, else "CURRENT_NODE" from SDLACTION/readfile.
+*
+* IMPLICIT INPUTS:
+*
+*	EXTERNAL_TREE_ROOT variable.
+*	External symbol tables from SDLACTION: CONST_SYM and AGGR_SYM.
+*
+* IMPLICIT OUTPUTS:
+*
+*	A new external tree (CURRENT_NODE=NULL) and sets EXTERNAL_TREE_ROOT or
+*	Additions to external tree (CURRENT_NODE ^= NULL) and CURRENT_NODE updated.
+*
+* ROUTINE VALUE:
+*	FALSE if all was successful, TRUE if some error occurred.
+*
+* COMPLETION CODES:
+*
+*	none
+*
+* SIDE EFFECTS:
+*
+*	none except as noted in IMPLICIT outputs.
+*
+**/
+
+intree:
+    procedure(sdifile,current_node)	returns(bit(1))	options( ident(MODULE_IDENT) );
+
+/* INCLUDED FILES */
+%include 'SDL$LIBRARY:sdlnodef.in'; 
+%include 'SDL$LIBRARY:sdltypdef.in';
+%include 'SDL$LIBRARY:sdlnodmsk.in';
+%include 'SDL$LIBRARY:sdlsymtab.in';
+
+/* CONSTANTS */
+%replace true by '1'b;
+%replace false by '0'b;
+
+	/* PARAMETERS */
+	dcl sdifile	file;	/* the input file */ 
+	dcl current_node ptr;	/* NULL or CURRENT_NODE from SDLACTION */
+						
+        /* GLOBALS */
+	dcl external_tree_root	pointer external static; /* the tree root pointer */
+
+	/* EXTERNAL ENTRIES */
+	dcl insque	    entry(ptr value,ptr value);
+
+	/* LOCALS */
+	dcl tree_root	    ptr;
+	dcl file_format	    fixed bin(31) static;	/* file format version from root.typeinfo */
+	dcl buffer	    char(510) static;		/* node buffer, file records are 510 bytes */
+	dcl buffer_index    fixed bin(31) init(510);    /* index into buffer, must be init LENGTH(BUFFER) */
+	dcl unresolved	    ptr;
+	dcl exit_status	    bit(1) aligned;
+
+	/* Table containing addresses of allocated nodes */
+	dcl node_address(node_count)	pointer based(node_address_ptr);
+	dcl node_count			fixed bin(31) static;	/* node count from the input file */
+	dcl node_address_ptr		pointer static init(null());
+	dcl node_number			fixed bin(31) static;	/* index to the node_address array. */
+	dcl node_string(nod$k_nodesize) fixed bin(7) based;
+
+	/* 
+	   Node numbers used to index into node address table are the 
+	   "linear order numbers" associated with the nodes in the file and 
+	   correspond to the order the nodes are written in the file by OUTTREE.
+	   The first node in the file is assigned the number 1, the next 2, and so on.
+	*/
+
+/*--------------------------------------------------------*/
+	
+	on endfile(sdifile)
+	    begin;
+	    /* ignore */
+	    end;
+
+	on error /* to catch RECORD SIZE error on first read */
+	    begin;
+	    goto fail; /* old file format */
+	    end;
+
+	/* Node count is first thing in file */
+	node_count = get_int();
+	if node_count = 0 then 
+	    goto fail; /* no nodes!? */
+
+	revert error; /* got past first read: not old format file */
+
+	/* Allocate table for node addresses */
+	allocate node_address set(node_address_ptr);
+	node_number = 0; /* reset for GET_NODE */
+
+	/* First node is root node */
+	tree_root = get_node();
+
+	/* Determine version of file format */
+	if tree_root->nod$b_type ^= nod$k_rootnode then 
+	    goto fail; /* unknown file format version */
+
+	file_format = tree_root->nod$l_typeinfo; /* version 1, ... */
+
+	if current_node = null() then
+	    do;
+	    external_tree_root = tree_root;
+	    call get_list(tree_root,null());
+	    end;
+	else
+	    call read_file;
+
+	exit_status = false; 
+	goto exit;
+
+fail:
+	exit_status = true;
+exit:
+	if node_address_ptr ^= null() then 
+	    do;
+	    free node_address; /* release storage for table of ptr's */
+	    node_address_ptr = null();
+	    end;
+
+	return(exit_status);
+
+
+/*--------------------------------------------------------*/
+get_list:
+    procedure(head,prev_top)	    recursive;
+
+/* Read circular list of nodes. */
+
+    /* PARAMETER */
+    dcl head		pointer;    /* head of circular list */
+    dcl prev_top        pointer;    /* value of top in prior get_list call */
+
+    /* LOCALS */
+    dcl p		pointer;    /* current list node being processed by loop */
+    dcl parent		pointer;    /* parent node for the entire list */
+    dcl top		pointer;    /* a node which will have children */
+    dcl lastp		pointer;    /* last node just before this one, p */
+    dcl back		pointer;    /* last node for BLINK purposes */
+
+    lastp = head;
+    back = head;
+    parent = head->nod$a_parent;
+    top = prev_top;
+
+    do p = get_node() repeat get_node() 
+	while( p ^= null() );
+	
+	/* Only these nodes have children. */
+	if p->nod$b_type = nod$k_itemnode &
+	    (p->nod$w_datatype = typ$k_structure | p->nod$w_datatype = typ$k_union) |
+	   p->nod$b_type = nod$k_entrynode | 
+	   p->nod$b_type = nod$k_modulnode |
+	   p->nod$b_type = nod$k_symbnode |
+	   p->nod$b_type = nod$k_condnode then 
+	    top = p; /* save for later nodes */
+
+	if lastp->nod$v_bound then	/* Last was BASED(this) node */
+	    do;
+	    lastp->nod$a_typeinfo2 = p;
+	    p->nod$a_parent = parent;
+	    /* Make the based pointer node the "last" node.
+	       This is the only time back will differ from lastp. */
+	    lastp = p;
+	    end;
+
+	else 
+	if p->nod$b_type = nod$k_typnode then	/* TYPE node */
+	    do;
+
+	    /* Check if it was a pointer(pointer(usertype)) */
+	    /* And connect the nodes if it is.		    */
+
+	    if (lastp->nod$a_parent->nod$v_has_object &
+	        lastp->nod$a_parent->nod$b_type = nod$k_objnode) then
+		lastp->nod$a_parent->nod$a_typeinfo2 = lastp->nod$a_blink;
+
+	    /* The last node must have been user type THIS. */
+	    /* Set the typeinfo2 field of that node to point to this. */
+	    lastp->nod$a_typeinfo2 = p;
+	    p->nod$a_parent = parent;
+	    p->nod$a_flink = p;
+	    p->nod$a_blink = p;
+	    end;
+
+	else 
+	if p->nod$b_type = nod$k_headnode then	/* HEAD node */
+	    do;
+	    p->nod$a_parent = lastp;	
+
+	    /*  Any objects or based pointer nodes */
+	    if lastp->nod$a_typeinfo2 = null() & 
+	      ( lastp->nod$v_has_object			/* address head/object pair */
+	      | lastp->nod$w_datatype = typ$k_address	/* address head/object pair (obsolete) */
+	      | (lastp->nod$w_datatype = typ$k_pointer & lastp->nod$b_type = nod$k_parmnode)
+	      | lastp->nod$w_datatype = typ$k_user 	/* user type head/object (obsolete) */
+	      | lastp->nod$w_datatype = typ$k_entry  	/* entry object */
+	      | lastp->nod$b_type = nod$k_condnode 	/* conditional node (language name list) */
+	      ) then 
+		do; /* bind based ptr node to this head/obj pair */
+		lastp->nod$a_typeinfo2 = p;
+		lastp->nod$a_parent = parent;
+		end;
+	    else 
+	    if top->nod$a_child = null() then
+		top->nod$a_child = p;
+
+	    /* Recursively get nodes on the list headed by this node */
+	    call get_list(p,top);
+	    end;
+
+	else 
+	    do;
+	    back->nod$a_flink = p;
+	    p->nod$a_blink = back;
+	    lastp = p;
+	    back = p;
+	    if top->nod$a_flink = null() then
+		top->nod$a_flink = p;
+	    p->nod$a_parent = parent;
+	    end;
+
+    end; /* WHILE loop */
+
+    /* end-of-list */
+    head->nod$a_blink = back;
+    back->nod$a_flink = head;
+
+    end get_list;
+
+
+/*--------------------------------------------------------*/
+read_file:
+    procedure;
+
+/*
+   For READ statement: read nodes from intermediate file and 
+   add constants, user types, and aggregates to external tree.
+*/
+
+    /* LOCALS */
+    dcl parent	    ptr; /* parent of current_node */
+    dcl i	    fixed bin(31); /* temp integer for ENTER_SYMBOL calls */
+    dcl p	    ptr; /* node being processed by loop iteration */
+
+    parent = current_node->nod$a_parent;
+    unresolved = null();
+
+node_loop:
+    do while( node_number < node_count );
+
+	p = get_node();
+
+	if p = null() then 
+	    goto node_loop; /* list END node */
+	
+	if msk$v_comment then 
+	    call free_stored_string(p->nod$a_comment); /* don't need comment strings */
+
+	if msk$v_tinfo2_str then 
+	    call free_stored_string(p->nod$a_typeinfo2); /* don't need const & literal strings */
+	else 
+	if msk$v_typeinfo2 then 
+	    p->nod$l_typeinfo2 = 0; /* don't need integer value either (?) */
+
+	/* Item nodes are interesting. */
+	if p->nod$b_type = nod$k_itemnode then 
+	    do;
+	    /*
+	     * Aggregates are entered in aggr_sym, and 
+	     * entered in the output tree as declared items.
+	     */
+	    if p->nod$w_datatype = typ$k_structure | 
+	       p->nod$w_datatype = typ$k_union then
+		do;
+		i = enter_symbol(aggr_sym,p->nod$t_name,p->nod$l_fldsiz);
+		aggr_sym.link(i) = p;
+		p->nod$v_declared = true;
+		/* attach node */
+		call insque(p,current_node);
+		p->nod$a_parent = parent;
+		current_node = p;
+		end; /* aggregate */
+	    else
+	    /*
+	     * Item nodes with the typedef attribute  are entered in
+	     * user_sym and entered in the output tree as declared items.
+	     */
+	    if p->nod$v_typedef then 
+		do;
+		i = enter_symbol(user_sym,p->nod$t_naked,p->nod$l_fldsiz);
+		user_sym.link(i) = p; /* EV1-32 */
+		p->nod$v_declared = true;
+		/* attach node */
+		call insque(p,current_node);
+		p->nod$a_parent = parent;
+		current_node = p;
+		end; /* typedef */
+	    end; /* item node */
+	else 
+
+	/*
+	 * Object and type nodes with the typedef attribute are entered in
+	 * user_sym and entered in the output tree as declared items.
+	 * However, if this is the object node satisfying an unresolved 
+	 * reference, the type is left as an object node.
+	 */
+	if p->nod$b_type = nod$k_objnode | p->nod$b_type = nod$k_typnode then 
+	    do;
+	    if p->nod$v_typedef then 
+		do;
+	        i = enter_symbol(user_sym,p->nod$t_naked,p->nod$l_fldsiz);
+		user_sym.link(i) = p;
+		if unresolved ^= null() then 
+		    do;
+		    parent = unresolved;
+		    parent->nod$a_typeinfo2 = p;
+		    p->nod$a_flink = p;
+		    p->nod$a_blink = p;
+		    current_node = unresolved;
+		    parent = current_node->nod$a_parent;
+		    unresolved = null();
+		    end;
+		else 
+		    do;
+		    p->nod$b_type = nod$k_itemnode;
+		    p->nod$v_declared = true;
+		    p->nod$a_parent = parent;
+		    /* attach node */
+		    call insque(p,current_node);
+		    p->nod$a_parent = parent;
+		    current_node = p;
+		    end;
+		end; /* typedef */
+	    end; /* objnode/typnode */
+	else
+
+	/*
+	 * Constant nodes (except string constants) are entered in
+	 * const_sym only, for use in the current compilation.
+	 */
+	if p->nod$b_type = nod$k_constnode then 
+	    do;
+	    if p->nod$w_datatype ^= typ$k_char then 
+		i = enter_symbol(const_sym,p->nod$t_name,p->nod$l_typeinfo);
+	    end;
+
+	if p->nod$a_parent = null() then 
+	    call free_node(); /* don't need, was never "attached" */
+
+    end;	/* while loop */
+
+    end read_file;
+
+/*------------------------------------------------------*/
+free_node:
+    procedure;
+
+	if node_address(node_number) = unresolved then 
+	    unresolved = null();
+	free node_address(node_number)->nod$_node;
+	node_address(node_number) = null();
+
+    end free_node;
+
+/*--------------------------------------------------------*/
+get_node: 
+    procedure	returns(pointer);
+
+/* Read a node from the file */
+
+    /* LOCALS */
+    dcl p	pointer;	/* to allocated node */
+    dcl i	fixed bin(31);  /* node number read from file for TYPEINFO2 */
+    dcl typ	fixed bin(7);	/* node TYPE code */
+
+	/* get the TYPE of node */
+	typ = get_int1();
+
+	if typ = nod$k_endnode then /* END-of-LIST node */
+	    return( null() );
+
+	/* Allocate a node and record address in table */
+	allocate nod$_node set(p);
+	p->node_string = 0; /* clear node */
+	node_number = node_number + 1;
+	node_address(node_number) = p;
+
+	/* get the field mask(s) */
+	mask$w_fields = get_int2();		    /* MASK */
+
+	/* get second mask if present */
+	if msk$v_mask2 then 			    /* MASK2 */
+	    mask2$w_fields = get_int2();
+	else
+	    mask2$w_fields = 0;
+
+	/* Fill in the fields of the node */
+
+	p->nod$b_type = typ;			    /* NOD$B_TYPE */
+
+	if msk$v_hidim then			    /* NOD$L_HIDIM */
+	    p->nod$l_hidim = get_int();
+
+	if msk$v_lodim then			    /* NOD$L_LODIM */
+	    p->nod$l_lodim = get_int();
+
+	if msk$v_initial then			    /* NOD$L_INITIAL */
+	    p->nod$l_initial = get_int();
+
+	if msk$v_offset then			    /* NOD$L_OFFSET */
+	    p->nod$l_offset = get_int();
+
+	if msk$v_fldsiz then			    /* NOD$L_FLDSIZ */
+	    p->nod$l_fldsiz = get_int();
+
+	if msk$v_datatype then			    /* NOD$W_DATATYPE */
+	    p->nod$w_datatype = get_int2();
+
+	if msk$v_flags then			    /* NOD$L_FIXFLAGS */
+	    p->nod$l_fixflags = get_int();
+
+	if msk$v_typeinfo then			    /* NOD$L_TYPEINFO */
+	    p->nod$l_typeinfo = get_int();
+
+	if msk$v_typeinfo2 then			    /* NOD$L_TYPEINFO2 */
+	    p->nod$l_typeinfo2 = get_int();
+
+	if msk$v_tinfo2_ptr then		    /* NOD$A_TYPEINFO2 */
+	    /* The file contains the linear order number of the node.  
+	    *  If seen that node so far, get address of that node from table 
+	    *  and put in field.  Otherwise, leave null and remember for READ_FILE */
+	    do;
+	    i = get_int();
+	    if i <= node_number then 
+		p->nod$a_typeinfo2 = node_address(i);
+	    else 
+		unresolved = p; /* for READ_FILE */
+	    end;
+
+	if msk$v_tinfo2_str then		    /* NOD$A_TYPEINFO2 */
+	    p->nod$a_typeinfo2 = get_stored_string();
+
+	if msk$v_name then			    /* NOD$T_NAME */
+	    p->nod$t_name = get_string();
+
+	if msk$v_prefix then			    /* NOD$T_PREFIX */
+	    p->nod$t_prefix = get_string();
+
+	if msk$v_marker then			    /* NOD$T_MARKER */
+	    p->nod$t_marker = get_string();
+
+	if msk$v_tag then			    /* NOD$T_TAG */
+	    p->nod$t_tag = get_string();
+
+	if msk$v_naked then			    /* NOD$T_NAKED */
+	    p->nod$t_naked = get_string();
+
+	if msk$v_comment then			    /* NOD$T_COMMENT */
+	    p->nod$a_comment = get_stored_string();
+
+	if msk$v_typename then			    /* NOD$T_TYPENAME */
+	    p->nod$t_typename = get_string();
+
+	if msk$v_rtn_name then			    /* NOD$T_RETURN_NAME */
+	    p->nod$t_return_name = get_string();
+
+	if msk$v_maskstr then			    /* NOD$T_MASKSTR */
+	    p->nod$t_maskstr = get_string();
+
+	if msk$v_boundary then			    /* NOD$B_BOUNDARY */
+	    p->nod$b_boundary = get_int1();
+
+	if msk$v_flags2 then			    /* NOD$L_FIXFLAGS2 */
+	    p->nod$l_fixflags2 = get_int();
+
+	return (p);
+
+    end get_node;
+
+
+/*------------------------------------------------------*/
+get_string:
+    procedure	returns( char(1024) var );
+
+/* Read 2-byte length followed by that many characters */
+
+/* Return the string itself. */
+
+    dcl str	char(1024) var;
+    dcl len	fixed bin(15);
+    dcl i	fixed bin(15);
+	
+	str = '';
+	len = get_int2();
+	do i = 1 to len;
+	    str = str || get_byte();
+	end;
+
+	return( str );
+
+    end get_string;
+
+
+/*------------------------------------------------------*/
+get_stored_string:
+    procedure	returns( pointer );
+
+/* Read a 2-byte length followed by that many characters */
+/* Allocate a CHAR VAR variable that size, copy string from file  */
+/* to the variable.						  */
+
+/* Return a pointer to the allocated copy. */
+
+    dcl str	char(len) var based(sp);
+    dcl len	fixed bin(15);
+    dcl sp	pointer;
+    dcl i	fixed bin(15);
+	
+	len = get_int2();
+	allocate str set(sp);
+
+	str = '';
+	do i = 1 to len;
+	    str = str || get_byte();
+	end;
+
+	return( sp );
+
+    end get_stored_string;
+
+/*------------------------------------------------------*/
+free_stored_string:
+    procedure( sp );
+
+/* Free storeage for a string allocated by GET_STORED_STRING */
+/* Set input pointer NULL if passed by reference. */
+
+    dcl sp	pointer;
+    dcl len	fixed bin(15);
+    dcl str	char(len) var based(sp);
+    dcl strx	char(32767) var based(sp);
+	
+	len = length(strx);
+	free str;
+	sp = null();
+
+    end free_stored_string;
+
+/*------------------------------------------------------*/
+get_int:
+    procedure	returns( fixed bin(31) );
+
+/* Read a 4-byte integer from file */
+
+    dcl int		fixed bin(31);
+    dcl int_byte(4)	char(1)	based(addr(int));
+    dcl i		fixed bin(15);
+
+	do i = 1 to 4;
+	    int_byte(i) = get_byte();
+	end;
+
+    return( int );
+
+    end get_int;
+
+/*------------------------------------------------------*/
+get_int2:
+    procedure	returns( fixed bin(15) );
+
+/* Read a 2-byte integer from file */
+
+    dcl int		fixed bin(15);
+    dcl int_byte(2)	char(1)	based(addr(int));
+
+	int_byte(1) = get_byte();
+	int_byte(2) = get_byte();
+
+    return( int );
+
+    end get_int2;
+
+/*------------------------------------------------------*/
+get_int1:
+    procedure	returns( fixed bin(7) );
+
+/* Read a 1-byte integer from file */
+
+    dcl int		fixed bin(7);
+    dcl int_byte	char(1)	based(addr(int));
+
+    int_byte = get_byte();
+
+    return( int );
+
+    end get_int1;
+
+/*------------------------------------------------------*/
+get_byte:
+    procedure	returns( char(1) );
+
+/* Return next byte (char) from buffer.
+   If at end of buffer, read another buffer first. */
+
+    if buffer_index = length(buffer) then 
+	call read_buffer;
+
+    buffer_index = buffer_index + 1;
+
+    return( substr(buffer,buffer_index,1) );
+
+    end get_byte;
+
+/*------------------------------------------------------*/
+read_buffer:
+    procedure;
+
+/* Read fixed length record from file int buffer */
+
+	read file(sdifile) into(buffer);
+	buffer_index = 0;
+
+    end read_buffer;
+
+/*------------------------------------------------------*/
+
+    end intree;

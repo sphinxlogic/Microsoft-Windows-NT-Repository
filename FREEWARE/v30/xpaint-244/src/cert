@@ -1,0 +1,69 @@
+#!/bin/sh
+# Check a PGP signed certification
+# (C) 1996 Iñaky Pérez González <inaky@peloncho.fis.ucm.es>
+# Lobotomy by Torsten Martinsen <bullestock@dk-online.dk>
+# $Id: cert,v 1.3 1996/04/19 09:49:25 torsten Exp $
+if ! find `echo $PATH | sed 's/:/ /g'` -name pgp | grep "pgp$" > /dev/null
+then
+	echo
+	echo "*** WARNING!!!"
+	echo "    Could not find PGP!!"
+	echo "    I won't be able to certify that this package hasn't been"
+	echo "    modified by someone."
+	echo "--- Please, get PGP from the Internet and install it. It is the"
+	echo "    best way to ensure your privacy and protect the software from"
+	echo "    tampering."
+	echo
+	exit 0
+fi
+CERTF="./PGP.certification.asc"
+PUBKF="./PGP.public-key"
+USER="$LOGNAME"
+TEMP=/tmp 
+
+
+! [ -f "$CERTF" ] && echo "error: $CERTF: is not a regular file" && exit 1
+! [ -r "$CERTF" ] && echo "error: $CERTF: haven't got permission to read" && exit 1
+! cat `cat filelist` "$PUBKF.asc" "$PUBKF.pgp" > "$TEMP/pgp-certif.$$" \
+ && echo "error: Couldn't create temporary file" \
+ && exit 1
+cat <<EOF
+
+NOTE:
+If the public key of the person that has signed this package isn't in your
+public key ring, then PGP will ask for it. It is distributed in the file
+PGP.public-key.pgp (and in ASCII form with fingerprint, in PGP.public-key.asc).
+
+Thus, if PGP asks you for the PGP public key file, type PGP.public-key.pgp,
+or whatever file contains it.
+
+EOF
+
+pgp "$CERTF" "$TEMP/pgp-certif.$$" | tee "$TEMP/pgp.$$"
+if grep -e "Bad signature from user" \
+ -e "can't check signature integrity" "$TEMP/pgp.$$" > /dev/null
+then
+  cat <<EOF
+
+
+ WARNING!! ATTENTIONE!! ATCHUNG!! AL LORO!! AIEEEEE!!
+------------------------------------------------------
+The files have been modified!!! If it is'nt you who has
+modified them,  then somebody else has,  and he/she may
+have introduced a security hole.
+
+Please get the sources from a trusted site,  as well as
+the public key for the signer of the file certification.
+
+EOF
+  rm -f "$TEMP/pgp-certif.$$" "$TEMP/pgp.$$"
+  exit 1
+else
+  cat <<EOF
+ 
+--- No modifications detected. It seems ok!! :)
+
+EOF
+  rm -f "$TEMP/pgp-certif.$$" "$TEMP/pgp.$$"
+  exit 0
+fi

@@ -1,0 +1,953 @@
+<!-- LANGUAGE_014.HTML continuation of DOCDATA:[DOC.INTOUCH]LANGUAGE.HTML -->
+<html>
+<head>
+<title>INTOUCH&#174; 4GL </title>
+</head>
+<body background="/white.gif">
+<h1 align="center">INTOUCH<sup>&#174;</sup> 4GL <br> A Guide to the INTOUCH Language</h1>
+
+<hr> <a href="LANGUAGE_013.HTML#bottom_013">Previous page...</a> 
+<a href="LANGUAGE_CONTENTS.HTML">Table of Contents</a>
+
+<hr size=5>
+<a name="chapter_14"><h1>Chapter 14<br>Data Structure Statements</h1></a>
+<a name="index_x_828"></a>
+
+<p>
+This chapter explains the INTOUCH data structure statements.  One 
+of the major features of INTOUCH is its ability to perform database 
+operations as part of the language.  The data structure statements 
+allow you to manipulate data structures in your own programs. 
+
+<p>
+<b>List of Data Structure Statements</b>: 
+<dl>
+<dd>
+
+<ul>
+  <li>OPEN STRUCTURE
+  <li>CLOSE STRUCTURE
+  <li>EXTRACT STRUCTURE
+  <li>REEXTRACT STRUCTURE
+  <li>CANCEL EXTRACT
+  <li>ADD STRUCTURE
+  <li>DELETE STRUCTURE
+  <li>INCLUDE
+  <li>EXCLUDE
+  <li>SORT
+  <li>FOR EACH
+  <li>ASK STRUCTURE
+  <li>SET STRUCTURE
+  <li>LOCK STRUCTURE
+  <li>UNLOCK STRUCTURE
+</ul>
+
+</dl>
+
+<a name="heading_14.1"><h1>14.1 General Information</h1></a>
+<a name="index_x_829"></a>
+<a name="index_x_830"></a>
+<a name="index_x_831"></a>
+<a name="index_x_832"></a>
+
+<p>
+INTOUCH's data management system stores data file information in 
+<b>structures</b>.  (Chapter 16, Creating Structures, Field Definitions with SETUP tells how 
+structures are created.)  A structure file contains the following 
+information: 
+<dl>
+<dd>
+
+<ul>
+  <li> name of the database engine (RMS, Rdb, Oracle, etc.) 
+  <li> dataset name (data file name) 
+  <li> data dictionary name (definition file name) 
+  <li> file security and other miscellaneous information 
+</ul>
+
+</dl>
+
+<p>
+In INTOUCH, you address the structure file and not the dataset directly. 
+
+<p>
+An INTOUCH structure is made up of <b>records</b> <i>and</i>
+<b>fields</b>.  A structure looks something like this: 
+
+<p><pre>
+                                       FIELDS 
+ 
+                           /              |                \
+                          /               |                 \
+                         /                |                  \
+                        /                 |                   \
+                       /                  |                    \
+ 
+      R          Client         Last name                  First name 
+      E          Number                                  
+      C       +---------+---------------------------+-------------------+ 
+      O _____ |8|0|5|4|3|C|a|s|s| | | | | | | | | | |C|a|t|h|y| | | | | | 
+      R _____ |8|0|5|4|2|B|r|o|c|k| | | | | | | | | |B|u|d| | | | | | | | 
+      D       | | | | | | | | | | | | | | | | | | | | | | | | | | | | | | 
+      S 
+                                     positions 
+</pre>
+
+<p>
+In the above example, the records are the horizontal lines of information. 
+In the CLIENT structure above, there is a record for each customer. 
+
+<p>
+Each record consists of fields.  For example, the customer records 
+alone might contain a field for the customer's ID number, last name, 
+first name, address, phone number, company name, etc.  Each of these 
+pieces of data is stored in its own field--the name field, address 
+field, phone number field, etc..  The fields appear as columns in the 
+diagram above. 
+
+<p>
+To reference a field, you indicate the structure and the field you want. 
+The field name is enclosed in parentheses. 
+
+<p><pre>
+        struc_name(field_name) 
+</pre>
+
+<p>
+<i>struc_name</i> is the name associated with the structure.  
+<i>field_name</i> is the name of a field in the structure.  INTOUCH 
+searches for the field specified in the current record and reads its contents. 
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client' 
+        20  EXTRACT STRUCTURE cl: KEY ID = '80522' 
+              PRINT cl(last), cl(first) ! Print last and first 
+                                        ! fields from the CL structure 
+            END EXTRACT 
+            CLOSE STRUCTURE cl 
+        30  END 
+ 
+        RNH 
+        Errant             Earl 
+</pre>
+
+<p>
+The remainder of this chapter describes the data structure statements and 
+how to use them. 
+
+<p>
+
+<a name="heading_14.2"><h1>14.2 OPEN STRUCTURE</h1></a>
+<a name="index_x_833"></a>
+<a name="index_x_834"></a>
+<a name="index_x_835"></a>
+<a name="index_x_836"></a>
+<h2>FORMAT:</h2>
+
+<p><pre>
+        OPEN STRUCTURE struc_name: NAME 'struc_filename' 
+          [, ACCESS INPUT | OUTIN] [, LOCK] [, DATAFILE filename] 
+          [, OPTIMIZE OFF] 
+</pre>
+
+<h2>EXAMPLE:</h2>
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client', &amp; 
+              ACCESS INPUT, LOCK    
+        20  EXTRACT STRUCTURE cl 
+              INCLUDE cl(state) = 'CA' 
+              EXCLUDE cl(phone)[1:3] = '619' 
+              SORT ASCENDING BY cl(last) 
+            END EXTRACT 
+        30  PRINT 'List of California clients by last name' 
+            FOR EACH cl 
+              PRINT cl(first); ' '; cl(last), cl(phone) 
+            NEXT cl 
+        40  CLOSE STRUCTURE cl 
+        50  END 
+ 
+        RNH 
+        List of California clients by last name 
+        Dale Derringer      (818) 223-9014 
+        Earl Errant         (408) 844-7676 
+</pre>
+
+<h2>DESCRIPTION:</h2>
+
+<dl>
+<dd>
+
+<p>
+The <b>OPEN STRUCTURE</b> statement is used to open a data 
+structure.  The structure must be open in order to reference data in the 
+structure (i.e. change field data, add or delete records).  
+<i>struc_name</i> is a name (i.e. nickname) you assign to the structure. 
+You use this name to refer to the structure within the program. 
+The structure name must be unique within the program or program system.  
+If the structure name is associated with another open structure, an exception 
+is generated. The structure name must meet the requirements for variable 
+names. 
+
+<p>
+After the keyword <b>NAME</b>, is the file specification of the 
+structure file being opened. (See Chapter 16, Creating Structures, Field Definitions with SETUP for information 
+on legal structure file names.)  The file specification can be any valid 
+string expression. 
+
+<p>
+The <b>ACCESS</b> option tells INTOUCH whether to open the 
+structure for input (reading field data) or for input and output (reading, 
+changing and adding field data).  ACCESS <i>input</i> is the default 
+open mode for structures, meaning, that if no ACCESS option is provided, 
+INTOUCH opens the structure for INPUT. 
+
+<p>
+When INTOUCH executes the OPEN statement, it searches for the structure file 
+specified.  INTOUCH opens the structure and assigns it the structure name. 
+If the structure file does not exist, an exception is generated. 
+</dl>
+
+<p>
+
+<a name="heading_14.2.1"><h2>14.2.1 ACCESS Option</h2></a>
+<a name="index_x_837"></a>
+<a name="index_x_838"></a>
+
+<p>
+The <b>ACCESS</b> option determines how you can access the 
+structure. 
+
+<p>
+The access options are: 
+<dl>
+<dd>
+<a name="index_x_839"></a>
+
+<ul>
+  <li> ACCESS INPUT 
+    <br>     The structure is opened for input only.  Fields can be referenced but 
+     not assigned new values.  This is the default access method. 
+<a name="index_x_840"></a>
+  <li> ACCESS OUTIN 
+    <br>     The structure is opened for input and output.  Fields can be referenced 
+     and assigned new values. 
+</ul>
+
+</dl>
+
+<p>
+
+<a name="heading_14.2.2"><h2>14.2.2 LOCK Option</h2></a>
+<a name="index_x_841"></a>
+<a name="index_x_842"></a>
+
+<p>
+The <b>LOCK</b> option causes INTOUCH to lock the structure from 
+write access by others.  As long as the structure is open, the structure 
+cannot be modified by others.  This can speed up INTOUCH's structure 
+statements (EXTRACTs especially).  The particular effect depends on the 
+file management system being used. 
+
+<p>
+
+<a name="heading_14.2.3"><h2>14.2.3 DATAFILE Option</h2></a>
+<a name="index_x_843"></a>
+<a name="index_x_844"></a>
+
+<p>
+The <b>DATAFILE</b> option overrides the default datafile as 
+specified by the structure. 
+
+<p>
+<h2>FORMAT:</h2>
+
+<p><pre>
+        DATAFILE file_spec 
+</pre>
+
+<p>
+<i>file_spec</i> is the file specification of the data file you want 
+to open.  The file_spec can be any string expression. 
+
+<p>
+
+<a name="heading_14.3"><h1>14.3 CLOSE STRUCTURE struc_name</h1></a>
+<a name="index_x_845"></a>
+<a name="index_x_846"></a>
+<a name="index_x_847"></a>
+<a name="index_x_848"></a>
+<h2>FORMAT:</h2>
+
+<p><pre>
+        CLOSE STRUCTURE struc_name 
+</pre>
+
+<h2>EXAMPLE:</h2>
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client' 
+        20  EXTRACT STRUCTURE cl 
+              INCLUDE cl(state) = 'CA' 
+              EXCLUDE cl(phone)[1:3] = '619' 
+              SORT ASCENDING BY cl(last) 
+            END EXTRACT 
+        30  PRINT 'List of California Clients' 
+            FOR EACH cl 
+              PRINT cl(first); ' '; cl(last), cl(phone) 
+            NEXT cl 
+        40  CLOSE STRUCTURE cl 
+        50  END 
+ 
+        RNH 
+        List of California Clients 
+        Dale Derringer      (818) 223-9014 
+        Earl Errant         (408) 844-7676 
+</pre>
+
+<h2>DESCRIPTION:</h2>
+
+<dl>
+<dd>
+
+<p>
+<b>CLOSE STRUCTURE</b> closes a structure from further access. 
+Once the structure is closed, you cannot reference records or add them, 
+and you cannot change field data.  <i>struc_name</i> is the name 
+associated with the structure, the name assigned with the OPEN statement. 
+
+<p>
+<a name="index_x_849"></a>
+<a name="index_x_850"></a>
+<a name="index_x_851"></a>
+You can use the statement <b>CLOSE ALL</b> to close <i>all</i>
+open structures and other files. 
+</dl>
+
+<p>
+
+<a name="heading_14.4"><h1>14.4 ADD STRUCTURE</h1></a>
+<a name="index_x_852"></a>
+<a name="index_x_853"></a>
+<a name="index_x_854"></a>
+<a name="index_x_855"></a>
+<h2>FORMAT:</h2>
+
+<p><pre>
+        ADD STRUCTURE struc_name 
+              ---                    
+          [LET] struc_name(field) = expr 
+              --- 
+        END ADD 
+</pre>
+
+<h2>EXAMPLE:</h2>
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client', ACCESS OUTIN 
+        20  INPUT 'Enter ID number': id% 
+            INPUT 'Enter last name': last$ 
+            INPUT 'Enter first name': first$ 
+            INPUT 'Enter state': state$ 
+            INPUT 'Enter phone': phone$ 
+        30  ADD STRUCTURE cl 
+              PRINT 
+              PRINT 'Adding '; last$; ', '; first$ 
+              LET cl(id) = id% 
+              LET cl(last) = last$ 
+              LET cl(first) = first$ 
+              LET cl(state) = state$ 
+              LET cl(phone) = phone$ 
+            END ADD        
+        40  CLOSE STRUCTURE cl 
+        50  END 
+ 
+        RNH 
+        Enter ID number? 12233 
+        Enter last name? Jones 
+        Enter first name? Tom 
+        Enter state? NV 
+        Enter phone? 2345556161 
+ 
+        Adding Jones, Tom 
+</pre>
+
+<h2>DESCRIPTION:</h2>
+
+<dl>
+<dd>
+
+<p>
+<b>ADD STRUCTURE</b> adds a record to a structure.  The 
+ADD STRUCTURE statement begins the add block.  <i>struc_name</i> is 
+the name associated with the structure that the record is going to be 
+<a name="index_x_856"></a>
+added to.  <b>END ADD</b> marks the end of the block. 
+
+<p>
+When ADD STRUCTURE is executed, INTOUCH executes the block of code 
+between the ADD STRUCTURE statement and END ADD.  This block of code with 
+<a name="index_x_857"></a>
+<b>LET</b> statements is used to put data into the fields. 
+
+<p>
+LET assigns a value to the field specified.  <i>struc_name(field)</i>
+specifies a field in the structure.  <i>expr</i> is an expression. 
+When INTOUCH executes the LET statement, it evaluates the expression and 
+assigns the value of this expression to the field specified.  END ADD 
+writes out the new record. 
+</dl>
+
+<p>
+
+<a name="heading_14.4.1"><h2>14.4.1 CANCEL ADD</h2></a>
+<a name="index_x_858"></a>
+<a name="index_x_859"></a>
+<a name="index_x_860"></a>
+<a name="index_x_861"></a>
+<a name="index_x_862"></a>
+<h2>FORMAT:</h2>
+
+<p><pre>
+        CANCEL ADD 
+</pre>
+
+<h2>EXAMPLE:</h2>
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client', ACCESS OUTIN 
+            ADD STRUCTURE cl 
+              INPUT 'Client ID': cl(id) 
+              IF  _EXIT  THEN  CANCEL ADD 
+              INPUT 'Last name': cl(last) 
+              IF  _EXIT  THEN  CANCEL ADD 
+              INPUT 'First name': cl(first) 
+              IF  _EXIT  THEN  CANCEL ADD 
+              PRINT 'Adding client' 
+            END ADD 
+        20  END 
+ 
+        RNH 
+        Client ID? 14422 
+        Last name? WHITE 
+        First name? EXIT 
+</pre>
+
+<h2>DESCRIPTION:</h2>
+
+<dl>
+<dd>
+
+<p>
+<b>CANCEL ADD</b> cancels the current adding of a record to a 
+structure and transfers control to the next statement after the END ADD 
+statement. 
+
+<p>
+This statement can <i>only</i> be used within an ADD block---that is, 
+between an ADD STRUCTURE and an END ADD pair of statements. 
+</dl>
+
+<p>
+
+<a name="heading_14.4.2"><h2>14.4.2 EXIT ADD</h2></a>
+<a name="index_x_863"></a>
+<a name="index_x_864"></a>
+<a name="index_x_865"></a>
+<a name="index_x_866"></a>
+<a name="index_x_867"></a>
+<h2>FORMAT:</h2>
+
+<p><pre>
+        EXIT ADD 
+</pre>
+
+<h2>EXAMPLE:</h2>
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client', ACCESS OUTIN 
+            ADD STRUCTURE cl 
+              INPUT 'Client ID ': cl(id) 
+              INPUT 'Last name ': cl(last) 
+              INPUT 'First name': cl(first) 
+              INPUT 'Contact   ': cl(contact) 
+              IF  _EXIT  THEN  EXIT ADD 
+              INPUT 'Salesman  ': cl(salesman) 
+              INPUT 'Mother    ': cl(mother) 
+              INPUT 'Comment   ': cl(comment) 
+            END ADD 
+            PRINT 'Client added' 
+        20  END 
+ 
+        RNH 
+        Client ID ? 11111 
+        Last name ? Hollerith 
+        First name? Herman 
+        Contact   ? EXIT 
+        Client added 
+</pre>
+
+<h2>DESCRIPTION:</h2>
+
+<dl>
+<dd>
+
+<p>
+<b>EXIT ADD</b> transfers control immediately to the corresponding 
+END ADD statement and <b>performs the add</b>. 
+
+<p>
+This statement is useful when you want to add a record but do not have 
+all the data.  You can enter data into the first few fields and skip 
+the rest of the fields. 
+</dl>
+
+<p>
+
+<a name="heading_14.5"><h1>14.5 DELETE STRUCTURE</h1></a>
+<a name="index_x_868"></a>
+<a name="index_x_869"></a>
+<a name="index_x_870"></a>
+<a name="index_x_871"></a>
+<h2>FORMAT:</h2>
+
+<p><pre>
+        DELETE STRUCTURE struc_name 
+</pre>
+
+<h2>EXAMPLE:</h2>
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client', ACCESS OUTIN 
+        20  EXTRACT STRUCTURE cl 
+              INCLUDE cl(state) = 'CA' 
+            END EXTRACT 
+        30  ! Delete all clients from California 
+            FOR EACH cl 
+              PRINT 'Deleting '; cl(first); ' '; cl(last) ;'...'; 
+              DELETE STRUCTURE cl 
+              PRINT 'record deleted' 
+            NEXT cl 
+        40  CLOSE STRUCTURE cl 
+        50  END 
+ 
+        RNH 
+        Deleting Keith Kent...record deleted 
+        Deleting Paul Johnson...record deleted 
+        Deleting Wayne Waters...record deleted 
+        Deleting Earl Errant...record deleted 
+        Deleting Cathy Cass...record deleted 
+        Deleting Pete Porter...record deleted 
+        Deleting Dale Derringer...record deleted 
+</pre>
+
+<h2>DESCRIPTION:</h2>
+
+<dl>
+<dd>
+
+<p>
+<b>DELETE STRUCTURE</b> deletes the current record from the 
+specified structure.  <i>struc_name</i> is the structure name 
+associated with the structure that the record is going to be deleted from. 
+</dl>
+
+<p>
+
+<a name="heading_14.6"><h1>14.6 LOCK | UNLOCK STRUCTURE</h1></a>
+<a name="index_x_872"></a>
+<a name="index_x_873"></a>
+<a name="index_x_874"></a>
+<a name="index_x_875"></a>
+<a name="index_x_876"></a>
+<h2>FORMAT:</h2>
+
+<p><pre>
+        [LOCK | UNLOCK] STRUCTURE struc_name 
+</pre>
+
+<h2>EXAMPLE:</h2>
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client', ACCESS OUTIN 
+        20  EXTRACT STRUCTURE cl 
+              INCLUDE cl(state) = 'CA' 
+            END EXTRACT 
+        30  FOR EACH cl 
+              PRINT 
+              PRINT cl(first); ' '; cl(last) 
+              LOCK STRUCTURE cl   ! Give us exclusive access 
+              LINE INPUT DEFAULT cl(phone), PROMPT 'Enter new phone ': phone$ 
+              IF  _EXIT  THEN  EXIT FOR 
+              cl(phone) = phone$ 
+              UNLOCK STRUCTURE cl ! Put the record out to disk 
+                                  ! and release it 
+            NEXT cl 
+        40  CLOSE STRUCTURE cl 
+        50  END 
+ 
+        RNH 
+ 
+        Keith Kent 
+        Enter new phone 6199675021 
+ 
+        Paul Johnson 
+        Enter new phone EXIT 
+</pre>
+
+<h2>DESCRIPTION:</h2>
+
+<dl>
+<dd>
+
+<p>
+You can use <b>LOCK/UNLOCK STRUCTURE</b> to lock or unlock the 
+data record currently being accessed.  INTOUCH automatically locks and 
+unlocks data when you work with it.  However, you can use LOCK and UNLOCK 
+if you want to do this manually. 
+
+<p>
+Normally, INTOUCH locks and unlocks data as needed.  LOCK and UNLOCK 
+override INTOUCH's automatic locking features.  LOCK STRUCTURE locks 
+the data currently being accessed, giving the program exclusive access 
+to the current record.  No one else can access the data until it is 
+unlocked. 
+
+<p>
+UNLOCK unlocks the current record or data.  The record is put to disk 
+(if needed) and can again be accessed by others.  <i>struc_name</i>
+is the structure name associated with the structure. 
+</dl>
+
+<a name="heading_14.7"><h1>14.7 EXTRACT STRUCTURE</h1></a>
+<a name="index_x_877"></a>
+<a name="index_x_878"></a>
+<a name="index_x_879"></a>
+<a name="index_x_880"></a>
+<a name="index_x_881"></a>
+<h2>FORMAT:</h2>
+
+<p><pre>
+        EXTRACT STRUCTURE struc_name 
+                ---  block of code 
+          [INCLUDE | EXCLUDE] cond_expr 
+          [SORT [ASCENDING | DESCENDING] BY expression] 
+                --- 
+        END EXTRACT 
+</pre>
+
+<h2>EXAMPLE:</h2>
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client' 
+        20  PRINT 'List of Clients' 
+            PRINT 
+        30  EXTRACT STRUCTURE cl 
+              PRINT cl(first); ' '; cl(last), cl(phone) 
+            END EXTRACT 
+        40  CLOSE STRUCTURE cl 
+        50  END 
+ 
+        RNH 
+        List of Clients 
+ 
+        Earl Errant         (408) 844-7676 
+        Al Abott            (202) 566-9892 
+        Bud Brock           (218) 555-4322 
+        Cathy Cass          (619) 743-8582 
+        Dale Derringer      (818) 223-9014 
+        Fred Farmer         (305) 552-7872 
+</pre>
+
+<h2>DESCRIPTION:</h2>
+
+<dl>
+<dd>
+
+<p>
+When INTOUCH does an extract, it examines each record in the structure.  
+For each record, INTOUCH executes the code between the 
+<b>EXTRACT STRUCTURE</b> and <b>END EXTRACT</b>
+statements.  For instance, here is a structure with client information: 
+</dl>
+
+<p><pre>
+              ID #     LAST       FIRST      CITY      STATE  PHONE 
+            +------+-----------+--------+--------------+--+----------+ 
+            |80543 |Cass       |Cathy   | San Diego    |CA|6197438582| 
+            |80542 |Brock      |Bud     | Duluth       |MN|2185554322| 
+            |80522 |Errant     |Earl    | Monterey     |CA|4088447676| 
+            |80561 |Derringer  |Dale    | Los Angeles  |CA|8182239014| 
+            |80531 |Abott      |Al      | New York     |NY|2025669892| 
+            |80573 |Farmer     |Fred    | Miami        |FL|3055527872| 
+</pre>
+
+<dl>
+<dd>
+
+<p>
+EXTRACT creates a list of clients.  The above program example extracts 
+information from each record in the structure and displays each client's 
+name and phone number. 
+
+<p>
+<a name="index_x_882"></a>
+<a name="index_x_883"></a>
+When INTOUCH does an extract, it examines each record of the structure in 
+order.  If the <b>KEY</b> option is specified, only those records 
+with a key matching the KEY expression are examined.  For each examined 
+record, the following is done: 
+<a name="index_x_884"></a>
+<a name="index_x_885"></a>
+
+<ol>
+  <li> Each <b>INCLUDE</b> and <b>EXCLUDE</b> statement 
+        is checked in turn.  The examined record is <i>not</i> 
+        extracted if an INCLUDE statement evaluates to <i>FALSE</i>, 
+        or an EXCLUDE statement evaluates to <i>TRUE</i>. 
+<a name="index_x_886"></a>
+  <li> If any <b>SORT</b> specifications are given, a sort key is 
+        built using the SORT expression as the key.  If no SORT specifications 
+        are given, the record is immediately extracted. 
+  <li> When all records have been examined, the sort keys, if any, are sorted. 
+</ol>
+
+<p>
+<a name="index_x_887"></a>
+<a name="index_x_888"></a>
+INTOUCH then builds a list of extracted records.   This list can be accessed 
+later with a <b>FOR EACH</b> loop.  You can have up to 16 sort keys 
+and 32 extract criteria. 
+</dl>
+
+<p>
+
+<a name="heading_14.7.1"><h2>14.7.1 INCLUDE Statement</h2></a>
+<a name="index_x_889"></a>
+<a name="index_x_890"></a>
+<a name="index_x_891"></a>
+<a name="index_x_892"></a>
+<h2>FORMAT:</h2>
+
+<p><pre>
+        INCLUDE cond_expr 
+</pre>
+
+<h2>EXAMPLE:</h2>
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client' 
+        20  EXTRACT STRUCTURE cl 
+              INCLUDE cl(state) = 'CA' 
+            END EXTRACT 
+            PRINT 'List of California Clients' 
+            PRINT 
+            FOR EACH cl 
+              PRINT cl(first); ' '; cl(last), cl(state) 
+            NEXT cl 
+            CLOSE STRUCTURE cl 
+        30  END 
+ 
+        RNH 
+        List of California Clients 
+ 
+        Keith Kent          CA 
+        Paul Johnson        CA 
+        Wayne Waters        CA 
+        Earl Errant         CA 
+        Cathy Cass          CA 
+        Pete Porter         CA 
+        Dale Derringer      CA 
+</pre>
+
+<h2>DESCRIPTION:</h2>
+
+<dl>
+<dd>
+
+<p>
+The <b>INCLUDE</b> statement includes records depending on the 
+value of a conditional expression.  
+
+<p>
+<i>cond_expr</i> is a conditional expression that INTOUCH evaluates. 
+If the expression is <b>TRUE</b>, INTOUCH 
+<b>includes</b> the record in the extract list.  If the 
+expression is <b>FALSE</b>, INTOUCH excludes the record from 
+the list.  For example, the program above creates an extract list 
+containing only those clients located in California. 
+
+<p>
+<b>NOTE:</b> The conditional expression must match the field's 
+data type.  For instance, if the field has a CHARACTER data type, the 
+expression must be a string expression.  
+</dl>
+
+<p>
+
+<a name="heading_14.7.2"><h2>14.7.2 EXCLUDE Statement</h2></a>
+<a name="index_x_893"></a>
+<a name="index_x_894"></a>
+<a name="index_x_895"></a>
+<a name="index_x_896"></a>
+<h2>FORMAT:</h2>
+
+<p><pre>
+        EXCLUDE cond_expr 
+</pre>
+
+<h2>EXAMPLE:</h2>
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client' 
+        20  EXTRACT STRUCTURE cl 
+              EXCLUDE cl(phone)[1:3] = '619' 
+            END EXTRACT 
+        30  PRINT 'List of Clients' 
+            PRINT 
+            FOR EACH cl 
+              PRINT cl(first); ' '; cl(last), cl(phone) 
+            NEXT cl 
+            CLOSE STRUCTURE cl 
+        40  END 
+ 
+        RNH 
+        List of Clients 
+ 
+        Earl Errant         (408) 844-7676 
+        Al Abott            (202) 566-9892 
+        Bud Brock           (218) 555-4322 
+        Dale Derringer      (818) 223-9014 
+        Fred Farmer         (305) 552-7872 
+</pre>
+
+<h2>DESCRIPTION:</h2>
+
+<dl>
+<dd>
+
+<p>
+The <b>EXCLUDE</b> statement excludes records from the extract 
+list, depending on the value of a conditional expression.  
+
+<p>
+<i>cond_expr</i> is a conditional expression.  INTOUCH evaluates this 
+expression.  If the expression is <b>TRUE</b>, INTOUCH 
+<b>excludes</b> the current record from the extract list.  
+For example, the program above creates an extract list of all the clients 
+in the client structure---except those with an area code of 619. 
+
+<p>
+<b>NOTE:</b> The conditional expression must match the field's 
+data type.  For instance, if the field has a CHARACTER data type, the 
+expression must be a string expression. 
+</dl>
+
+<p>
+
+<a name="heading_14.7.3"><h2>14.7.3 SORT Statement</h2></a>
+<a name="index_x_897"></a>
+<a name="index_x_898"></a>
+<a name="index_x_899"></a>
+<a name="index_x_900"></a>
+<h2>FORMAT:</h2>
+
+<p><pre>
+        SORT [ASCENDING | DESCENDING] BY expr 
+</pre>
+
+<h2>EXAMPLE:</h2>
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client' 
+        20  EXTRACT STRUCTURE cl 
+              SORT ASCENDING BY cl(last) 
+            END EXTRACT 
+            PRINT 'List of Clients' 
+            PRINT 
+        30  FOR EACH cl 
+              PRINT cl(first); ' '; cl(last), cl(phone) 
+            NEXT cl 
+        40  CLOSE STRUCTURE cl 
+        50  END 
+ 
+        RNH 
+        List of Clients 
+ 
+        Al Abott            (202) 566-9892 
+        Bud Brock           (218) 555-4322 
+        Cathy Cass          (619) 743-8582 
+        Dale Derringer      (818) 223-9014 
+        Earl Errant         (408) 844-7676 
+        Fred Farmer         (305) 552-7872 
+</pre>
+
+<h2>DESCRIPTION:</h2>
+
+<dl>
+<dd>
+
+<p>
+<a name="index_x_901"></a>
+<a name="index_x_902"></a>
+The <b>SORT</b> statement sorts the records in an extract list 
+in either <b>ASCENDING</b> or <b>DESCENDING</b> order. 
+<i>expr</i> is an expression whose value determines how to order the 
+list.  INTOUCH evaluates the expression for each record and stores the value. 
+When all the records have been extracted, INTOUCH orders the list according 
+to these values. 
+
+<p>
+You can sort in either ASCENDING or DESCENDING order.  ASCENDING creates a 
+list in ascending order (lowest to highest).  DESCENDING creates a list in 
+descending order (highest to lowest).  The default is ascending order.  
+<a name="index_x_903"></a>
+String values are sorted according to the ASCII character set. 
+
+<p>
+INTOUCH does sorts in order.  Therefore, you can use multiple sorts 
+to order the list more and more specifically.  For example, the 
+following program creates a list of clients.  The clients are sorted 
+first by state and within each state by last name. 
+</dl>
+
+<p><pre>
+        10  OPEN STRUCTURE cl: NAME 'tti_run:client' 
+            EXTRACT STRUCTURE cl 
+              SORT ASCENDING BY cl(state) 
+              SORT ASCENDING BY cl(last) 
+            END EXTRACT 
+        20  PRINT 'List of Clients' 
+            PRINT 
+            FOR EACH cl 
+              PRINT cl(last); ', '; cl(first), cl(state) 
+            NEXT cl 
+        30  CLOSE STRUCTURE CL 
+        40  END 
+ 
+        RNH 
+        List of Clients 
+ 
+        Cass, Cathy            CA 
+        Derringer, Dale        CA 
+        Errant, Earl           CA 
+        Farmer, Fred           FL 
+        Brock, Bud             MN 
+        Abott, Al              NY 
+</pre>
+
+<dl>
+<dd>
+
+<p>
+When you sort fields that are filled with nulls (no data was ever 
+stored in them), the fields are sorted as though they were space filled. 
+</dl>
+
+<p>
+<a name="bottom_014"></a>
+<p>
+<hr> <a href="language_015.html">Next page...</a> | 
+<a href="language_contents.html">Table of Contents</a>
+</body>
+</html>

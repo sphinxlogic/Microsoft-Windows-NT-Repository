@@ -1,0 +1,144 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978-1992						    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	Returns a line of heading including the current date and time,
+	the SDL version number and the name and creation date of the
+	SDL source file, for use by the languge output routines.
+
+author:
+	C.T. Pacy
+date:
+	revised 22-DEC-1980	ctp
+	revised 06-AUG-1980	ls	add header
+*/
+
+/*			C H A N G E    L O G
+
+      Date	| Name	| Description
+________________|_______|______________________________________________________
+   19-Aug-1985  | kd 	| 2-1.  Add change log, ident and update copyright.
+________________|_______|______________________________________________________
+   21-Aug-1985	| kd	| 2-2   Change sdl$v_noheader_opt to sdl$v_header_opt.
+________________|_______|______________________________________________________
+   27-Aug-1985	| kd	| 2-3   Change sdl$v_header_opt back to sdl$v_noheader_opt
+		|	|	for compatibility...sigh.
+________________|_______|______________________________________________________
+   09-Nov-1987  | dls   | V3.1-1   modified the copyright procedure so it now
+                |       |          writes  the the current year.
+________________|_______|______________________________________________________
+   07-Nov-1987  | jgw   | T3.2-1   Changed "VAX-11 SDL" to "VAX SDL" in the
+                |       |          output header.
+________________|_______|______________________________________________________
+   17-Apr-92	| jak   | EV1-5    Changed "VAX SDL" to "OpenVMS SDL" in the
+                |       |          output header.
+________________|_______|______________________________________________________
+    4-May-92	| jak   | EV1-8    Changed to put "Created" and "Source" on separate
+                |       |          lines.
+________________|_______|______________________________________________________
+    5-Jun-96	| aem   | EV1-9    Changed copyright text to include "All rights
+		|	|	   reserved".
+________________|_______|______________________________________________________
+*/
+%replace MODULE_IDENT by 'EV1-9';
+
+	dcl predeclared_text (23) char (128) var static init (
+'',
+'****************************************************************************',
+'*                                                                          *',
+'*  Copyright (c) ', 
+'*  by DIGITAL Equipment Corporation, Maynard, Mass.                        *',
+'*  All rights reserved.						    *',
+'*                                                                          *',
+'*  This software is furnished under a license and may be used and  copied  *',
+'*  only  in  accordance  with  the  terms  of  such  license and with the  *',
+'*  inclusion of the above copyright notice.  This software or  any  other  *',
+'*  copies  thereof may not be provided or otherwise made available to any  *',
+'*  other person.  No title to and ownership of  the  software  is  hereby  *',
+'*  transferred.                                                            *',
+'*                                                                          *',
+'*  The information in this software is subject to change  without  notice  *',
+'*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment  *',
+'*  Corporation.                                                            *',
+'*                                                                          *',
+'*  DIGITAL assumes no responsibility for the use or  reliability  of  its  *',
+'*  software on equipment which is not supplied by DIGITAL.                 *',
+'*                                                                          *',
+'****************************************************************************',
+    '');
+
+sdl$header:	proc (sdl$_shr_data, begin_comment, end_comment, line_len)
+		    options (ident (MODULE_IDENT)) ;
+
+	%include 'sdl$library:sdlshr.in';
+	%include sys$asctim;
+
+	dcl (begin_comment,end_comment) char (2) var;
+	dcl ss$_normal globalref value fixed bin(31);
+	dcl timebuf char(23) init ('');
+	dcl short_time char(20) based (addr(timebuf));
+	dcl buffer char(1024) var init ('');
+	dcl tmpbuf char(1024) var init ('');
+	dcl line_len fixed bin(31);	/* line length */
+	dcl (i,l) fixed bin;
+        dcl fill_buf char (54) init ('');
+
+
+/* This piece of code get the current year so when the    */
+/* /copyright quailfier is given, the current year is written */
+
+    predeclared_text(4)=predeclared_text(4)||substr(datetime(),1,4)
+                        ||(fill_buf)||'*';
+    if sdl$v_copyright_opt then
+        do i = 1 to 21;
+	    CALL sdl$putline(outfile, begin_comment || (predeclared_text(i))
+			|| end_comment, line_len);
+	    END;
+
+    if ^sdl$v_noheader_opt then do;
+	l = length(begin_comment)+length(end_comment)+2;
+	tmpbuf = begin_comment||copy('*',line_len-l)||end_comment;
+	write file (outfile) from (tmpbuf);
+
+	if sys$asctim(,timebuf,,)^=ss$_normal then
+		timebuf='*';
+	buffer= 'Created: '||short_time||' by OpenVMS SDL '||sdl_version;
+	tmpbuf = begin_comment||' '||buffer||' '||end_comment;
+	write file(outfile) from (tmpbuf);
+
+	buffer='Source:  '||full_source;
+	if length(buffer) > line_len-l
+	then
+	    buffer = substr(buffer,1,line_len-l);
+	tmpbuf = begin_comment||' '||buffer||' '||end_comment;
+	write file(outfile) from (tmpbuf);
+
+	tmpbuf = begin_comment||copy('*',line_len-l)||end_comment;
+	write file(outfile) from (tmpbuf);
+    end;
+
+end;

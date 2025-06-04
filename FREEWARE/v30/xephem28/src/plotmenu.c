@@ -1,0 +1,1057 @@
+/* code to manage the stuff on the "plot" menu.
+ */
+
+#include <stdio.h>
+#include <ctype.h>
+#include <math.h>
+
+#if defined(__STDC__)
+#include <stdlib.h>
+#endif
+
+#include <X11/Xlib.h>
+#include <Xm/Xm.h>
+#include <Xm/Form.h>
+#include <Xm/Frame.h>
+#include <Xm/DrawingA.h>
+#include <Xm/Label.h>
+#include <Xm/CascadeB.h>
+#include <Xm/PushB.h>
+#include <Xm/ToggleB.h>
+#include <Xm/RowColumn.h>
+#include <Xm/Separator.h>
+#include <Xm/Text.h>
+
+#include "P_.h"
+
+extern Widget	toplevel_w;
+#define	XtD	XtDisplay(toplevel_w)
+
+extern FILE *fopenh P_((char *name, char *how));
+extern char *syserrstr P_((void));
+extern int existsh P_((char *filename));
+extern int plot_cartesian P_((FILE *pfp, Widget widget, unsigned int nx,
+    unsigned int ny, int flipx, int flipy, int grid, int xasdate));
+extern void all_selection_mode P_((int whether));
+extern void f_string P_((Widget w, char *s));
+extern void get_something P_((Widget w, char *resource, XtArgVal value));
+extern void hlp_dialog P_((char *tag, char *deflt[], int ndeflt));
+extern void prompt_map_cb P_((Widget w, XtPointer client, XtPointer call));
+extern void query P_((Widget tw, char *msg, char *label1, char *label2,
+    char *label3, void (*func1)(), void (*func2)(), void (*func3)()));
+extern void set_something P_((Widget w, char *resource, XtArgVal value));
+extern void set_xmstring P_((Widget w, char *resource, char *txt));
+extern void xe_msg P_((char *msg, int app_modal));
+
+static void plt_select P_((int whether));
+static void plot_create_form P_((void));
+static void plt_activate_cb P_((Widget w, XtPointer client, XtPointer call));
+static void plt_close_cb P_((Widget w, XtPointer client, XtPointer call));
+static void plt_help_cb P_((Widget w, XtPointer client, XtPointer call));
+static void plt_reset P_((void));
+static void plt_stop_selecting P_((void));
+static void plt_turn_off P_((void));
+static void init_next_row P_((void));
+static void plt_try_append P_((void));
+static void plt_try_overwrite P_((void));
+static void plt_try_cancel P_((void));
+static void plt_try_turn_on P_((void));
+static void plt_turn_on P_((char *how));
+static void plt_da_manage P_((void));
+static void plt_da_destroy P_((Widget daform_w));
+static void plt_da_close_cb P_((Widget w, XtPointer client, XtPointer call));
+static void plt_da_flipx_cb P_((Widget w, XtPointer client, XtPointer call));
+static void plt_da_flipy_cb P_((Widget w, XtPointer client, XtPointer call));
+static void plt_da_grid_cb P_((Widget w, XtPointer client, XtPointer call));
+static void plt_da_xasdate_cb P_((Widget w, XtPointer client, XtPointer call));
+static void plt_da_exp_cb P_((Widget da_w, XtPointer client, XtPointer call));
+
+
+/* max number of things we can keep track of at once to plot */
+#define	MAXPLTLINES	10
+#define	MAXFLDNAM	32	/* longest allowed field name */
+
+static Widget plotform_w;
+static Widget select_w, active_w, prompt_w;
+static Widget title_w, filename_w;
+static Widget table_w[MAXPLTLINES][4];	/* column indeces follow.. */
+#define	T	0		/* tag label text field */
+#define	X	1		/* X label */
+#define	Y	2		/* Y label */
+#define	FORM	3		/* the form that holds the three above */
+static int selecting_xy;	/* one of X or Y */
+
+#define	DEF_PLTFN	"ephem.plt"	/* default plot file name */
+static FILE *plt_fp;            /* the plot file; == 0 means don't plot */
+
+
+/* plt_activate_cb client values. */
+enum { SELECT, ACTIVE, SHOW};
+
+/* store the name of each x and y line to track and their values.
+ * we get the label straight from the Text widget in the table as needed.
+ */
+typedef struct {
+    char pl_xn[MAXFLDNAM];	/* name of x field, or 0 if none */
+    double pl_xv;		/* last known value of x field */
+    char pl_yn[MAXFLDNAM];	/* name of y field, or 0 if none */
+    double pl_yv;		/* last known value of x field */
+} PltLine;
+static PltLine pltlines[MAXPLTLINES];
+static int npltlines;		/* number of pltlines[] in actual use */
+
+/* one of these gets malloced and passed to the drawing area expose callback via
+ * its client parameter. be sure to free it when the parent FormDialog goes
+ * away too.
+ * by doing this, we can have lots of different plots up at once and yet we
+ * don't have to keep track of them - they track themselves.
+ */
+typedef struct {
+    char *filename;	/* name of file being plotted (also malloced) */
+    FILE *fp;		/* FILE pointer for the file */
+    int flipx, flipy;	/* flip state for this instance */
+    int grid;		/* whether to include a grid */
+    int xasdate;	/* whether to show x axis as dates */
+} DrawInfo;
+
+/* called when the plot menu is activated via the main menu pulldown.
+ * if never called before, create and manage all the widgets as a child of a
+ * form. otherwise, just toggle whether the form is managed.
+ */
+void
+plot_manage ()
+{
+	if (!plotform_w)
+	    plot_create_form();
+	
+	if (XtIsManaged(plotform_w))
+	    XtUnmanageChild (plotform_w);
+	else
+	    XtManageChild (plotform_w);
+}
+
+/* called by the other menus (data, etc) as their buttons are
+ * selected to inform us that that button is to be included in a plot.
+ */
+void
+plt_selection (name)
+char *name;
+{
+	Widget tw;
+
+	if (!plotform_w
+		|| !XtIsManaged(plotform_w)
+		|| !XmToggleButtonGetState(select_w))
+	    return;
+
+	tw = table_w[npltlines][selecting_xy];
+	set_xmstring (tw, XmNlabelString, name);
+	XtManageChild (tw);
+
+	if (selecting_xy == X) {
+	    (void) strncpy (pltlines[npltlines].pl_xn, name, MAXFLDNAM-1);
+	    selecting_xy = Y;
+	    XtManageChild (prompt_w);
+	    f_string (prompt_w, "Select quantity for Y..");
+	} else {
+	    (void) strncpy (pltlines[npltlines].pl_yn, name, MAXFLDNAM-1);
+	    if (++npltlines == MAXPLTLINES)
+		plt_stop_selecting();
+	    else {
+		selecting_xy = X;
+		init_next_row();
+	    }
+	}
+}
+
+/* called as each different field is written -- just save in pltlines[]
+ * if we are interested in it.
+ * might have the same field listed more than once so can't stop if find one.
+ */
+void
+plt_log (name, value)
+char *name;
+double value;
+{
+	if (plt_fp) {
+	    PltLine *plp;
+	    for (plp = pltlines; plp < &pltlines[npltlines]; plp++) {
+		if (strcmp (name, plp->pl_xn) == 0)
+		    plp->pl_xv = value;
+		if (strcmp (name, plp->pl_yn) == 0)
+		    plp->pl_yv = value;
+	    }
+	}
+}
+
+/* called when all fields have been updated and it's time to
+ * write the active plotfields to the current plot file, if one is open.
+ */
+void
+plot()
+{
+	if (plt_fp) {
+	    /* plot in order of original selection */
+	    PltLine *plp;
+	    for (plp = pltlines; plp < &pltlines[npltlines]; plp++) {
+		char *lbl = XmTextGetString (table_w[plp-pltlines][T]);
+		(void) fprintf (plt_fp, "%c,%.12g,%.12g\n", lbl[0],
+						    plp->pl_xv, plp->pl_yv);
+		XtFree (lbl);
+	    }
+	}
+}
+
+int
+plot_ison()
+{
+	return (plt_fp != 0);
+}
+
+/* called to put up or remove the watch cursor.  */
+void
+plt_cursor (c)
+Cursor c;
+{
+	Window win;
+
+	if (plotform_w && (win = XtWindow(plotform_w))) {
+	    Display *dsp = XtDisplay(plotform_w);
+	    if (c)
+		XDefineCursor (dsp, win, c);
+	    else
+		XUndefineCursor (dsp, win);
+	}
+}
+
+/* inform the other menues whether we are setting up for them to tell us
+ * what fields to plot.
+ */
+static void
+plt_select(whether)
+int whether;
+{
+	all_selection_mode(whether);
+}
+
+static void
+plot_create_form()
+{
+	static struct {
+	    char *title;
+	    int cb_data;
+	    Widget *wp;
+	} tbs[] = {
+	    {"Select fields", SELECT, &select_w},
+	    {"Plot to file", ACTIVE, &active_w},
+	    {"Show plot file", SHOW, NULL},
+	};
+	XmString str;
+	Widget f_w, rc_w;
+	Widget w;
+	char *deffn;
+	Arg args[20];
+	int i, n;
+
+	/* create the main dialog */
+
+	n = 0;
+	XtSetArg (args[n], XmNautoUnmanage, False); n++;
+	XtSetArg (args[n], XmNdefaultPosition, False); n++;
+	XtSetArg (args[n], XmNallowShellResize, True); n++;
+	plotform_w = XmCreateFormDialog (toplevel_w, "Plot", args, n);
+	XtAddCallback (plotform_w, XmNhelpCallback, plt_help_cb, 0);
+
+	n = 0;
+	XtSetArg (args[n], XmNtitle, "xephem Plot Control"); n++;
+	XtSetValues (XtParent(plotform_w), args, n);
+
+	/* make a RowColumn to hold everything */
+
+	n = 0;
+	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+	XtSetArg (args[n], XmNisAligned, False); n++;
+	XtSetArg (args[n], XmNadjustMargin, False); n++;
+	rc_w = XmCreateRowColumn(plotform_w, "PlotRC", args, n);
+	XtManageChild (rc_w);
+
+	/* make the control toggle buttons */
+
+	for (i = 0; i < XtNumber(tbs); i++) {
+	    str = XmStringCreate(tbs[i].title, XmSTRING_DEFAULT_CHARSET);
+	    n = 0;
+	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+	    XtSetArg (args[n], XmNlabelString, str); n++;
+	    w = XmCreateToggleButton(rc_w, "PlotTB", args, n);
+	    XmStringFree (str);
+	    XtManageChild (w);
+	    XtAddCallback(w, XmNvalueChangedCallback, plt_activate_cb,
+						    (XtPointer)tbs[i].cb_data);
+	    if (tbs[i].wp)
+		*tbs[i].wp = w;
+	}
+
+	/* create filename text area and its label */
+
+	n = 0;
+	str = XmStringCreate("File name:", XmSTRING_DEFAULT_CHARSET);
+	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+	XtSetArg (args[n], XmNlabelString, str); n++;
+	w = XmCreateLabel (rc_w, "PlotFnL", args, n);
+	XmStringFree (str);
+	XtManageChild (w);
+
+	n = 0;
+	filename_w = XmCreateText (rc_w, "Filename", args, n);
+	deffn = XmTextGetString (filename_w);
+	if (strlen(deffn) == 0)
+	    XmTextSetString (filename_w, DEF_PLTFN);
+	XtFree (deffn);
+	XtManageChild (filename_w);
+
+	/* create title text area and its label */
+
+	n = 0;
+	str = XmStringCreate("Title:", XmSTRING_DEFAULT_CHARSET);
+	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+	XtSetArg (args[n], XmNlabelString, str); n++;
+	w = XmCreateLabel (rc_w, "PlotTL", args, n);
+	XtManageChild (w);
+	XmStringFree (str);
+
+	n = 0;
+	title_w = XmCreateText (rc_w, "PlotTitle", args, n);
+	XtManageChild (title_w);
+
+	/* create prompt line -- it will be managed as necessary */
+
+	n = 0;
+	XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+	prompt_w = XmCreateLabel (rc_w, "PlotPrompt", args, n);
+
+	/* create the table.
+	 * each row is in a form to control its shape.
+	 * loop index of -1 is used to make the column headings.
+	 * the table entries are all managed but the forms are not at this time.
+	 */
+
+	for (i = -1; i < MAXPLTLINES; i++) {
+	    n = 0;
+	    XtSetArg (args[n], XmNfractionBase, 9); n++;
+	    f_w = XmCreateForm (rc_w, "PlotTF", args, n);
+
+	    /* save the form unless we are just making the column headings */
+	    if (i == -1)
+		XtManageChild (f_w);
+	    else
+		table_w[i][FORM] = f_w;
+
+	    n = 0;
+	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+	    XtSetArg (args[n], XmNleftPosition, 0); n++;
+	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+	    XtSetArg (args[n], XmNrightPosition, 1); n++;
+	    if (i == -1) {
+		XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+		w = XmCreateLabel (f_w, "Tag", args, n);
+		XtManageChild (w);
+	    } else {
+		XtSetArg (args[n], XmNmaxLength, 1); n++;
+		XtSetArg (args[n], XmNcolumns, 1); n++;
+		table_w[i][T] = XmCreateText (f_w, "PlotTag", args, n);
+		XtManageChild (table_w[i][T]);
+	    }
+
+	    n = 0;
+	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+	    XtSetArg (args[n], XmNleftPosition, 2); n++;
+	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+	    XtSetArg (args[n], XmNrightPosition, 5); n++;
+	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+	    if (i == -1) {
+		w = XmCreateLabel (f_w, "_X_", args, n);
+		XtManageChild (w);
+	    } else {
+		table_w[i][X] = XmCreateLabel (f_w, "PlotX", args, n);
+		XtManageChild (table_w[i][X]);
+	    }
+
+	    n = 0;
+	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+	    XtSetArg (args[n], XmNleftPosition, 6); n++;
+	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+	    XtSetArg (args[n], XmNrightPosition, 9); n++;
+	    XtSetArg (args[n], XmNalignment, XmALIGNMENT_BEGINNING); n++;
+	    if (i == -1) {
+		w = XmCreateLabel (f_w, "_Y_", args, n);
+		XtManageChild (w);
+	    } else {
+		table_w[i][Y] = XmCreateLabel (f_w, "PlotY", args, n);
+		XtManageChild (table_w[i][Y]);
+	    }
+	}
+
+	/* create a separator */
+
+	n = 0;
+	w = XmCreateSeparator (rc_w, "Sep", args, n);
+	XtManageChild (w);
+
+	/* make a form to hold the close and help buttons evenly */
+
+	n = 0;
+	XtSetArg (args[n], XmNfractionBase, 7); n++;
+	f_w = XmCreateForm (rc_w, "PlotCF", args, n);
+	XtManageChild(f_w);
+
+	    n = 0;
+	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+	    XtSetArg (args[n], XmNleftPosition, 1); n++;
+	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+	    XtSetArg (args[n], XmNrightPosition, 3); n++;
+	    w = XmCreatePushButton (f_w, "Close", args, n);
+	    XtAddCallback (w, XmNactivateCallback, plt_close_cb, 0);
+	    XtManageChild (w);
+
+	    n = 0;
+	    XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+	    XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+	    XtSetArg (args[n], XmNleftAttachment, XmATTACH_POSITION); n++;
+	    XtSetArg (args[n], XmNleftPosition, 4); n++;
+	    XtSetArg (args[n], XmNrightAttachment, XmATTACH_POSITION); n++;
+	    XtSetArg (args[n], XmNrightPosition, 6); n++;
+	    w = XmCreatePushButton (f_w, "Help", args, n);
+	    XtAddCallback (w, XmNactivateCallback, plt_help_cb, 0);
+	    XtManageChild (w);
+}
+
+/* callback from any of the plot menu toggle buttons being activated.
+ */
+/* ARGSUSED */
+static void
+plt_activate_cb (w, client, call)
+Widget w;
+XtPointer client;
+XtPointer call;
+{
+	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+	int what = (int) client;
+
+	switch (what) {
+	case SELECT:
+	    if (t->set) {
+		/* first turn off plotting, if on, while we change things */
+		if (XmToggleButtonGetState(active_w))
+		    XmToggleButtonSetState(active_w, False, True);
+		plt_reset();	/* reset pltlines array and unmanage the table*/
+		plt_select(1);	/* inform other menus to inform us of fields */
+		init_next_row();/* set first tag to something and show it */
+		selecting_xy = X;
+	    } else
+		plt_stop_selecting();
+	    break;
+	case ACTIVE:
+	    if (t->set) {
+		/* first turn off selecting, if on */
+		if (XmToggleButtonGetState(select_w))
+		    XmToggleButtonSetState(select_w, False, True);
+		plt_try_turn_on();
+	    } else
+		plt_turn_off();
+	    break;
+	case SHOW:
+	    /* turn off plotting, if on, to make sure file is complete. */
+	    if (XmToggleButtonGetState(active_w))
+		XmToggleButtonSetState(active_w, False, True);
+	    plt_da_manage();
+	    /* we want this to work like it was a pushbutton, really */
+	    XmToggleButtonSetState(w, False, False);
+	    break;
+	}
+}
+
+/* callback from the Close button.
+ */
+/* ARGSUSED */
+static void
+plt_close_cb (w, client, call)
+Widget w;
+XtPointer client;
+XtPointer call;
+{
+	XtUnmanageChild (plotform_w);
+}
+
+/* callback from the Help button.
+ */
+/* ARGSUSED */
+static void
+plt_help_cb (w, client, call)
+Widget w;
+XtPointer client;
+XtPointer call;
+{
+static char *help_msg[] = {
+"This menu controls the plot generation and display functionality of xephem.",
+"Select fields to form x/y pairs, enable plotting to write them to a file on",
+"each xephem iteration step, then view. Each file may be titled, as desired."
+};
+	hlp_dialog ("Plot", help_msg, sizeof(help_msg)/sizeof(help_msg[0]));
+}
+
+/* forget our list, and unmanage the table.
+ */
+static void
+plt_reset()
+{
+	int i;
+
+	for (i = 0; i < npltlines; i++)
+	    XtUnmanageChild (table_w[i][FORM]);
+
+	npltlines = 0;
+}
+
+/* stop selecting: unmanage a partitially filled in line specs; tell
+ * everybody else to drop their buttons, make sure toggle is off.
+ */
+static void
+plt_stop_selecting()
+{
+	if (npltlines < MAXPLTLINES)
+	    XtUnmanageChild (table_w[npltlines][FORM]);
+
+	XmToggleButtonSetState (select_w, False, False);
+	plt_select(0);
+	XtUnmanageChild (prompt_w);
+}
+
+static void
+plt_turn_off ()
+{
+	if (plt_fp) {
+	    (void) fclose (plt_fp);
+	    plt_fp = 0;
+	}
+}
+
+static void
+init_next_row()
+{
+	char buf[100];
+
+	XtManageChild (prompt_w);
+	f_string (prompt_w, "Select quantity for X..");
+
+	(void) sprintf (buf, "%c", 'A' + npltlines);
+	XmTextSetString (table_w[npltlines][T], buf);
+
+	f_string (table_w[npltlines][X], " ");
+	f_string (table_w[npltlines][Y], " ");
+
+	XtManageChild (table_w[npltlines][FORM]);
+}
+
+/* called from the query routine when want to append to an existing plot file.*/
+static void
+plt_try_append()
+{
+	plt_turn_on("a");
+}
+
+/* called from the query routine when want to overwrite to an existing plot
+ * file.
+ */
+static void
+plt_try_overwrite()
+{
+	plt_turn_on("w");
+}
+
+/* called from the query routine when want decided not to make a plot file.  */
+static void
+plt_try_cancel()
+{
+	XmToggleButtonSetState (active_w, False, False);
+}
+
+/* attempt to open file for use as a plot file.
+ * if it doesn't exist, then go ahead and make it.
+ * but if it does, first ask wheher to append or overwrite.
+ */
+static void
+plt_try_turn_on()
+{
+	char *txt = XmTextGetString (filename_w);
+	if (existsh (txt) == 0) {
+	    char *buf;
+	    buf = XtMalloc (strlen(txt)+100);
+	    (void) sprintf (buf, "%s exists: Append or Overwrite?", txt);
+	    query (toplevel_w, buf, "Append", "Overwrite", "Cancel",
+			    plt_try_append, plt_try_overwrite, plt_try_cancel);
+	    XtFree (buf);
+	} else
+	    plt_turn_on("w");
+	XtFree (txt);
+}
+
+/* turn on plotting.
+ * establish a file to use (and thereby set plt_fp, the plotting_is_on flag).
+ */
+static void
+plt_turn_on (how)
+char *how;	/* fopen how argument */
+{
+	char *txt;
+
+	/* plotting is on if file opens ok */
+	txt = XmTextGetString (filename_w);
+	plt_fp = fopenh (txt, how);
+	if (!plt_fp) {
+	    char *buf;
+	    XmToggleButtonSetState (active_w, False, False);
+	    buf = XtMalloc (strlen(txt)+100);
+	    (void) sprintf (buf, "Can not open %s: %s", txt, syserrstr());
+	    xe_msg (buf, 1);
+	    XtFree (buf);
+	}
+	XtFree (txt);
+	
+	if (plt_fp) {
+	    /* add a title if it's not null */
+	    txt = XmTextGetString (title_w);
+	    if (txt[0] != '\0')
+		(void) fprintf (plt_fp, "* %s\n", txt);
+	    XtFree (txt);
+	}
+}
+
+/* make a new drawing area widget and manage it. it's unmanaged and destroyed
+ *   from the Close button or if something goes wrong during plotting.
+ * open the plot file and save it, the current state of the flipx/flipy/grid
+ *   buttons and the filename in a DrawInfo struct in the userData resource
+ *   for the FormDialog where the drawingarea callback can get at it each time.
+ * this way, we can have lots of different plots up at once yet we don't
+ *   have to keep track of them.
+ * by leaving the file open, we gain some protection against it being removed
+ *   or renamed.
+ */
+static void
+plt_da_manage()
+{
+	Widget daform_w;
+	Widget da_w, w;
+	Widget mb_w, pd_w, cb_w;
+	XmString str;
+	Arg args[20];
+	char titlebuf[64];
+	int n;
+	DrawInfo *di;
+	FILE *fp;
+	char *fn;
+
+	/* first make sure we can open the plot file */
+	fn = XmTextGetString (filename_w);
+	fp = fopenh (fn, "r");
+	if (!fp) {
+	    char *buf;
+	    buf = XtMalloc (strlen(fn)+100);
+	    (void) sprintf (buf, "Can not open %s: %s", fn, syserrstr());
+	    xe_msg (buf, 1);
+	    XtFree (buf);
+	    XtFree (fn);
+	    return;
+	}
+
+	/* create the form dialog parent. */
+	n = 0;
+	daform_w = XmCreateFormDialog (toplevel_w, "PlotDisplay", args, n);
+	XtAddCallback (daform_w, XmNmapCallback, prompt_map_cb, NULL);
+
+	/* set some stuff in the parent DialogShell.
+	 * setting XmNdialogTitle in the Form didn't work..
+	 */
+	(void) sprintf (titlebuf, "xephem Plot of `%.*s'",
+						(int)sizeof(titlebuf)-20, fn);
+	n = 0;
+	XtSetArg (args[n], XmNtitle, titlebuf); n++;
+	XtSetValues (XtParent(daform_w), args, n);
+
+	/* make the DrawInfo structure and save it in the userData of the Form.
+	 * the memory gets freed when the dialog is closed/unmanaged.
+	 * the options get inited from their toggle buttons.
+	 */
+	di = (DrawInfo *) XtMalloc (sizeof(DrawInfo));
+	di->filename = fn;
+	di->fp = fp;
+	set_something (daform_w, XmNuserData, (XtArgVal)di);
+
+	/* create the menu bar across the top */
+
+	n = 0;
+	XtSetArg (args[n], XmNtopAttachment, XmATTACH_FORM); n++;
+	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+	mb_w = XmCreateMenuBar (daform_w, "MB", args, n);
+	XtManageChild (mb_w);
+	
+	/* create the drawing area and connect plt_da_exp_cb().
+	 * N.B. be sure this guys parent is the FormDialog so exp_cb can find
+	 *   the DrawInfo by looking there at its userData.
+	 * make this as high as it is wide when it is first mapped.
+	 * N.B. if ever want this is a frame beware that other functions
+	 *   assume that the daform_w is the parent of the DrawingArea.
+	 */
+	n = 0;
+	XtSetArg (args[n], XmNtopAttachment, XmATTACH_WIDGET); n++;
+	XtSetArg (args[n], XmNtopWidget, mb_w); n++;
+	XtSetArg (args[n], XmNbottomAttachment, XmATTACH_FORM); n++;
+	XtSetArg (args[n], XmNbottomOffset, 2); n++;
+	XtSetArg (args[n], XmNleftAttachment, XmATTACH_FORM); n++;
+	XtSetArg (args[n], XmNrightAttachment, XmATTACH_FORM); n++;
+	XtSetArg (args[n], XmNmarginWidth, 0); n++;
+	XtSetArg (args[n], XmNmarginHeight, 0); n++;
+	da_w = XmCreateDrawingArea (daform_w, "PlotDA", args, n);
+	XtAddCallback (da_w, XmNexposeCallback, plt_da_exp_cb, NULL);
+	XtManageChild (da_w);
+
+	/* make the Control pulldown */
+
+	n = 0;
+	pd_w = XmCreatePulldownMenu (mb_w, "ControlPD", args, n);
+
+	    n = 0;
+	    XtSetArg (args[n], XmNsubMenuId, pd_w);  n++;
+	    XtSetArg (args[n], XmNmnemonic, 'C'); n++;
+	    cb_w = XmCreateCascadeButton (mb_w, "ControlCB", args, n);
+	    set_xmstring (cb_w, XmNlabelString, "Control");
+	    XtManageChild (cb_w);
+
+	    /* make the close button.
+	     * it destroys the dialog and frees the DrawInfo struct.
+	     */
+	    n = 0;
+	    w = XmCreatePushButton (pd_w, "Close", args, n);
+	    XtAddCallback (w, XmNactivateCallback, plt_da_close_cb, daform_w);
+	    XtManageChild (w);
+
+	/* make the View pulldown */
+
+	n = 0;
+	pd_w = XmCreatePulldownMenu (mb_w, "ViewPD", args, n);
+
+	    n = 0;
+	    XtSetArg (args[n], XmNsubMenuId, pd_w);  n++;
+	    XtSetArg (args[n], XmNmnemonic, 'V'); n++;
+	    cb_w = XmCreateCascadeButton (mb_w, "ViewCB", args, n);
+	    set_xmstring (cb_w, XmNlabelString, "View");
+	    XtManageChild (cb_w);
+
+	    str = XmStringCreate("Flip X", XmSTRING_DEFAULT_CHARSET);
+	    n = 0;
+	    XtSetArg (args[n], XmNvisibleWhenOff, True); n++;
+	    XtSetArg (args[n], XmNmarginHeight, 0); n++;
+	    XtSetArg (args[n], XmNlabelString, str); n++;
+	    w = XmCreateToggleButton(pd_w, "FlipX", args, n);
+	    di->flipx = XmToggleButtonGetState (w);
+	    XmStringFree (str);
+	    XtAddCallback (w, XmNvalueChangedCallback, plt_da_flipx_cb, da_w);
+	    XtManageChild (w);
+
+	    str = XmStringCreate("Flip Y", XmSTRING_DEFAULT_CHARSET);
+	    n = 0;
+	    XtSetArg (args[n], XmNvisibleWhenOff, True); n++;
+	    XtSetArg (args[n], XmNmarginHeight, 0); n++;
+	    XtSetArg (args[n], XmNlabelString, str); n++;
+	    w = XmCreateToggleButton(pd_w, "FlipY", args, n);
+	    di->flipy = XmToggleButtonGetState (w);
+	    XmStringFree (str);
+	    XtAddCallback (w, XmNvalueChangedCallback, plt_da_flipy_cb, da_w);
+	    XtManageChild (w);
+
+	    n = 0;
+	    XtSetArg (args[n], XmNvisibleWhenOff, True); n++;
+	    XtSetArg (args[n], XmNmarginHeight, 0); n++;
+	    w = XmCreateToggleButton(pd_w, "Grid", args, n);
+	    di->grid = XmToggleButtonGetState (w);
+	    XtAddCallback (w, XmNvalueChangedCallback, plt_da_grid_cb, da_w);
+	    XtManageChild (w);
+
+	    str = XmStringCreate("Show X-Axis as Dates",
+						    XmSTRING_DEFAULT_CHARSET);
+	    n = 0;
+	    XtSetArg (args[n], XmNvisibleWhenOff, True); n++;
+	    XtSetArg (args[n], XmNmarginHeight, 0); n++;
+	    XtSetArg (args[n], XmNlabelString, str); n++;
+	    w = XmCreateToggleButton(pd_w, "XAsDate", args, n);
+	    di->xasdate = XmToggleButtonGetState (w);
+	    XmStringFree (str);
+	    XtAddCallback (w, XmNvalueChangedCallback, plt_da_xasdate_cb, da_w);
+	    XtManageChild (w);
+
+	/* go. the expose will do the actual plotting */
+	XtManageChild (daform_w);
+}
+
+/* called when finished with a plot with its FormDialog widget.
+ * reclaim all memory in the userData DrawInfo and destroy it.
+ * N.B. caller's daform_w is useless when this returns.
+ */
+static void
+plt_da_destroy (daform_w)
+Widget daform_w;
+{
+	DrawInfo *di;
+
+	get_something (daform_w, XmNuserData, (XtArgVal)&di);
+	(void) fclose (di->fp);
+	XtFree(di->filename);
+	XtFree((char *)di);
+
+	/* destroy the shell, not just the form */
+	while (!XtIsWMShell (daform_w))
+	    daform_w = XtParent(daform_w);
+	XtDestroyWidget(daform_w);
+}
+
+/* called when the Close button is pushed on a plot.
+ * free the DrawInfo and destroy the dialog (passed as client).
+ */
+/* ARGSUSED */
+static void
+plt_da_close_cb (w, client, call)
+Widget w;
+XtPointer client;
+XtPointer call;
+{
+	plt_da_destroy ((Widget)client);
+}
+
+/* callback from the Flip X toggle button within the drawing FormDiag itself.
+ * toggle the x bit in the parent's DrawInfo structure and fake an expose.
+ * client is the DrawingArea widget.
+ */
+/* ARGSUSED */
+static void
+plt_da_flipx_cb (w, client, call)
+Widget w;
+XtPointer client;
+XtPointer call;
+{
+	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+	Widget da_w = (Widget) client;
+	Widget daform_w = XtParent(da_w);
+	Display *dsp = XtDisplay(da_w);
+	Window win = XtWindow(da_w);
+	DrawInfo *di;
+	XExposeEvent ev;
+	Window root;
+	int x, y;
+	unsigned int nx, ny, bw, d;
+
+	get_something (daform_w, XmNuserData, (XtArgVal)&di);
+	di->flipx = t->set;
+
+	XGetGeometry(dsp, win, &root, &x, &y, &nx, &ny, &bw, &d);
+
+	ev.type = Expose;
+	ev.send_event = 1;	/* gets set anyways */
+	ev.display = dsp;
+	ev.window = win;
+	ev.x = ev.y = 0;
+	ev.width = nx;
+	ev.height = ny;
+	ev.count = 0;
+
+	XSendEvent (dsp, win, /*propagate*/False, ExposureMask, (XEvent *)&ev);
+}
+
+/* callback from the Flip Y toggle button within the drawing FormDiag itself.
+ * toggle the y bit in the parent's DrawInfo structure and fake an expose.
+ * client is the DrawingArea widget.
+ */
+/* ARGSUSED */
+static void
+plt_da_flipy_cb (w, client, call)
+Widget w;
+XtPointer client;
+XtPointer call;
+{
+	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+	Widget da_w = (Widget) client;
+	Widget daform_w = XtParent(da_w);
+	Display *dsp = XtDisplay(da_w);
+	Window win = XtWindow(da_w);
+	DrawInfo *di;
+	XExposeEvent ev;
+	Window root;
+	int x, y;
+	unsigned int nx, ny, bw, d;
+
+	get_something (daform_w, XmNuserData, (XtArgVal)&di);
+	di->flipy = t->set;
+
+	XGetGeometry(dsp, win, &root, &x, &y, &nx, &ny, &bw, &d);
+
+	ev.type = Expose;
+	ev.send_event = 1;	/* gets set anyways */
+	ev.display = dsp;
+	ev.window = win;
+	ev.x = ev.y = 0;
+	ev.width = nx;
+	ev.height = ny;
+	ev.count = 0;
+
+	XSendEvent (dsp, win, /*propagate*/False, ExposureMask, (XEvent *)&ev);
+}
+
+/* callback from the grid toggle button within the drawing FormDiag itself.
+ * toggle the grid flag in the parent's DrawInfo structure and fake an expose.
+ * client is the DrawingArea widget.
+ */
+/* ARGSUSED */
+static void
+plt_da_grid_cb (w, client, call)
+Widget w;
+XtPointer client;
+XtPointer call;
+{
+	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+	Widget da_w = (Widget) client;
+	Widget daform_w = XtParent(da_w);
+	Display *dsp = XtDisplay(da_w);
+	Window win = XtWindow(da_w);
+	DrawInfo *di;
+	XExposeEvent ev;
+	Window root;
+	int x, y;
+	unsigned int nx, ny, bw, d;
+
+	get_something (daform_w, XmNuserData, (XtArgVal)&di);
+	di->grid = t->set;
+
+	XGetGeometry(dsp, win, &root, &x, &y, &nx, &ny, &bw, &d);
+
+	ev.type = Expose;
+	ev.send_event = 1;	/* gets set anyways */
+	ev.display = dsp;
+	ev.window = win;
+	ev.x = ev.y = 0;
+	ev.width = nx;
+	ev.height = ny;
+	ev.count = 0;
+
+	XSendEvent (dsp, win, /*propagate*/False, ExposureMask, (XEvent *)&ev);
+}
+
+/* callback from the X-is-date toggle button within the drawing FormDiag itself.
+ * toggle the xisdate flag in the parent's DrawInfo structure and fake an
+ * expose. client is the DrawingArea widget.
+ */
+/* ARGSUSED */
+static void
+plt_da_xasdate_cb (w, client, call)
+Widget w;
+XtPointer client;
+XtPointer call;
+{
+	XmToggleButtonCallbackStruct *t = (XmToggleButtonCallbackStruct *) call;
+	Widget da_w = (Widget) client;
+	Widget daform_w = XtParent(da_w);
+	Display *dsp = XtDisplay(da_w);
+	Window win = XtWindow(da_w);
+	DrawInfo *di;
+	XExposeEvent ev;
+	Window root;
+	int x, y;
+	unsigned int nx, ny, bw, d;
+
+	get_something (daform_w, XmNuserData, (XtArgVal)&di);
+	di->xasdate = t->set;
+
+	XGetGeometry(dsp, win, &root, &x, &y, &nx, &ny, &bw, &d);
+
+	ev.type = Expose;
+	ev.send_event = 1;	/* gets set anyways */
+	ev.display = dsp;
+	ev.window = win;
+	ev.x = ev.y = 0;
+	ev.width = nx;
+	ev.height = ny;
+	ev.count = 0;
+
+	XSendEvent (dsp, win, /*propagate*/False, ExposureMask, (XEvent *)&ev);
+}
+
+/* plot drawing area's expose callback.
+ * redraw the graph to the (new?) size.
+ * get a DrawInfo from our parent's userData.
+ */
+/* ARGSUSED */
+static void
+plt_da_exp_cb (da_w, client, call)
+Widget da_w;
+XtPointer client;
+XtPointer call;
+{
+	XmDrawingAreaCallbackStruct *c = (XmDrawingAreaCallbackStruct *)call;
+	DrawInfo *di;
+	Widget daform_w;
+	XWindowAttributes xwa;
+
+	switch (c->reason) {
+	case XmCR_EXPOSE: {
+	    /* turn off gravity so we get expose events for either shrink or
+	     * expand if we have never seen this window before.
+	     */
+	    XExposeEvent *e = &c->event->xexpose;
+
+	    /* wait for the last in the series */
+	    if (e->count != 0)
+		return;
+
+	    XGetWindowAttributes (e->display, e->window, &xwa);
+	    if (xwa.bit_gravity != ForgetGravity) {
+		/* first expose for this window -- set no gravity */
+		XSetWindowAttributes swa;
+		swa.bit_gravity = ForgetGravity;
+		XChangeWindowAttributes (e->display, e->window,
+							    CWBitGravity, &swa);
+	    }
+	    break;
+	    }
+	default:
+	    printf ("Unexpected da_w event. type=%d\n", c->reason);
+	    exit(1);
+	}
+
+	/* use xwa for the drawing area window size.
+	 * get di from the FormDiaglog parent and plot fresh.
+	 */
+
+	daform_w = XtParent(da_w);
+	get_something (daform_w, XmNuserData, (XtArgVal)&di);
+	XClearWindow (XtDisplay(da_w), XtWindow(da_w));
+	rewind (di->fp);
+	if (plot_cartesian (di->fp, da_w, xwa.width, xwa.height,
+			    di->flipx, di->flipy, di->grid, di->xasdate) < 0) {
+	    /* had trouble, so done with this FormDialog.
+	     */
+	    char buf[128];
+	    (void) sprintf (buf, "Error plotting `%.*s'\n", (int)sizeof(buf)-20,
+								di->filename);
+	    xe_msg (buf, 0);
+	    plt_da_destroy (daform_w);
+	}
+}

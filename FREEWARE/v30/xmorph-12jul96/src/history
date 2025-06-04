@@ -1,0 +1,199 @@
+xmorph: Digital Image Warp ("morph") graphical user interface
+
+Written and Copyright (C) 1994 by Michael J. Gourlay
+NO WARRANTEES, EXPRESS OR IMPLIED.
+
+------------------
+Modifications are often marked by a timestamp and the programmers' initials.
+
+  MJG refers to Michael J. Gourlay.
+  AT refers to Andy Thaler <thaller@informatik.tu-muenchen.de>
+  WA refers to Warwick Allison <warwick@cs.uq.oz.au>
+  MH refers to Mike Hoefelein <hoefelei@informatik.uni-wuerzburg.de>
+
+  Other help from ellenberger@tle.enet.dec.com
+
+
+
+------------------
+
+12jul96:
+  FIxed the dithering routine to make use of the dithiering error
+  accumulator.  Looks better now.  The images used to dither sort of
+  okay before, but it was really stupid of me not to expect better
+  results out of this dithering technique.  I guess I figured that
+  the technique wasn't any better than the results i was getting
+  before.  Ends up, it was just buggy code.
+
+  Added support for StaticGray visual class with 1-bit depth.
+  To do this, I had to add a section to the dither_image routine to
+  handle StaticGray.  The dithering routine I cooked up for the color
+  images didn't translate well for only 1-bit because the error
+  diffusion of the color scheme is very unsophisticated because it
+  relies on the assumption that there won't be enough quantization at
+  any given pixel to make a harsh error.  Well, with 1-bit depth, the
+  quantization error is almost always drastic, so I had to implement
+  something more like a full-blown Floyd Steinberg error diffusion
+  algorithm.  Mine is still simpler than full-blown FS, but it looks
+  about as good on a flying horse.
+
+
+28jun96:
+  Changed the way colormaps are allocated so that now it is a trivial
+  matter to change the number of bits ber channel used to represent a
+  color in the dithering colormap.  The primary changes were in
+  diw_map.c and diw_map.h, although some changes were in image.c in
+  dither_image.  Note that there are some limitations on the maximum
+  number of bits per channel useable due to the BITS_PER_CHANNEL in
+  dither_image, so 16-bit displays might not be able to make full use
+  of their huge colormaps.  Since I don't have such a machine, I
+  wouldn't be able to test it easily.  It might be as simple as
+  changing BITS_PER_CHANNEL to 16 and cranking up the ???_NUM_BITS
+  values to something like 3 or 4 bits each (perhaps RGB-443).  This
+  would yeild VERY nice looking images (almost at TrueColor quality)
+  and the dithering would probably be just as fast as it is now.  I'm
+  stoked.
+
+30may96: MH
+  Fixed a subtle but important bug in warp.c line 189:
+      /* scan convert vertical splines of S and I */
+      hermite3_array(yrow1, xrow1, mesh_height, indx, map1, img_height);
+      hermite3_array(yrow1, xrow2, mesh_height, indx, map2, img_height);
+                   ^^^^^
+    The report comes from Mike Hoefelein
+    <hoefelei@informatik.uni-wuerzburg.de>
+
+    The effect was to make the warped image conform exactly to the
+    mesh.  Before, there was a descrepency between the mesh location
+    and the image.  This should have been obvious earlier by simply
+    warping the checkerboard test image, but I had ignored it until
+    Mike pointed it out to me.
+
+
+14nov95:
+  Fixed a hideous memory allocation bug.
+  TrueColor works for TrueColor default visual.
+  TrueColor does not work for nondefault TrueColor, because Xt does
+    not support such a use of Visual Class.  This ends up being a
+    rather subtle and difficult issue, which has been discussed at
+    length by people who want to use TrueColor visuals on displays
+    that have another kind of default visual class but which can
+    support TrueColor.  See the X Authority Web site.
+
+14sep95:
+  Removed TrueColor support for nondefault TrueColor machines, but
+  left hooks in.  I can't figure out why it doesn't work.
+
+13sep95:
+  Made some modifications due to reports by xmorph users.
+    In particular, there were more divide-by-zero events happening in
+    the warping code.  Much of this was due to Wolberg.  I've found
+    several errors in Wolberg's original code, and he's been made aware
+    of these changes.  One good thing about these changes is that they
+    (in Wolberg's opinion) sufficiently change the code such that there
+    isn't a copyright problem using the code.  Wolberg has granted
+    permission to me to use the code in any case.
+  Added my_free to spl-array in hermite3_array (memory leak).
+  Changed free() to my_free in various routines.
+  Changed xi loop bound in reample_array in warp.c to (len-1)
+  WA contributed these changes:
+    added TrueColor support (changed xbm_gray and dither_image)
+      I have to admit that I don't fully understand these changes yet
+      because I haven't looked into TrueColor displays because I
+      haven't hacked them.  If there is a problem with the TrueColor
+      code then let me know, but I might not be able to help.  -- MJG
+    fixed memory leak in sequence.c to free a temporary mesh.
+    changed box to paned widget to allow scrolling
+
+14jul94:
+  Modified spline routines to fit my personal library better.
+  Moved some routines from spline.c to spl-array.c
+  Miniscule formatting changes in my_malloc.c.
+
+Nov94:
+  Changed my email address to Colorado address in documentation files.
+  Released at MIT.
+
+22jul94:
+  More diddling with the tga routines.  Colormap and pixel stuff.
+
+21jul94:
+  removed load_tga_cmap_entry, and changed the way targa cmaps are stored.
+  Added ppmtotga, tgatoppm, cjpeg, djpeg to the man page.
+
+release 5 (xmorph-20jul94)
+20jul94:
+  Fixed load_tga_image: first row of upside-down images was wrong.
+  Removed (or changed) references to tga.h where inappopriate.
+  Added automatic image compression in save_img if loaded image was
+    compressed.  Also checks pixel_size.
+  Added fields to the rgba_image_t for compression, cmaps, pixel size.
+  Added RLE compression to Targa save routines.
+  Added a bounds check in load_tga_image for corrupt Targas.
+  Added more labels to the scrollbars to be more clear.
+  Alligned scrollbar region.
+  Added a missing "#include <Scrollbar.h>" in xmorph.c
+  Added a missing "\n\" in help_menu.c
+
+Alpha version:  these releases come all too often.
+19jul94:
+  Ximage array allocation fixed in diw_map.c (factor of 4 deal).
+Fourth release (xmorph-19jul94.2): unannounced
+  Ximage array indexing fixed in dither_image.
+Third release (xmorph-19jul94.1): unannounced
+  Modified spline code to continue (not abort) when spline abcissa out of range.
+
+Second release (xmorph-18jul94): unannounced
+Tue Jul 19 02:57:37 EDT 1994
+  This release was not quite ready, but I was being flooded with
+  reports that xdiw had vanished, and I needed to put something up to
+  keep the email flux down.
+
+xmorph-18jul94:
+  Removed spline code from warp.c.
+  Incorporated use of general purpose hermite spline routines I wrote in 1993.
+  Fixed bug in hermite spline routine (for point at last knot).
+  Changed the name from xdiw to xmorph.
+
+xdiw-15jul94:
+  Changed the module organization of the rgba_image_t definition.
+  Separated tga-24.c and (new file) tga-write.c
+  Added size-8 write to save_tga_pixel (untested)
+  [Approaching a common tga library for xdiw and showtime]
+
+xdiw-08jul94:
+  Added authorship and release date info in internal "About..." page.
+  Made README more like what the X Consortium wants for contrib.
+  Separated application and widget code in diw_map.c and xdiw.c.
+  Wrote a short man page for xdiw.
+
+First release (xdiw-07jul94): announced
+Thu Jul  7 16:36:58 EDT 1994:
+
+  It's at a stage I'd call "alpha release" if I were into that sort of
+  jargon, which means this program will probably dump core a lot.
+  Please report such incidents, along with any solutions, back to me.
+
+  I've used it to morph images of Wendy and myself, with significant
+  success.  I put the images onto video and it looks really nice.
+
+  I've never seen any other morphing program at all, so I'm sure my idea
+  of a GUI differs greatly from the "professional" commercial packages,
+  but according to one guy I showed this to, my way is better.  If you
+  disagree, please tell me what I can do to make my program more usable.
+  I already have a lot of ideas about how to make it better--  features
+  to add, etc., but at the moment it's pretty usable (enough so that
+  I've decided to release it.)
+
+  It's self documenting, and I've compiled and run the program on SunOS
+  machines, Solaris machines, SGI's, and HPUX, although on the HP it's
+  slower than molasses.  It _flies_ on the Reality Engine.
+
+  I'm trying to figure out how to get this widely distributed.  As far
+  as I know, it's the only publically available image morphing program,
+  for X or any other platform.  If any of you know of another publically
+  available morphing program, please let me know so I can kill myself.
+
+  I also wrote a program that rapidly displays the images generated by
+  Xdiw (for X or MSDOS), for those of you who don't have a high speed
+  JPEG CoDec like I do :)

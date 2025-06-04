@@ -1,0 +1,1322 @@
+$! LOGIN.COM for myself on the SCAN project.
+  13-JUN-1996 10:18:05
+prcnam was BATCH_835
+Running on BUGSY, (BATCH)
+prcnam is BATCH_835
+
+defining scan logicals...
+calling scan login...
+%SCA-S-LIB, your SCA Library is DISK$SCAN:[SCAN.DTM.SCALIB]
+proceeding...
+  13-JUN-1996 10:18:08
+$! end of LOGIN.COM
+$ exit
+$!+
+$!	VAX SCAN Product Build
+$!
+$!	This build procedure is not set up well for maintenace stream yet
+$!-
+$!+
+$! First determine where we are running on the cluster.
+$!-
+$	Node = F$GETSYI("NODENAME")
+$	WRITE SYS$OUTPUT ""
+
+$	WRITE SYS$OUTPUT "	Performing build on node BUGSY"
+	Performing build on node BUGSY
+$	WRITE SYS$OUTPUT "	Starting time: 13-JUN-1996 10:18:08.20"
+	Starting time: 13-JUN-1996 10:18:08.20
+$!
+$	SET NOON                              
+$!+
+$! Now determine whether we are building from sources or incrementally.
+$!-
+$	Complete = ""
+$	Assigned_build = ""
+$	IF p1 .EQS. "Y" THEN -
+		Complete = "/FROM"
+$!+
+$! Determine if we are going to build the ana files.
+$!-
+$	Analysis_build = ""
+$	IF p2 .EQS. "Y" THEN -
+$		Analysis_build = "Y"
+$!+
+$! Determine the type of build we are performing
+$!-
+$	type_build = ""
+$	IF p3 .EQS. "COMPILER"	THEN -
+		type_build = "COMPILER"
+$!+
+$! Determine Build type and Stream (Development or Maintenance)
+$!
+$! Valid build types are:
+$!
+$! DEBUG	Build a debug compiler with dumpers and linked /DEBUG
+$! PROD		Build a compiler without dumpers and linked /NODEB/NOTRACE
+$! PCA		Build a compiler for PCA analysis
+$! SHIP		Build a compiler ready for shipment with Version # set.
+$!-
+$	OPEN/READ/ERROR=No_assignment Assignment_file -
+		SCAN$$DISK:[SCAN.COM]ASSIGNED_BUILD.DAT
+$	READ/END=Empty_file Assignment_file Assigned_build 
+$	Assigned_build = F$EDIT(Assigned_build, "UPCASE")
+$	READ/END=Nostream Assignment_file Build_stream
+$	Build_stream = F$EDIT(Build_stream,"UPCASE")
+$	CLOSE Assignment_file
+$  	GOTO Have_assigned_build
+$ Have_assigned_build:
+$!
+$	WRITE SYS$OUTPUT "	Assigned build is BOTH"
+	Assigned build is BOTH
+$	WRITE SYS$OUTPUT "	Stream is DEVELOPMENT"
+	Stream is DEVELOPMENT
+$!+
+$! Set up the build to perform (we make two passes on the build when
+$! the assigned build is Both.
+$!-
+$	Current_build == Assigned_build
+$	IF Assigned_build .EQS. "BOTH" THEN -
+		Current_build == "DEBUG"
+$!+
+$! Setup the version to use in fetching the MMS description file
+$!-
+$	IF type_build	.NES. "COMPILER"    THEN -
+		goto rtl_build
+$	WRITE SYS$OUTPUT "	SCAN compiler build"
+	SCAN compiler build
+$!
+$	IF build_stream .EQS.	"DEVELOPMENT"	THEN -
+	version = "scan_V12"
+$	IF build_stream .NES.	"DEVELOPMENT"	THEN -
+	version = "scan_v12_maint"
+$!
+$	scan_opt = "scan.opt"
+$	IF build_stream .EQS.	"DEVELOPMENT"	THEN -
+		SET DEFAULT SCAN$$DISK:[SCAN.COMPILER.SRC]
+$	IF build_stream .EQS.   "DEVELOPMENT"	THEN -
+		assign scan$$disk:[scan.compiler.src] scan$library
+$	IF build_stream .NES.	"DEVELOPMENT"	THEN -
+		SET DEFAULT SCAN$$DISK:[SCAN.COMPILER.MSRC]
+$	IF build_stream .NES.	"DEVELOPMENT"	THEN -
+		assign scan$$disk:[scan.compiler.src] scan$library
+$	SHOW DEF
+  SCAN$$DISK:[SCAN.COMPILER.SRC]
+$	goto start_actual_build
+$ Start_actual_build:
+$!
+$!
+$	IF Build_stream .EQS. "MAINTENANCE" THEN -
+		Complete="/FROM"
+$	IF Complete .EQS. "/FROM" THEN -
+		WRITE SYS$OUTPUT "	Performing build from sources"
+	Performing build from sources
+$!
+$	WRITE SYS$OUTPUT -
+	"	Default directory for build is SCAN$$DISK:[SCAN.COMPILER.SRC]"
+	Default directory for build is SCAN$$DISK:[SCAN.COMPILER.SRC]
+$!
+$	WRITE SYS$OUTPUT ""
+
+$	@SCANCOM$:SETUP_BUILD DEVELOPMENT DEBUG COMPILER
+$ set noverify
+%CMS-I-LIBIS, library is DISK$SCAN:[SCAN.COMPILER.SRC.CMS]
+%CMS-S-LIBSET, library set
+  SCAN$$DISK:[SCAN.COMPILER.SRC]
+%DELETE-I-FILDEL, DISK$SCAN:[SCAN.COMPILER.DOBJ]SCAN.OLB;1 deleted (5886 blocks)
+$	SHOW DEV SCAN$$DISK:
+
+Device                  Device           Error    Volume         Free  Trans Mnt
+ Name                   Status           Count     Label        Blocks Count Cnt
+$1$DUA36:      (LURCH)  Mounted              0  SCAN           1556709     3  10
+$	CMS SHOW LIB
+Your CMS library list consists of:
+   DISK$SCAN:[SCAN.COMPILER.SRC.CMS]
+   
+$	IF type_build	.EQS.	"COMPILER"	THEN -
+ 	MMS/CMS/OVERRIDE/DESCRIPTION=scan_V12.MMS /FROM
+DEFINE/USER CMS$LIB DISK$SCAN:[SCAN.COMPILER.SRC.CMS]
+CMS FETCH SCAN_V12.MMS/OUTPUT=SCAN_V12.MMS /GEN=1+ ""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCAN_V12.MMS;48 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCAN_V12.MMS fetched
+ASSIGN RTL$AUTO	LIB$:
+define dwci$exe scan$$disk:[scan.compiler.dwci]
+define dwci$src sys$disk:[]
+set command dwci$exe:dwci.cld
+define dwcitrans dwci$exe:dwcitrans
+define lnk$library sys$library:vaxcrtl
+open/write mms_temp_file scan$res_obj:scan$dwci.opt
+write mms_temp_file  "sys$share:decw$dwtlibshr/share"
+close mms_temp_file
+CMS FETCH SCAN$MSG.MSG 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCAN$MSG.MSG;62 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCAN$MSG.MSG fetched
+message scan$msg.msg+vcg$:vcgerr.msg
+link/share=scan$res_obj:/map=scan$res_lis: scan$msg.obj
+delete scan$msg.obj;0
+sdl/language=(blissf=scan$auto:psediag) vcg$:psediag
+sdl/language=(blissf=scan$auto:vcgcmddef) vcg$:vcgcmddef.sdl
+%SDL-W-NAMTRUNC, Generated name too long - truncated to 31 characters pv_vcg_value_parse_data_FIELDSE
+%SDL-W-NAMTRUNC, Generated name too long - truncated to 31 characters cmd_vcg$gq_parse_actions_FIELDS
+%SDL-W-NAMTRUNC, Generated name too long - truncated to 31 characters lst_vcg$gl_listing_control_FIEL
+sdl/language=(blissf=scan$auto:vcgdebdef) vcg$:vcgdebdef.sdl
+sdl/language=(blissf=scan$auto:objdef) vcg$:objdef.sdl
+sdl/language=(blissf=scan$auto:vcgblkdef) vcgblkdef.jac
+sdl/language=(blissf=scan$auto:vcgerrdef) vcg$:vcgerrdef.sdl
+%SDL-W-NAMTRUNC, Generated name too long - truncated to 31 characters diagn_vcg$gl_diagn_control_FIEL
+sdl/language=(blissf=scan$auto:vcgmsgrec) vcg$:vcgmsgrec.sdl
+sdl/language=(blissf=scan$auto:vcgsymdef) vcgsymdef.jac
+%SDL-W-NAMTRUNC, Generated name too long - truncated to 31 characters sym_vcg_alt_symbol_image_FIELDS
+sdl/language=(blissf=scan$auto:vcgtpldef) vcg$:vcgtpldef.sdl
+sdl/language=(blissf=scan$auto:vcgsrcrec) vcg$:vcgsrcrec.sdl
+sdl/language=(blissf=scan$auto:vcgstbdef) vcg$:vcgstbdef.sdl
+sdl/language=(blissf=scan$auto:vcgglobal) vcg$:vcgglobal.sdl
+sdl/language=(blissf=scan$auto:analysis_data) vcg$:analysis_data.sdl
+sdl/language=(blissf=scan$auto:vtree) vcg$:vtree.sdl
+sdl/language=(blissf=scan$auto:machdef) rtl$:machdef
+copy rtl$:treedef.req scan$auto:treedef.req
+CMS FETCH DSTRECRDS.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]DSTRECRDS.REQ;253 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]DSTRECRDS.REQ fetched
+BLISS /LIBRARY=DSTRECRDS.L32 /NOLIST DSTRECRDS.REQ
+copy dstrecrds.l32 scan$auto:dstrecrds.l32
+run TOOL$:termdef
+run TOOL$:termtext
+sdl/language=(blissf=scan$auto:termdef) scan$auto:termdef
+CMS FETCH BIFDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]BIFDEF.REQ;251 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]BIFDEF.REQ fetched
+CMS FETCH SPECCHAR.DAT 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SPECCHAR.DAT;182 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SPECCHAR.DAT fetched
+run TOOL$:gather
+run TOOL$:keytab2
+10:19 AM      starting
+?End of file on device
+10:19 AM      end of read & initial compaction
+10:19 AM      first best fit completed
+10:19 AM      end of compaction
+run TOOL$:keytab3
+total length: 867 
+compact length: 682 
+max keyword length: 10 
+@SCANCOM$:lalrpat.com
+ VAX/VMS PAT -- Version of 28 May 82      --   13-JUN-1996 10:19:30.76
+
+Input File (Type ? for help):   	Logical name INFILE defined as file:  SCANBNF.PAT 
+Options:   	Logical name OUTFILE defined as file:  SCANBNF.LIS 
+ 	Logical name OUTPAS defined as file:  SCANBNF.REQ 
+ Reading the input file
+ Building the LR(0) machine
+ Resolving inadequate states
+ Generating tables
+ Number of productions	=        446
+ Maximum symbol code	=        578
+ Number of states	=        889
+ Size of tables is	=       2524
+CMS FETCH PATBLSEXT.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATBLSEXT.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATBLSEXT.REQ fetched
+bliss/lib=scan$auto: patblsext.req
+CMS FETCH PATDATA.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATDATA.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATDATA.REQ fetched
+CMS FETCH PATREQPRO.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATREQPRO.REQ;415 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATREQPRO.REQ fetched
+CMS FETCH PATREQPRO.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATREQPRO.REQ;416 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATREQPRO.REQ fetched
+bliss/lib=scan$auto:	patdata.req
+CMS FETCH PATLANGSP.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATLANGSP.REQ;243 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATLANGSP.REQ fetched
+CMS FETCH SFEDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFEDEF.REQ;244 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFEDEF.REQ fetched
+CMS FETCH NODEDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]NODEDEF.REQ;313 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]NODEDEF.REQ fetched
+CMS FETCH LEXDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]LEXDEF.REQ;414 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]LEXDEF.REQ fetched
+bliss/lib=scan$auto:	patlangsp.req
+CMS FETCH DEB.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]DEB.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]DEB.REQ fetched
+bliss/lib=scan$auto:	deb.req
+CMS FETCH PATDEB.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATDEB.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATDEB.REQ fetched
+bliss/lib=scan$auto:	patdeb.req
+CMS FETCH PATERROR.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATERROR.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATERROR.REQ fetched
+bliss/lib=scan$auto:	paterror.req
+CMS FETCH PATLRTUNE.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATLRTUNE.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATLRTUNE.REQ fetched
+bliss/lib=scan$auto:	patlrtune.req
+CMS FETCH PATPARSER.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATPARSER.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATPARSER.REQ fetched
+bliss/lib=scan$auto:	patparser.req
+CMS FETCH PATTOKEN.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATTOKEN.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATTOKEN.REQ fetched
+bliss/lib=scan$auto:	pattoken.req
+CMS FETCH SCANROOT.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANROOT.MAR;183 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANROOT.MAR fetched
+mac/lis=SCAN$RES_OBJ:/obj=SCAN$RES_OBJ: /DEBUG 			scanroot+vcg$:vcg.mlb/library
+library SCAN$RES_OBJ:scan.olb SCAN$RES_OBJ:scanroot.obj
+CMS FETCH PATDATA.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATDATA.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATDATA.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 PATDATA.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH PATSWITCH.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATSWITCH.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATSWITCH.REQ fetched
+CMS FETCH PATPROLOG.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATPROLOG.REQ;415 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATPROLOG.REQ fetched
+CMS FETCH PATPROLOG.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATPROLOG.REQ;416 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATPROLOG.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:PATDATA.OBJ
+CMS FETCH PATPARSER.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATPARSER.BLI;176 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATPARSER.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 PATPARSER.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH ERRDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]ERRDEF.REQ;241 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]ERRDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:PATPARSER.OBJ
+CMS FETCH PATERROR.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATERROR.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATERROR.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 PATERROR.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:PATERROR.OBJ
+CMS FETCH PATLANGSP.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATLANGSP.BLI;174 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATLANGSP.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 PATLANGSP.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:PATLANGSP.OBJ
+CMS FETCH TRANSVEC.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]TRANSVEC.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]TRANSVEC.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 TRANSVEC.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:TRANSVEC.OBJ
+CMS FETCH PATLRTUNE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATLRTUNE.BLI;174 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATLRTUNE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 PATLRTUNE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:PATLRTUNE.OBJ
+CMS FETCH PATTOKEN.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATTOKEN.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATTOKEN.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 PATTOKEN.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:PATTOKEN.OBJ
+CMS FETCH SCANUTIL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANUTIL.BLI;178 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANUTIL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SCANUTIL.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH SEMDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMDEF.REQ;245 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SCANUTIL.OBJ
+CMS FETCH LEXSCAN.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]LEXSCAN.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]LEXSCAN.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 LEXSCAN.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH LEXDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]LEXDEF.REQ;415 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]LEXDEF.REQ fetched
+CMS FETCH LSTDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]LSTDEF.REQ;241 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]LSTDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:LEXSCAN.OBJ
+CMS FETCH LEXKEY.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]LEXKEY.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]LEXKEY.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 LEXKEY.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:LEXKEY.OBJ
+CMS FETCH SEMDIRC.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMDIRC.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMDIRC.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMDIRC.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMDIRC.OBJ
+CMS FETCH SCANDUMP.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANDUMP.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANDUMP.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SCANDUMP.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH MATCHDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]MATCHDEF.REQ;241 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]MATCHDEF.REQ fetched
+CMS FETCH PICDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PICDEF.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PICDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SCANDUMP.OBJ
+CMS FETCH SCANDATA.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANDATA.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANDATA.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SCANDATA.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SCANDATA.OBJ
+CMS FETCH SFEALLOC.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFEALLOC.BLI;174 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFEALLOC.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SFEALLOC.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH HASHDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]HASHDEF.REQ;240 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]HASHDEF.REQ fetched
+CMS FETCH RTLDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]RTLDEF.REQ;240 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]RTLDEF.REQ fetched
+CMS FETCH SCADEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCADEF.REQ;251 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCADEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SFEALLOC.OBJ
+CMS FETCH SFEDEBUG.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFEDEBUG.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFEDEBUG.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SFEDEBUG.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SFEDEBUG.OBJ
+CMS FETCH SFELSE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFELSE.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFELSE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SFELSE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SFELSE.OBJ
+CMS FETCH SFERTL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFERTL.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFERTL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SFERTL.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH VTREEDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]VTREEDEF.REQ;243 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]VTREEDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SFERTL.OBJ
+CMS FETCH LSTCODE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]LSTCODE.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]LSTCODE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 LSTCODE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:LSTCODE.OBJ
+CMS FETCH PARSE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PARSE.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PARSE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 PARSE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:PARSE.OBJ
+CMS FETCH SFEERR.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFEERR.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFEERR.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SFEERR.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SFEERR.OBJ
+message/sym/file=scan$msg/obj=SCAN$RES_OBJ:msgptr	scan$msg.msg+vcg$:vcgerr.msg
+library SCAN$RES_OBJ:scan.olb SCAN$RES_OBJ:msgptr.obj
+%MMS-I-GWKACTNOUPD, Actions didn't update SCAN$RES_OBJ:SCAN.OLB(SCAN$MSG=SCAN$MSG.OBJ)
+CMS FETCH SFENODE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFENODE.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFENODE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SFENODE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SFENODE.OBJ
+CMS FETCH SEMBLOCK.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMBLOCK.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMBLOCK.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMBLOCK.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMBLOCK.OBJ
+CMS FETCH SEMSYMBOL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMSYMBOL.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMSYMBOL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMSYMBOL.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMSYMBOL.OBJ
+CMS FETCH SEMDCL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMDCL.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMDCL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMDCL.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMDCL.OBJ
+CMS FETCH SEMDECLARE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMDECLARE.BLI;178 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMDECLARE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMDECLARE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMDECLARE.OBJ
+CMS FETCH SEMCONST.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMCONST.BLI;176 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMCONST.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMCONST.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMCONST.OBJ
+CMS FETCH SEMTREE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMTREE.BLI;174 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMTREE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMTREE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMTREE.OBJ
+CMS FETCH SEMTYPE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMTYPE.BLI;184 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMTYPE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMTYPE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMTYPE.OBJ
+CMS FETCH SEMRECORD.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMRECORD.BLI;174 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMRECORD.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMRECORD.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMRECORD.OBJ
+CMS FETCH SEMUTIL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMUTIL.BLI;174 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMUTIL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMUTIL.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMUTIL.OBJ
+CMS FETCH CONSTMATH.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]CONSTMATH.MAR;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]CONSTMATH.MAR fetched
+mac/lis=SCAN$RES_OBJ:/obj=SCAN$RES_OBJ:	constmath
+library SCAN$RES_OBJ:scan.olb SCAN$RES_OBJ:constmath.obj
+CMS FETCH SEMSET.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMSET.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMSET.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMSET.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH SETDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SETDEF.REQ;344 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SETDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SEMSET.OBJ
+CMS FETCH SEMFOR.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMFOR.BLI;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMFOR.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMFOR.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMFOR.OBJ
+CMS FETCH SEMCASE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMCASE.BLI;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMCASE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMCASE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMCASE.OBJ
+CMS FETCH SEMBIF1.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMBIF1.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMBIF1.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMBIF1.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMBIF1.OBJ
+CMS FETCH SEMBIF2.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMBIF2.BLI;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMBIF2.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMBIF2.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMBIF2.OBJ
+CMS FETCH SEMBIT.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMBIT.BLI;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMBIT.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMBIT.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMBIT.OBJ
+CMS FETCH SEMGOTO.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMGOTO.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMGOTO.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMGOTO.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMGOTO.OBJ
+CMS FETCH SEMGROUP.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMGROUP.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMGROUP.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMGROUP.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH GRPDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]GRPDEF.REQ;177 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]GRPDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SEMGROUP.OBJ
+CMS FETCH SEMTOKEN.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMTOKEN.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMTOKEN.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMTOKEN.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH SETDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SETDEF.REQ;345 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SETDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SEMTOKEN.OBJ
+CMS FETCH SEMMACRO1.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMMACRO1.BLI;182 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMMACRO1.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMMACRO1.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMMACRO1.OBJ
+CMS FETCH SEMMACRO2.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMMACRO2.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMMACRO2.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMMACRO2.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMMACRO2.OBJ
+CMS FETCH SEMPROCMAC.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMPROCMAC.MAR;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMPROCMAC.MAR fetched
+mac/lis=SCAN$RES_OBJ:/obj=SCAN$RES_OBJ	semprocmac
+library SCAN$RES_OBJ:scan.olb SCAN$RES_OBJ:semprocmac.obj
+CMS FETCH SEMDFA.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMDFA.BLI;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMDFA.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMDFA.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMDFA.OBJ
+CMS FETCH SEMEXP.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMEXP.BLI;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMEXP.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMEXP.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMEXP.OBJ
+CMS FETCH SEMREF.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMREF.BLI;179 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMREF.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMREF.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMREF.OBJ
+CMS FETCH SEMPART.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMPART.BLI;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMPART.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMPART.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMPART.OBJ
+CMS FETCH SEMASSIGN.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMASSIGN.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMASSIGN.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMASSIGN.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMASSIGN.OBJ
+CMS FETCH SEMWHILE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMWHILE.BLI;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMWHILE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMWHILE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMWHILE.OBJ
+CMS FETCH SEMIF.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMIF.BLI;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMIF.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMIF.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMIF.OBJ
+CMS FETCH SEMIO.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMIO.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMIO.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMIO.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMIO.OBJ
+CMS FETCH SEMSCAN.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMSCAN.BLI;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMSCAN.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMSCAN.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMSCAN.OBJ
+CMS FETCH SEMHEAP.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMHEAP.BLI;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMHEAP.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMHEAP.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMHEAP.OBJ
+CMS FETCH SEMCALL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMCALL.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMCALL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMCALL.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMCALL.OBJ
+CMS FETCH SEMPROC.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMPROC.BLI;175 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMPROC.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMPROC.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMPROC.OBJ
+CMS FETCH SEMFWD.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMFWD.BLI;169 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMFWD.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SEMFWD.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMFWD.OBJ
+CMS FETCH SCAUTIL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCAUTIL.BLI;184 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCAUTIL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 SCAUTIL.BLI
+; L 6805  2	%inform ('add PSECT_ALIGN attribute back if SCA requires it');
+  INFO#158	.........1  L1:6805
+  %INFORM:	add PSECT_ALIGN attribute back if SCA requires it
+; L 6944  2	%inform ('add PSECT_ALIGN attribute back if SCA requires it');
+  INFO#158	.........1  L1:6944
+  %INFORM:	add PSECT_ALIGN attribute back if SCA requires it
+; Information:	2
+; Warnings:	0
+; Errors:	0
+%BLS32-I-ENDDIAGS, Compilation completed with 2 diagnostics
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SCAUTIL.OBJ
+CMS FETCH SCAN.OPT 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCAN.OPT;339 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCAN.OPT fetched
+CMS FETCH SCAN.OPT                              
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCAN.OPT;340 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCAN.OPT fetched
+COPY SCAN.OPT SCAN$RES_OBJ:SCAN.OPT
+CMS FETCH SCANDEBUG.OPT 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANDEBUG.OPT;339 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANDEBUG.OPT fetched
+cms fetch scandebug.opt
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANDEBUG.OPT;340 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANDEBUG.OPT fetched
+copy scandebug.opt scan$res_Obj:scandebug.opt
+CMS FETCH SCANCLD.CLD 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANCLD.CLD;333 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANCLD.CLD fetched
+cms fetch scancld.cld
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANCLD.CLD;334 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANCLD.CLD fetched
+IF Current_build .EQS. "DEBUG" THEN 	LINK/EXE=SCAN$RES_OBJ:SCANEXE.EXE/MAP=SCAN$RES_LIS:SCAN.MAP/FULL/CROSS 		/DEBUG SCANdebug.OPT/OPT
+IF Current_build .EQS. "PROD" .OR. Current_build .EQS. "SHIP" THEN 	LINK/EXE=SCAN$RES_OBJ:SCANEXE.EXE/MAP=SCAN$RES_LIS:SCAN.MAP/FULL/CROSS 		 /NOTRACEBACK SCAN$RES_OBJ:SCAN.OPT/OPT
+IF Current_build .EQS. "PCA" THEN 	LINK/EXE=SCAN$RES_OBJ:SCANEXE.EXE/MAP=SCAN$RES_LIS:SCAN.MAP/FULL/CROSS 		 /DEBUG=SYS$LIBRARY:PCA$OBJ SCAN$RES_OBJ:SCAN.OPT/OPT
+purge scan$auto:*.*
+purge SCAN$RES_OBJ:*.*
+!scan$res_obj:scan$dwci.exe, 		!scan$res_obj:scan$dwci.uid
+PURGE/LOG [], SCAN$RES_OBJ:, SCAN$RES_LIS:, SCAN$AUTO:, 		WORK$:, MWORK$:, TOOL$:
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.COMPILER.SRC]SCAN.OPT;339 deleted (3 blocks)
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.COMPILER.SRC]SCAN.OPT;338 deleted (3 blocks)
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.COMPILER.SRC]SCANCLD.CLD;333 deleted (3 blocks)
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.COMPILER.SRC]SCANCLD.CLD;332 deleted (3 blocks)
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.COMPILER.SRC]SCANDEBUG.OPT;339 deleted (3 blocks)
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.COMPILER.SRC]SCANDEBUG.OPT;338 deleted (3 blocks)
+%PURGE-W-SEARCHFAIL, error searching for DISK$SCAN:[SCAN.COMPILER.MSRC]*.*;*
+-RMS-E-FNF, file not found
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.TOOLS]KEYIN.DAT;353 deleted (30 blocks)
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.TOOLS]KEYOUT.DAT;352 deleted (3 blocks)
+%PURGE-I-TOTAL, 8 files deleted (51 blocks)
+$	IF type_build	.NES.	"COMPILER"	THEN -
+	MMS/CMS/OVERRIDE/DESCRIPTION=scan_V12.MMS /FROM
+$	SET NOVERIFY
+The DEBUG build completed at 13-JUN-1996 10:34:35.44
+	Performing build from sources
+	Default directory for build is SCAN$$DISK:[SCAN.COMPILER.SRC]
+
+%CMS-I-LIBIS, library is DISK$SCAN:[SCAN.COMPILER.SRC.CMS]
+%CMS-S-LIBSET, library set
+-CMS-I-SUPERSEDE, library list superseded
+%DCL-I-SUPERSEDE, previous value of SCAN$RES_OBJ has been superseded
+%DCL-I-SUPERSEDE, previous value of SCAN$RES_LIS has been superseded
+  SCAN$$DISK:[SCAN.COMPILER.SRC]
+%DELETE-I-FILDEL, DISK$SCAN:[SCAN.COMPILER.OBJ]SCAN.OLB;1 deleted (753 blocks)
+%DCL-I-SUPERSEDE, previous value of SWITCH_REQ has been superseded
+$	SHOW DEV SCAN$$DISK:
+
+Device                  Device           Error    Volume         Free  Trans Mnt
+ Name                   Status           Count     Label        Blocks Count Cnt
+$1$DUA36:      (LURCH)  Mounted              0  SCAN           1551498     3  10
+$	CMS SHOW LIB
+Your CMS library list consists of:
+   DISK$SCAN:[SCAN.COMPILER.SRC.CMS]
+   
+$	IF type_build	.EQS.	"COMPILER"	THEN -
+ 	MMS/CMS/OVERRIDE/DESCRIPTION=scan_V12.MMS /FROM
+DEFINE/USER CMS$LIB DISK$SCAN:[SCAN.COMPILER.SRC.CMS]
+CMS FETCH SCAN_V12.MMS/OUTPUT=SCAN_V12.MMS /GEN=1+ ""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCAN_V12.MMS;49 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCAN_V12.MMS fetched
+ASSIGN RTL$AUTO	LIB$:
+define dwci$exe scan$$disk:[scan.compiler.dwci]
+define dwci$src sys$disk:[]
+set command dwci$exe:dwci.cld
+define dwcitrans dwci$exe:dwcitrans
+define lnk$library sys$library:vaxcrtl
+open/write mms_temp_file scan$res_obj:scan$dwci.opt
+write mms_temp_file  "sys$share:decw$dwtlibshr/share"
+close mms_temp_file
+CMS FETCH SCAN$MSG.MSG 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCAN$MSG.MSG;63 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCAN$MSG.MSG fetched
+message scan$msg.msg+vcg$:vcgerr.msg
+link/share=scan$res_obj:/map=scan$res_lis: scan$msg.obj
+delete scan$msg.obj;0
+sdl/language=(blissf=scan$auto:psediag) vcg$:psediag
+sdl/language=(blissf=scan$auto:vcgcmddef) vcg$:vcgcmddef.sdl
+%SDL-W-NAMTRUNC, Generated name too long - truncated to 31 characters pv_vcg_value_parse_data_FIELDSE
+%SDL-W-NAMTRUNC, Generated name too long - truncated to 31 characters cmd_vcg$gq_parse_actions_FIELDS
+%SDL-W-NAMTRUNC, Generated name too long - truncated to 31 characters lst_vcg$gl_listing_control_FIEL
+sdl/language=(blissf=scan$auto:vcgdebdef) vcg$:vcgdebdef.sdl
+sdl/language=(blissf=scan$auto:objdef) vcg$:objdef.sdl
+sdl/language=(blissf=scan$auto:vcgblkdef) vcgblkdef.jac
+sdl/language=(blissf=scan$auto:vcgerrdef) vcg$:vcgerrdef.sdl
+%SDL-W-NAMTRUNC, Generated name too long - truncated to 31 characters diagn_vcg$gl_diagn_control_FIEL
+sdl/language=(blissf=scan$auto:vcgmsgrec) vcg$:vcgmsgrec.sdl
+sdl/language=(blissf=scan$auto:vcgsymdef) vcgsymdef.jac
+%SDL-W-NAMTRUNC, Generated name too long - truncated to 31 characters sym_vcg_alt_symbol_image_FIELDS
+sdl/language=(blissf=scan$auto:vcgtpldef) vcg$:vcgtpldef.sdl
+sdl/language=(blissf=scan$auto:vcgsrcrec) vcg$:vcgsrcrec.sdl
+sdl/language=(blissf=scan$auto:vcgstbdef) vcg$:vcgstbdef.sdl
+sdl/language=(blissf=scan$auto:vcgglobal) vcg$:vcgglobal.sdl
+sdl/language=(blissf=scan$auto:analysis_data) vcg$:analysis_data.sdl
+sdl/language=(blissf=scan$auto:vtree) vcg$:vtree.sdl
+sdl/language=(blissf=scan$auto:machdef) rtl$:machdef
+copy rtl$:treedef.req scan$auto:treedef.req
+CMS FETCH DSTRECRDS.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]DSTRECRDS.REQ;254 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]DSTRECRDS.REQ fetched
+BLISS /LIBRARY=DSTRECRDS.L32 /NOLIST DSTRECRDS.REQ
+copy dstrecrds.l32 scan$auto:dstrecrds.l32
+run TOOL$:termdef
+run TOOL$:termtext
+sdl/language=(blissf=scan$auto:termdef) scan$auto:termdef
+CMS FETCH BIFDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]BIFDEF.REQ;252 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]BIFDEF.REQ fetched
+CMS FETCH SPECCHAR.DAT 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SPECCHAR.DAT;183 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SPECCHAR.DAT fetched
+run TOOL$:gather
+run TOOL$:keytab2
+10:35 AM      starting
+?End of file on device
+10:35 AM      end of read & initial compaction
+10:35 AM      first best fit completed
+10:35 AM      end of compaction
+run TOOL$:keytab3
+total length: 867 
+compact length: 682 
+max keyword length: 10 
+@SCANCOM$:lalrpat.com
+ VAX/VMS PAT -- Version of 28 May 82      --   13-JUN-1996 10:35:54.78
+
+Input File (Type ? for help):   	Logical name INFILE defined as file:  SCANBNF.PAT 
+Options:   	Logical name OUTFILE defined as file:  SCANBNF.LIS 
+ 	Logical name OUTPAS defined as file:  SCANBNF.REQ 
+ Reading the input file
+ Building the LR(0) machine
+ Resolving inadequate states
+ Generating tables
+ Number of productions	=        446
+ Maximum symbol code	=        578
+ Number of states	=        889
+ Size of tables is	=       2524
+CMS FETCH PATBLSEXT.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATBLSEXT.REQ;243 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATBLSEXT.REQ fetched
+bliss/lib=scan$auto: patblsext.req
+CMS FETCH PATDATA.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATDATA.REQ;243 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATDATA.REQ fetched
+CMS FETCH PATREQPRO.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATREQPRO.REQ;417 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATREQPRO.REQ fetched
+CMS FETCH PATREQPRO.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATREQPRO.REQ;418 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATREQPRO.REQ fetched
+bliss/lib=scan$auto:	patdata.req
+CMS FETCH PATLANGSP.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATLANGSP.REQ;244 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATLANGSP.REQ fetched
+CMS FETCH SFEDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFEDEF.REQ;245 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFEDEF.REQ fetched
+CMS FETCH NODEDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]NODEDEF.REQ;314 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]NODEDEF.REQ fetched
+CMS FETCH LEXDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]LEXDEF.REQ;416 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]LEXDEF.REQ fetched
+bliss/lib=scan$auto:	patlangsp.req
+CMS FETCH DEB.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]DEB.REQ;243 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]DEB.REQ fetched
+bliss/lib=scan$auto:	deb.req
+CMS FETCH PATDEB.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATDEB.REQ;243 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATDEB.REQ fetched
+bliss/lib=scan$auto:	patdeb.req
+CMS FETCH PATERROR.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATERROR.REQ;243 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATERROR.REQ fetched
+bliss/lib=scan$auto:	paterror.req
+CMS FETCH PATLRTUNE.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATLRTUNE.REQ;243 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATLRTUNE.REQ fetched
+bliss/lib=scan$auto:	patlrtune.req
+CMS FETCH PATPARSER.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATPARSER.REQ;243 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATPARSER.REQ fetched
+bliss/lib=scan$auto:	patparser.req
+CMS FETCH PATTOKEN.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATTOKEN.REQ;243 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATTOKEN.REQ fetched
+bliss/lib=scan$auto:	pattoken.req
+CMS FETCH SCANROOT.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANROOT.MAR;184 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANROOT.MAR fetched
+mac/lis=SCAN$RES_OBJ:/obj=SCAN$RES_OBJ:  			scanroot+vcg$:vcg.mlb/library
+library SCAN$RES_OBJ:scan.olb SCAN$RES_OBJ:scanroot.obj
+CMS FETCH PATDATA.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATDATA.BLI;174 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATDATA.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE PATDATA.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH PATSWITCH.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATSWITCH.REQ;243 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATSWITCH.REQ fetched
+CMS FETCH PATPROLOG.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATPROLOG.REQ;417 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATPROLOG.REQ fetched
+CMS FETCH PATPROLOG.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATPROLOG.REQ;418 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATPROLOG.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:PATDATA.OBJ
+CMS FETCH PATPARSER.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATPARSER.BLI;177 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATPARSER.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE PATPARSER.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH ERRDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]ERRDEF.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]ERRDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:PATPARSER.OBJ
+CMS FETCH PATERROR.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATERROR.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATERROR.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE PATERROR.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:PATERROR.OBJ
+CMS FETCH PATLANGSP.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATLANGSP.BLI;175 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATLANGSP.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE PATLANGSP.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:PATLANGSP.OBJ
+CMS FETCH TRANSVEC.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]TRANSVEC.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]TRANSVEC.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE TRANSVEC.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:TRANSVEC.OBJ
+CMS FETCH PATLRTUNE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATLRTUNE.BLI;175 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATLRTUNE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE PATLRTUNE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:PATLRTUNE.OBJ
+CMS FETCH PATTOKEN.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PATTOKEN.BLI;174 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PATTOKEN.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE PATTOKEN.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:PATTOKEN.OBJ
+CMS FETCH SCANUTIL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANUTIL.BLI;179 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANUTIL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SCANUTIL.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH SEMDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMDEF.REQ;246 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SCANUTIL.OBJ
+CMS FETCH LEXSCAN.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]LEXSCAN.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]LEXSCAN.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE LEXSCAN.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH LEXDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]LEXDEF.REQ;417 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]LEXDEF.REQ fetched
+CMS FETCH LSTDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]LSTDEF.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]LSTDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:LEXSCAN.OBJ
+CMS FETCH LEXKEY.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]LEXKEY.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]LEXKEY.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE LEXKEY.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:LEXKEY.OBJ
+CMS FETCH SEMDIRC.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMDIRC.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMDIRC.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMDIRC.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMDIRC.OBJ
+CMS FETCH SCANDUMP.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANDUMP.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANDUMP.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SCANDUMP.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH MATCHDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]MATCHDEF.REQ;242 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]MATCHDEF.REQ fetched
+CMS FETCH PICDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PICDEF.REQ;243 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PICDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SCANDUMP.OBJ
+CMS FETCH SCANDATA.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANDATA.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANDATA.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SCANDATA.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SCANDATA.OBJ
+CMS FETCH SFEALLOC.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFEALLOC.BLI;175 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFEALLOC.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SFEALLOC.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH HASHDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]HASHDEF.REQ;241 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]HASHDEF.REQ fetched
+CMS FETCH RTLDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]RTLDEF.REQ;241 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]RTLDEF.REQ fetched
+CMS FETCH SCADEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCADEF.REQ;252 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCADEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SFEALLOC.OBJ
+CMS FETCH SFEDEBUG.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFEDEBUG.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFEDEBUG.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SFEDEBUG.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SFEDEBUG.OBJ
+CMS FETCH SFELSE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFELSE.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFELSE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SFELSE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SFELSE.OBJ
+CMS FETCH SFERTL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFERTL.BLI;174 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFERTL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SFERTL.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH VTREEDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]VTREEDEF.REQ;244 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]VTREEDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SFERTL.OBJ
+CMS FETCH LSTCODE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]LSTCODE.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]LSTCODE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE LSTCODE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:LSTCODE.OBJ
+CMS FETCH PARSE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]PARSE.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]PARSE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE PARSE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:PARSE.OBJ
+CMS FETCH SFEERR.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFEERR.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFEERR.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SFEERR.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SFEERR.OBJ
+message/sym/file=scan$msg/obj=SCAN$RES_OBJ:msgptr	scan$msg.msg+vcg$:vcgerr.msg
+library SCAN$RES_OBJ:scan.olb SCAN$RES_OBJ:msgptr.obj
+%MMS-I-GWKACTNOUPD, Actions didn't update SCAN$RES_OBJ:SCAN.OLB(SCAN$MSG=SCAN$MSG.OBJ)
+CMS FETCH SFENODE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SFENODE.BLI;174 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SFENODE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SFENODE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SFENODE.OBJ
+CMS FETCH SEMBLOCK.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMBLOCK.BLI;174 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMBLOCK.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMBLOCK.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMBLOCK.OBJ
+CMS FETCH SEMSYMBOL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMSYMBOL.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMSYMBOL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMSYMBOL.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMSYMBOL.OBJ
+CMS FETCH SEMDCL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMDCL.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMDCL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMDCL.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMDCL.OBJ
+CMS FETCH SEMDECLARE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMDECLARE.BLI;179 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMDECLARE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMDECLARE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMDECLARE.OBJ
+CMS FETCH SEMCONST.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMCONST.BLI;177 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMCONST.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMCONST.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMCONST.OBJ
+CMS FETCH SEMTREE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMTREE.BLI;175 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMTREE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMTREE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMTREE.OBJ
+CMS FETCH SEMTYPE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMTYPE.BLI;185 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMTYPE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMTYPE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMTYPE.OBJ
+CMS FETCH SEMRECORD.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMRECORD.BLI;175 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMRECORD.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMRECORD.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMRECORD.OBJ
+CMS FETCH SEMUTIL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMUTIL.BLI;175 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMUTIL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMUTIL.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMUTIL.OBJ
+CMS FETCH CONSTMATH.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]CONSTMATH.MAR;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]CONSTMATH.MAR fetched
+mac/lis=SCAN$RES_OBJ:/obj=SCAN$RES_OBJ:	constmath
+library SCAN$RES_OBJ:scan.olb SCAN$RES_OBJ:constmath.obj
+CMS FETCH SEMSET.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMSET.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMSET.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMSET.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH SETDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SETDEF.REQ;346 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SETDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SEMSET.OBJ
+CMS FETCH SEMFOR.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMFOR.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMFOR.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMFOR.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMFOR.OBJ
+CMS FETCH SEMCASE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMCASE.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMCASE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMCASE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMCASE.OBJ
+CMS FETCH SEMBIF1.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMBIF1.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMBIF1.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMBIF1.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMBIF1.OBJ
+CMS FETCH SEMBIF2.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMBIF2.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMBIF2.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMBIF2.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMBIF2.OBJ
+CMS FETCH SEMBIT.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMBIT.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMBIT.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMBIT.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMBIT.OBJ
+CMS FETCH SEMGOTO.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMGOTO.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMGOTO.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMGOTO.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMGOTO.OBJ
+CMS FETCH SEMGROUP.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMGROUP.BLI;174 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMGROUP.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMGROUP.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH GRPDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]GRPDEF.REQ;178 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]GRPDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SEMGROUP.OBJ
+CMS FETCH SEMTOKEN.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMTOKEN.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMTOKEN.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMTOKEN.BLI
+purge scan$library, scan$res_obj:
+CMS FETCH SETDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SETDEF.REQ;347 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SETDEF.REQ fetched
+library scan$res_obj:scan.olb scan$res_obj:SEMTOKEN.OBJ
+CMS FETCH SEMMACRO1.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMMACRO1.BLI;183 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMMACRO1.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMMACRO1.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMMACRO1.OBJ
+CMS FETCH SEMMACRO2.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMMACRO2.BLI;171 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMMACRO2.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMMACRO2.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMMACRO2.OBJ
+CMS FETCH SEMPROCMAC.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMPROCMAC.MAR;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMPROCMAC.MAR fetched
+mac/lis=SCAN$RES_OBJ:/obj=SCAN$RES_OBJ	semprocmac
+library SCAN$RES_OBJ:scan.olb SCAN$RES_OBJ:semprocmac.obj
+CMS FETCH SEMDFA.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMDFA.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMDFA.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMDFA.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMDFA.OBJ
+CMS FETCH SEMEXP.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMEXP.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMEXP.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMEXP.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMEXP.OBJ
+CMS FETCH SEMREF.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMREF.BLI;180 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMREF.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMREF.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMREF.OBJ
+CMS FETCH SEMPART.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMPART.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMPART.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMPART.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMPART.OBJ
+CMS FETCH SEMASSIGN.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMASSIGN.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMASSIGN.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMASSIGN.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMASSIGN.OBJ
+CMS FETCH SEMWHILE.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMWHILE.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMWHILE.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMWHILE.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMWHILE.OBJ
+CMS FETCH SEMIF.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMIF.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMIF.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMIF.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMIF.OBJ
+CMS FETCH SEMIO.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMIO.BLI;172 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMIO.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMIO.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMIO.OBJ
+CMS FETCH SEMSCAN.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMSCAN.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMSCAN.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMSCAN.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMSCAN.OBJ
+CMS FETCH SEMHEAP.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMHEAP.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMHEAP.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMHEAP.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMHEAP.OBJ
+CMS FETCH SEMCALL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMCALL.BLI;173 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMCALL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMCALL.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMCALL.OBJ
+CMS FETCH SEMPROC.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMPROC.BLI;176 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMPROC.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMPROC.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMPROC.OBJ
+CMS FETCH SEMFWD.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SEMFWD.BLI;170 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SEMFWD.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SEMFWD.BLI
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SEMFWD.OBJ
+CMS FETCH SCAUTIL.BLI 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCAUTIL.BLI;185 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCAUTIL.BLI fetched
+bliss/nolist/obj=scan$res_obj:/opt=(level:3,safe,speed) 		/LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE SCAUTIL.BLI
+; L 6806  2	%inform ('add PSECT_ALIGN attribute back if SCA requires it');
+  INFO#158	.........1  L1:6806
+  %INFORM:	add PSECT_ALIGN attribute back if SCA requires it
+; L 6945  2	%inform ('add PSECT_ALIGN attribute back if SCA requires it');
+  INFO#158	.........1  L1:6945
+  %INFORM:	add PSECT_ALIGN attribute back if SCA requires it
+; Information:	2
+; Warnings:	0
+; Errors:	0
+%BLS32-I-ENDDIAGS, Compilation completed with 2 diagnostics
+purge scan$library, scan$res_obj:
+library scan$res_obj:scan.olb scan$res_obj:SCAUTIL.OBJ
+CMS FETCH SCAN.OPT 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCAN.OPT;341 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCAN.OPT fetched
+CMS FETCH SCAN.OPT                              
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCAN.OPT;342 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCAN.OPT fetched
+COPY SCAN.OPT SCAN$RES_OBJ:SCAN.OPT
+CMS FETCH SCANDEBUG.OPT 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANDEBUG.OPT;341 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANDEBUG.OPT fetched
+cms fetch scandebug.opt
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANDEBUG.OPT;342 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANDEBUG.OPT fetched
+copy scandebug.opt scan$res_Obj:scandebug.opt
+CMS FETCH SCANCLD.CLD 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANCLD.CLD;335 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANCLD.CLD fetched
+cms fetch scancld.cld
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.COMPILER.SRC]SCANCLD.CLD;336 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.COMPILER.SRC.CMS]SCANCLD.CLD fetched
+IF Current_build .EQS. "DEBUG" THEN 	LINK/EXE=SCAN$RES_OBJ:SCANEXE.EXE/MAP=SCAN$RES_LIS:SCAN.MAP/FULL/CROSS 		/DEBUG SCANdebug.OPT/OPT
+IF Current_build .EQS. "PROD" .OR. Current_build .EQS. "SHIP" THEN 	LINK/EXE=SCAN$RES_OBJ:SCANEXE.EXE/MAP=SCAN$RES_LIS:SCAN.MAP/FULL/CROSS 		 /NOTRACEBACK SCAN$RES_OBJ:SCAN.OPT/OPT
+IF Current_build .EQS. "PCA" THEN 	LINK/EXE=SCAN$RES_OBJ:SCANEXE.EXE/MAP=SCAN$RES_LIS:SCAN.MAP/FULL/CROSS 		 /DEBUG=SYS$LIBRARY:PCA$OBJ SCAN$RES_OBJ:SCAN.OPT/OPT
+purge scan$auto:*.*
+purge SCAN$RES_OBJ:*.*
+!scan$res_obj:scan$dwci.exe, 		!scan$res_obj:scan$dwci.uid
+PURGE/LOG [], SCAN$RES_OBJ:, SCAN$RES_LIS:, SCAN$AUTO:, 		WORK$:, MWORK$:, TOOL$:
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.COMPILER.SRC]SCAN.OPT;341 deleted (3 blocks)
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.COMPILER.SRC]SCAN.OPT;340 deleted (3 blocks)
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.COMPILER.SRC]SCANCLD.CLD;335 deleted (3 blocks)
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.COMPILER.SRC]SCANCLD.CLD;334 deleted (3 blocks)
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.COMPILER.SRC]SCANDEBUG.OPT;341 deleted (3 blocks)
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.COMPILER.SRC]SCANDEBUG.OPT;340 deleted (3 blocks)
+%PURGE-W-SEARCHFAIL, error searching for DISK$SCAN:[SCAN.COMPILER.MSRC]*.*;*
+-RMS-E-FNF, file not found
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.TOOLS]KEYIN.DAT;354 deleted (30 blocks)
+%PURGE-I-FILPURG, DISK$SCAN:[SCAN.TOOLS]KEYOUT.DAT;353 deleted (3 blocks)
+%PURGE-I-TOTAL, 8 files deleted (51 blocks)
+$	IF type_build	.NES.	"COMPILER"	THEN -
+	MMS/CMS/OVERRIDE/DESCRIPTION=scan_V12.MMS /FROM
+$	SET NOVERIFY
+The PROD build completed at 13-JUN-1996 10:50:19.34
+  SCAN   job terminated at 13-JUN-1996 10:50:19.43
+
+  Accounting information:
+  Buffered I/O count:            7129         Peak working set size:    2293
+  Direct I/O count:              2997         Peak page file size:     12974
+  Page faults:                  13200         Mounted volumes:             0
+  Charged CPU time:           0 00:00:41.86   Elapsed time:     0 00:32:15.62

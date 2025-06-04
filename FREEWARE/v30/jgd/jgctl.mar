@@ -1,0 +1,506 @@
+	.TITLE	JGCtl	;control JFdriver (fragmentation avoider driver)
+	.IDENT	'V001'
+; By Glenn C. Everhart
+; Released for public use.
+;
+; FACILITY:
+; 
+;
+;   This program takes a command of form
+; FDTFix/flags JFAn: node$jban:
+;  where JFAn: refers to a local unit of JFdriver, which is a dummy
+; driver furnished to provide local copies of the frag avoider
+; code in each node.
+;
+; Note: define VMS$V5 to build for Version 5.x of VMS.
+VMS$V5=1
+;
+; 
+; AUTHOR:
+; 
+; G. EVERHART
+;
+; 04-Aug-1989	D. HITTNER	Cleaned up definitions, added messages
+; 29-Aug-1989   G. Everhart	Added more flexible device geometry selection
+;--
+	.PAGE
+	.SBTTL	EXTERNAL AND LOCAL DEFINITIONS
+
+	.LIBRARY /SYS$SHARE:LIB/
+; 
+; EXTERNAL SYMBOLS
+; 
+
+	$dyndef
+	$ADPDEF				;DEFINE ADAPTER CONTROL BLOCK
+	$ATRDEF
+	$CRBDEF				;DEFINE CHANNEL REQUEST BLOCK
+	$DCDEF				;DEFINE DEVICE CLASS
+	$DDBDEF				;DEFINE DEVICE DATA BLOCK
+	$ddtdef				;define driver dispatch tbl
+	$DEVDEF				;DEFINE DEVICE CHARACTERISTICS
+	$DPTDEF				;DEFINE DRIVER PROLOGUE TABLE
+	$DVIDEF				;Symbols for $GETDVI service.
+	$EMBDEF				;DEFINE ERROR MESSAGE BUFFER
+	$FABDEF
+	$FATDEF
+	$FIBDEF				;Symbols for file information block.
+	$IDBDEF				;DEFINE INTERRUPT DATA BLOCK
+	$IODEF				;DEFINE I/O FUNCTION CODES
+	$IRPDEF				;DEFINE I/O REQUEST PACKET
+	$NAMDEF
+	$PRDEF				;DEFINE PROCESSOR REGISTERS
+	$RMSDEF
+	$SBDEF
+	$SCSDEF
+	$SSDEF				;DEFINE SYSTEM STATUS CODES
+	$STSDEF				;Symbols for returned status.
+	$TPADEF				;Symbols for LIB$TPARSE calls.
+	$UCBDEF				;DEFINE UNIT CONTROL BLOCK
+	$VECDEF				;DEFINE INTERRUPT VECTOR BLOCK
+	$XABDEF
+
+; 
+; UCB OFFSETS WHICH FOLLOW THE STANDARD UCB FIELDS
+; DEFINE THESE SO WE KNOW WHERE IN THE UCB TO ACCESS. WE MUST
+; SET THE ONLINE BIT OR CLEAR IT, AND ALSO SET
+; UCB$HUCB (HOST UCB ADDRESS), UCB$HFSZ (HOST FILE SIZE),
+; AND UCB$HLBN (HOST LOGICAL BLOCK NUMBER OF FILE START)
+;
+
+	$DEFINI	UCB			;START OF UCB DEFINITIONS
+;.=UCB$W_BCR+2				;BEGIN DEFINITIONS AT END OF UCB
+.=UCB$K_LCL_DISK_LENGTH	;v4 def end of ucb
+; USE THESE FIELDS TO HOLD OUR LOCAL DATA FOR VIRT DISK.
+; Add our stuff at the end to ensure we don't mess some fields up that some
+; areas of VMS may want.
+; Leave thisfield first so we can know all diskswill have it at the
+; same offset.
+$def	ucb$l_oldfdt	.blkl	1	;fdt tbl of prior fdt chain
+;
+; Add other fields here if desired.
+;
+$def	ucb$l_ctlflgs	.blkl	1		;flags to control modes
+$def	ucb$l_cbtctr	.blkl	1		;how many extents
+$def	ucb$l_cbtini	.blkl	1		;init for counter
+; preceding 2 fields allow specifying of contig-best-try extents
+; on every Nth extend, not every one. This should still help keep
+; file extensions from preferentially picking up chaff
+$def	ucb$JFcontfil	.blkb	80
+;
+$DEF	ucb$l_minxt	.blkl	1		;min. extent
+$def	ucb$l_maxxt	.blkl	1		;max extent
+$def	ucb$l_frac	.blkl	1		;fraction to extend by
+$def	ucb$l_slop	.blkl	1		;slop blocks to leave free
+; DDT intercept fields
+; following must be contiguous.
+$def    ucb$s_ppdbgn            ;add any more prepended stuff after this
+$def    ucb$l_uniqid    .blkl   1       ;driver-unique ID, gets filled in
+                                        ; by DPT address for easy following
+                                        ; by SDA
+$def    ucb$l_intcddt   .blkl   1       ; Our interceptor's DDT address if
+                                        ; we are intercepted
+$def    ucb$l_prevddt   .blkl   1       ; previous DDT address
+$def    ucb$l_icsign    .blkl   1       ; unique pattern that identifies
+                                        ; this as a DDT intercept block
+; NOTE: Jon Pinkley suggests that the DDT size should be encoded in part of this
+; unique ID so that incompatible future versions will be guarded against.
+$def    ucb$s_ppdend
+$def    ucb$a_vicddt    .blkb   ddt$k_length
+                                        ; space for victim's DDT
+			.blkl	4	;safety
+$def	ucb$l_backlk	.blkl	1	;backlink to victim ucb
+; Make the "unique magic number" depend on the DDT length, and on the
+; length of the prepended material. If anything new is added, be sure that
+; this magic number value changes.
+magic=^xF024F000 + ddt$k_length + <256*<ucb$s_ppdend-ucb$s_ppdbgn-16>>
+p.magic=^xF024F000 + ddt$k_length + <256*<ucb$s_ppdend-ucb$s_ppdbgn-16>>
+				;an ACE is there or not.
+$DEF	UCB$L_JF_HOST_DESCR	.BLKL	2	;host dvc desc.
+;
+; Set FDT table start mask for each unit by keeping it here.
+; We need just enough to get back to user's FDTs.
+$def	ucb$l_fdtlgl	.blkl	2	;legal fcn msks
+$def	ucb$l_fdtbuf	.blkl	2	;buffered fcn msks
+$def	ucb$l_fdtmfy	.blkl	3	;modify fcn
+$def	ucb$l_fdtbak	.blkl	3	;"go back" fcn
+$def	ucb$l_vict	.blkl	1	;victim UCB for checking
+; The following lets us steal start-io and add error retries
+$def	ucb$l_omedia	.blkl	1	;storage of orig. irp$l_media
+$def	ucb$l_ppid	.blkl	1	;store for irp$l_pid contents
+$def	ucb$l_retries	.blkl	1	;counter for i/o retries
+$def	ucb$l_hstartio	.blkl	1	;host driver start-io loc.
+$def	ucb$l_hstucb	.blkl	1	;host ucb (quick ref)
+$DEF	UCB$K_JF_LEN	.BLKW	1	;LENGTH OF UCB
+;UCB$K_JF_LEN=.				;LENGTH OF UCB
+	$DEFEND	UCB			;END OF UCB DEFINITONS
+
+; TO SET ONLINE:
+;	BISW	#UCB$M_ONLINE,UCB$W_STS(R5)  ;SET UCB STATUS ONLINE
+
+; Macro to check return status of system calls.
+;
+	.MACRO	ON_ERR	THERE,?HERE
+	BLBS	R0,HERE
+	BRW	THERE
+HERE:	.ENDM	ON_ERR
+
+;
+;
+;
+	.PSECT	ADVDD_DATA,RD,WRT,NOEXE,LONG
+
+DEFAULT_DEVICE:
+	.ASCID	/SYS$DISK/
+
+	.ALIGN LONG
+iosb:	.long	0,0
+IOSTATUS: .BLKQ 1
+BUFG:	.long	1		;bash flag
+	.long	1000		;
+DEV_BUF:			; Buffer to hold device name.
+	.BLKB	40
+DEV_BUF_SIZ = . - DEV_BUF
+busz=.-bufg
+DEV_BUF_DESC:			; Descriptor pointing to device name.
+	.LONG	 DEV_BUF_SIZ
+	.ADDRESS DEV_BUF
+
+PID:				; Owner of device (if any).
+	.BLKL	1
+
+DEV_ITEM_LIST:			; Device list for $GETDVI.
+	.WORD	 DEV_BUF_SIZ	; Make sure we a have a physical device name.
+	.WORD	 DVI$_DEVNAM
+	.ADDRESS DEV_BUF
+	.ADDRESS DEV_BUF_DESC
+	.WORD	 4		; See if someone has this device allocated.
+	.WORD	 DVI$_PID
+	.ADDRESS PID
+	.LONG	 0
+	.WORD	 4
+	.WORD	 DVI$_DEVCLASS	; Check for a terminal.
+	.ADDRESS DEV_CLASS
+	.LONG	 0
+	.LONG	 0		; End if item list.
+
+DEV_CLASS:
+	.LONG	1
+;**
+vbufg:	.long	2	;deassign bash flag. Deassign victim dvc, not jf: dvc.
+	.long	1000
+VDV_BUF:			; Buffer to hold VDVice name.
+	.BLKB	40
+VDV_BUF_SIZ = . - VDV_BUF
+vbusz=.-vbufg
+VDV_BUF_DESC:			; Descriptor pointing to VDVice name.
+	.LONG	 VDV_BUF_SIZ
+	.ADDRESS VDV_BUF
+
+VPID:				; Owner of VDVice (if any).
+	.BLKL	1
+
+VDV_ITEM_LIST:			; VDVice list for $GETDVI.
+	.WORD	 VDV_BUF_SIZ	; Make sure we a have a physical device name.
+	.WORD	 DVI$_DEVNAM
+	.ADDRESS VDV_BUF
+	.ADDRESS VDV_BUF_DESC
+	.WORD	 4		; See if someone has this device allocated.
+	.WORD	 DVI$_PID
+	.ADDRESS VPID
+	.LONG	 0
+	.WORD	 4
+	.WORD	 DVI$_DEVCLASS	; Check for a terminal.
+	.ADDRESS VDV_CLASS
+	.LONG	 0
+	.LONG	 0		; End if item list.
+
+VDV_CLASS:
+	.LONG	1
+;**
+DEFNAM:
+
+WRK:	.BLKL	1	;SCRATCH INTEGER
+; DESCRIPTOR FOR VDn: "FILENAME"
+	.ALIGN LONG
+VDFNM:	.WORD	 255.	;LENGTH
+VDFTP:	.BYTE	DSC$K_DTYPE_T	;TEXT TYPE
+	.BYTE	1	; STATIC STRING
+	.ADDRESS	VDFNMD
+VDFNMD:	.BLKB	256.	; DATA AREA
+	.align long
+wrkstr:	.word	20	;length
+	.byte	dsc$k_dtype_t	;text
+	.byte	1	;static
+	.address	wrkdat
+wrkdat:	.blkb	20
+	.byte	0,0,0,0	;safety
+;
+; DESCRIPTOR FOR NODE$FWAN: DEVICE NAME
+	.ALIGN LONG
+DDFNM:	.WORD	 255.	;LENGTH
+DDFTP:	.BYTE	DSC$K_DTYPE_T	;TEXT TYPE
+	.BYTE	1	; STATIC STRING
+DDFNA:	.ADDRESS	DDFNMD
+DDFNMD:	.BLKB	256.	; DATA AREA
+DDCHN:	.LONG	0
+VDCHN:	.LONG	0	;CHANNEL HOLDERS
+P1DSC:	.ASCID	/UNIT/
+P2DSC:	.ASCID	/FNAM/
+frcdsc:	.ascid	/FRACTION/	;fract. of file to extend by
+minds:	.ascid	/MINIMUM/	;min extent
+maxds:	.ascid	/MAXIMUM/	;max extent
+adods:	.ascid	/ALDEFONLY/	;default-ext. mod only
+deads:	.ascid	/DEASSIGN/	;deassign jf: from disk (turn off)
+cbtds:	.ascid	/CBT/
+verds:	.ascid	/VERIFY/	;retry errors on r/w
+	.EVEN
+; UCB data area
+verfg:	.long	0
+deafg:	.long	0
+cbtct:	.long	1	;/cbt:n contig best tries every n opens
+frac:	.long	3
+min:	.long	10
+max:	.long	2000
+adflg:	.long	0	;set flg if aldef only
+HSTUCB:	.LONG	0	;SERVED UCB ADDRESS
+VDUCB: .LONG 0		;LOCAL FW/FQ/FD UCB ADDRESS
+;
+;
+ERROR:	.LONG	2
+MESS:	.LONG	SS$_ABORT
+	.LONG	0
+
+	.PSECT	ADVDD_CODE,RD,NOWRT,EXE,LONG
+	.ENTRY	ADVDD,^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	clrl	adflg
+	clrl	deafg	;not deassign
+	movl	#1,cbtct	;contig best try every time
+	movl	#7,frac
+	movl	#10,min
+	movl	#1000,max
+	pushab	deads
+	calls	#1,g^cli$present
+	cmpl	r0,#cli$_present	;there?
+	bneq	100$
+	incl	deafg
+100$:
+	clrl	verfg
+	pushab	verds		;/verify?
+	calls	#1,g^cli$present
+	cmpl	r0,#cli$_present	;there?
+	bneq	1001$
+	incl	verfg
+1001$:
+
+	PUSHAB	WRK		;PUSH LONGWORD ADDR FOR RETLENGTH
+	PUSHAB	VDFNM		;ADDRESS OF DESCRIPTOR TO RETURN
+	PUSHAB	P1DSC		; GET P1 (FDn: UNIT)
+	CALLS	#3,G^CLI$GET_VALUE	;GET VALUE OF NAME TO VDFNM
+	ON_ERR	ADVDD_EXIT
+;	tstl	deafg		;/deas? no need for 2nd file
+;	bneq	40$
+	PUSHAB	WRK			; GET 2ND FILE (served unit)
+	PUSHAB	DDFNM			; & ITS DESCRIPTOR
+	PUSHAB	P2DSC			; & PARAMETER NAME 'P2'
+	CALLS	#3,G^CLI$GET_VALUE	; GET FNM
+	ON_ERR	ADVDD_EXIT
+	$ASSIGN_S -			; Get a channel to the 
+		DEVNAM=DDFNM,-		; device for host file
+		CHAN=DDCHN
+	ON_ERR	ADVDD_EXIT
+; LET ERRORS BY FOR THIS SINCE WE GET OUR INFO VIA OPEN ANYWAY SO
+; CHANNEL REALLY DOESN'T HAVE TO BE THERE.
+; Get the physical device name, and see if this device has an owner.
+; (We must do this so we can get the host UCB address)
+	$GETDVI_S -
+		CHAN=ddchn,-		; Command line has device name.
+		ITMLST=DEV_ITEM_LIST
+	BLBS	R0,40$
+	BRW	advdd_EXIT
+40$:
+290$:
+; MUST HAVE ASSIGNMENT TO VD: UNIT IN ANY CASE.
+	$ASSIGN_S -
+		DEVNAM=VDFNM,-		; GET CHANNEL FOR VDn:
+		CHAN=VDCHN
+	ON_ERR	ADVDD_EXIT		; SKIP OUT IF ERROR
+	$GETDVI_S -
+		CHAN=vdchn,-		; Command line has device name.
+		ITMLST=VDV_ITEM_LIST
+	BLBS	R0,140$
+	BRW	advdd_EXIT
+140$:
+; Here do the real work in kernel mode, having now the device
+; descriptions and channels to the devces even!
+	tstl	deafg		;if /deas, do $qio, then knl work
+	bneq	307$
+	$CMKRNL_S -
+		ROUTIN=BASHUCB,ARGLST=K_ARG
+	CMPL	R0,#SS$_NORMAL				;Any errors?
+	BEQL	300$					;No, skip error routine
+	MOVL	R0,MESS					;Move error to message
+;;;	BRW	300$
+301$:
+; ERROR RETURN ... CLOSE FAB & LEAVE
+	$PUTMSG_S	MSGVEC=ERROR			;Pump out error message
+; deassign logic
+307$:	movl	#2,bufg	;unmung fcn
+	$qiow_s chan=vdchn,efn=#4,func=#<io$_format+128>,iosb=iosb,-
+	p1=bufg,p2=#busz
+; after unbashing the current host, take the JF unit offline
+;	$CMKRNL_S -
+;		ROUTIN=BASHUCB,ARGLST=K_ARG
+	$DASSGN_S CHAN=VDCHN
+	ret
+300$:
+; Since that worked OK, send the format function to the JF unit to
+; finish bashing the host disk.
+	movl	#1,bufg		;set to bash device
+	$qiow_s chan=vdchn,efn=#4,func=#<io$_format+128>,iosb=iosb,-
+	p1=bufg,p2=#busz
+; BE SURE WE DON'T LEAVE THE CHANNELS ASSIGNED TO THE DEVICES
+; EITHER...
+303$:	$DASSGN_S CHAN=VDCHN
+	$DASSGN_S CHAN=DDCHN			;CLEAN UP I/O CHANNELS
+	RET
+advdd_exit:
+	RET
+;
+; KERNEL ARG LIST
+K_ARG:
+	.LONG	2			;2 ARGS: HOST-DVC NAME, VD DVC NAME
+	.ADDRESS	DEV_BUF_DESC
+	.ADDRESS	VDV_BUF_DESC
+;	.ADDRESS	DDFNM
+;	.ADDRESS	VDFNM
+
+; BASHUCB - AREA TO MESS UP UCB WITH OUR FILE DATA
+; BEWARE BEWARE BEWARE
+;  runs in KERNEL mode ... HAS to be right.
+;  Saves lots of registers so they're free...
+	.ENTRY	BASHUCB,^M<R2,R3,R4,R5,R6,R7,R8,r9,r10,r11>
+; TAKEN LOOSELY FROM ZERO.MAR
+	.if	ndf,vms$v5
+	MOVL	G^SCH$GL_CURPCB,R4	;;; NEED OUR PCB
+	.iff
+	MOVL	G^CTL$GL_PCB,R4		;;; NEED OUR PCB (VMS V5)
+	.endc
+	clrl	hstucb
+	JSB	G^SCH$IOLOCKW		;;; LOCK I/O DATABASE
+	tstl	deafg	;/deas needs no 2nd assign
+	bneq	90$
+	MOVL	4(AP),R1		;;; ADDRESS DVC NAME DESCRIPTORS (target)
+	JSB	G^IOC$SEARCHDEV		;;; GET UCB ADDRESS INTO R1 for tgt
+	BLBS	R0,660$
+	BRW	BSH_XIT
+660$:
+;
+80$:
+	MOVL	R1,HSTUCB		;;; SAVE HOST UCB ADDRESS
+	movl	r1,r11			;use r11 for target UCB
+	BEQL	166$			;;; ... BUT ZERO UCB ADDRESS LOOKS BAAAAD
+90$:
+	MOVL	8(AP),R1		;;; ADDRESS VDn NAME DESCRIPTORS
+	JSB	G^IOC$SEARCHDEV		;;; GET UCB ADDRESS INTO R1
+	BLBS	R0,160$
+	BRW	BSH_XIT
+160$:
+	movl	r1,vducb		;;; store vd ucb
+	movl	r1,r5			;use r5 for local ucb (JF dvc)
+	beql	166$			;fail if no ucb...
+; BUGGER THE UCB
+; ASSUMES FILE LBN AND SIZE ALREADY RECORDED
+; ALSO ASSUMES THAT ZERO LBN OR SIZE MEANS THIS ENTRY NEVER CALLED.
+; (REALLY ONLY WORRY ABOUT ZERO SIZE; IF WE OVERMAP A REAL DEVICE
+; THEN ZERO INITIAL LBN COULD BE OK.)
+;
+; CHECK REF COUNT FIRST... ONLY CAN GET AWAY WITH THIS ON DEVICE
+; NOBODY'S USING...
+; .. fake this since device may have count messed by advd somehow
+; but will be allocated if mounted.
+; ... for now ...
+554$:
+;	CMPW	UCB$W_REFC(R1),#1	;;; CHECK COUNT VS 1 FOR THIS
+;	blssu	164$		;if 1 or less, go on.
+	brb	164$	;(it doersn't matter ifthe local disk is in
+			; use...we don't bother it.)
+166$:	brw	165$
+164$:
+; check that both UCBs are disk devices at least!
+; We can't be sure all the device characteristics will be the
+; same for the local device and the MSCP served remote one (and
+; in fact they are not all alike!) but at least they had better
+; both be disks or this function is not even approximately
+; correct and will probably be quickly fatal to the system.
+	tstl	deafg	;/deas? r11 invalid.
+	beql	1164$
+; for deassign, must set JF offline so it can be turned on again
+; but just do all work here & scram.
+	cmpl	ucb$l_icsign(r5),#magic	;got right magic no.?
+	bneq	1176$		;if not then not JFdriver
+; clear online & valid on JF dvc for next time
+	.if	df,evax
+	bicl	#ucb$m_online,ucb$l_sts(r5)	;set jf unit online
+	bicl	#ucb$m_valid,ucb$l_sts(r5)	; & valid
+	.iff
+	bicw	#ucb$m_online,ucb$w_sts(r5)	;set jf unit online
+	bicw	#ucb$m_valid,ucb$w_sts(r5)	; & valid
+	.endc
+1166$:	movl	#1,r0
+	brw	bsh_xit		;unlock & leave
+1176$:	movl	#ss$_drverr,r0
+	brw	bsh_xit
+1164$:
+	cmpb	ucb$b_devclass(r11),#dc$_disk
+	bneq	1176$			;if not disk exit now.
+	cmpl	ucb$l_icsign(r5),#magic	;got right magic no.?
+	bneq	1176$		;if not then not JFdriver
+; Be sure the unit is not online yet. If it is, someone else will
+; be using its UCB so we don't want to screw this up.
+	.if	df,evax
+	bitl	#ucb$m_online,ucb$l_sts(r5)	;set jf unit online
+	bneq	166$
+	.iff
+	bitw	#ucb$m_online,ucb$w_sts(r5)	;set jf unit online
+	bneq	166$
+	.endc
+; Looks like we're gonna do the assign. Store backpointer for driver to
+; check before unmung.
+	movl	r11,ucb$l_vict(r5)		;store ucb of victim in JF ucb
+;;;must make maxbcnt and fipl match!!!
+; Fork IPL will be same but maxbcnt often will not. Fix that here.
+;	movb	ucb$b_fipl(r5),ucb$b_fipl(r11)	;;;ensure fork levels match
+	movl	ucb$l_maxbcnt(r5),ucb$l_maxbcnt(r11) ;;;store max bytes as a word
+; Now get on with the tricky part, replacing the DDT. Do this
+; at device IPL so we have reasonable certainty nobody will mess with
+; these structures until we get them all put into proper order.
+; The DDT structure is 64 bytes long, so grab a block of pool of 64 bytes
+; size and copy the existing DDT into it.
+; (it is possible to save the old address if the conditional is used)
+	.if	df,evax
+	bisl	#ucb$m_online,ucb$l_sts(r5)	;set jf unit online
+	bisl	#ucb$m_valid,ucb$l_sts(r5)	; & valid
+	.iff
+	bisw	#ucb$m_online,ucb$w_sts(r5)	;set jf unit online
+	bisw	#ucb$m_valid,ucb$w_sts(r5)	; & valid
+	.endc
+	movl	ucb$l_maxblock(r11),ucb$l_maxblock(r5)	;copy geom for luck
+	movw	ucb$w_cylinders(r11),ucb$w_cylinders(r5)
+	movb	ucb$b_sectors(r11),ucb$b_sectors(r5)
+	movb	ucb$b_tracks(r11),ucb$b_tracks(r5)
+	clrl	ucb$l_ctlflgs(r5)
+	tstl	verfg		;/verify?
+	beql	61$		;if not branch
+	bisl	#^x100000,ucb$l_ctlflgs(r5)	;say to retry errors
+61$:
+1000$:
+165$:
+	MOVL	#SS$_NORMAL,R0
+BSH_XIT:
+	PUSHL	R0
+	JSB	G^SCH$IOUNLOCK		;;; UNLOCK I/O DATABASE (DROP IPL)
+	POPL	R0			;;; REMEMBER R0
+	RET	;;; BACK TO USER MODE NOW
+vms$v5=1
+	.END ADVDD

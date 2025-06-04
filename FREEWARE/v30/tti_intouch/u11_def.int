@@ -1,0 +1,148 @@
+1000 open #1: name 'defs.lis'
+1010 ! get a record
+1015 eof = false
+1020 do
+1030   when exception in
+         line input#1: rec$
+       use
+         eof = true
+       end when
+       if  eof  then exit do
+       IF  REC$[1:1] = CHR$(12)  THEN
+         REC$[1:1]=''
+       END IF
+       if  rec$ = ''  then repeat do
+
+1060   uprec$ = ucase$(rec$)
+
+1070   if  uprec$[1:8] = 'DATABASE'  then
+         gosub new_database
+         repeat do
+       end if
+
+1080   if  uprec$[1:11] = 'RECORD SIZE'   then
+         gosub record_size
+         repeat do
+       end if
+
+1090  if  uprec$[1:3] = 'FLD'  then
+        line input #1: z$
+        repeat do
+      end if
+        ! skip the FLD and the '---' stuff
+
+1100  if  uprec$[1:9] = 'STRUCTURE' then
+        repeat do
+      end if
+
+1110  if  uprec$[1:3] = 'DEF'  then
+        repeat do
+      end if
+
+1120  if  uprec$[1:4] = 'DATE'  then
+        repeat do
+      end if
+
+1125  if  pos(uprec$,"*UNUSED*") > 0 then 
+        repeat do
+      end if
+
+1130  ! here with a normal field line
+
+1150  field_name$ = uprec$[6:13]
+      fpos$ = uprec$[16:18]
+      lpos$ = uprec$[20:22]
+      explain$ = uprec$[24:48]
+      heading$ = uprec$[51:66]
+      spec$ = uprec$[67:77]
+
+1155  gosub fix_field
+
+1160  gosub store_field
+      message database$ + ':  ' + field_name$ + '  ' + explain$
+
+1170  loop
+1180 stop
+
+1190  ! N e w   d a t a b a s e
+       !
+  new_database:
+
+1200  database$ = mid(uprec$, 15,8)
+      if database$ = last_database$ then return
+      last_database$ = database$
+
+1205  close structure st
+      pass 'create/fdl=define ' + database$ + '.def'
+      open structure st: name 'tti_run:define', datafile database$+'.def', &
+                         access outin, lock
+
+1208  message 'Working on ' + database$
+
+1210  return
+
+1220	! G e t   R e c o r d   S i z e
+	!
+
+   record_size:
+
+1230 record_size = val(mid(uprec$, 14,4))
+1240 return
+
+
+13000  ! F i x   u p   f i e l d s
+  fix_field:
+
+13020  z0% = pos(uprec$, '/N')
+       if  z0% > 0%  then
+         numflg$ = 'Y'
+         scale% = val(uprec$[z0%+3%:z0%+6%])
+       else
+         numflg$ = 'N'
+         scale%  = 0
+       end if
+13030  fpos% = val(fpos$)
+       flen% = (val(lpos$)-fpos%)+1%
+
+13050  do
+         z0% = pos(field_name$, '.')
+         if  z0% > 0%  then
+           field_name$[z0%:z0%] = '_'
+           repeat do
+         end if
+       end do
+
+13060  z0% = pos(uprec$, '/LC')
+       if  z0% > 0%  then
+         ucflg$ = 'N'
+       else
+         ucflg$ = 'Y'
+       end if
+
+13099  return
+
+
+13100  ! S t o r e   n e w   f i e l d
+  store_field:
+
+13120  add structure st
+13150    let st(name)  = field_name$
+         let st(desc)  = explain$
+         let st(first) = fpos%
+         let st(len)   = flen%
+         let st(read)  = 'N'
+         let st(write) = 'N'
+         let st(dtype) = 'CH'
+         let st(num)   = numflg$
+         let st(scale) = scale%
+         let st(rj)    = numflg$
+         let st(zf)    = 'N'
+         let st(zs)    = 'N'
+         let st(uc)    = ucflg$
+         let st(date)  = 'N'
+         let st(df)    = 'MDY'
+13170  end add
+
+13199  return
+
+

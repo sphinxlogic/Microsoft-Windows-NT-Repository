@@ -1,0 +1,99 @@
+Article 152503 of comp.os.vms:
+In article <3203bb87.27977719@news.concentric.net>, jderman@cris.com (Jon Derman) writes:
+>There is a web page that regularly posts memos that many of my users
+>need to see.  Typically, one would access the memos by going to a page
+>that contains a table-of-contents (in an html table format).  You look
+>at the table and see if there are any new memos posted.  If there are,
+>you choose the link to that memo.  The links are in a standard format,
+>like  memo9601.htm, memo9602.htm, memo9603.htm, etc.
+>
+>I would very much like to automate this process and be able to
+>automatically d/l new memos whenever they are posted and forward them
+>to all my users that need to see them.  I figure it would be much
+>easier if the memos were posted to an FTP area rather than a web page,
+>but no such luck.  So, in lieu of FTP...
+>
+>What I would really like to do is set up an automated process using
+>the VAX, that regularly checks the table-of-contents page and looks
+>for anything new, goes to the link, and saves it in a file.  Or
+>perhaps it would be easier to forget about looking at the
+>table-of-contents and just save everything using some kind of wildcard
+>logic (i.e., memo96*.htm).
+>
+>I would then forward any new memos to my mailing list.
+>
+>Do you think I can do this?  Would I be able to set up some kind of
+>script with Lynx, perhaps?  Any suggestions would be appreciated.
+
+
+$ perl   !Here I ask DCL to invoke the "perl" foreign symbol
+$ deck/dollars="$$Not-in-perl$$" here I ask DCL to read rest of file as input
+#!/usr/bin/perl
+use LWP::Simple;
+
+$url = "http://www.foobar.com/table.html";
+$local_copy = "table.html";
+
+&getit($url,$local_copy);
+
+open(F, "$local_copy");
+@file_contents = <F>;
+close(F);
+
+for (@file_contents) {
+  if (/(memo\d+\.htm)/) { 
+      $local_copy = $1;
+      $nexturl = $url;
+      $nexturl =~ s/table.html/$local_copy/;
+      &getit($nexturl,$local_copy);
+  }
+}
+
+sub getit {
+    my ($url, $local_copy) = @_;
+    getstore ("$url", "$local_copy");
+    if ($@) {
+      print "there was a url retrieve error for $url\nthe error message:\n$@\n";
+      exit;
+    }
+}
+__END__
+
+That should make TABLE.HTM, MEMO9601.HTM, etc all in your directory. The perl 
+script will require fine tuning based on the other end. There are a number of 
+other perl scripts that do a similar thing such as at:
+
+  http://www.cae.wisc.edu/~ballard/projects/wwwgrab.html
+
+Furhter information on the LWP modules is obtainable from:
+
+  http://www.sn.no/libwww-perl/
+
+Further html munging ideas can be had from:
+
+  http://www.perl.com/perl/scripts/html-hacking.html
+
+Be sure when compiling perl5 for your VMS machine to specify the socket option. 
+The easiest way to do this is through the SOCKETSHR library:
+
+ ftp://ftp.ifn.ing.tu-bs.de/vms/socketshr
+
+which in turn makes use of netlib:
+
+ http://www.wku.edu/www/madgoat/netlib.html
+
+The socket option can be specified when building perl 5 like this:
+
+  MMS/descrip=[.vms]/macro="socket=1"               !e.g. for VAX & VAXC
+
+  MMS/descrip=[.vms]/macro=("__AXP__=1","socket=1") !e.g. for Alpha
+
+Further detail on compiling perl5 for VMS can be found at:
+
+ http://w4.lns.cornell.edu/~pvhp/perl/VMS.html
+
+Peter Prymmer
+pvhp@lns62.lns.cornell.edu
+
+
+

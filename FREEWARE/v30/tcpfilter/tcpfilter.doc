@@ -1,0 +1,53 @@
+TCPFILTER est un programme permettant de filtrer les acces sortants a travers
+TCP/IP.
+chaque ouverture d'appel sortant est verifié avec une table d'adresses,
+et validé ou interdit.
+la validation de l'appel peut se faire de deux manières: par ACL, ou par image.
+
+l'image TCPFILTER.exe lit un fichier pointe par le nom logique
+TCP_SECURITY$CFG, par defaut sur SYS$INPUT:
+le fichier contient des lignes de la forme suivante:
+access xx.xx.xx.xx [mask yy.yy.yy.yy] [port zzz] acl (identifier=machin, access=outgoing)
+access xx.xx.xx.xx [mask yy.yy.yy.yy] [port zzz] image sys$system:ucx$ftpd [outgoing/none]
+protection [system:o] [owner:o] [group:o] [world:o] ! default: system:O
+owner moi	! default: owner system
+loadcode 0	! par defaut; toutes autres valeurs réservées pour le developpement !!
+
+les adresses sont explorees sequentiellement jusqu'a arriver au bout de la liste
+si plusieurs couples address/mask/port sont identiques, alors les informations
+d'access sont groupees avec la premiere declaration de address/mask/port.
+En cas de correspondance entre l'adresse appelée et la table, si il s'agit
+d'une acl, l'acces final est déterminé par cette ACL: on ne poursuit
+pas la recherche dans la liste. S'il s'agit d'une image, si elle correspond,
+alors l'acces est determine l'acces associe a cette image. Si l'image
+ne correspond pas, alors on continue la recherche sequentielle dans la table.
+si aucune entrée ne convient, alors l'acces est déterminé par la protection
+et owner dans la table. L'accès loopback (127.x.x.x) est toujours autorisé
+toutes les syntaxes autorisent aussi un access Incoming, malheureusement
+je n'ai pas encore trouvé un moyen de l'implémenter.
+
+exemple de fichier:
+
+access 137.194.0.0 mask 255.255.0.0 acl (identifier=*,access=outgoing)
+access 0.0.0.0 mask 0.0.0.0 acl (identifier=ucx$tcp_user, access=outgoing)
+access 0.0.0.0 mask 0.0.0.0 image ucx$ftpd outgoing
+
+l'access image ucx$ftpd outgoing est necessaire pour autoriser les FTP
+*ENTRANTS* !!! ftpd ouvrant en effet un acces sortant pour transmettre
+les fichiers du vax vers la machine distante !!!!
+--------------------------------------------------------------------------------
+utilisation:
+	apres avoir demarré UCX, ou simplement chargé BGDRIVER, executez
+TCPFILTER. Le programme lit ses donnees sur SYS$INPUT, ou sous le fichier
+pointé par TCP$CONFIG (type .DAT par défaut). Pour changer la configuration,
+il suffit de réexcuter TCPFILTER. Lors du rechargement de bgdriver (relance
+de UCX par example) TCPFILTER est supprimé.
+--------------------------------------------------------------------------------
+installation:
+	restaurer le save-set: backup TCPFILTERxxx.BCK/sav ddcu:[dir...]
+	relinker si necessaire dans le sous-directory [.vax] ou [.alpha]
+--------------------------------------------------------------------------------
+liste des fichiers dans AA.README
+--------------------------------------------------------------------------------
+differences entre 2.2A et 2.2:  faire marcher le mot-cle 'port'
+				faire marcher les lignes de continuation

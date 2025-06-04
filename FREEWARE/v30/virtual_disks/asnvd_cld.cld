@@ -1,0 +1,81 @@
+MODULE ASNVD_CLD
+! Set up VD: units with ADVD, assuming VDDRIVER is already
+! loaded somewhere.
+DEFINE VERB AsnVD
+!   IMAGE sys$system:ASNVD_s264.EXE
+     parameter p1,prompt="VDn:",value(required,type=$device),label=UNIT
+     parameter p2,label=FNAM,prompt="file",value(type=$infile)
+     qualifier ASSIGN
+     qualifier DEASSIGN
+     qualifier SEC64
+     qualifier SEC32
+     qualifier READONLY
+     qualifier REPORT
+     qualifier DEVICE
+     qualifier LBN,value(required,type=$number)
+     qualifier LENGTH,value(required,type=$number)
+     qualifier GEOM,value(required,type=$infile)
+  disallow lbn and report
+  disallow length and report
+  disallow sec64 and sec32
+  disallow device and lbn
+  disallow device and sec64
+  disallow device and sec32
+! Needs CMKRNL at least. Maybe some others.
+! Usage: asnvd/switches vdn: dev:file
+!  where /switches are:
+!  /report  - Tell what file is associated with a virtual disk (omit dev:file arg)
+!  /assign  - Assign a file to a virtual disk unit
+!  /Deassign - Deassign a virtual disk from a file (puts vdn: offline)
+!  /SEC64   - Make vdn: geometry 64 sect/trk, 1 trk/cyl, n cyl
+!  /SEC32   - make vdn: geometry 32 sect/trk, 32 trk/cyl, n cyl
+!   (disks smaller than 65530 blks get 1 sect/trk, 1 trk/cyl, n cyl)
+! default: Use /sec64 geometry unless disk is a "recognized" size in which
+! case emulate geometry of the recognized disk type.
+! Sizes recognized are of types following:
+!;		losiz	hisiz	blks	cyl	trk	sect	id
+!	Geotbl  800,	805,	800,	1,	80,	10	;rx50
+!	Geotbl	4800,	4810,	4800,	200,	2,	12	;RK05
+!	Geotbl	10240,	10250,	10240,	256,	2,	40	;RL01 (sect=256 bytes)
+!	Geotbl	20480,	20500,	20480,	512,	2,	40	;RL02 (Sect=256 bytes)
+!	Geotbl	27126,	27150,	27126,	411,	3,	22	;RK06
+!	GeoTbl	53790,	53830,	53790,	815,	3,	22	;RK07
+!	GeoTbl	131680,	131700,	131680,	823,	5,	32	;RM03
+!	GeoTbl	138672,	138690,	138672,	1024,	8,	17	;RD53
+!	GeoTbl	171798,	171850,	171798,	411,	19,	22	;RP04
+!	GeoTbl	242606,	242650,	242606,	559,	14,	31	;RM80 (or RB80)
+!	GeoTbl	340670,	340720,	340670,	815,	19,	22	;RP06
+!	GeoTbl	500384,	500420,	500384,	823,	19,	32	;RM05
+!	GeoTbl	891072,	891110,	891072,	1248,	14,	51	;RA81
+!	GeoTbl	1008000,1008500,1008000,630,	32,	50	;RP07
+!	GeoTbl	1216665,1216700,1216665,1423,	15,	57	;RA82
+!  where losiz and hisiz are sizes of files recognized as being containers of
+!  the device types, and the other columns are number of blocks, and geometry,
+!  for the devices. the id column is the device being emulated. Note that
+!  the device type will still be dt$_FD1 or dt$_rp06 (in vddriver) but
+! the geometry is determined as above.
+!
+! If the /LBN=nnnnn and /LEN=mmmmm switches are used, a command of form
+! asnvdm6/assign/lbn=nnnnn/len=mmmmm vdn: device:foo
+!  will assign the mmmmm blocks starting with logical block nnnnn on device:
+! as the container for vdn: (e.g. vd2:) instead of requiring a container file.
+! This allows use of foreign mounted or unmounted disks, or any other contiguous
+! space. BE CAREFUL using it though; it can totally clobber file structures
+! if misused.
+! /DEVICE simply assigns the entire container device to the virtual disk
+! and overrides file specifiers AND /LBN specifiers.
+!   When using INIT on emulated disks, use the /NOVERIFY switch to avoid losing
+! a bunch of blocks at the end as "bad" (even though they're OK). Otherwise the
+! failure to find hardware badblock info causes INIT to declare the last
+! track bad.
+!   You can add new devices to the table by modifying the geotbl entries
+! in asnvdm6.mar. Be sure that losiz is at least as large as blks,
+! that blks=trk*sect*cyl, and that hisiz>losiz. Also, enter the table
+! entries in order of size for sensibility. Hisiz can be equal to losiz
+! if that's what you want, but I suggest that it be larger by the
+! value of sect anyway; you'd lose less space. Fictitious geometries
+! can be added, just so cyl fits into a 16 bit word and trk and sect
+! fit into 8 bit bytes. Set the sign bit at your own risk, though.
+! Things might break if the number of sectors/track or tracks/cyl
+! ever exceed 127. Cylinders of 65000 have been tried and do indeed
+! work however.

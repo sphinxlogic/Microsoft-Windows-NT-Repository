@@ -1,0 +1,913 @@
+*** ed:[emacs-19-hacking.src]vmsgmalloc.c	Sat May  6 14:26:38 1995
+--- vmsgmalloc.c	Fri May  5 10:19:48 1995
+***************
+*** 54,57 ****
+--- 54,61 ----
+  #endif
+  
++ #ifdef	HAVE_UNISTD_H
++ #include <unistd.h>
++ #endif
++ 
+  #endif	/* _MALLOC_INTERNAL.  */
+  
+***************
+*** 80,98 ****
+  #ifdef	__STDC__
+  #include <stddef.h>
+  #else
+- #ifdef VMS /* The following are defined in stdio.h, but we need it NOW!
+- 	      But do NOT do it with defines here, for then, VAX C is going
+- 	      to barf when it gets to stdio.h and the typedefs in there! */
+- #ifndef __SIZE_T
+- #define __SIZE_T
+- typedef unsigned int size_t;
+- #endif /* __SIZE_T */
+  typedef int ptrdiff_t;
+! #else /* not VMS */
+! #undef	size_t
+! #define	size_t		unsigned int
+! #undef	ptrdiff_t
+! #define	ptrdiff_t	int
+! #endif /* VMS */
+  #endif /* __STDC__ */
+  
+--- 84,91 ----
+  #ifdef	__STDC__
+  #include <stddef.h>
++ #define	__malloc_size_t size_t
+  #else
+  typedef int ptrdiff_t;
+! #define __malloc_size_t unsigned int
+  #endif /* __STDC__ */
+  
+***************
+*** 155,163 ****
+  	    struct
+  	      {
+! 		size_t nfree;	/* Free fragments in a fragmented block.  */
+! 		size_t first;	/* First free fragment of the block.  */
+  	      } frag;
+  	    /* Size (in blocks) of a large cluster.  */
+! 	    size_t size;
+  	  } info;
+        } busy;
+--- 148,156 ----
+  	    struct
+  	      {
+! 		__malloc_size_t nfree; /* Free frags in a fragmented block.  */
+! 		__malloc_size_t first; /* First free fragment of the block.  */
+  	      } frag;
+  	    /* Size (in blocks) of a large cluster.  */
+! 	    __malloc_size_t size;
+  	  } info;
+        } busy;
+***************
+*** 166,172 ****
+      struct
+        {
+! 	size_t size;		/* Size (in blocks) of a free cluster.  */
+! 	size_t next;		/* Index of next free cluster.  */
+! 	size_t prev;		/* Index of previous free cluster.  */
+        } free;
+    } malloc_info;
+--- 159,165 ----
+      struct
+        {
+! 	__malloc_size_t size;	/* Size (in blocks) of a free cluster.  */
+! 	__malloc_size_t next;	/* Index of next free cluster.  */
+! 	__malloc_size_t prev;	/* Index of previous free cluster.  */
+        } free;
+    } malloc_info;
+***************
+*** 183,190 ****
+  
+  /* Current search index for the heap table.  */
+! extern size_t _heapindex;
+  
+  /* Limit of valid info table indices.  */
+! extern size_t _heaplimit;
+  
+  /* Doubly linked lists of free fragments.  */
+--- 176,183 ----
+  
+  /* Current search index for the heap table.  */
+! extern __malloc_size_t _heapindex;
+  
+  /* Limit of valid info table indices.  */
+! extern __malloc_size_t _heaplimit;
+  
+  /* Doubly linked lists of free fragments.  */
+***************
+*** 208,215 ****
+  
+  /* Instrumentation.  */
+! extern size_t _chunks_used;
+! extern size_t _bytes_used;
+! extern size_t _chunks_free;
+! extern size_t _bytes_free;
+  
+  /* Internal version of `free' used in `morecore' (malloc.c). */
+--- 201,208 ----
+  
+  /* Instrumentation.  */
+! extern __malloc_size_t _chunks_used;
+! extern __malloc_size_t _bytes_used;
+! extern __malloc_size_t _chunks_free;
+! extern __malloc_size_t _bytes_free;
+  
+  /* Internal version of `free' used in `morecore' (malloc.c). */
+***************
+*** 250,267 ****
+  extern __ptr_t (*__realloc_hook) __P ((__ptr_t __ptr, size_t __size));
+  
+! /* Activate a standard collection of debugging hooks.  */
+! extern int mcheck __P ((void (*__func) __P ((void))));
+  
+  /* Activate a standard collection of tracing hooks.  */
+  extern void mtrace __P ((void));
+  
+  /* Statistics available to the user.  */
+  struct mstats
+    {
+!     size_t bytes_total;		/* Total size of the heap. */
+!     size_t chunks_used;		/* Chunks allocated by the user. */
+!     size_t bytes_used;		/* Byte total of user-allocated chunks. */
+!     size_t chunks_free;		/* Chunks in the free list. */
+!     size_t bytes_free;		/* Byte total of chunks in the free list. */
+    };
+  
+--- 243,280 ----
+  extern __ptr_t (*__realloc_hook) __P ((__ptr_t __ptr, size_t __size));
+  
+! /* Return values for `mprobe': these are the kinds of inconsistencies that
+!    `mcheck' enables detection of.  */
+! enum mcheck_status
+!   {
+!     MCHECK_DISABLED = -1,	/* Consistency checking is not turned on.  */
+!     MCHECK_OK,			/* Block is fine.  */
+!     MCHECK_FREE,		/* Block freed twice.  */
+!     MCHECK_HEAD,		/* Memory before the block was clobbered.  */
+!     MCHECK_TAIL			/* Memory after the block was clobbered.  */
+!   };
+! 
+! /* Activate a standard collection of debugging hooks.  This must be called
+!    before `malloc' is ever called.  ABORTFUNC is called with an error code
+!    (see enum above) when an inconsistency is detected.  If ABORTFUNC is
+!    null, the standard function prints on stderr and then calls `abort'.  */
+! extern int mcheck __P ((void (*__abortfunc) __P ((enum mcheck_status))));
+! 
+! /* Check for aberrations in a particular malloc'd block.  You must have
+!    called `mcheck' already.  These are the same checks that `mcheck' does
+!    when you free or reallocate a block.  */
+! extern enum mcheck_status mprobe __P ((__ptr_t __ptr));
+  
+  /* Activate a standard collection of tracing hooks.  */
+  extern void mtrace __P ((void));
++ extern void muntrace __P ((void));
+  
+  /* Statistics available to the user.  */
+  struct mstats
+    {
+!     __malloc_size_t bytes_total; /* Total size of the heap. */
+!     __malloc_size_t chunks_used; /* Chunks allocated by the user. */
+!     __malloc_size_t bytes_used;	/* Byte total of user-allocated chunks. */
+!     __malloc_size_t chunks_free; /* Chunks in the free list. */
+!     __malloc_size_t bytes_free;	/* Byte total of chunks in the free list. */
+    };
+  
+***************
+*** 291,296 ****
+  
+  #endif /* malloc.h  */
+  /* Memory allocator `malloc'.
+!    Copyright 1990, 1991, 1992, 1993 Free Software Foundation
+  		  Written May 1989 by Mike Haertel.
+  
+--- 304,355 ----
+  
+  #endif /* malloc.h  */
++ /* Allocate memory on a page boundary.
++    Copyright (C) 1991, 1992, 1993, 1994 Free Software Foundation, Inc.
++ 
++ This library is free software; you can redistribute it and/or
++ modify it under the terms of the GNU Library General Public License as
++ published by the Free Software Foundation; either version 2 of the
++ License, or (at your option) any later version.
++ 
++ This library is distributed in the hope that it will be useful,
++ but WITHOUT ANY WARRANTY; without even the implied warranty of
++ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ Library General Public License for more details.
++ 
++ You should have received a copy of the GNU Library General Public
++ License along with this library; see the file COPYING.LIB.  If
++ not, write to the Free Software Foundation, Inc., 675 Mass Ave,
++ Cambridge, MA 02139, USA.
++ 
++    The author may be reached (Email) at the address mike@ai.mit.edu,
++    or (US mail) as Mike Haertel c/o Free Software Foundation.  */
++ 
++ #if defined (__GNU_LIBRARY__) || defined (_LIBC)
++ #include <stddef.h>
++ #include <sys/cdefs.h>
++ extern size_t __getpagesize __P ((void));
++ #else
++ #include "getpagesize.h"
++ #define	 __getpagesize()	getpagesize()
++ #endif
++ 
++ #ifndef	_MALLOC_INTERNAL
++ #define	_MALLOC_INTERNAL
++ #include <malloc.h>
++ #endif
++ 
++ static __malloc_size_t pagesize;
++ 
++ __ptr_t
++ valloc (size)
++      __malloc_size_t size;
++ {
++   if (pagesize == 0)
++     pagesize = __getpagesize ();
++ 
++   return memalign (pagesize, size);
++ }
+  /* Memory allocator `malloc'.
+!    Copyright 1990, 1991, 1992, 1993, 1994 Free Software Foundation
+  		  Written May 1989 by Mike Haertel.
+  
+***************
+*** 322,326 ****
+  
+  /* Debugging hook for `malloc'.  */
+! __ptr_t (*__malloc_hook) __P ((size_t __size));
+  
+  /* Pointer to the base of the first block.  */
+--- 381,385 ----
+  
+  /* Debugging hook for `malloc'.  */
+! __ptr_t (*__malloc_hook) __P ((__malloc_size_t __size));
+  
+  /* Pointer to the base of the first block.  */
+***************
+*** 331,341 ****
+  
+  /* Number of info entries.  */
+! static size_t heapsize;
+  
+  /* Search index in the info table.  */
+! size_t _heapindex;
+  
+  /* Limit of valid info table indices.  */
+! size_t _heaplimit;
+  
+  /* Free lists for each fragment size.  */
+--- 390,400 ----
+  
+  /* Number of info entries.  */
+! static __malloc_size_t heapsize;
+  
+  /* Search index in the info table.  */
+! __malloc_size_t _heapindex;
+  
+  /* Limit of valid info table indices.  */
+! __malloc_size_t _heaplimit;
+  
+  /* Free lists for each fragment size.  */
+***************
+*** 343,350 ****
+  
+  /* Instrumentation.  */
+! size_t _chunks_used;
+! size_t _bytes_used;
+! size_t _chunks_free;
+! size_t _bytes_free;
+  
+  /* Are you experienced?  */
+--- 402,409 ----
+  
+  /* Instrumentation.  */
+! __malloc_size_t _chunks_used;
+! __malloc_size_t _bytes_used;
+! __malloc_size_t _chunks_free;
+! __malloc_size_t _bytes_free;
+  
+  /* Are you experienced?  */
+***************
+*** 355,362 ****
+  
+  /* Aligned allocation.  */
+! static __ptr_t align __P ((size_t));
+  static __ptr_t
+  align (size)
+!      size_t size;
+  {
+    __ptr_t result;
+--- 414,421 ----
+  
+  /* Aligned allocation.  */
+! static __ptr_t align __P ((__malloc_size_t));
+  static __ptr_t
+  align (size)
+!      __malloc_size_t size;
+  {
+    __ptr_t result;
+***************
+*** 365,369 ****
+    result = (*__morecore) (size);
+    adj = (unsigned long int) ((unsigned long int) ((char *) result -
+! 						(char *) NULL)) % BLOCKSIZE;
+    if (adj != 0)
+      {
+--- 424,428 ----
+    result = (*__morecore) (size);
+    adj = (unsigned long int) ((unsigned long int) ((char *) result -
+! 						  (char *) NULL)) % BLOCKSIZE;
+    if (adj != 0)
+      {
+***************
+*** 393,396 ****
+--- 452,460 ----
+    _heapindex = 0;
+    _heapbase = (char *) _heapinfo;
++ 
++   /* Account for the _heapinfo block itself in the statistics.  */
++   _bytes_used = heapsize * sizeof (malloc_info);
++   _chunks_used = 1;
++ 
+    __malloc_initialized = 1;
+    return 1;
+***************
+*** 399,410 ****
+  /* Get neatly aligned memory, initializing or
+     growing the heap info table as necessary. */
+! static __ptr_t morecore __P ((size_t));
+  static __ptr_t
+  morecore (size)
+!      size_t size;
+  {
+    __ptr_t result;
+    malloc_info *newinfo, *oldinfo;
+!   size_t newsize;
+  
+    result = align (size);
+--- 463,474 ----
+  /* Get neatly aligned memory, initializing or
+     growing the heap info table as necessary. */
+! static __ptr_t morecore __P ((__malloc_size_t));
+  static __ptr_t
+  morecore (size)
+!      __malloc_size_t size;
+  {
+    __ptr_t result;
+    malloc_info *newinfo, *oldinfo;
+!   __malloc_size_t newsize;
+  
+    result = align (size);
+***************
+*** 413,420 ****
+  
+    /* Check if we need to grow the info table.  */
+!   if ((size_t) BLOCK ((char *) result + size) > heapsize)
+      {
+        newsize = heapsize;
+!       while ((size_t) BLOCK ((char *) result + size) > newsize)
+  	newsize *= 2;
+        newinfo = (malloc_info *) align (newsize * sizeof (malloc_info));
+--- 477,484 ----
+  
+    /* Check if we need to grow the info table.  */
+!   if ((__malloc_size_t) BLOCK ((char *) result + size) > heapsize)
+      {
+        newsize = heapsize;
+!       while ((__malloc_size_t) BLOCK ((char *) result + size) > newsize)
+  	newsize *= 2;
+        newinfo = (malloc_info *) align (newsize * sizeof (malloc_info));
+***************
+*** 424,429 ****
+  	  return NULL;
+  	}
+-       memset (newinfo, 0, newsize * sizeof (malloc_info));
+        memcpy (newinfo, _heapinfo, heapsize * sizeof (malloc_info));
+        oldinfo = _heapinfo;
+        newinfo[BLOCK (oldinfo)].busy.type = 0;
+--- 488,494 ----
+  	  return NULL;
+  	}
+        memcpy (newinfo, _heapinfo, heapsize * sizeof (malloc_info));
++       memset (&newinfo[heapsize], 0,
++ 	      (newsize - heapsize) * sizeof (malloc_info));
+        oldinfo = _heapinfo;
+        newinfo[BLOCK (oldinfo)].busy.type = 0;
+***************
+*** 431,434 ****
+--- 496,502 ----
+  	= BLOCKIFY (heapsize * sizeof (malloc_info));
+        _heapinfo = newinfo;
++       /* Account for the _heapinfo block itself in the statistics.  */
++       _bytes_used += newsize * sizeof (malloc_info);
++       ++_chunks_used;
+        _free_internal (oldinfo);
+        heapsize = newsize;
+***************
+*** 442,450 ****
+  __ptr_t
+  malloc (size)
+!      size_t size;
+  {
+    __ptr_t result;
+!   size_t block, blocks, lastblocks, start;
+!   register size_t i;
+    struct list *next;
+  
+--- 510,518 ----
+  __ptr_t
+  malloc (size)
+!      __malloc_size_t size;
+  {
+    __ptr_t result;
+!   __malloc_size_t block, blocks, lastblocks, start;
+!   register __malloc_size_t i;
+    struct list *next;
+  
+***************
+*** 481,485 ****
+        /* Small allocation to receive a fragment of a block.
+  	 Determine the logarithm to base two of the fragment size. */
+!       register size_t log = 1;
+        --size;
+        while ((size /= 2) != 0)
+--- 549,553 ----
+        /* Small allocation to receive a fragment of a block.
+  	 Determine the logarithm to base two of the fragment size. */
+!       register __malloc_size_t log = 1;
+        --size;
+        while ((size /= 2) != 0)
+***************
+*** 519,523 ****
+  
+  	  /* Link all fragments but the first into the free list.  */
+! 	  for (i = 1; i < (size_t) (BLOCKSIZE >> log); ++i)
+  	    {
+  	      next = (struct list *) ((char *) result + (i << log));
+--- 587,591 ----
+  
+  	  /* Link all fragments but the first into the free list.  */
+! 	  for (i = 1; i < (__malloc_size_t) (BLOCKSIZE >> log); ++i)
+  	    {
+  	      next = (struct list *) ((char *) result + (i << log));
+***************
+*** 576,590 ****
+  		    {
+  		      /* Oops!  It wasn't contiguous after all. */
+! 		      /* This handles the case when _heapinfo moved
+! 			 during the call to morecore () above.  The
+! 			 only way is to make it an allocated block,
+! 			 to immediatelly free it with _free_internal()  */
+! 		      _heapinfo[BLOCK (newcore)].busy.type = 0;
+! 		      _heapinfo[BLOCK (newcore)].busy.info.size
+! 			= blocks - lastblocks;
+! 		      ++_chunks_used;
+! 		      _bytes_used += (blocks - lastblocks) * BLOCKSIZE;
+! 		      _free_internal (newcore);
+! 		      continue;
+  		    }
+  		  else
+--- 644,667 ----
+  		    {
+  		      /* Oops!  It wasn't contiguous after all. */
+! 		      if ((*__morecore) (0) == ADDRESS (block + lastblocks))
+! 			(*__lesscore) (newcore,
+! 				       (blocks - lastblocks) * BLOCKSIZE);
+! 		      else
+! 			{
+! 			  /* This handles the case when _heapinfo moved
+! 			     during the call to morecore () above.  The
+! 			     only way is to make it an allocated block,
+! 			     to immediatelly free it with _free_internal()  */
+! 			  _heapinfo[BLOCK (newcore)].busy.type = 0;
+! 			  _heapinfo[BLOCK (newcore)].busy.info.size
+! 			    = blocks - lastblocks;
+! 			  ++_chunks_used;
+! 			  _bytes_used += (blocks - lastblocks) * BLOCKSIZE;
+! 			  _free_internal (newcore);
+! 			  continue;
+! 			}
+! 		      /* We don't need to do anything here, since it
+! 			 is done a few lines down (after the else part
+! 			 below.  */
+  		    }
+  		  else
+***************
+*** 656,660 ****
+  __ptr_t
+  _malloc (size)
+!      size_t size;
+  {
+    return malloc (size);
+--- 733,737 ----
+  __ptr_t
+  _malloc (size)
+!      __malloc_size_t size;
+  {
+    return malloc (size);
+***************
+*** 671,675 ****
+  _realloc (ptr, size)
+       __ptr_t ptr;
+!      size_t size;
+  {
+    return realloc (ptr, size);
+--- 748,752 ----
+  _realloc (ptr, size)
+       __ptr_t ptr;
+!      __malloc_size_t size;
+  {
+    return realloc (ptr, size);
+***************
+*** 678,682 ****
+  #endif
+  /* Free a block of memory allocated by `malloc'.
+!    Copyright 1990, 1991, 1992 Free Software Foundation
+  		  Written May 1989 by Mike Haertel.
+  
+--- 755,759 ----
+  #endif
+  /* Free a block of memory allocated by `malloc'.
+!    Copyright 1990, 1991, 1992, 1994 Free Software Foundation
+  		  Written May 1989 by Mike Haertel.
+  
+***************
+*** 721,726 ****
+  {
+    int type;
+!   size_t block, blocks;
+!   register size_t i;
+    struct list *prev, *next;
+  
+--- 798,803 ----
+  {
+    int type;
+!   __malloc_size_t block, blocks;
+!   register __malloc_size_t i;
+    struct list *prev, *next;
+  
+***************
+*** 799,803 ****
+  	  && (*__morecore) (0) == ADDRESS (block + blocks))
+  	{
+! 	  register size_t bytes = blocks * BLOCKSIZE;
+  	  _heaplimit -= blocks;
+  	  (*__lesscore) (ADDRESS(block), bytes);
+--- 876,880 ----
+  	  && (*__morecore) (0) == ADDRESS (block + blocks))
+  	{
+! 	  register __malloc_size_t bytes = blocks * BLOCKSIZE;
+  	  _heaplimit -= blocks;
+  	  (*__lesscore) (ADDRESS(block), bytes);
+***************
+*** 831,835 ****
+  	     from the fragment list and free the whole block.  */
+  	  next = prev;
+! 	  for (i = 1; i < (size_t) (BLOCKSIZE >> type); ++i)
+  	    next = next->next;
+  	  prev->prev->next = next;
+--- 908,912 ----
+  	     from the fragment list and free the whole block.  */
+  	  next = prev;
+! 	  for (i = 1; i < (__malloc_size_t) (BLOCKSIZE >> type); ++i)
+  	    next = next->next;
+  	  prev->prev->next = next;
+***************
+*** 903,907 ****
+      _free_internal (ptr);
+  }
+! /* Copyright (C) 1991, 1993 Free Software Foundation, Inc.
+  This file is part of the GNU C Library.
+  
+--- 980,984 ----
+      _free_internal (ptr);
+  }
+! /* Copyright (C) 1991, 1993, 1994 Free Software Foundation, Inc.
+  This file is part of the GNU C Library.
+  
+***************
+*** 926,933 ****
+  #endif
+  
+- #ifndef VMS
+- #undef	cfree
+- #endif
+- 
+  #ifdef _LIBC
+  
+--- 1003,1006 ----
+***************
+*** 935,938 ****
+--- 1008,1013 ----
+  #include <gnu-stabs.h>
+  
++ #undef	cfree
++ 
+  function_alias(cfree, free, void, (ptr),
+  	       DEFUN(cfree, (ptr), PTR ptr))
+***************
+*** 949,953 ****
+  #endif
+  /* Change the size of a block allocated by `malloc'.
+!    Copyright 1990, 1991, 1992, 1993 Free Software Foundation, Inc.
+  		     Written May 1989 by Mike Haertel.
+  
+--- 1024,1028 ----
+  #endif
+  /* Change the size of a block allocated by `malloc'.
+!    Copyright 1990, 1991, 1992, 1993, 1994 Free Software Foundation, Inc.
+  		     Written May 1989 by Mike Haertel.
+  
+***************
+*** 1045,1049 ****
+  
+  /* Debugging hook for realloc.  */
+! __ptr_t (*__realloc_hook) __P ((__ptr_t __ptr, size_t __size));
+  
+  /* Resize the given region to the new size, returning a pointer
+--- 1120,1124 ----
+  
+  /* Debugging hook for realloc.  */
+! __ptr_t (*__realloc_hook) __P ((__ptr_t __ptr, __malloc_size_t __size));
+  
+  /* Resize the given region to the new size, returning a pointer
+***************
+*** 1056,1064 ****
+  realloc (ptr, size)
+       __ptr_t ptr;
+!      size_t size;
+  {
+    __ptr_t result;
+    int type;
+!   size_t block, blocks, oldlimit;
+  
+    if (size == 0)
+--- 1131,1139 ----
+  realloc (ptr, size)
+       __ptr_t ptr;
+!      __malloc_size_t size;
+  {
+    __ptr_t result;
+    int type;
+!   __malloc_size_t block, blocks, oldlimit;
+  
+    if (size == 0)
+***************
+*** 1102,1105 ****
+--- 1177,1184 ----
+  	    = _heapinfo[block].busy.info.size - blocks;
+  	  _heapinfo[block].busy.info.size = blocks;
++ 	  /* We have just created a new chunk by splitting a chunk in two.
++ 	     Now we will free this chunk; increment the statistics counter
++ 	     so it doesn't become wrong when _free_internal decrements it.  */
++ 	  ++_chunks_used;
+  	  _free_internal (ADDRESS (block + blocks));
+  	  result = ptr;
+***************
+*** 1143,1147 ****
+        /* Old size is a fragment; type is logarithm
+  	 to base two of the fragment size.  */
+!       if (size > (size_t) (1 << (type - 1)) && size <= (size_t) (1 << type))
+  	/* The new size is the same kind of fragment.  */
+  	result = ptr;
+--- 1222,1227 ----
+        /* Old size is a fragment; type is logarithm
+  	 to base two of the fragment size.  */
+!       if (size > (__malloc_size_t) (1 << (type - 1)) &&
+! 	  size <= (__malloc_size_t) (1 << type))
+  	/* The new size is the same kind of fragment.  */
+  	result = ptr;
+***************
+*** 1153,1157 ****
+  	  if (result == NULL)
+  	    return NULL;
+! 	  memcpy (result, ptr, min (size, (size_t) 1 << type));
+  	  free (ptr);
+  	}
+--- 1233,1237 ----
+  	  if (result == NULL)
+  	    return NULL;
+! 	  memcpy (result, ptr, min (size, (__malloc_size_t) 1 << type));
+  	  free (ptr);
+  	}
+***************
+*** 1161,1165 ****
+    return result;
+  }
+! /* Copyright (C) 1991, 1992 Free Software Foundation, Inc.
+  
+  This library is free software; you can redistribute it and/or
+--- 1241,1245 ----
+    return result;
+  }
+! /* Copyright (C) 1991, 1992, 1994 Free Software Foundation, Inc.
+  
+  This library is free software; you can redistribute it and/or
+***************
+*** 1190,1195 ****
+  __ptr_t
+  calloc (nmemb, size)
+!      register size_t nmemb;
+!      register size_t size;
+  {
+    register __ptr_t result = malloc (nmemb * size);
+--- 1270,1275 ----
+  __ptr_t
+  calloc (nmemb, size)
+!      register __malloc_size_t nmemb;
+!      register __malloc_size_t size;
+  {
+    register __ptr_t result = malloc (nmemb * size);
+***************
+*** 1200,1204 ****
+    return result;
+  }
+! /* Copyright (C) 1991, 1992, 1993 Free Software Foundation, Inc.
+  This file is part of the GNU C Library.
+  
+--- 1280,1284 ----
+    return result;
+  }
+! /* Copyright (C) 1991, 1992, 1993, 1994 Free Software Foundation, Inc.
+  This file is part of the GNU C Library.
+  
+***************
+*** 1233,1240 ****
+     systems with potentially hostile include files.  */
+  extern __ptr_t __sbrk __P ((int increment));
+- #else
+- #ifdef HPUX8
+- #include <unistd.h>
+- #endif
+  #endif
+  
+--- 1313,1316 ----
+***************
+*** 1284,1288 ****
+--- 1360,1368 ----
+  __ptr_t
+  __default_morecore (increment)
++ #ifdef __STDC__
+       ptrdiff_t increment;
++ #else
++      int increment;
++ #endif
+  {
+    __ptr_t result;
+***************
+*** 1448,1454 ****
+--- 1528,1540 ----
+       see if the system thinks it is where we think it is. */
+    temp = vms_brk_current;
++ #ifdef DEBUG_VMSGMALLOC
++   fprintf (stderr, "$ ");
++ #endif
+    if (temp >= vms_real_heap_start && temp == vms_brk_end)
+      {
+        temp = (__ptr_t) __sbrk (0);
++ #ifdef DEBUG_VMSGMALLOC
++       fprintf (stderr, "__sbrk(0) -> 0x%p\n$ ", temp);
++ #endif
+        if (temp != vms_brk_end)
+  	{
+***************
+*** 1458,1461 ****
+--- 1544,1551 ----
+  	}
+      }
++ #ifdef DEBUG_VMSGMALLOC
++   fprintf (stderr, "vms_brk_current = 0x%p, vms_brk_end = 0x%p\n",
++ 	   vms_brk_current, vms_brk_end);
++ #endif
+    return vms_brk_current;
+  
+***************
+*** 1538,1542 ****
+  /* We express it in chunks of 64Kb, because that's the largest possible
+     page size so far with VMS.  */
+! #define VMS_ALLOCATION_SIZE (65536*6)
+  #endif
+  
+--- 1628,1632 ----
+  /* We express it in chunks of 64Kb, because that's the largest possible
+     page size so far with VMS.  */
+! #define VMS_ALLOCATION_SIZE (65536*9)
+  #endif
+  
+***************
+*** 1621,1629 ****
+  }
+  
+  #ifdef DEBUG_VMSGMALLOC
+  #undef DEBUG_VMSGMALLOC
+  #endif
+  #endif
+! /* Copyright (C) 1991, 1992 Free Software Foundation, Inc.
+  
+  This library is free software; you can redistribute it and/or
+--- 1711,1725 ----
+  }
+  
++ char *
++ start_of_real_heap ()
++ {
++   return vms_real_heap_start;
++ }
++ 
+  #ifdef DEBUG_VMSGMALLOC
+  #undef DEBUG_VMSGMALLOC
+  #endif
+  #endif
+! /* Copyright (C) 1991, 1992, 1993, 1994 Free Software Foundation, Inc.
+  
+  This library is free software; you can redistribute it and/or
+***************
+*** 1649,1654 ****
+  __ptr_t
+  memalign (alignment, size)
+!      size_t alignment;
+!      size_t size;
+  {
+    __ptr_t result;
+--- 1745,1750 ----
+  __ptr_t
+  memalign (alignment, size)
+!      __malloc_size_t alignment;
+!      __malloc_size_t size;
+  {
+    __ptr_t result;
+***************
+*** 1661,1665 ****
+      return NULL;
+    adj = (unsigned long int) ((unsigned long int) ((char *) result -
+! 						(char *) NULL)) % alignment;
+    if (adj != 0)
+      {
+--- 1757,1761 ----
+      return NULL;
+    adj = (unsigned long int) ((unsigned long int) ((char *) result -
+! 						  (char *) NULL)) % alignment;
+    if (adj != 0)
+      {
+***************
+*** 1685,1736 ****
+  
+    return result;
+- }
+- /* Allocate memory on a page boundary.
+-    Copyright (C) 1991, 1992, 1993 Free Software Foundation, Inc.
+- 
+- This library is free software; you can redistribute it and/or
+- modify it under the terms of the GNU Library General Public License as
+- published by the Free Software Foundation; either version 2 of the
+- License, or (at your option) any later version.
+- 
+- This library is distributed in the hope that it will be useful,
+- but WITHOUT ANY WARRANTY; without even the implied warranty of
+- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+- Library General Public License for more details.
+- 
+- You should have received a copy of the GNU Library General Public
+- License along with this library; see the file COPYING.LIB.  If
+- not, write to the Free Software Foundation, Inc., 675 Mass Ave,
+- Cambridge, MA 02139, USA.
+- 
+-    The author may be reached (Email) at the address mike@ai.mit.edu,
+-    or (US mail) as Mike Haertel c/o Free Software Foundation.  */
+- 
+- #if defined (__GNU_LIBRARY__) || defined (_LIBC)
+- #include <stddef.h>
+- #include <sys/cdefs.h>
+- extern size_t __getpagesize __P ((void));
+- #else
+- #include "getpagesize.h"
+- #define	__getpagesize()		getpagesize()
+- #endif
+- 
+- #ifndef	_MALLOC_INTERNAL
+- #define	_MALLOC_INTERNAL
+- #include <malloc.h>
+- #endif
+- 
+- #ifndef VMS			/* With VMS, it's already declared.  */
+- static size_t pagesize;
+- #endif
+- 
+- __ptr_t
+- valloc (size)
+-      size_t size;
+- {
+-   if (pagesize == 0)
+-     pagesize = __getpagesize ();
+- 
+-   return memalign (pagesize, size);
+  }
+  /* Standard debugging hooks for `malloc'.
+--- 1781,1784 ----

@@ -1,0 +1,1381 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980, 1988	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	Generates the MACRO language output from the SDL tree
+author:
+	C.T. Pacy
+date:
+	revised 22-DEC-1980	ctp
+	revised 30-JUN-1982	ls		version 1.5 changes
+	revised 15-AUG-1982	ls		version 1.6 changes
+	revised 04-OCT-1982	ls		version 1.7 changes
+	revised 30-NOV-1982	ls		level 1.7-3 changes
+	revised 07-Apr-1983	kd		to correct the supression of
+						aggregate names for /VMS and to
+						add SDL$LIBRARY: to definition files
+						included below.  Add some comments.
+	revised 02-Aug-1984	kd		Add ident field (1.0)
+
+			C H A N G E    L O G
+
+      Date	| Name	| Description
+________________|_______|______________________________________________________
+   8-Apr-1985	|  kd 	| 2-1  Add named type support.
+________________|_______|______________________________________________________
+    11-Jun-1985	|  kd	| T2.9-0 Make the backend ident be the sdl version
+________________|_______|______________________________________________________
+    21-Aug-1985	|  kd	| T2.9-1 Change comments flag to sdl$v_comment_opt.
+________________|_______|______________________________________________________
+    22-Feb-1987	|  jgw	| T3.1-0 Bug fix #137: Add support for OPTIONAL parameter option.
+________________|_______|______________________________________________________
+    25-Feb-1987	|  jgw	| T3.1-0 Bug fix #138: No .GLOBL for _S macro if VARIABLE
+________________|_______|______________________________________________________
+     9-Mar-1987	|  jgw	| T3.1-1 Corrected macro $name derived for
+		|	|	 an entry point with no ALIAS specified;
+		|	|	 provided support here for LIB$, SCR$, MTH$,
+		|	|	 OTS$, SMG$, DTK$ and STR$ prefixes.  Also:
+		|	|	 made enhancements for LIST parameter option;
+		|	|	 emptied output buffer (buf) after call to
+		|	|	 sdl$putline in "common" section; initialized
+		|	|	 output buffer (buf) to '' at outer-level
+		|	|	 declaration.
+________________|_______|______________________________________________________
+     2-Apr-1987	|  jgw	| X3.1-2 Bumped the version number and switched from T
+		|	|	 to X in the version number, since X is used
+		|	|	 for development releases.
+________________|_______|______________________________________________________
+    01-May-1987	|  jgw	| X3.1-3 Modified pusharg_proc for addition of COMPLEX
+		|	|	 data types.
+________________|_______|______________________________________________________
+    17-May-1987	|  jgw	| X3.1-4 Make sure CHARACTER RTL_STR_DESC is treated
+		|	|	 just like CHARACTER DESCRIPTOR (pusharg_proc
+		|	|	 modified accordingly)
+________________|_______|______________________________________________________
+    22-Jan-1988	|  PG	| X3.2-0 Add CONSTANT STRING
+________________|_______|______________________________________________________
+    02-Feb-1988	|  jg	| X3.2-1 User-defined types.  All this involves here
+		|	|	 is to ignore an Item node with the DECLARED
+		|	|	 attribute.
+________________|_______|______________________________________________________
+    18-Feb-1988	|  jg	| X3.2-2 Add support for conditional compilation and
+		|	|	  LITERAL.
+________________|_______|______________________________________________________
+    29-Jun-1988	|  jgw	| X3.2-3 Fixed macro names generated for ENTRY
+		|	|	  interface definitions without the ALIAS
+		|	|	  clause specified (made these names conform
+		|	|	  to VMS naming conventions).
+________________|_______|______________________________________________________
+    28-Oct-1988	|  jgw	| V3.2-4 Cleared BUF variable immediately after an
+		|	|	  SDL$PUTLINE call in the CASE(NOD$K_MODULNODE)
+		|	|	  section of OUTPUTNODE to prevent garbage from
+		|	|	  being output later.
+________________|_______|______________________________________________________
+    13-FEB-1990 |  WRV  | X3.2-VMS1 Modifiers are members of VMS tools group.
+                |  RHT  |           Added code for file dependency recording for
+                |       |           VMS VDE system builder.
+________________|_______|______________________________________________________
+    16-Jun-1990 |  MAS  | X3.2-VMS2 Change all 32 char var fields to 64 to
+                |       |           avoid trucation on long field names.
+________________|_______|______________________________________________________
+    21-Aug-1991 |  AWF  | X3.2-7  Fixed macro generation for VARYING_ARG
+                |       |         and VARYING RETURNS.  These were modified
+		|	|	  to generate a ".IRP" terminated by a ".ENDR".
+________________|_______|______________________________________________________
+     3-Jun-1992	|  JAK	| EV1-11  Added test for uppercase 'FILL' as well as 'fill'.
+________________|_______|______________________________________________________
+    29-Mar-1993 |  RS   | EV1-22  Don't change module name in the node produced
+		|	|	  by the front end because other back ends may
+		|	|	  need it.
+________________|_______|______________________________________________________
+    20-Oct-1994	|  RC	| EV1-40    Native Alpha port.  See SDLGETFNM.PLI.
+________________|_______|______________________________________________________
+    06-Mar-1996	|  aem	| EV1-52  Fix problem with if statement testing and 
+		|	|	  using typeinfo2 when typeinfo2 is null.
+________________|_______|______________________________________________________
+    05-Jun-1996	|  aem	| EV1-53  Add entries/processing for datatypes 23-36
+		|	|	  to  pusharg_proc procedure.  These datatypes
+		|	|	  were not being processed, resulting in 
+		|	|	  garbage in the Macro defined for the CALLS
+		|	|	  definition for a given ENTRY.
+________________|_______|______________________________________________________
+*/
+%replace MODULE_IDENT by 'EV1-53';
+
+
+sdl$output:	proc (out_file, def_filename, sdl$_shr_data)
+				options(ident(MODULE_IDENT));
+
+
+%include 'SDL$LIBRARY:sdlnodef.in';	/* include node structure definition */
+%include 'SDL$LIBRARY:sdltypdef.in';  	/* include data type definitions */
+%include 'SDL$LIBRARY:sdlshr.in';	/* include error message interface */
+%include 'SDL$LIBRARY:sdlmsgdef.in';	/* include sdl routine declararions */
+%include 'SDL$LIBRARY:sdlgetfnm.in';
+
+ 
+%replace true by '1'b;	
+%replace false by '0'b;
+%replace lang_ext by '.mar';
+%replace lang_name by 'MACRO';	/* Language name for conditional - jg */
+
+
+	dcl def_filename char(132) var;
+	dcl out_file char(128) var ;
+	dcl output_file file output record sequential;
+	dcl buf char(1024) var init('');
+	dcl based_string char(1024) var based;
+	dcl (i, j, trailing_optional_count) fixed bin(31);
+	dcl tab char initial (byte(9));
+	dcl tab2 char(2) initial (byte(9)||byte(9));
+	dcl (origin, space_position, comma_position) fixed bin(31);
+	dcl (temp_name, temp_separator) char(64) var;
+	dcl (trailing_optionals_exist, vms_dummy_name) bit(1);
+	dcl process_conditional bit init (false);		/* jg */
+
+/*** main ***/
+
+/* first open up the output file */
+
+			/* make the default output file name to be the
+			   input source name and concatenate the extension 
+			   for the language */
+	open file (output_file) title (out_file) 
+			environment (default_file_name( def_filename || lang_ext ),
+				     user_open (sdl$getfnm) );
+	outfile = output_file;	/* equate the file with the file variable 
+					in the shared structure */	
+
+	call sdl$header(sdl$_shr_data, '; ','',line_length);
+
+	call outputnode(tree_root->nod$a_flink,tree_root,0);
+
+/* Get the fully resolved language specific output file and
+   and move it the shared data area for the front-end. The reultant
+   name will be recorded as a file dependency for the VDE system builder.
+*/
+	vde_lang_file = sdl$gt_filename;
+ 
+/** print node routine **/
+outputnode:	proc (initp,startp,level);
+  dcl (initp,p,startp,q) ptr;
+  dcl level fixed bin(31);
+  dcl module_name char(128) static var;				/* PG */
+
+  p = initp;
+  do while (p^=startp);
+	goto case(p->nod$b_type);
+ 
+case(nod$k_rootnode):
+	goto common_3;
+case(nod$k_commnode):
+	buf='';
+	goto common;
+case(nod$k_constnode):
+	if sdl$v_vms_opt
+	then
+	   if p->nod$w_datatype = typ$k_char then do;
+	      call sdl$putline(outfile, '.SAVE', line_length);
+	      call sdl$putline(outfile,
+		 '.PSECT'||tab||substr(module_name,1,22)
+		 ||'_STRCONST PIC,CON,REL,NOEXE,GBL,SHR,RD,NOWRT,LONG',
+		 line_length);
+	      buf = '$EQU'||tab||p->nod$t_prefix||'S_'||
+		 p->nod$t_naked||tab||trim(p->nod$l_typeinfo);
+	      call sdl$putline(outfile, buf, line_length);
+	      call sdl$putline(outfile, p->nod$t_name||':', line_length);
+	      call select_delimiter(p->nod$a_typeinfo2->based_string);
+	      buf = '.RESTORE';
+	      end;
+	   else
+            if p->nod$v_mask then
+                buf = '$EQU'||tab||p->nod$t_name||tab||'<^X'||p->nod$t_maskstr||'>';
+            else
+                buf = '$EQU'||tab||p->nod$t_name||tab||trim(p->nod$l_typeinfo);
+	else
+	   if p->nod$w_datatype = typ$k_char then do;
+	      call sdl$putline(outfile, '.SAVE', line_length);
+	      call sdl$putline(outfile,
+		 '.PSECT'||tab||substr(module_name,1,22)
+		 ||'_STRCONST PIC,CON,REL,NOEXE,GBL,SHR,RD,NOWRT,LONG',
+		 line_length);
+	      buf = p->nod$t_prefix||'S_'||
+		 p->nod$t_naked||'''..equ'''||trim(p->nod$l_typeinfo);
+	      call sdl$putline(outfile, buf, line_length);
+	      call sdl$putline(outfile, p->nod$t_name||'''..col''', line_length);
+	      call select_delimiter(p->nod$a_typeinfo2->based_string);
+	      buf = '.RESTORE';
+	      end;
+	   else
+	    if p->nod$v_mask then
+                buf = p->nod$t_name||'''..equ'''||'^X'||p->nod$t_maskstr;
+            else
+                buf = p->nod$t_name||'''..equ'''||trim(p->nod$l_typeinfo);
+	goto common;
+case(nod$k_entrynode):
+	buf='; External entry '||p->nod$t_name;
+dcl (internal_name, external_name, entry_name_prefix) char (34) var ;
+dcl pcnt fixed bin;
+dcl (dollar_pos, required_count) fixed bin init (0);
+dcl starting_list bit;
+%replace maximum_number_of_parameters by 20;
+%replace var_addr_len by 5;
+dcl var_addr_str (var_addr_len) char (128) var static init (
+'		.IF NB $$T2',
+'		$$T1=$$T1+1',
+'		.ENDC',
+'		.ENDR',
+'		.ADDRESS	$$T1');	
+%replace var_push_len by 5;
+dcl var_push_str (var_push_len) char (128) var static init (
+'		.IF NB $$T1',
+'		PUSHL	$$T1',
+'		$$T2=$$T2+1',
+'		.ENDC',
+'		.ENDR');
+%replace trailing_opt1_len by 12;
+dcl trailing_opt1_str (trailing_opt1_len) char (128) var static init (
+'		.IF NB $$T2',
+'		$$PRESENT_FLAG = 1',
+'		.MEXIT',
+'		.IFF',
+'		$$SUPPLIED = $$SUPPLIED - 1',
+'		.ENDC',
+'		.ENDR',
+'		.IF EQUAL $$PRESENT_FLAG',
+'		$$SUPPLIED = 0',
+'		.ENDC',
+'		$$NUMARGS = $$NUMREQARGS + $$SUPPLIED',
+'		.LONG		$$NUMARGS');
+%replace trailing_opt2_len by 10;
+dcl trailing_opt2_str (trailing_opt2_len) char (128) var static init (
+'		.IF EQUAL $$SUPPLIED',
+'		.MEXIT',
+'		.ENDC',
+'		.IF NB $$T2',
+'		.ADDRESS	$$T2',
+'		.IFF',
+'		.LONG		0',
+'		.ENDC',
+'		$$SUPPLIED = $$SUPPLIED - 1',
+'		.ENDR');
+/* check for special case of VMS entry info, including macros for definition
+   and calls */
+
+	if sdl$v_vms_opt
+	    then do;
+		/* make $name label spelling */
+		external_name = p->nod$t_name;
+		if p->nod$v_alias then
+		  internal_name = p->nod$t_naked;
+		else do;
+		 /*
+		  * No ALIAS clause was specified, so construct a
+		  * macro name of the form:
+		  *
+		  *	    $fac_routine
+		  *
+		  */
+		  internal_name = p->nod$t_name;
+   		  dollar_pos = index(internal_name, '$');
+   		  if dollar_pos ^= 0 then do;
+   		      entry_name_prefix =
+   		          translate(substr(internal_name, 1, dollar_pos - 1),
+   				    'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+   				    'abcdefghijklmnopqrstuvwxyz');
+   			  if (entry_name_prefix = 'SYS') then
+   			      internal_name = substr(internal_name, 4,
+						     length(internal_name)-3);
+   			  else
+   			      internal_name = '$' ||
+   			          substr(internal_name, 1, dollar_pos - 1) ||
+   				  '_' || substr(internal_name, dollar_pos + 1,
+   				            length(internal_name) - dollar_pos);
+   		      end;
+   		  else
+		     /*
+		      * No dollar sign is present, so we don't have a
+		      * facility prefix in the specified name.  Therefore,
+		      * just stick an underscore in front of the routine
+		      * name to form the macro name.  VMS Development agrees
+		      * that this is the appropriate convention.
+		      */
+   		      internal_name = '_' || internal_name;
+   		  end;
+
+		/* see if there are any trailing optionals */
+		if p->nod$a_child ^= null() then do; /* if there are parameters */
+		  i = count_parameters (p->nod$a_child);
+		  trailing_optional_count = examine_trailing_parameters (p->nod$a_child);
+		  if (trailing_optional_count = 0) & (^p->nod$a_child->nod$a_blink->nod$v_list) then
+		    trailing_optionals_exist = false;
+		  else
+		    trailing_optionals_exist = true;
+		  required_count = i - trailing_optional_count;
+		  end;
+		else do; /* if there aren't any parameters */
+		    trailing_optional_count = 0;
+		    trailing_optionals_exist = false;
+		    required_count = 0;
+		  end;
+
+		if p->nod$v_link     /* special linkage */
+		then do;
+		call sdl$putline (outfile, ' ',line_length);
+		buf = tab || '.MACRO' || tab || internal_name || tab;
+		/* go down the parameter list putting out macro arg list*/
+		pcnt = outputspell ( p->nod$a_child->nod$a_flink,
+		  p->nod$a_child, comma_proc, true, false, true, 
+		  p->nod$v_variable, required_count, 0);
+		call sdl$putline (outfile, buf,line_length); /* put out macro header */
+		/* put out linkage name as macro call */
+		buf = tab2 || p->nod$t_prefix || tab || substr(internal_name,2,
+			length(internal_name)-1) ||',';
+		/* go down the parameter list for rest of linkage call */
+		pcnt = outputspell ( p->nod$a_child->nod$a_flink,
+		  p->nod$a_child, comma_proc, false, false, false, 
+		  p->nod$v_variable, required_count, 0);
+		call sdl$putline (outfile, buf, line_length);
+		call sdl$putline (outfile, tab || '.ENDM' || tab || internal_name
+				,line_length);
+		buf='';
+		end;
+		else do;	     /* standard vms macros */
+		if  p->nod$a_child^=null() then do;
+
+		/* put out $name_G macro */
+		call sdl$putline (outfile, ' ',line_length);
+		call sdl$putline (outfile, tab || '.MACRO' || tab || internal_name ||
+			'_G' || tab || 'ARGPTR', line_length);
+		call sdl$putline (outfile, tab2 || '.GLOBL' || tab || external_name,
+				line_length);
+		buf = tab2 || 'CALLG' || tab || 'ARGPTR,G^' || external_name;
+		call sdl$putline (outfile, buf, line_length);
+		call sdl$putline (outfile, tab || '.ENDM' || tab || internal_name ||
+					'_G', line_length);
+
+		/* put out $nameDEF macro */
+		call sdl$putline (outfile, ' ',line_length);
+		call sdl$putline (outfile, tab || '.MACRO' || tab || internal_name ||
+				'DEF', line_length);
+		buf = tab2 || '$OFFDEF' || tab || substr(internal_name,2,
+			length(internal_name)-1) || ', <';
+		/* go down the parameter list */
+		pcnt = outputspell ( p->nod$a_child->nod$a_flink,
+		  p->nod$a_child, comma_proc, false, false, false, 
+		  p->nod$v_variable, required_count, 0);
+		call sdl$putline (outfile, buf || '>', line_length);
+		call sdl$putline (outfile, tab || '.ENDM' || tab || internal_name ||
+					'DEF', line_length);
+
+		/* put out $name macro */
+		call sdl$putline (outfile, ' ',line_length);
+		buf = tab || '.MACRO' || tab || internal_name || tab;
+
+		/* go down the parameter list putting out macro arg list*/
+		pcnt = outputspell ( p->nod$a_child->nod$a_flink,
+		   p->nod$a_child, comma_proc, true, true, false, 
+		   p->nod$v_variable, required_count, 0);
+
+		call sdl$putline (outfile, buf,line_length); /* put out macro header */
+		call sdl$putline (outfile, tab2|| internal_name || 'DEF',line_length);
+						/* line to invoke DEF macro */
+		if p->nod$v_variable	/* generate .IRP for var len list */
+		then do;
+		  call sdl$putline (outfile, tab2 || '$$T1 = ' || trim(pcnt-1),
+					 line_length);
+		  buf = tab2 || '.IRP' || tab || '$$T2,<';
+		  call putvarlist ((pcnt));
+		  call sdl$putline (outfile, buf || '>', line_length);
+		  buf = '';
+		  do i = 1 to var_addr_len;
+		    call sdl$putline (outfile, (var_addr_str(i)), line_length);
+		    end;
+		  end;
+		else
+		  if trailing_optionals_exist then do;
+		    call sdl$putline (outfile, tab2 || '$$PRESENT_FLAG = 0',
+				      line_length);
+		    if p->nod$a_child->nod$a_blink->nod$v_list then
+		      if p->nod$a_child->nod$a_blink->nod$v_optional then
+		        call sdl$putline (outfile, tab2 || '$$SUPPLIED = ' ||
+				          trim(maximum_number_of_parameters - required_count),
+				          line_length);
+		      else
+		        call sdl$putline (outfile, tab2 || '$$SUPPLIED = ' ||
+				          trim(maximum_number_of_parameters - (required_count + trailing_optional_count)),
+				          line_length);
+		    else
+		      call sdl$putline (outfile, tab2 || '$$SUPPLIED = ' ||
+				        trim(trailing_optional_count),
+				        line_length);
+		    call sdl$putline (outfile, tab2 || '$$NUMREQARGS = ' ||
+				      trim(required_count),
+				      line_length);
+		    buf = tab2 || '.IRP' || tab || '$$T2,<';
+		    call bak_trailing_optional_list (p->nod$a_child->nod$a_blink,
+						     trailing_optional_count, required_count);
+		    call sdl$putline (outfile, buf || '>', line_length);
+		    buf = '';
+		    do i = 1 to trailing_opt1_len;
+		    call sdl$putline (outfile, (trailing_opt1_str(i)),
+				      line_length);
+		    end; /* do */
+		    end;
+		  else
+		    buf = tab2|| '.LONG' || tab2 || trim(pcnt);
+		if ^trailing_optionals_exist then do;
+		  /* go down the parameter list */
+		  pcnt = outputspell ( p->nod$a_child->nod$a_flink,
+		 	  p->nod$a_child, address_proc, false, false, false, 
+			  p->nod$v_variable, required_count, 0);
+		  call sdl$putline (outfile, buf, line_length);
+		  end; /* if ^trailing_optionals_exist */
+		else do;
+		  q = p->nod$a_child->nod$a_flink;
+		  starting_list = true;
+		  do i = 1 to required_count;
+		    temp_separator = address_proc (q, 0, false, starting_list);
+		    starting_list = false;
+		    buf = buf || temp_separator;
+		    call sdl$putline (outfile, buf, line_length);
+		    buf = '';
+		    q = q->nod$a_flink;
+		  end; /* do i = 1 to ... */
+		  buf = tab2 || '.IRP' || tab || '$$T2,<';
+		  pcnt = outputspell ( q,
+			p->nod$a_child, comma_proc, false, false, false, 
+			p->nod$v_variable, required_count, required_count);
+		  call sdl$putline (outfile, buf || '>', line_length);
+		  buf = '';
+		  do i = 1 to trailing_opt2_len;
+		    call sdl$putline (outfile, (trailing_opt2_str(i)),
+				      line_length);
+		    end; /* do */
+		  end; /* do */
+		call sdl$putline (outfile, tab || '.ENDM' || tab || internal_name,
+				line_length);
+		end;
+
+		/* put out $name_S macro */
+		call sdl$putline (outfile, ' ',line_length);
+		buf = tab || '.MACRO' || tab || internal_name ||
+			'_S ';
+		if  p->nod$a_child^=null() then do;
+		/* if it has parameters, then go down the parameter list */
+			pcnt = outputspell ( p->nod$a_child->nod$a_flink,
+			   p->nod$a_child, comma_proc, true, false, true,
+			   p->nod$v_variable, required_count, 0);
+			end;
+		else pcnt = 0;
+		call sdl$putline (outfile, buf, line_length);
+		buf = tab2 || '.GLOBL' || tab || external_name;
+		call sdl$putline (outfile, buf, line_length);
+		buf = '';
+		if p->nod$v_variable	/* generate .IRP for var len list */
+		then do;
+		  call sdl$putline (outfile, tab2 || '$$T2 = ' || trim(pcnt-1), line_length);
+		  buf = tab2 || '.IRP' || tab || '$$T1,<';
+		  call bakvarlist ((pcnt));
+		  call sdl$putline (outfile, buf || '>', line_length);
+		  buf = '';
+		  do i = 1 to var_push_len;
+		    call sdl$putline (outfile, (var_push_str(i)), line_length);
+		    end;
+		  end;
+		else if trailing_optionals_exist then do;
+		  call sdl$putline (outfile, tab2 || '$$NONESEEN = 1', line_length);
+		  q = p->nod$a_child->nod$a_blink; /* q = last parameter */
+		  if q->nod$v_list then do;
+		    call sdl$putline (outfile, tab2 || '$$T2 = ' ||
+				      trim(maximum_number_of_parameters), line_length); /* initialize arg ctr to maximum */
+		    buf = tab2 || '.IRP' || tab || '$$T9,<';
+		    starting_list = true;
+		    do j = (maximum_number_of_parameters - (required_count + trailing_optional_count)) to 1 by -1;
+		      temp_separator = comma_proc (q, (j + 1), false, starting_list);
+		      starting_list = false;
+		      buf = buf || temp_separator;
+		      end; /* trailing optional LIST parameter loop */
+		    call sdl$putline (outfile, buf || '>', line_length);
+		    buf = '';
+		    call sdl$putline (outfile, tab2 || '.IF B $$T9', line_length);
+		    call sdl$putline (outfile, tab2 || '.IF EQUAL $$NONESEEN', line_length);
+		    call sdl$putline (outfile, tab2 || 'PUSHL' || tab2 || '#0', line_length);
+		    call sdl$putline (outfile, tab2 || '.IFF', line_length);
+		    call sdl$putline (outfile, tab2 || '$$T2 = $$T2 - 1', line_length);
+		    call sdl$putline (outfile, tab2 || '.ENDC', line_length);
+		    call sdl$putline (outfile, tab2 || '.IFF', line_length);
+		    call sdl$putline (outfile, tab2 || '$$NONESEEN = 0', line_length);
+		    temp_separator = pusharg_proc (q, 0, true); /* 0 is dummy argument */
+		    space_position = index(temp_separator, ' ');
+		    if space_position = 0 then
+		      space_position = index(temp_separator, tab);
+		    comma_position = index(temp_separator, ',');
+		    if comma_position ^= 0 then
+		      buf = substr(temp_separator, 1, space_position) || '$$T2' ||
+			    substr(temp_separator, comma_position, (length(temp_separator) - (comma_position - 1)));
+		    else
+		      buf = substr(temp_separator, 1, space_position) || '$$T2';
+		    call sdl$putline (outfile, buf, line_length);
+		    buf = '';
+		    call sdl$putline (outfile, tab2 || '.ENDC', line_length);
+		    call sdl$putline (outfile, tab2 || '.ENDR', line_length);
+		    end; /* if a LIST parameter */
+		  else
+		    call sdl$putline (outfile, tab2 || '$$T2 = ' ||
+				      trim(pcnt), line_length); /* initialize arg ctr to maximum */
+		  do i = 1 to trailing_optional_count;
+		    if q->nod$v_list then
+		      call sdl$putline (outfile, tab2 || '.IF B ' || q->nod$t_name || '1', line_length);
+		    else
+		      call sdl$putline (outfile, tab2 || '.IF B ' || q->nod$t_name, line_length);
+		    call sdl$putline (outfile, tab2 || '.IF EQUAL $$NONESEEN', line_length);
+		    call sdl$putline (outfile, tab2 || 'PUSHL' ||
+				    tab2 || '#0', line_length);
+		    call sdl$putline (outfile, tab2 || '.IFF', line_length);
+		    call sdl$putline (outfile, tab2 || '$$T2 = $$T2 - 1', line_length);
+		    call sdl$putline (outfile, tab2 || '.ENDC', line_length);
+		    call sdl$putline (outfile, tab2 || '.IFF', line_length);
+		    call sdl$putline (outfile, tab2 || '$$NONESEEN = 0', line_length);
+		    temp_separator = pusharg_proc (q, 0, true); /* 0 is dummy argument */
+		    buf = buf || temp_separator;
+		    call sdl$putline (outfile, buf, line_length);
+		    buf = '';
+		    call sdl$putline (outfile, tab2 || '.ENDC', line_length);
+		    q = q->nod$a_blink; /* walk backward along trailing optionals */
+		    end; /* do */
+		  buf = '';
+		  end; /* if trailing_optionals_exist */
+		if  (p->nod$a_child^=null()) then do;
+		/* if it has parameters, then go down the parameter list */
+			q = p->nod$a_child;
+			if p->nod$v_variable then q = q->nod$a_blink;
+			else if trailing_optionals_exist then
+			   /* skip trailing optionals since they are already taken care of */
+			   do i = 1 to trailing_optional_count;
+			     q = q->nod$a_blink;
+			     end; /* else if...do */
+			call outbakspell ( q->nod$a_blink,
+			   p->nod$a_child, pusharg_proc, false);
+			end;
+		call sdl$putline (outfile, buf, line_length);
+		buf = tab2 || 'CALLS' || tab || '#';
+		if p->nod$v_variable | trailing_optionals_exist
+		  then buf = buf || '$$T2' ;
+		  else buf = buf || trim(pcnt);
+		buf = buf || ',G^' || external_name;
+		call sdl$putline (outfile, buf, line_length);
+		call sdl$putline (outfile, tab || '.ENDM' || tab || internal_name ||
+					'_S', line_length);
+		call sdl$putline (outfile, ' ',line_length);
+		buf = '';
+		end;
+		end;
+	goto common;
+case(nod$k_itemnode):
+
+	if p->nod$v_declared then goto common;			/* jg */
+
+	if level = 1 then
+		if (p->nod$w_datatype = typ$k_structure |
+		   p->nod$w_datatype = typ$k_union ) then
+			origin = p->nod$l_typeinfo;
+		else
+			origin = 0;
+	if p->nod$v_userfill & (^p->nod$v_fixed_fldsiz
+		| substr(p->nod$t_naked,1,4)='fill'
+		| substr(p->nod$t_naked,1,4)='FILL')
+	  then	/* skip if user specified fill */
+		goto common_2;
+	if p->nod$v_common then do;
+		call sdl$putline (outfile, tab||'.SAVE',line_length);
+		call sdl$putline (outfile, tab||'.PSECT '||p->nod$t_name||
+		' PIC,OVR,REL,GBL,SHR,NOEXE,RD,WRT,LONG',line_length);
+		if sdl$v_vms_opt
+		  then
+		    buf = '$DEF'||tab||p->nod$t_name||
+		     tab||'.blkb '||trim(p->nod$l_fldsiz);
+		  else
+		    buf = p->nod$t_name||'''..col'''||
+		     tab||'.blkb '||trim(p->nod$l_fldsiz);
+		call sdl$putline (outfile, buf, line_length);
+		call sdl$putline (outfile, tab||'.RESTORE',line_length);
+		end;
+	if p->nod$v_global then do;
+		if sdl$v_vms_opt
+		  then
+		    buf = '$DEF'||tab||p->nod$t_name||
+		     tab||'.blkb '||trim(p->nod$l_fldsiz);
+		  else if sdl$v_global_opt
+		    then buf = p->nod$t_name||'''..col'''||
+		     tab||'.blkb '||trim(p->nod$l_fldsiz);
+		    else buf = tab || '.GLOBL' || tab || p->nod$t_name;
+		call sdl$putline (outfile, buf, line_length);
+		end;
+	buf='';
+	vms_dummy_name = sdl$v_vms_opt &
+			index(p->nod$t_naked,'_FIELDS')	^= 0 |
+			index(p->nod$t_naked,'_BITS') ^= 0 |
+			index(p->nod$t_naked,'_OVERLAY') ^= 0;
+	if p->nod$w_datatype=typ$k_vield & p->nod$l_typeinfo > 1 
+	then
+	  if sdl$v_vms_opt
+	  then do;
+		if ^vms_dummy_name then
+		buf='$EQU'||tab||p->nod$t_prefix||'S_'||p->nod$t_naked||
+		     tab||trim(p->nod$l_typeinfo);
+	  end;
+	  else
+		buf=p->nod$t_prefix||'S_'||p->nod$t_naked||
+		     '''..equ'''||trim(p->nod$l_typeinfo);
+	else
+	    if p->nod$w_datatype=typ$k_structure |
+		   p->nod$w_datatype=typ$k_union |
+		   (p->nod$w_datatype=typ$k_char &
+		   p->nod$l_fldsiz > 1) |
+		   p-> nod$l_fldsiz > 4 |
+		   p->nod$v_dimen  
+	    then
+		if sdl$v_vms_opt
+		then do;
+		    if ^vms_dummy_name 
+		    then
+			buf='$EQU'||tab||p->nod$t_prefix||'S_'||p->nod$t_naked
+				    ||tab||trim(p->nod$l_fldsiz);
+		end;
+	    else
+		buf=p->nod$t_prefix||'S_'||p->nod$t_naked
+			     ||'''..equ'''||trim(p->nod$l_fldsiz);
+
+		/* don't put out size for items with named types */
+		if (p->nod$w_datatype = typ$k_structure |
+		    p->nod$w_datatype = typ$k_union) 
+		    
+		then if p->nod$a_typeinfo2 ^= null() 
+		    then if (p->nod$a_typeinfo2->nod$w_datatype ^= nod$k_typnode)
+			then buf = '';
+
+		if buf^='' 
+		then do;
+		    if length(buf)>line_length then
+		    buf=substr(buf,1,line_length);
+		    call sdl$putline (outfile, buf,line_length);
+		    buf = '';
+		end;
+
+/*	if sdl$v_vms_opt &
+	   p->nod$w_datatype ^= typ$k_structure &
+	   p->nod$w_datatype ^= typ$k_union &
+	   p->nod$w_datatype ^= typ$k_vield
+	  then
+	    buf = '$DEF'||tab||p->nod$t_name||
+		     tab||'.BLKB '||trim(p->nod$l_fldsiz); */
+
+	if ^p->nod$v_userfill   /* FILL not specified */
+	then do;
+		if sdl$v_vms_opt
+        	then do;
+			if level = 1  &   
+				(p->nod$w_datatype = typ$k_structure |
+				 p->nod$w_datatype = typ$k_union) 
+			then
+				go to common;   /* skip SDL aggregate macro */
+
+			buf = '$EQU'||tab||p->nod$t_name|| tab; 
+		 end;
+	 
+		else		/* VMS option not specified */
+			buf=p->nod$t_name||'''..equ''';
+
+		if p->nod$w_datatype=typ$k_vield then
+			buf=buf||trim(p->nod$l_typeinfo2);
+		else
+			buf=buf||trim(origin + p->nod$l_offset);
+	
+		if p->nod$v_global | p->nod$v_common then
+			buf='; '||buf;
+
+	end;
+	
+	goto common;
+
+case(nod$k_modulnode):
+	call sdl$putline (outfile, ' ',line_length);
+	buf=tab||'.MACRO'||tab;
+	if sdl$v_vms_opt
+	then do;
+	  if p->nod$t_name = 'STARLET'
+	  then do;
+	    call sdl$putline (outfile, tab||'.TITLE'||tab||'STARLET', line_length);
+	    buf = '';
+	    temp_name = '';
+	    end;
+	  else do;
+	    temp_name=p->nod$t_name;
+	    if (index(temp_name,'DEF')=length(temp_name) - 2 |
+		index(temp_name,'def')=length(temp_name) - 2 |
+		index(temp_name,'TBL')=length(temp_name) - 2 |
+		index(temp_name,'tbl')=length(temp_name) - 2)
+	    then if index(temp_name,'$') = 1
+		then
+		  temp_name = substr(temp_name,2,length(temp_name)-4);
+		else
+		  temp_name = substr(temp_name,1,length(temp_name)-3);
+/* Comment out the next line because back ends should not modify the */
+/* tree. Not sure why this is here! */
+/*	    p->nod$t_name=temp_name;	*/
+	    module_name = temp_name;				/* PG */
+	    buf = buf ||'$'||temp_name|| 'DEF,$GBL';
+	    call sdl$putline (outfile, buf, line_length);
+	    buf = tab || '$DEFINI' || tab || temp_name || ',$GBL' ;
+	    end;
+	  end;
+	else do;
+	    module_name = p->nod$t_name;			/* PG */
+	    buf = buf ||p->nod$t_name||',..EQU=<=>,..COL=<:';
+	    if sdl$v_global_opt
+	    then buf = buf || ':';
+	    buf = buf || '>';
+	    if p->nod$t_naked ^= '' then
+		buf= fill(buf,40)||'; IDENT '||p->nod$t_naked;
+	    end;
+	call sdl$putline (outfile, buf,line_length);
+	buf = '';
+	if p->nod$a_comment^=null() & sdl$v_comment_opt then 
+		call sdl$putline (outfile, '; '||p->nod$a_comment->based_string,
+		     line_length);
+	call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,level+1);
+	if sdl$v_vms_opt
+	then do;
+	    if temp_name = '' then goto common_3;
+	    buf = tab || '$DEFEND'|| tab || temp_name || ',$GBL,DEF' ;
+	    call sdl$putline (outfile, buf, line_length);
+	    end;
+	call sdl$putline (outfile, tab||'.ENDM',line_length);
+case(nod$k_parmnode): ;
+case(nod$k_objnode): ;
+case(nod$k_headnode): ;
+	goto common_3;
+
+case(nod$k_condnode):						/* jg */
+
+	/* Search for this language in the list */
+
+	q = p->nod$a_typeinfo2->nod$a_flink;
+	do while (^process_conditional & q->nod$b_type = nod$k_objnode);
+	    if q->nod$t_name = lang_name then process_conditional = true;
+	    q = q->nod$a_flink;
+	end;
+
+	/*
+	 * If this language has been found, then children will be processed
+	 * at common_2 at the same level.
+	 *
+	 * Process a comment attached to IFLANGUAGE only if for this language.
+	 */
+	if process_conditional then goto common;
+	else goto common_2;
+
+case(nod$k_litnode):						/* jg */
+
+	/* Process literal node */
+
+	buf = p->nod$a_typeinfo2->based_string;
+	goto common;
+
+common:
+	if p->nod$a_comment^=null() & sdl$v_comment_opt then do;
+		if buf ^= '' then
+			buf = fill(buf,40);
+		buf=buf||'; '||p->nod$a_comment->based_string;
+		end;
+	if length(buf)>line_length then
+		buf=substr(buf,1,line_length);
+	call sdl$putline (outfile, buf,line_length);
+	buf='';
+common_2:
+	if process_conditional then do;				/* jg */
+	    process_conditional = false;
+	    call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,
+				level);
+	    end;
+
+	else if p->nod$a_child^=null() & p->nod$b_type ^= nod$k_condnode then
+		call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,level+1);
+common_3:
+	p = p->nod$a_flink;
+	end;
+    return;
+
+select_delimiter: procedure(string);
+
+  %replace delimiter_list_length by 18;
+  dcl delimiter_list char(delimiter_list_length)
+    static initial('/\''"!@#$%^&*-=+_|?');
+  dcl delimiter char(1);
+  dcl string char(1024) var;
+  dcl (first,i,j) fixed bin(31);
+
+  /* if the string is blank, exit */
+  if string = '' then return;
+
+  /* set the first delimiter break to none */
+  first = -1;
+
+  /* pick the first delimiter */
+  i=1;
+  delimiter = substr(delimiter_list,i,1);
+
+  /* search the string for the delimiter */
+loop:
+  do j=1 to length(string) by 1;
+
+	if delimiter = substr(string, j, 1) then do;
+
+	  /* string contains delimiter, try next delimiter, and
+	     re-search entire string */
+	  if first = -1 then first = j;
+	  i = i + 1;
+	  if i > delimiter_list_length then do;
+	    if first = 1 then first = 2;
+	    call select_delimiter(substr(string, 1, first-1));
+	    call select_delimiter(substr(string, first));
+	    return;
+	    end;
+	  else do;
+	    delimiter = substr(delimiter_list,i,1);
+	    goto loop;
+	    end;
+
+	  end;
+
+    end;
+
+  buf = tab||'.ASCII '||delimiter||string||delimiter;
+  call sdl$putline(outfile, buf, line_length);
+  end select_delimiter;
+ 
+outputspell : procedure (initp, startp, separator_proc, default_flag,
+	all_default_flag,immed_flag, var_flag, required_count, already_handled_count) returns (fixed bin);
+
+/*
+ * parameters:
+ *		initp	= address of node to output
+ *
+ *		startp	= address of where to stop on outputting list
+ *
+ *		separator_proc	= procedure to supply separator
+ *
+ *		default_flag = flag for default parameter value to be gen'd
+ *
+ *		all_default_flag = flag for zero default parameter value
+ *
+ *		immed_flag = flag for immediate default parameter value
+ *
+ *		var_flag = flag for variable length list
+ *
+ *		required_count = number of parameters less trailing optionals
+ *
+ *		already_handled_count = the number of parameters "already handled", if any,  which should *not*
+ *					be included in the size of the list generated by this routine.  This parameter
+ *					is used to initialize list_length.  Formerly, list_length was always initialized
+ *					locally to 0; this routine (outputspell) is being used not only to generate
+ *					"complete" lists of parameters, but also to generate "partial" parameter lists --
+ *					more specifically, the trailing list of optionals *less* required parameters (which
+ *					are either "already handled" before the call to this routine -- presumably with
+ *					.ADDRESS directives -- or are not necessary in the context of the call).  Make the
+ *					actual parameter 0 if you intend outputspell to generate a complete list of parameters.
+ */
+
+dcl (initp, p, startp) pointer;
+dcl separator_proc entry (pointer, fixed bin, bit(1), bit)
+	returns (char (64) var);
+dcl (default_flag, all_default_flag, immed_flag, var_flag, starting_list, LIST_optionals_in_list) bit(1);
+dcl (already_handled_count, required_count, list_length, num_args, pos_index) fixed bin;
+dcl separator char(64) var;
+
+/* Loop on input name list */
+	p = initp;
+	list_length = already_handled_count;
+	num_args = 0;
+	if p->nod$v_list then
+	  pos_index = 1;
+	else
+	  pos_index = 0;
+	LIST_optionals_in_list = false;
+	starting_list = true;
+
+	do while ((p^=startp | var_flag | startp->nod$a_blink->nod$v_list) & list_length < maximum_number_of_parameters);
+	  if (p=startp) & (p->nod$a_blink->nod$v_list) then do;
+
+	   /*
+	    * If this is the first optional generation of the LIST parameter,
+	    * then initialize the number to be appended to the "base name":
+	    */
+	    if ^LIST_optionals_in_list then
+	      pos_index = 2;
+
+	    LIST_optionals_in_list = true;
+	    separator = separator_proc (p->nod$a_blink, pos_index, var_flag &
+			  (p=startp | p->nod$a_flink=startp), starting_list);
+	    end; /* if we've reached a LIST parameter */
+	  else
+	    separator = separator_proc (p, pos_index, var_flag &
+			  (p=startp | p->nod$a_flink=startp), starting_list);
+
+	  starting_list = false;
+	  buf = buf || separator ;
+	  if default_flag
+	  then if (p->nod$v_default | (all_default_flag & (num_args < required_count)) |
+				      (p->nod$v_optional & (num_args < required_count))) &
+		  (^var_flag | ( p^=startp & p->nod$a_flink^=startp))
+	    then do;
+		buf = buf || '=';
+		if immed_flag & p->nod$v_value
+		   then buf = buf || '#';
+		if p->nod$v_default
+		then buf = buf || trim(p->nod$l_initial);
+		else buf = buf || '0';
+		end;
+	  list_length = list_length + 1;
+	  if p ^= startp
+	  then do;
+	    p = p->nod$a_flink;
+	    if (var_flag | startp->nod$a_blink->nod$v_list) & p = startp
+	    	then pos_index = pos_index+1;
+	    else pos_index=1;
+	    num_args = num_args + 1;
+	    end;
+	  else pos_index = pos_index+1;
+	  end;
+	return (num_args);
+end outputspell;
+
+putvarlist : procedure (pcnt);
+dcl pcnt fixed binary;
+dcl separator char(64) var;
+
+/* Loop on input name list */
+	starting_list = true;
+	do i = pcnt-1 to (maximum_number_of_parameters - 1);
+	  separator = comma_proc (p, i-pcnt+2, true, starting_list);
+	  starting_list = false;
+	  buf = buf || separator;
+	end;
+end putvarlist;
+
+bakvarlist: procedure (pcnt);
+dcl pcnt fixed binary;
+dcl separator char(64) var;
+
+/* Loop on input name list */
+	starting_list = true;
+	do i = (maximum_number_of_parameters - 1) to pcnt-1 by -1;
+	  separator = comma_proc (p, i-pcnt+2, true, starting_list);
+	  starting_list = false;
+	  buf = buf || separator;
+	end;
+end bakvarlist;
+
+bak_trailing_optional_list : procedure (q, trailing_optional_count, required_count);
+
+/*
+ * parameters:
+ *		q = address of last parameter node
+ *
+ *		trailing_optional_count = number of trailing optionals which exist
+ *
+ *		required_count = number of required parameters
+ */
+
+dcl (q,z) pointer;
+dcl separator char(64) var;
+dcl (i, j, trailing_optional_count, required_count, pos_index) fixed bin;
+dcl (starting_list, LIST_optionals_in_list) bit;
+
+	LIST_optionals_in_list = false;
+	z = q;
+	pos_index = 0;
+	/* Loop backward through trailing optionals */
+	if z->nod$v_list then do;
+	  /* First, loop through LIST optionals */
+	  starting_list = true;
+	  do j = (maximum_number_of_parameters - (required_count + trailing_optional_count)) to 1 by -1;
+	    LIST_optionals_in_list = true;
+	    separator = comma_proc (z, (j + 1), false, starting_list);
+	    starting_list = false;
+	    buf = buf || separator;
+	    end; /* loop */
+	  pos_index = 1;
+	  end; /* if a LIST parameter */
+	if LIST_optionals_in_list then
+	  starting_list = false;
+	else
+	  starting_list = true;
+	do i = 1 to trailing_optional_count;
+	  separator = comma_proc (z, pos_index, false, starting_list);
+	  starting_list = false;
+	  buf = buf || separator ;
+	  z = z->nod$a_blink;
+	  pos_index = pos_index + 1;
+	  end; /* do */
+end bak_trailing_optional_list;
+
+outbakspell : procedure (initp, startp, separator_proc, default_flag);
+
+/*
+ * parameters:
+ *		initp	= address of node to output
+ *
+ *		startp	= address of where to stop on outputting list
+ *
+ *		separator_proc	= procedure to supply separator
+ *
+ *		default_flag = flag for default parameter value to be gen'd
+ */
+
+dcl (initp,p,startp) pointer;
+dcl separator_proc entry (pointer, fixed bin, bit) returns (char (64) var);
+dcl default_flag bit;
+dcl separator char(64) var;
+dcl list_length fixed bin;
+
+/* Loop on input name list */
+	p = initp;
+	do while (p^=startp);
+	  separator = separator_proc (p, list_length, false);
+	  buf = buf || separator ;
+	  if default_flag & p->nod$v_default then
+		buf = buf || '=' || trim(p->nod$l_initial);
+	  p = p->nod$a_blink;
+	  end;
+end outbakspell;
+
+count_parameters : procedure (head) returns (fixed bin);
+/*
+* Returns the total number of formal parameters described
+* in the SDL declaration.  This counts LIST parameters
+* as 1 parameter only (i.e., what is returned could be
+* described as the number of "parameter descriptions" in
+* the entry point declaration).
+*/
+dcl (q, head) pointer;
+dcl p_counter fixed bin;
+
+    p_counter = 0;
+    q = head->nod$a_flink;
+    do while (q ^= head);
+      p_counter = p_counter + 1;
+      q = q->nod$a_flink;
+      end; /* do while */
+    return (p_counter);
+
+end count_parameters;
+
+examine_trailing_parameters : procedure (head) returns (fixed bin);
+/*
+* Returns the number of formal trailing optional parameters in the
+* SDL declaration.  LIST parameters count as only 1 parameter -- as
+* in the procedure count_parameters.
+*/
+dcl (q, head) pointer;
+dcl t_counter fixed bin;
+dcl end_trailing_optionals bit;
+
+    t_counter = 0;
+    end_trailing_optionals = false;
+    q = head->nod$a_blink;
+    do while ((q ^= head) & (^end_trailing_optionals));
+      if q->nod$v_optional then
+	t_counter = t_counter + 1;
+      else
+	end_trailing_optionals = true;
+      q = q->nod$a_blink;
+      end; /* do while */
+    return (t_counter);
+
+end examine_trailing_parameters;
+
+comma_proc : procedure (p,i,var_part, starting_list) returns (char (64)var);
+dcl p pointer;
+dcl i fixed bin;
+dcl (var_part, starting_list) bit;
+dcl name char(64) var;
+/* get name */
+	if var_part
+	then name = 'P'||trim(i);
+	else
+	  if p->nod$v_list then
+	    name = p->nod$t_name || trim(i);
+	  else
+	    name = p->nod$t_name;
+/* just return comma within list */
+	if starting_list
+	then return(name);
+	else
+	if length (buf) > 55
+	  then do;
+	    buf = buf || ',-';
+	    call sdl$putline (outfile, buf, line_length);
+	    buf = tab2 || tab;
+	    return(name);
+	    end;
+	else return (',' || name);
+
+end comma_proc;
+
+address_proc : procedure (p, i, var_part, starting_list) returns (char (64) var);
+dcl p pointer;
+dcl i fixed bin;
+dcl (var_part, starting_list) bit;
+dcl name char(64) var;
+
+
+/* just return line separator and .ADDRESS */
+
+	call sdl$putline (outfile, buf, line_length);
+	buf = '';
+	if var_part
+	then do;
+	  name = 'P'||trim(i);
+	  call sdl$putline (outfile, tab2 || '.IF NB ' || name, line_length);
+	  call sdl$putline (outfile, tab2 || '.ADDRESS'|| tab || name, line_length);
+	  return (tab2 || '.ENDC');
+	  end;
+	else
+	  if p->nod$v_list then
+	    return (tab2 || '.ADDRESS'|| tab || p->nod$t_name || '1');
+	  else
+	    return (tab2 || '.ADDRESS'|| tab || p->nod$t_name);
+
+end address_proc;
+
+pusharg_proc : procedure (p,i, trailing_optional) returns (char (64) var);
+dcl p pointer;
+dcl i fixed bin;
+dcl trailing_optional bit;
+dcl push_instr char(64) var;
+dcl two_flag bit init ('0'b);
+
+dcl push_opcode (36) char(64) var static init(
+	'$PUSHADR',
+	'CVTBL',
+	'$PUSHADR',
+	'PUSHL',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'PUSHL',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'CVTWL',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHL',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'CVTBL',
+	'CVTWL',
+	'PUSHL',
+	'$PUSHADR',
+	'$PUSHADR'
+	);
+
+dcl unsigned_opcode (36) char(64) var static init(
+	'$PUSHADR',
+	'MOVZBL',
+	'$PUSHADR',
+	'PUSHL',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'PUSHL',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'MOVZWL',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'PUSHL',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'$PUSHADR',
+	'CVTBL',
+	'CVTWL',
+	'PUSHL',
+	'$PUSHADR',
+	'$PUSHADR'
+	);
+
+dcl context_flag (36) bit static init(
+false,true,true,false,false,true,
+false,true,true,false,true,true,
+true,true,false,false,false,false,
+true,true,true,false,false,false,
+false,true,true,true,false,false,
+true,true,true,false,true,true);
+
+dcl context_string(36) char(64) var static init(
+	'',
+	',CONTEXT=B',
+	',CONTEXT=Q',
+	'',
+	'',
+	',CONTEXT=Q',
+	'',
+	',CONTEXT=Q',
+	',CONTEXT=O',
+	'',
+	',CONTEXT=O',
+	',CONTEXT=Q',
+	',CONTEXT=B',
+	',CONTEXT=W',
+	'',
+	'',
+	'',
+	'',
+	',CONTEXT=O',
+	',CONTEXT=Q',
+	',CONTEXT=O',
+	'',
+	'',
+	'',
+	'',
+	',CONTEXT=Q',
+	',CONTEXT=Q',
+	',CONTEXT=Q',
+	'',
+	'',
+	',CONTEXT=Q',
+	',CONTEXT=B',
+	',CONTEXT=W',
+	'',
+	',CONTEXT=Q',
+	',CONTEXT=Q'
+	);
+
+	if ^sdl$v_alpha_opt
+	   then do;
+		context_string(typ$k_hardware_address) 	= ',CONTEXT=L';
+		context_string(typ$k_hardware_integer)	= ',CONTEXT=L';
+		context_string(typ$k_pointer_hw)     	= ',CONTEXT=L';
+		context_string(typ$k_integer_hw)	= ',CONTEXT=L';
+		end;
+/* compute case from arg context and return appropriate push arg instr */
+	if (p->nod$w_datatype = typ$k_longword |
+	    p->nod$w_datatype = typ$k_word |
+	    p->nod$w_datatype = typ$k_byte)
+	then if p->nod$v_value
+	  then if p->nod$v_unsigned
+	    then push_instr = unsigned_opcode (p->nod$w_datatype);
+	    else push_instr = push_opcode (p->nod$w_datatype);
+	  else push_instr = '$PUSHADR';
+	else push_instr = push_opcode (p->nod$w_datatype);
+	if (p->nod$w_datatype = typ$k_longword & p->nod$v_value &
+	   p->nod$a_blink->nod$w_datatype = typ$k_longword &
+	   p->nod$a_blink->nod$v_value |
+	   p->nod$w_datatype = typ$k_any & p->nod$v_default &
+	   p->nod$a_blink->nod$w_datatype = typ$k_any) & (^trailing_optional) & (^p->nod$v_list)
+	then do;
+	     push_instr = '$PUSHTWO';
+	     two_flag = true;
+	     end;
+	else if ((p->nod$w_datatype = typ$k_longword & p->nod$v_dimen &
+		p->nod$l_hidim=2 | p->nod$w_datatype = typ$k_quadword |
+		p->nod$w_datatype = typ$k_char & (p->nod$v_desc | p->nod$v_rtl_str_desc)) &
+		(p->nod$a_blink->nod$w_datatype = typ$k_longword &
+		 p->nod$a_blink->nod$v_value)) & (^trailing_optional) & (^p->nod$v_list)
+	then do;
+	     push_instr = '$ASNPUSH';
+	     two_flag = true;
+	     end;
+	else if (p->nod$w_datatype = typ$k_longword & p->nod$v_value &
+	   (p->nod$a_blink->nod$w_datatype = typ$k_longword & ^p->nod$v_value |
+	    p->nod$a_blink->nod$w_datatype = typ$k_address)) & (^trailing_optional) & (^p->nod$v_list)
+	then do;
+	     push_instr = '$QIOPUSH';
+	     two_flag = true;
+	     end;
+	if length (push_instr) > 7
+	then push_instr = push_instr || ' ';
+	else push_instr = push_instr || tab ;
+	if p->nod$v_list then
+	  push_instr = push_instr || p->nod$t_name || '1';
+	else
+	  push_instr = push_instr || p->nod$t_name;
+	if two_flag then do;
+	     p = p->nod$a_blink;
+	     push_instr	= push_instr || ',' || p->nod$t_name;
+	     end;
+	else do;
+	  if p->nod$w_datatype = typ$k_longword &
+		p->nod$v_dimen & p->nod$l_hidim = 2
+	    then push_instr = push_instr || ',CONTEXT=Q';
+	  else if p->nod$v_dimen
+	    then push_instr = push_instr || ' ';
+	  else if  context_flag (p->nod$w_datatype) then
+	    if p->nod$v_value
+	    then
+	      push_instr = push_instr || ',-(SP)';
+	    else
+	     push_instr = push_instr || context_string (p->nod$w_datatype);
+	  end;
+	call sdl$putline (outfile, buf,line_length);
+	buf = '';
+	return (tab2 || push_instr);
+end pusharg_proc;
+end outputnode;
+ 
+end sdl$output;

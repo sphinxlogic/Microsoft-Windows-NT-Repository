@@ -1,0 +1,705 @@
+$! ------------------ CUT HERE -----------------------
+$ v='f$verify(f$trnlnm("SHARE_UNPACK_VERIFY"))'
+$!
+$! This archive created:
+$!  Name : VMS-DCLSYM-1_0
+$!  By   : bailey@genetics.upenn.edu
+$!  Date : 17-AUG-1995 19:34:33.79
+$!  Using: VMS_SHARE 8.5-1, (C) 1993 Andy Harper, Kings College London UK
+$!
+$! Credit is due to these people for their original ideas:
+$!    James Gray, Michael Bednarek 
+$!
+$! To unpack this archive:
+$!    Minimum of VMS 4.4 (VAX) / OpenVMS 1.0 (Alpha) is required.
+$!    Remove the headers of the first part, up to `cut here' line.
+$!    Execute file as a command procedure.
+$!
+$! The following file(s) will be created after unpacking:
+$!       1. [.VMS-DCLSYM-1_0]DCLSYM.PM
+$!       2. [.VMS-DCLSYM-1_0]DCLSYM.XS
+$!       3. [.VMS-DCLSYM-1_0]MAKEFILE.PL
+$!       4. [.VMS-DCLSYM-1_0]MANIFEST.
+$!       5. [.VMS-DCLSYM-1_0]README.
+$!       6. [.VMS-DCLSYM-1_0]TEST.PL
+$!
+$ set="set"
+$ set symbol/scope=(nolocal,noglobal)
+$ f="SYS$SCRATCH:."+f$getjpi("","PID")+";"
+$ if f$trnlnm("SHARE_UNPACK") .nes. "" then $ -
+ f=f$parse("SHARE_UNPACK_TEMP",f)
+$ e="write sys$error  ""%UNPACK"", "
+$ w="write sys$output ""%UNPACK"", "
+$ if .not. f$trnlnm("SHARE_UNPACK_LOG") then $ w = "!"
+$ if f$getsyi("CPU") .gt. 127 then $ goto start
+$ ve=f$getsyi("version")
+$ if ve-f$extract(0,1,ve) .ges. "4.4" then $ goto start
+$ e "-E-OLDVER, Must run at least VMS 4.4"
+$ v=f$verify(v)
+$ exit 44
+$unpack:subroutine!P1=file,P2=chksum,P3=attrib,P4=size,P5=fileno,P6=filetotal
+$ if f$parse(P1) .nes. "" then $ goto dirok
+$ dn=f$parse(P1,,,"DIRECTORY")
+$ w "-I-CREDIR, Creating directory ''dn'"
+$ create/dir 'dn'
+$ if $status then $ goto dirok
+$ e "-E-CREDIRFAIL, Unable to create ''dn' File skipped"
+$ delete 'f'*
+$ exit
+$dirok:
+$ x=f$search(P1)
+$ if x .eqs. "" then $ goto file_absent
+$ e "-W-HIGHVERS, Creating higher version of ", P1
+$file_absent:
+$ w "-I-UNPACK, Unpacking ", P5, " of ", P6, " - ", P1, " - ", P4, " Blocks"
+$ n=P1
+$ if P3 .nes. "" then $ n=f
+$ if .not. f$verify() then $ define/user sys$output nl:
+$ EDIT/TPU/NOSEC/NODIS/COM=SYS$INPUT/NOJOURNAL 'f'/OUT='n'
+PROCEDURE GetHex(s,p)LOCAL x1,x2;x1:=INDEX(t,SUBSTR(s,p,1))-1;x2:=INDEX(t,
+SUBSTR(s,p+1,1))-1;RETURN 16*x1+x2;ENDPROCEDURE;PROCEDURE SkipPartsep LOCAL m;
+LOOP m:=MARK(NONE);EXITIF m=END_OF(CURRENT_BUFFER);DELETE(m);EXITIF INDEX(
+ERASE_LINE,"-+-+-+-+-+-+-+-+")=1;ENDLOOP;ENDPROCEDURE;
+PROCEDURE ProcessLine LOCAL c,s,l,b,n,p;s := ERASE_LINE;c := SUBSTR(s,1,1);s :=
+ s-c;IF c = "X" THEN SPLIT_LINE; ENDIF;MOVE_HORIZONTAL(-1);l := LENGTH(s);p :=
+ 1;LOOP EXITIF p > l;c := SUBSTR(s,p,1);p := p+1;CASE c FROM ' ' TO '`' ['`']
+: COPY_TEXT(ASCII(GetHex(s,p))); p:=p+2;[' ']: p:=p+1;[INRANGE,OUTRANGE]
+: COPY_TEXT(c);ENDCASE;ENDLOOP;ENDPROCEDURE;PROCEDURE Decode(b)LOCAL m;
+POSITION(BEGINNING_OF(b));LOOP m:=MARK(NONE);EXITIF m=END_OF(b);DELETE(m);
+IF INDEX(CURRENT_LINE,"+-+-+-+-+-+-+-+-")=1 THEN SkipPartSep;ELSE ProcessLine;
+MOVE_HORIZONTAL(1);ENDIF;ENDLOOP;ENDPROCEDURE;SET(FACILITY_NAME,"UNPACK");SET(
+SUCCESS,OFF);SET(INFORMATIONAL,OFF);t:="0123456789ABCDEF";f:=GET_INFO(
+COMMAND_LINE,"file_name");o:=CREATE_BUFFER(f,f);Decode(o);WRITE_FILE(o,
+GET_INFO(COMMAND_LINE,"output_file"));QUIT;
+$ if p3 .eqs. "" then $ goto dl
+$ open/write fdl &f
+$ write fdl "RECORD"
+$ write fdl P3
+$ close fdl
+$ w "-I-CONVRFM, Converting record format to ", P3
+$ convert/fdl='f' 'f'-1 'f'
+$ fa=f$getdvi(f$parse(f),"ALLDEVNAM")
+$ Pa=f$getdvi(f$parse(P1),"ALLDEVNAM")
+$ if fa .eqs. Pa then $ rename &f 'f$parse(P1)'
+$ if fa .nes. Pa then $ copy &f 'f$parse(P1)'
+$dl: delete 'f'*
+$ checksum 'P1'
+$ if checksum$checksum .nes. P2 then $ -
+  e "-E-CHKSMFAIL, Checksum of ''P1' failed."
+$ exit
+$ endsubroutine
+$start:
+$!
+$ create 'f'
+Xpackage`20VMS::DCLsym;
+X
+X=head1`20NAME
+X
+XVMS::DCLsym`20-`20Perl`20extension`20to`20manipulate`20DCL`20symbols
+X
+X=head1`20SYNOPSIS
+X
+X`20`20tie`20%allsyms,`20VMS::DCLsym;
+X`20`20tie`20%cgisyms,`20VMS::DCLsym,`20'GLOBAL';
+X
+X
+X`20`20$handle`20=`20new`20VMS::DCLsyms;
+X`20`20$value`20=`20$handle->getsym($name);
+X`20`20$handle->setsym($name,$value,'GLOBAL')`20or`20die`20"Can't`20create`20sy
+Vmbol:`20$!`5Cn";
+X`20`20$handle->delsym($name,'LOCAL')`20or`20die`20"Can't`20delete`20symbol:`20
+V$!`5Cn";
+X`20`20$handle->clearcache();
+X
+X=head1`20DESCRIPTION
+X
+XThe`20VMS::DCLsym`20extension`20provides`20access`20to`20DCL`20symbols`20using
+V`20a
+Xtied`20hash`20interface.`20`20This`20allows`20Perl`20scripts`20to`20manipulate
+V`20symbols`20in
+Xa`20manner`20similar`20to`20the`20way`20in`20which`20logical`20names`20are`20m
+Vanipulated`20via
+Xthe`20built-in`20C<%ENV>`20hash.`20`20Alternatively,`20one`20can`20call`20meth
+Vods`20in`20this
+Xpackage`20directly`20to`20read,`20create,`20and`20delete`20symbols.
+X
+X=head2`20Tied`20hash`20interface
+X
+XThis`20interface`20lets`20you`20treat`20the`20DCL`20symbol`20table`20as`20a`20
+VPerl`20associative`20array,
+Xin`20which`20the`20key`20of`20each`20element`20is`20the`20symbol`20name,`20and
+V`20the`20value`20of`20the
+Xelement`20is`20that`20symbol's`20value.`20`20Case`20is`20not`20significant`20i
+Vn`20the`20key`20string,`20as
+XDCL`20converts`20symbol`20names`20to`20uppercase,`20but`20it`20is`20significan
+Vt`20in`20the`20value
+Xstring.`20`20All`20of`20the`20usual`20operations`20on`20associative`20arrays
+V`20are`20supported.`20
+XReading`20an`20element`20retrieves`20the`20current`20value`20of`20the`20symbol
+V,`20assigning`20to`20it
+Xdefines`20a`20new`20symbol`20(or`20overwrites`20the`20old`20value`20of`20an`20
+Vexisting`20symbol),`20and
+Xdeleting`20an`20element`20deletes`20the`20corresponding`20symbol.`20`20Setting
+V`20an`20element`20to
+XC<undef>,`20or`20C<undef>ing`20it`20directly,`20sets`20the`20corresponding`20s
+Vymbol`20to`20the`20null
+Xstring.`20You`20may`20also`20read`20the`20special`20keys`20':GLOBAL'`20and`20'
+V:LOCAL'`20to`20find`20out
+Xwhether`20a`20default`20symbol`20table`20has`20been`20specified`20for`20this
+V`20hash`20(see`20C<table>
+Xbelow),`20or`20set`20either`20or`20these`20keys`20to`20specify`20a`20default
+V`20symbol`20table.
+X
+XWhen`20you`20call`20the`20C<tie>`20function`20to`20bind`20an`20associative`20a
+Vrray`20to`20this`20package,
+Xyou`20may`20specify`20as`20an`20optional`20argument`20the`20symbol`20table`20i
+Vn`20which`20you`20wish`20to
+Xcreate`20and`20delete`20symbols.`20`20If`20the`20argument`20is`20the`20string
+V`20'GLOBAL',`20then`20the
+Xglobal`20symbol`20table`20is`20used;`20any`20other`20string`20causes`20the`20l
+Vocal`20symbol`20table`20to
+Xbe`20used.`20`20Note`20that`20this`20argument`20does`20not`20affect`20attempts
+V`20to`20read`20symbols;`20if
+Xa`20symbol`20with`20the`20specified`20name`20exists`20in`20the`20local`20symbo
+Vl`20table,`20it`20is`20always
+Xreturned`20in`20preference`20to`20a`20symbol`20by`20the`20same`20name`20in`20t
+Vhe`20global`20symbol`20table.
+X
+X=head2`20Object`20interface
+X
+XAlthough`20it's`20less`20convenient`20in`20some`20ways`20than`20the`20tied`20h
+Vash`20interface,`20you
+Xcan`20also`20call`20methods`20directly`20to`20manipulate`20individual`20symbol
+Vs.`20`20In`20some
+Xcases,`20this`20allows`20you`20finer`20control`20than`20using`20a`20tied`20has
+Vh`20aggregate.`20`20The
+Xfollowing`20methods`20are`20supported:
+X
+X=item`20new
+X
+XThis`20creates`20a`20C<VMS::DCLsym>`20object`20which`20can`20be`20used`20as`20
+Va`20handle`20for`20later
+Xmethod`20calls.`20`20The`20single`20optional`20argument`20specifies`20the`20sy
+Vmbol`20table`20used
+Xby`20default`20in`20future`20method`20calls,`20in`20the`20same`20way`20as`20th
+Ve`20optional`20argument`20to
+XC<tie>`20described`20above.
+X
+X=item`20getsym
+X
+XIf`20called`20in`20a`20scalar`20context,`20C<getsym>`20returns`20the`20value
+V`20of`20the`20symbol`20whose
+Xname`20is`20given`20as`20the`20argument`20to`20the`20call,`20or`20C<undef>`20i
+Vf`20no`20such`20symbol
+Xexists.`20`20Symbols`20in`20the`20local`20symbol`20table`20are`20always`20used
+V`20in`20preference`20to
+Xsymbols`20in`20the`20global`20symbol`20table.`20`20If`20called`20in`20an`20arr
+Vay`20context,`20C<getsym>
+Xreturns`20a`20two-element`20list,`20whose`20first`20element`20is`20the`20value
+V`20of`20the`20symbol,`20and
+Xwhose`20second`20element`20is`20the`20string`20'GLOBAL'`20or`20'LOCAL',`20indi
+Vcating`20the`20table
+Xfrom`20which`20the`20symbol's`20value`20was`20read.
+X
+X=item`20setsym
+X
+XThe`20first`20two`20arguments`20taken`20by`20this`20method`20are`20the`20name
+V`20of`20the`20symbol`20and`20the
+Xvalue`20which`20should`20be`20assigned`20to`20it.`20`20The`20optional`20third
+V`20argument`20is`20a`20string
+Xspecifying`20the`20symbol`20table`20to`20be`20used;`20'GLOBAL'`20specifies`20t
+Vhe`20global`20symbol
+Xtable,`20and`20any`20other`20string`20specifies`20the`20local`20symbol`20table
+V.`20`20If`20this`20argument
+Xis`20omitted,`20the`20default`20symbol`20table`20for`20the`20object`20is`20use
+Vd.`20`20C<setsym>`20returns
+XTRUE`20if`20successful,`20and`20FALSE`20otherwise.
+X
+X=item`20delsym
+X
+XThis`20method`20deletes`20the`20symbol`20whose`20name`20is`20given`20as`20the
+V`20first`20argument.`20`20The
+Xoptional`20second`20argument`20specifies`20the`20symbol`20table,`20as`20descri
+Vbed`20above`20under
+XC<setsym>.`20`20It`20returns`20TRUE`20if`20the`20symbol`20was`20successfully
+V`20deleted,`20and`20FALSE
+Xif`20it`20was`20not.
+X
+X=item`20clearcache
+X
+XBecause`20of`20the`20overhead`20associated`20with`20obtaining`20the`20list`20o
+Vf`20defined`20symbols
+Xfor`20the`20tied`20hash`20iterator,`20it`20is`20only`20done`20once,`20and`20th
+Ve`20list`20is`20reused`20for
+Xsubsequent`20iterations.`20`20Changes`20to`20symbols`20made`20through`20this
+V`20package`20are
+Xrecorded,`20but`20in`20the`20rare`20event`20that`20someone`20changes`20the`20p
+Vrocess'`20symbol`20table
+Xfrom`20outside`20(as`20is`20possible`20using`20some`20software`20from`20the`20
+Vnet),`20the`20iterator
+Xwill`20be`20out`20of`20sync`20with`20the`20symbol`20table.`20`20If`20you`20exp
+Vect`20this`20to`20happen,`20you
+Xcan`20reset`20the`20cache`20by`20calling`20this`20method.`20`20In`20addition,
+V`20if`20you`20pass`20a`20FALSE
+Xvalue`20as`20the`20first`20argument,`20caching`20will`20be`20disabled.`20`20It
+V`20can`20be`20reenabled
+Xlater`20by`20calling`20C<clearcache>`20again`20with`20a`20TRUE`20value`20as`20
+Vthe`20first`20argument.
+XIt`20returns`20TRUE`20or`20FALSE`20to`20indicate`20whether`20caching`20was`20p
+Vreviously`20enabled`20or
+Xdisabled,`20respectively.
+X
+XThis`20method`20is`20a`20stopgap`20until`20we`20can`20incorporate`20code`20int
+Vo`20this`20extension`20to
+Xtraverse`20the`20process'`20symbol`20table`20directly,`20so`20it`20may`20disap
+Vpear`20in`20a`20future
+Xversion`20of`20this`20package.
+X
+X=head1`20AUTHOR
+X
+XCharles`20Bailey`20`20bailey@genetics.upenn.edu
+X
+X=head1`20VERSION
+X
+X1.0`20`2017-Aug-1995
+X
+X=head1`20BUGS
+X
+XThe`20list`20of`20symbols`20for`20the`20iterator`20is`20assembled`20by`20spawn
+Ving`20off`20a
+Xsubprocess,`20which`20can`20be`20slow.`20`20Ideally,`20we`20should`20just`20tr
+Vaverse`20the
+Xprocess'`20symbol`20table`20directly`20from`20C.
+X
+X=cut
+X
+Xuse`20Carp;
+Xrequire`20DynaLoader;
+X@ISA`20=`20(`20'DynaLoader'`20);
+X
+X#`20Package`20globals
+X$VERSION`20=`20'1.0';
+X%Locsyms`20=`20(`20':ID'`20=>`20'LOCAL'`20);
+X%Gblsyms`20=`20(`20':ID'`20=>`20'GLOBAL');
+X$DoCache`20=`201;
+X$Cache_set`20=`200;
+X
+X
+X#====>`20OO`20methods
+X
+Xsub`20new`20`7B
+X`20`20my($pkg,$type)`20=`20@_;
+X`20`20bless`20`7B`20TYPE`20=>`20$type`20`7D,`20$pkg;
+X`7D
+X
+Xsub`20DESTROY`20`7B`20`7D
+X
+Xsub`20getsym`20`7B
+X`20`20my($self,$name)`20=`20@_;
+X`20`20my($val,$table);
+X
+X`20`20if`20(($val,$table)`20=`20_getsym($name))`20`7B
+X`20`20`20`20if`20($table`20eq`20'GLOBAL')`20`7B`20$Gblsyms`7B$name`7D`20=`20$v
+Val;`20`7D
+X`20`20`20`20else`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20
+V`7B`20$Locsyms`7B$name`7D`20=`20$val;`20`7D
+X`20`20`7D
+X`20`20wantarray`20?`20($val,$table)`20:`20$val;
+X`7D
+X
+Xsub`20setsym`20`7B
+X`20`20my($self,$name,$val,$table)`20=`20@_;
+X
+X`20`20$table`20=`20$self->`7BTYPE`7D`20unless`20$table;
+X`20`20if`20(_setsym($name,$val,$table))`20`7B
+X`20`20`20`20if`20($table`20eq`20'GLOBAL')`20`7B`20$Gblsyms`7B$name`7D`20=`20$v
+Val;`20`7D
+X`20`20`20`20else`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20
+V`7B`20$Locsyms`7B$name`7D`20=`20$val;`20`7D
+X`20`20`20`201;
+X`20`20`7D
+X`20`20else`20`7B`200;`20`7D
+X`7D
+X`20`20
+Xsub`20delsym`20`7B
+X`20`20my($self,$name,$table)`20=`20@_;
+X
+X`20`20$table`20=`20$self->`7BTYPE`7D`20unless`20$table;
+X`20`20if`20(_delsym($name,$table))`20`7B
+X`20`20`20`20if`20($table`20eq`20'GLOBAL')`20`7B`20delete`20$Gblsyms`7B$name`7D
+V;`20`7D
+X`20`20`20`20else`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20
+V`7B`20delete`20$Locsyms`7B$name`7D;`20`7D
+X`20`20`20`201;
+X`20`20`7D
+X`20`20else`20`7B`200;`20`7D
+X`7D
+X
+Xsub`20clearcache`20`7B
+X`20`20my($self,$perm)`20=`20@_;
+X`20`20my($old);
+X
+X`20`20$Cache_set`20=`200;
+X`20`20%Locsyms`20=`20(`20':ID'`20=>`20'LOCAL');
+X`20`20%Gblsyms`20=`20(`20':ID'`20=>`20'GLOBAL');
+X`20`20$old`20=`20$DoCache;
+X`20`20$DoCache`20=`20$perm`20if`20defined($perm);
+X`20`20$old;
+X`7D
+X
+X#====>`20TIEHASH`20methods
+X
+Xsub`20TIEHASH`20`7B
+X`20`20$_`5B0`5D->new(@_);
+X`7D
+X
+Xsub`20FETCH`20`7B
+X`20`20my($self,$name)`20=`20@_;
+X`20`20if`20`20`20`20($name`20eq`20':GLOBAL')`20`7B`20$self->`7BTYPE`7D`20eq`20
+V'GLOBAL';`20`7D
+X`20`20elsif`20($name`20eq`20':LOCAL'`20)`20`7B`20$self->`7BTYPE`7D`20eq`20'LOC
+VAL';`20`20`7D
+X`20`20else`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20
+V`20`7B`20scalar($self->getsym($name));`20`7D
+X`7D
+X
+Xsub`20STORE`20`7B
+X`20`20my($self,$name,$val)`20=`20@_;
+X`20`20if`20`20`20`20($name`20eq`20':GLOBAL')`20`7B`20$self->`7BTYPE`7D`20=`20'
+VGLOBAL';`20`7D
+X`20`20elsif`20($name`20eq`20':LOCAL'`20)`20`7B`20$self->`7BTYPE`7D`20=`20'LOCA
+VL';`20`20`7D
+X`20`20else`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20
+V`20`7B`20$self->setsym($name,$val);`20`7D
+X`7D
+X
+Xsub`20DELETE`20`7B
+X`20`20my($self,$name)`20=`20@_;
+X
+X`20`20$self->delsym($name);
+X`7D
+X
+Xsub`20FIRSTKEY`20`7B
+X`20`20my($self)`20=`20@_;
+X`20`20my($name,$eqs,$val);
+X
+X`20`20if`20(!$DoCache`20`7C`7C`20!$Cache_set)`20`7B
+X`20`20`20`20#`20We`20should`20eventually`20replace`20this`20with`20a`20C`20rou
+Vtine`20which`20walks`20the
+X`20`20`20`20#`20CLI`20symbol`20table`20directly.`20`20If`20I`20ever`20get`20'h
+Vold`20of`20an`20I`26DS`20manual`20.`20.`20.
+X`20`20`20`20open(P,'Show`20Symbol`20*`20`7C');
+X`20`20`20`20while`20(<P>)`20`7B
+X`20`20`20`20`20`20($name,$eqs,$val)`20=`20/`5E`5Cs+(`5CS+)`20(=+)`20(.+)/
+X`20`20`20`20`20`20`20`20or`20carp`20"VMS::CLISym:`20unparseable`20line`20$_";
+V
+X`20`20`20`20`20`20$name`20=`7E`20s#`5C*##;
+X`20`20`20`20`20`20$val`20=`7E`20s/"(.*)"$/$1/`20or`20$val`20=`7E`20s/`5E(`5CS+
+V).*/$1/;
+X`20`20`20`20`20`20if`20($eqs`20eq`20'==')`20`7B`20$Gblsyms`7B$name`7D`20=`20$v
+Val;`20`7D
+X`20`20`20`20`20`20else`20`20`20`20`20`20`20`20`20`20`20`20`20`20`7B`20$Locsyms
+V`7B$name`7D`20=`20$val;`20`7D
+X`20`20`20`20`7D
+X`20`20`20`20close`20P;
+X`20`20`20`20$Cache_set`20=`201;
+X`20`20`7D
+X`20`20$self`20->`7BIDX`7D`20=`200;
+X`20`20$self->`7BCACHE`7D`20=`20$self->`7BTYPE`7D`20eq`20'GLOBAL'`20?`20`5C%Gbl
+Vsyms`20:`20`5C%Locsyms;
+X`20`20while`20(($name,$val)`20=`20each(%`7B$self->`7BCACHE`7D`7D)`20and`20!def
+Vined($name))`20`7B
+X`20`20`20`20if`20($self->`7BCACHE`7D`7B':ID'`7D`20eq`20'GLOBAL')`20`7B`20retur
+Vn`20undef;`20`7D
+X`20`20`20`20$self->`7BCACHE`7D`20=`20`5C%Gblsyms;
+X`20`20`7D
+X`20`20$name;
+X`7D
+X
+Xsub`20NEXTKEY`20`7B
+X`20`20my($self)`20=`20@_;
+X`20`20my($name,$val);
+X
+X`20`20while`20(($name,$val)`20=`20each(%`7B$self->`7BCACHE`7D`7D)`20and`20!def
+Vined($name))`20`7B
+X`20`20`20`20if`20($self->`7BCACHE`7D`7B':ID'`7D`20eq`20'GLOBAL')`20`7B`20retur
+Vn`20undef;`20`7D
+X`20`20`20`20$self->`7BCACHE`7D`20=`20`5C%Gblsyms;
+X`20`20`7D
+X`20`20$name;
+X`7D
+X
+X
+Xsub`20EXISTS`20`7B`20defined($_`5B0`5D->FETCH(@_))`20?`201`20:`200`20`7D
+X
+Xsub`20CLEAR`20`7B`20`7D
+X
+X
+Xbootstrap`20VMS::DCLsym;
+X
+X1;
+$ call unpack [.VMS-DCLSYM-1_0]DCLSYM.PM 591181444 "" 18 1 6
+$!
+$ create 'f'
+X/*`20VMS::DCLsym`20-`20manipulate`20DCL`20symbols
+X`20*
+X`20*`20Version:`20`201.0
+X`20*`20Author:`20`20`20Charles`20Bailey`20`20bailey@genetics.upenn.edu
+X`20*`20Revised:`20`2017-Aug-1995
+X`20*
+X`20*
+X`20*`20Revision`20History:
+X`20*`20
+X`20*`201.0`20`2017-Aug-1995`20`20Charles`20Bailey`20`20bailey@genetics.upenn.e
+Vdu
+X`20*`20`20`20`20`20`20original`20production`20version
+X`20*/
+X
+X#include`20<descrip.h>
+X#include`20<lib$routines.h>
+X#include`20<libclidef.h>
+X#include`20<libdef.h>
+X#include`20<ssdef.h>
+X#include`20"EXTERN.h"
+X#include`20"perl.h"
+X#include`20"XSUB.h"
+X
+XMODULE`20=`20VMS::DCLsym`20`20PACKAGE`20=`20VMS::DCLsym
+X
+Xvoid
+X_getsym(name)
+X`20`20SV`20*`09name
+X`20`20PPCODE:
+X`20`20`7B
+X`20`20`20`20struct`20dsc$descriptor_s`20namdsc`20=`20`7B0,DSC$K_DTYPE_T,DSC$K_
+VCLASS_S,0`7D,
+X`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20
+V`20`20valdsc`20=`20`7B0,DSC$K_DTYPE_T,DSC$K_CLASS_D,0`7D;
+X`20`20`20`20STRLEN`20namlen;
+X`20`20`20`20int`20tbltype;
+X`20`20`20`20unsigned`20long`20int`20retsts;
+X`20`20`20`20SETERRNO(0,SS$_NORMAL);
+X`20`20`20`20if`20(!name)`20`7B
+X`20`20`20`20`20`20PUSHs(sv_newmortal());
+X`20`20`20`20`20`20SETERRNO(EINVAL,LIB$_INVARG);
+X`20`20`20`20`20`20return;
+X`20`20`20`20`7D
+X`20`20`20`20namdsc.dsc$a_pointer`20=`20SvPV(name,namlen);
+X`20`20`20`20namdsc.dsc$w_length`20=`20(unsigned`20short`20int)`20namlen;
+X`20`20`20`20retsts`20=`20lib$get_symbol(`26namdsc,`26valdsc,0,`26tbltype);
+X`20`20`20`20if`20(retsts`20`26`201)`20`7B
+X`20`20`20`20`20`20PUSHs(sv_2mortal(newSVpv(valdsc.dsc$w_length`20?`20
+X`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20
+V`20`20`20`20`20valdsc.dsc$a_pointer`20:`20"",valdsc.dsc$w_length)));
+X`20`20`20`20`20`20if`20(GIMME)`20`7B
+X`20`20`20`20`20`20`20`20EXTEND(sp,2);`20`20/*`20just`20in`20case`20we're`20at
+V`20the`20end`20of`20the`20stack`20*/
+X`20`20`20`20`20`20`20`20if`20(tbltype`20==`20LIB$K_CLI_LOCAL_SYM)
+X`20`20`20`20`20`20`20`20`20`20PUSHs(sv_2mortal(newSVpv("LOCAL",5)));
+X`20`20`20`20`20`20`20`20else
+X`20`20`20`20`20`20`20`20`20`20PUSHs(sv_2mortal(newSVpv("GLOBAL",6)));
+X`20`20`20`20`20`20`7D
+X`20`20`20`20`20`20_ckvmssts(lib$sfree1_dd(`26valdsc));
+X`20`20`20`20`7D
+X`20`20`20`20else`20`7B
+X`20`20`20`20`20`20PUSHs(sv_newmortal());`20`20/*`20error`20-`20we're`20returni
+Vng`20undef,`20if`20anything`20*/
+X`20`20`20`20`20`20switch`20(retsts)`20`7B
+X`20`20`20`20`20`20`20`20case`20LIB$_NOSUCHSYM:
+X`20`20`20`20`20`20`20`20`20`20break;`20`20`20/*`20nobody`20home`20*/;
+X`20`20`20`20`20`20`20`20case`20LIB$_INVSYMNAM:`20`20`20/*`20user`20errors;`20s
+Vet`20errno`20return`20undef`20*/
+X`20`20`20`20`20`20`20`20case`20LIB$_INSCLIMEM:
+X`20`20`20`20`20`20`20`20case`20LIB$_NOCLI:
+X`20`20`20`20`20`20`20`20`20`20set_errno(EVMSERR);
+X`20`20`20`20`20`20`20`20`20`20set_vaxc_errno(retsts);
+X`20`20`20`20`20`20`20`20`20`20break;
+X`20`20`20`20`20`20`20`20default:`20`20/*`20bail`20out`20*/
+X`20`20`20`20`20`20`20`20`20`20`7B`20_ckvmssts(retsts);`20`7D
+X`20`20`20`20`20`20`7D
+X`20`20`20`20`7D
+X`20`20`7D
+X
+X
+Xvoid
+X_setsym(name,val,typestr="LOCAL")
+X`20`20SV`20*`09name
+X`20`20SV`20*`09val
+X`20`20char`20*`09typestr
+X`20`20CODE:
+X`20`20`7B
+X`20`20`20`20struct`20dsc$descriptor_s`20namdsc`20=`20`7B0,DSC$K_DTYPE_T,DSC$K_
+VCLASS_S,0`7D,
+X`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20
+V`20`20valdsc`20=`20`7B0,DSC$K_DTYPE_T,DSC$K_CLASS_S,0`7D;
+X`20`20`20`20STRLEN`20slen;
+X`20`20`20`20int`20type;
+X`20`20`20`20unsigned`20long`20int`20retsts;
+X`20`20`20`20SETERRNO(0,SS$_NORMAL);
+X`20`20`20`20if`20(!name`20`7C`7C`20!val)`20`7B
+X`20`20`20`20`20`20SETERRNO(EINVAL,LIB$_INVARG);
+X`20`20`20`20`20`20XSRETURN_UNDEF;
+X`20`20`20`20`7D
+X`20`20`20`20namdsc.dsc$a_pointer`20=`20SvPV(name,slen);
+X`20`20`20`20namdsc.dsc$w_length`20=`20(unsigned`20short`20int)`20slen;
+X`20`20`20`20valdsc.dsc$a_pointer`20=`20SvPV(val,slen);
+X`20`20`20`20valdsc.dsc$w_length`20=`20(unsigned`20short`20int)`20slen;
+X`20`20`20`20type`20=`20strNE(typestr,"GLOBAL")`20?
+X`20`20`20`20`20`20`20`20`20`20`20`20`20`20LIB$K_CLI_LOCAL_SYM`20:`20LIB$K_CLI_
+VGLOBAL_SYM;
+X`20`20`20`20retsts`20=`20lib$set_symbol(`26namdsc,`26valdsc,`26type);
+X`20`20`20`20if`20(retsts`20`26`201)`20`7B`20XSRETURN_YES;`20`7D
+X`20`20`20`20else`20`7B
+X`20`20`20`20`20`20switch`20(retsts)`20`7B
+X`20`20`20`20`20`20`20`20case`20LIB$_AMBSYMDEF:`20`20/*`20user`20errors;`20set
+V`20errno`20and`20return`20*/
+X`20`20`20`20`20`20`20`20case`20LIB$_INSCLIMEM:
+X`20`20`20`20`20`20`20`20case`20LIB$_INVSYMNAM:
+X`20`20`20`20`20`20`20`20case`20LIB$_NOCLI:
+X`20`20`20`20`20`20`20`20`20`20set_errno(EVMSERR);
+X`20`20`20`20`20`20`20`20`20`20set_vaxc_errno(retsts);
+X`20`20`20`20`20`20`20`20`20`20XSRETURN_NO;
+X`20`20`20`20`20`20`20`20`20`20break;`20`20/*`20NOTREACHED`20*/
+X`20`20`20`20`20`20`20`20default:`20`20/*`20bail`20out`20*/
+X`20`20`20`20`20`20`20`20`20`20`7B`20_ckvmssts(retsts);`20`7D
+X`20`20`20`20`20`20`7D
+X`20`20`20`20`7D
+X`20`20`7D
+X
+X
+Xvoid
+X_delsym(name,typestr="LOCAL")
+X`20`20SV`20*`09name
+X`20`20char`20*`09typestr
+X`20`20CODE:
+X`20`20`7B
+X`20`20`20`20struct`20dsc$descriptor_s`20namdsc`20=`20`7B0,DSC$K_DTYPE_T,DSC$K_
+VCLASS_S,0`7D;
+X`20`20`20`20STRLEN`20slen;
+X`20`20`20`20int`20type;
+X`20`20`20`20unsigned`20long`20int`20retsts;
+X`20`20`20`20SETERRNO(0,SS$_NORMAL);
+X`20`20`20`20if`20(!name`20`7C`7C`20!typestr)`20`7B
+X`20`20`20`20`20`20SETERRNO(EINVAL,LIB$_INVARG);
+X`20`20`20`20`20`20XSRETURN_UNDEF;
+X`20`20`20`20`7D
+X`20`20`20`20namdsc.dsc$a_pointer`20=`20SvPV(name,slen);
+X`20`20`20`20namdsc.dsc$w_length`20=`20(unsigned`20short`20int)`20slen;
+X`20`20`20`20type`20=`20strNE(typestr,"GLOBAL")`20?
+X`20`20`20`20`20`20`20`20`20`20`20`20`20`20LIB$K_CLI_LOCAL_SYM`20:`20LIB$K_CLI_
+VGLOBAL_SYM;
+X`20`20`20`20retsts`20=`20lib$delete_symbol(`26namdsc,`26type);
+X`20`20`20`20if`20(retsts`20`26`201)`20`7B`20XSRETURN_YES;`20`7D
+X`20`20`20`20else`20`7B
+X`20`20`20`20`20`20switch`20(retsts)`20`7B
+X`20`20`20`20`20`20`20`20case`20LIB$_INVSYMNAM:`20`20/*`20user`20errors;`20set
+V`20errno`20and`20return`20*/
+X`20`20`20`20`20`20`20`20case`20LIB$_NOCLI:
+X`20`20`20`20`20`20`20`20case`20LIB$_NOSUCHSYM:
+X`20`20`20`20`20`20`20`20`20`20set_errno(EVMSERR);
+X`20`20`20`20`20`20`20`20`20`20set_vaxc_errno(retsts);
+X`20`20`20`20`20`20`20`20`20`20XSRETURN_NO;
+X`20`20`20`20`20`20`20`20`20`20break;`20`20/*`20NOTREACHED`20*/
+X`20`20`20`20`20`20`20`20default:`20`20/*`20bail`20out`20*/
+X`20`20`20`20`20`20`20`20`20`20`7B`20_ckvmssts(retsts);`20`7D
+X`20`20`20`20`20`20`7D
+X`20`20`20`20`7D
+X`20`20`7D
+X
+$ call unpack [.VMS-DCLSYM-1_0]DCLSYM.XS 1327961419 "" 9 2 6
+$!
+$ create 'f'
+Xuse`20ExtUtils::MakeMaker;
+X
+XWriteMakefile(`20'NAME'`20=>`20'VMS::DCLsym',
+X`20`20`20`20`20`20`20`20`20`20`20`20`20`20`20'VERSION'`20=>`20'1.0'`20);
+$ call unpack [.VMS-DCLSYM-1_0]MAKEFILE.PL 973357034 "" 1 3 6
+$!
+$ create 'f'
+XDCLsym.pm`09`09Perl`20code`20and`20documentation
+XDCLsym.xs`09`09XSUB`20code
+XMakefile.PL`09`09MakeMaker`20driver`20
+XMANIFEST`09`09This`20list`20of`20files
+XREADME`09`09`09Introduction
+Xtest.pl`09`09`09test`20script
+$ call unpack [.VMS-DCLSYM-1_0]MANIFEST. -
+ 477256420 "FORMAT STREAM_LF;CARRIAGE_CONTROL CARRIAGE_RETURN" 1 4 6
+$!
+$ create 'f'
+XVMS::DCLsym`20is`20an`20extension`20to`20Perl`205`20which`20allows`20it`20to
+V`20manipulate`20DCL`20symbols
+Xvia`20an`20object-oriented`20or`20tied-hash`20interface.
+X
+XIn`20order`20to`20build`20the`20extension,`20just`20say
+X
+X$`20Perl`20Makefile.PL
+X$`20MMK
+X
+Xin`20the`20directory`20containing`20the`20source`20files.`20`20Once`20it's`20b
+Vuilt,`20you`20can`20run`20the
+Xtest`20script`20by`20saying
+X
+X$`20Perl`20"-Iblib"`20test.pl
+X
+XFinally,`20if`20you`20want`20to`20make`20it`20part`20of`20your`20regular`20Per
+Vl`20library,`20you`20can`20say
+X$`20MMK`20install
+X
+XIf`20you`20have`20any`20problems`20or`20suggestions,`20please`20feel`20free`20
+Vto`20let`20me`20know.
+X
+XRegards,
+XCharles`20Bailey`20`20bailey@genetics.upenn.edu
+X17-Aug-1995
+$ call unpack [.VMS-DCLSYM-1_0]README. 1749251480 "" 2 5 6
+$!
+$ create 'f'
+Xprint`20"1..15`5Cn";
+X
+Xrequire`20VMS::DCLsym`20or`20die`20"failed`201`5Cn";
+Xprint`20"ok`201`5Cn";
+X
+Xtie`20%syms,`20VMS::DCLsym`20or`20die`20"failed`202`5Cn";
+Xprint`20"ok`202`5Cn";
+X
+X$name`20=`20'FOO_'.time();
+X$syms`7B$name`7D`20=`20'Perl_test';
+Xprint`20+($!`20?`20"(`5C$!`20=`20$!)`20not`20"`20:`20''),"ok`203`5Cn";
+X
+Xprint`20+($syms`7B$name`7D`20eq`20'Perl_test'`20?`20''`20:`20'not`20'),"ok`204
+V`5Cn";
+X
+X($val)`20=`20`60Show`20Symbol`20$name`60`20=`7E`20/(`5Cw+)"$/;
+Xprint`20+($val`20eq`20'Perl_test'`20?`20''`20:`20'not`20'),"ok`205`5Cn";
+X
+Xwhile`20(($sym,$val)`20=`20each`20%syms)`20`7B
+X`20`20last`20if`20$sym`20eq`20$name`20`26`26`20$val`20eq`20'Perl_test';
+X`7D
+Xprint`20+($sym`20?`20''`20:`20'not`20'),"ok`206`5Cn";
+X
+Xdelete`20$syms`7B$name`7D;
+Xprint`20+($!`20?`20"(`5C$!`20=`20$!)`20not`20"`20:`20''),"ok`207`5Cn";
+X
+Xprint`20+(defined($syms`7B$name`7D)`20?`20'not`20'`20:`20''),"ok`208`5Cn";
+Xundef`20%syms;
+X
+X$obj`20=`20new`20VMS::DCLsym`20'GLOBAL';
+Xprint`20+($obj`20?`20''`20:`20'not`20'),"ok`209`5Cn";
+X
+Xprint`20+($obj->clearcache(0)`20?`20''`20:`20'not`20'),"ok`2010`5Cn";
+Xprint`20+($obj->clearcache(1)`20?`20'not`20'`20:`20''),"ok`2011`5Cn";
+X
+Xprint`20+($obj->setsym($name,'Another_test')`20?`20''`20:`20'not`20'),"ok`2012
+V`5Cn";
+X
+X($val,$tab)`20=`20$obj->getsym($name);
+Xprint`20+($val`20eq`20'Another_test'`20`26`26`20$tab`20eq`20'GLOBAL'`20?`20''
+V`20:`20'not`20'),"ok`2013`5Cn";
+X
+Xprint`20+($obj->delsym($name,'LOCAL')`20?`20'not`20'`20:`20''),"ok`2014`5Cn";
+V
+Xprint`20+($obj->delsym($name,'GLOBAL')`20?`20''`20:`20'not`20'),"ok`2015`5Cn";
+V
+$ call unpack [.VMS-DCLSYM-1_0]TEST.PL 773027216 "" 3 6 6
+$ v=f$verify(v)
+$ exit

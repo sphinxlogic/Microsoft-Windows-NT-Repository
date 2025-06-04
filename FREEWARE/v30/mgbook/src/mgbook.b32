@@ -1,0 +1,304 @@
+%TITLE 'MGBOOK'
+MODULE mgbook(IDENT = 'V1.0', MAIN = main,
+    	ADDRESSING_MODE(EXTERNAL=LONG_RELATIVE, NONEXTERNAL=LONG_RELATIVE)) =
+BEGIN
+!++
+! FACILITY: 	MGBOOK
+!
+! ABSTRACT:
+!
+!	MGBOOK is designed to display BOOKREADER documentation on a video
+!	terminal.
+!
+!	MGBOOK is based on DECUS VTBOOK (originally written by Chris Sharman).
+!
+! MODULE DESCRIPTION:
+!
+!	This module contains routines to parse the MGBOOK command and start
+!	processing the requested BOOKREADER files.
+!
+! AUTHOR:		Darrell Burkhead
+!			Copyright © 1995, MadGoat Software.
+!			ALL RIGHTS RESERVED.
+!
+! CREATION DATE:	December 2, 1994
+!
+! MODIFICATION HISTORY:
+!
+!	V1.0-2		Darrell Burkhead	17-JUL-1995 03:13
+!		Fixed the original search string used when MGBOOK_LIBRARY
+!		and DECW$BOOKSHELF are not defined.  It was
+!		"LIBRARY.DECW$BOOKSHELF."  It should have been
+!		"DECW$BOOK:LIBRARY.DECW$BOOKSHELF."  Added support
+!		for /TAB, a qualifier to enable or disable the Tab terminal
+!		setting on the fly.  /NOTAB is useful when the terminal
+!		has weird (not every 8 chars) tab settings.  SMG won't
+!		optimize with tabs if the terminal is set to NoTab.
+!
+!	V1.0-1		Darrell Burkhead	26-APR-1995 16:59
+!		Added support for the RESTRICT_WIDTH qualifier.
+!
+!	V1.0		Darrell Burkhead	 2-DEC-1994 09:58
+!		Original version (adapted from DECUS VTBOOK V1.4).
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';
+LIBRARY 'MGBOOK';
+
+FORWARD ROUTINE
+	main,
+	already_parsed,
+	check_cld,
+	start_mgbook;
+
+EXTERNAL ROUTINE
+	smg_setup,
+	mgbook_handler,
+	g_hat(STR$FREE1_DX);
+
+BIND
+	mgbook_library		= %ASCID'MGBOOK_LIBRARY',
+	decw$bookshelf		= %ASCID'DECW$BOOKSHELF',
+	book_qual		= %ASCID'BOOK';
+
+GLOBAL
+	debug_enabled,
+	restrict_width;
+
+GLOBAL BIND
+	mgbook_title		= %ASCID'MGBOOK V1.0',
+	lnm$dcl_logical		= %ASCID'LNM$DCL_LOGICAL';
+
+
+%SBTTL 'MAIN'
+ROUTINE main =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is the transfer address for MGBOOK.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+LOCAL
+	filename	: $BBLOCK[DSC$C_S_BLN],
+	book_flag,
+	change_tab,
+	tab_setting,
+	status		: INITIAL(SS$_NORMAL);
+
+    $INIT_DYNDESC(filename);
+
+    IF NOT already_parsed()
+    THEN BEGIN
+	LOCAL
+	    line	: $BBLOCK[DSC$C_S_BLN];
+	EXTERNAL ROUTINE
+	    g_hat(CLI$DCL_PARSE, LIB$GET_FOREIGN, LIB$GET_INPUT, STR$PREFIX);
+	EXTERNAL
+	    mgbook_table;
+
+	$INIT_DYNDESC(line);
+    !
+    ! Build the command line.
+    !
+	status = LIB$GET_FOREIGN(line);
+	IF .status
+	THEN status = STR$PREFIX(line, %ASCID'MGBOOK ');
+    !
+    ! Parse the command.
+    !
+	IF .status
+	THEN BEGIN
+	    status = CLI$DCL_PARSE(line, mgbook_table, LIB$GET_INPUT,
+					LIB$GET_INPUT);
+	    status = .status OR STS$M_INHIB_MSG;!Already signaled
+	    END;
+
+	STR$FREE1_DX(line);			!Done with the cmd line
+	END;					!End of need to parse
+
+    IF .status
+    THEN status = check_cld(filename,		!Test for quals and params
+				book_flag, change_tab, tab_setting);
+    IF .status
+    THEN status = smg_setup(.change_tab,	!Create the pbd and kbd
+				.tab_setting);
+    IF .status
+    THEN status = start_mgbook(filename,	!Create a menu from a shelf and
+				.book_flag);	!...start displaying docs
+
+    .status
+END;						!End of main
+
+
+%SBTTL 'ALREADY_PARSED'
+ROUTINE already_parsed = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to determine whether the command has already been
+!	parsed by DCL.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	book_qual
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!   CLI$_IVVERB:	if the command hasn't been parsed.
+!   SS$_NORMAL:	    	if the command has been parsed.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+EXTERNAL ROUTINE
+	g_hat(CLI$PRESENT, LIB$SIG_TO_RET);
+ENABLE
+	LIB$SIG_TO_RET;
+
+    CLI$PRESENT(book_qual);			!Signal and return if not
+						!...parsed
+    SS$_NORMAL
+END;						!End of already_parsed
+
+
+%SBTTL 'CHECK_CLD'
+ROUTINE check_cld(filename_a, book_flag_a, change_tab_a, tab_setting_a) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine checks for the presence of the qualifiers and parameters
+!	of the MGBOOK command.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	book_qual
+!
+! IMPLICIT OUTPUTS:	debug_enabled
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	filename	= .filename_a	: $BBLOCK,
+	book_flag	= .book_flag_a,
+	change_tab	= .change_tab_a,
+	tab_setting	= .tab_setting_a,
+	debug_qual	= %ASCID'DEBUG',
+	file_param	= %ASCID'FILE',
+	restrict_qual	= %ASCID'RESTRICT_WIDTH',
+	shelf_qual	= %ASCID'SHELF',
+	tab_qual	= %ASCID'TAB';
+
+EXTERNAL LITERAL
+	CLI$_PRESENT, CLI$_NEGATED;
+
+LOCAL
+	tab_stat,
+	status	: INITIAL(SS$_NORMAL);
+
+EXTERNAL ROUTINE
+	g_hat(CLI$PRESENT, CLI$GET_VALUE);
+
+    debug_enabled = CLI$PRESENT(debug_qual);	!Check for /DEBUG
+
+    restrict_width = CLI$PRESENT(restrict_qual);!Check for /RESTRICT_WIDTH
+
+    book_flag =
+    (IF CLI$PRESENT(file_param)
+     THEN BEGIN
+	status = CLI$GET_VALUE(file_param,	!Get the file parameter
+				filename);
+	CLI$PRESENT(book_qual)			!Is this a .DECW$BOOK file?
+	END					!End of filename provided
+     ELSE 0);					!No file provided, ignore /BOOK
+
+    tab_stat = CLI$PRESENT(tab_qual);		!Check for /TAB
+    IF .tab_stat EQLU CLI$_PRESENT
+    THEN BEGIN
+	change_tab = 1;
+	tab_setting = 1;
+	END					!End of /TAB
+    ELSE IF .tab_stat EQLU CLI$_NEGATED
+    THEN BEGIN
+	change_tab = 1;
+	tab_setting = 0;
+	END					!End of /NOTAB
+     ELSE change_tab = 0;
+
+    .status
+END;						!End of check_cld
+
+
+%SBTTL 'START_MGBOOK'
+GLOBAL ROUTINE start_mgbook(filename_a, book_flag) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine sets up the initial menu used by MGBOOK.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	filename	= .filename_a	: $BBLOCK;
+
+EXTERNAL ROUTINE
+	first_bookshelf_menu	: NOVALUE,
+	book_menu		: NOVALUE;
+
+ENABLE
+	mgbook_handler;
+
+    IF .book_flag
+    THEN book_menu(filename, %ASCID'DECW$BOOK:.DECW$BOOK', mgbook_title)
+    ELSE first_bookshelf_menu(
+		(IF .filename[DSC$W_LENGTH] GTR 0
+		 THEN filename
+		 ELSE IF $TRNLNM(LOGNAM = mgbook_library,
+				 TABNAM = lnm$dcl_logical)
+		 THEN mgbook_library
+		 ELSE IF $TRNLNM(LOGNAM = decw$bookshelf,
+				 TABNAM = lnm$dcl_logical)
+		 THEN decw$bookshelf
+		 ELSE %ASCID'DECW$BOOK:LIBRARY.DECW$BOOKSHELF'));
+
+    SS$_NORMAL
+END;						!End of start_mgbook
+
+END
+ELUDOM

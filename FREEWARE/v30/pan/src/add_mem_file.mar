@@ -1,0 +1,1920 @@
+; Xdd_mem_file    verb mail user access
+; Add_mem_file  verb {ACCESS}  /Mail
+
+
+; (1)   mail dist           NODE::USER  ! comment
+; (2)   ENOTES              NODE::USER  !  {access}
+; (3)  pan(1)               NODE::USER  ! /name="...."   {Access}
+; (4)  pan(2)               NODE::USER  ! "Name"         {access}
+
+
+	.MACRO	put_de	, mmm
+	movw	mmm, Drab+rab$w_rsz
+	movw	mmm, Drab+rab$w_usz
+	movl	mmm+4, Drab+rab$l_Rbf
+	movl	mmm+4, Drab+rab$l_Ubf
+	$Put	Rab=Drab
+	check	r0,error
+	.endm	put_de
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	.macro	pad_star , list, ?L3
+	pushr	#^m<R5>
+
+	pushaq	noautowildcard
+	calls	#1,g^cli$present
+	blbs	r0,L3
+	
+
+
+
+	movzwl	list, R5
+	addl2	List+4, R5
+
+	decl	R5
+	cmpb	#^a/*/, (R5)
+	beql	L3
+
+	incl	R5
+	incw	list
+
+	movb	#^a/*/, (R5)
+
+L3:	popr	#^m<R5>
+
+	.endm	pad_star
+
+
+	.macro	check_open	?L3
+	blbs	r0,L3
+
+	incl	failed 
+	
+	MOVL    fab+fab$l_stv,VEC+4
+        $PUTMSG_S       MSGVEC=VEC
+
+	MOVL    fab+fab$l_sts,VEC+4
+        $PUTMSG_S       MSGVEC=VEC
+
+
+
+
+
+	cvtbl   NAM+NAM$B_RSL,Descr
+	movab	result,Descr+4
+	pushaq	descr
+	calls	#1,g^lib$put_output
+
+	cvtbl   NAM+NAM$B_ESL,Descr
+	movab	exp,Descr+4
+	pushaq	descr
+	calls	#1,g^lib$put_output
+
+
+	tstl	main_c
+	bneq	L3
+	$exit_s	code=#1
+
+L3:	nop
+
+	.endm	check_open
+
+fab:	$fab	fac=get,Dnm=<.Dis>,nam=nam
+rab:	$rab	fab=fab,usz=5000,rsz=5000,ubf=buffer,rbf=buffer
+
+
+Dfab:	$fab	fac=<Put>, Rat=<Cr>, nam=nam,fop=nam
+Drab:	$rab	fab=Dfab,usz=500,rsz=500,ubf=buffer,rbf=buffer
+
+
+nam:    $nam    rsa=result,-
+                rss=200,-
+                esa=exp,-
+                ess=200
+
+
+result:	.blkb	500
+exp:	.blkb	500
+
+pointer:	.blkl	1
+
+save_size = . - Fab
+
+
+buffer:	.blkb	5000
+
+entry_name:     .blkb   100
+entry_name_len: .blkl   1
+entrytotal:             .blkl   1
+
+notebook_spec:          .long	100
+			.long	notebook_spec+8
+			.blkb	100
+
+note_user_area_len:     .blkl   1
+note_user_area:         .blkb   100
+high_uid:       .blkl   1
+file_cont:      .blkl   1
+unseen_est:     .blkl   1
+no_sig:         .long   1
+notefile_lastrev:       .blkl   2
+NUMBER_OF_NOTES:        .blkl   1
+last_status:    .blkl   1
+seen_map_len:   .blkl   1
+moderate:       .long   1       ; we want to be a Goderator  !!
+notefile_user_area:     .blkb   100
+notefile_user_area_len: .blkl   1
+
+create_time:    .blkl   2
+is_restricted:  .blkl   1
+hint:           .long   1
+moderator_st:           .blkb   500
+moderator_st_len:       .blkl   1
+default_name:   .ascii  /Notes$library:.Note/
+default_name_len =. - default_name
+
+
+
+                                                     
+notebook_in:    .word   0
+                .word   notes$k_notefile_file_name
+                .long   notebook_spec+8
+                .long   0
+;
+                .word   notebook_def_len
+                .word   notes$k_notefile_default_name
+                .long   notebook_def_spec
+                .long   0
+;
+                .long   0
+notebook_def_spec:      .ascii  /SYS$LOGIN:.NOTE/
+notebook_def_len = . - notebook_def_spec
+
+
+book_in:        .word   4
+                .word   notes$k_notefile_context
+                .long   notebook_file_cont
+                .long   0
+;
+                .long   0
+
+
+ent_in:	.word	0
+	.word	notes$k_entry_name
+	.long	0
+	.long	0
+;
+	.long	0
+
+
+ent_out:	.word	100
+		.word	notes$k_notefile_file_name
+		.long	Notefile_file_name
+		.long	Notefile_file_name_len
+;
+		.word	4
+		.word	notes$k_entry_last_status
+		.long	last_status
+		.long	0
+;
+		.word	4
+		.word	notes$k_entry_unseen_est
+		.long	unseen_est
+		.long	0
+;
+		.word	100
+		.word	notes$k_entry_name
+		.long	entry_name
+		.long	entry_name_len
+;
+		.word	3000
+		.word	notes$k_seen_map
+		.long	seen_map
+		.long	seen_map_len
+;
+		.word	100
+		.word	NOTES$K_ENTRY_USER_AREA
+		.long	note_user_area
+		.long	note_user_area_len
+;
+		.word	4
+		.word	notes$k_notefile_entrytotal
+		.long	entrytotal
+		.long	0
+;
+		.word	4
+		.word	notes$k_notefile_high_uid
+		.long	high_uid
+		.long	0
+;
+		.word	8
+		.word	notes$k_notefile_lastrev
+		.long	notefile_lastrev
+		.long	0
+;
+		.word	300
+		.word	notes$k_notefile_moderator
+		.long	moderator_st
+		.long	moderator_st_len
+;
+                .word   100
+                .word   notes$k_notefile_notice
+                .long   notice
+                .long   notice_len
+;
+		.word   4
+                .word   notes$k_notefile_numnotes
+                .long   number_of_notes
+                .long   0
+;
+		.word   100
+                .word   notes$k_notefile_title
+                .long   title
+                .long   title_len
+;
+		.word	3000
+		.word	notes$k_seen_map
+		.long	seen_map
+		.long	seen_map_len
+;
+		.long	0
+
+                                                                  
+notice:         .blkb   100
+notice_len:     .blkl   1
+notes_beg_i:    .word   4
+                .word   notes$k_notefile_context
+                .long   file_cont
+                .long   0
+;
+                .word   4
+                .word   notes$k_nosignal
+                .long   no_sig
+                .long   0
+
+;
+		.long	0
+
+
+open_o:         .word   8
+                .word   notes$k_notefile_create_time
+                .long   create_time
+                .long   0
+;
+		.word	100
+		.word	notes$k_notefile_user_area
+		.long	notefile_user_area
+		.long	notefile_user_area_len
+;
+                .long   0
+
+
+
+
+
+open_m:         .word   4
+                .word   notes$k_notefile_moderate
+                .long   moderate
+                .long   0
+;
+                .word   4
+                .word   notes$k_nosignal
+                .long   hint
+                .long   0
+;
+                .long   0
+                                                 
+seen_map:       .blkb   3000
+notes_open_o:   .word   100
+                .word   notes$k_notefile_title
+                .long   title
+                .long   title_len
+;
+                .word   150
+                .word   notes$k_notefile_result_spec
+                .long   result_spec
+                .long   result_spec_len
+;
+                .word   100
+                .word   notes$k_notefile_notice
+                .long   notice
+                .long   notice_len
+;
+                .word   4
+                .word   notes$k_notefile_restricted
+                .long   is_restricted
+                .long   0
+;
+                .word   300
+                .word   notes$k_notefile_moderator
+                .long   moderator_st
+                .long   moderator_st_len
+;
+                .long   0
+                                                               
+notes_open_i:   .word   0
+                .word   notes$k_notefile_file_name
+                .long   input+8
+                .long   0
+;
+def_l:          .word   default_name_len
+                .word   notes$k_notefile_default_name
+def_n:          .long   default_name
+                .long   default_name_len
+;
+se_mp:          .word   0
+                .word   notes$k_seen_map
+                .long   seen_map
+                .long   0
+;
+                .long   0
+ctr_ent1:       .ascid  /Opening conference     !AS ............../
+ctr_filn:       .ascid  /Conference file is "!AS"/
+null:	.blkl	50
+ctr_ent:        .ascid  /Opening notebook entry !AS ............../
+ctr_title:      .ascid  / Title = "!AS"/
+ctr_notice:     .ascid  /Notice = "!AS"/
+result_spec:            .blkb   150
+result_spec_len:        .blkl   1
+descr:	.blkl	2
+Tdescr:	.blkl	2
+try_mod:        .ascid  /Try for moderator priv on the Source conference/
+Notefile_file_name:     .blkb   100
+Notefile_file_name_len: .blkl   1
+full_default_name:   .ascii  /Notes$Library:.Note/
+full_default_name_len =. - full_default_name
+MAST_FILE_CONT:	.blkl	1
+MAST_NOTE_CONT:	.blkl	1
+title:	.blkb	200
+title_len:	.blkl	1
+VEC:    .LONG   2
+        .BLKL   1
+        .LONG   0
+        .LONG   0
+
+	.library	/sys$login:peb/
+        $notesdef
+	$NOTESMSGDEF
+	NOTEITEMS
+
+	
+
+notebook_cont:		.blkl	1
+notebook_file_cont:	.blkl	1
+
+out:		.long	5000
+		.long	out+8
+		.blkb	5000
+	
+notebook:	.ascid	/NOTEBOOK/
+
+input:		.long	100
+		.long	input+8
+		.blkb	100
+
+master:		.ascid	/MASTER/
+
+
+	.entry	ADD_MEM_FILE,0
+
+
+; debug file
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  debug
+	calls   #3,g^cli$get_value 
+	check	r0,error	
+
+	movb	input,Dfab+fab$b_fns
+	movl	input+4,Dfab+fab$l_fna
+
+	$create	fab=Dfab
+	check	r0,error
+
+	$connect	rab=Drab
+	check	r0,error
+
+
+
+
+	pushaq	nreplace
+	calls	#1,g^cli$present
+	blbs	r0,129$
+
+	clrl	nreplace
+
+129$:	nop
+
+
+
+
+; get the master conf name
+
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  Master
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+
+	movw	input,notes_open_i
+
+
+; should we treat this as being a notebook entry ?
+
+	pushaq	notebook
+	calls	#1,g^Cli$Present
+	blbs	r0,301$			; skip if NOnotebook
+	brw	2300$
+301$:	nop
+
+
+
+	movl    #100,notebook_spec      
+	Pushaw  notebook_spec
+	pushaq  notebook_spec
+	pushaq  notebook
+	calls   #3,g^cli$get_value 
+	check	r0,error
+	movw	notebook_spec, notebook_in
+	
+
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent,outbuf=out,outlen=out,-
+		p1=#Input
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+; open notebook (if its not open already!)
+
+        pushaw  null
+        pushaw  notebook_in
+        pushal  notebook_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+; begin
+
+	pushaw  null
+	pushaw	book_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_begin
+	check	r0,error
+
+; get the entry
+
+	movw	input, ent_in
+	movl	input+4, ent_in+4
+
+	pad_star	ent_in
+
+	pushaw	ent_out
+	pushaw	ent_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_get
+	check	r0,error
+
+
+	movl	Notefile_file_name_len, descr
+	movab	Notefile_file_name, descr+4
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent1,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	movl	Descr, Input
+	movc3	Input, @Descr+4, Input+8
+
+	movw	input,notes_open_i
+
+2300$:	nop
+
+
+
+	movw	#full_default_name_len, def_l
+	movab	full_default_name, def_n
+
+
+        pushaw  notes_open_o
+        pushaw  notes_open_i
+        pushal  mast_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+        movl    result_spec_len,Descr
+        movab   result_spec,descr+4
+;        pushaq  descr
+;        calls   #1,g^lib$put_output
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_filn,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+	movl	title_len,Descr
+	movab	title,Descr+4
+;	pushaq	Descr
+;	calls	#1,g^lib$put_output
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_title,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+        movl    notice_len,Descr
+        movab   notice,descr+4
+;       pushaq  descr
+;       calls   #1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_notice,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+; try for mod status
+
+	pushaq	try_mod
+	calls	#1,g^lib$put_output
+
+
+
+        pushaw  open_o
+        pushaw  open_m
+        pushal  mast_file_cont
+        calls   #3,G^Notes$notefile_modify
+
+
+	MOVL    R0,VEC+4
+        $PUTMSG_S       MSGVEC=VEC
+
+
+
+
+
+
+; get note context...
+
+	movab	mast_file_cont, notes_beg_i+4
+
+
+
+        pushaw  null
+        pushaw  notes_beg_i
+        pushal  mast_note_cont
+        calls   #3,G^Notes$User_begin
+        check   r0,error                                                                       
+
+
+; get the file
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  file
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_file,outbuf=out,outlen=out,-
+		p1=#Input
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+	movb	input,fab+fab$b_fns
+	movl	input+4,fab+fab$l_fna
+
+
+	$open	fab=fab
+	check_open
+
+	$connect	rab=rab
+	check_open
+
+
+	pushaq	Dlm
+	calls	#1,g^lib$put_output
+
+loop:	nop
+
+
+
+	movw	#notes$k_NooP, m_n+2
+	movw	#notes$k_Noop, m_a+2
+
+
+	movab	buffer, rab+rab$l_ubf
+	movab	buffer, rab+rab$l_rbf
+
+
+	movab	acc_li+8, acc_li+4
+
+	clrl	NODE_LI
+	clrl	ACC_LI
+
+1000$:	nop
+
+
+	$get	rab=rab
+	check	r0,error
+
+	tstl	length_of
+	beql	999$
+
+	addw2	length_of, rab+rab$w_rsz
+
+999$:	nop
+
+
+; ============================================================
+; hypen continued ???
+
+	movzwl	rab+rab$w_rsz,descr
+	movab	buffer, descr+4
+
+        locc    #^a/-/,descr,@descr+4
+	beql	50$
+
+
+	movl	R1, end_of
+	subl3	r0, descr, length_of
+
+
+
+	decl	R0
+	incl	R1
+
+
+; anything other than space to the right of this -   ??????
+
+	cmpc3	R0, (R1), space
+	bneq	50$
+
+; point to just before the -
+
+	movl	end_of, rab+rab$l_ubf
+	movl	end_of, rab+rab$l_rbf
+
+	brw	1000$
+
+
+50$:	nop
+; ============================================================
+
+
+	clrl	length_of
+
+	cmpb	#^a/!/,Buffer
+	bneq	80$
+	brw	loop
+80$:	nop
+
+	cmpb	#^a/!/,Buffer+1
+	bneq	81$
+	brw	loop
+81$:	nop
+
+
+	cmpb	#^a/!/,Buffer+2
+	bneq	82$
+	brw	loop
+82$:	nop
+
+
+
+	put_de	Dlm
+
+; is there anything none blank to the left of a !
+
+
+	movzwl	rab+rab$w_rsz,descr
+	movab	buffer, R6
+
+
+
+
+
+3900$:	nop
+
+
+
+
+
+	cmpb	#^a/ /, (r6)
+	beql	3501$
+
+
+	cmpb	#^a/	/,(r6)
+	beql	3501$
+
+
+	cmpb	#^a/!/,(R6)
+	beql	3500$
+
+
+	brw	4000$
+
+
+3501$:	incl	R6
+	decl	descr
+	bneq	3900$	
+	brw	4000$
+
+3500$:	nop
+
+
+
+	movw	#^a/""/,Buffer
+
+	put_de	sub_ing
+
+
+
+
+4000$:	nop
+
+	movw	rab+rab$w_rsz,descr
+	movab	buffer, descr+4
+
+	put_de		Descr
+	
+
+
+
+
+
+
+
+; tack on the verb 
+
+	movc5	#0,(Sp),#^a/ /,#500, out+8
+
+	movl	#verb_len, out
+	movc3	#verb_len, verb, out+8
+
+
+	movzwl	rab+rab$w_rsz, R5
+
+
+	movab	out+8, R6
+	addl2	out, R6
+	movc3	R5, Buffer, (R6)
+
+	movzwl	rab+rab$w_rsz, R6
+
+	addl2	R6, out
+
+
+
+; ----------- is nm%rampit::suffern      ! {rampit,STEREO,LIBRT4} GSG
+
+
+; assume type 1 (mail dist list)
+
+	movl	#1,record_type
+
+	locc	#^a/{/, out, @out+4
+	bneq	100$
+	brw	99$	; not found
+100$:	nop
+
+
+; assume type 2 (NODE::USER   !   {access}
+
+	movl	#2,record_type
+
+
+; turn the { into a space
+	movb	#^a/ /,(R1)
+
+	locc	#^a/!/, out, @out+4
+	bneq	88$
+
+
+
+	pushaq	no_com
+	calls	#1,g^lib$put_output
+	brw	loop
+	$Exit_s
+88$:	nop	
+
+; turn the ! in to a space
+
+        movb    #^a/ /,(R1)
+
+
+	locc	#^a/}/, out, @out+4
+	bneq	89$
+
+	movzwl	rab+rab$w_rsz, debug
+	movab	buffer, debug+4
+
+
+	pushaq	debug
+	calls	#1,g^lib$put_output
+
+
+
+	pushaq	no_com1
+	calls	#1,g^lib$put_output
+	brw	loop
+	$Exit_s
+89$:	nop	
+
+        movb    #^a/!/,(R1)
+
+
+99$:	nop
+
+	put_de	do_this
+	put_de	out
+
+
+	pushaq	CPmt			; prompt
+	pushal	More			; prompt for text
+	pushal	g^Lib$get_input		; prompt for required param
+	pushal	Table			; table
+	pushaq	out			; command string
+	calls	#5,g^cli$dcl_parse
+	blbs	r0,9$
+
+
+	MOVL    R0,VEC+4
+        $PUTMSG_S       MSGVEC=VEC
+
+	brw	loop
+9$:	nop
+
+
+	incl	fred
+; get the mail address 
+
+	movl    #100,mail_li
+	Pushaw  mail_li
+	pushaq  mail_li
+	pushaq 	mail_adr
+	calls   #3,g^cli$get_value 
+	blbs	r0,91$
+	MOVL    R0,VEC+4
+        $PUTMSG_S       MSGVEC=VEC
+	brw	loop
+91$:	nop
+
+
+
+; ------------------------------------------------------------------------
+; is @FILE ??????????????????????????????????????????
+
+	cmpb	#^a/@/, @mail_li+4
+	beql	5000$
+	brw	6000$
+5000$:	nop
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_re_dir,outbuf=out,outlen=out,-
+		p1=#mail_li
+	put_de		out
+
+
+
+	movl	#save_size , Number_of_bytes
+
+	pushal	base_add
+	pushal	number_of_bytes
+	calls	#2,g^lib$get_vm
+	check	r0,error
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_save,outbuf=out,outlen=out,-
+		p1=Base_add
+	put_de		out
+
+
+
+
+; save current
+
+	movc3	#Save_size, Fab, @Base_add
+
+	movl	base_add, pointer
+
+; open the new file
+
+	movb	mail_li,fab+fab$b_fns
+	decb	fab+fab$b_fns
+
+	movl	mail_li+4,fab+fab$l_fna
+	incl	fab+fab$l_fna
+
+
+	clrw	fab+fab$w_ifi
+
+
+	incl	main_c
+	clrl	failed
+	
+
+	$open	fab=fab
+	check_open
+
+
+	tstl	failed
+	beql	11234$
+	movl	#rms$_eof, r0
+	brw	error
+11234$:	nop
+
+	$connect	rab=rab
+	check_open
+
+
+	tstl	failed
+	beql	21234$
+	movl	#rms$_eof, r0
+	brw	error
+21234$:	nop
+
+
+	brw	loop
+
+
+6000$:	nop
+; ------------------------------------------------------------------------
+
+
+; if there /old OR no " then parse the 'old' way
+
+	cmpl	#1,record_type
+;	beql	7700$
+	bneq	17700$
+	brw	7700$
+17700$:	nop
+
+
+; assume type 2 (NODE::USER   !   {access}
+
+	movl	#2,record_type
+
+
+
+	locc	#^a/"/, out, @out+4
+	beql	7100$	; not found
+
+
+
+	pushaq	old
+	calls	#1,g^cli$present
+	blbs	r0,7101$
+
+	movl	#4,record_type	
+	brw	7700$
+
+7101$:	nop
+	movl	#3,record_type
+7100$:	movb	#^a/A/,@out+4
+
+; parse the old way	
+
+	put_de	do_this
+	put_de	out
+
+
+
+
+	pushaq	CPmt			; prompt
+	pushal	More			; prompt for text
+	pushal	g^Lib$get_input		; prompt for required param
+	pushal	Table			; table
+	pushaq	out			; command string
+	calls	#5,g^cli$dcl_parse
+	check	r0,error
+
+
+
+7700$:	nop
+
+	subl2	#verb_len , out
+	addl2	#verb_len , out+4
+
+	put_de		out
+
+	movab	out+8, out+4
+
+; ****************************************************************
+	cmpl	#1,record_type
+	bneq	8000$
+
+; if type 1 (mail dist list) disallow null member name
+	tstl	mail_li
+	bneq	8001$
+	brw	loop
+8001$:	nop
+
+	movab	type_1, R6
+	brw	9000$
+8000$:	nop
+
+
+	cmpl	#2,record_type
+	bneq	8002$
+	movab	type_2, R6
+	brw	9000$
+8002$:	nop
+
+	cmpl	#3,record_type
+	bneq	8003$
+	movab	type_3, R6
+	brw	9000$
+8003$:	nop
+
+	cmpl	#4,record_type
+	bneq	8004$
+	movab	type_4, R6
+	brw	9000$
+8004$:	nop
+
+
+9000$:	nop
+	tstl	(R6)
+	beql	9500$
+
+;	pushl	R6
+;	calls	#1,g^lib$put_output
+
+
+
+	movw	(R6), Drab+rab$w_rsz
+	movw	(R6), Drab+rab$w_usz
+	movl	4(R6), Drab+rab$l_Rbf
+	movl	4(R6), Drab+rab$l_Ubf
+
+	$Put	Rab=Drab
+	check	r0,error
+
+
+	movzbl	(R6), R3
+	clrl	(R6)
+	addl2	R3, R6
+	addl2	#8, R6
+	brw	9000$
+
+9500$:	nop
+
+
+; ****************************************************************
+
+; set mail address
+
+	movw	mail_li, add_m
+	movw	#notes$k_user_mail_addr,add_m+2
+	movab	mail_li+8, add_m+4
+
+
+
+
+
+
+; set defaults
+
+; -------------------------------------------------------------
+
+; set access from mail address
+
+	movl	mail_li, acc_li
+	movc3	mail_li, mail_li+8, acc_li+8
+
+
+
+	movw	acc_li,  m_a
+	movw	#notes$k_user_access_list, m_a+2
+	movab	acc_li+8, m_a+4
+
+
+; if the access list starts with NM%.. then drop it
+
+ 	pushaq	acc_li
+	pushaq	acc_li
+	calls	#2,g^str$upcase
+
+	cmpc3	#3,nm_tst, acc_li+8
+	bneq	200$
+
+	subw2	#3, acc_li
+	addl2	#3, acc_li+4
+
+
+
+	movw	acc_li,  m_a
+	movw	#notes$k_user_access_list, m_a+2
+	movab	acc_li+8, m_a+4
+
+
+
+200$:	nop
+	
+
+
+
+
+; set member name from mail address  (the :: stuff is sorted out later!)
+
+	movl	mail_li, mem_n
+	movc3	mem_n, mail_li+8, mem_n+8
+
+
+	movw	mem_n         , m_u
+	movw	#notes$k_user_name, m_u+2
+	movab	mem_n         +8, m_u+4
+
+
+
+
+
+
+; if the member name is XX::YY we only want the bit after the ::
+
+
+	movzwl	m_u, descr
+	movl	m_u+4, descr+4
+
+	matchc	#2,col_tst, descr, @descr+4
+	bneq	9300$
+
+	movw	R2, m_u
+	movl	R3, m_u+4
+
+9300$:	nop
+
+
+
+
+
+
+
+	clrl	user_moderate
+
+	pushaq	moderator
+	calls	#1,g^cli$present
+	blbc	r0, 5$
+	incl	user_moderate
+5$:	nop
+
+
+
+
+
+
+
+
+; Is there a member name ?
+
+	pushaq	cld_mem
+	calls	#1,cli$present
+	blbc	r0,19$
+
+	movl    #100,mem_n
+	Pushaw  mem_n
+	pushaq  mem_n
+	pushaq  cld_mem
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+
+	movw	mem_n         , m_u
+	movw	#notes$k_user_name, m_u+2
+	movab	mem_n         +8, m_u+4
+
+
+19$:	nop
+
+
+
+
+; get out from the generic access field
+;
+; a node list  NODE_LI: and an access list ACC_LI:
+
+	pushaq	access
+	calls	#1,cli$present
+	blbs	r0,300$
+	brw	add
+300$:	nop
+	
+	clrl	NODE_LI
+	clrl	ACC_LI
+
+
+	movw	#notes$k_NooP, m_n+2
+	movw	#notes$k_Noop, m_a+2
+
+sort:	nop
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  Access
+	calls   #3,g^cli$get_value 
+	blbs	r0,5$
+	brw	add
+5$:	nop
+
+
+; if this element contains a "::" then its access
+
+
+	matchc	#2,col_tst, input, @input+4
+	bneq	10$
+
+	movl	acc_li+4, R6
+	addl2	acc_li, R6
+
+	tstl	acc_li
+	beql	50$
+
+	movb	#^a/,/, (R6)	
+	incl	R6
+	incl	acc_li
+
+50$:	addl2	input, acc_li
+	movc3	input, @input+4, (R6)
+
+	brw	sort
+
+10$:	nop
+
+
+
+	movl	node_li+4, R6
+	addl2	node_li, R6
+
+
+	tstl	node_li
+	beql	51$
+
+	movb	#^a/,/, (R6)	
+	incl	R6
+	incl	node_li
+
+51$:	addl2	input, node_li
+	movc3	input, @input+4, (R6)
+
+	brw	sort
+
+
+add:	nop
+
+
+	movl	#500,out
+	$fao_s	ctrstr=ctr_node,outbuf=out,outlen=out,-
+		p1=#Node_li
+	put_de		out
+
+
+
+	movw	node_li, m_n
+	beql	10$
+	movw	#notes$k_user_nodename, m_n+2
+	movl	node_li+4, m_n+4
+10$:	nop
+
+
+	movl	#500,out
+	$fao_s	ctrstr=ctr_acc,outbuf=out,outlen=out,-
+		p1=#acc_li
+	put_de		out
+
+
+
+	movw	acc_li, m_a
+	beql	20$
+	movw	#notes$k_noop	, m_n+2			; drop V1 node list
+	movw	#notes$k_user_access_list, m_a+2
+	movl	acc_li+4, m_a+4
+20$:	nop
+
+
+
+
+
+
+	movzwl	add_m, descr
+	movl	add_m+4, descr+4
+
+	movzwl	m_u, descr
+	movl	m_u+4, descr+4
+
+
+; if the mail address is "" then APPEND the access
+
+
+	tstl	mail_li
+	bneq	55$
+
+	brw	Append
+
+55$:	nop
+
+
+
+
+	movzwl	m_u, Tdescr
+	movl	m_u+4, Tdescr+4
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=au,outbuf=out,outlen=out,-
+		p1=#Tdescr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+	pushaw	add_o
+	pushaw	add_m
+	pushal	mast_note_cont
+	calls	#3,g^notes$user_add
+	blbc	r0, 11123$
+	brw	123$
+11123$:	nop
+
+	cmpl	r0, #notes$_Alrexists_u
+	beql	444$
+	movl	#1, R0
+	brw	loop
+444$:	nop
+
+
+
+	tstl	nreplace
+	beql	123$
+
+
+
+	pushaw	add_o
+	pushaw	add_m
+	pushal	mast_note_cont
+	calls	#3,g^notes$user_modify
+
+
+	movl	#100,out
+	$fao_s	ctrstr=rep_u,outbuf=out,outlen=out,-
+		p1=user_o_len,-
+		p2=#user_o
+	put_de	out
+
+
+	brw	loop
+
+
+
+123$:	nop
+
+
+
+
+	tstl	user_o_len
+	beql	4123$
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_add,outbuf=out,outlen=out,-
+		p1=user_o_len,-
+		p2=#user_o
+	put_de	out
+
+
+4123$:	brw	loop
+
+
+Append:	nop
+
+; dont append if the last was bad
+
+
+
+
+	movl	#1000, new_acc_li
+	movl	#1000, new_node_li
+
+
+	put_de	app_te
+	
+; get existing access
+
+	movc5	#0,(sp),#0, #get_m_len , get_m
+	movc3	#12, m_u, get_m
+	
+
+	pushaw	get_o
+	pushaw	get_m
+	pushal	mast_note_cont
+	calls	#3,g^notes$user_get
+	blbs	r0,20$
+
+	movl	r0,r8
+
+	movzwl	rab+rab$w_rsz, debug
+	movab	buffer, debug+4
+
+	pushaq	debug
+	calls	#1,g^lib$put_output
+	
+
+;	MOVL    r8,VEC+4
+ ;       $PUTMSG_S       MSGVEC=VEC
+
+	brw	loop
+
+20$:	nop
+
+
+
+
+
+
+	movl	old_access_list_len, descr
+	movab	old_access_list, descr+4
+
+	movl	#1, comma
+
+	tstl	descr
+	bneq	1234$
+	clrl	comma
+1234$:	nop
+	tstl	acc_li
+	bneq	2234$
+	clrl	comma
+2234$:	nop
+
+
+
+
+	pushaq	descr
+	pushaq	comma
+	pushaq	acc_li
+	pushaq	new_acc_li
+	calls	#4, g^STR$CONCAT
+	check	r0,error
+
+	movl	comma, new_acc_li
+	addl2	descr, new_acc_li
+	addl2	acc_li, new_acc_li
+;	pushaq	new_acc_li
+;	calls	#1,g^lib$put_output
+
+
+
+
+	movl	old_user_nodename_len, descr
+	movab	old_user_nodename, descr+4
+
+
+
+	movl	#1, comma
+
+	tstl	descr
+	bneq	4234$
+	clrl	comma
+4234$:	nop
+	tstl	node_li
+	bneq	5234$
+	clrl	comma
+5234$:	nop
+
+
+
+	pushaq	descr
+	pushaq	comma
+	pushaq	node_li
+	pushaq	new_node_li
+	calls	#4, g^STR$CONCAT
+	check	r0,error
+
+	movl	comma, new_node_li
+	addl2	descr, new_node_li
+	addl2	node_li, new_node_li
+
+
+;	pushaq	new_node_li
+;	calls	#1,g^lib$put_output
+
+
+
+
+	movw	#notes$k_noop, na1+2
+
+	cmpl	#1, new_node_li
+	beql	456$
+	tstl	new_node_li
+	beql	456$
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_na,outbuf=out,outlen=out,-
+		p1=#new_node_li
+	put_de	out
+
+
+	movw	new_node_li, na1
+	movw	#notes$k_user_nodename,na1+2
+	movab	new_node_li+8, na1+4
+
+456$:	nop
+
+
+	movw	#notes$k_noop, na2+2
+
+	cmpl	#1, new_acc_li
+;	beql	1456$
+	bneq	11456$
+
+	tstl	new_acc_li
+;	beql	1456$
+	bneq	11456$
+
+	brw	1456$
+11456$:	nop
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_nal,outbuf=out,outlen=out,-
+		p1=#new_acc_li
+	put_de	out
+
+	movw	new_acc_li, na2
+	movw	#notes$k_user_access_list,na2+2
+	movw	#notes$k_noop,na1+2	; V1 access list
+	movab	new_acc_li+8, na2+4
+
+1456$:	nop
+
+
+
+
+	pushaw	null
+	pushaw	get_m
+	pushal	mast_note_cont
+	calls	#3,g^notes$user_modify
+;	check	r0,error
+
+
+
+	brw	loop
+
+error:	nop
+
+
+	cmpl	r0,#rms$_eof
+	beql	10$
+	ret
+10$:	nop
+
+
+; restore ?
+
+
+	tstl	pointer
+	bneq	20$
+	$exit_s	code=#1
+	ret
+20$:	nop
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_rest,outbuf=out,outlen=out,-
+		p1=pointer
+	put_de	out
+
+
+
+
+
+	movc3	#Save_size, @Pointer, Fab
+
+	brw	loop
+
+verb:	.ascii	/Xdd_mem_file /	; ie verb mail user access_list
+verb_len = . - verb
+
+
+file:	.ascid	/FILE/
+
+ctr_file:	.ascid	/Opening membership file !AS/
+
+CPMT:		.Ascid	/This Is a Prompt/
+
+cld_mem:	.ascid	/MEMBER/
+
+
+add_m:	.word	0
+	.word	notes$k_noop		;notes$k_user_mail_addr
+	.long	0
+	.long	0
+;
+m_u:	.word	0
+	.word	notes$k_noop		;notes$k_user_name
+	.long	0
+	.long	0
+;
+	.word	4
+	.word	notes$k_user_moderate
+	.long	user_moderate
+	.long	0
+;
+m_a:	.word	0				; access list !
+	.word	notes$k_noop			; notes$k_user_access_list
+	.long	0
+	.long	0
+;
+m_n:	.word	0				; old V1 node list
+	.word   notes$k_noop			; notes$k_user_nodename
+	.long	0
+	.long	0
+;
+	.long	0
+
+
+moderator:	.ascid	/MODERATOR/
+user_moderate:	.blkl	1
+
+
+access:			.ascid	/ACCESS/
+acc_li:			.long	5000
+			.long	acc_li+8
+			.blkb	5000
+
+
+mail_adr:	.ascid	/MAIL_ADR/
+mail_li:	.long	500
+		.long	mail_li+8
+		.blkb	500
+
+
+node:		.Ascid	/NODE/
+node_li:	.long	500
+		.long	node_li+8
+		.blkb	500
+
+
+nm_tst:	.ascii	/NM%/
+
+fred:	.blkL	1
+
+col_tst:	.ascii	/::/
+
+
+add_o:	.word	100
+	.word	notes$k_user_name
+	.long	user_o
+	.long	user_o_len
+;
+	.long	0
+
+user_o:		.blkb	100
+user_o_len:	.blkl	1
+
+ctr_rec:	.ascid	/Read record = |!AS| /
+
+ctr_add:	.ascid	/Member  "!AD"  added/
+
+dlm:	.ascid	/---------------------------------------------------/
+
+
+	.entry	more,^m<r2,r3,r4,r5,r6,r7,r8,r9>
+
+	pushaq	get_nxt
+	calls	#1,g^lib$put_output
+	$exit_s	code=#1
+
+
+	movl	4(ap),R9
+
+; ---------------------------------------------
+
+	movl	(R9), R6
+	movl	4(R9), R7
+
+; ---------------------------------------------
+
+	movl	R7, rab+rab$l_Ubf
+	movl	R7, rab+rab$l_Rbf
+
+
+	$get	rab=rab
+	check	r0,error
+
+	movw	rab+rab$w_rsz,descr
+	movl	R7, descr+4
+
+
+
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_rec,outbuf=out,outlen=out,-
+		p1=#Descr
+;	pushaq	out
+;	calls	#1,g^lib$put_output
+
+
+
+	movw	rab+rab$w_rsz, (R9)
+
+
+	ret
+ttt:	.ascid	/************************************************************/
+get_nxt:	.ascid	/getting a 'continued' record/
+
+
+
+Number_of_bytes:	.blkl	1
+base_add:		.blkl	1
+
+
+ctr_save:	.ascid	/Save block address !XL/
+ctr_rest:	.ascid	/Rest block address !XL/
+
+no_com:		.ascid	/%PAN-W-WRONG, found a } but no ! /
+no_com1:	.ascid	/%PAN-W-WRONG, found a { but no } /
+
+re_dir:		.ascid	/Opening @'d file /
+ctr_re_dir:	.ascid	/Input redirected to file !AS/
+
+dummy:		.blkb	50
+
+
+
+
+mem_n:	.long	100
+	.long	mem_n+8
+	.blkb	100
+
+
+ctr_acc:	.ascid	+/Access=!AS+
+ctr_node:	.ascid	+/Node=!AS+
+
+
+rep_u:	.ascid	/Member "!AD" Replaced /
+
+nreplace:	.ascid	/REPLACE/
+
+
+
+
+app_te:	.ascid	/Appending access.../
+
+
+
+
+get_m:	.word	0
+	.word	0
+	.long	0
+	.long	0
+;
+na1:	.word	0
+	.word	notes$k_noop
+	.long	0
+	.long	0
+;
+na2:	.word	0
+	.word	notes$k_noop
+	.long	0
+	.long	0
+;
+	.long	0
+
+get_m_len = . - get_m
+
+
+get_o:	.word	500				; access list !
+	.word	notes$k_user_access_list
+	.long	old_access_list
+	.long	old_access_list_len
+;
+	.word	500				; old V1 node list
+	.word   notes$k_user_nodename
+	.long	old_user_nodename
+	.long	old_user_nodename_len
+;
+	.long	0
+
+
+old_access_list:	.blkb	500
+old_access_list_len:	.blkl	1
+
+old_user_nodename:	.blkb	500
+old_user_nodename_len:	.blkl	1
+
+
+comma:	.ascid	/,/
+
+
+
+new_acc_li:	.long	1000
+		.long	new_acc_li+8
+		.blkb	1000
+
+new_node_li:	.long	1000
+		.long	new_node_li+8
+		.blkb	1000
+
+old:	.ascid	/OLD_FMT/
+
+record_type:	.blkl	1
+ctr_type:	.ascid	/>>>>>>>>> Record_Type = !UL <<<<<<<</
+
+
+type_1:
+.ascid	/************** Parsing Rule (Type 1 records)/
+.ascid	/** As no {Access} field was found.. this record/
+.ascid	/** type will be formatted as a raw Mail Distribution/
+.ascid	/** list.. IE   NODE::USER ! Comment/
+.long	0
+
+type_2:
+.ascid	/************** Parsing Rule (Type 2 records)/
+.ascid	/** this record type will be formatted as/
+.ascid	/** an ENOTES membership list../
+.ascid	/** IE NODE::USER ! {access,list}/
+.ascid	/ (if the mail address field is blank eg "      "/
+.ascid	/   but _not_ null eg "" then the access will be/
+.ascid	/   appended) /
+.long	0
+
+type_3:
+.ascid	/************** Parsing Rule (Type 3 records)/
+.ascid	/** this record type will be formatted as a/
+.ascid	/** PAN(1) membership list/
+.ascid	+** IE NODE::USER  ! /Name="Name" {access,list}+
+.ascid	/ (if the mail address field is blank eg "      "/
+.ascid	/   but _not_ null eg "" then the access will be/
+.ascid	/   appended) /
+.long	0
+
+type_4:	
+.ascid	/************** Parsing Rule (Type 4 records)/
+.ascid	/** this record type will be formatted as a/
+.ascid	/** PAN(2) membership list/
+.ascid	+** IE NODE::USER  ! "Name" {access,list}+
+.ascid	/ (if the mail address field is blank eg "      "/
+.ascid	/   but _not_ null eg "" then the access will be/
+.ascid	/   appended) /
+.long	0
+
+ctr_na:		.ascid	/  New node list = "!AS"/
+ctr_nal:	.ascid	/New access list = "!AS"/
+
+
+sub_ing:	.ascid	/Replacing blank mail address with ""/
+peb:	.ascid	/Peb/
+
+debug:		.ascid	/DEBUG_FILE/
+
+flush:	.ascid	/%PAN-I-FLUSH, Flushing append record due to last error/
+
+append_flag:	.blkl	1
+bad_flag:	.blkl	1
+do_this:	.ascid	/calling CLI$DCL_PARSE for .../
+space:	.ascii	/                                                      /
+
+end_of:		.blkl	1
+length_of:	.blkl	1
+
+au:	.ascid	/Add member "!AS"/
+
+failed:	.blkl	1
+main_c:	.blkl	1
+
+	.end	
+

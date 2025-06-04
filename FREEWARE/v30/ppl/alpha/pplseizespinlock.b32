@@ -1,0 +1,357 @@
+MODULE PPL$SEIZESPINLOCK ( ADDRESSING_MODE ( EXTERNAL=GENERAL ), 	!
+			   IDENT = 'V57-001'
+			 ) =
+BEGIN
+
+!
+!			  COPYRIGHT (c) 1986 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:
+!		PPL ( Parallel Processing Library )
+!
+! ABSTRACT:
+!
+!
+! ENVIRONMENT:
+!
+!
+!--
+!<BLF/PAGE>
+
+!++
+!
+! AUTHOR:	Catherine M. Fariz, CREATION DATE: (dd-mm-yy)
+!
+!
+! MODIFIED BY:
+!
+! 	Catherine M. Fariz, (dd-mm-yy): VERSION 00
+!
+! X01-000	- Original version
+!
+! X01-001	- To correct the ident to match the cms		CMF  26-JAN-1987
+!		  generation number.
+!
+! X01-002	- Add support for non-blocking flag, fix error	DLR  24-SEP-1987
+!		  handling.
+!
+! V051-001	- Replaced reference to CTX[CTX_L_PPLSECT_ADR]	WWS  09-SEP-1988
+!		  with reference to PPL$$GL_PPLSECT
+!
+! V053-001	- Moved check for noinit to PPL$$GL_PPLSECT	PJC  08-Jul-1989
+!		  from PPL$$GL_CONTEXT, and removed local CTX
+!
+! V057-001	- EVAX/Alpha port				PJC  12-Nov-1991
+!--
+!<BLF/PAGE>
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+
+LIBRARY 'RTLSTARLE';			! System symbols
+LIBRARY 'SYS$LIBRARY:XPORT';
+UNDECLARE %QUOTE $DESCRIPTOR;		! Clears up conflict
+LIBRARY 'OBJ$:PPLLIB';
+REQUIRE 'RTLIN:RTLPSECT';		! Define DECLARE_PSECTS macro
+
+!
+! LINKAGE
+!
+LINKAGE
+    jsb_call2 = jsb (register = 0, register = 1):
+		preserve (2,3,4,5,6,7,8,9,10,11);
+
+!
+! FORWARD ROUTINE
+!
+FORWARD ROUTINE
+    ppl$seize_spin_lock,
+    ppl$seize_spin_lock_r1  : jsb_call2;
+
+!
+! MACROS:
+!
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! OWN STORAGE:
+!
+
+!
+! PSECT DECLARATION:
+!
+DECLARE_PSECTS (PPL);			! Declare psects for PPL facility
+
+!
+! EXTERNAL REFERENCES:
+!
+EXTERNAL
+    ppl$$gl_pplsect :	ref pplsect_block,
+    ppl$$gl_context :	ref ctx_block;
+
+
+%SBTTL 'ROUTINE: PPL$SEIZE_SPIN_LOCK - Acquires the rights to a spin lock'
+!
+GLOBAL ROUTINE PPL$SEIZE_SPIN_LOCK
+    (
+	lock_id : ref vector[1, long, unsigned],
+	flags	: ref vector[1, long, unsigned]
+     ) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Acquire the rights to a spin lock by waiting in a spin loop
+!	until the lock is free.  the lock must have been created by
+!	PPL$CREATE_SPIN_LOCK.
+!
+!	This form of lock is recommended for use only in a dedicated
+!	parallel processing environment ( versus a general time-sharing
+!	environment), and only when fairness and the use of system resources
+!	is NOT important.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$SEIZE_SPIN_LOCK ( lock_id, [flags] )
+!
+! FORMAL ARGUMENT(S):
+!
+!	LOCK_ID
+!	VMS USAGE 	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	An unsigned longword that serves as the users handle on the lock.
+!
+!
+!	FLAGS
+!	VMS USAGE	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by value
+!
+!	Specifies options for the spin_lock being seized.  The flags
+!	argument is the value of a longword bit mask containing the flag.
+!	The bit, when set, specifies the corresponding option:
+!
+!	PPL$M_NON_BLOCKING	Indicates that the caller is to be blocked
+!				if the resource is not available.
+!
+!				DEFAULT:  false - caller will block if resource
+!						is unavailable
+!
+! IMPLICIT INPUTS:
+!
+!	The Spin Lock Block.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The Spin Lock Block.
+!
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVELEID	Invalid element ID for requested operaton.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_NOSUCHLOC  A lock with the specified ID does not exist.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+BEGIN	!ppl$seize_spin_lock
+
+BUILTIN
+    actualcount,
+    nullparameter;
+
+LITERAL
+    min_args = 1,
+    max_args = 2;			! Maximum number of arguments passed
+
+LOCAL
+    sem_block	: ref csb_block,		! The semaphore block
+    cflags	: unsigned long,
+    status;					! Status
+
+
+!+
+! Validate parameters.
+!-
+
+if (actualcount () gtr max_args) or (actualcount () lss min_args) then
+    return ppl$_wronumarg;
+
+if (ppl$$gl_pplsect[base_] eql 0) then return ppl$_noinit;
+
+if (nullparameter (flags)) then
+    cflags = 0
+else
+    cflags = .flags[0];
+
+status = ppl$seize_spin_lock_r1(.lock_id, cflags);
+
+return .status;
+    	    
+END;
+
+
+%SBTTL 'ROUTINE: PPL$SEIZE_SPIN_LOCK_R1 - Acquires the rights to a spin lock'
+!
+GLOBAL ROUTINE PPL$SEIZE_SPIN_LOCK_R1
+    (
+	lock_id : ref vector[1, long, unsigned],
+	flags	: ref vector[1, long, unsigned]
+     ) : jsb_call2 =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Acquire the rights to a spin lock by waiting in a spin loop
+!	until the lock is free.  the lock must have been created by
+!	PPL$CREATE_SPIN_LOCK.
+!
+!	This form of lock is recommended for use only in a dedicated
+!	parallel processing environment ( versus a general time-sharing
+!	environment), and only when fairness and the use of system resources
+!	is NOT important.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$SEIZE_SPIN_LOCK ( lock_id, [flags] )
+!
+! FORMAL ARGUMENT(S):
+!
+!	LOCK_ID
+!	VMS USAGE 	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	An unsigned longword that serves as the users handle on the lock.
+!
+!
+!	FLAGS
+!	VMS USAGE	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by value
+!
+!	Specifies options for the spin_lock being seized.  The flags
+!	argument is the value of a longword bit mask containing the flag.
+!	The bit, when set, specifies the corresponding option:
+!
+!	PPL$M_NON_BLOCKING	Indicates that the caller is to be blocked
+!				if the resource is not available.
+!
+!				DEFAULT:  false - caller will block if resource
+!						is unavailable
+!
+! IMPLICIT INPUTS:
+!
+!	The Spin Lock Block.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The Spin Lock Block.
+!
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVELEID	Invalid element ID for requested operaton.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_NOSUCHLOC  A lock with the specified ID does not exist.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+BEGIN	!ppl$seize_spin_lock_r1
+
+LITERAL
+    min_args = 1,
+    max_args = 2;			! Maximum number of arguments passed
+
+LOCAL
+    sem_block	: ref csb_block, 	! The semaphore block
+    status;				! Status
+
+
+!+
+! Validate parameters.
+!-
+
+if (ppl$$gl_pplsect[base_] eql 0) then return ppl$_noinit;
+
+
+if .lock_id neq 0 then
+    (
+    sem_block = .lock_id[0] + ppl$$gl_pplsect[base_] ;
+
+    if (.lock_id[0] neq .sem_block[csb_l_eid]) then
+	return ppl$_nosuchloc;
+
+    if (.sem_block[csb_l_type] neq ppl$k_spin_lock) then
+	return ppl$_inveletyp;
+    );
+
+!+
+! Try to get the lock.  If not immediately available, wait for it,
+! unless the user requested non-blocking operation.
+!-
+if not testbitssi (sem_block[csb_w_csval]) then	    !not set before = I got it
+    return ppl$_normal
+else
+    (
+    if (.flags[0] eql 0) then
+	(
+	lock_bit_ (sem_block[csb_w_csval]);
+	return ppl$_normal;
+	)
+    else if (.flags[0] eql ppl$m_non_blocking) then
+	return ppl$_not_available
+    else
+	return ppl$_invarg;
+    );
+    	    
+END;	! End of Routine PPL$SEIZE_SPIN_LOCK_R1
+
+
+END				! End of module PPL$SEIZESPINLOCK
+ELUDOM

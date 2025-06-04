@@ -1,0 +1,219 @@
+From:	PSULCS::TRI          11-MAY-1993 10:28:44.26
+To:	JLW
+CC:	
+Subj:	Fwd: OPENIN, DNF, NOSUCHFILE Errors Using Search List Logicals For DIRECTORY
+
+
+OPENIN, DNF, NOSUCHFILE Errors Using Search List Logicals For DIRECTORY
+Last Technical Review: 22-APR-1992                            Size: 105 lines
+
+
+COPYRIGHT (c) 1988, 1989, 1990 by Digital Equipment Corporation.
+ALL RIGHTS RESERVED. No distribution except as provided under contract.
+
+
+COMPONENT:  Record Management Services (RMS)         OP/SYS:  VMS
+
+LAST TECHNICAL REVIEW:  22-APR-1992
+
+SOURCE:  Customer Support Center / USA
+
+VERSION INFORMATION:
+
+    Information Applies To:  VMS, Versions 4.n and above
+
+
+SYMPTOM:
+
+A DIRECTORY operation is performed using a search list logical name
+containing several rooted directory specifications.  When no files
+are found, the operation completes with the following message, as
+expected:
+
+    %DIRECT-W-NOFILES, no files found
+
+However, under some circumstances, the operation completes with the
+following message:
+
+    %DIRECT-W-NOFILES, no files found
+    -RMS-E-DNF, directory not found
+    -SYSTEM-W-NOSUCHFILE, no such file
+
+
+EXAMPLE:
+
+For example, given the following devices and directories:
+
+    DSA1:[PROJECT_A]
+
+    DSA2:[PROJECT_A]
+    DSA2:[PROJECT_A.TEST]
+
+    DSA3:[PROJECT_A]
+    DSA3:[PROJECT_A.TEST]
+
+And the following series of commands:
+
+    $ DEFINE /TRANSLATION=(CONCEALED,TERMINAL) TEST -
+        DSA1:[PROJECT_A.], -
+        DSA2:[PROJECT_A.], -
+        DSA3:[PROJECT_A.]
+    $ DIRECTORY TEST:[TEST]NOSUCHFILE.DAT
+
+The result is:
+
+    %DIRECT-W-NOFILES, no files found
+
+However, if the order of search list elements is changed:
+
+    $ DEFINE /TRANSLATION=(CONCEALED,TERMINAL) TEST -
+        DSA3:[PROJECT_A.], -
+        DSA2:[PROJECT_A.], -
+        DSA1:[PROJECT_A.]
+    $ DIRECTORY TEST:[TEST]NOSUCHFILE.DAT
+
+The result is:
+
+    %DIRECT-E-OPENIN, error opening TEST:[TEST]NOSUCHFILE.DAT as input
+    -RMS-E-DNF, directory not found
+    -SYSTEM-W-NOSUCHFILE, no such file
+
+
+ANALYSIS:
+
+This behavior occurs because the directory [TEST] is not present
+in all of of the roots in the search list specified in the above
+command.
+
+The fact that the error is sensitive to where the missing
+directory falls in the search list is the expected behavior under
+the circumstances described.  The "directory not found" (DNF)
+error is reported when:
+
+    o   The specified file is not found in any of the existing
+        directories in the search list.
+
+    o   The specified directory cannot be found in the last
+        root in the search list.
+
+Otherwise, a "file not found" (FNF) error is reported.
+
+Note that in addition to the DIRECTORY command, this behavior
+applies to the routines LIB$FIND_FILE, LIB$FILE_SCAN and the
+$SEARCH system service.
+
+
+SOLUTION:
+
+When referencing a directory using a search list of rooted
+directories, ensure that the specified directory exists in all of
+the directory roots in the search list.
+
+From:	PSULCS::TRI          11-MAY-1993 10:33:50.94
+To:	JLW
+CC:	TRI
+Subj:	more on search lists
+
+Lance,  note the second paragraph from the bottom.
+
+
+
+
+
+
+
+
+
+Overview of Search List Logicals
+Last Technical Review: 21-FEB-1992                            Size: 494 lines
+
+
+COPYRIGHT (c) 1988, 1989, 1990 by Digital Equipment Corporation.
+ALL RIGHTS RESERVED. No distribution except as provided under contract.
+
+
+
+COMPONENT:  Search List Logicals                       OP/SYS:  VMS
+
+SOURCE:  Customer Support Center/Colorado Springs  USA
+
+VERSION INFORMATION:
+
+     Information Applies To:  VMS, All Versions
+
+
+OVERVIEW:
+
+This article provides an overview of using searchlist logicals and
+contains approximately 520 lines.  Due to the length of this article,
+it is recommended that you get a hardcopy before attempting to read it.
+
+
+DISCUSSION:
+
+What is a Searchlist?
+
+   A searchlist is a logical name assigned to a list of equivalence
+   names.  Typically, a searchlist consists of two device or device
+   and directory specifications.  However, the searchlist is not
+   limited to just two components.
+
+   Searchlists became part of VMS with the advent of VAXclusters in
+   VMS Version 4.0.  The searchlist is an important part of managing
+   the files on the system disk.  The logical names SYS$MANAGER,
+   SYS$SYSTEM, SYS$LIBRARY and others are all implemented as
+   searchlists.  Actually, these searchlists are implemented through
+   the use of the logical name SYS$SYSROOT which is defined as a
+   searchlist AND as a rooted directory.
+
+   A searchlist can be viewed as a series of containers.  Generally,
+   the rules for using a search list are the following:
+
+   o  On a read operation involving a searchlist, RMS uses the first
+      container that provides a match for the file specification
+      unless a wildcard is specified.  When a wildcard is specified,
+      all matching files are used.  If no matches are found, the
+      command terminates with a "file not found" error message.
+
+   o  On a write operation to a searchlist which creates a new file,
+      RMS uses the first container in the list.
+
+   o  On a read/write operation (such as editing or renaming an
+      existing file), the structure of the searchlist is preserved.
+      The new version of the file is written to the same container
+      in which the existing file was found.
+
+   NOTE:  A searchlist provides only a logical definition for the
+          series of containers; just because a container is named in
+          a searchlist does not guarantee that it exists or is
+          accessible.  Any problem that occurs using a component of a
+          searchlist is revealed only when the component is accessed.
+
+   (Examples deleted)
+
+Summary -
+
+   In summary, several considerations go into the use of a
+   searchlist.
+
+   First of all, it may be important to know that a searchlist is
+   being used by default.  New files (including directories) that
+   are created will be inserted into the first component of the
+   searchlist.  The system logical names that use SYS$SYSROOT
+   (e.g. SYS$SYSTEM, SYS$MANAGER, SYS$LIBRARY, etc.) are searchlists.
+
+   Access to the components of a searchlist are transparent only if
+   all components have the same access (protections, existence).  If
+   the searchlist components are defined with different
+   characteristics, command execution can become inconsistent.
+
+   Finally, it is often useful to have additional logical names
+   defined to reference the individual components of a searchlist.
+   The logical names SYS$SPECIFIC and SYS$COMMON permit references
+   to the components of the SYS$SYSROOT searchlist.
+
+
+REFERENCES:
+
+"VMS User Manual", (AA-LA98B-TE), June 1989, Section 11.8
+"VMS DCL Concepts Manual", (AA-LA10A-TE), April 1988, Section 4.7

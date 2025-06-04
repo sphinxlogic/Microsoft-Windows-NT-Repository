@@ -1,0 +1,432 @@
+;*  CALLMON - A Call Monitor for OpenVMS Alpha
+;*
+;*  File:     CALLMON$JACKET.M64
+;*  Author:   Thierry Lelegard
+;*  Version:  1.0
+;*  Date:     24-JUL-1996
+;*
+;*  Abstract: This file contains a template jacket routine. This routine
+;*            replaces each intercepted routine. It is called "template"
+;*            because its procedure value is never used. Instead, each
+;*            time a new jacket routine is needed, a "clone" is obtained
+;*            by copying and modifying the template linkage section.
+;*            See below for details.
+;*
+
+	.TITLE	CALLMON$JACKET "Jacket routine for call interception"
+
+	$PSIGDEF
+	$PDSCDEF
+	$LIBICBDEF
+
+	.DISABLE  GLOBAL
+	.EXTERNAL LIB$GET_CURR_INVO_CONTEXT
+	.EXTERNAL LIB$GET_PREV_INVO_CONTEXT
+	.EXTERNAL LIB$GET_INVO_HANDLE
+
+
+;*******************************************************************************
+;
+;  The following macro loads or stores an argument register.
+;  The argument registers are R16 to R21 (integer arguments)
+;  and F16 to F21 (floating-point arguments).
+;
+;  The argument information register (R25 by default) is used
+;  to check the number of arguments and the data type of the
+;  argument. If the argument is not used (argument count too
+;  small), the macro does nothing.
+;
+
+	.MACRO	ARGREG, -	; Macro name
+		INSTR, -	; Must be LD (load) or ST (store)
+		REGNUM, -	; Argument register number (16 to 21)
+		ADDRESS, -	; Second argument to LDx or STx
+		ARGINFO=R25, -	; Argument information register
+		SR0=R0, -	; Scratch register for internal use
+		SR1=R1, -	; Scratch register for internal use
+		?X0, ?X1, ?X2, ?X3, ?X4, ?X5
+
+	; Check the validity of the macro arguments.
+	; The register number must in the range 16 to 21.
+	; The instruction must be LD or ST.
+	; We need two different scratch registers.
+
+	.IF	LT, REGNUM, 16
+	.ERROR	"Argument register must be 16 to 21"
+	.ENDC
+
+	.IF	GT, REGNUM, 21
+	.ERROR	"Argument register must be 16 to 21"
+	.ENDC
+
+	.IF	DIFFERENT, <%STRING (INSTR)>, <LD>
+	.IF	DIFFERENT, <%STRING (INSTR)>, <ST>
+	.ERROR	"Instruction must be LD or ST"
+	.ENDC
+	.ENDC
+
+	.IF	IDENTICAL, <%STRING (SR0)>, <%STRING (SR1)>
+	.ERROR	"Scratch registers must be different"
+	.ENDC
+
+	; Get the number of arguments and the type of the
+	; requested argument.
+
+	ZAPNOT	ARGINFO, #1, SR0	; Get argument count in SR0
+	CMPLT	SR0, #<REGNUM-15>, SR1	; Compare to current argument number
+	BNE	SR1, X0			; Branch if not enough arguments
+	SRL	ARGINFO, #<3*<REGNUM-16>+8>, SR1
+	AND	SR1, #7, SR0		; Get argument type (AI$K_AR_*) in SR0
+
+	; Load/store the argument register according to
+	; its data type.
+
+	CMPEQ	SR0, #AI$K_AR_FF, SR1	; Is arg an F-float?
+	BEQ	SR1, X1			; Branch if not F-float
+	INSTR'F	F'REGNUM, ADDRESS	; Load/store F-float argument
+	BR	X0
+X1:	CMPEQ	SR0, #AI$K_AR_FD, SR1	; Is arg a D-float?
+	BNE	SR1, X2			; Branch if D-float
+	CMPEQ	SR0, #AI$K_AR_FG, SR1
+	BEQ	SR1, X3			; Branch if not G-float
+X2:	INSTR'G	F'REGNUM, ADDRESS	; Load/store G-float or D-Float argument
+	BR	X0
+X3:	CMPEQ	SR0, #AI$K_AR_FS, SR1	; Is arg an IEEE S-float?
+	BEQ	SR1, X4			; Branch if not S-float
+	INSTR'S	F'REGNUM, ADDRESS	; Load/store S-float argument
+	BR	X0
+X4:	CMPEQ	SR0, #AI$K_AR_FT, SR1	; Is arg an IEEE T-float?
+	BEQ	SR1, X5			; Branch if not T-float
+	INSTR'T	F'REGNUM, ADDRESS	; Load/store T-float argument
+	BR	X0
+X5:	INSTR'Q	R'REGNUM, ADDRESS	; Default: load/store integer argument
+X0:
+	.ENDM	ARGREG
+
+
+;*******************************************************************************
+;
+;  These macros are used to define the layout of structures.
+;
+
+	.MACRO	START_STRUCTURE
+	STRUCTURE_DOT = 0
+	.ENDM	START_STRUCTURE
+
+	.MACRO	S_ALLOC, ELEM_SIZE, NAME, COUNT=1
+	NAME = STRUCTURE_DOT
+	STRUCTURE_DOT = STRUCTURE_DOT + <ELEM_SIZE * COUNT>
+	.ENDM	S_ALLOC
+
+	.MACRO	S_ALIAS, NAME
+	NAME = STRUCTURE_DOT
+	.ENDM	S_ALIAS
+
+	.MACRO	END_STRUCTURE, SIZE
+	SIZE = STRUCTURE_DOT
+	.ENDM	END_STRUCTURE
+;
+; Allocate predefined types in structure:
+;
+	.MACRO	S_BYTE, NAME, COUNT=1
+	S_ALLOC	1, NAME, COUNT
+	.ENDM	S_BYTE
+
+	.MACRO	S_WORD, NAME, COUNT=1
+	S_ALLOC	2, NAME, COUNT
+	.ENDM	S_WORD
+
+	.MACRO	S_LONG, NAME, COUNT=1
+	S_ALLOC	4, NAME, COUNT
+	.ENDM	S_LONG
+
+	.MACRO	S_QUAD, NAME, COUNT=1
+	S_ALLOC	8, NAME, COUNT
+	.ENDM	S_QUAD
+
+
+
+;*******************************************************************************
+;
+;  Define the layout of the jacket routine local variables.
+;  These variables are allocated on stack, in the fixed-size stack frame
+;  of the jacket routine, right after the register save area (RSA).
+;
+
+START_STRUCTURE
+
+S_QUAD	Q_INPREPOST	1	; Boolean: currently executing pre/post routine
+S_BYTE	T_INVOCTX	LIBICB$K_INVO_CONTEXT_BLK_SIZE	; Invocation context
+S_QUAD	Q_PAD		1	; So that frame size is a multiple of 16
+
+; The last portion of the local variable area must have the layout of
+; the structure callmon$argument_t, defined in callmon.h. The first six
+; arguments are allocated in this area and must terminates the stack
+; frame. Thus, the sixth argument (taken from register R21 or F21)
+; becomes adjacent to the the seventh argument (on stack).
+
+S_ALIAS	T_ARGUMENTS		; Base of callmon$argument_t structure
+S_LONG	L_POST_PROC	1	; Boolean: in pre- or post-processing
+S_LONG	L_CALL_IT	1	; Boolean: call/dont-call intercepted routine
+S_QUAD	Q_RESULT_R0	1	; Saved result register R0
+S_QUAD	Q_RESULT_R1	1	; Saved result register R1
+S_QUAD	Q_RESULT_F0	1	; Saved result register F0
+S_QUAD	Q_RESULT_F1	1	; Saved result register F1
+S_QUAD	Q_ARG_COUNT	1	; Argument count
+S_QUAD	Q_ARG_LIST	6	; First six argument (R16-R21)
+
+END_STRUCTURE JACKET_VAR_SIZE
+
+
+;*******************************************************************************
+;
+;  CALLMON jacket routine
+;
+;  This routine replaces all intercepted routines.
+;
+;  Arguments and result:
+;
+;    None defined. The jacket routine receives the argument list of
+;    the routine which is intercepted and return the same result.
+;
+;  Register usage:
+;
+;    R2 - Base pointer to linkage section
+;    R3 - Invocation handle of caller
+;    R4 - Original argument information register (R25)
+;    R5 - Saved SP
+;    R6 - Boolean: if set, we are called from another pre- or post-proc routine
+;    R0,R1,R22,R23,R24 - Conventional scratch registers
+;
+
+	$ROUTINE CALLMON$$JACKET, -
+		KIND=STACK, -
+		SIZE=$RSA_END+JACKET_VAR_SIZE, -
+		SAVED_REGS=<R2,R3,R4,R5,R6,FP>
+
+JACKET_CODE_START:
+	MOV	R27, R2		; Save linkage section in R2
+	.BASE	R2, $LS		; Inform assembler to use R2 as linkage base
+
+	; Define the layout of the linkage section. Note that the whole
+	; linkage section is cloned each time a routine is intercepted.
+	; Thus, although all jacket routines share the same code, they
+	; have a different "procedure value" (since the procedure
+	; descriptor is at the beginning of the linkage section).
+
+	$LINKAGE_SECTION
+	.ALIGN	QUAD
+CODE_START:		.ADDRESS JACKET_CODE_START
+CODE_END:		.ADDRESS JACKET_CODE_END
+CALLMON$$CLONE_ROUTINE::.QUAD	0	; Intercepted routine
+CALLMON$$CLONE_PRE::	.QUAD	0	; Pre-processing routine
+CALLMON$$CLONE_POST::	.QUAD	0	; Post-processing routine
+CALLMON$$CLONE_NAME::	.QUAD	0	; Routine name
+	$CODE_SECTION
+
+	; Save the argument registers.
+	; We will restore them before calling the intercepted routine.
+
+	MOV	R25, R4
+
+	ZAPNOT	R25, #1, R0
+	STQ	R0, $RSA_END+Q_ARG_COUNT (FP)
+
+	ARGREG	ST, 16, <$RSA_END+Q_ARG_LIST (FP)>
+	ARGREG	ST, 17, <$RSA_END+Q_ARG_LIST+8 (FP)>
+	ARGREG	ST, 18, <$RSA_END+Q_ARG_LIST+16 (FP)>
+	ARGREG	ST, 19, <$RSA_END+Q_ARG_LIST+24 (FP)>
+	ARGREG	ST, 20, <$RSA_END+Q_ARG_LIST+32 (FP)>
+	ARGREG	ST, 21, <$RSA_END+Q_ARG_LIST+40 (FP)>
+
+	; Default value for boolean CALL_IT is one (TRUE). If the
+	; pre-processing routine wants to cancel the call to the
+	; intercepted routine, it must clear the CALL_IT boolean
+	; and fill the appropriate of result registers.
+
+	MOV	#1, R0
+	STL	R0, $RSA_END+L_CALL_IT (FP)
+
+	; Initial value of result register is zero. This is not
+	; really requested but ensures a constant behaviour if the
+	; pre-processing routine cancels the call without filling
+	; the result registers.
+
+	CLR	R0
+	STQ	R0, $RSA_END+Q_RESULT_R0 (FP)
+	STQ	R0, $RSA_END+Q_RESULT_R1 (FP)
+	FCLR	F0
+	STT	F0, $RSA_END+Q_RESULT_F0 (FP)
+	STT	F0, $RSA_END+Q_RESULT_F1 (FP)
+
+	; Explore the stack to check if we are called in the context
+	; of another pre- or post-processing routine. First step, get
+	; the invocation handle of the caller.
+
+	$CALL	LIB$GET_CURR_INVO_CONTEXT, ARGS=<$RSA_END+T_INVOCTX(FP)/A>
+	$CALL	LIB$GET_PREV_INVO_CONTEXT, ARGS=<$RSA_END+T_INVOCTX(FP)/A>
+	$CALL	LIB$GET_INVO_HANDLE, ARGS=<$RSA_END+T_INVOCTX(FP)/A>
+	MOV	R0, R3		; Invocation handle of caller
+
+	; Second step: We loop on all invocation contexts in the stack
+	; until we find another instance of the jacket routine (that is
+	; to say, the return PC is inside the code range of the jacket
+	; routine). Then, we get the Q_INPREPOST boolean in the stack
+	; frame of this invocation. If this boolean is one, we are
+	; currently executing a pre-/post-processing routine and
+	; we must not trace the call.
+
+	CLR	R6		; Assume not in a pre-/post-processing
+50$:	$CALL	LIB$GET_PREV_INVO_CONTEXT, ARGS=<$RSA_END+T_INVOCTX(FP)/A>
+	BEQ	R0, 100$	; Branch if reached the bottom of stack
+	LDQ	R0, $RSA_END+T_INVOCTX+LIBICB$Q_PROGRAM_COUNTER(FP)
+	LDQ	R1, CODE_START
+	CMPLT	R0, R1, R1	; Check if PC is below jacket routines
+	BNE	R1, 50$		; Yes, loop on next invocation
+	LDQ	R1, CODE_END
+	CMPLE	R1, R0, R1	; Check if PC is above jacket routines
+	BNE	R1, 50$		; Yes, loop on next invocation
+	LDQ	R0, $RSA_END+T_INVOCTX+LIBICB$Q_IREG+<29*8>(FP)	; Saved FP
+	LDQ	R6, $RSA_END+Q_INPREPOST(R0)	; INPREPOST boolean of other
+	BEQ	R6, 50$		; Branch if other jacket not in pre/post
+100$:
+	; If we are already called from a pre- or post-processing routine,
+	; directly call the intercepted routine.
+
+	BNE	R6, 400$
+
+	; We are about to call the pre-processing routine.
+	; During the execution of the pre- and post-processing routines,
+	; we set a flag in the stack frame of the routine. This prevents
+	; wild recursion.
+
+	MOV	#1, R0
+	STQ	R0, $RSA_END+Q_INPREPOST (FP)
+
+	; Set the flag which indicates if we are in the pre- or
+	; post-processing routine.
+
+	STL	R31, $RSA_END+L_POST_PROC (FP)
+
+	; Call the pre-processing routine (if any)
+
+	LDQ	R27, CALLMON$$CLONE_PRE		; Procedure value
+	BEQ	R27, 400$			; Branch if no pre-proc routine
+	LDA	R16, $RSA_END+T_ARGUMENTS (FP)	; Arg 1: arguments array
+	MOV	R3, R17				; Arg 2: caller invo handle
+	LDQ	R18, CALLMON$$CLONE_NAME	; Arg 3: routine name
+	LDQ	R19, CALLMON$$CLONE_ROUTINE	; Arg 4: routine addr
+	LDA	R20, CALLMON$$JACKET		; Arg 5: jacket routine
+	MOV	#5, R25				; 5 integer registers
+	LDQ	R26, PDSC$Q_ENTRY (R27)		; Entry code
+	JSR	R26, (R26)
+
+	; If the pre-processing routine has canceled the call to the
+	; intercepted routine (and has filled the result array),
+	; directly jumps to the post-processing routine.
+
+	LDL	R0, $RSA_END+L_CALL_IT (FP)
+	BEQ	R0, 700$
+400$:
+	; We are about to call the intercepted routine.
+	; During its execution we clear the flag preventing recursion.
+	; If the intecepted routine calls another intercepted routine,
+	; we want to trace both.
+
+	STQ	R31, $RSA_END+Q_INPREPOST (FP)
+
+	; Restore all argument registers. Note that these arguments
+	; may have been modified by the pre-processing routine.
+
+	MOV	R4, R25
+
+	ARGREG	LD, 16, <$RSA_END+Q_ARG_LIST (FP)>
+	ARGREG	LD, 17, <$RSA_END+Q_ARG_LIST+8 (FP)>
+	ARGREG	LD, 18, <$RSA_END+Q_ARG_LIST+16 (FP)>
+	ARGREG	LD, 19, <$RSA_END+Q_ARG_LIST+24 (FP)>
+	ARGREG	LD, 20, <$RSA_END+Q_ARG_LIST+32 (FP)>
+	ARGREG	LD, 21, <$RSA_END+Q_ARG_LIST+40 (FP)>
+
+	; Push original 7th argument and more
+
+	MOV	SP, R5		; Save SP before pushing arguments
+	ZAPNOT	R25, #1, R22	; Number of arguments in R22
+	S8SUBQ	R22, #<7*8>, R23	; Adjust by quadword size in R23
+	LDL	R24, PDSC$L_SIZE (R2)	; Size of stack frame in R24
+	ADDQ	R23, R24, R24	; Offset of last argument in stack frame in R24
+	ADDQ	R24, FP, R23	; R23 points to last argument on stack
+500$:	CMPLT	R22, #7, R24	; Any argument left on stack (argc < 7) ?
+	BNE	R24, 600$	; No, branch
+	LDQ	R24, (R23)	; Load original argument
+	LDA	SP, -8(SP)	; Reserve room for new argument
+	STQ	R24, (SP)	; Store new argument
+	SUBQ	R22, #1, R22	; Decrement argument count
+	LDA	R23, -8(R23)	; Decrement original argument pointer
+	BR	500$		; Loop on next argument
+600$:
+	; Call the intercepted routine with the original argument list.
+
+	LDQ	R27, CALLMON$$CLONE_ROUTINE
+	BEQ	R27, 650$	; Skip call if no routine specified
+	LDQ	R26, PDSC$Q_ENTRY (R27)
+	JSR	R26, (R26)
+	MOV	R5, SP		; Restore SP to free arg list on stack
+
+	; Save result registers on stack
+
+	STQ	R0, $RSA_END+Q_RESULT_R0 (FP)
+	STQ	R1, $RSA_END+Q_RESULT_R1 (FP)
+	STT	F0, $RSA_END+Q_RESULT_F0 (FP)
+	STT	F1, $RSA_END+Q_RESULT_F1 (FP)
+650$:
+	; If we are already called from a pre- or post-processing routine,
+	; directly return to caller.
+
+	BNE	R6, 900$
+700$:
+	; We are about to call the post-processing routine.
+	; During the execution of the pre- and post-processing routines,
+	; we set a flag in the stack frame of the routine. This prevents
+	; wild recursion.
+
+	MOV	#1, R0
+	STQ	R0, $RSA_END+Q_INPREPOST (FP)
+
+	; Set the flag which indicates if we are in the pre- or
+	; post-processing routine.
+
+	MOV	#1, R0
+	STL	R0, $RSA_END+L_POST_PROC (FP)
+
+	; Call the post-processing routine
+
+	LDQ	R27, CALLMON$$CLONE_POST	; Procedure value
+	BEQ	R27, 800$			; Branch if no post-proc routine
+	LDA	R16, $RSA_END+T_ARGUMENTS (FP)	; Arg 1: arguments array
+	MOV	R3, R17				; Arg 2: caller invo handle
+	LDQ	R18, CALLMON$$CLONE_NAME	; Arg 3: routine name
+	LDQ	R19, CALLMON$$CLONE_ROUTINE	; Arg 4: routine addr
+	LDA	R20, CALLMON$$JACKET		; Arg 5: jacket routine
+	MOV	#5, R25				; 5 integer registers
+	LDQ	R26, PDSC$Q_ENTRY (R27)		; Entry code
+	JSR	R26, (R26)
+800$:
+	; Restore result registers from stack and return. Note that
+	; the results may have been modified by the post-processing
+	; routine.
+
+	LDQ	R0, $RSA_END+Q_RESULT_R0 (FP)
+	LDQ	R1, $RSA_END+Q_RESULT_R1 (FP)
+	LDT	F0, $RSA_END+Q_RESULT_F0 (FP)
+	LDT	F1, $RSA_END+Q_RESULT_F1 (FP)
+900$:
+JACKET_CODE_END:
+	$RETURN
+	$END_ROUTINE CALLMON$$JACKET
+
+	; Define a global symbol for the end of linkage section.
+
+	$LINKAGE_SECTION
+CALLMON$$JACKET_LINK_END::
+
+	.END

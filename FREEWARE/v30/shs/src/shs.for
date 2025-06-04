@@ -1,0 +1,2076 @@
+ 	OPTIONS		/EXTEND_SOURCE
+	PROGRAM 	SHS
+C++
+C
+C FACILITY:	OpenVMS/ DEC FORTRAN
+C
+C 	SHS.FOR - Utility program to display processes information on 
+C		the local node, or remote notes which reside the same
+C		local cluster.  All processes' information are displayed
+C		provided with proper privileges and process name search
+C		string matching criteria.
+C		  
+C AUTHOR:  James Shen (jshen1@ford.com)
+C	   Powertrain Operation
+C	   Ford Motor Company
+C	   1981 Front Wheel Drive
+C	   Batavia, OH 45103
+C
+C CREATION DATE: Sept, 1995
+C	   
+C MODIFIED BY:
+C
+C        : VERSION
+C 01    - X01		James shen	11-OCT-1995
+C	Add /[NO]INTERACTIVE, /[NO]BATCH, /[NO]NETWORK logic and
+C	call to INIT_CLI to allow to be used as a foreign command.
+C
+C	 
+C DISTRIBUTION AND COPYRIGHT
+C
+C Copyright © 1995 James Shen
+C
+C This program is free software; permission is granted to any
+C individual or institution to use, copy, or redistribute this software
+C as long as it is not sold for profit, provided this copyright notice
+C is retained.
+C
+C DISCLAIMER:
+C
+C This program is provided "AS IS" and without any expressed or implied 
+C warranties whatsoever.  No warranties as to performance, merchantability,
+C or fitness for a particular purpose exist.  In no event shall any person 
+C or organization of people be held responsible for any direct, indirect, 
+C consequential or inconsequential damages or lost profits.
+C	
+C--
+	IMPLICIT	NONE
+
+CDEC$ OPTIONS/ALIGN=COMMON=NATURAL
+
+	COMMON	//	LUN,CONTEXT
+	COMMON	/NODE_INFO/  NODENAME, NODE_LEN
+        COMMON  /SORT_ORDER/ ORDER
+	COMMON  /SORT_KEY/   KEY
+	COMMON	/PAGE_INFO/  PAGE_PRESENT
+
+CDEC$ END OPTIONS
+
+	INCLUDE		'($PSCANDEF)'
+	INCLUDE		'($SSDEF)'
+	INCLUDE		'($SYIDEF)'
+	INCLUDE		'($LNMDEF)'
+	INCLUDE		'($PSLDEF)'
+	INCLUDE		'($FORIOSDEF)'
+	INCLUDE		'($JPIDEF)'
+	INCLUDE		'($SYSSRVNAM)'
+	INCLUDE		'SHSINC.FOR'	
+
+        STRUCTURE /UIC_RECORD/
+          UNION
+             MAP
+                INTEGER*2 MEMBER
+                INTEGER*2 GROUP
+             END MAP
+             MAP
+                INTEGER*4 UIC_VALUE
+             END MAP
+          END UNION
+        END STRUCTURE
+
+        RECORD /UIC_RECORD/ 	UIC, UIC_2 
+	RECORD /LNMITMLIST/	LNMLIST(4)
+	RECORD /PSCANITMLIST/	PSCANLIST(7)
+	RECORD /JPIITMLIST/	JPILIST(2)
+	RECORD /SYIITMLIST/	SYILIST(2)
+	RECORD /IOSB/		SYISTAT, JPISTAT
+	
+	EXTERNAL	CLI$_ABSENT,
+	2		CLI$_PRESENT,
+	2		CLI$_NEGATED,
+	2		CLI$_COMMA,
+	2		SHS_VERB     		! Name of the command table
+
+	INTEGER*4	CLI$GET_VALUE, 
+	2		CLI$PRESENT,
+	2		LIB$GET_LUN, 
+	2		LIB$STOP, 
+	2		OTS$CVT_TO_L, 
+	2		STR$UPCASE, 
+	2		INIT_CLI
+	
+        INTEGER*4       KEY 	/SHS_NOKEY/		!default is no sort key
+	INTEGER*4	ORDER   /SHS_ASCENDING/		!default is ascending
+	INTEGER*4	LUN
+	INTEGER*4	STATUS, RET_STATUS, IOSTATUS, I	
+	INTEGER*4	RMS_STS, RMS_STV
+	INTEGER*4	CONTEXT
+	INTEGER*4	CSID	/-1/			!cluster id wildcard
+	LOGICAL*4	PAGE_PRESENT 	/.FALSE./	!default is noPAGE
+	LOGICAL*4	USER_PRESENT	/.FALSE./
+	LOGICAL*4	CLUSTER_PRESENT	/.FALSE./	!default is local node
+	LOGICAL*4	NODE_VALUE_PRESENT /.FALSE./	!default is local node
+	LOGICAL*4	NOMORE_NODE
+	LOGICAL*4	EXTEND_PRESENT	/.FALSE./	!default is no extend
+	LOGICAL*4	INTER_ABSENT, NETWORK_ABSENT, BATCH_ABSENT 
+	DATA		INTER_ABSENT, NETWORK_ABSENT, BATCH_ABSENT /3*.FALSE./	
+	LOGICAL*4	INTER_PRESENT, NETWORK_PRESENT, BATCH_PRESENT
+	LOGICAL*4	GRP_OCTAL /.TRUE./, MEM_OCTAL /.TRUE./
+	LOGICAL*4	UIC_PRESENT /.FALSE./, GROUP_PRESENT /.FALSE./
+
+	CHARACTER*65	UIC_INPUT
+	INTEGER*2	UIC_INPUT_LENGTH
+	CHARACTER*255	OUTPUT_DEV
+	INTEGER*2	OUTPUT_DEV_LEN
+        CHARACTER*16    SORT_INPUT                      !keyword for sort_by
+        INTEGER*2       SORT_INPUT_LEN                  !return input length
+	CHARACTER*15	INPUT_PRCNAM
+	INTEGER*2	INPUT_PRCNAM_LEN
+	CHARACTER*6	NODENAME
+	INTEGER*2	NODE_LEN
+	CHARACTER*12	USERNAME
+	INTEGER*2	USER_LEN
+	CHARACTER*(*)	TABNAM		
+	PARAMETER	( TABNAM = 'LNM$PROCESS_TABLE' )
+	BYTE		CLU_MEMBER_STATUS
+
+	STATUS = INIT_CLI(SHS_VERB,'SHS')
+	IF (.NOT. STATUS ) CALL SYS$EXIT(%VAL(STATUS + '10000000'X))
+
+C
+C Check /INTERACTIVE present in the command line
+C
+	STATUS = CLI$PRESENT('INTERACTIVE')
+	IF (STATUS .EQ. %LOC(CLI$_ABSENT)) THEN
+	  INTER_ABSENT  = .TRUE.	  
+          INTER_PRESENT = .FALSE.
+	ELSE IF (STATUS .EQ. %LOC(CLI$_NEGATED)) THEN
+          INTER_PRESENT = .FALSE.
+	ELSE IF (STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+	  INTER_PRESENT = .TRUE.
+	ELSE 
+	  CALL LIB$STOP(%VAL(STATUS))
+	END IF
+
+C
+C Check /NETWORK present in the command line
+C
+	STATUS = CLI$PRESENT('NETWORK')
+	IF (STATUS .EQ. %LOC(CLI$_ABSENT))  THEN
+	  NETWORK_ABSENT = .TRUE.
+          NETWORK_PRESENT = .FALSE.
+	ELSE IF (STATUS .EQ. %LOC(CLI$_NEGATED)) THEN
+          NETWORK_PRESENT = .FALSE.
+	ELSE IF (STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+	  NETWORK_PRESENT = .TRUE.
+	ELSE 
+	  CALL LIB$STOP(%VAL(STATUS))
+	END IF
+
+C
+C Check /BATCH present in the command line
+C
+	STATUS = CLI$PRESENT('BATCH')
+	IF (STATUS .EQ. %LOC(CLI$_ABSENT)) THEN
+	  BATCH_ABSENT = .TRUE.
+          BATCH_PRESENT = .FALSE.
+	ELSE IF (STATUS .EQ. %LOC(CLI$_NEGATED)) THEN 
+          BATCH_PRESENT = .FALSE.
+	ELSE IF (STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+	  BATCH_PRESENT = .TRUE.
+	ELSE 
+	  CALL LIB$STOP(%VAL(STATUS))
+	END IF
+
+C
+C Check /UIC present in the comand line, if do process it.
+C
+	STATUS = CLI$PRESENT('UIC')
+	IF ( STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+	  STATUS = CLI$GET_VALUE('UIC', UIC_INPUT, UIC_INPUT_LENGTH)
+	  IF (STATUS .EQ. SS$_NORMAL) THEN
+	    STATUS = STR$UPCASE( UIC_INPUT(:UIC_INPUT_LENGTH),
+	2			 UIC_INPUT(:UIC_INPUT_LENGTH))
+	    IF (.NOT. STATUS) CALL LIB$STOP(%VAL(STATUS))	
+
+	    IF ( .NOT. INDEX(UIC_INPUT, '[')) THEN 		!identify
+	      STATUS = SYS$ASCTOID(UIC_INPUT(:UIC_INPUT_LENGTH), 
+	2			   UIC.UIC_VALUE,)
+              IF (.NOT. STATUS) CALL LIB$STOP(%VAL(STATUS))
+	      UIC_PRESENT = .TRUE.
+	    ELSE IF (INDEX(UIC_INPUT, ',') .EQ. 0)  THEN   	![identify]
+              STATUS = SYS$ASCTOID(UIC_INPUT(2:UIC_INPUT_LENGTH-1),
+	2			   UIC.UIC_VALUE,)
+	      IF (.NOT. STATUS) CALL LIB$STOP(%VAL(STATUS))
+	      UIC_PRESENT = .TRUE.
+	    ELSE 						![ident,ident]
+	      I = 2
+              DO WHILE (I .LT. INDEX(UIC_INPUT, ',') .AND. GRP_OCTAL)
+	        IF (UIC_INPUT(I:I) .GE. 'A' .AND. UIC_INPUT(I:I) .LE. 'Z'
+	2	  .OR. UIC_INPUT(I:I) .EQ. '$' .OR. UIC_INPUT(I:I) .EQ. '_')THEN
+                  GRP_OCTAL = .FALSE.
+	        END IF
+	        I = I + 1
+	      END DO
+	    
+C
+C Check the value range, grp id should be in [1-37776]
+C
+	      IF (GRP_OCTAL) THEN   	
+                STATUS =OTS$CVT_TO_L(UIC_INPUT(2:I-1), 
+	2			    UIC_2.GROUP,
+	2			    %VAL(2),    !2-bytes
+	2			    %VAL(1))	!ignore all blanks
+	        IF (.NOT. STATUS) THEN
+		  TYPE *, '%SYSTEM-F-IVIDENT, invalid identifier format'
+		  CALL LIB$STOP(%VAL(STATUS))
+		END IF
+C		  
+C Group ID out off range - that is all we have to check.
+C We do not _STRICTLY_ enforce that there has to be a rights identifier to 
+C match the octal number been specified, since in some case a user's 
+C identifier could be `[xxxxx,yyyyy]', and octal number xxxxx does not have 
+C a rights identifier to match with.
+C		  
+	          IF (UIC_2.GROUP .EQ. 0 .OR. UIC_2.GROUP .GT. 16382) THEN 
+		    CALL SYS$EXIT(%VAL(SS$_IVIDENT))
+	          END IF
+	      ELSE
+	        STATUS = SYS$ASCTOID (UIC_INPUT(2:INDEX(UIC_INPUT, ',')-1),
+	2			      UIC_2.UIC_VALUE,)
+	        IF (.NOT. STATUS) CALL LIB$STOP(%VAL(STATUS))
+C		
+C Found Id, Still need to verify whether this is a grp id.
+C		
+		IF(UIC_2.MEMBER .NE.'177777'O) CALL SYS$EXIT(%VAL(SS$_NOSUCHID))
+	      END IF
+
+	      I = INDEX(UIC_INPUT(:UIC_INPUT_LENGTH),',') + 1    ! ptr to member
+	      IF (UIC_INPUT(I:I) .EQ. '*') THEN
+	        IF ( UIC_INPUT(I+1:I+1) .NE. ']') THEN
+		  CALL SYS$EXIT(%VAL(SS$_IVIDENT))
+	        ELSE 
+	          GROUP_PRESENT = .TRUE.
+		  MEM_OCTAL = .FALSE.
+                END IF
+              ELSE 
+		DO WHILE ( I .LE. UIC_INPUT_LENGTH-1 .AND. MEM_OCTAL)
+	          IF (UIC_INPUT(I:I) .GE. 'A' .AND. UIC_INPUT(I:I) .LE. 'Z'
+	2	     .OR. UIC_INPUT(I:I) .EQ. '$' 
+	2	     .OR. UIC_INPUT(I:I) .EQ. '_') THEN
+                     MEM_OCTAL = .FALSE.
+	          END IF
+	          I = I + 1
+	        END DO
+              END IF
+
+	      IF (MEM_OCTAL) THEN   		!check the value range
+                STATUS=OTS$CVT_TO_L(UIC_INPUT(INDEX(UIC_INPUT(:UIC_INPUT_LENGTH-1),',')+1:I-1), 
+	2			    UIC.MEMBER,
+	2			    %VAL(2),            !2-bytes
+	2			    %VAL(1))		!ignore all blanks
+	        IF (.NOT. STATUS) THEN
+		  TYPE *, '%SYSTEM-F-IVIDENT, invalid identifier format'
+		  CALL LIB$STOP(%VAL(STATUS))
+		END IF
+C		
+C Member Identifier cannot be '177777'O!
+C Same token as stated above, We do not enforce there has to be an identifer 
+C to match with the internal value.
+C		
+	        IF (UIC.MEMBER .EQ. (-1)) CALL SYS$EXIT(%VAL(SS$_IVIDENT)) 
+	        UIC.GROUP = UIC_2.GROUP
+		UIC_PRESENT = .TRUE.
+	      ELSE IF (.NOT. GROUP_PRESENT) THEN   	!alphanumeric identify 
+	        STATUS = SYS$ASCTOID(UIC_INPUT(INDEX(UIC_INPUT,',')+1:UIC_INPUT_LENGTH-1),
+	2			     UIC.UIC_VALUE,)
+	        IF (.NOT. STATUS) CALL LIB$STOP(%VAL(STATUS))
+C
+C Check grpid to see whether matches the grpid specified in UIC
+C
+		UIC.GROUP = UIC_2.GROUP
+	        STATUS = SYS$IDTOASC( %VAL(UIC.UIC_VALUE),,,,,)
+	        IF (.NOT. STATUS) CALL LIB$STOP(%VAL(STATUS))
+		UIC_PRESENT = .TRUE.
+	      END IF
+	    END IF
+	  ELSE IF (STATUS .EQ. %LOC(CLI$_ABSENT)) THEN
+C	 
+C Get process owner's UIC value
+C	    
+	    JPILIST(1).BUFLEN	= 4
+	    JPILIST(1).CODE	= JPI$_UIC
+	    JPILIST(1).BUFADR	= %LOC(UIC.UIC_VALUE)
+	    JPILIST(1).RETLENADR= 0
+	    JPILIST(2).END_LIST	= 0
+
+	    STATUS = SYS$GETJPIW(,,,
+	2			 JPILIST,
+	2			 JPISTAT,,)
+	    IF (.NOT. STATUS) THEN
+	      CALL LIB$STOP(%VAL(STATUS))
+	    ELSE IF ( .NOT. JPISTAT.STATUS) THEN
+	      CALL LIB$STOP(%VAL(STATUS))
+            END IF
+	    UIC_PRESENT = .TRUE.
+	  ELSE
+	    CALL LIB$STOP(%VAL(STATUS))
+	  END IF
+	ELSE IF (STATUS .NE. %LOC(CLI$_ABSENT)) THEN
+	  CALL LIB$STOP(%VAL(STATUS))
+	END IF
+
+C
+C Check /OUTPUT present in the command line
+C
+	STATUS = CLI$PRESENT('OUTPUT')
+	IF ( STATUS .EQ. %LOC(CLI$_ABSENT)) THEN
+	  CONTINUE
+	ELSE IF ( STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+	  STATUS = CLI$GET_VALUE('OUTPUT',
+	2			OUTPUT_DEV,
+	2			OUTPUT_DEV_LEN)
+	  IF ( STATUS .EQ. %LOC(CLI$_ABSENT)) THEN
+	    CONTINUE
+	  ELSE IF ( STATUS .EQ. SS$_NORMAL) THEN
+	    IF ( OUTPUT_DEV(1:OUTPUT_DEV_LEN) .EQ. 'SYS$OUTPUT' ) THEN
+	      CONTINUE
+	    ELSE  	
+	      ! define sys$output -> output_dev
+	      !***********************************************
+	      ! Construct & Initialize Lnm Item List 	  
+	      !***********************************************
+	      LNMLIST(1).BUFLEN    = 255
+	      LNMLIST(1).CODE      = LNM$_STRING
+	      LNMLIST(1).BUFADR    = %LOC(OUTPUT_DEV(1:OUTPUT_DEV_LEN))
+              LNMLIST(1).RETLENADR = 0
+              LNMLIST(2).END_LIST  = 0
+
+	      STATUS = SYS$CRELNM( ,
+	2			   TABNAM,
+	2			   'SYS$OUTPUT',
+	2			   PSL$C_USER,
+	2			   LNMLIST)
+
+	      IF ( .NOT. STATUS) CALL LIB$STOP(%VAL(STATUS))	
+	    END IF
+	  END IF
+	ELSE IF ( STATUS .EQ. %LOC(CLI$_NEGATED)) THEN
+	  ! define sys$output -> NL: - user mode -\ SUPPRESS OUTPUT!
+	  ! define sys$input -> NL: - user mode  -/ SUPPRESS INPUT!
+	  !***********************************************
+	  ! Construct & Initialize Lnm Item List 	  
+	  !***********************************************
+	  LNMLIST(1).BUFLEN    = LEN('NL:')
+	  LNMLIST(1).CODE      = LNM$_STRING
+	  LNMLIST(1).BUFADR    = %LOC('NL:')
+       	  LNMLIST(1).RETLENADR = 0
+       	  LNMLIST(2).END_LIST  = 0
+
+	  STATUS = SYS$CRELNM( ,
+	2			TABNAM,
+	2			'SYS$OUTPUT',
+	2			PSL$C_USER,
+	2			LNMLIST)
+
+	  IF ( .NOT. STATUS) CALL LIB$STOP(%VAL(STATUS))
+
+	  STATUS = SYS$CRELNM( ,
+	2			TABNAM,
+	2			'SYS$INPUT',
+	2			PSL$C_USER,
+	2			LNMLIST)
+
+	  IF ( .NOT. STATUS) CALL LIB$STOP(%VAL(STATUS))
+
+	END IF
+
+C	
+C Open SYS$OUTPUT w/ LUN
+C	
+	STATUS = LIB$GET_LUN(LUN)
+	IF ( .NOT. STATUS) CALL LIB$STOP(%VAL(STATUS))
+
+	OPEN(	UNIT = LUN,
+	2	FILE = 'SYS$OUTPUT',
+	2	STATUS = 'NEW',
+	2	FORM = 'FORMATTED',
+	2	ACCESS = 'SEQUENTIAL',
+	2	DEFAULTFILE = 'SYS$LOGIN:SHS.LIS',
+	2	SHARED,
+	2	IOSTAT = IOSTATUS )
+
+	IF ( IOSTATUS .NE. 0) THEN
+	  CALL ERRSNS (, RMS_STS, RMS_STV,,)
+	  CALL LIB$STOP(%VAL(RMS_STS), %VAL(RMS_STV))
+	END IF
+
+C	
+C Check /PAGE present in the command line
+C
+	STATUS = CLI$PRESENT('PAGE')
+	IF ( STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+	  PAGE_PRESENT = .TRUE.
+	ELSE IF ( STATUS .EQ. %LOC(CLI$_ABSENT) .OR. STATUS .EQ. %LOC(CLI$_NEGATED)) THEN
+	  PAGE_PRESENT = .FALSE.
+	ELSE 
+	  CALL LIB$STOP(%VAL(STATUS))
+	END IF
+
+C
+C Check /HELP present in the command line
+C
+	STATUS = CLI$PRESENT('HELP')
+	IF ( STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+	  CALL SHS_FIND_HELP ('SHS', 'SYS$LOGIN:SHS.HLB')
+	  CALL  SYS$EXIT(%VAL(1))	  
+	END IF
+
+	STATUS = CLI$GET_VALUE('INPUT_PRC_NAME', INPUT_PRCNAM,
+	2	INPUT_PRCNAM_LEN)
+	IF (STATUS .EQ. %LOC(CLI$_ABSENT)) THEN
+	    INPUT_PRCNAM = '**'
+	ELSE IF (STATUS)  THEN
+	    INPUT_PRCNAM = '*'//INPUT_PRCNAM(1:INPUT_PRCNAM_LEN)//'*'
+	ELSE
+	    CALL LIB$STOP(%VAL(STATUS))
+	ENDIF
+
+C
+C Check /SORT_BY present in the command line
+C
+        STATUS = CLI$PRESENT('SORT_BY')
+        IF ( STATUS .EQ. %LOC(CLI$_ABSENT) .OR. STATUS .EQ. %LOC(CLI$_NEGATED)) THEN
+          KEY = SHS_NOKEY
+        ELSE IF ( STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+          STATUS = CLI$GET_VALUE('SORT_BY',
+	2                        SORT_INPUT,
+	2                        SORT_INPUT_LEN)
+          IF ( .NOT. STATUS) THEN
+            CALL LIB$STOP(%VAL(STATUS))
+          ELSE
+            IF (INDEX('PROCESS_NAME',SORT_INPUT(:SORT_INPUT_LEN)) .EQ. 1) THEN
+              KEY = SHS_PROCNAME
+            ELSE IF (INDEX('IO',SORT_INPUT(:SORT_INPUT_LEN)) .EQ. 1) THEN
+              KEY = SHS_IO
+            ELSE IF (INDEX('CPU',SORT_INPUT(:SORT_INPUT_LEN)) .EQ. 1) THEN
+              KEY = SHS_CPU
+            ELSE IF (INDEX('PAGEFAULT',SORT_INPUT(:SORT_INPUT_LEN)) .EQ. 1) THEN
+              KEY = SHS_PAGEFAULT
+            ELSE IF (INDEX('CURPRIO',SORT_INPUT(:SORT_INPUT_LEN)) .EQ. 1) THEN
+              KEY = SHS_CURPRIO
+            ELSE
+              KEY = SHS_PHYSICAL
+            END IF
+          END IF
+        ELSE
+          CALL LIB$STOP(%VAL(STATUS))
+        END IF
+
+C
+C Check /DESCENDING present in the command line
+C
+	STATUS = CLI$PRESENT('DESCENDING')
+	IF ( STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+	  ORDER = SHS_DESCENDING
+	ELSE IF ( STATUS .EQ. %LOC(CLI$_ABSENT)) THEN
+	  ORDER = SHS_ASCENDING
+	ELSE 
+	  CALL LIB$STOP(%VAL(STATUS))
+	END IF
+
+C
+C Check /EXTEND present in the command line
+C
+        STATUS = CLI$PRESENT('EXTEND')
+	IF ( STATUS .EQ. %LOC(CLI$_ABSENT) .OR. STATUS .EQ. %LOC(CLI$_NEGATED)) THEN
+	  EXTEND_PRESENT = .FALSE.
+	ELSE IF ( STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+	  EXTEND_PRESENT = .TRUE.
+	ELSE 
+	  CALL LIB$STOP(%VAL(STATUS))
+	END IF
+
+C
+C Check /CLUSTER present in the command line
+C
+        STATUS = CLI$PRESENT('CLUSTER')
+        IF ( STATUS .EQ. %LOC(CLI$_ABSENT) .OR. STATUS .EQ. %LOC(CLI$_NEGATED)) THEN
+	  CLUSTER_PRESENT = .FALSE.
+	ELSE IF ( STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+C
+C /CLUSTER present, but is local node a part of local cluster? 
+C If not, then ignore /CLUSTER qualifier
+C 
+          !***************************************
+	  ! Construct And Initialize Syi Itm List
+          !***************************************
+          SYILIST(1).BUFLEN   = 1
+          SYILIST(1).CODE     = SYI$_CLUSTER_MEMBER
+          SYILIST(1).BUFADR   = %LOC(CLU_MEMBER_STATUS)
+          SYILIST(1).RETLENADR= 0
+	  SYILIST(2).END_LIST = 0
+
+	  STATUS = SYS$GETSYIW( ,,,
+	2			SYILIST,
+	2			SYISTAT,,)
+	  IF (.NOT. STATUS) THEN
+	    CALL LIB$STOP(%VAL(STATUS))
+	  ELSE IF ( .NOT. SYISTAT.STATUS) THEN
+	    CALL LIB$STOP(%VAL(STATUS))
+	  END IF
+
+	  IF ( CLU_MEMBER_STATUS ) THEN
+	    CLUSTER_PRESENT = .TRUE.
+	  ELSE
+	    CLUSTER_PRESENT = .FALSE.
+	  END IF
+	END IF	  
+
+C
+C Check /USER present in the command line
+C
+        STATUS = CLI$PRESENT('USER')
+        IF (STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+	  USER_PRESENT = .TRUE.
+          STATUS = CLI$GET_VALUE( 'USER',
+	2                        USERNAME,
+	2                        USER_LEN)
+          IF (STATUS .EQ. SS$_NORMAL) THEN
+	    CONTINUE
+	  ELSE IF ( STATUS .EQ. %LOC(CLI$_ABSENT)) THEN
+C
+C get process owner's username
+C
+	    !****************************************************
+	    ! Construct & Initialize Jpi Item List
+	    !****************************************************
+	    JPILIST(1).BUFLEN	= 12
+	    JPILIST(1).CODE	= JPI$_USERNAME
+	    JPILIST(1).BUFADR	= %LOC(USERNAME)
+	    JPILIST(1).RETLENADR= %LOC(USER_LEN)
+	    JPILIST(2).END_LIST	= 0
+
+	    STATUS = SYS$GETJPIW( ,,,
+	2			 JPILIST,
+	2			 JPISTAT,,)
+	    IF ( .NOT. STATUS) THEN
+	      CALL LIB$STOP(%VAL(STATUS))
+	    ELSE IF ( .NOT. JPISTAT.STATUS) THEN
+	      CALL LIB$STOP(%VAL(STATUS))
+            END IF
+	  ELSE
+	    CALL LIB$STOP(%VAL(STATUS))
+          END IF
+        ELSE IF ( STATUS .NE. %LOC(CLI$_ABSENT)) THEN
+          CALL LIB$STOP(%VAL(STATUS))
+        END IF
+
+C
+C Check /NODE present in the command line
+C
+	STATUS = CLI$PRESENT('NODE')
+	IF ( STATUS .EQ. %LOC(CLI$_ABSENT)) THEN
+	  NODE_VALUE_PRESENT = .FALSE.
+	ELSE IF ( STATUS .EQ. %LOC(CLI$_PRESENT)) THEN
+	  DO WHILE ( STATUS .EQ. %LOC(CLI$_PRESENT) .OR. STATUS .EQ. %LOC(CLI$_COMMA))
+	    STATUS = CLI$GET_VALUE ( 'NODE',
+	2			     NODENAME,
+	2			     NODE_LEN)
+	    IF ( STATUS .EQ. %LOC(CLI$_ABSENT)) THEN
+C
+C Same as /NOCLUSTER present in command line or /CLUSTER absent in command 
+C line. In both case, use the local node.
+C
+	      NODE_VALUE_PRESENT = .FALSE.
+	    ELSE IF ( STATUS .EQ. %LOC(CLI$_COMMA) .OR. STATUS .EQ. SS$_NORMAL) THEN
+	      NODE_VALUE_PRESENT = .TRUE.
+C
+C Bypass if the node is not part of local cluster
+C
+ 	      !**************************************************
+ 	      ! Initialize SYI item list
+	      !**************************************************
+              SYILIST(1).BUFLEN   = 1
+              SYILIST(1).CODE     = SYI$_CLUSTER_MEMBER
+              SYILIST(1).BUFADR   = %LOC(CLU_MEMBER_STATUS)
+              SYILIST(1).RETLENADR= 0
+	      SYILIST(2).END_LIST = 0
+
+    	      RET_STATUS = SYS$GETSYIW( ,,
+	2			    	NODENAME(1:NODE_LEN),
+	2			    	SYILIST,
+	2			    	SYISTAT,,)
+	      IF (.NOT. RET_STATUS) THEN
+	        IF ( RET_STATUS .EQ. SS$_NOSUCHNODE) THEN
+		  WRITE (LUN, 10) NODENAME(1:NODE_LEN)
+10		  FORMAT (1X, / ,1X, '%SYSTEM-F-NOSUCHNODE, remote node /', 
+	2		A , '/ is unknown')
+		ELSE
+	          CALL LIB$STOP(%VAL(RET_STATUS))
+		END IF
+	      ELSE IF ( .NOT. SYISTAT.STATUS) THEN
+	        CALL LIB$STOP(%VAL(SYISTAT.STATUS))
+	      ELSE 
+	        !*************************************************
+		! Initialize PSCAN item list
+		!*************************************************
+		PSCANLIST(1).BUFLEN	= NODE_LEN
+		PSCANLIST(1).CODE	= PSCAN$_NODENAME
+		PSCANLIST(1).BUFADR	= %LOC(NODENAME)
+		PSCANLIST(1).ITMFLAGS	= PSCAN$M_EQL
+		PSCANLIST(2).BUFLEN 	= LEN(INPUT_PRCNAM(1:INPUT_PRCNAM_LEN+2))
+		PSCANLIST(2).CODE   	= PSCAN$_PRCNAM
+		PSCANLIST(2).BUFADR 	= %LOC(INPUT_PRCNAM)
+		PSCANLIST(2).ITMFLAGS	= PSCAN$M_WILDCARD
+		IF (INTER_PRESENT .AND. NETWORK_PRESENT .AND. BATCH_PRESENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_INTERACTIVE
+                  PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(4).BUFLEN   = 0
+                  PSCANLIST(4).CODE     = PSCAN$_MODE
+                  PSCANLIST(4).BUFADR   = JPI$K_NETWORK
+                  PSCANLIST(4).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(5).BUFLEN   = 0
+                  PSCANLIST(5).CODE     = PSCAN$_MODE
+                  PSCANLIST(5).BUFADR   = JPI$K_BATCH
+                  PSCANLIST(5).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(6).BUFLEN   = USER_LEN
+		    PSCANLIST(6).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(6).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(7).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(6).BUFLEN   = 0
+		    PSCANLIST(6).CODE	  = PSCAN$_GRP
+		    PSCANLIST(6).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(7).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(6).BUFLEN   = 0
+		    PSCANLIST(6).CODE	  = PSCAN$_UIC
+		    PSCANLIST(6).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(7).END_LIST = 0
+		  ELSE
+		    PSCANLIST(6).END_LIST = 0
+		  END IF
+ 		ELSE IF (INTER_PRESENT .AND. NETWORK_PRESENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_INTERACTIVE
+                  PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(4).BUFLEN   = 0
+                  PSCANLIST(4).CODE     = PSCAN$_MODE
+                  PSCANLIST(4).BUFADR   = JPI$K_NETWORK
+                  PSCANLIST(4).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = USER_LEN
+		    PSCANLIST(5).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(5).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = 0
+		    PSCANLIST(5).CODE	  = PSCAN$_GRP
+		    PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = 0
+		    PSCANLIST(5).CODE	  = PSCAN$_UIC
+		    PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE
+		    PSCANLIST(5).END_LIST = 0
+		  END IF
+		ELSE IF (INTER_PRESENT .AND. BATCH_PRESENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_INTERACTIVE
+                  PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(4).BUFLEN   = 0
+                  PSCANLIST(4).CODE     = PSCAN$_MODE
+                  PSCANLIST(4).BUFADR   = JPI$K_BATCH
+                  PSCANLIST(4).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = USER_LEN
+		    PSCANLIST(5).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(5).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = 0
+		    PSCANLIST(5).CODE	  = PSCAN$_GRP
+		    PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = 0
+		    PSCANLIST(5).CODE	  = PSCAN$_UIC
+		    PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE
+		    PSCANLIST(5).END_LIST = 0
+		  END IF
+		ELSE IF (BATCH_PRESENT .AND. NETWORK_PRESENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_BATCH
+                  PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(4).BUFLEN   = 0
+                  PSCANLIST(4).CODE     = PSCAN$_MODE
+                  PSCANLIST(4).BUFADR   = JPI$K_NETWORK
+                  PSCANLIST(4).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = USER_LEN
+		    PSCANLIST(5).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(5).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = 0
+		    PSCANLIST(5).CODE	  = PSCAN$_GRP
+		    PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = 0
+		    PSCANLIST(5).CODE	  = PSCAN$_UIC
+		    PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE
+		    PSCANLIST(5).END_LIST = 0
+		  END IF
+		ELSE IF (INTER_PRESENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_INTERACTIVE
+                  PSCANLIST(3).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(4).BUFLEN   = USER_LEN
+		    PSCANLIST(4).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(4).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(5).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(4).BUFLEN   = 0
+		    PSCANLIST(4).CODE	  = PSCAN$_GRP
+		    PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(5).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(4).BUFLEN   = 0
+		    PSCANLIST(4).CODE	  = PSCAN$_UIC
+		    PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(5).END_LIST = 0
+		  ELSE
+		    PSCANLIST(4).END_LIST = 0
+		  END IF
+		ELSE IF (BATCH_PRESENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_BATCH
+                  PSCANLIST(3).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(4).BUFLEN   = USER_LEN
+		    PSCANLIST(4).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(4).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(5).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(4).BUFLEN   = 0
+		    PSCANLIST(4).CODE	  = PSCAN$_GRP
+		    PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(5).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(4).BUFLEN   = 0
+		    PSCANLIST(4).CODE	  = PSCAN$_UIC
+		    PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(5).END_LIST = 0
+		  ELSE
+		    PSCANLIST(4).END_LIST = 0
+		  END IF
+		ELSE IF (NETWORK_PRESENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_NETWORK
+                  PSCANLIST(3).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(4).BUFLEN   = USER_LEN
+		    PSCANLIST(4).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(4).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(5).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(4).BUFLEN   = 0
+		    PSCANLIST(4).CODE	  = PSCAN$_GRP
+		    PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(5).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(4).BUFLEN   = 0
+		    PSCANLIST(4).CODE	  = PSCAN$_UIC
+		    PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(5).END_LIST = 0
+		  ELSE
+		    PSCANLIST(4).END_LIST = 0
+		  END IF
+		ELSE IF (.NOT. INTER_ABSENT .AND. .NOT. NETWORK_ABSENT
+	2	     .AND. .NOT. BATCH_ABSENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                  PSCANLIST(3).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(4).BUFLEN   = USER_LEN
+		    PSCANLIST(4).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(4).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(5).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(4).BUFLEN   = 0
+		    PSCANLIST(4).CODE	  = PSCAN$_GRP
+		    PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(5).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(4).BUFLEN   = 0
+		    PSCANLIST(4).CODE	  = PSCAN$_UIC
+		    PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(5).END_LIST = 0
+		  ELSE
+		    PSCANLIST(4).END_LIST = 0
+		  END IF
+		ELSE IF (.NOT. INTER_ABSENT .AND. .NOT. NETWORK_ABSENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                  PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(4).BUFLEN   = 0
+                  PSCANLIST(4).CODE     = PSCAN$_MODE
+                  PSCANLIST(4).BUFADR   = JPI$K_BATCH
+                  PSCANLIST(4).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = USER_LEN
+		    PSCANLIST(5).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(5).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = 0
+		    PSCANLIST(5).CODE	  = PSCAN$_GRP
+		    PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = 0
+		    PSCANLIST(5).CODE	  = PSCAN$_UIC
+		    PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE
+		    PSCANLIST(5).END_LIST = 0
+		  END IF
+		ELSE IF (.NOT. INTER_ABSENT .AND. .NOT. BATCH_ABSENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                  PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(4).BUFLEN   = 0
+                  PSCANLIST(4).CODE     = PSCAN$_MODE
+                  PSCANLIST(4).BUFADR   = JPI$K_NETWORK
+                  PSCANLIST(4).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = USER_LEN
+		    PSCANLIST(5).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(5).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = 0
+		    PSCANLIST(5).CODE	  = PSCAN$_GRP
+		    PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = 0
+		    PSCANLIST(5).CODE	  = PSCAN$_UIC
+		    PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE
+		    PSCANLIST(5).END_LIST = 0
+		  END IF
+		ELSE IF (.NOT. BATCH_ABSENT .AND. .NOT. NETWORK_ABSENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                  PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(4).BUFLEN   = 0
+                  PSCANLIST(4).CODE     = PSCAN$_MODE
+                  PSCANLIST(4).BUFADR   = JPI$K_INTERACTIVE
+                  PSCANLIST(4).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = USER_LEN
+		    PSCANLIST(5).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(5).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = 0
+		    PSCANLIST(5).CODE	  = PSCAN$_GRP
+		    PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(5).BUFLEN   = 0
+		    PSCANLIST(5).CODE	  = PSCAN$_UIC
+		    PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(6).END_LIST = 0
+		  ELSE
+		    PSCANLIST(5).END_LIST = 0
+		  END IF
+		ELSE IF (.NOT. INTER_ABSENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                  PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(4).BUFLEN   = 0
+                  PSCANLIST(4).CODE     = PSCAN$_MODE
+                  PSCANLIST(4).BUFADR   = JPI$K_NETWORK
+                  PSCANLIST(4).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(5).BUFLEN   = 0
+                  PSCANLIST(5).CODE     = PSCAN$_MODE
+                  PSCANLIST(5).BUFADR   = JPI$K_BATCH
+                  PSCANLIST(5).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(6).BUFLEN   = USER_LEN
+		    PSCANLIST(6).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(6).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(7).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(6).BUFLEN   = 0
+		    PSCANLIST(6).CODE	  = PSCAN$_GRP
+		    PSCANLIST(6).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(7).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(6).BUFLEN   = 0
+		    PSCANLIST(6).CODE	  = PSCAN$_UIC
+		    PSCANLIST(6).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(7).END_LIST = 0
+		  ELSE
+		    PSCANLIST(6).END_LIST = 0
+		  END IF
+		ELSE IF (.NOT. BATCH_ABSENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                  PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(4).BUFLEN   = 0
+                  PSCANLIST(4).CODE     = PSCAN$_MODE
+                  PSCANLIST(4).BUFADR   = JPI$K_NETWORK
+                  PSCANLIST(4).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(5).BUFLEN   = 0
+                  PSCANLIST(5).CODE     = PSCAN$_MODE
+                  PSCANLIST(5).BUFADR   = JPI$K_INTERACTIVE
+                  PSCANLIST(5).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(6).BUFLEN   = USER_LEN
+		    PSCANLIST(6).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(6).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(7).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(6).BUFLEN   = 0
+		    PSCANLIST(6).CODE	  = PSCAN$_GRP
+		    PSCANLIST(6).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(7).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(6).BUFLEN   = 0
+		    PSCANLIST(6).CODE	  = PSCAN$_UIC
+		    PSCANLIST(6).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(7).END_LIST = 0
+		  ELSE
+		    PSCANLIST(6).END_LIST = 0
+		  END IF
+		ELSE IF (.NOT. NETWORK_ABSENT) THEN
+	          PSCANLIST(3).BUFLEN   = 0
+                  PSCANLIST(3).CODE     = PSCAN$_MODE
+                  PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                  PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(4).BUFLEN   = 0
+                  PSCANLIST(4).CODE     = PSCAN$_MODE
+                  PSCANLIST(4).BUFADR   = JPI$K_INTERACTIVE
+                  PSCANLIST(4).ITMFLAGS = PSCAN$M_OR
+	          PSCANLIST(5).BUFLEN   = 0
+                  PSCANLIST(5).CODE     = PSCAN$_MODE
+                  PSCANLIST(5).BUFADR   = JPI$K_BATCH
+                  PSCANLIST(5).ITMFLAGS = 0
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(6).BUFLEN   = USER_LEN
+		    PSCANLIST(6).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(6).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(7).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(6).BUFLEN   = 0
+		    PSCANLIST(6).CODE	  = PSCAN$_GRP
+		    PSCANLIST(6).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(7).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(6).BUFLEN   = 0
+		    PSCANLIST(6).CODE	  = PSCAN$_UIC
+		    PSCANLIST(6).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(7).END_LIST = 0
+		  ELSE
+		    PSCANLIST(6).END_LIST = 0
+		  END IF
+		ELSE
+		  IF (USER_PRESENT) THEN
+		    PSCANLIST(3).BUFLEN   = USER_LEN
+		    PSCANLIST(3).CODE	  = PSCAN$_USERNAME
+		    PSCANLIST(3).BUFADR   = %LOC(USERNAME)
+		    PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(4).END_LIST = 0
+		  ELSE IF (GROUP_PRESENT) THEN
+		    PSCANLIST(3).BUFLEN   = 0
+		    PSCANLIST(3).CODE	  = PSCAN$_GRP
+		    PSCANLIST(3).BUFADR   = UIC_2.GROUP
+		    PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(4).END_LIST = 0
+		  ELSE IF (UIC_PRESENT) THEN
+		    PSCANLIST(3).BUFLEN   = 0
+		    PSCANLIST(3).CODE	  = PSCAN$_UIC
+		    PSCANLIST(3).BUFADR   = UIC.UIC_VALUE
+		    PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		    PSCANLIST(4).END_LIST = 0
+		  ELSE
+		    PSCANLIST(3).END_LIST = 0
+		  END IF
+		END IF
+		
+  	        RET_STATUS = SYS$PROCESS_SCAN( CONTEXT,
+	2				     PSCANLIST)
+
+	        IF (.NOT. RET_STATUS) CALL LIB$STOP(%VAL(RET_STATUS))
+
+  	        IF ( .NOT. EXTEND_PRESENT) THEN	
+	          CALL GETJPI_BASIC	
+	        ELSE 
+		  CALL GETJPI_EXTEND
+	        END IF
+	      END IF		
+	    ELSE
+	      CALL LIB$STOP(%VAL(STATUS))
+	    END IF
+	  END DO
+	ELSE
+	  CALL LIB$STOP(%VAL(STATUS))
+	END IF
+	
+	IF ( CLUSTER_PRESENT ) THEN  		
+	  !***************************************
+	  ! Construct And Initialize Syi Itm List	    
+	  !***************************************
+       	  SYILIST(1).BUFLEN   = LEN(NODENAME)
+	  SYILIST(1).CODE     = SYI$_NODENAME
+	  SYILIST(1).BUFADR   = %LOC(NODENAME)
+	  SYILIST(1).RETLENADR= %LOC(NODE_LEN)
+          SYILIST(2).END_LIST = 0
+
+	  NOMORE_NODE = .FALSE.
+
+	  DO WHILE ( .NOT. NOMORE_NODE)
+	    STATUS = SYS$GETSYIW( ,
+	2			  CSID,,		
+	2			  SYILIST,
+	2			  SYISTAT,,)
+
+	    IF ( .NOT. STATUS ) THEN
+	      IF (STATUS .NE. SS$_NOMORENODE) THEN
+	        CALL LIB$STOP(%VAL(STATUS))
+	      ELSE 
+		NOMORE_NODE = .TRUE.
+	      END IF
+	    ELSE IF ( .NOT. SYISTAT.STATUS) THEN
+	      CALL LIB$STOP(%VAL(SYISTAT.STATUS))
+	    ELSE
+	      !******************************************
+	      ! Construct And Initialize Pscan Item List
+	      !******************************************
+	      PSCANLIST(1).BUFLEN  = NODE_LEN
+	      PSCANLIST(1).CODE	   = PSCAN$_NODENAME
+	      PSCANLIST(1).BUFADR  = %LOC(NODENAME)
+	      PSCANLIST(1).ITMFLAGS= PSCAN$M_EQL
+	      PSCANLIST(2).BUFLEN  = LEN(INPUT_PRCNAM(1:INPUT_PRCNAM_LEN+2))
+	      PSCANLIST(2).CODE    = PSCAN$_PRCNAM
+	      PSCANLIST(2).BUFADR  = %LOC(INPUT_PRCNAM)
+	      PSCANLIST(2).ITMFLAGS= PSCAN$M_WILDCARD
+		
+	      IF (INTER_PRESENT .AND. NETWORK_PRESENT .AND. BATCH_PRESENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_INTERACTIVE
+                PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(4).BUFLEN   = 0
+                PSCANLIST(4).CODE     = PSCAN$_MODE
+                PSCANLIST(4).BUFADR   = JPI$K_NETWORK
+                PSCANLIST(4).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(5).BUFLEN   = 0
+                PSCANLIST(5).CODE     = PSCAN$_MODE
+                PSCANLIST(5).BUFADR   = JPI$K_BATCH
+                PSCANLIST(5).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(6).BUFLEN  = USER_LEN
+	          PSCANLIST(6).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(6).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(6).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(7).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(6).BUFLEN   = 0
+		  PSCANLIST(6).CODE	= PSCAN$_GRP
+		  PSCANLIST(6).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(7).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(6).BUFLEN   = 0
+		  PSCANLIST(6).CODE	= PSCAN$_UIC
+		  PSCANLIST(6).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(7).END_LIST = 0
+		ELSE
+		  PSCANLIST(6).END_LIST= 0
+		END IF
+ 	      ELSE IF (INTER_PRESENT .AND. NETWORK_PRESENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_INTERACTIVE
+                PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(4).BUFLEN   = 0
+                PSCANLIST(4).CODE     = PSCAN$_MODE
+                PSCANLIST(4).BUFADR   = JPI$K_NETWORK
+                PSCANLIST(4).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(5).BUFLEN  = USER_LEN
+	          PSCANLIST(5).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(5).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(5).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(6).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(5).BUFLEN   = 0
+		  PSCANLIST(5).CODE	= PSCAN$_GRP
+		  PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(6).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(5).BUFLEN   = 0
+		  PSCANLIST(5).CODE	= PSCAN$_UIC
+		  PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(6).END_LIST = 0
+		ELSE
+		  PSCANLIST(5).END_LIST= 0
+		END IF
+	      ELSE IF (INTER_PRESENT .AND. BATCH_PRESENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_INTERACTIVE
+                PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(4).BUFLEN   = 0
+                PSCANLIST(4).CODE     = PSCAN$_MODE
+                PSCANLIST(4).BUFADR   = JPI$K_BATCH
+                PSCANLIST(4).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(5).BUFLEN  = USER_LEN
+	          PSCANLIST(5).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(5).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(5).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(6).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(5).BUFLEN   = 0
+		  PSCANLIST(5).CODE	= PSCAN$_GRP
+		  PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(6).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(5).BUFLEN   = 0
+		  PSCANLIST(5).CODE	= PSCAN$_UIC
+		  PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(6).END_LIST = 0
+		ELSE
+		  PSCANLIST(5).END_LIST= 0
+		END IF
+	      ELSE IF (BATCH_PRESENT .AND. NETWORK_PRESENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_BATCH
+                PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(4).BUFLEN   = 0
+                PSCANLIST(4).CODE     = PSCAN$_MODE
+                PSCANLIST(4).BUFADR   = JPI$K_NETWORK
+                PSCANLIST(4).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(5).BUFLEN  = USER_LEN
+	          PSCANLIST(5).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(5).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(5).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(6).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(5).BUFLEN   = 0
+		  PSCANLIST(5).CODE	= PSCAN$_GRP
+		  PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(6).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(5).BUFLEN   = 0
+		  PSCANLIST(5).CODE	= PSCAN$_UIC
+		  PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(6).END_LIST = 0
+		ELSE
+		  PSCANLIST(5).END_LIST= 0
+		END IF
+	      ELSE IF (INTER_PRESENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_INTERACTIVE
+                PSCANLIST(3).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(4).BUFLEN  = USER_LEN
+	          PSCANLIST(4).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(4).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(4).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(5).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(4).BUFLEN   = 0
+		  PSCANLIST(4).CODE	= PSCAN$_GRP
+		  PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(5).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(4).BUFLEN   = 0
+		  PSCANLIST(4).CODE	= PSCAN$_UIC
+		  PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(5).END_LIST = 0
+		ELSE
+		  PSCANLIST(4).END_LIST= 0
+		END IF
+	      ELSE IF (BATCH_PRESENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_BATCH
+                PSCANLIST(3).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(4).BUFLEN  = USER_LEN
+	          PSCANLIST(4).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(4).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(4).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(5).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(4).BUFLEN   = 0
+		  PSCANLIST(4).CODE	= PSCAN$_GRP
+		  PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(5).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(4).BUFLEN   = 0
+		  PSCANLIST(4).CODE	= PSCAN$_UIC
+		  PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(5).END_LIST = 0
+		ELSE
+		  PSCANLIST(4).END_LIST= 0
+		END IF
+	      ELSE IF (NETWORK_PRESENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_NETWORK
+                PSCANLIST(3).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(4).BUFLEN  = USER_LEN
+	          PSCANLIST(4).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(4).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(4).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(5).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(4).BUFLEN   = 0
+		  PSCANLIST(4).CODE	= PSCAN$_GRP
+		  PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(5).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(4).BUFLEN   = 0
+		  PSCANLIST(4).CODE	= PSCAN$_UIC
+		  PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(5).END_LIST = 0
+		ELSE
+		  PSCANLIST(4).END_LIST= 0
+		END IF
+	      ELSE IF (.NOT. INTER_ABSENT .AND. .NOT. NETWORK_ABSENT
+	2	   .AND. .NOT. BATCH_ABSENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                PSCANLIST(3).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(4).BUFLEN  = USER_LEN
+	          PSCANLIST(4).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(4).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(4).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(5).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(4).BUFLEN   = 0
+		  PSCANLIST(4).CODE	= PSCAN$_GRP
+		  PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(5).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(4).BUFLEN   = 0
+		  PSCANLIST(4).CODE	= PSCAN$_UIC
+		  PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(5).END_LIST = 0
+		ELSE
+		  PSCANLIST(4).END_LIST= 0
+		END IF
+	      ELSE IF (.NOT. INTER_ABSENT .AND. .NOT. NETWORK_ABSENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(4).BUFLEN   = 0
+                PSCANLIST(4).CODE     = PSCAN$_MODE
+                PSCANLIST(4).BUFADR   = JPI$K_BATCH
+                PSCANLIST(4).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(5).BUFLEN  = USER_LEN
+	          PSCANLIST(5).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(5).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(5).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(6).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(5).BUFLEN   = 0
+		  PSCANLIST(5).CODE	= PSCAN$_GRP
+		  PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(6).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(5).BUFLEN   = 0
+		  PSCANLIST(5).CODE	= PSCAN$_UIC
+		  PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(6).END_LIST = 0
+		ELSE
+		  PSCANLIST(5).END_LIST= 0
+		END IF
+	      ELSE IF (.NOT. INTER_ABSENT .AND. .NOT. BATCH_ABSENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(4).BUFLEN   = 0
+                PSCANLIST(4).CODE     = PSCAN$_MODE
+                PSCANLIST(4).BUFADR   = JPI$K_NETWORK
+                PSCANLIST(4).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(5).BUFLEN  = USER_LEN
+	          PSCANLIST(5).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(5).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(5).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(6).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(5).BUFLEN   = 0
+		  PSCANLIST(5).CODE	= PSCAN$_GRP
+		  PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(6).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(5).BUFLEN   = 0
+		  PSCANLIST(5).CODE	= PSCAN$_UIC
+		  PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(6).END_LIST = 0
+		ELSE
+		  PSCANLIST(5).END_LIST= 0
+		END IF
+	      ELSE IF (.NOT. BATCH_ABSENT .AND. .NOT. NETWORK_ABSENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(4).BUFLEN   = 0
+                PSCANLIST(4).CODE     = PSCAN$_MODE
+                PSCANLIST(4).BUFADR   = JPI$K_INTERACTIVE
+                PSCANLIST(4).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(5).BUFLEN  = USER_LEN
+	          PSCANLIST(5).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(5).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(5).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(6).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(5).BUFLEN   = 0
+		  PSCANLIST(5).CODE	= PSCAN$_GRP
+		  PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(6).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(5).BUFLEN   = 0
+		  PSCANLIST(5).CODE	= PSCAN$_UIC
+		  PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(6).END_LIST = 0
+		ELSE
+		  PSCANLIST(5).END_LIST= 0
+		END IF
+	      ELSE IF (.NOT. INTER_ABSENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(4).BUFLEN   = 0
+                PSCANLIST(4).CODE     = PSCAN$_MODE
+                PSCANLIST(4).BUFADR   = JPI$K_NETWORK
+                PSCANLIST(4).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(5).BUFLEN   = 0
+                PSCANLIST(5).CODE     = PSCAN$_MODE
+                PSCANLIST(5).BUFADR   = JPI$K_BATCH
+                PSCANLIST(5).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(6).BUFLEN  = USER_LEN
+	          PSCANLIST(6).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(6).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(6).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(7).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(6).BUFLEN   = 0
+		  PSCANLIST(6).CODE	= PSCAN$_GRP
+		  PSCANLIST(6).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(7).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(6).BUFLEN   = 0
+		  PSCANLIST(6).CODE	= PSCAN$_UIC
+		  PSCANLIST(6).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(7).END_LIST = 0
+		ELSE
+		  PSCANLIST(6).END_LIST= 0
+		END IF
+	      ELSE IF (.NOT. BATCH_ABSENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(4).BUFLEN   = 0
+                PSCANLIST(4).CODE     = PSCAN$_MODE
+                PSCANLIST(4).BUFADR   = JPI$K_NETWORK
+                PSCANLIST(4).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(5).BUFLEN   = 0
+                PSCANLIST(5).CODE     = PSCAN$_MODE
+                PSCANLIST(5).BUFADR   = JPI$K_INTERACTIVE
+                PSCANLIST(5).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(6).BUFLEN  = USER_LEN
+	          PSCANLIST(6).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(6).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(6).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(7).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(6).BUFLEN   = 0
+		  PSCANLIST(6).CODE	= PSCAN$_GRP
+		  PSCANLIST(6).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(7).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(6).BUFLEN   = 0
+		  PSCANLIST(6).CODE	= PSCAN$_UIC
+		  PSCANLIST(6).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(7).END_LIST = 0
+		ELSE
+		  PSCANLIST(6).END_LIST= 0
+		END IF
+	      ELSE IF (.NOT. NETWORK_ABSENT) THEN
+	        PSCANLIST(3).BUFLEN   = 0
+                PSCANLIST(3).CODE     = PSCAN$_MODE
+                PSCANLIST(3).BUFADR   = JPI$K_OTHER
+                PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(4).BUFLEN   = 0
+                PSCANLIST(4).CODE     = PSCAN$_MODE
+                PSCANLIST(4).BUFADR   = JPI$K_INTERACTIVE
+                PSCANLIST(4).ITMFLAGS = PSCAN$M_OR
+	        PSCANLIST(5).BUFLEN   = 0
+                PSCANLIST(5).CODE     = PSCAN$_MODE
+                PSCANLIST(5).BUFADR   = JPI$K_BATCH
+                PSCANLIST(5).ITMFLAGS = 0
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(6).BUFLEN  = USER_LEN
+	          PSCANLIST(6).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(6).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(6).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(7).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(6).BUFLEN   = 0
+		  PSCANLIST(6).CODE	= PSCAN$_GRP
+		  PSCANLIST(6).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(7).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(6).BUFLEN   = 0
+		  PSCANLIST(6).CODE	= PSCAN$_UIC
+		  PSCANLIST(6).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(6).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(7).END_LIST = 0
+		ELSE
+		  PSCANLIST(6).END_LIST= 0
+		END IF
+	      ELSE
+		IF (USER_PRESENT) THEN
+	          PSCANLIST(3).BUFLEN  = USER_LEN
+	          PSCANLIST(3).CODE    = PSCAN$_USERNAME
+	          PSCANLIST(3).BUFADR  = %LOC(USERNAME)
+	          PSCANLIST(3).ITMFLAGS= PSCAN$M_EQL
+	          PSCANLIST(4).END_LIST= 0
+		ELSE IF (GROUP_PRESENT) THEN
+		  PSCANLIST(3).BUFLEN   = 0
+		  PSCANLIST(3).CODE	= PSCAN$_GRP
+		  PSCANLIST(3).BUFADR   = UIC_2.GROUP
+		  PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(4).END_LIST = 0
+		ELSE IF (UIC_PRESENT) THEN
+		  PSCANLIST(3).BUFLEN   = 0
+		  PSCANLIST(3).CODE	= PSCAN$_UIC
+		  PSCANLIST(3).BUFADR   = UIC.UIC_VALUE
+		  PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		  PSCANLIST(4).END_LIST = 0
+		ELSE
+		  PSCANLIST(3).END_LIST= 0
+		END IF
+	      END IF
+
+	      STATUS = SYS$PROCESS_SCAN( CONTEXT,
+	2				 PSCANLIST)
+
+	      IF (.NOT. STATUS) CALL LIB$STOP(%VAL(STATUS))
+	
+	      IF ( .NOT. EXTEND_PRESENT) THEN	
+	        CALL GETJPI_BASIC	
+	      ELSE 
+		CALL GETJPI_EXTEND
+	      END IF	
+	    END IF
+	  END DO
+	ELSE 
+	  IF ( .NOT. NODE_VALUE_PRESENT ) THEN
+C
+C /CLUSTER not present, or nor does /NODE, or nor does node value list, 
+C so get local nodename as default 
+C
+	    !****************************************************
+	    ! Construct And Initialize Syi Itm List	    
+	    !****************************************************
+	    SYILIST(1).BUFLEN	  = LEN(NODENAME)
+	    SYILIST(1).CODE	  = SYI$_NODENAME
+	    SYILIST(1).BUFADR	  = %LOC(NODENAME)
+	    SYILIST(1).RETLENADR  = %LOC(NODE_LEN)
+            SYILIST(2).END_LIST   = 0
+
+	    STATUS = SYS$GETSYIW(,,,		
+	2		       	SYILIST,
+	2		       	SYISTAT,,)
+
+	    IF ( .NOT. STATUS ) THEN
+	      CALL LIB$STOP(%VAL(STATUS))
+	    ELSE IF ( .NOT. SYISTAT.STATUS) THEN
+	      CALL LIB$STOP(%VAL(SYISTAT.STATUS))
+            END IF
+
+	    !*****************************************
+	    ! Construct & initialize Pscan Item List
+	    !*****************************************
+	    PSCANLIST(1).BUFLEN   = LEN(INPUT_PRCNAM(1:INPUT_PRCNAM_LEN+2))
+	    PSCANLIST(1).CODE     = PSCAN$_PRCNAM
+	    PSCANLIST(1).BUFADR   = %LOC(INPUT_PRCNAM)
+	    PSCANLIST(1).ITMFLAGS = PSCAN$M_WILDCARD
+
+	    IF (INTER_PRESENT .AND. NETWORK_PRESENT .AND. BATCH_PRESENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_INTERACTIVE
+              PSCANLIST(2).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(3).BUFLEN   = 0
+              PSCANLIST(3).CODE     = PSCAN$_MODE
+              PSCANLIST(3).BUFADR   = JPI$K_NETWORK
+              PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(4).BUFLEN   = 0
+              PSCANLIST(4).CODE     = PSCAN$_MODE
+              PSCANLIST(4).BUFADR   = JPI$K_BATCH
+              PSCANLIST(4).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(5).BUFLEN   = USER_LEN
+		PSCANLIST(5).CODE     = PSCAN$_USERNAME
+		PSCANLIST(5).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(6).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(5).BUFLEN   = 0
+		PSCANLIST(5).CODE     = PSCAN$_GRP
+		PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(6).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(5).BUFLEN   = 0
+		PSCANLIST(5).CODE     = PSCAN$_UIC
+		PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(6).END_LIST = 0
+	      ELSE
+		PSCANLIST(5).END_LIST = 0	       
+	      END IF
+ 	    ELSE IF (INTER_PRESENT .AND. NETWORK_PRESENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_INTERACTIVE
+              PSCANLIST(2).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(3).BUFLEN   = 0
+              PSCANLIST(3).CODE     = PSCAN$_MODE
+              PSCANLIST(3).BUFADR   = JPI$K_NETWORK
+              PSCANLIST(3).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = USER_LEN
+		PSCANLIST(4).CODE     = PSCAN$_USERNAME
+		PSCANLIST(4).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = 0
+		PSCANLIST(4).CODE     = PSCAN$_GRP
+		PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = 0
+		PSCANLIST(4).CODE     = PSCAN$_UIC
+		PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE
+		PSCANLIST(4).END_LIST = 0
+	      END IF
+	    ELSE IF (INTER_PRESENT .AND. BATCH_PRESENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_INTERACTIVE
+              PSCANLIST(2).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(3).BUFLEN   = 0
+              PSCANLIST(3).CODE     = PSCAN$_MODE
+              PSCANLIST(3).BUFADR   = JPI$K_BATCH
+              PSCANLIST(3).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = USER_LEN
+		PSCANLIST(4).CODE     = PSCAN$_USERNAME
+		PSCANLIST(4).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = 0
+		PSCANLIST(4).CODE     = PSCAN$_GRP
+		PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = 0
+		PSCANLIST(4).CODE     = PSCAN$_UIC
+		PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE
+		PSCANLIST(4).END_LIST = 0
+	      END IF
+	    ELSE IF (BATCH_PRESENT .AND. NETWORK_PRESENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_BATCH
+              PSCANLIST(2).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(3).BUFLEN   = 0
+              PSCANLIST(3).CODE     = PSCAN$_MODE
+              PSCANLIST(3).BUFADR   = JPI$K_NETWORK
+              PSCANLIST(3).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = USER_LEN
+		PSCANLIST(4).CODE     = PSCAN$_USERNAME
+		PSCANLIST(4).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = 0
+		PSCANLIST(4).CODE     = PSCAN$_GRP
+		PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = 0
+		PSCANLIST(4).CODE     = PSCAN$_UIC
+		PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE
+		PSCANLIST(4).END_LIST = 0
+	      END IF
+	    ELSE IF (INTER_PRESENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_INTERACTIVE
+              PSCANLIST(2).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(3).BUFLEN   = USER_LEN
+		PSCANLIST(3).CODE     = PSCAN$_USERNAME
+		PSCANLIST(3).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(4).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(3).BUFLEN   = 0
+		PSCANLIST(3).CODE     = PSCAN$_GRP
+		PSCANLIST(3).BUFADR   = UIC_2.GROUP
+		PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(4).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(3).BUFLEN   = 0
+		PSCANLIST(3).CODE     = PSCAN$_UIC
+		PSCANLIST(3).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(4).END_LIST = 0
+	      ELSE
+		PSCANLIST(3).END_LIST = 0
+	      END IF
+	    ELSE IF (BATCH_PRESENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_BATCH
+              PSCANLIST(2).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(3).BUFLEN   = USER_LEN
+		PSCANLIST(3).CODE     = PSCAN$_USERNAME
+		PSCANLIST(3).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(4).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(3).BUFLEN   = 0
+		PSCANLIST(3).CODE     = PSCAN$_GRP
+		PSCANLIST(3).BUFADR   = UIC_2.GROUP
+		PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(4).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(3).BUFLEN   = 0
+		PSCANLIST(3).CODE     = PSCAN$_UIC
+		PSCANLIST(3).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(4).END_LIST = 0
+	      ELSE
+		PSCANLIST(3).END_LIST = 0
+	      END IF
+	    ELSE IF (NETWORK_PRESENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_NETWORK
+              PSCANLIST(2).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(3).BUFLEN   = USER_LEN
+		PSCANLIST(3).CODE     = PSCAN$_USERNAME
+		PSCANLIST(3).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(4).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(3).BUFLEN   = 0
+		PSCANLIST(3).CODE     = PSCAN$_GRP
+		PSCANLIST(3).BUFADR   = UIC_2.GROUP
+		PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(4).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(3).BUFLEN   = 0
+		PSCANLIST(3).CODE     = PSCAN$_UIC
+		PSCANLIST(3).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(4).END_LIST = 0
+	      ELSE
+		PSCANLIST(3).END_LIST = 0
+	      END IF
+	    ELSE IF (.NOT. INTER_ABSENT .AND. .NOT. NETWORK_ABSENT
+	2	 .AND. .NOT. BATCH_ABSENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_OTHER
+              PSCANLIST(2).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(3).BUFLEN   = USER_LEN
+		PSCANLIST(3).CODE     = PSCAN$_USERNAME
+		PSCANLIST(3).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(4).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(3).BUFLEN   = 0
+		PSCANLIST(3).CODE     = PSCAN$_GRP
+		PSCANLIST(3).BUFADR   = UIC_2.GROUP
+		PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(4).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(3).BUFLEN   = 0
+		PSCANLIST(3).CODE     = PSCAN$_UIC
+		PSCANLIST(3).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(3).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(4).END_LIST = 0
+	      ELSE
+		PSCANLIST(3).END_LIST = 0
+	      END IF
+	    ELSE IF (.NOT. INTER_ABSENT .AND. .NOT. NETWORK_ABSENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_OTHER
+              PSCANLIST(2).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(3).BUFLEN   = 0
+              PSCANLIST(3).CODE     = PSCAN$_MODE
+              PSCANLIST(3).BUFADR   = JPI$K_BATCH
+              PSCANLIST(3).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = USER_LEN
+		PSCANLIST(4).CODE     = PSCAN$_USERNAME
+		PSCANLIST(4).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = 0
+		PSCANLIST(4).CODE     = PSCAN$_GRP
+		PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = 0
+		PSCANLIST(4).CODE     = PSCAN$_UIC
+		PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE
+		PSCANLIST(4).END_LIST = 0
+	      END IF
+	    ELSE IF (.NOT. INTER_ABSENT .AND. .NOT. BATCH_ABSENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_OTHER
+              PSCANLIST(2).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(3).BUFLEN   = 0
+              PSCANLIST(3).CODE     = PSCAN$_MODE
+              PSCANLIST(3).BUFADR   = JPI$K_NETWORK
+              PSCANLIST(3).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = USER_LEN
+		PSCANLIST(4).CODE     = PSCAN$_USERNAME
+		PSCANLIST(4).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = 0
+		PSCANLIST(4).CODE     = PSCAN$_GRP
+		PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = 0
+		PSCANLIST(4).CODE     = PSCAN$_UIC
+		PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE
+		PSCANLIST(4).END_LIST = 0
+	      END IF
+	    ELSE IF (.NOT. BATCH_ABSENT .AND. .NOT. NETWORK_ABSENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_OTHER
+              PSCANLIST(2).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(3).BUFLEN   = 0
+              PSCANLIST(3).CODE     = PSCAN$_MODE
+              PSCANLIST(3).BUFADR   = JPI$K_INTERACTIVE
+              PSCANLIST(3).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = USER_LEN
+		PSCANLIST(4).CODE     = PSCAN$_USERNAME
+		PSCANLIST(4).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = 0
+		PSCANLIST(4).CODE     = PSCAN$_GRP
+		PSCANLIST(4).BUFADR   = UIC_2.GROUP
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(4).BUFLEN   = 0
+		PSCANLIST(4).CODE     = PSCAN$_UIC
+		PSCANLIST(4).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(4).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(5).END_LIST = 0
+	      ELSE
+		PSCANLIST(4).END_LIST = 0
+	      END IF
+	    ELSE IF (.NOT. INTER_ABSENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_OTHER
+              PSCANLIST(2).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(3).BUFLEN   = 0
+              PSCANLIST(3).CODE     = PSCAN$_MODE
+              PSCANLIST(3).BUFADR   = JPI$K_NETWORK
+              PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(4).BUFLEN   = 0
+              PSCANLIST(4).CODE     = PSCAN$_MODE
+              PSCANLIST(4).BUFADR   = JPI$K_BATCH
+              PSCANLIST(4).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(5).BUFLEN   = USER_LEN
+		PSCANLIST(5).CODE     = PSCAN$_USERNAME
+		PSCANLIST(5).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(6).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(5).BUFLEN   = 0
+		PSCANLIST(5).CODE     = PSCAN$_GRP
+		PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(6).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(5).BUFLEN   = 0
+		PSCANLIST(5).CODE     = PSCAN$_UIC
+		PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(6).END_LIST = 0
+	      ELSE
+		PSCANLIST(5).END_LIST = 0
+	      END IF
+	    ELSE IF (.NOT. BATCH_ABSENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_OTHER
+              PSCANLIST(2).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(3).BUFLEN   = 0
+              PSCANLIST(3).CODE     = PSCAN$_MODE
+              PSCANLIST(3).BUFADR   = JPI$K_NETWORK
+              PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(4).BUFLEN   = 0
+              PSCANLIST(4).CODE     = PSCAN$_MODE
+              PSCANLIST(4).BUFADR   = JPI$K_INTERACTIVE
+              PSCANLIST(4).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(5).BUFLEN   = USER_LEN
+		PSCANLIST(5).CODE     = PSCAN$_USERNAME
+		PSCANLIST(5).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(6).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(5).BUFLEN   = 0
+		PSCANLIST(5).CODE     = PSCAN$_GRP
+		PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(6).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(5).BUFLEN   = 0
+		PSCANLIST(5).CODE     = PSCAN$_UIC
+		PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(6).END_LIST = 0
+	      ELSE
+		PSCANLIST(5).END_LIST = 0
+	      END IF
+	    ELSE IF (.NOT. NETWORK_ABSENT) THEN
+	      PSCANLIST(2).BUFLEN   = 0
+              PSCANLIST(2).CODE     = PSCAN$_MODE
+              PSCANLIST(2).BUFADR   = JPI$K_OTHER
+              PSCANLIST(2).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(3).BUFLEN   = 0
+              PSCANLIST(3).CODE     = PSCAN$_MODE
+              PSCANLIST(3).BUFADR   = JPI$K_INTERACTIVE
+              PSCANLIST(3).ITMFLAGS = PSCAN$M_OR
+	      PSCANLIST(4).BUFLEN   = 0
+              PSCANLIST(4).CODE     = PSCAN$_MODE
+              PSCANLIST(4).BUFADR   = JPI$K_BATCH
+              PSCANLIST(4).ITMFLAGS = 0
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(5).BUFLEN   = USER_LEN
+		PSCANLIST(5).CODE     = PSCAN$_USERNAME
+		PSCANLIST(5).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(6).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(5).BUFLEN   = 0
+		PSCANLIST(5).CODE     = PSCAN$_GRP
+		PSCANLIST(5).BUFADR   = UIC_2.GROUP
+		PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(6).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(5).BUFLEN   = 0
+		PSCANLIST(5).CODE     = PSCAN$_UIC
+		PSCANLIST(5).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(5).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(6).END_LIST = 0
+	      ELSE
+		PSCANLIST(5).END_LIST = 0
+	      END IF
+	    ELSE
+	      IF (USER_PRESENT) THEN
+		PSCANLIST(2).BUFLEN   = USER_LEN
+		PSCANLIST(2).CODE     = PSCAN$_USERNAME
+		PSCANLIST(2).BUFADR   = %LOC(USERNAME)
+		PSCANLIST(2).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(3).END_LIST = 0
+	      ELSE IF (GROUP_PRESENT) THEN
+		PSCANLIST(2).BUFLEN   = 0
+		PSCANLIST(2).CODE     = PSCAN$_GRP
+		PSCANLIST(2).BUFADR   = UIC_2.GROUP
+		PSCANLIST(2).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(3).END_LIST = 0
+	      ELSE IF (UIC_PRESENT) THEN
+		PSCANLIST(2).BUFLEN   = 0
+		PSCANLIST(2).CODE     = PSCAN$_UIC
+		PSCANLIST(2).BUFADR   = UIC.UIC_VALUE
+		PSCANLIST(2).ITMFLAGS = PSCAN$M_EQL
+		PSCANLIST(3).END_LIST = 0
+	      ELSE
+		PSCANLIST(2).END_LIST = 0
+	      END IF
+	    END IF
+
+	    STATUS = SYS$PROCESS_SCAN( CONTEXT,
+	2			       PSCANLIST)
+
+	    IF (.NOT. STATUS) CALL LIB$STOP(%VAL(STATUS))
+	
+            IF ( .NOT. EXTEND_PRESENT) THEN	
+	      CALL GETJPI_BASIC	
+	    ELSE 
+	      CALL GETJPI_EXTEND
+	    END IF		      
+	  END IF
+	END IF
+	END

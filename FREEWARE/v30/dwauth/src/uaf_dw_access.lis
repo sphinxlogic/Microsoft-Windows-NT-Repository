@@ -1,0 +1,381 @@
+
+UAF_DW_ACCESS                                                   22-NOV-1993 11:27:25    VAX C      V3.2-044                 Page 1
+X-1                                                             21-JUN-1993 13:32:47    UAF_DW_ACCESS.C;10 (1)
+
+
+
+    1        	#module UAF_DW_ACCESS "X-1"
+    2        	
+    3        	/*
+    4        	**++
+    5        	**  FACILITY:	Authorization record maintenance utility
+    6        	**
+    7        	**  MODULE DESCRIPTION:
+    8        	**
+    9        	**		This module contains the various DECwindows entry window
+   10        	**		support routines needed by the DECwindows AUTHORIZE utility.
+   11        	**
+   12        	**  AUTHORS:	L. Mark Pilant			CREATION DATE:  30-Oct-1992
+   13        	**
+   14        	**  MODIFICATION HISTORY:
+   15        	**
+   16        	**	X-1	LMP		L. Mark Pilant,		15-Jun-1993
+   17        	**		Original version.
+   18        	**
+   19        	**--
+   20        	*/
+   21        	
+   22        	/*
+   23        	**
+   24        	**  INCLUDE FILES
+   25        	**
+   26        	*/
+   27        	
+   28        	#include ctype
+   91        	#include stdlib
+  238        	
+  239        	#include <decw$include:mrmappl>
+32311        	
+32312        	#include "uaf_header"
+33732        	
+33733        	/*
+33734        	**
+33735        	**  FORWARD ROUTINES
+33736        	**
+33737        	*/
+33738        	
+33739        	#pragma noinline (AUTHORIZE$ACCESS_RESTRICTIONS)
+33740        	#pragma noinline (AUTHORIZE$SET_UP_ACCESS)
+33741        	
+
+UAF_DW_ACCESS                                                   22-NOV-1993 11:27:25    VAX C      V3.2-044                 Page 2
+X-1                                                             21-JUN-1993 13:32:47    UAF_DW_ACCESS.C;10 (2)
+
+             	
+33742        	extern void AUTHORIZE$ACCESS_RESTRICTIONS (widget_id, tag, reason)
+33743        	
+33744        	Widget				widget_id;
+33745        	int				*tag;
+33746        	XmAnyCallbackStruct		*reason;
+33747        	{
+33748    1   	/*
+33749    1   	**++
+33750    1   	**  FUNCTIONAL DESCRIPTION:
+33751    1   	**
+33752    1   	**	This routine is called to initiate processing of an
+33753    1   	**	authorization entry.
+33754    1   	**
+33755    1   	**  FORMAL PARAMETERS:
+33756    1   	**
+33757    1   	**	{@subtags@}
+33758    1   	**
+33759    1   	**  RETURN VALUE:
+33760    1   	**
+33761    1   	**	{@description or none@}
+33762    1   	**
+33763    1   	**  SIDE EFFECTS:
+33764    1   	**
+33765    1   	**	{@description or none@}
+33766    1   	**
+33767    1   	**--
+33768    1   	*/
+33769    1   	
+33770    1   	/* External routines. */
+33771    1   	
+33772    1   	extern unsigned int		AUTHORIZE$GET_USER_INFO ();
+33773    1   	
+33774    1   	/* Global references. */
+33775    1   	
+33776    1   	globalref unsigned int		uaf_l_current_user_index;	/* Index of current user */
+33777    1   	globalref unsigned int		uaf_l_current_user_max;		/* Count of entries in user list */
+33778    1   	globalref Widget		uaf_r_access_pri_window_widget;	/* Primary access restriction window widget info */
+33779    1   	globalref Widget		uaf_r_access_sec_window_widget;	/* Secondary access restriction window widget info */
+33780    1   	globalref struct ITMDEF		(*uaf_r_current_user_info)[];	/* Current user UAF info */
+33781    1   	globalref Widget		uaf_r_entry_window_widget;	/* Entry window widget info */
+33782    1   	globalref struct UAFLAG		uaf_r_flags;			/* Miscellaneous utility flags */
+33783    1   	globalref struct ITMDEF		(*uaf_r_template_info)[];	/* Modification template information */
+33784    1   	globalref char			uaf_t_current_username[];	/* Current username */
+33785    1   	
+33786    1   	/* Local storage. */
+33787    1   	
+33788    1   	int				index;				/* General index */
+33789    1   	int				widget_number = *tag;
+33790    1   	
+33791    1   	/* Debug information. */
+33792    1   	
+33793    1   	#ifdef DEBUGGING
+33794   X    	printf ("access restrictions\n");
+33795    1   	#endif /* DEBUGGING */
+33796    1   	
+33797    1   	/* Determine what to do based upon the user actions. */
+
+UAF_DW_ACCESS                                                   22-NOV-1993 11:27:25    VAX C      V3.2-044                 Page 3
+X-1                                                             21-JUN-1993 13:32:47    UAF_DW_ACCESS.C;10 (2)
+
+33798    1   	
+33799    1   	switch (widget_number)
+33800    1   	    {
+33801    2   	    case uaf$c_entry_access_primary:
+33802    2   		{
+33803    3   	
+33804    3   	/* Make the primary access restriction window visible. */
+33805    3   	
+33806    3   		XtManageChild (uaf_r_access_pri_window_widget);
+33807    3   		break;
+33808    3   		}
+33809    2   	
+33810    2   	    case uaf$c_entry_access_secondary:
+33811    2   		{
+33812    3   	
+33813    3   	/* Make the secondary access restriction window visible. */
+33814    3   	
+33815    3   		XtManageChild (uaf_r_access_sec_window_widget);
+33816    3   		break;
+33817    3   		}
+33818    2   	
+33819    2   	    case uaf$c_access_pri_ok:
+33820    2   		{
+33821    3   	
+33822    3   	/* Dismiss the primary access restriction window. */
+33823    3   	
+33824    3   		XtUnmanageChild (uaf_r_access_pri_window_widget);
+33825    3   	
+33826    3   	/* Note the state of the access list modification flags remain unchanged.  Thus,
+33827    3   	** if no changes were made, an entry is not added to the item list. */
+33828    3   	
+33829    3   		break;
+33830    3   		}
+33831    2   	    case uaf$c_access_pri_cancel:
+33832    2   		{
+33833    3   	
+33834    3   	/* Dismiss the primary access restriction window. */
+33835    3   	
+33836    3   		XtUnmanageChild (uaf_r_access_pri_window_widget);
+33837    3   	
+33838    3   	/* Reset all the access list modification flags to prevent the values from being
+33839    3   	** changed by an item list entry. */
+33840    3   	
+33841    3   		uaf_r_flags.uaf_v_mod_pri_local_access = 0;
+33842    3   		uaf_r_flags.uaf_v_mod_pri_batch_access = 0;
+33843    3   		uaf_r_flags.uaf_v_mod_pri_dialup_access = 0;
+33844    3   		uaf_r_flags.uaf_v_mod_pri_remote_access = 0;
+33845    3   		uaf_r_flags.uaf_v_mod_pri_network_access = 0;
+33846    3   		break;
+33847    3   		}
+33848    2   	
+33849    2   	    case uaf$c_access_sec_ok:
+33850    2   		{
+33851    3   	
+33852    3   	/* Dismiss the secondary access restriction window. */
+33853    3   	
+33854    3   		XtUnmanageChild (uaf_r_access_sec_window_widget);
+
+UAF_DW_ACCESS                                                   22-NOV-1993 11:27:25    VAX C      V3.2-044                 Page 4
+X-1                                                             21-JUN-1993 13:32:47    UAF_DW_ACCESS.C;10 (2)
+
+33855    3   	
+33856    3   	/* Note the state of the access list modification flags remain unchanged.  Thus,
+33857    3   	** if no changes were made, an entry is not added to the item list. */
+33858    3   	
+33859    3   		break;
+33860    3   		}
+33861    2   	    case uaf$c_access_sec_cancel:
+33862    2   		{
+33863    3   	
+33864    3   	/* Dismiss the secondary access restriction window. */
+33865    3   	
+33866    3   		XtUnmanageChild (uaf_r_access_sec_window_widget);
+33867    3   	
+33868    3   	/* Reset all the access list modification flags to prevent the values from being
+33869    3   	** changed by an item list entry. */
+33870    3   	
+33871    3   		uaf_r_flags.uaf_v_mod_sec_local_access = 0;
+33872    3   		uaf_r_flags.uaf_v_mod_sec_batch_access = 0;
+33873    3   		uaf_r_flags.uaf_v_mod_sec_dialup_access = 0;
+33874    3   		uaf_r_flags.uaf_v_mod_sec_remote_access = 0;
+33875    3   		uaf_r_flags.uaf_v_mod_sec_network_access = 0;
+33876    3   		break;
+33877    3   		}
+33878    2   	    }
+33879    1   	}
+33880        	
+
+UAF_DW_ACCESS                                                   22-NOV-1993 11:27:25    VAX C      V3.2-044                 Page 5
+X-1                                                             21-JUN-1993 13:32:47    UAF_DW_ACCESS.C;10 (3)
+
+             	
+33881        	extern void AUTHORIZE$SET_UP_ACCESS (itmlst, window_code)
+33882        	
+33883        	struct ITMDEF			(*itmlst)[];
+33884        	int				window_code;
+33885        	{
+33886    1   	/*
+33887    1   	**++
+33888    1   	**  FUNCTIONAL DESCRIPTION:
+33889    1   	**
+33890    1   	**	This routine is called to set up the information in the various
+33891    1   	**	access restriction lists.
+33892    1   	**
+33893    1   	**  FORMAL PARAMETERS:
+33894    1   	**
+33895    1   	**	ITMLST		- Pointer to the dynamic item list
+33896    1   	**	WINDOW_CODE	- = 1 to affect primary access window,
+33897    1   	**			  = 2 to affect secondary access window
+33898    1   	**
+33899    1   	**  RETURN VALUE:
+33900    1   	**
+33901    1   	**	{@description or none@}
+33902    1   	**
+33903    1   	**  SIDE EFFECTS:
+33904    1   	**
+33905    1   	**	{@description or none@}
+33906    1   	**
+33907    1   	**--
+33908    1   	*/
+33909    1   	
+33910    1   	/* External routines. */
+33911    1   	
+33912    1   	extern void			AUTHORIZE$SELECT_LIST_ENTRIES ();
+33913    1   	
+33914    1   	/* Global references. */
+33915    1   	
+33916    1   	globalref Widget		uaf_r_access_pri_window_widget;	/* Primary access restriction window widget info */
+33917    1   	globalref Widget		uaf_r_access_sec_window_widget;	/* Secondary access restriction window widget info */
+33918    1   	
+33919    1   	/* Local storage. */
+33920    1   	
+33921    1   	int				index;				/* General index */
+33922    1   	unsigned char			*item_bufadr;			/* Item buffer address from item list entry */
+33923    1   	unsigned int			item_bufsiz;			/* Item buffer size from item list entry */
+33924    1   	unsigned int			item_code;			/* Item code from item list entry */
+33925    1   	
+33926    1   	/* Debug information. */
+33927    1   	
+33928    1   	#ifdef DEBUGGING
+33929   X    	printf ("set up access\n");
+33930    1   	#endif /* DEBUGGING */
+33931    1   	
+33932    1   	/* Loop through the item list entries and set the appropriate information in
+33933    1   	** the authorization entry window. */
+33934    1   	
+33935    1   	for (index = 0; (*itmlst)[index].itm$w_itmcod != 0; index++)
+33936    1   	    {
+
+UAF_DW_ACCESS                                                   22-NOV-1993 11:27:25    VAX C      V3.2-044                 Page 6
+X-1                                                             21-JUN-1993 13:32:47    UAF_DW_ACCESS.C;10 (3)
+
+33937    2   	   
+33938    2   	/* Get the information from the current item list entry. */
+33939    2   	
+33940    2   	    item_code = (*itmlst)[index].itm$w_itmcod;
+33941    2   	    item_bufsiz = (*itmlst)[index].itm$w_bufsiz;
+33942    2   	    item_bufadr = (*itmlst)[index].itm$l_bufadr;
+33943    2   	
+33944    2   	/* Check for various access restriction entries.  If seen, set the state of all
+33945    2   	** the various local access list entries.  First check the item codes affecting
+33946    2   	** the primary access restriction window, then check the item codes affecting
+33947    2   	** the secondary access restriction window. */
+33948    2   	
+33949    2   	    if (window_code == 1)			/* Primary window */
+33950    2   		{
+33951    3   		if (item_code == UAI$_LOCAL_ACCESS_P)
+33952    3   		    {
+33953    4   	
+33954    4   	/* In the local access mask, access is granted if the hour bit is clear and denied
+33955    4   	** if the hour bit is set.  In other words, a bit stream of all zeros indicates
+33956    4   	** full access.  This means the resulting bit stream must be complemented prior
+33957    4   	** to selecting the items in the list. */
+33958    4   	
+33959    4   		    COMPLEMENT (item_bufsiz, item_bufadr);
+33960    4   		    AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_access_pri_local_list,
+33961    4   						   item_bufadr,
+33962    4   						   item_bufsiz);
+33963    4   		    }
+33964    3   		if (item_code == UAI$_BATCH_ACCESS_P)
+33965    3   		    {
+33966    4   		    COMPLEMENT (item_bufsiz, item_bufadr);			/* See comments on above call */
+33967    4   		    AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_access_pri_batch_list,
+33968    4   						   item_bufadr,
+33969    4   						   item_bufsiz);
+33970    4   		    }
+33971    3   		if (item_code == UAI$_DIALUP_ACCESS_P)
+33972    3   		    {
+33973    4   		    COMPLEMENT (item_bufsiz, item_bufadr);			/* See comments on above call */
+33974    4   		    AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_access_pri_dialup_list,
+33975    4   						   item_bufadr,
+33976    4   						   item_bufsiz);
+33977    4   		    }
+33978    3   		if (item_code == UAI$_REMOTE_ACCESS_P)
+33979    3   		    {
+33980    4   		    COMPLEMENT (item_bufsiz, item_bufadr);			/* See comments on above call */
+33981    4   		    AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_access_pri_remote_list,
+33982    4   						   item_bufadr,
+33983    4   						   item_bufsiz);
+33984    4   		    }
+33985    3   		if (item_code == UAI$_NETWORK_ACCESS_P)
+33986    3   		    {
+33987    4   		    COMPLEMENT (item_bufsiz, item_bufadr);			/* See comments on above call */
+33988    4   		    AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_access_pri_network_list,
+33989    4   						   item_bufadr,
+33990    4   						   item_bufsiz);
+33991    4   		    }
+33992    3   		}
+33993    2   	
+
+UAF_DW_ACCESS                                                   22-NOV-1993 11:27:25    VAX C      V3.2-044                 Page 7
+X-1                                                             21-JUN-1993 13:32:47    UAF_DW_ACCESS.C;10 (3)
+
+33994    2   	    if (window_code == 1)			/* Secondary window */
+33995    2   		{
+33996    3   		if (item_code == UAI$_LOCAL_ACCESS_S)
+33997    3   		    {
+33998    4   	
+33999    4   	/* In the local access mask, access is granted if the hour bit is clear and denied
+34000    4   	** if the hour bit is set.  In other words, a bit stream of all zeros indicates
+34001    4   	** full access.  This means the resulting bit stream must be complemented prior
+34002    4   	** to selecting the items in the list. */
+34003    4   	
+34004    4   		    COMPLEMENT (item_bufsiz, item_bufadr);			/* See comments on above call */
+34005    4   		    AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_access_sec_local_list,
+34006    4   						   item_bufadr,
+34007    4   						   item_bufsiz);
+34008    4   		    }
+34009    3   		if (item_code == UAI$_BATCH_ACCESS_S)
+34010    3   		    {
+34011    4   		    COMPLEMENT (item_bufsiz, item_bufadr);			/* See comments on above call */
+34012    4   		    AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_access_sec_batch_list,
+34013    4   						   item_bufadr,
+34014    4   						   item_bufsiz);
+34015    4   		    }
+34016    3   		if (item_code == UAI$_DIALUP_ACCESS_S)
+34017    3   		    {
+34018    4   		    COMPLEMENT (item_bufsiz, item_bufadr);			/* See comments on above call */
+34019    4   		    AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_access_sec_dialup_list,
+34020    4   						   item_bufadr,
+34021    4   						   item_bufsiz);
+34022    4   		    }
+34023    3   		if (item_code == UAI$_REMOTE_ACCESS_S)
+34024    3   		    {
+34025    4   		    COMPLEMENT (item_bufsiz, item_bufadr);			/* See comments on above call */
+34026    4   		    AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_access_sec_remote_list,
+34027    4   						   item_bufadr,
+34028    4   						   item_bufsiz);
+34029    4   		    }
+34030    3   		if (item_code == UAI$_NETWORK_ACCESS_S)
+34031    3   		    {
+34032    4   		    COMPLEMENT (item_bufsiz, item_bufadr);			/* See comments on above call */
+34033    4   		    AUTHORIZE$SELECT_LIST_ENTRIES (uaf$c_access_sec_network_list,
+34034    4   						   item_bufadr,
+34035    4   						   item_bufsiz);
+34036    4   		    }
+34037    3   		}
+34038    2   	    }
+34039    1   	}
+
+ 
+ 
+Command Line
+------------
+ 
+CC/LIST=UAF_DW_ACCESS/OBJECT=UAF_DW_ACCESS UAF_DW_ACCESS
+

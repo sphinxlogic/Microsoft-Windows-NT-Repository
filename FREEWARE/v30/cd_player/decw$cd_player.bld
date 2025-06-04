@@ -1,0 +1,66 @@
+$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+$!                                                                            !
+$!	Build the OpenVMS VAX/AXP Motif CD Player Executable                  !
+$!                                                                            !
+$!	Written By:	Stephen N. Davis                                      !
+$!                      Digital Equipment Corporation                         !
+$!                                                                            !
+$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+$!
+$!	set up environment variables...
+$!
+$define/proc/nolog c$include decw$include,sys$library
+$!
+$if (f$getsyi("ARCH_TYPE") .eq. 1)
+$then
+$	define/proc/nolog vaxc$include c$include
+$else
+$	define/proc/nolog decc$include c$include
+$endif
+$!
+$!	compile...
+$!
+$if (f$getsyi("ARCH_TYPE") .eq. 1)
+$then
+$	write sys$output " Compiling DECW$CD_PLAYER for VAX..."
+$	cc decw$cd_player.c
+$else
+$	write sys$output " Compiling DECW$CD_PLAYER for Alpha..."
+$	cc /standard=vaxc decw$cd_player.c
+$endif
+$!
+$if (f$getsyi("ARCH_TYPE") .eq. 1)
+$then
+$ 	write sys$output " Building DECW$CD_PLAYER executable for VAX..."
+$ 	link/notrace/exec=decw$cd_player_vax decw$cd_player.obj, sys$input:/opt
+sys$library:decw$xmlibshr12.exe/share
+sys$library:decw$xtlibshrr5.exe/share
+sys$library:vaxcrtl.exe/share
+$!
+$else
+$	write sys$output " Building DECW$CD_PLAYER executable for Alpha..."
+$	link/notrace/exec=decw$cd_player_axp decw$cd_player.obj, sys$input:/opt
+sys$library:decw$xmlibshr12/share
+sys$library:decw$xtlibshrr5/share
+sys$library:decw$xlibshr/share
+$!
+$endif
+$!
+$!	copy exe to sys$system...
+$!
+$if (f$getsyi("ARCH_TYPE") .eq. 1)
+$then
+$	write sys$output " Moving DECW$CD_PLAYER_VAX executable to SYS$SYSTEM..."
+$	copy decw$cd_player_vax.exe sys$common:[sysexe]
+$else
+$	write sys$output " Moving DECW$CD_PLAYER_AXP executable to SYS$SYSTEM..."
+$	copy decw$cd_player_axp.exe sys$common:[sysexe]
+$endif
+$!
+$!	cleanup old files...
+$!
+$delete decw$cd_player.obj;*
+$purge decw$cd_player_*.exe
+$purge sys$system:decw$cd_player_*.*
+$!
+$exit

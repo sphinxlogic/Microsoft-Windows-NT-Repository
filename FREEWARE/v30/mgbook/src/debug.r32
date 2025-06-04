@@ -1,0 +1,67 @@
+!++
+! DEBUG.R32
+!
+! Description:
+!
+!	This file contains several debugging macros.
+!
+! Written by:
+!	Darrell Burkhead
+!	Copyright © 1995, MadGoat Software. ALL RIGHTS RESERVED.
+!
+! Modifications:
+!
+!	10-JAN-1995 11:32	Darrell Burkhead
+!		Creation.
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';
+
+EXTERNAL ROUTINE
+	dbg_open,
+	dbg_write,
+	dbg_close : NOVALUE;
+
+%IF NOT %DECLARED(debug_enabled)
+%THEN EXTERNAL debug_enabled;
+%FI
+
+MACRO
+    dbg_init(context, filename)=
+	BEGIN
+	IF .debug_enabled
+	THEN dbg_open(context, filename);
+	END%,					!End of macro dbg_init
+    dbg_fao(context, ctrstr)[]=
+	BEGIN
+	REGISTER _temp_status : INITIAL(SS$_NORMAL);
+
+	IF .debug_enabled
+	THEN BEGIN
+	    LOCAL
+		_temp_buf	: $BBLOCK[255],
+		_temp_desc	: $BBLOCK[DSC$C_S_BLN] PRESET(
+				[DSC$W_LENGTH]	= %ALLOCATION(_temp_buf),
+				[DSC$B_CLASS]	= DSC$K_CLASS_S,
+				[DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+				[DSC$A_POINTER]	= _temp_buf),
+		_temp_status	: INITIAL(SS$_NORMAL);
+
+	    _temp_status = $FAO(%ASCID ctrstr,	!Format the output line
+			_temp_desc, _temp_desc
+			%IF NOT %NULL(%REMAINING) %THEN , %REMAINING %FI);
+	    IF ._temp_status
+	    THEN _temp_status = dbg_write(	!Write it to the log file
+					context, _temp_desc)
+	    ELSE BEGIN
+		SIGNAL(._temp_status);
+		dbg_close(context);		!Clean up
+		END;				!End of error during $FAO
+	    END;				!End of /DEBUG specified
+
+	._temp_status
+	END%,					!End of macro dbg_fao
+    dbg_cleanup(context)=
+	BEGIN
+	IF .debug_enabled
+	THEN dbg_close(context);		!Close the log file
+	END%;					!End of macro dbg_cleanup

@@ -1,0 +1,39 @@
+GLOGIN, SYSTEM MANAGEMENT, Login to an account without password
+
+   Glogin is a systems management tool that allows a privileged user to login
+to another account without knowing the password on that account.  By logging
+in to the other account the privileged user inherits the other user's complete
+environment, (privileges, logical names, dcl symbols, process quotas etc.).
+   GLOGIN requires the use of a pseudo terminal and will work with either the
+public domain PY/TW driver or the DEC supplied FTA driver.  Prior to VMS 5.5
+the FTA driver didn't exist but the PY/TW drivers were supplied with the
+DECWindows distribution as well as at many anonymous FTP sites worldwide.
+
+   To use GLOGIN you need to declare it as a foreign command and you need to
+have SYSPRV and CMKRNL enabled.  Then enter the command
+
+$ GLOGIN targetuser
+
+where target user is the userid you wish to login as.  For Example:
+
+$ GLOGIN :== $disk:[dir]GLOGIN.EXE
+$ SET PROC/PRIV=(SYSPRV,CMKRNL)
+$ GLOGIN HGC0015
+
+
+   Logging out will return you to your own session.
+
+   GLOGIN runs under openVMS/VAX version 5.1 - 6.1 and should assemble under
+any of these versions without any changes.  To the best of my knowledge it
+doesn't work correctly under openVMS/AXP although you are free to give it a
+try.  I don't have an AXP machine yet to test it on.
+   This version of GLOGIN was assembled and linked under VMS 6.1 to build it
+for another version simply assemble and/or link it.  For example:
+
+$ MACRO GLOGIN
+$ LINK GLOGIN
+
+
+Tony McCracken
+Northern Arizona University
+Anthony.McCracken@nau.edu

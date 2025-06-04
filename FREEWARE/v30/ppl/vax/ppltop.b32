@@ -1,0 +1,383 @@
+MODULE ppl$top	( IDENT= 'V57-001',
+		ADDRESSING_MODE(EXTERNAL=GENERAL, NONEXTERNAL=LONG_RELATIVE)
+    		) =
+BEGIN
+
+!
+!
+!                         COPYRIGHT (c) 1986 BY
+!                DIGITAL EQUIPMENT CORPORATION, MAYNARD
+!                  MASSACHUSETTS. ALL RIGHTS RESERVED.
+!
+!          THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND  MAY
+!          BE  USED  AND  COPIED  ONLY  IN ACCORDANCE WITH THE
+!          TERMS OF SUCH LICENSE AND WITH THE INCLUSION OF THE
+!          ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER
+!          COPIES THEREOF MAY NOT  BE  PROVIDED  OR  OTHERWISE
+!          MADE  AVAILABLE  TO  ANY OTHER PERSON.  NO TITLE TO
+!          AND   OWNERSHIP   OF   THE   SOFTWARE   IS   HEREBY
+!          TRANSFERRED.
+!
+!          THE INFORMATION IN  THIS  SOFTWARE  IS  SUBJECT  TO
+!          CHANGE  WITHOUT  NOTICE AND SHOULD NOT BE CONSTRUED
+!          AS A COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.
+!
+!          DIGITAL ASSUMES NO RESPONSIBILITY FOR  THE  USE  OR
+!          RELIABILITY  OF  ITS  SOFTWARE ON EQUIPMENT THAT IS
+!          NOT SUPPLIED BY DIGITAL.
+!
+!
+
+
+
+!++
+! Facility:
+!
+!	PPL - Parallel Processing Library
+!
+! Abstract:
+!
+!	These routines determine a unique non-zero number for this application.
+!
+! Environment:
+!
+!
+! Author: Terry Grieb,		Creation Date: June 24, 1986
+!
+! Revision History:
+!
+!  Ver	     Date	Who	Why
+! 01-000    06/24/86	TG	Module created
+!
+! 01-002    08/25/86    CMF	Added RTL conventions.
+!
+! 01-003    10/15/86	PDG	Various clean-ups and pruning.
+!
+! 01-004    01/26/87    CMF	To correct the ident to match the cms generation
+!				number.
+!				
+! 53-001    03/28/89	WWS	Added routine to determine top PID from name
+!
+! 53-002    03/29/89	WWS	Added system-wide locking support
+!
+! 53-003    04/03/89	WWS	Put the app_lock blocks into the context area
+!
+! 53-004    04/07/89	WWS	Re-written for new, application-naming scheme
+!
+! 53-005    05/09/89	WWS	Changed debug_msg_ to take a string literal
+!				instead of an %ascid and got rid of the other
+!				uses of %ascid 
+!
+! 53-006    07/26/89	PJC	Changed $ENQ to $ENQW in app_lksb creation, to
+!				insure against conflicting lock requests.
+!
+! 53-007    10/17/89	PJC	Add checks for app_lksb[app_v_system] bit and
+!				ppl$m_system within ppl$$get_app_lock
+!
+! 57-001    11/12/91	PJC	EVMS/Alpha port.
+!
+! 57-002    08/06/93	PJC	Add code to reserve/unreserve event flags.
+!
+! 57-003    08/30/93	PJC	Convert to Global event flag.
+!-
+
+!
+! INCLUDE FILES:
+!
+
+
+LIBRARY 'RTLSTARLE';			! System symbols
+UNDECLARE %QUOTE $DESCRIPTOR;
+LIBRARY	'OBJ$:PPLLIB';			! PPL-specific definitions
+REQUIRE 'RTLIN:RTLPSECT';		! DECLARE_PSECTS macro
+
+!
+! PSECTS:
+!
+DECLARE_PSECTS ( PPL );			! Define psects
+
+!
+! EXTERNAL REFERENCES:
+!
+EXTERNAL
+    PPL$$GL_CONTEXT :	REF CTX_BLOCK,
+    PPL$$GL_SYSTEM;
+
+EXTERNAL ROUTINE
+    PPL$UNIQUE_NAME,
+    PPL$$GET_MY_PID;
+
+!
+! MACROS:
+!
+
+
+!
+! OWN STORAGE:
+!
+
+
+
+GLOBAL ROUTINE PPL$$GET_APP_LOCK
+	    (
+		appnam : ref $bblock[dsc$c_s_bln],
+		flags  : unsigned long
+	    ) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine creates the lock which subprocesses spawned by this
+!	process can use to determine the name of the application.  If the
+!	appnam argument points to a null name, this routin either gets the name
+!	from the process which spawed it, or it takes a stock template and
+!	appends a unique number to it.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$$GET_APP_LOCK(application-name)
+!
+! FORMAL ARGUMENT(S):
+!
+!	INPUT
+!	
+!	    The application name (optional)
+!	    
+!	OUTPUT
+!
+!	    The application name
+!
+! IMPLICIT INPUTS:
+!
+!	The parent process app-lock value block (if any)
+!
+! IMPLICIT OUTPUTS:
+!
+!	The process app-lock value block
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	Any error returned from the system services used.
+!
+!	Any error returned from the RTL routines used.
+!
+! SIDE EFFECTS:
+!
+!	The app-lock is created for this process.
+!
+!--
+
+
+    BEGIN   ! ppl$$get_app_lock
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	iosb	    :	vector [ 4, word ],
+	par_lksb    :	$bblock[app_s_bln] field(app_fields, lksb_fields),
+	itmlst	    :	$itmlst_decl (items=2),
+	buffer	    :	$bblock[ 32 ],
+	lock_name   :	$bblock[ dsc$c_s_bln ],
+	lock_fao    :	$bblock[ dsc$c_s_bln ],
+	null_name   :	$bblock[ dsc$c_s_bln ],
+	owner_pid   :	volatile,
+	my_pid	    :	volatile,
+	application_top_pid,
+	status;
+
+
+    MACRO
+	form_lock_name_ (x) =
+	    begin
+	    lock_name[ dsc_l_length ]  = %allocation( buffer );
+	    status = $fao( lock_fao, lock_name[ dsc$w_length ], lock_name, (x));
+	    if not .status then return .status;
+	    end %;
+
+
+    debug_msg_(0, '!_Entering ppl$$get_app_lock, name = "!AS"',
+		    appnam[base_]);
+
+    !+
+    ! Do some initial set-up
+    !-
+    lock_fao[ dsc_l_length ]  = %charcount( %string( ppl_x_appl_num, '_!XL' ) );
+    lock_fao[ dsc$a_pointer ] = uplit byte( %string( ppl_x_appl_num, '_!XL' ) );
+
+    lock_name[ dsc_l_length ]  = %ALLOCATION( buffer );
+    lock_name[ dsc$a_pointer ] = buffer;
+
+    null_name[ dsc_l_length ] = 0;
+    null_name[ dsc$a_pointer ] = null_name;  ! Point to some usable address
+    
+    ! Get my pid, and my parent's, if I have one
+    $itmlst_init(itmlst = itmlst,
+		    (itmcod = jpi$_owner, bufadr = owner_pid),
+		    (itmcod = jpi$_pid, bufadr = my_pid));
+
+    status = $getjpiw( efn= .ppl$$gl_context[ctx_l_ef], 
+			itmlst= itmlst, 
+			iosb= iosb );
+    if .status then status = .iosb [0];
+    if not .status then 
+	return .status;
+
+    !+
+    ! Figure out what the name is
+    !-
+
+    ! Check if we already know what the name is
+    if .appnam[dsc$w_length] eqlu 0 then
+	begin	! We have to go find out (or make up) the name
+
+	debug_msg_(2, '!_(ppl$$get_app_lock) anonymous application');
+
+	! First, initialize the descriptor to point at the app-lock value block
+	appnam[dsc_l_length] = ppl$k_max_name_len;
+	appnam[dsc$a_pointer] = app_lksb[app_a_name_buf];
+	
+	if .owner_pid eql 0
+	then	! We have no parent to ask, so make up a name
+	    begin
+	    debug_msg_(2, '!_(ppl$$get_app_lock) no parent process');
+
+	    status = ppl$unique_name(null_name[base_], appnam[base_],
+					app_lksb[app_l_name_len]);
+
+	    ! Correct the descriptor
+	    appnam[dsc_l_length] = .app_lksb[app_l_name_len];
+	    app_lksb[app_v_system] = ((.flags and ppl$m_system) neq 0);
+
+	    end
+	else
+	    begin
+
+	    !+
+	    ! I am at least a sub process:  "feel" around for my owner process's
+	    !   app-lock.
+	    !-
+	    debug_msg_(2, '!_(ppl$$get_app_lock) found parent process');
+
+	    form_lock_name_( .owner_pid );
+
+	    status = $enqw( efn= .ppl$$gl_context[ctx_l_ef],
+			    lkmode= lck$k_exmode,
+			    lksb= par_lksb[base_],
+			    resnam= lock_name,
+			    flags= lck$m_noqueue or .ppl$$gl_system);
+	    if .status then status = .par_lksb[ lksb_w_status ];
+
+	    if .status
+	    then
+		begin	! He didn't have a lock, so he's not in an application.
+			! So, make up a name.
+
+		debug_msg_(2, '!_(ppl$$get_app_lock) no parent app-lock');
+
+		! DEQ the lock since it wasn't wanted anyway.
+		$DEQ( LKID= .par_lksb[ lksb_l_lockid ] );
+		
+		! Create a "unique" name
+		status = ppl$unique_name(null_name[base_], appnam[base_],
+					app_lksb[app_l_name_len]);
+
+		! Correct the descriptor
+		appnam[dsc_l_length] = .app_lksb[app_l_name_len];
+		app_lksb[app_v_system] = ((.flags and ppl$m_system) neq 0);
+
+		end
+	    else
+		begin	! He had a lock, get the name from it
+
+		debug_msg_(2, '!_(ppl$$get_app_lock) found parent app-lock');
+
+		status = $enqw( efn= .ppl$$gl_context[ctx_l_ef],
+				lkmode= lck$k_crmode,
+				lksb= par_lksb[base_],
+				resnam= lock_name,
+				flags= lck$m_valblk or .ppl$$gl_system);
+		if .status then status = .par_lksb [lksb_w_status];
+		if not .status then 
+		    return .status;
+
+		if .par_lksb[app_l_name_len] neq 0 then
+		    begin	! Copy the name and length from parent
+		    debug_msg_(2, '!_(ppl$$get_app_lock) Joining parent application');
+
+		    app_lksb[app_l_name_len] = .par_lksb[app_l_name_len];
+		    appnam[dsc_l_length] = .app_lksb[app_l_name_len];
+		    ch$move(.par_lksb[app_l_name_len], par_lksb[app_a_name_buf],
+				.appnam[dsc$a_pointer]);
+		    app_lksb[app_v_system] = .par_lksb[app_v_system];
+		    end
+		else
+		    begin	! No name (parent's application was deleted)
+		    debug_msg_(2, '!_(ppl$$get_app_lock) Parent application was deleted');
+
+		    ! Create a "unique" name
+		    status = ppl$unique_name(null_name[base_], appnam[base_],
+					app_lksb[app_l_name_len]);
+
+		    ! Correct the descriptor
+		    appnam[dsc_l_length] = .app_lksb[app_l_name_len];
+		    app_lksb[app_v_system] = ((.flags and ppl$m_system) neq 0);
+		    end;
+
+		! Release the lock, it's no longer needed
+		$DEQ( LKID= .par_lksb[ lksb_l_lockid ] );
+
+		end;
+	    end;
+	end
+    else
+	begin	! We have the name already, copy it into the value block
+	ch$copy(.appnam[dsc$w_length], .appnam[dsc$a_pointer],
+		0, ppl$k_max_name_len, app_lksb[app_a_name_buf]);
+		
+	app_lksb[app_l_name_len] = .appnam[dsc$w_length];
+	app_lksb[app_v_system] = ((.flags and ppl$m_system) neq 0);
+	end;
+	
+    !+
+    ! Now that we have the application name, get our app-lock
+    !-
+    form_lock_name_( .my_pid );
+
+    status = $enqw( efn= .ppl$$gl_context[ctx_l_ef], 
+		   lkmode= lck$k_exmode, 
+		   lksb= app_lksb[base_],
+		   resnam= lock_name,
+		   flags= lck$m_noqueue or .ppl$$gl_system);
+    if .status then status = .app_lksb [lksb_w_status];
+    if not .status then 
+	return .status;
+
+    !+
+    !	Now downgrade our app-lock to write the name into value block.
+    !	Leave it in CRMODE so that any joining subprocesses can "feel" it.
+    !-
+
+    status = $enq( efn	    =	.ppl$$gl_context[ctx_l_ef], 
+		   lkmode   =	lck$k_crmode, 
+		   lksb	    =	app_lksb[base_],
+		   flags    =	lck$m_noqueue or
+				lck$m_valblk or
+				lck$m_convert or
+				.ppl$$gl_system);
+
+    if .status then status = .app_lksb [lksb_w_status];
+    if not .status then 
+	return .status;
+
+    debug_msg_(0, '!_ppl$$get_app_lock complete, name = "!AD"',
+		    .app_lksb[app_l_name_len], app_lksb[app_a_name_buf]);
+
+    return ppl$_normal;
+    
+    end;    ! ppl$$get_app_lock
+
+
+END				! End of module
+ELUDOM

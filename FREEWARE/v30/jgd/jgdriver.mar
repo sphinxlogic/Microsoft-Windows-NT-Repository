@@ -1,0 +1,1427 @@
+	.TITLE	JGDRiver	;skeleton driver implementing ucb linkage
+	.IDENT	'V01b'
+; 
+; Author: Glenn C. Everhart
+;
+;evax = 1
+;alpha=1
+;bigpage=1
+;addressbits=32
+	.if	ndf,evax
+	.macro	driver_data
+	.PSECT	$$$105_PROLOGUE
+	.endm
+	.macro driver_code
+	.PSECT	$$$115_DRIVER
+	.endm
+	.endc
+; above for Alpha only.
+;
+; Function: Error-retry intercept driver for optical disks.
+;x$$$dt=0
+;
+;vms$$v6=0	;add forvms v6 def'n
+vms$v5=1
+; define v5$picky also for SMP operation
+v5$picky=1
+	.SBTTL	EXTERNAL AND LOCAL DEFINITIONS
+
+; 
+; EXTERNAL SYMBOLS
+; 
+	.library /SYS$SHARE:LIB/
+
+;	$ADPDEF				;DEFINE ADAPTER CONTROL BLOCK
+	$CRBDEF				;DEFINE CHANNEL REQUEST BLOCK
+	$DYNDEF ;define dynamic data types
+	$DCDEF				;DEFINE DEVICE CLASS
+	$DDBDEF				;DEFINE DEVICE DATA BLOCK
+	$DEVDEF				;DEFINE DEVICE CHARACTERISTICS
+	$DPTDEF				;DEFINE DRIVER PROLOGUE TABLE
+	$EMBDEF				;DEFINE ERROR MESSAGE BUFFER
+	$IDBDEF				;DEFINE INTERRUPT DATA BLOCK
+	$IODEF				;DEFINE I/O FUNCTION CODES
+	$DDTDEF				; DEFINE DISPATCH TBL...
+	$ptedef
+	$vadef
+	$IRPDEF				;DEFINE I/O REQUEST PACKET
+	$irpedef
+	$PRDEF				;DEFINE PROCESSOR REGISTERS
+	$SSDEF				;DEFINE SYSTEM STATUS CODES
+	$UCBDEF				;DEFINE UNIT CONTROL BLOCK
+	$psldef
+	$prdef
+	$acldef
+	$rsndef				;define resource numbers
+	$acedef
+	$VECDEF				;DEFINE INTERRUPT VECTOR BLOCK
+	$pcbdef
+	$statedef
+	$jibdef
+	$acbdef
+	$vcbdef
+	$arbdef
+	$wcbdef
+	$ccbdef
+	$fcbdef
+	$phddef
+        $RABDEF                         ; RAB structure defs
+        $RMSDEF                         ; RMS constants
+; defs for acl hacking
+	$fibdef
+	$atrdef
+p1=0	; first qio param
+p2=4
+p3=8
+p4=12
+p5=16
+p6=20	;6th qio param offsets
+
+	.IF	DF,VMS$V5	;VMS V5 + LATER ONLY
+	$SPLCODDEF
+	$cpudef
+	.ENDC
+; 
+; UCB OFFSETS WHICH FOLLOW THE STANDARD UCB FIELDS
+; 
+	$DEFINI	UCB			;START OF UCB DEFINITIONS
+
+;.=UCB$W_BCR+2				;BEGIN DEFINITIONS AT END OF UCB
+.=UCB$K_LCL_DISK_LENGTH	;v4 def end of ucb
+; USE THESE FIELDS TO HOLD OUR LOCAL DATA FOR VIRT DISK.
+; Add our stuff at the end to ensure we don't mess some fields up that some
+; areas of VMS may want.
+; Leave thisfield first so we can know all diskswill have it at the
+; same offset.
+$def	ucb$l_oldfdt	.blkl	1	;fdt tbl of prior fdt chain
+;
+; Add other fields here if desired.
+;
+$def	ucb$l_ctlflgs	.blkl	1		;flags to control modes
+$def	ucb$l_cbtctr	.blkl	1		;how many extents
+$def	ucb$l_cbtini	.blkl	1		;init for counter
+; preceding 2 fields allow specifying of contig-best-try extents
+; on every Nth extend, not every one. This should still help keep
+; file extensions from preferentially picking up chaff
+$def	ucb$JGcontfil	.blkb	80
+;
+$DEF	ucb$l_minxt	.blkl	1		;min. extent
+$def	ucb$l_maxxt	.blkl	1		;max extent
+$def	ucb$l_frac	.blkl	1		;fraction to extend by
+$def	ucb$l_slop	.blkl	1		;slop blocks to leave free
+; DDT intercept fields
+; following must be contiguous.
+$def    ucb$s_ppdbgn            ;add any more prepended stuff after this
+$def    ucb$l_uniqid    .blkl   1       ;driver-unique ID, gets filled in
+                                        ; by DPT address for easy following
+                                        ; by SDA
+$def    ucb$l_intcddt   .blkl   1       ; Our interceptor's DDT address if
+                                        ; we are intercepted
+$def    ucb$l_prevddt   .blkl   1       ; previous DDT address
+$def    ucb$l_icsign    .blkl   1       ; unique pattern that identifies
+                                        ; this as a DDT intercept block
+; NOTE: Jon Pinkley suggests that the DDT size should be encoded in part of this
+; unique ID so that incompatible future versions will be guarded against.
+$def    ucb$s_ppdend
+$def    ucb$a_vicddt    .blkb   ddt$k_length
+                                        ; space for victim's DDT
+			.blkl	4	;safety
+$def	ucb$l_backlk	.blkl	1	;backlink to victim ucb
+; Make the "unique magic number" depend on the DDT length, and on the
+; length of the prepended material. If anything new is added, be sure that
+; this magic number value changes.
+magic=^xF024F000 + ddt$k_length + <256*<ucb$s_ppdend-ucb$s_ppdbgn-16>>
+p.magic=^xF024F000 + ddt$k_length + <256*<ucb$s_ppdend-ucb$s_ppdbgn-16>>
+				;an ACE is there or not.
+$DEF	UCB$L_JG_HOST_DESCR	.BLKL	2	;host dvc desc.
+;
+; Set FDT table start mask for each unit by keeping it here.
+; We need just enough to get back to user's FDTs.
+$def	ucb$l_fdtlgl	.blkl	2	;legal fcn msks
+$def	ucb$l_fdtbuf	.blkl	2	;buffered fcn msks
+$def	ucb$l_fdtmfy	.blkl	3	;modify fcn
+$def	ucb$l_fdtbak	.blkl	3	;"go back" fcn
+$def	ucb$l_vict	.blkl	1	;victim ucb for checking
+; The following lets us steal start-io and add error retries
+$def	ucb$l_omedia	.blkl	1	;storage of orig. irp$l_media
+$def	ucb$l_ppid	.blkl	1	;store for irp$l_pid contents
+$def	ucb$l_retries	.blkl	1	;counter for i/o retries
+$def	ucb$l_hstartio	.blkl	1	;host driver start-io loc.
+$def	ucb$l_hstucb	.blkl	1	;host ucb (quick ref)
+$DEF	UCB$K_JG_LEN	.BLKW	1	;LENGTH OF UCB
+;UCB$K_JG_LEN=.				;LENGTH OF UCB
+
+	$DEFEND	UCB			;END OF UCB DEFINITONS
+ 
+	.SBTTL	STANDARD TABLES
+
+; 
+; DRIVER PROLOGUE TABLE
+; 
+; 	THE DPT DESCRIBES DRIVER PARAMETERS AND I/O DATABASE FIELDS
+; 	THAT ARE TO BE INITIALIZED DURING DRIVER LOADING AND RELOADING
+; 
+	driver_data
+JG_UNITS=100
+vd_units=jg_units
+VJG$DPT::
+.iif ndf,spt$m_xpamod,dpt$m_xpamod=0
+	.if	df,evax
+	DPTAB	-			;DPT CREATION MACRO
+		END=JG_END,-		;END OF DRIVER LABEL
+		ADAPTER=NULL,-		;ADAPTER TYPE = NONE (VIRTUAL)
+		FLAGS=DPT$M_SMPMOD!dpt$m_xpamod!DPT$M_NOUNLOAD, - ;SET TO USE SMP,xa
+		DEFUNITS=2,-		;UNITS 0 THRU 1 thru 31
+		step=1,-
+		UCBSIZE=UCB$K_JG_LEN,-	;LENGTH OF UCB
+		MAXUNITS=JG_UNITS,-	;FOR SANITY...CAN CHANGE
+		NAME=JGDRIVER		;DRIVER NAME
+	.iff
+	DPTAB	-			;DPT CREATION MACRO
+		END=JG_END,-		;END OF DRIVER LABEL
+		ADAPTER=NULL,-		;ADAPTER TYPE = NONE (VIRTUAL)
+		FLAGS=DPT$M_SMPMOD!dpt$m_xpamod!DPT$M_NOUNLOAD, - ;SET TO USE SMP,xa
+		DEFUNITS=2,-		;UNITS 0 THRU 1 thru 31
+		UCBSIZE=UCB$K_JG_LEN,-	;LENGTH OF UCB
+		MAXUNITS=JG_UNITS,-	;FOR SANITY...CAN CHANGE
+		NAME=JGDRIVER		;DRIVER NAME
+	.endc
+
+	DPT_STORE INIT			;START CONTROL BLOCK INIT VALUES
+	DPT_STORE DDB,DDB$L_ACPD,L,<^A\F11\>  ;DEFAULT ACP NAME
+	DPT_STORE DDB,DDB$L_ACPD+3,B,DDB$K_PACK	;ACP CLASS
+	.IF	NDF,VMS$V5
+	DPT_STORE UCB,UCB$B_FIPL,B,8	;FORK IPL (VMS V4.X)
+	.IFF	;DEFINE FOR VMS V5.X & LATER
+	DPT_STORE UCB,UCB$B_FLCK,B,SPL$C_IOLOCK8  ;FORK IPL (VMS V5.X + LATER)
+	.ENDC
+; These characteristics for an intercept driver shouldn't look just
+; like a real disk unless it is prepared to handle being mounted, etc.
+; Therefore comment a couple of them out.
+	DPT_STORE UCB,UCB$L_DEVCHAR,L,-	;DEVICE CHARACTERISTICS
+		<DEV$M_SHR-		; SHAREABLE
+		!DEV$M_AVL-		; AVAILABLE
+		!DEV$M_IDV-		; INPUT DEVICE
+		!DEV$M_ODV-		; OUTPUT DEVICE
+		!DEV$M_RND>		; RANDOM ACCESS
+	DPT_STORE UCB,UCB$L_DEVCHAR2,L,- ;DEVICE CHARACTERISTICS
+		<DEV$M_NNM>		; Prefix name with "node$" (like rp06)
+	DPT_STORE UCB,UCB$B_DEVCLASS,B,DC$_MISC  ;DEVICE CLASS
+	DPT_STORE UCB,UCB$W_DEVBUFSIZ,W,512  ;DEFAULT BUFFER SIZE
+; FOLLOWING DEFINES OUR DEVICE "PHYSICAL LAYOUT". It's faked here.
+	DPT_STORE UCB,UCB$B_TRACKS,B,1	; 1 TRK/CYL
+	DPT_STORE UCB,UCB$B_SECTORS,B,64  ;NUMBER OF SECTORS PER TRACK
+	DPT_STORE UCB,UCB$W_CYLINDERS,W,16  ;NUMBER OF CYLINDERS
+	DPT_STORE UCB,UCB$B_DIPL,B,22	;DEVICE IPL
+	DPT_STORE UCB,UCB$B_ERTMAX,B,10	;MAX ERROR RETRY COUNT
+	DPT_STORE UCB,UCB$W_DEVSTS,W,-	;INHIBIT LOG TO PHYS CONVERSION IN FDT
+		<UCB$M_NOCNVRT>		;...
+;
+; don't mess with LBN; leave alone so it's easier to hack on...
+;
+	DPT_STORE REINIT		;START CONTROL BLOCK RE-INIT VALUES
+;	DPT_STORE CRB,CRB$L_INTD+VEC$L_ISR,D,VR_INT  ;INTERRUPT SERVICE ROUTINE ADDRESS
+	.if	ndf,evax
+	DPT_STORE CRB,CRB$L_INTD+VEC$L_INITIAL,-  ;CONTROLLER INIT ADDRESS
+		      D,JG_ctrl_INIT		  ;...
+	DPT_STORE CRB,CRB$L_INTD+VEC$L_UNITINIT,- ;UNIT INIT ADDRESS
+		      D,JG_unit_INIT		  ;...
+	.endc
+	DPT_STORE DDB,DDB$L_DDT,D,JG$DDT	  ;DDT ADDRESS
+        DPT_STORE UCB,UCB$L_UNIQID,D,DPT$TAB    ;store DPT address
+                                                ; (change "XX" to device
+                                                ; mnemonic correct values)
+        DPT_STORE UCB,UCB$L_ICSIGN,L,magic      ; Add unique pattern (that might
+                                                ; bring back some memories in
+                                                ; DOS-11 users)
+
+; HISTORICAL NOTE: under DOS-11, one would get F012 and F024 errors
+; on odd address and illegal instruction traps. If we don't have
+; this magic number HERE, on the other hand, we're likely to see
+; bugchecks in VMS due to uncontrolled bashing of UCB fields!
+	DPT_STORE END			;END OF INITIALIZATION TABLE
+
+; 
+; DRIVER DISPATCH TABLE
+; 
+; 	THE DDT LISTS ENTRY POINTS FOR DRIVER SUBROUTINES WHICH ARE
+; 	CALLED BY THE OPERATING SYSTEM.
+; 
+	.if	df,evax
+	DDTAB	-			;DDT CREATION MACRO
+		DEVNAM=JG,-		;NAME OF DEVICE
+		START=JG_STARTIO,-	;START I/O ROUTINE
+		FUNCTB=JG_FUNCTABLE,-	;FUNCTION DECISION TABLE
+		CTRLINIT=JG_CTRL_INIT,-
+		UNITINIT=JG_UNIT_INIT,-
+;		CANCEL=0,-		;CANCEL=NO-OP FOR FILES DEVICE
+;		REGDMP=0,-	;REGISTER DUMP ROUTINE
+;		DIAGBF=0,-  ;BYTES IN DIAG BUFFER
+		ERLGBF=0	;BYTES IN
+				;ERRLOG BUFFER
+	.iff
+	DDTAB	-			;DDT CREATION MACRO
+		DEVNAM=JG,-		;NAME OF DEVICE
+		START=JG_STARTIO,-	;START I/O ROUTINE
+		FUNCTB=JG_FUNCTABLE,-	;FUNCTION DECISION TABLE
+;		CANCEL=0,-		;CANCEL=NO-OP FOR FILES DEVICE
+;		REGDMP=0,-	;REGISTER DUMP ROUTINE
+;		DIAGBF=0,-  ;BYTES IN DIAG BUFFER
+		ERLGBF=0	;BYTES IN
+				;ERRLOG BUFFER
+	.endc
+; 
+; FUNCTION DECISION TABLE
+; 
+; 	THE FDT LISTS VALID FUNCTION CODES, SPECIFIES WHICH
+; 	CODES ARE BUFFERED, AND DESIGNATES SUBROUTINES TO
+; 	PERFORM PREPROCESSING FOR PARTICULAR FUNCTIONS.
+; 
+; code chaining data:
+chnflg:	.long	1	;chain or use our FDT chain flag...use ours if 0
+myonoff:
+fdtonoff: .long 0	;switch my fdt stuff off if non-0
+	.ascii	/flag/	;define your own unique flag here; just leave it 4 bytes long!
+	.long 0		;fdt tbl from before patch
+fdt_chn  = -12
+fdt_prev = -4
+fdt_idnt = -8
+JG_FUNCTABLE:
+newfdt:
+	FUNCTAB	,-			;LIST LEGAL FUNCTIONS
+		<NOP,-			; NO-OP
+		FORMAT,-		; We use format to point to file
+		UNLOAD,-		; UNLOAD
+		PACKACK,-		; PACK ACKNOWLEDGE
+		AVAILABLE,-		; AVAILABLE
+		SENSECHAR,-		; SENSE CHARACTERISTICS
+		SETCHAR,-		; SET CHARACTERISTICS
+		SENSEMODE,-		; SENSE MODE
+		SETMODE,-		; SET MODE
+		READLBLK,-		; READ LOGICAL BLOCK
+		WRITELBLK,-		; WRITE LOGICAL BLOCK
+		READPBLK,-		; READ PHYSICAL BLOCK 
+		WRITEPBLK,-		; WRITE PHYSICAL BLOCK
+		READVBLK,-		; READ VIRTUAL BLOCK
+		WRITEVBLK,-		; WRITE VIRTUAL BLOCK
+		ACCESS,-		; ACCESS FILE / FIND DIRECTORY ENTRY
+		ACPCONTROL,-		; ACP CONTROL FUNCTION
+		CREATE,-		; CREATE FILE AND/OR DIRECTORY ENTRY
+		DEACCESS,-		; DEACCESS FILE
+		DELETE,-		; DELETE FILE AND/OR DIRECTORY ENTRY
+		MODIFY,-		; MODIFY FILE ATTRIBUTES
+		MOUNT>			; MOUNT VOLUME
+; no-op phys I/O for a test here...
+	FUNCTAB	,-			;BUFFERED FUNCTIONS
+		<NOP,-
+		FORMAT,-		; FORMAT
+		UNLOAD,-		; UNLOAD
+		PACKACK,-		; PACK ACKNOWLEDGE
+		AVAILABLE,-		; AVAILABLE
+		SENSECHAR,-		; SENSE CHARACTERISTICS
+		SETCHAR,-		; SET CHARACTERISTICS
+		SENSEMODE,-		; SENSE MODE
+		SETMODE,-		; SET MODE
+		ACCESS,-		; ACCESS FILE / FIND DIRECTORY ENTRY
+		ACPCONTROL,-		; ACP CONTROL FUNCTION
+		CREATE,-		; CREATE FILE AND/OR DIRECTORY ENTRY
+		DEACCESS,-		; DEACCESS FILE
+		DELETE,-		; DELETE FILE AND/OR DIRECTORY ENTRY
+		MODIFY,-		; MODIFY FILE ATTRIBUTES
+		MOUNT>			; MOUNT VOLUME
+; io$_format + modifiers (e.g. io$_format+128) as function code
+; allows one to associate a JG unit and some other device; see
+; the JG_format code comments for description of buffer to be passed.
+	functab JG_format,-		;point to host disk
+		<FORMAT>
+;
+; First our very own filter routines
+;
+; Following FDT function should cover every function in the local
+; FDT entries between "myfdtbgn" and "myfdtend", in this case just
+; mount and modify. Its function is to switch these off or on at
+; need.
+	Functab fdtswitch,-
+		<mount,modify,create,deaccess,access>
+myfdtbgn=.
+; Leave a couple of these in place as an illustration. You would of course
+; need to insert your own if you're messing with FDT code, or remove these if
+; you don't want to. The FDT switch logic is a waste of time and space if
+; you do nothing with them...
+; They don't actually do anything here, but could be added to. Throw in one
+; to call some daemon at various points and it can act as a second ACP
+; when control is inserted at FDT time (ahead of the DEC ACP/XQP code!)
+mymfy:
+	FuncTab MFYFilt,-
+		<MODIFY>		;modify filter (e.g. extend)
+myfdtend=.
+; Note that if we want to allow numerous disk drivers to be patched
+; by this one there is not a unique path to the original fdt
+; routine. Therefore use a UCB cell for the patch, not a cell
+; ahead of the FDT. That way each unit gets a good return
+; path. That's why there's an "oldfdt" cell in the UCB here.
+;
+; Following contains all legal functions in mask...
+; That way it can transfer all control to a "previous" FDT chain.
+mybak:
+	FuncTab fdttoorig,-
+		<NOP,-			; NO-OP
+		FORMAT,-		; We use format to point to file
+		UNLOAD,-		; UNLOAD
+		PACKACK,-		; PACK ACKNOWLEDGE
+		AVAILABLE,-		; AVAILABLE
+		SENSECHAR,-		; SENSE CHARACTERISTICS
+		SETCHAR,-		; SET CHARACTERISTICS
+		SENSEMODE,-		; SENSE MODE
+		SETMODE,-		; SET MODE
+		READLBLK,-		; READ LOGICAL BLOCK
+		WRITELBLK,-		; WRITE LOGICAL BLOCK
+		READPBLK,-		; READ PHYSICAL BLOCK 
+		WRITEPBLK,-		; WRITE PHYSICAL BLOCK
+		READVBLK,-		; READ VIRTUAL BLOCK
+		WRITEVBLK,-		; WRITE VIRTUAL BLOCK
+		ACCESS,-		; ACCESS FILE / FIND DIRECTORY ENTRY
+		ACPCONTROL,-		; ACP CONTROL FUNCTION
+		CREATE,-		; CREATE FILE AND/OR DIRECTORY ENTRY
+		DEACCESS,-		; DEACCESS FILE
+		DELETE,-		; DELETE FILE AND/OR DIRECTORY ENTRY
+                CRESHAD,-                       ; Create a shadow set virtual u$
+                DIAGNOSE,-                      ; Special pass-through function
+                REMSHAD,-                       ; Remove a shadow set member
+		DSE,-			;data security erase
+                SETPRFPATH,-            ;  Set preferred path
+                READRCT,-              ;  Read RCT block
+                ADDSHAD,-              ;  Add a shadow set member
+                SHADMV,-                ;  Invoke shadow set mount verification
+                 SEEK,-                 ;SEEK CYLINDER
+                 RECAL,-                ;RECALIBRATE
+                 DRVCLR,-               ;DRIVE CLEAR
+                 RELEASE,-              ;RELEASE PORT
+                 OFFSET,-               ;OFFSET HEADS
+                 RETCENTER,-            ;RETURN HEADS TO CENTERLINE
+                 SEARCH,-               ;SEARCH FOR SECTOR
+                 READPRESET,-           ;READ IN PRESET
+                 WRITEHEAD,-            ;WRITE HEADER AND DATA
+                 READHEAD,-             ;READ HEADER AND DATA
+                 WRITECHECKH,-          ;WRITE CHECK HEADER AND DATA
+                 STARTSPNDL,-           ;START SPINDLE
+                WRITETRACKD,-           ;WRITE TRACK DESCRIPTOR
+                READTRACKD,-            ;READ TRACK DESCRIPTOR
+                COPYSHAD,-             ;  Do shadow set copies
+		MODIFY,-		; MODIFY FILE ATTRIBUTES
+		MOUNT>			; MOUNT VOLUME
+; Now the "standard" disk FDT routines needed to let ODS-2 work (or ods-1 !)
+; (Where we are doing read - or possibly write- virtual by hand ourselves
+;  we may never get to these BTW...)
+	FUNCTAB	+ACP$READBLK,-		;READ FUNCTIONS
+		<READLBLK,-		; READ LOGICAL BLOCK
+		READPBLK,-
+		READVBLK-		; READ VIRTUAL BLOCK
+		>
+	FUNCTAB	+ACP$WRITEBLK,-		;WRITE FUNCTIONS
+		<WRITELBLK,-		; WRITE LOGICAL BLOCK
+		WRITEPBLK,-
+		WRITEVBLK-		; WRITE VIRTUAL BLOCK
+		>
+	FUNCTAB	+ACP$ACCESS,-		;ACCESS FUNCTIONS
+		<ACCESS,-		; ACCEESS FILE / FIND DIRECTORY ENTRY
+		CREATE-			; CREATE FILE AND/OR DIRECTORY ENTRY
+		>
+	FUNCTAB	+ACP$DEACCESS,-		;DEACCESS FUNCTION
+		<DEACCESS-		; DEACCESS FILE
+		>
+	FUNCTAB	+ACP$MODIFY,-		;MODIFY FUNCTIONS
+		<ACPCONTROL,-		; ACP CONTROL FUNCTION
+		DELETE,-		; DELETE FILE AND/OR DIRECTORY ENTRY
+		MODIFY-			; MODIFY FILE ATTRIBUTES
+		>
+	FUNCTAB	+ACP$MOUNT,-		;MOUNT FUNCTION
+		<MOUNT>			; MOUNT VOLUME
+        FUNCTAB +EXE$LCLDSKVALID,-      ;LOCAL DISK VALID FUNCTIONS
+                <UNLOAD,-               ;UNLOAD VOLUME
+                 AVAILABLE,-            ;UNIT AVAILABLE
+                 PACKACK>               ;PACK ACKNOWLEDGE
+	FUNCTAB	+EXE$ZEROPARM,-		;ZERO PARAMETER FUNCTIONS
+		<UNLOAD,-		; UNLOAD
+		PACKACK,-		; PACK ACKNOWLEDGE
+		AVAILABLE>		; AVAILABLE
+	FUNCTAB	+EXE$ONEPARM,-		;ONE PARAMETER FUNCTION
+		<FORMAT-		; FORMAT
+		>
+	FUNCTAB	+EXE$SENSEMODE,-	;SENSE FUNCTIONS
+		<SENSECHAR,-		; SENSE CHARACTERISTICS
+		SENSEMODE-		; SENSE MODE
+		>
+	FUNCTAB	+EXE$SETCHAR,-		;SET FUNCTIONS
+		<SETCHAR,-		; SET CHARACTERISTICS
+		SETMODE-		; SET MODE
+		>
+	.long	-1,-1		; catch-all mask
+fcnca:	.long	0		;fill in in unit init
+
+	
+VD_UCBTBL::
+	.BLKL	VD_UNITS
+	.LONG 0,0	;SAFETY
+	.long	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0	;more safety
+; offset address table
+v_unm=0
+; Note: code elsewhere assumes that the xxvc macro generates 8 bytes.
+; If .address generates more than 4, it breaks as coded here!!!
+	.macro xxvc lblct
+	.address	vd_fxs'lblct
+	.globl	vd_fxs'lblct
+	.long	0
+	.endm
+VD_VOADT::
+	.rept	<vd_units+4>
+	xxvc	\v_unm
+v_unm = <v_unm+1>
+	.endr
+
+	driver_code
+	.if	df,evax
+fcae:	.jsb_entry
+	.iff
+fcae:
+	.endc
+	movzwl	#SS$_BADPARAM,r0	;illegal parameter
+	clrl	r1
+	jmp	g^exe$abortio
+; fdtswitch -
+;   Based on state of "myonoff" variable either enable or disable
+; my FDT processing, allowing the FDT chain to remain always intact.
+; This needs to be the first of a chain of FDT entries added to the
+; FDT processing of a driver.
+
+	.if	df,evax
+fdtswitch: .jsb_entry
+	.iff
+fdtswitch:
+	.endc
+	tstl	fdtonoff		;global on/off
+	bneq	1$
+	rsb				;go to next FDT if null
+1$:	addl2	#<myfdtend-myfdtbgn>,r8	;pass our fdt codes
+	rsb				;return to std
+; fdttoorig -
+;  This entry continues FDT processing at the point after the new
+; entries by returning to the original FDT chain at the point where
+; that chain begins. (It is presumed that FDT entries will always be
+; added ahead of existing ones due to the nonreturning nature of
+; FDT processing.) This is done instead of simply duplicating the
+; DEC FDT entries because in this way multiple FDT patches can
+; coexist, as would be impossible if this trick were not used. As
+; can be seen, its overhead is minimal.
+;  The old FDT location is kept in the UCB for our device because
+; that allows us to get back to different FDTs when several drivers'
+; FDT chains are pointed here first.
+	.if	df,evax
+fdttoorig: .jsb_entry,output=<r8>
+	.iff
+fdttoorig:
+	.endc
+; As a performance feature, use a switch to let us just use the
+; FDT chain here rather than continuing an old one. This needs to
+; be settable externally since there is no need to return down a
+; chain unless something else is IN the chain.
+; Control this with chnflg
+;	tstl	chnflg
+;	beql	2$			;just continue if chnflg is 0
+	pushl	r0
+; (this routine gets called a fair bit and if GETJGUCB can be
+;  called less, things speed up.)
+	jsb	getJGucb		;get UCB for JG unit from stolen
+					;one
+	tstl	r0			;r0 is return UCB
+	bgeq	1$			;if not negative, not a UCB
+	tstl	ucb$l_oldfdt(r0)	;a prior fdt exist?
+	beql	1$
+        movl    ucb$l_oldfdt(r0),r8      ;point to original FDT point
+        addl2   #<16-12>,r8      ;pass the 2 entry masks
+1$:                                 ;back up since sysqioreq adds 12
+	popl	r0
+2$:        rsb                      ;off to the previous FDT routines.
+;
+; GETJGUCB - Find JG: UCB address, given r5 points to UCB of the patched
+; device. Return the UCB in R0, which should return 0 if we can't find
+; it.
+;   This routine is called a lot and therefore is made as quick as
+; it well can be, especially for the usual case.
+	.if	df,evax
+getJGucb: .jsb_entry
+	.iff
+getJGucb:
+	.endc
+;	clrl	r0	;no UCB initially found
+	pushl	r10
+	pushl	r11	;faster than pushr supposedly
+;	pushr	#^m<r10,r11>
+; Assumes that R5 is the UCB address of the device that has had some
+; code intercepted and that we are in some bit of code that knows
+; it is in an intercept driver. Also assumes R11 may be used as
+; scratch registers (as is true in FDT routines). Control returns at
+; label "err" if the DDT appears to have been clobbered by
+; something not following this standard, if conditional "chk.err"
+; is defined.
+;       Entry: R5 - victim device UCB address
+;       Exit: R11 - intercept driver UCB address
+chk.err=0
+        movl    ucb$l_ddt(r5),r10       ;get the DDT we currently have
+; note we know our virtual driver's DPT address!!!
+        movab   VJG$dpt,r11              ;magic pattern is DPT addr.
+; lock this section with forklock so we can safely remove
+; entries at fork also. Use victim device forklock.
+; (don't preserve r0 since we clobber it anyway.)
+        forklock lock=ucb$b_flck(r5),savipl=-(sp),preserve=NO
+2$:     cmpl    <ucb$l_uniqid-ucb$a_vicddt>(r10),R11
+                                        ;this our own driver?
+;        beql    1$                      ;if eql yes, end search
+;
+; The somewhat odd layout here removes extra branches in the
+; most common case, i.e., finding our driver the very first time
+; through. The "bneq" branch next time is usually NOT taken.
+;
+	bneq	5$			;check next in chain if not us
+; At this point R10 contains the DDT address within the intercept
+; driver's UCB. Return the address of the intercept driver's UCB next.
+        movab   <0-ucb$a_vicddt>(r10),r11       ;point R11 at the intercept UCB
+;	brb	4$	; note in this layout we can comment this out.
+4$:
+        forkunlock lock=ucb$b_flck(r5),newipl=(sp)+,preserve=NO
+; NOW clobber r0 and put things back.
+	movl	r11,r0
+;	popr	#^m<r10,r11>
+	popl	r11
+	popl	r10	;supposedly faster than popr
+	rsb
+; Make very sure this DDT is inside a UCB bashed according to our
+; specs. The "p.magic" number reflects some version info too.
+; If this is not so, not much sense searching more.
+5$:     cmpl    <ucb$l_icsign-ucb$a_vicddt>(r10),#p.magic
+        bneq    3$                     ;exit if this is nonstd bash
+; follow DDT block chain to next saved DDT.
+        movl    <ucb$l_prevddt-ucb$a_vicddt>(r10),r10
+                                        ;point R10 at the next DDT in the
+					;chain
+        bgeq    3$                     ; (error check if not negative)
+        brb     2$                      ;then check again
+;1$:
+3$:
+	clrl	r11	;return 0 if nothing found
+	brb	4$
+;
+; Few macros for long distance branches...
+;
+	.macro	beqlw	lbl,?lbl2
+	bneq	lbl2
+	brw	lbl
+lbl2:
+	.endm
+	.macro	bneqw	lbl,?lbl2
+	beql	lbl2
+	brw	lbl
+lbl2:
+	.endm
+	.macro	bleqw	lbl,?lbl2
+	bgtr	lbl2
+	brw	lbl
+lbl2:
+	.endm
+	.macro	bgeqw	lbl,?lbl2
+	blss	lbl2
+	brw	lbl
+lbl2:
+	.endm
+; allocate does not zero its result area.
+; This macro makes it easy to zero an allocated area before using it.
+; Leaves no side effects...just zeroes the area for "size" bytes
+; starting at "addr".
+	.macro	zapz	addr,size
+	pushr	#^m<r0,r1,r2,r3,r4,r5>	;save regs from movc5
+	movc5	#0,addr,#0,size,addr
+	popr	#^m<r0,r1,r2,r3,r4,r5>	;save regs from movc5
+	.endm
+;
+	.SBTTL Our FDT Filter Routines
+	.if	df,evax
+mfyfilt: .jsb_entry	;filter on MODIFY requests (e.g. extend)
+	.iff
+mfyfilt:	;filter on MODIFY requests (e.g. extend)
+	.endc
+	rsb
+;++
+;
+; JG_format - bash host disk tables to point at ours.
+;
+; With no function modifiers, this routine takes as arguments the name
+; of the host disk (the real disk where the virtual disk will exist),
+; the size of the virtual disk, and the LBN where the virtual disk
+; will start. After these are set up, the device is put online and is
+; software enabled.
+;
+; This routine does virtually no checking, so the parameters must be
+; correct.
+;
+; Inputs:
+;	p1 - pointer to buffer. The buffer has the following format:
+;	     longword 0 - (was hlbn) - flag for function. 1 to bash
+;			  the targetted disk, 2 to unbash it, else
+;			  illegal.
+;	     longword 1 - virtual disk length, the number of blocks in
+;			  the virtual disk. If negative disables
+;			  FDT chaining; otherwise ignored.
+;	     longword 2 through the end of the buffer, the name of the
+;			  virtual disk. This buffer must be blank
+;			  padded if padding is necessary
+;
+;
+;	p2 - size of the above buffer
+;--
+	.if	df,evax
+JG_format: .jsb_entry
+	.iff
+JG_format:
+	.endc
+	bicw3	#io$m_fcode,irp$w_func(r3),r0	;mask off function code
+	bneq	20$			;branch if modifiers, special
+;thus, normal io$_format will do nothing.
+	rsb				;regular processing
+100$:
+	popr	#^m<r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+10$:
+	movzwl	#SS$_BADPARAM,r0	;illegal parameter
+	clrl	r1
+	jmp	g^exe$abortio
+20$:
+	movl	p1(ap),r0		;buffer address
+	movl	p2(ap),r1		;length of buffer
+	jsb	g^exe$writechk		;read access? doesn't return on error
+;	clrl	irp$l_bcnt(r3)		;paranoia, don't need to do this...
+	pushr	#^m<r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	movl	p1(ap),r0		;get buffer address
+	movl	(r0)+,r7		;get option code
+	bleq	100$			;0 or negative illegal
+	cmpl	r7,#2			;3 and up illegal too
+	bgtr	100$
+	incl	chnflg
+	movl	(r0)+,r6		;size of virtual disk (ignored)
+	bleq	70$
+	clrl	chnflg			;if 0 or neg. size don't chain...
+70$:
+	movab	(r0),-			;name of "real" disk
+		ucb$l_JG_host_descr+4(r5)
+	subl3	#8,p2(ap),-		;set length of name in descriptor
+		ucb$l_JG_host_descr(r5)
+	bleq	100$			;bad length
+	movab	ucb$l_JG_host_descr(r5),r1	;descriptor for...
+	jsb	g^ioc$searchdev		;search for host device
+	blbs	r0,30$			;branch on success
+; fail the associate...
+	popr	#^m<r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	movzwl	#ss$_nosuchdev+2,r0	;make an error, usually a warning
+	clrl	r1
+	jmp	g^exe$abortio		;exit with error
+30$:	;found the device
+; r1 is target ucb address...
+; move it to r11 to be less volatile
+	movl	r1,r11
+	cmpl	r7,#1		;bashing the target UCB?
+	bneq	31$		;if neq it's unmung
+	jsb	mung		;go mung target...
+	brb	32$
+31$:
+; Be sure we unmung the correct disk or we can really screw up a system.
+	cmpl	r11,ucb$l_vict(r5)	;undoing right disk?
+	bneq	32$			;if not skip out, do nothing.
+	jsb	umung		;unmung target
+32$:
+;	bisw	#ucb$m_valid,ucb$w_sts(r5)	;set volume valid
+;	bisw	#ucb$m_online,ucb$w_sts(r5)	;set unit online
+;	movl	ucb$l_irp(r5),r3		;restore r3, neatness counts
+	popr	#^m<r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	movzwl	#ss$_normal,r0			;success
+	jmp	g^exe$finishioc			;wrap things up.
+	.if	df,evax
+mung: .jsb_entry
+	.iff
+mung:
+	.endc
+; steal DDT from host. Assumes that the intercept UCB address
+; is in R5 (that is, the UCB in which we will place the DDT copy),
+; and that the UCB of the device whose DDT we are stealing is
+; pointed to by R11. All registers are preserved explicitly so that
+; surrounding code cannot be clobbered. R0 is returned as a status
+; code so that if it returns with low bit clear, it means something
+; went wrong so the bash did NOT occur. This generally means some other
+; code that does not follow this standard has grabbed the DDT already.
+; The following example assumes the code lives in a driver so the
+; unique ID field and magic number are set already.
+	movab	fcae,fcnca	;ensure final FDT entry is filled in
+        pushr   #^m<r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+; Acquire victim's fork lock to synchronize all this.
+        movl    #ss$_normal,r0          ;assume success
+        forklock ucb$b_flck(r11),-
+	savipl=-(sp),preserve=YES
+; find the current DDT address from the UCB (leaving the copy in
+; the DDB alone)
+        movl    ucb$l_ddt(r11),r10      ;point at victim's DDB
+; see if this DDT is the same as the original
+        movl    ucb$l_ddb(r11),r9       ;the ddb$l_ddt is the original
+        cmpl    ddb$l_ddt(r9),r10       ;bashing driver the first time?
+        beql    1$                      ;if eql yes
+; driver was bashed already. Check that the current basher followed the
+; standard. Then continue if it looks OK.
+        cmpl    <ucb$l_icsign-ucb$a_vicddt>(r10),#p.magic
+                                        ;does the magic pattern exist?
+; if magic pattern is missing things are badly messed.
+        beql    2$                      ;if eql looks like all's well
+        movl    #2,r0                   ;say things failed
+        brw     100$                    ;(brb might work too)
+2$:
+; set our new ddt address in the previous interceptor's slot
+        movab   ucb$a_vicddt(r5),<ucb$l_intcddt-ucb$a_vicddt>(r10)
+                                        ;store next-DDT address relative
+                                        ;to the original victim one
+1$:
+        movl    r10,ucb$l_prevddt(r5)   ;set previous DDT address up
+        clrl    ucb$l_intcddt(r5)       ;clear intercepting DDT initially
+3$:
+        pushl   r5
+; copy a little extra for good luck...
+        movc3   #<ddt$k_length+12>,(r10),ucb$a_vicddt(r5)    ;copy the DDT
+        popl    r5                      ;get UCB pointer back (movc3 bashes it)
+;
+; Here make whatever mods to the DDT you need to.
+;
+; FOR EXAMPLE make the following mods to the FDT pointer
+; (These assume the standard proposed for FDT pointers)
+        movab   ucb$a_vicddt(r5),r8     ;get a base register for the DDT
+        movl    r5,JG_functable+fdt_prev    ;save old FDT ucb address
+	movl	ddt$l_fdt(r10),ucb$l_oldfdt(r5) ;save orig. fdt addr
+        movl    ucb$l_uniqid(r5),JG_functable+fdt_idnt ;save unique ID also
+; copy legal and buffered entry masks of original driver.
+; HOWEVER, set mask for format entry to be nonbuffered here since
+; we deal with it.
+	pushr	#^m<r6,r7,r8,r9>
+	movab	ucb$l_fdtlgl(r5),r9	;our function table dummy in UCB
+	movl	ddt$l_fdt(r10),r7	;victim's FDT table
+; We want all functions legal in the victim's FDT table to be legal
+; here.
+	movl	(r7),(r9)+		;1st half legal mask
+	movl	4(r7),(r9)+		;2nd half legal mask
+	movl	8(r7),(r9)+		;1st half buffered mask
+	movl	12(r7),(r9)+		;2nd half buffered mask
+; Now copy in our modify & back-to-original FDT cells.
+; Thus every unit has its own legal & buffered masks, then goes to
+; original FDT, and we don't mess with OUR FDTs.
+; (Also original FDT tables aren't messed either.)
+	movl	mymfy,(r9)+		; modify template 1
+	movl	mymfy+4,(r9)+		; & 2
+	movl	mymfy+8,(r9)+		;and address
+; Set -1 to set ALL possible function bits so we always go back.
+	movl	#-1,(r9)+		;then catch-all "go back"
+	movl	#-1,(r9)+		; to original fdt
+	movl	mybak+8,(r9)		; and address of same.
+	popr	#^m<r6,r7,r8,r9>
+        movab	ucb$l_fdtlgl(r5),ddt$l_fdt(r8) ;point at our FDT table
+	movl	ddt$l_start(r8),ucb$l_hstartio(r5)	;save host start-io
+	movl	r11,ucb$l_hstucb(r5)	;save backpointer too
+	movab	stealstart,ddt$l_start(r8)	;point at our startio
+        clrl    myonoff                 ;turn my FDTs on
+;
+; Finally clobber the victim device's DDT pointer to point to our new
+; one.
+        movab   ucb$a_vicddt(r5),ucb$l_ddt(r11)
+; Now the DDT used for the victim device unit is that of our UCB
+; and will invoke whatever special processing we need. This processing in
+; the example here causes the intercept driver's FDT routines to be
+; used ahead of whatever was in the original driver's FDTs. Because
+; the DDT is modified using the UCB pointer only, target device units
+; that have not been patched in this way continue to use their old
+; DDTs and FDTs unaltered.
+;
+; Processing complete; release victim's fork lock
+100$:
+        forkunlock lock=ucb$b_flck(r11),newipl=(sp)+,-
+         preserve=YES
+        popr    #^m<r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	rsb
+	.if	df,evax
+umung: .jsb_entry
+	.iff
+umung:
+	.endc
+;
+; Entry: R11 points at victim device UCB and current driver is the one
+; desiring to remove its entry from the DDT chain. Thus its xx$dpt: address
+; is the one being sought. ("Current driver" here means the intercept
+; driver.)
+;   It is assumed that the driver knows that the DDT chain was patched
+; so that its UCB contains an entry in the DDT chain
+        pushr   #^m<r0,r1,r2,r3,r4,r5,r10,r11>
+	movl	r11,r5			;hereafter use r5 as victim's UCB
+        movl    ucb$l_ddt(r5),r10       ;get the DDT we currently have
+        movl    ucb$l_ddb(r5),r1        ;get ddb of victim
+        movl    ddb$l_ddt(r1),r1        ;and real original DDT
+        movl    r10,r0                  ;save ucb$l_ddt addr for later
+        movab   DPT$TAB,r11             ;magic pattern is DPT addr.
+; lock this section with forklock so we can safely remove
+; entries at fork also. Use victim device forklock.
+        forklock lock=ucb$b_flck(r5),savipl=-(sp),preserve=YES
+2$:     cmpl    <ucb$l_uniqid-ucb$a_vicddt>(r10),R11
+                                        ;this our own driver?
+        beql    1$                      ;if eql yes, end search
+        .if     df,chk.err
+        cmpl    <ucb$l_icsign-ucb$a_vicddt>(r10),#p.magic
+        bneqw    4$                     ;exit if this is nonstd bash
+        .endc   ;chk.err
+; follow DDT block chain to next saved DDT.
+        movl    <ucb$l_prevddt-ucb$a_vicddt>(r10),r10
+                                        ;point R10 at the next DDT in the
+                                        ;chain
+        .if     df,chk.err
+        bgeqw   4$                     ; (error check if not negative)
+        .endc   ;chk.err
+        brb     2$                      ;then check again
+1$:
+; At this point R10 contains the DDT address within the intercept
+; driver's UCB. Return the address of the intercept driver's UCB next.
+        tstl    <ucb$l_intcddt-ucb$a_vicddt>(r10)       ;were we intercepted?
+        bgeq    3$                      ;if geq no, skip back-fixup
+; we were intercepted. Fix up next guy in line.
+        movl    <ucb$l_intcddt-ucb$a_vicddt>(r10),r11  ;point at interceptor
+        movl    <ucb$l_prevddt-ucb$a_vicddt>(r10),<ucb$l_prevddt-ucb$a_vicddt>(r11)
+3$:
+; if we intercepted someone, fix up our intercepted victim to skip by
+; us also.
+        movl    <ucb$l_prevddt-ucb$a_vicddt>(r10),r2    ;did we intercept
+                                        ;original driver?
+        cmpl    r2,r1                   ;test if this is original
+        beql    5$                      ;if eql yes, no bash
+; replace previous intercept address by ours (which might be zero)
+        movl    <ucb$l_intcddt-ucb$a_vicddt>(r10),<ucb$l_intcddt-ucb$a_vicddt>(r2)
+5$:
+; Here remove FDT entries from the list if they were modified.
+; This needs a scan of the FDT chain starting at the victim's
+; ddt$l_fdt pointer and skipping around any entry that has address
+; JG_functable:
+;  The FDT chain is singly linked. The code here assumes everybody
+; plays by the same rules!
+; NOTE: Omit this code if we didn't insert our FDT code in the chain!!!
+        movl    ddt$l_fdt(r0),r1        ;start of FDT chain
+        movab   JG_functable,r2         ;address of our FDT table
+        clrl    r3
+	movab	<0-ucb$a_vicddt>(r10),r4 ;initially point at our ucb
+; Also set the JG device offline when we unbash it. This is a simple
+; flag that ctl prog. can use to tell if it's been used already.
+	.if	df,evax
+	bicl	#<ucb$m_valid!ucb$m_online>,ucb$l_sts(r4)
+	.iff
+	bicw	#<ucb$m_valid!ucb$m_online>,ucb$w_sts(r4)
+	.endc
+6$:     cmpl    r1,r2                   ;current fdt point at us?
+        beql    7$                      ;if eql yes, fix up chain
+        movl    r1,r3                   ;else store last pointer
+        movl    fdt_prev(r1),r4         ;and point at next
+	bgeq	8$
+	movl	ucb$l_oldfdt(r4),r1	;where last FDT pointer is in the ucb
+;;;BUT not all UCBs will have the fdt offset at the same place!!!
+;;;HOWEVER we will leave this in, putting the oldfdt field first after
+;;;the regular UCB things.
+        bgeq    8$                      ;if not sys addr, no messin'
+        brb     6$                      ;look till we find one.
+7$:
+;r3 is 0 or fdt pointing to our block next
+;r1 points at our fdt block
+        tstl    r3                      ;if r3=0 nobody points at us
+        bgeq    8$                      ;so nothing to do
+	movl	fdt_prev(r1),r4
+	bgeq	17$
+	movl	ucb$l_oldfdt(r4),-(sp)	;save old fdt loc
+	movl	fdt_prev(r3),r4
+	blss	18$
+	tstl	(sp)+
+	brb	17$
+18$:	movl	(sp)+,ucb$l_oldfdt(r4)
+17$:    movl    fdt_prev(r1),fdt_prev(r3)  ;else point our next-fdt pointer at
+                                        ;last fdt addr.
+8$:
+;
+; Finally if the victim UCB DDT entry points at ours, make it point at
+; our predecessor. If it points at a successor, we can leave it alone.
+        cmpl    r10,r0                  ;does victim ucb point at our DDT?
+        bneq    4$                      ;if not cannot replace it
+        movl    <ucb$l_prevddt-ucb$a_vicddt>(r10),ucb$l_ddt(r5)
+4$:
+        forkunlock lock=ucb$b_flck(r5),newipl=(sp)+,preserve=YES
+       popr    #^m<r0,r1,r2,r3,r4,r5,r10,r11>
+                                        ;copy our prior DDT ptr to next one
+	rsb
+;
+; stealstart - start-io entry
+; Must eventually call host's start-io.
+; entry: r3=IRP, r5=host UCB
+;
+toorgj:	brw	toorg
+awab:	brw	away
+	.if	df,evax
+stealstart: .jsb_entry
+	.iff
+stealstart:
+	.endc
+	pushl	r5
+	jsb	getjgucb	;find intercept UCB now
+	tstl	r0		;did we find it?
+	bgeq	awab		;no, scram, but probably hang.
+	cmpl	ucb$l_hstucb(r0),r5	;right host?
+	beql	70$		;if ok, leave
+	movl	r5,ucb$l_hstucb(r0)	;else put it in now
+70$:
+	movl	r0,r5		;point at intercept ucb now
+	bitl	#1048576,ucb$l_ctlflgs(r5)	;user want error reduction?
+	beql	toorgj		;if not skip out
+; besure this is read or write, else just start orig. one
+	EXTZV   #IRP$V_FCODE,-          ; Extract I/O function code
+                #IRP$S_FCODE,-          ;
+                IRP$W_FUNC(R3),R0
+        ASSUME  IRP$S_FCODE LE 7        ; Allow byte mode dispatch
+	cmpl	r0,#io$_writepblk	;too low?
+	blss	toorgj
+	cmpl	r0,#io$_readpblk
+	bgtr	toorgj
+; gotta arrange to get back after done the I/O and to reissue it if
+; errors happened and we're not out of count...
+	.iif ndf,maxtries,maxtries=128
+;We'll keep the info in the UCB for debugging, but when the host driver
+; that we're intercepting does a request completion, it will unbusy itself
+; and dequeue anything else that was in the device queue. As a result, we need
+; to track when an IRP has already been modified in this pass, and must
+; also just go directly to the original code where that should happen.
+; To accomplish this we need storage for:
+;  1. Original irp$l_pid
+;  2. Original irp$l_media
+;  3. Current retry count (and maybe use hi word as a flag that we have this
+;			IRP)
+;
+; Since I don't want to mess anything up in the regular IRP, just allocate
+; a buffer and use the keydesc slot to point at it. If user has a key,
+; we let the i/o by and he takes his chances with device errors. Advertise
+; that opticals don't support dec encryption.
+;
+; If user has something in the key field leave this IRP alone.
+	bbs	#irp$v_key,irp$w_sts(r3),toorgj
+; key field should be free. Grab a bit of pool & point at it if
+; nothing's there.
+vv.magic=0
+val.magic=^x76543210
+vv.retries=4
+vv.media=8
+vv.pid=12
+; Set the key bit and go grab an area of mem. to hold our info.
+	bbss	#irp$v_key,irp$w_sts(r3),16$
+16$:	clrl	irp$l_keydesc(r3)	; zero initially.
+	pushr	#^m<r0,r1,r2,r3,r4,r5>
+	movl	#32,r1			;get 8 longwords area
+	jsb	g^exe$alonpagvar	;get the space or fail
+	blbc	r0,55$		; br if no space & just give up.
+; got it.
+	movl	r2,irp$l_keydesc(r3)	;save area address
+vv.magic=0
+val.magic=^x76543210
+vv.retries=4
+vv.media=8
+vv.pid=12
+vv.bash=16
+	movl	#val.magic,vv.magic(r2)	;flag we got it
+	movl	i^#maxtries,vv.retries(r2)	;save retry count
+	movl	irp$l_media(r3),vv.media(r2)	;save original media address
+	movl	irp$l_pid(r3),vv.pid(r2)	;save original pid addr too.
+	popr	#^m<r0,r1,r2,r3,r4,r5>
+	brb	56$
+55$:
+	bbcc	#irp$v_key,irp$w_sts(r3),17$	;clr key bit if we have none
+17$:
+	popr	#^m<r0,r1,r2,r3,r4,r5>
+	brw	toorg			;can't find pool, just let irp by
+56$:
+	movl	I^#maxtries,ucb$l_retries(r5)	;set initial retry count up.
+	movl	irp$l_media(r3),ucb$l_omedia(r5) ;save lbn stuff
+	movl	irp$l_pid(r3),ucb$l_ppid(r5)	;save pid info too
+	movl	r3,ucb$l_irp(r5)	;for debug keep irp addr in intercept ucb too
+; now set up IRP, then call the previous start-io point at
+; ucb$l_hstartio(r5) to do the work with registers put back.
+; For Alpha, the stack manipulation here is messy to track in machine
+; code, so do it in a register.
+	movl	r11,-(sp)		; Free up ol' reliable R11 as scratch
+	movl	r10,-(sp)		; Free R10 also
+	movzwl	ucb$w_unit(r5),r11	; Need address cell
+; following assumes that addresses are 32 bits long so shift by 2 gets us
+; to an address offset.
+	ashl	#2,r11,r11		; to get ucb address back at i/o done
+	movab	vd_ucbtbl,r10		; Base of table of UCB addresses
+	addl2	r11,r10			; Make R10 point to cell for THIS UCB
+	movl	r5,(r10)		; Now save our UCB address there
+; (THIS ALLOWS US TO GET IT BACK...)
+; This trick allows us to leave the rest of the IRP alone.
+; Now the tricky bit.
+; We must fill the appropriate address into IRP$L_PID for a call at
+; I/O completion. We use a table of such routines, one per unit,
+; all of the same size so we can calculate the address of the
+; routines. However, since the routine addresses can be almost
+; anywhere when the compiler gets done with them, we will
+; use a table constructed BY the compiler of pointers to them all and
+; access via that instead of just forming the address directly. The table
+; entries will be left 2 longs in size each.
+; Table VD_VOADT is what we need. Note however that the .address operators
+; there probably need to change to some more general .linkage directive.
+	movzwl	ucb$w_unit(r5),r11	; get our unit number
+; Each linkage pair is 8 bytes long...
+	ashl	#3,r11,r11		; Make an offset to the linkage area
+	movab	vd_voadt,r10		; get the table base
+	addl2	r10,r11			; r11 now points at the link addr
+	movl	(r11),irp$l_pid(r3)	; Now point irp$l_pid at a proper
+	.if	ndf,evax
+; must add vjg$dpt address to this
+	movab	vjg$dpt,r10	;start of driver
+	addl2	r10,irp$l_pid(r3)	;now pid should get back ok
+	.endc
+	pushl	r0
+	movl	irp$l_keydesc(r3),r0
+	movl	irp$l_pid(r3),vv.bash(r0)	;save pid field we need
+	popl	r0
+					; pointer to the desired procedure
+;				; GET BACK CONTROL AT VD_FIXSPLIT (VIA JSB)
+;				; WHEN HOST'S I/O IS DONE.
+	movl	(sp)+,r10		; Restore R10
+	movl	(sp)+,r11		; get r11 back & clean stack now
+	tstl	irp$l_ioqfl(r3)		;i/o queue look sensible?
+	blss	19$		;if negative it might be
+	clrl	irp$l_ioqfl(r3)		;else preemptively zero it for requeues
+19$:	cmpl	irp$l_ioqfl(r3),#^xff000000	;too high?
+	blssu	20$		;if not real obvious leave it alone
+	clrl	irp$l_ioqfl(r3)
+20$:
+; Now restore registers and go to the original routine.
+; This is also where we come to try again.
+; Assumes host ucb address on stack, JG ucb address in R5, IRP address in R3
+steal2:
+toorg:	movl	ucb$l_hstartio(r5),r0	;address of original routine
+	bgeq	away		; if none, things are messed
+	.iif df,x$$$dt, jsb g^ini$brk
+	popl	r5		; get back original UCB
+	movl	r0,-(sp)	; save where to go
+	movl	#1,r0		; set ok status for now
+	jmp	@(sp)+		; go to original code
+;	jmp	(r0)			;go to the original code
+away:
+	popl	r5
+	rsb
+
+	.SBTTL	CONTROLLER INITIALIZATION ROUTINE
+; ++
+; 
+; JG_ctrl_INIT - CONTROLLER INITIALIZATION ROUTINE
+; 
+; FUNCTIONAL DESCRIPTION:
+; noop
+; INPUTS:
+; R4 - CSR ADDRESS
+; R5 - IDB ADDRESS
+; R6 - DDB ADDRESS
+; R8 - CRB ADDRESS
+; 
+; 	THE OPERATING SYSTEM CALLS THIS ROUTINE:
+; 		- AT SYSTEM STARTUP
+; 		- DURING DRIVER LOADING
+; 		- DURING RECOVERY FROM POWER FAILURE
+; 	THE DRIVER CALLS THIS ROUTINE TO INIT AFTER AN NXM ERROR.
+;--
+	.if	df,evax
+JG_ctrl_INIT: .jsb_entry		;JG CONTROLLER INITIALIZATION
+	.iff
+JG_ctrl_INIT:		;JG CONTROLLER INITIALIZATION
+	.endc
+;	CLRL	CRB$L_AUXSTRUC(R8)	; SAY NO AUX MEM
+	movl	#1,r0
+	RSB				;RETURN
+	.SBTTL	INTERNAL CONTROLLER RE-INITIALIZATION
+;
+; INPUTS:
+;	R4 => controller CSR (dummy)
+;	R5 => UCB
+;
+ctrl_REINIT:
+	RSB		; RETURN TO CALLER
+	.SBTTL	UNIT INITIALIZATION ROUTINE
+;++
+; 
+; JG_unit_INIT - UNIT INITIALIZATION ROUTINE
+; 
+; FUNCTIONAL DESCRIPTION:
+; 
+; 	THIS ROUTINE SETS THE JG: ONLINE.
+; 
+; 	THE OPERATING SYSTEM CALLS THIS ROUTINE:
+; 		- AT SYSTEM STARTUP
+; 		- DURING DRIVER LOADING
+; 		- DURING RECOVERY FROM POWER FAILURE
+; 
+; INPUTS:
+; 
+; 	R4	- CSR ADDRESS (CONTROLLER STATUS REGISTER)
+; 	R5	- UCB ADDRESS (UNIT CONTROL BLOCK)
+;	R8	- CRB ADDRESS
+; 
+; OUTPUTS:
+; 
+; 	THE UNIT IS SET ONLINE.
+; 	ALL GENERAL REGISTERS (R0-R15) ARE PRESERVED.
+; 
+;--
+	.if	df,evax
+JG_unit_INIT: .jsb_entry			;JG UNIT INITIALIZATION
+	.iff
+JG_unit_INIT:; .jsb_entry			;JG UNIT INITIALIZATION
+	.endc
+	movab	fcae,fcnca	; set up catch-all final FDT
+; Don't set unit online here. Priv'd task that assigns JG unit
+; to a file does this to ensure only assigned JGn: get used.
+;	BISW	#UCB$M_ONLINE,UCB$W_STS(R5)  ;SET UCB STATUS ONLINE
+;limit size of JG: data buffers
+JG_bufsiz=8192
+	movl	#JG_bufsiz,ucb$l_maxbcnt(r5)	;limit transfers to 8k
+	MOVB	#DC$_MISC,UCB$B_DEVCLASS(R5) ;SET MISC DEVICE CLASS
+
+; NOTE: we may want to set this as something other than an RX class
+; disk if MSCP is to use it. MSCP explicitly will NOT serve an
+; RX type device. For now leave it in, but others can alter.
+; (There's no GOOD reason to disable MSCP, but care!!!)
+	movl	#^Xb22d4001,ucb$l_media_id(r5)	; set media id as JG
+; (note the id might be wrong but is attempt to get it.) (used only for
+; MSCP serving.)
+	MOVB	#DT$_FD1,UCB$B_DEVTYPE(R5)  ;Make it foreign disk type 1
+; (dt$_rp06 works but may confuse analyze/disk)
+;;; NOTE: changed from fd1 type so MSCP will know it's a local disk and
+;;; attempt no weird jiggery-pokery with the JG: device.
+; MSCP may still refuse to do a foreign drive too; jiggery-pokery later
+; to test if there's occasion to do so.
+; Set up crc polynomial
+;	clrl	chnflg		;initially set to use our chain of FDTs
+	movl	#1,chnflg
+	movl	#1,r0
+	RSB				;RETURN 
+
+	.SBTTL	START I/O ROUTINE
+;++
+; 
+; JG_STARTIO - START I/O ROUTINE
+; 
+; FUNCTIONAL DESCRIPTION:
+; 
+; 	THIS FORK PROCESS IS ENTERED FROM THE EXECUTIVE AFTER AN I/O REQUEST
+; 	PACKET HAS BEEN DEQUEUED.
+; 
+; INPUTS:
+; 
+; 	R3		- IRP ADDRESS (I/O REQUEST PACKET)
+; 	R5		- UCB ADDRESS (UNIT CONTROL BLOCK)
+; 	IRP$L_MEDIA	- PARAMETER LONGWORD (LOGICAL BLOCK NUMBER)
+; 
+; OUTPUTS:
+; 
+; 	R0	- FIRST I/O STATUS LONGWORD: STATUS CODE & BYTES XFERED
+; 	R1	- SECOND I/O STATUS LONGWORD: 0 FOR DISKS
+; 
+; 	THE I/O FUNCTION IS EXECUTED.
+; 
+; 	ALL REGISTERS EXCEPT R0-R4 ARE PRESERVED.
+; 
+;--
+	.if	df,evax
+JG_STARTIO: .jsb_entry				;START I/O OPERATION
+	.iff
+JG_STARTIO:				;START I/O OPERATION
+	.endc
+; 
+; 	PREPROCESS UCB FIELDS
+; 
+;	ASSUME	RY_EXTENDED_STATUS_LENGTH  EQ  8
+;	CLRQ	UCB$Q_JG_EXTENDED_STATUS(R5)	; Zero READ ERROR REGISTER area.
+; 
+; 	BRANCH TO FUNCTION EXECUTION
+	bbs	#ucb$v_online,-	; if online set software valid
+		ucb$w_sts(r5),210$
+216$:	movzwl	#ss$_volinv,r0	; else set volume invalid
+	brw	resetxfr	; reset byte count & exit
+210$:
+; Unless we use this entry, we want to junk any calls here.
+	brb	216$		;just always say invalid volume.
+
+; Get here for other start-io entries if the virtual disk code is
+; commented out also, as it must be.
+FATALERR:				;UNRECOVERABLE ERROR
+	MOVZWL	#SS$_DRVERR,R0		;ASSUME DRIVE ERROR STATUS
+
+RESETXFR:	; dummy entry ... should never really get here
+	MOVL	UCB$L_IRP(R5),R3	;GET I/O PKT
+	MNEGW	IRP$W_BCNT(R3),UCB$W_BCR(R5) ; RESET BYTECOUNT
+;	BRW	FUNCXT
+FUNCXT:					;FUNCTION EXIT
+	CLRL	R1			;CLEAR 2ND LONGWORD OF IOSB
+	REQCOM				; COMPLETE REQUEST
+; 
+PWRFAIL:				;POWER FAILURE
+	BICW	#UCB$M_POWER,UCB$W_STS(R5)  ;CLEAR POWER FAILURE BIT
+	MOVL	UCB$L_IRP(R5),R3	;GET ADDRESS OF I/O PACKET
+	MOVQ	IRP$L_SVAPTE(R3),-	;RESTORE TRANSFER PARAMETERS
+		UCB$L_SVAPTE(R5)	;...
+	BRW	JG_STARTIO		;START REQUEST OVER
+JG_INT::
+JG_UNSOLNT::
+	POPR	#^M<R0,R1,R2,R3,R4,R5>
+	REI	;DUMMY RETURN FROM ANY INTERRUPT
+	;;
+V_UNIT=0
+V_UNM=1
+	.if	df,evax
+VD_FXS0:: .jsb_entry input=<r5>
+	.iff
+VD_FXS0::
+	.endc
+	MOVL	I^#V_UNIT,R4
+	BSBW	VD_FIXSPLIT	;GO HANDLE
+	RSB
+VD_FXPL==<.-VD_FXS0>	;LENGTH IN BYTES OF THIS LITTLE CODE SEGMENT
+V_UNIT=V_UNIT+4		;PASS TO NEXT UNIT
+	.MACRO	XVEC LBLC
+	.if	df,evax
+VD_FXS'LBLC: .jsb_entry input=<r5>
+	.iff
+VD_FXS'LBLC:
+	.endc
+	MOVL	I^#V_UNIT,R4
+	BSBW	VD_FIXSPLIT
+	RSB
+	.ENDM
+	.REPEAT	<VD_UNITS+4>	; some extra for safety
+	XVEC	\V_UNM
+V_UNIT=V_UNIT+4		;PASS TO NEXT UNIT
+V_UNM=V_UNM+1
+	.ENDR
+
+	.if	df,evax
+VD_FIXSPLIT: .jsb_entry
+	.iff
+VD_FIXSPLIT:
+	.endc
+; GET OLD PID..
+; IN OUR UCB$PPID LONGWORD...
+;some cleanup for host needed here. Note that r5 enters as IRP address.
+; Use initial R5 to help reset host's system...
+;	.iif df,x$$$dt, jsb g^ini$brk
+	PUSHL	R4		;r4 enters with JG unit number
+	movl	r5,r3		;put entering IRP addr in std place
+	MOVAB	VD_UCBTBL,R5
+	ADDL2	(SP)+,R5	;R5 NOW POINTS AT UCB ADDRESS
+	MOVL	(R5),R5		;NOW HAVE JG UCB ADDRESS IN R5
+; notice stack is now clean too.
+	movl	r5,r4		;we need the jg ucb at fork level
+;Now we either restart the i/o if an error occurred, or go ahead and
+; complete it. In either case we must fork. Also we must fork on
+; the HOST'S UCB, not the JG UCB.
+; Therefore get host ucb again and fork on that.
+	movl	ucb$l_hstucb(r5),r5	;note jg ucb still in r4
+	FORK			;go fork on our UCB now (vd: ucb)
+; Now see if we need to reissue the I/O. If so, go do it.
+; r4 should still be jg ucb, r5=host ucb, r3=irp
+	.if	df,x$$$dt
+	jsb g^ini$brk
+	cmpl	r3,r3	;irp. (look at @r3 at this point too.)
+	cmpl	r4,r4	;jg ucb addr
+	cmpl	r5,r5	;host ucb addr
+	.endc
+; Somehow we seem to get irp$l_ioqfl screwed up. Zero it if it is clear
+; it's senseless.
+	tstl	irp$l_ioqfl(r3)		;ioq should always be negative
+	blss	19$			;if + or 0 zero it
+	clrl	irp$l_ioqfl(r3)
+19$:	cmpl	irp$l_ioqfl(r3),#^XFF000000	;too high to be sensible?
+	blssu	20$
+	clrl	irp$l_ioqfl(r3)
+20$:
+	movq	irp$l_media(r3),r0	;get i/o status
+	blbs	r0,40$			;if status is OK, just finish up here.
+	movl	irp$l_keydesc(r3),r0	;get buffer area loc
+	bgeq	40$
+	decl	vv.retries(r0)		;count retries down
+	bleq	40$			;if so also finish now
+;looks like we need to continue. Therefore go do so.
+; Note that at this point the stack is clean and r3 and r5 are irp and ucb
+; of host as his start-io will expect.
+; (This will nead some tweaks for axp procedure nesting. OK on Vax though.)
+; r5 points at host UCB now.
+; Now reset the media field so the IRP will work next time
+	movl	vv.media(r0),irp$l_media(r3)
+; If the host driver clobbered this field, we must ensure we get back
+; here as soon as we hit the next start-io for this driver. Actually it should
+; be fixed like so now or we wouldn't be here...but be safe anyway.
+	movl	vv.bash(r0),irp$l_pid(r3)	;arrange us to get back
+; can't just call the original code since the driver may be busy with
+; something else. Our fork synch doesn't completely prevent this, since
+; the relevant test is whether the driver is busy. Therefore call exe$insioqc
+; to do it instead, relying on our tests in stealstart to detect
+; that this IRP has already been set up.
+; Note that we have left the irp$l_pid address still unchanged so that it
+; still will get back here next time around, so again we can check it.
+; For this we insert in the original device queue so leave
+; r5 pointing at it. Note that steal2 entry wants original R5 on
+; the stack but no longer requires R5 pointing at JG UCB.
+	clrl	irp$l_ioqfl(r3)	;be sure the irp is clr
+	jsb	g^exe$insioqc
+	movl	#1,r0		;flag all seems well
+	rsb			;return when done.
+;;;	brw	steal2
+;
+40$:
+; Reset the IRP to have the original return
+; Thus the IRP will really complete next, not come back here.
+1501$:
+; GRAB R0 AND R1 AS REQCOM IN HOST DRIVER LEFT THEM...
+	MOVL	IRP$L_MEDIA(R3),R0	;GET BACK R0
+	MOVL	IRP$L_MEDIA+4(R3),R1	;AND R1
+; R0, R1 ARE AS HOST DRIVER LEFT THEM. R5 POINTS TO CORRECT UCB.
+;
+; Now restore the original IRP$L_MEDIA field of the IRP in case error
+; paths in IOC$REQCOM ever need it. Some very low XQP cache situations
+; may occasionally need this, though in reasonable sysgen configs it
+; should never be needed. This is the one area that got bashed during
+; the earlier I/O completion processing in the host driver.
+;
+; This will then appear to be coming from the original driver.
+	pushr	#^m<r0,r1,r2,r3,r4,r5>
+; Restore media and pid fields and deallocate the extra field.
+	movl	irp$l_keydesc(r3),r4	;get our buffer
+;	movl	vv.media(r4),irp$l_media(r3)	;restore media address
+; for com$post use must leave status in IRP
+	movl	vv.pid(r4),irp$l_pid(r3)	;restore pid also
+; now deallocate the buffer. We never get here unless one was allocated.
+	movl	r4,r0		;address to free
+	movl	#32,r1		;length to free
+	jsb	g^exe$deanonpgdsiz	;free the pool again
+	clrl	irp$l_keydesc(r3)	;zero the key descriptor too for neatness
+	bbcc	#irp$v_key,irp$w_sts(r3),42$ ;if using encryption, never get here
+42$:
+	popr	#^m<r0,r1,r2,r3,r4,r5>
+;(this may be the problem area; what unbusies the host driver & when?
+; Host driver called reqcom to get here which cleared his unit busy.
+; If his unit is not busy now, this isn't really a problem. If it IS busy
+; however, this IS a problem, as we really have no business touching
+; the host's UCB busy bit from here. Let's try using com$post instead
+; to finish things up.)
+;;;	JSB	G^IOC$REQCOM	; GO COMPLETE THE I/O REQUEST
+	jsb	g^com$post	; complete the request but leave busy ALONE
+	RSB	; GET BACK TO HOST SOMETIME
+
+JG_END:					;ADDRESS OF LAST LOCATION IN DRIVER
+	.END

@@ -1,0 +1,88 @@
+From:	SMTP%"system@lokidev.attmail.com" 20-AUG-1996 17:38:19.66
+To:	everhart@star.zko.dec.com
+CC:	
+Subj:	inventiveness???
+
+Hi Glenn,
+
+The closing paragraphs of your letter which you said you had forwarded
+to Dave Schmidt said that I showed unusual ability and inventiveness.
+
+Well, I've spent the day exercising that unusual inventiveness again
+with SSINT.
+
+I realized that what I sent you could only be used to intercept those
+services which were not 64 bit or did not get 64 bit enhanced.  Using
+the homed argument approach and then, invoking the original service
+routine via the CALLG meant that the original routine would be called
+with 32 bit sign-extended argument values, at least for the first siz
+which is what happens when you specify HOMED_ARGS=TRUE.  Not to worry!
+
+I, essentially, rolled my own argument homing macro which can be used
+with the EVAX_CALLG_64 built-in.  THis is the better approach because
+calling the original routine is done with a full 64 bits in registers
+R16 through R21 and the remaining args (stacked) are already 64 bit
+ready.  
+
+This is easily accomplished with a macro I built that I have called:
+$SETUP_CALLG_64 to parallel Digital's 64 bit macros of similar naming
+convention.  The macro simply subtracts <argcnt+1>*8 from the stack
+pointer and then uses the EVAX_STQ built-in to move all of the args
+to this stack space, for example:
+	
+	EVAX_SUBQ SP,#<NARGS+1>*8,SP
+	EVAX_LDAQ Rx,(SP)
+	EVAX_STQ  0(AP),(Rx)+
+	EVAX_STQ  4(AP),(Rx)+
+	EVAX_STQ  8(AP),(Rx)+
+	...
+	EVAX_STQ  <<NARGS+1>*8>(AP),(Rx)+
+	EVAX_LDAQ Rx,(SP)
+
+
+You then call the routine via EVAX_CALLG_64 (Rx),ROUTINE.
+
+It works great for either 32 ot 64 bit addresses!
+
+I also took care of the linker error LINK-W-MULTFR by playing another
+overlaying psect game and specifying the global label LIB$INITIALIZE
+which the linker automatically then make the first entry in the image
+transfer vector.  Carefully overlaying this atop of the SSINT$DOINIT
+routine makes it the first entry in the transfer vector and the real
+DOINIT routine is the second entry.  This doesn't affect anything be-
+cause the execlet loader only looks at the first transfer vector slot
+and invokes the address it finds there as the initialization routine!
+
+I had a little free time today so it was play time.  I've been sooooo
+busy that all the 64 bit stuff I've done was basically the "robotic"
+things that needed to be changed according to the "64 bit Upgrading
+Guide".  I really needed to get in there and play with 64 bits to get
+a good grasp of it all.
+ 
+Anyway, the latest SSINT is on its way (V1.3%6.233.) MFTU encoded ZIP
+as always.  I hope it's not too late to get this version on the SIG
+tapes.  Don't stop the presses on my accord though.
+
+
+VAXman-
+
+For without are dogs, and sorcerers, and whoremongers, and murderers,
+and idolaters, and whosoever loveth and maketh a lie.  - Revelation -
+================== RFC 822 Headers ==================
+Return-Path: system@lokidev.attmail.com
+Received: by galaxy.zko.dec.com (UCX V4.0-10B, OpenVMS V6.2 VAX);
+	Tue, 20 Aug 1996 17:38:12 -0400
+Received: from mdau.md.mt.np.els-gms.att.net by mail11.digital.com (8.7.5/UNX 1.2/1.0/WV)
+	id RAA26565; Tue, 20 Aug 1996 17:17:06 -0400 (EDT)
+Date: Tue, 20 Aug 1996 16:34:29 -0500
+From: system@lokidev.attmail.com ("Brian Schenkenberger, VAXman-")
+Received: from lokidev by attmail; Tue Aug 20 21:15 GMT 1996
+Received: from alpha by oadec (OADEC V3.0);
+           Tue Aug 20 16:34:29 EDT 1996
+Subject: inventiveness???
+To: everhart@star.zko.dec.com
+X-VMS-Mail-To: OA%"attmail!internet!star.zko.dec.com!everhart"
+Mime-Version: 1.0
+Content-Type: Text/Plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+Message-ID: <ATT-OADEC-3.0-00-system-EC12B601009A723D>

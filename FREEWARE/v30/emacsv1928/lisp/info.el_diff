@@ -1,0 +1,977 @@
+*** ed19:[lisp]info.el	Wed Aug 17 11:04:20 1994
+--- ed1928:[lisp]info.el	Sat May  6 14:29:36 1995
+***************
+*** 1,5 ****
+  ;;; info.el --- info package for Emacs.
+  
+! ;; Copyright (C) 1985, 1986, 1992, 1993 Free Software Foundation, Inc.
+  
+  ;; Maintainer: FSF
+--- 1,5 ----
+  ;;; info.el --- info package for Emacs.
+  
+! ;; Copyright (C) 1985, 1986, 1992, 1993, 1994 Free Software Foundation, Inc.
+  
+  ;; Maintainer: FSF
+***************
+*** 51,75 ****
+    "*Non-nil enables highlighting and fonts in Info nodes.")
+  
+  (defvar Info-directory-list
+!   (let ((path (getenv "INFOPATH")))
+      (if path
+  	(let ((list nil)
+  	      idx)
+  	  (while (> (length path) 0)
+! 	    (setq idx (or (string-match (if (member system-type
+! 						    '(axp-vms vax-vms))
+! 					    ","
+! 					  ":")
+! 					path)
+! 			  (length path))
+  		  list (cons (substring path 0 idx) list)
+  		  path (substring path (min (1+ idx)
+  					    (length path)))))
+  	  (nreverse list))
+!       Info-default-directory-list))
+    "List of directories to search for Info documentation files.
+  nil means not yet initialized.  In this case, Info uses the environment
+  variable INFOPATH to initialize it, or `Info-default-directory-list'
+! if there is no INFOPATH variable in the environment.")
+  
+  (defvar Info-current-file nil
+--- 51,100 ----
+    "*Non-nil enables highlighting and fonts in Info nodes.")
+  
++ (defvar Info-fontify-maximum-menu-size 30000
++   "*Maximum size of menu to fontify if `Info-fontify' is non-nil.")
++ 
+  (defvar Info-directory-list
+!   (let ((path (getenv "INFOPATH"))
+! 	(sep (cond ((eq system-type 'ms-dos) ";")
+! 		   ((memq system-type '(axp-vms vax-vms)) ",")
+! 		   (t ":")))
+! 	(sibling (expand-file-name "../info/" (invocation-directory))))
+      (if path
+  	(let ((list nil)
+  	      idx)
+  	  (while (> (length path) 0)
+! 	    (setq idx (or (string-match sep path) (length path))
+  		  list (cons (substring path 0 idx) list)
+  		  path (substring path (min (1+ idx)
+  					    (length path)))))
+  	  (nreverse list))
+!       (if (or (member sibling Info-default-directory-list)
+! 	      (not (file-exists-p sibling))
+! 	      ;; On MS-DOS, we use movable executables always,
+! 	      ;; and we must always find the Info dir at run time.
+! 	      (if (eq system-type 'ms-dos)
+! 		  nil
+! 		;; Use invocation-directory for Info only if we used it for
+! 		;; exec-directory also.
+! 		(not (string= exec-directory
+! 			      (expand-file-name "../lib-src/"
+! 						(invocation-directory))))))
+! 	  Info-default-directory-list
+! 	(reverse (cons sibling (cdr (reverse Info-default-directory-list)))))))
+    "List of directories to search for Info documentation files.
+  nil means not yet initialized.  In this case, Info uses the environment
+  variable INFOPATH to initialize it, or `Info-default-directory-list'
+! if there is no INFOPATH variable in the environment.
+! The last element of `Info-default-directory-list' is the directory
+! where Emacs installs the Info files that come with it.
+! 
+! If you run the Emacs executable from the `src' directory in the Emacs
+! source tree, the `info' directory in the source tree is used as the last
+! element, in place of the installation Info directory.  This is useful
+! when you run a version of Emacs without installing it.")
+! 
+! (defvar Info-additional-directory-list nil
+!   "List of additional directories to search for Info documentation files.
+! These directories are not searched for merging the `dir' file.")
+  
+  (defvar Info-current-file nil
+***************
+*** 96,132 ****
+    "Non-nil if Emacs was started solely as an Info browser.")
+  
+! (defvar Info-suffix-list '( (".info"    . nil)
+! 			    (""         . nil)
+  			    (".Z"       . "uncompress")
+  			    (".Y"       . "unyabba")
+  			    (".gz"      . "gunzip")
+  			    (".z"       . "gunzip")
+! 			    (".info.Z"  . "uncompress")
+! 			    (".info.Y"  . "unyabba")
+! 			    (".info.gz" . "gunzip")
+! 			    (".info.z"  . "gunzip"))
+    "List of file name suffixes and associated decoding commands.
+  Each entry should be (SUFFIX . STRING); the file is given to
+! the command as standard input.  If STRING is nil, no decoding is done.")
+  
+  (defun info-insert-file-contents (filename &optional visit)
+    "Insert the contents of an info file in the current buffer.
+  Do the right thing if the file has been compressed or zipped."
+!   (if (null (catch 'ok
+! 	      (mapcar
+! 	       (function
+! 		(lambda (x)
+! 		  (let ((compressed (concat filename (car x))))
+! 		    (if (file-exists-p compressed)
+! 			(progn
+! 			  (insert-file-contents compressed visit)
+! 			  (if (cdr x)
+! 			      (let ((buffer-read-only nil))
+! 				(shell-command-on-region
+! 				 (point-min) (point-max) (cdr x) t)))
+! 			  (throw 'ok t))))))
+! 	       Info-suffix-list)
+! 	      nil))
+!       (error "Can't find %s or any compressed version of it!" filename)))
+  
+  ;;;###autoload
+--- 121,171 ----
+    "Non-nil if Emacs was started solely as an Info browser.")
+  
+! (defvar Info-suffix-list '( (".info.Z"  . "uncompress")
+! 			    (".info.Y"  . "unyabba")
+! 			    (".info.gz" . "gunzip")
+! 			    (".info.z"  . "gunzip")
+! 			    (".info"    . nil)
+  			    (".Z"       . "uncompress")
+  			    (".Y"       . "unyabba")
+  			    (".gz"      . "gunzip")
+  			    (".z"       . "gunzip")
+! 			    (""         . nil))
+    "List of file name suffixes and associated decoding commands.
+  Each entry should be (SUFFIX . STRING); the file is given to
+! the command as standard input.  If STRING is nil, no decoding is done.
+! Because the SUFFIXes are tried in order, the empty string should
+! be last in the list.")
+  
+  (defun info-insert-file-contents (filename &optional visit)
+    "Insert the contents of an info file in the current buffer.
+  Do the right thing if the file has been compressed or zipped."
+!   (let ((tail Info-suffix-list)
+! 	fullname decoder)
+!     (if (file-exists-p filename)
+! 	(progn
+! 	  (while (and tail
+! 		      (not (string-match
+! 			    (concat (regexp-quote (car (car tail))) "$")
+! 			    filename)))
+! 	    (setq tail (cdr tail)))
+! 	  (setq fullname filename
+! 		decoder (cdr (car tail))))
+!       (while (and tail
+! 		  (not (file-exists-p (concat filename (car (car tail))))))
+! 	(setq tail (cdr tail)))
+!       (setq fullname (concat filename (car (car tail)))
+! 	    decoder (cdr (car tail)))
+!       ;; check for conflict with jka-compr
+!       (if (and (featurep 'jka-compr)
+! 	       (jka-compr-installed-p)
+! 	       (jka-compr-get-compression-info (concat filename
+! 						       (car (car tail)))))
+! 	  (setq decoder nil))
+!       (or tail
+! 	  (error "Can't find %s or any compressed version of it!" filename)))
+!     (insert-file-contents fullname visit)
+!     (if decoder
+! 	(let ((buffer-read-only nil))
+! 	  (shell-command-on-region (point-min) (point-max) decoder t)))))
+  
+  ;;;###autoload
+***************
+*** 179,183 ****
+  			  ;; then just try current directory.
+  			  '("./")
+! 			Info-directory-list)))
+  	    ;; Search the directory list for file FILENAME.
+  	    (while (and dirs (not found))
+--- 218,225 ----
+  			  ;; then just try current directory.
+  			  '("./")
+! 			(if Info-additional-directory-list
+! 			    (append Info-directory-list
+! 				    Info-additional-directory-list)
+! 			  Info-directory-list))))
+  	    ;; Search the directory list for file FILENAME.
+  	    (while (and dirs (not found))
+***************
+*** 186,202 ****
+  		    (expand-file-name (downcase filename) (car dirs)))
+  	      ;; Try several variants of specified name.
+! 	      (catch 'foundit
+! 		(mapcar
+! 		 (function
+! 		  (lambda (x)
+! 		    (if (file-exists-p (concat temp (car x)))
+! 			(progn
+! 			  (setq found temp)
+! 			  (throw 'foundit nil)))
+! 		    (if (file-exists-p (concat temp-downcase (car x)))
+! 			(progn
+! 			  (setq found temp-downcase)
+! 			  (throw 'foundit nil)))))
+! 		 Info-suffix-list))
+  	      (setq dirs (cdr dirs)))))
+  	(if found
+--- 228,240 ----
+  		    (expand-file-name (downcase filename) (car dirs)))
+  	      ;; Try several variants of specified name.
+! 	      (let ((suffix-list Info-suffix-list))
+! 		(while (and suffix-list (not found))
+! 		  (cond ((file-exists-p
+! 			  (concat temp (car (car suffix-list))))
+! 			 (setq found temp))
+! 			((file-exists-p
+! 			  (concat temp-downcase (car (car suffix-list))))
+! 			 (setq found temp-downcase)))
+! 		  (setq suffix-list (cdr suffix-list))))
+  	      (setq dirs (cdr dirs)))))
+  	(if found
+***************
+*** 298,302 ****
+      ;; If we did not finish finding the specified node,
+      ;; go back to the previous one.
+!     (or Info-current-node no-going-back
+  	(let ((hist (car Info-history)))
+  	  (setq Info-history (cdr Info-history))
+--- 336,340 ----
+      ;; If we did not finish finding the specified node,
+      ;; go back to the previous one.
+!     (or Info-current-node no-going-back (null Info-history)
+  	(let ((hist (car Info-history)))
+  	  (setq Info-history (cdr Info-history))
+***************
+*** 327,332 ****
+  	   (eval (cons 'and
+  		       (mapcar '(lambda (elt)
+! 				  (equal (cdr elt)
+! 					 (file-attributes (car elt))))
+  			       Info-dir-file-attributes))))
+        (insert Info-dir-contents)
+--- 365,373 ----
+  	   (eval (cons 'and
+  		       (mapcar '(lambda (elt)
+! 				  (let ((curr (file-attributes (car elt))))
+! 				    ;; Don't compare the access time.
+! 				    (if curr (setcar (nthcdr 4 curr) 0))
+! 				    (setcar (nthcdr 4 (cdr elt)) 0)
+! 				    (equal (cdr elt) curr)))
+  			       Info-dir-file-attributes))))
+        (insert Info-dir-contents)
+***************
+*** 334,371 ****
+  	  buffers buffer others nodes dirs-done)
+  
+        ;; Search the directory list for the directory file.
+        (while dirs
+! 	(or (member (file-truename (expand-file-name (car dirs))) dirs-done)
+! 	    (member (directory-file-name (file-truename (expand-file-name (car dirs))))
+! 		    dirs-done)
+! 	    ;; Try several variants of specified name.
+! 	    ;; Try upcasing, appending `.info', or both.
+! 	    (let* (temp
+! 		   (buffer
+! 		    (cond
+! 		     ((progn (setq temp (expand-file-name "DIR" (car dirs)))
+! 			     (file-exists-p temp))
+! 		      (find-file-noselect temp))
+! 		     ((progn (setq temp (expand-file-name "dir" (car dirs)))
+! 			     (file-exists-p temp))
+! 		      (find-file-noselect temp))
+! 		     ((progn (setq temp (expand-file-name "DIR.INFO" (car dirs)))
+! 			     (file-exists-p temp))
+! 		      (find-file-noselect temp))
+! 		     ((progn (setq temp (expand-file-name "dir.info" (car dirs)))
+! 			     (file-exists-p temp))
+! 		      (find-file-noselect temp)))))
+! 	      (setq dirs-done
+! 		    (cons (file-truename (expand-file-name (car dirs)))
+! 			  (cons (directory-file-name
+! 				 (file-truename (expand-file-name (car dirs))))
+! 				dirs-done)))
+! 	      (if buffer (setq buffers (cons buffer buffers)
+! 			       Info-dir-file-attributes
+! 			       (cons (cons (buffer-file-name buffer)
+! 					   (file-attributes (buffer-file-name buffer)))
+! 				     Info-dir-file-attributes)))))
+! 	(setq dirs (cdr dirs)))
+! 
+        ;; Distinguish the dir file that comes with Emacs from all the
+        ;; others.  Yes, that is really what this is supposed to do.
+--- 375,416 ----
+  	  buffers buffer others nodes dirs-done)
+  
++       (setq Info-dir-file-attributes nil)
++ 
+        ;; Search the directory list for the directory file.
+        (while dirs
+! 	(let ((truename (file-truename (expand-file-name (car dirs)))))
+! 	  (or (member truename dirs-done)
+! 	      (member (directory-file-name truename) dirs-done)
+! 	      ;; Try several variants of specified name.
+! 	      ;; Try upcasing, appending `.info', or both.
+! 	      (let* (file
+! 		     (attrs
+! 		      (or
+! 		       (progn (setq file (expand-file-name "dir" truename))
+! 			      (file-attributes file))
+! 		       (progn (setq file (expand-file-name "DIR" truename))
+! 			      (file-attributes file))
+! 		       (progn (setq file (expand-file-name "dir.info" truename))
+! 			      (file-attributes file))
+! 		       (progn (setq file (expand-file-name "DIR.INFO" truename))
+! 			      (file-attributes file)))))
+! 		(setq dirs-done
+! 		      (cons truename
+! 			    (cons (directory-file-name truename)
+! 				  dirs-done)))
+! 		(if attrs
+! 		    (save-excursion
+! 		      (or buffers
+! 			  (message "Composing main Info directory..."))
+! 		      (set-buffer (generate-new-buffer "info dir"))
+! 		      (insert-file-contents file)
+! 		      (setq buffers (cons (current-buffer) buffers)
+! 			    Info-dir-file-attributes
+! 			    (cons (cons file attrs)
+! 				  Info-dir-file-attributes))))))
+! 	  (setq dirs (cdr dirs))))
+!       
+!       (or buffers
+! 	  (error "Can't find the info directory node"))
+        ;; Distinguish the dir file that comes with Emacs from all the
+        ;; others.  Yes, that is really what this is supposed to do.
+***************
+*** 394,401 ****
+  		(forward-line 1)
+  		(setq beg (point))
+! 		(search-backward "\n")
+  		(search-forward "Node: ")
+  		(setq nodename (Info-following-node-name))
+! 		(search-forward "\n" nil 'move)
+  		(beginning-of-line)
+  		(setq end (point))
+--- 439,446 ----
+  		(forward-line 1)
+  		(setq beg (point))
+! 		(search-backward "\n\^_")
+  		(search-forward "Node: ")
+  		(setq nodename (Info-following-node-name))
+! 		(search-forward "\n\^_" nil 'move)
+  		(beginning-of-line)
+  		(setq end (point))
+***************
+*** 408,412 ****
+  	    (nodes nodes)
+  	    (case-fold-search t)
+! 	    (end (save-excursion (search-forward "" nil t) (point))))
+  	(while nodes
+  	  (let ((nodename (car (car nodes))))
+--- 453,457 ----
+  	    (nodes nodes)
+  	    (case-fold-search t)
+! 	    (end (save-excursion (search-forward "\^_" nil t) (point))))
+  	(while nodes
+  	  (let ((nodename (car (car nodes))))
+***************
+*** 418,422 ****
+  				     end t)
+  		  (progn
+! 		    (insert "* " nodename "::\n")
+  		    (setq menu-items (cons nodename menu-items))))))
+  	  (setq nodes (cdr nodes))))
+--- 463,467 ----
+  				     end t)
+  		  (progn
+! 		    (insert "* " nodename "::" "\n")
+  		    (setq menu-items (cons nodename menu-items))))))
+  	  (setq nodes (cdr nodes))))
+***************
+*** 427,440 ****
+  	  (goto-char (point-min))
+  	  ;; Find the like-named node in the main buffer.
+! 	  (if (re-search-forward (concat "\n.*\n.*Node: "
+  					 (regexp-quote nodename)
+  					 "[,\n\t]")
+  				 nil t)
+  	      (progn
+! 		(search-forward "\n" nil 'move)
+  		(beginning-of-line))
+  	    ;; If none exists, add one.
+  	    (goto-char (point-max))
+! 	    (insert "\nFile: dir\tnode: " nodename "\n\n* Menu:\n\n"))
+  	  ;; Merge the text from the other buffer's menu
+  	  ;; into the menu in the like-named node in the main buffer.
+--- 472,485 ----
+  	  (goto-char (point-min))
+  	  ;; Find the like-named node in the main buffer.
+! 	  (if (re-search-forward (concat "\n\^_.*\n.*Node: "
+  					 (regexp-quote nodename)
+  					 "[,\n\t]")
+  				 nil t)
+  	      (progn
+! 		(search-forward "\n\^_" nil 'move)
+  		(beginning-of-line))
+  	    ;; If none exists, add one.
+  	    (goto-char (point-max))
+! 	    (insert "\^_\nFile: dir\tNode: " nodename "\n\n* Menu:\n\n"))
+  	  ;; Merge the text from the other buffer's menu
+  	  ;; into the menu in the like-named node in the main buffer.
+***************
+*** 445,449 ****
+        (while buffers
+  	(kill-buffer (car buffers))
+! 	(setq buffers (cdr buffers))))
+      (setq Info-dir-contents (buffer-string)))
+    (setq default-directory Info-dir-contents-directory))
+--- 490,495 ----
+        (while buffers
+  	(kill-buffer (car buffers))
+! 	(setq buffers (cdr buffers)))
+!       (message "Composing main Info directory...done"))
+      (setq Info-dir-contents (buffer-string)))
+    (setq default-directory Info-dir-contents-directory))
+***************
+*** 562,565 ****
+--- 608,612 ----
+  		(progn
+  		  (set-buffer (marker-buffer Info-tag-table-marker))
++ 		  (widen)
+  		  (goto-char Info-tag-table-marker)
+  		  (while (re-search-forward "\nNode: \\(.*\\)\177" nil t)
+***************
+*** 584,592 ****
+  (defun Info-restore-point (hl)
+    "If this node has been visited, restore the point value when we left."
+!   (if hl
+!       (if (and (equal (nth 0 (car hl)) Info-current-file)
+! 	       (equal (nth 1 (car hl)) Info-current-node))
+  	  (goto-char (nth 2 (car hl)))
+! 	(Info-restore-point (cdr hl)))))
+  
+  (defvar Info-last-search nil
+--- 631,641 ----
+  (defun Info-restore-point (hl)
+    "If this node has been visited, restore the point value when we left."
+!   (while hl
+!     (if (and (equal (nth 0 (car hl)) Info-current-file)
+! 	     (equal (nth 1 (car hl)) Info-current-node))
+! 	(progn
+  	  (goto-char (nth 2 (car hl)))
+! 	  (setq hl nil))		;terminate the while at next iter
+!       (setq hl (cdr hl)))))
+  
+  (defvar Info-last-search nil
+***************
+*** 640,644 ****
+  		(Info-read-subfile (car (car list)))
+  		(setq list (cdr list))
+! 		(goto-char (point-min))
+  		(if (re-search-forward regexp nil t)
+  		    (setq found (point) list ())))
+--- 689,693 ----
+  		(Info-read-subfile (car (car list)))
+  		(setq list (cdr list))
+! ;;		(goto-char (point-min))
+  		(if (re-search-forward regexp nil t)
+  		    (setq found (point) list ())))
+***************
+*** 728,733 ****
+    (interactive
+     (let ((completion-ignore-case t)
+! 	 completions default (start-point (point)) str i)
+       (save-excursion
+         (goto-char (point-min))
+         (while (re-search-forward "\\*note[ \n\t]*\\([^:]*\\):" nil t)
+--- 777,788 ----
+    (interactive
+     (let ((completion-ignore-case t)
+! 	 completions default alt-default (start-point (point)) str i bol eol)
+       (save-excursion
++        ;; Store end and beginning of line.
++        (end-of-line)
++        (setq eol (point))
++        (beginning-of-line)
++        (setq bol (point))
++ 
+         (goto-char (point-min))
+         (while (re-search-forward "\\*note[ \n\t]*\\([^:]*\\):" nil t)
+***************
+*** 740,743 ****
+--- 795,803 ----
+  	      (<= start-point (point))
+  	      (setq default t))
++ 	 ;; See if this one should be the alternate default.
++ 	 (and (null alt-default)
++ 	      (and (<= bol (match-beginning 0))
++ 		   (<= (point) eol))
++ 	      (setq alt-default t))
+  	 (setq i 0)
+  	 (while (setq i (string-match "[ \n\t]+" str i))
+***************
+*** 747,753 ****
+--- 807,820 ----
+  	 ;; Record as a completion and perhaps as default.
+  	 (if (eq default t) (setq default str))
++ 	 (if (eq alt-default t) (setq alt-default str))
+  	 (setq completions
+  	       (cons (cons str nil)
+  		     completions))))
++      ;; If no good default was found, try an alternate.
++      (or default
++ 	 (setq default alt-default))
++      ;; If only one cross-reference found, then make it default.
++      (if (eq (length completions) 1)
++          (setq default (car (car completions))))
+       (if completions
+  	 (let ((input (completing-read (if default
+***************
+*** 791,800 ****
+      str))
+  
+! ;; No one calls this and Info-menu-item doesn't exist.
+  ;;(defun Info-menu-item-sequence (list)
+  ;;  (while list
+! ;;    (Info-menu-item (car list))
+  ;;    (setq list (cdr list))))
+  
+  (defun Info-menu (menu-item)
+    "Go to node for menu item named (or abbreviated) NAME.
+--- 858,911 ----
+      str))
+  
+! ;; No one calls this.
+  ;;(defun Info-menu-item-sequence (list)
+  ;;  (while list
+! ;;    (Info-menu (car list))
+  ;;    (setq list (cdr list))))
+  
++ (defun Info-complete-menu-item (string predicate action)
++   (let ((case-fold-search t))
++     (cond ((eq action nil)
++ 	   (let (completions
++ 		 (pattern (concat "\n\\* \\("
++ 				  (regexp-quote string)
++ 				  "[^:\t\n]*\\):")))
++ 	     (save-excursion
++ 	       (set-buffer Info-complete-menu-buffer)
++ 	       (goto-char (point-min))
++ 	       (while (re-search-forward pattern nil t)
++ 		 (setq completions (cons (cons (format "%s"
++ 						       (buffer-substring
++ 							(match-beginning 1)
++ 							(match-end 1)))
++ 					       (match-beginning 1))
++ 					 completions))))
++ 	     (try-completion string completions predicate)))
++ 	  ((eq action t)
++ 	   (let (completions
++ 		 (pattern (concat "\n\\* \\("
++ 				  (regexp-quote string)
++ 				  "[^:\t\n]*\\):")))
++ 	     (save-excursion
++ 	       (set-buffer Info-complete-menu-buffer)
++ 	       (goto-char (point-min))
++ 	       (while (re-search-forward pattern nil t)
++ 		 (setq completions (cons (cons (format "%s"
++ 						       (buffer-substring
++ 							(match-beginning 1)
++ 							(match-end 1)))
++ 					       (match-beginning 1))
++ 					 completions))))
++ 	     (all-completions string completions predicate)))
++ 	  (t
++ 	   (save-excursion
++ 	     (set-buffer Info-complete-menu-buffer)
++ 	     (goto-char (point-min))
++ 	     (re-search-forward (concat "\n\\* "
++ 					(regexp-quote string)
++ 					":")
++ 				nil t))))))
++ 
++ 
+  (defun Info-menu (menu-item)
+    "Go to node for menu item named (or abbreviated) NAME.
+***************
+*** 810,837 ****
+         (if (not (search-forward "\n* menu:" nil t))
+  	   (error "No menu in this node"))
+!        (while (re-search-forward
+! 		"\n\\* \\([^:\t\n]*\\):" nil t)
+! 	 (if (and (null default)
+! 		  (prog1 (if last (< last p) nil)
+! 		    (setq last (match-beginning 0)))
+! 		  (<= p last))
+! 	     (setq default (car (car completions))))
+! 	 (setq completions (cons (cons (buffer-substring
+! 					 (match-beginning 1)
+! 					 (match-end 1))
+! 				       (match-beginning 1))
+! 				 completions)))
+!        (if (and (null default) last
+! 		(< last p)
+! 		(<= p (progn (end-of-line) (point))))
+! 	   (setq default (car (car completions)))))
+       (let ((item nil))
+         (while (null item)
+! 	 (setq item (let ((completion-ignore-case t))
+  		      (completing-read (if default
+  					   (format "Menu item (default %s): "
+  						   default)
+  					   "Menu item: ")
+! 				       completions nil t)))
+  	 ;; we rely on the fact that completing-read accepts an input
+  	 ;; of "" even when the require-match argument is true and ""
+--- 921,942 ----
+         (if (not (search-forward "\n* menu:" nil t))
+  	   (error "No menu in this node"))
+!        (setq beg (point))
+!        (and (< (point) p)
+! 	    (save-excursion
+! 	      (goto-char p)
+! 	      (end-of-line)
+! 	      (re-search-backward "\n\\* \\([^:\t\n]*\\):" beg t)
+! 	      (setq default (format "%s" (buffer-substring
+! 					  (match-beginning 1)
+! 					  (match-end 1)))))))
+       (let ((item nil))
+         (while (null item)
+! 	 (setq item (let ((completion-ignore-case t)
+! 			  (Info-complete-menu-buffer (current-buffer)))
+  		      (completing-read (if default
+  					   (format "Menu item (default %s): "
+  						   default)
+  					   "Menu item: ")
+! 				       'Info-complete-menu-item nil t)))
+  	 ;; we rely on the fact that completing-read accepts an input
+  	 ;; of "" even when the require-match argument is true and ""
+***************
+*** 971,978 ****
+    (save-excursion
+      (forward-line 1)
+!     (search-backward "\n* menu:" nil t)
+!     (or (search-backward "\n* " nil t)
+! 	(error "No previous items in menu"))
+!     (Info-goto-node (Info-extract-menu-node-name))))
+  
+  (defmacro Info-no-error (&rest body)
+--- 1076,1087 ----
+    (save-excursion
+      (forward-line 1)
+!     (let ((beg (save-excursion
+! 		 (and (search-backward "\n* menu:" nil t)
+! 		      (point)))))
+!       (or (and beg (search-backward "\n* " beg t))
+! 	  (error "No previous items in menu")))
+!     (Info-goto-node (save-excursion
+! 		      (goto-char (match-end 0))
+! 		      (Info-extract-menu-node-name)))))
+  
+  (defmacro Info-no-error (&rest body)
+***************
+*** 980,996 ****
+  
+  (defun Info-next-preorder ()
+!   "Go to the next node, popping up a level if there is none."
+    (interactive)
+!   (cond ((looking-at "\\*note[ \n]*\\([^:]*\\):")
+! 	 (Info-follow-reference
+! 	  (buffer-substring (match-beginning 1) (match-end 1))))
+! 	((Info-no-error (Info-next-menu-item))	)
+! 	((Info-no-error (Info-up))		(forward-line 1))
+! 	(t 					(error "No more nodes"))))
+  
+  (defun Info-last-preorder ()
+    "Go to the last node, popping up a level if there is none."
+    (interactive)
+!   (cond ((Info-no-error (Info-last-menu-item))	)
+  	((Info-no-error (Info-up))		(forward-line -1))
+  	(t 					(error "No previous nodes"))))
+--- 1089,1118 ----
+  
+  (defun Info-next-preorder ()
+!   "Go to the next subnode, popping up a level if there is none."
+    (interactive)
+!   (cond ((Info-no-error (Info-next-menu-item)))
+! 	((Info-no-error (Info-up))
+! 	 (forward-line 1))
+! 	(t
+! 	 (error "No more nodes"))))
+! 
+! (defun Info-next-preorder-1 ()
+!   "Go to the next subnode or the next node, or go up a level."
+!   (interactive)
+!   (cond ((Info-no-error (Info-next-menu-item)))
+! 	((Info-no-error (Info-next)))
+! 	((Info-no-error (Info-up))
+! 	 (forward-line 1))
+! 	(t
+! 	 (error "No more nodes"))))
+  
+  (defun Info-last-preorder ()
+    "Go to the last node, popping up a level if there is none."
+    (interactive)
+!   (cond ((Info-no-error
+! 	  (Info-last-menu-item)
+! 	  ;; If we go down a menu item, go to the end of the node
+! 	  ;; so we can scroll back through it.
+! 	  (goto-char (point-max))))
+  	((Info-no-error (Info-up))		(forward-line -1))
+  	(t 					(error "No previous nodes"))))
+***************
+*** 999,1014 ****
+    "Read the next screen.  If end of buffer is visible, go to next entry."
+    (interactive)
+!   (if (pos-visible-in-window-p (point-max))
+!       (Info-next-preorder)
+!       (scroll-up))
+!   )
+  
+  (defun Info-scroll-down ()
+    "Read the previous screen.  If start of buffer is visible, go to last entry."
+    (interactive)
+!   (if (pos-visible-in-window-p (point-min))
+!       (Info-last-preorder)
+!       (scroll-down))
+!   )
+  
+  (defun Info-next-reference ()
+--- 1121,1149 ----
+    "Read the next screen.  If end of buffer is visible, go to next entry."
+    (interactive)
+!   (if (or (< (window-start) (point-min))
+! 	  (> (window-start) (point-max)))
+!       (set-window-start (selected-window) (point)))
+!   (let ((virtual-end (save-excursion
+! 		       (goto-char (point-min))
+! 		       (if (search-forward "\n* Menu:" nil t)
+! 			   (point)
+! 			 (point-max)))))
+!     (if (or (< virtual-end (window-start))
+! 	    (pos-visible-in-window-p virtual-end))
+! 	(Info-next-preorder)
+!       (scroll-up))))
+  
+  (defun Info-scroll-down ()
+    "Read the previous screen.  If start of buffer is visible, go to last entry."
+    (interactive)
+!   (if (or (< (window-start) (point-min))
+! 	  (> (window-start) (point-max)))
+!       (set-window-start (selected-window) (point)))
+!   (let ((virtual-end (save-excursion
+! 		       (goto-char (point-min))
+! 		       (search-forward "\n* Menu:" nil t))))
+!     (if (or virtual-end (pos-visible-in-window-p (point-min)))
+! 	(Info-last-preorder)
+!       (scroll-down))))
+  
+  (defun Info-next-reference ()
+***************
+*** 1057,1061 ****
+    (let ((orignode Info-current-node)
+  	(rnode nil)
+! 	(pattern (format "\n\\* \\([^\n:]*%s[^\n:]*\\):[ \t]*\\([^.\n]*\\)\\.[ t]*\\([0-9]*\\)"
+  			 (regexp-quote topic)))
+  	node)
+--- 1192,1196 ----
+    (let ((orignode Info-current-node)
+  	(rnode nil)
+! 	(pattern (format "\n\\* \\([^\n:]*%s[^\n:]*\\):[ \t]*\\([^.\n]*\\)\\.[ \t]*\\([0-9]*\\)"
+  			 (regexp-quote topic)))
+  	node)
+***************
+*** 1200,1207 ****
+  	       (error "No %s around position %d" errorstring pos)))))))
+  
+! (defun Info-follow-nearest-node (click)
+    "\\<Info-mode-map>Follow a node reference near point.
+  Like \\[Info-menu], \\[Info-follow-reference], \\[Info-next], \\[Info-prev] or \\[Info-up] command, depending on where you click.
+! At end of the node's text, moves to the next node."
+    (interactive "e")
+    (let* ((start (event-start click))
+--- 1335,1342 ----
+  	       (error "No %s around position %d" errorstring pos)))))))
+  
+! (defun Info-mouse-follow-nearest-node (click)
+    "\\<Info-mode-map>Follow a node reference near point.
+  Like \\[Info-menu], \\[Info-follow-reference], \\[Info-next], \\[Info-prev] or \\[Info-up] command, depending on where you click.
+! At end of the node's text, moves to the next node, or up if none."
+    (interactive "e")
+    (let* ((start (event-start click))
+***************
+*** 1210,1216 ****
+      (select-window window)
+      (goto-char pos))
+    (let (node)
+      (cond
+!      ((setq node (Info-get-token (point) "\\*note[ \n]" "\\*note[ \n]\\([^:]*\\):"))
+        (Info-follow-reference node))
+       ((setq node (Info-get-token (point) "\\* " "\\* \\([^:]*\\)::"))
+--- 1345,1367 ----
+      (select-window window)
+      (goto-char pos))
++   (and (not (Info-try-follow-nearest-node))
++        (save-excursion (forward-line 1) (eobp))
++        (Info-next-preorder-1)))
++ 
++ (defun Info-follow-nearest-node ()
++   "\\<Info-mode-map>Follow a node reference near point.
++ Like \\[Info-menu], \\[Info-follow-reference], \\[Info-next], \\[Info-prev] or \\[Info-up] command, depending on where point is.
++ If no reference to follow, moves to the next node, or up if none."
++   (interactive)
++   (or (Info-try-follow-nearest-node)
++       (Info-next-preorder-1)))
++ 
++ ;; Common subroutine.
++ (defun Info-try-follow-nearest-node ()
++   "Follow a node reference near point.  Return non-nil if successful."
+    (let (node)
+      (cond
+!      ((setq node (Info-get-token (point) "\\*note[ \n]"
+! 				 "\\*note[ \n]\\([^:]*\\):"))
+        (Info-follow-reference node))
+       ((setq node (Info-get-token (point) "\\* " "\\* \\([^:]*\\)::"))
+***************
+*** 1225,1232 ****
+        (Info-goto-node "Top"))
+       ((setq node (Info-get-token (point) "Prev: " "Prev: \\([^,\n\t]*\\)"))
+!       (Info-goto-node node))
+!      ((save-excursion (forward-line 1) (eobp))
+!       (Info-next)))
+!     ))
+  
+  (defvar Info-mode-map nil
+--- 1376,1381 ----
+        (Info-goto-node "Top"))
+       ((setq node (Info-get-token (point) "Prev: " "Prev: \\([^,\n\t]*\\)"))
+!       (Info-goto-node node)))
+!     node))
+  
+  (defvar Info-mode-map nil
+***************
+*** 1238,1242 ****
+    (define-key Info-mode-map "." 'beginning-of-buffer)
+    (define-key Info-mode-map " " 'Info-scroll-up)
+!   (define-key Info-mode-map "\C-m" 'Info-next-preorder)
+    (define-key Info-mode-map "\t" 'Info-next-reference)
+    (define-key Info-mode-map "\e\t" 'Info-prev-reference)
+--- 1387,1391 ----
+    (define-key Info-mode-map "." 'beginning-of-buffer)
+    (define-key Info-mode-map " " 'Info-scroll-up)
+!   (define-key Info-mode-map "\C-m" 'Info-follow-nearest-node)
+    (define-key Info-mode-map "\t" 'Info-next-reference)
+    (define-key Info-mode-map "\e\t" 'Info-prev-reference)
+***************
+*** 1273,1277 ****
+    (define-key Info-mode-map "," 'Info-index-next)
+    (define-key Info-mode-map "\177" 'Info-scroll-down)
+!   (define-key Info-mode-map [mouse-2] 'Info-follow-nearest-node)
+    )
+  
+--- 1422,1426 ----
+    (define-key Info-mode-map "," 'Info-index-next)
+    (define-key Info-mode-map "\177" 'Info-scroll-down)
+!   (define-key Info-mode-map [mouse-2] 'Info-mouse-follow-nearest-node)
+    )
+  
+***************
+*** 1289,1292 ****
+--- 1438,1445 ----
+  
+  Selecting other nodes:
++ \\[Info-mouse-follow-nearest-node]
++ 	Follow a node reference you click on.
++ 	  This works with menu items, cross references, and
++ 	  the \"next\", \"previous\" and \"up\", depending on where you click.
+  \\[Info-next]	Move to the \"next\" node of this node.
+  \\[Info-prev]	Move to the \"previous\" node of this node.
+***************
+*** 1336,1340 ****
+    (make-local-variable 'Info-history)
+    (make-local-variable 'Info-index-alternatives)
+!   (if (fboundp 'make-face)
+        (progn
+  	(make-face 'info-node)
+--- 1489,1493 ----
+    (make-local-variable 'Info-history)
+    (make-local-variable 'Info-index-alternatives)
+!   (if (eq (framep (selected-frame)) 'x)
+        (progn
+  	(make-face 'info-node)
+***************
+*** 1449,1456 ****
+  		(setq Info-history (nconc (cdr where) Info-history))
+  		(message (substitute-command-keys
+! 			  "Found %d other entr%.  Use \\[Info-last] to see %s."
+! 			(1- num-matches)
+! 			(if (> num-matches 2) "ies" "y")
+! 			(if (> num-matches 2) "them" "it"))))))
+        (error "Couldn't find documentation for %s." command))))
+  
+--- 1602,1609 ----
+  		(setq Info-history (nconc (cdr where) Info-history))
+  		(message (substitute-command-keys
+! 			  "Found %d other entr%s.  Use \\[Info-last] to see %s.")
+! 			 (1- num-matches)
+! 			 (if (> num-matches 2) "ies" "y")
+! 			 (if (> num-matches 2) "them" "it")))))
+        (error "Couldn't find documentation for %s." command))))
+  
+***************
+*** 1482,1497 ****
+  	      (goto-char (match-end 0))
+  	      (put-text-property (match-beginning 1) (match-end 1)
+! 				 'face 'info-xref))))
+        (goto-char (point-min))
+!       (while (re-search-forward "\\*Note[ \n\t]*\\([^:]*\\):" nil t)
+  	(if (= (char-after (1- (match-beginning 0))) ?\") ; hack
+  	    nil
+  	  (put-text-property (match-beginning 1) (match-end 1)
+! 			     'face 'info-xref)))
+        (goto-char (point-min))
+        (if (and (search-forward "\n* Menu:" nil t)
+  	       (not (string-match "\\<Index\\>" Info-current-node))
+  	       ;; Don't take time to annotate huge menus
+! 	       (< (- (point-max) (point)) 10000))
+  	  (let ((n 0))
+  	    (while (re-search-forward "^\\* \\([^:\t\n]*\\):" nil t)
+--- 1635,1654 ----
+  	      (goto-char (match-end 0))
+  	      (put-text-property (match-beginning 1) (match-end 1)
+! 				 'face 'info-xref)
+! 	      (put-text-property (match-beginning 1) (match-end 1)
+! 				 'mouse-face 'highlight))))
+        (goto-char (point-min))
+!       (while (re-search-forward "\\*Note[ \n\t]+\\([^:]*\\):" nil t)
+  	(if (= (char-after (1- (match-beginning 0))) ?\") ; hack
+  	    nil
+  	  (put-text-property (match-beginning 1) (match-end 1)
+! 			     'face 'info-xref)
+! 	  (put-text-property (match-beginning 1) (match-end 1)
+! 			     'mouse-face 'highlight)))
+        (goto-char (point-min))
+        (if (and (search-forward "\n* Menu:" nil t)
+  	       (not (string-match "\\<Index\\>" Info-current-node))
+  	       ;; Don't take time to annotate huge menus
+! 	       (< (- (point-max) (point)) Info-fontify-maximum-menu-size))
+  	  (let ((n 0))
+  	    (while (re-search-forward "^\\* \\([^:\t\n]*\\):" nil t)
+***************
+*** 1502,1506 ****
+  				     'face 'info-menu-5))
+  	      (put-text-property (match-beginning 1) (match-end 1)
+! 				 'face 'info-node))))
+        (set-buffer-modified-p nil))))
+  
+--- 1659,1665 ----
+  				     'face 'info-menu-5))
+  	      (put-text-property (match-beginning 1) (match-end 1)
+! 				 'face 'info-node)
+! 	      (put-text-property (match-beginning 1) (match-end 1)
+! 				 'mouse-face 'highlight))))
+        (set-buffer-modified-p nil))))
+  

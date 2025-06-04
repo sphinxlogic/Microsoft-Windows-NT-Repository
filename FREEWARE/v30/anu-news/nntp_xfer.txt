@@ -1,0 +1,206 @@
+NNTP_XFER
+----------------
+
+
+NNTP_XFER is a utility used to retreive news items from a remote system to the
+local system using  the NNTP transfer protocols. The actual protocol used is
+the local system sending "newnews"  messages to the remote system requesting
+that system to transmit the message identifier strings of  remote held items,
+to which the local system may respond with a subsequent sequence of "article"
+requests to retrieve those items not held locally. This utility essentially
+makes the local system is  the active partner in the transfer.
+
+The list of message identifier strings returned is not filtered: all mesage
+identifiers of both remote  local and remote network news items are returned.
+It is left to the local NEWS system to apply a  local filter to all articles
+returned by NNTP_XFER while adding these items into the local NEWS  database.
+
+Installation
+--------------
+
+NEWS_FILES:[NEWS_DIST]NNTP_XFER.EXE is created by the NEWSBUILD procedure. The
+installation procedure is to copy this file to the news_manager area, and
+ensure that the  protection (or ACLs) on the .EXE file are such that onlt the
+NEWS_MANAGER account may  execute the program. The NEWS_MANAGER account
+login.com should also contain the entry:
+
+	$ NNTP_XFER :== $ NEWS_MANAGER:NNTP_XFER
+
+
+Execution
+-----------
+
+The execution of NNTP_XFER should be using a procedure such as:
+
+	$ ! Obtain SYSPRV to allow reading of all NEWS item files
+	$ SET PROC/PRIV=SYSPRV
+	$ NNTP_XFER command parameters
+
+
+Command Parameters
+-------------------------
+
+$ NNTP_XFER -n node -p proto [-l log] [-d days] [-h hours] [-t task] [-s] [-o]
+
+-n node		required parameter	is used to specify the name of the
+remote system. In the  case of DECnet this is normally the DECnet nodename, and
+in the case of TCP, the TCP node name.  An IP address may be used instead of a
+node name.
+
+-p protocol	required parameter		is used to specify the
+transport protocol to use. This  keyword may be either DECNET or TCP. In the
+case of TCP, normally NEWSBUILD will  determine which of the supported TCP
+implementations (Multinet, WIN or CMU) has been loaded  into the local system,
+and will use this as the default TCP protocol automatically. The keywords
+MULTINET, WIN and CMU may be used instead of TCP. In the case of TCP the
+NNTP_XMIT  process will attempt to connect to remote TCP port 119 (the remote
+NNTP_server port).
+
+-l log		optional parameter	is the name of a file to which will be
+appended a one  line summary of the activity of the NNTP_XFER process on
+completion. This summary will list  the number of identifiers offered to the
+remote system, the number accepted, rejected, and the  number of local lookup
+failures.
+
+-d days		optional parameter	is used to specify that NNTP_XFER
+should request all  message identifiers that were added to the remote system in
+the period days days before the most  recent NNTP_XFER call to this remote
+system and the current time. If the parameter is set to 0,  then only those
+identifiers added since the last call (plus 1 hour) will be returned. Ie if the
+last  call to node was at 10:00 am Wednesday,  a parameter of -d 0 will request
+all mesages added since  10:00 am Wednesday, and a parameter of -d 1 will
+request all messages added since 10:00am  Tuesday.
+
+This is not as straightforward as it sounds, as VMS always uses local time,
+whereas some Unix  systems assume all NNTP dates are GMT dates. Also when
+working across timezones some fine  adjustment is also needed to compensate for
+the time difference.
+
+-h hours	optional parameter		specifies the additional hours
+to add onto the time  search in the same fashion as days.
+
+-t task		optional parameter	is used to specify the remote DECnet
+object string. By  default NNTP_XMIT will attempt to connect to the defined
+task for the remote node. For remote  Ultrix DECnet NNTP servers the parameter
+-t NNTP=   should be used. The parameter is not  consulted if the TCP protocol
+is selected. The default value is "TASK=NNTP"
+
+-s			optional parameter	used in conjunction with the
+DECnet protocol to specify  that stream input routines wshould be used insetad
+of record-based input calls. This is only  relevant when connecting to a remote
+NNTP server running on an Ultrix platform over DECnet. For  remote VMS systems,
+this option is not required.
+
+-o		optional parameter		is used to echo all NNTP
+traffic to the screen. This  option is only used for debugging purposes.
+
+
+Logical Name Environment
+-------------------------------
+
+There is one logical name which is consulted by NNTP_XFER:
+
+NEWS_node_TASK
+
+This logical name is translated if the DECnet protocol is selected, and no -t
+command parameter is  used. If this logical name is defined, then the
+translation is used as the task string. If no such  logical name exists, then
+the default string of "TASK=NNTP" is used. e.g.
+
+	$ DEFINE NEWS_EMU_TASK    "NNTP="
+
+will cause NNTP to use the object string "NNTP=" when connecting to node EMU.
+
+
+Actions
+---------
+
+NNTP_XFER will first open status files. All file names used by NNTP_XFER use
+the remote node  name as a part of the file name. When constructing filenames,
+all '.' characters in the remote node  name are replaced by '-' characters.
+e.g. connecting to "wombat.bush.au" will result is a set of files of the form:
+news_manager:*wombat-bush-au*.*
+
+The files used are:
+
+NEWS_MANAGER:NNTP_node.LASTCALL. This file contains the time of the previous
+successful execution of NNTP_XFER to this node.
+
+NEWS_MANAGER:NNTP_node.IDS. This is a work file used by NNTP_XFER
+
+NEWS_MANAGER:NNTP_node_partno.BATCH  are output files generated by NNTP_XFER.
+
+
+
+NNTP_XFER establishes a connection to the remote system, and then looks for any
+existing .IDS  files which refer to the remote node. If any are found, then
+NNTP_XFER will read the file  (containing a list of message identifiers, and
+retrieve the text of the items, placing them into the  NNTP BATCH output file.
+
+The second phase is establishing the date and time of the last successful
+NNTP_XFER run, and  requesting the remote system to transfer the message ids of
+all new items which were loaded since  the specified time (the "newnews" NNTP
+command). The output of this is placed in a .IDS output  file. The NNTP
+conenction with the remote system is terminated at the end of this phase.
+
+The third phase of NNTP_XFER reads the .IDS file created from the previous
+phase, and  attempts to locate the message identifiers on the local data base.
+All items that are not held  locally are placed in a new version of the .IDS
+file. On completion of this phase the previous  version of the .IDS file is
+deleted.
+
+In the final phase contact is reestablished with the remote system, and all
+identifiers in the .IDS  file are passed to the remote system to collect the
+corresponding texts. (using the "article" NNTP  command). On successful
+completion the .IDS file is deleted, and allcollected texts are in NNTP
+*.BATCH files in NEWS_MANAGER.
+
+The .LASTCALL file is updated, and the program exits.
+
+The output BATCH files can then be processed by the NEWS ADD command for
+inclusion into the  local database.
+
+
+Compilation constants
+-------------------------
+
+MAX_BATCH_SIZE
+
+NNTP_XFER appends each collected item into a batch file. A new version of the
+file is created  once the size of the file exceeds the specified size (in
+bytes). The distribution code sets this  constant to 250000.
+
+MAX_RESTART_ATTEMPT
+
+NNTP_XFER will stay connected for considerable periods, partcularly if there
+are low speed links  between two systems, and the link may be broken by the
+underlying TCP software. NNTP_XFER  will attempt to restart a broken
+connection, which often is sufficient. To stop these restart attempts
+continuing indefinitely, NNTP_XFER will only restart a link a certain number of
+times. The  distribution code sets this constant to 20.
+
+CLIENT_TIMER
+
+The maximum time which the local system will wait for remote data before
+terminating the link  on a timeout. The distribution value is 250 (seconds).
+
+RESP_TIMER
+
+The maximum time to wait when "pinging" the remote system to check that it is
+still alive. The  distribution value is 30 (seconds).
+
+Examples
+-----------
+
+	$ nntp_xfer -n wombat.bush.au -p tcp -l news_manager:nntpxfer.log
+
+This command will contact the remote system wombat.bush.au using tcp.
+
+	$ nntp_xfer -n emu -p decnet -s -t "NNTP=" -l news_manager:nntpxfer.log
+
+This command will use DECnet to contact the remote Ultrix NNTP server over
+DECnet
+
+	$ nntp_xfer -n koala -p decnet -l news_manager:nntpxfer.log
+
+This command will use DECNET to contact a remote VMS NNTP server.

@@ -1,0 +1,255 @@
+module	emoncmd
+
+define	verb	exit
+	routine	cmd_exit
+
+define	verb	help
+	routine	cmd_help
+	parameter p1,value(type=$rest_of_line)
+
+define	verb	spawn
+	routine	cmd_spawn
+	parameter p1,label=command,value(type=$rest_of_line)
+
+define	verb	print
+	routine	cmd_print
+	parameter p1,value(Type=$OUTFILE)
+
+define verb	show
+	parameter	p1,prompt="What",value(required,type=show_types)
+
+define type	show_types
+	keyword	map,syntax=show_map
+	keyword node,syntax=show_node
+	keyword hash,syntax=show_hash	! debug
+
+define type	layer_keywords
+	keyword	from, value(required)
+	keyword	to, value(required)
+	keyword	protocol, value(required)
+	keyword between, value(list,required)
+	keyword	end_address, value(list,required)
+	keyword	events, value(list,required)
+	keyword	display, value(list,required)
+	keyword	filter, value(required)
+
+define	syntax	show_map
+	routine	cmd_showmap
+	parameter	p1,value(required)
+	noqualifiers
+
+define syntax show_node
+	routine	cmd_shownode
+	parameter	p1,value(required)
+	parameter	p2,value(required),label=node
+	noqualifiers
+
+define syntax show_hash			! debug
+	routine	stat$show_hash
+	parameter	p1,value(required)
+	noqualifiers
+
+define verb	set
+	parameter	p1,prompt="What",value(required,type=set_types)
+
+define	type	set_types
+	keyword	error, syntax=set_error
+
+define	syntax	set_error
+	routine	ni$set_error
+	parameter	p1,prompt="What",value(required,type=set_types)
+	parameter	p2,prompt="action",value(required,type=erract_types)
+
+define	type	erract_types
+	keyword	continue
+	keyword	halt
+
+define	verb	map
+	routine	cmd_map
+	parameter	p1,label=node,prompt="Node name",
+			value(required,type=$QUOTED_STRING)
+	parameter	p2,label=line,prompt="Line number",
+			value(required,type=$NUMBER)
+
+define	verb	trace
+	routine	cmd_trace
+	qualifier	filter, value(type=$INFILE)
+	qualifier	trunc,default
+	qualifier	pad
+	qualifier	time,default
+	qualifier	initialize,default
+	qualifier	iosb
+	qualifier	802_trailer
+	qualifier	data,value(type=data_type)
+	qualifier	from,value(type=$QUOTED_STRING,required,list)
+	qualifier	to,value(type=$QUOTED_STRING,required,list)
+	qualifier	between,value(type=$QUOTED_STRING,list,required)
+	qualifier	end_address,value(type=$QUOTED_STRING,list,required)
+	qualifier	protocol,value(type=$QUOTED_STRING,required,list)
+	qualifier	output,value (type=$OUTFILE,required)
+	qualifier	l3,value(list, type= layer_keywords)
+	qualifier	l4,value(list, type= layer_keywords)
+	qualifier	min_size,value(type=$NUMBER,required)
+	qualifier	error
+	qualifier	debug
+	qualifier	full,nonnegatable
+	qualifier	brief,nonnegatable
+!disallow (not from and not to and not protocol and not end_address)
+disallow (end_address and (to or from))
+disallow (l3.end_address and (l3.from or l3.to))
+disallow (l4.end_address and (l4.from or l4.to))
+disallow filter and output
+disallow l3 and not filter
+disallow l4 and not filter
+disallow debug and not filter
+disallow full and brief
+disallow (full or brief) and not filter
+
+define	verb	analyze
+	routine	cmd_analyze
+	parameter	p1,label=input,value(required,type=$INFILE)
+	qualifier	filter, value(type=$INFILE)
+	qualifier	trunc,default
+	qualifier	pad
+	qualifier	time,default
+	qualifier	initialize,default
+	qualifier	initialize,default
+	qualifier	iosb
+	qualifier	802_trailer
+	qualifier	data,value(type=data_type)
+	qualifier	from,value(type=$QUOTED_STRING,required)
+	qualifier	to,value(type=$QUOTED_STRING,required)
+	qualifier	between,value(type=$QUOTED_STRING,list,required)
+	qualifier	end_address,value(type=$QUOTED_STRING,list,required)
+	qualifier	protocol,value(type=$QUOTED_STRING,required)
+	qualifier	output,value(required,type=$OUTFILE)
+	qualifier	l3,value(list, type= layer_keywords)
+	qualifier	l4,value(list, type= layer_keywords)
+	qualifier	min_size,value(type=$NUMBER,required)
+	qualifier	error
+	qualifier	debug
+	qualifier	full,nonnegatable
+	qualifier	brief,nonnegatable
+disallow (end_address or between) and (from or to)
+disallow end_address and between
+disallow (l3.end_address and (l3.from or l3.to))
+disallow (l4.end_address and (l4.from or l4.to))
+disallow debug and not filter
+disallow full and brief
+disallow (full or brief) and not filter
+
+define	type	data_type
+	keyword	hexadecimal,default
+	keyword	ascii
+
+define	verb	monitor
+	parameter	p1,label=class,value(type=classes)
+	routine		cmd_monitor_summary
+define	type	classes
+	keyword	summary,default
+	keyword	node,syntax=monitor_node
+	keyword	top,syntax=monitor_top
+	keyword	multicast,syntax=monitor_multicast
+	keyword	protocol,syntax=monitor_protocol
+	keyword	area,syntax=monitor_area
+	keyword	map,syntax=monitor_map
+	keyword size, syntax= monitor_size
+!
+define	syntax	monitor_node
+	routine	cmd_monitor_node
+	parameter	p1,label=class,value(required)
+	parameter	p2,label=from,value(required,type=$QUOTED_STRING)
+	qualifier	talk
+	qualifier	listen
+	qualifier	protocol,value(type=$QUOTED_STRING,required)
+	qualifier	initialize,default
+	qualifier	delta,default
+	qualifier	total
+	qualifier	to
+	qualifier	between
+	qualifier	end_address
+disallow	talk and listen
+disallow	total and delta
+disallow	to
+disallow	between
+disallow	end_address
+!
+define	syntax		monitor_top
+	routine		cmd_monitor_top
+	parameter	p1,label=class,value(type=classes)
+	qualifier	from,value(type=$QUOTED_STRING,required)
+	qualifier	to,value(type=$QUOTED_STRING,required)
+	qualifier	between,value(type=$QUOTED_STRING,list,required)
+	qualifier	end_address,value(type=$QUOTED_STRING,list,required)
+	qualifier	protocol,value(type=$QUOTED_STRING,required)
+disallow	from
+disallow	to
+disallow	end_address
+disallow	between
+disallow	protocol
+!
+define	syntax		monitor_protocol
+	routine		cmd_monitor_protocol
+	parameter	p1,label=class,value(type=classes)
+	qualifier	record,negatable,value(type=$OUTFILE,default="emon.rec")
+	qualifier	initialize,default
+	qualifier	from,value(type=$QUOTED_STRING,required)
+	qualifier	to,value(type=$QUOTED_STRING,required)
+	qualifier	between,value(type=$QUOTED_STRING,list,required)
+	qualifier	end_address,value(type=$QUOTED_STRING,list,required)
+	qualifier	protocol,value(type=$QUOTED_STRING,required)
+!
+define	syntax		monitor_multicast
+	routine		cmd_monitor_multicast
+	parameter	p1,label=class,value(type=classes)
+	qualifier	record,negatable,value(type=$OUTFILE,default="emon.rec")
+	qualifier	initialize,default
+	qualifier	from,value(type=$QUOTED_STRING,required)
+	qualifier	to,value(type=$QUOTED_STRING,required)
+	qualifier	between,value(type=$QUOTED_STRING,list,required)
+	qualifier	end_address,value(type=$QUOTED_STRING,list,required)
+	qualifier	protocol,value(type=$QUOTED_STRING,required)
+!
+define	syntax	monitor_area
+	routine		cmd_monitor_area
+	parameter	p1,label=class,value(required)
+	parameter	p2,label=area_nb,value(type=$number,required),
+			prompt= "Area number"
+	qualifier	delta,default
+	qualifier	total
+	qualifier	bytes,default
+	qualifier	packets
+	qualifier	protocol,value(type=$QUOTED_STRING,required)
+	qualifier	initialize,default
+disallow	total and delta
+disallow	bytes and packets
+
+define	syntax	monitor_map
+	routine	cmd_monitor_map
+	parameter	p1,label=class,value(required)
+	qualifier	delta,default
+	qualifier	total
+	qualifier	bytes,default
+	qualifier	packets
+	qualifier	from
+	qualifier	to
+	qualifier	between
+	qualifier	end_address
+	qualifier	protocol,value(type=$QUOTED_STRING,required)
+	qualifier	initialize,default
+disallow	from
+disallow	to
+disallow	end_address
+disallow	between
+disallow	total and delta
+disallow	bytes and packets
+
+define	syntax	monitor_size
+	routine		cmd_monitor_size
+	qualifier	frame,value(type=$NUMBER, list, required)
+	qualifier	from,value(type=$QUOTED_STRING, list, required)
+	qualifier	to,value(type=$QUOTED_STRING, list, required)
+	qualifier	between,value(type=$QUOTED_STRING,list,required)
+	qualifier	end_address,value(type=$QUOTED_STRING,list,required)
+	qualifier	protocol,value(type=$QUOTED_STRING, list, required)
+	qualifier	check

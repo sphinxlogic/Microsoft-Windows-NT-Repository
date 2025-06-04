@@ -1,0 +1,1243 @@
+%TITLE	'GETCMD'
+MODULE GETCMD (MAIN = main, IDENT = 'V3.6') = 
+BEGIN
+!
+!  Copyright © 1992, 1995 by MadGoat Software.  All rights reserved.
+!  Permission is granted for non-profit distribution and use, but the
+!  program cannot be modified and redistributed.
+!
+!++
+!
+!  Facility:	GETCMD
+!
+!  Author:	Hunter Goatley
+!
+!  Date:	February 5, 1992
+!
+!  Abstract:
+!
+!	This program will display another process's DCL command recall
+!	buffer.  A special kernel mode AST is queued to the target process
+!	to gather the information; this AST then queues another AST back
+!	to the requesting process to copy the information to this program's
+!	buffer.
+!
+!  Modified by:
+!
+!	V3.6		Hunter Goatley		16-AUG-1995 09:59
+!		Fixed VAX crash where process had no PRC region established
+!		yet.
+!
+!	V3.5		Hunter Goatley		12-JUL-1995 09:44
+!		Added user information header and line wrapping from
+!		MADGOAT_OUTPUT.B32.
+!
+!	V3.4		Hunter Goatley		 1-JUN-1994 16:52
+!		Modified to use larger recall buffer introduced with
+!		OpenVMS AXP V6.1 (4K instead of 1K).
+!
+!	03-003		Hunter Goatley		 3-NOV-1992 18:18
+!		Ported to OpenVMS AXP (Alpha).  The program is considerably
+!		simpler under Alpha because DEC has added a new system
+!		routine, EXE$READ_PROCESS.  Most of what GETCMD had to do
+!		is now done by this new routine.  This source file will
+!		compile under both VAX BLISS-32 and the Alpha BLISS-32E
+!		cross-compiler.
+!
+!		Also cleaned up other little things, like EXTERNAL LITERALs.
+!
+!	03-002		Hunter Goatley		 5-JUN-1992 07:37
+!		Modified it to check to see if the CLI name begins with
+!		"DCL".  If so, assume it is either DCL or some patched
+!		version of it.  Needed so people running my patched
+!		DCL_RECALL could use GETCMD.
+!
+!	03-001		Hunter Goatley		 2-JUN-1992 08:01
+!		Fixed two stupid problems (thanks to Jon Pinkley for
+!		pointing them out).  GETCMD now compares the IPID with
+!		SCH$GL_SWPPID to avoid checking SWAPPER (or NULL) and
+!		it also checks for a non-existent PRC region.  Also
+!		added checks to be sure that the target CLI is DCL.
+!
+!	03-000		Hunter Goatley		 5-FEB-1992 06:49
+!		BLISS rewrite of original MACRO-32 program.
+!
+!--
+LIBRARY 'SYS$LIBRARY:LIB';			!Pull stuff from LIB
+
+    EXTERNAL LITERAL
+	PRC_L_RECALLPTR,			!Address of last cmd
+	PRC_G_COMMANDS,				!Address of cmd buffer
+	PRC_S_COMMANDS;				!Size of cmd buffer
+
+%IF %BLISS(BLISS32V)
+%THEN
+!
+!  Define offsets for extended ACB (starting at ACB$K_LENGTH)
+!
+MACRO ACB_L_USERBUF	= ACB$K_LENGTH,    0, 32, 0 %;	!Pointer to local buff
+MACRO ACB_L_PID		= ACB$K_LENGTH+4,  0, 32, 0 %;	!PID of this process
+MACRO ACB_L_2ND_KAST	= ACB$K_LENGTH+8,  0, 32, 0 %;	!2nd KAST address
+MACRO ACB_L_EFN		= ACB$K_LENGTH+12, 0, 32, 0 %;	!Event flag to set
+MACRO ACB_L_IMGCNT	= ACB$K_LENGTH+16, 0, 32, 0 %;	!Process image count
+MACRO ACB_L_USERPTR	= ACB$K_LENGTH+20, 0, 32, 0 %;	!Address for offset
+MACRO ACB_L_RECALLPTR	= ACB$K_LENGTH+24, 0, 32, 0 %;	!Offset into buffer
+MACRO ACB_L_USERSTAT	= ACB$K_LENGTH+28, 0, 32, 0 %;	!Address for status
+MACRO ACB_L_AST_STATUS	= ACB$K_LENGTH+32, 0, 32, 0 %;	!Status from AST #1
+LITERAL ACB_S_DCLBUFFER = (4*1024)+4;			!Actual size is 1025
+MACRO ACB_T_DCLBUFFER	= ACB$K_LENGTH+36, 0,  0, 0 %;	!Reserve space
+LITERAL	ACB_K_LENGTH	= ACB$K_LENGTH+36+ACB_S_DCLBUFFER;
+MACRO ACB_T_ASTCODE	= ACB_K_LENGTH,    0,  0, 0 %;	!Stick AST code at end
+%FI
+
+!
+! MACROS
+!
+    LITERAL
+	true	= 1,
+	false	= 0;
+    MACRO
+	$STATICDESC (len, addr) =		!Static descriptor declaration
+		$BBLOCK[DSC$C_S_BLN]
+		PRESET	([DSC$W_LENGTH] = len,
+			 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+			 [DSC$A_POINTER]= addr)
+	%,
+	G_HAT =					!General addressing mode
+		ADDRESSING_MODE (GENERAL)
+	%;
+!
+!  Macro BITFLD takes a normal structure reference macro and converts it
+!  to a bit field reference (it leaves out the byte offset).
+!
+    MACRO
+	BITFLD (b,o,s,t) =
+		<o,s,t>%;
+
+
+%SBTTL	'Linkages'
+!
+!  Define JSB linkages for external and internal routines.
+!
+!  Note: only pid_call is used under Alpha.
+!
+    LINKAGE
+	jsb_qast	= JSB ( REGISTER = 2,		!Priority Increment
+				REGISTER = 5;		!Pointer to AST block
+				REGISTER = 4) :		!Target's PCB
+				NOPRESERVE(1,3)
+				NOTUSED(6,7,8,9,10,11),
+	ast_jsb		= JSB ( REGISTER = 4,		!PCB is passed in R4
+				REGISTER = 5) :		!ACB is passed in R5
+				NOPRESERVE(1,2,3,4,5)	!Don't save registers
+				NOTUSED(6,7,8,9,10,11),
+	alon_call	= JSB ( REGISTER = 1;		!Input is size to allo
+				REGISTER = 1,		!Returns size in R1
+				REGISTER = 2),		!... & addr in R2
+	deal_call	= JSB ( REGISTER = 0) :		!Address of block
+				NOTUSED(1,2,3,4,5,6,7,8,9,10,11),
+	pid_call	= JSB ( REGISTER = 0;		!PID passed in R0
+				REGISTER = 0) :		!PCB returned in R0
+				PRESERVE(1,2,3,4,5),	!R0--R5 are OK
+	chsep_call	= JSB (	REGISTER = 0,		!New priority in R0
+				REGISTER = 4) :		!PCB address
+				NOPRESERVE(2)
+				PRESERVE(1,3,5),
+	clref_call	= JSB (	REGISTER = 3,		!EFN passed in R3
+				REGISTER = 4),		!PCB addr in R4
+	postef_call	= JSB (	REGISTER = 1,		!The PID in R1
+				REGISTER = 2,		!Priority increment
+				REGISTER = 3) :		!The EFN in R3
+				NOTUSED(4,5,6,7,8,9,10,11);
+
+
+%SBTTL	'Forwards and Externals'
+    FORWARD ROUTINE
+	main,					!Main entry point
+	list_cmds,				!List the commands
+	krnl_get_dclbuffer			!Kernel mode routine
+%IF %BLISS(BLISS32V)
+%THEN
+	,ast_code	: NOVALUE ast_jsb	!Kernel AST for target prc
+	,ast2_code	: NOVALUE ast_jsb	!Second AST for original prc
+%FI
+	;
+
+    EXTERNAL ROUTINE
+	CLI$DCL_PARSE	: G_HAT,
+	CLI$GET_VALUE	: G_HAT,
+	CLI$PRESENT	: G_HAT,
+	LIB$GET_FOREIGN	: G_HAT,		!Get foreign command line
+	LIB$GET_INPUT	: G_HAT,		!Read from SYS$INPUT
+	LIB$PUT_OUTPUT	: G_HAT,		!Write to SYS$OUTPUT
+	OTS$CVT_TZ_L	: G_HAT,		!Convert ASCII # to hex
+	STR$CONCAT	: G_HAT;
+
+    EXTERNAL ROUTINE
+	madgoat_open_output,
+	madgoat_put_output,
+	madgoat_rms_output;
+
+    EXTERNAL ROUTINE
+%IF %BLISS(BLISS32V)
+%THEN
+	EXE$ALONONPAGED	: G_HAT alon_call,	!Allocate from non-paged pool
+	EXE$DEANONPAGED	: G_HAT deal_call,	!Deallocate non-paged
+	EXE$EPID_TO_PCB : G_HAT pid_call,	!Convert EPID to PCB address
+	EXE$IPID_TO_PCB : G_HAT pid_call,	!Convert IPID to PCB address
+	SCH$CHSEP	: G_HAT chsep_call,	!Make process executable
+	SCH$CLREF	: G_HAT clref_call,	!Clear Event Flag
+	SCH$POSTEF	: G_HAT postef_call,	!Post Event Flag
+	SCH$QAST	: G_HAT jsb_qast;	!Queue an AST
+%FI
+%IF %BLISS(BLISS32E)
+%THEN
+	EXE$READ_PROCESS	: G_HAT,
+	EXE$CVT_EPID_TO_IPID	: G_HAT pid_call;
+%FI
+
+%IF %BLISS(BLISS32V)
+%THEN
+    BUILTIN
+	MOVPSL;
+%FI
+
+    EXTERNAL
+	CTL$AL_CLICALBK	: G_HAT LONG,		!Address of CLI callback routine
+	CTL$GL_PCB	: G_HAT REF $BBLOCK,	!P1 pointer to PCB
+	CTL$GL_PHD	: G_HAT REF $BBLOCK,	!P1 pointer to PHD
+	SCH$GL_SWPPID	: G_HAT LONG;		!IPID of SWAPPER process
+
+    EXTERNAL LITERAL
+	getcmd__invpid,				!Error: Invalid PID specified
+	getcmd__nocli,				!Error: DCL not mapped
+	getcmd__nodcl,				!Error: CLI is not DCL
+	getcmd__nocmds,				!Msg: no DCL commands to recall
+	OTS$_INPCONERR;
+
+    EXTERNAL
+	getcmd_cld;
+
+    BIND
+	verb		= %ASCID'GETCMD ',
+	cmd_output	= %ASCID'OUTPUT',
+	cmd_pid		= %ASCID'PID',
+	cmd_page	= %ASCID'PAGE',
+	infoline1	= %ASCID'DCL commands recalled !%D',
+	userinfo	= %ASCID'User: !AD  (PID: !XL, Prcnam: !AD)',
+	null_line	= %ASCID'';
+
+
+%SBTTL	'MAIN'
+ROUTINE main =
+BEGIN
+!+
+!
+!  Routine:	MAIN
+!
+!  Functional description:
+!
+!	This is the main routine for GETCMD.  It calls LIB$GET_FOREIGN to
+!	retrieve the PID of the target process, converts it to binary,
+!	calls KRNL_GET_DCLBUFFER to queue the necessary ASTs, waits for
+!	an event flag to be set, and calls LIST_CMDS to display the
+!	target process's command recall buffer.
+!
+!  Environment:
+!
+!	User-mode.
+!
+!  Formal parameters:
+!
+!	None.
+!
+!  Implicit inputs:
+!
+!	None.
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+    LITERAL
+	event_flag	= 13;			!Pick some event flag
+    OWN
+	pid		: UNSIGNED LONG,	!Longword for target PID
+	cmd_buffer	: $BBLOCK[(4*1024)+1],	!Local copy of DCL recall buffer
+	ast_status,				!Status from ASTs
+	recall_ptr	: LONG,			!Offset of last command
+%IF %BLISS(BLISS32V)
+%THEN
+	krnl_arglst	: VECTOR[6,LONG]	!KRNL_GET_DCLBUFFER arglst
+			INITIAL(5,		!... Five arguments follow
+				event_flag,	!... The event flag to wait for
+				pid,		!... The PID of the target prc
+				cmd_buffer,	!... Address to receive buffer
+				recall_ptr,	!... Address to receive offset
+				ast_status);	!... Address to receive status
+%FI
+%IF %BLISS(BLISS32E)				!ALPHA VMS
+%THEN
+	krnl_arglst	: VECTOR[4,LONG]	!KRNL_GET_DCLBUFFER arglst
+			INITIAL(3,		!... Three arguments follow
+				pid,		!... The PID of the target prc
+				cmd_buffer,	!... Address to receive buffer
+				recall_ptr);	!... Address to receive offset
+%FI
+
+    REGISTER
+	status		: UNSIGNED LONG;	!The status
+
+    LOCAL
+	epid,
+	outrtn,
+	itmlst		: $ITMLST_DECL (ITEMS=4),
+	username	: $BBLOCK [12],
+	prcnam		: $BBLOCK [16],
+	prcnam_len,
+	fao_buffer	: $BBLOCK [256],
+	fao_buffer_d	: $staticdesc (%ALLOCATION(fao_buffer),fao_buffer),
+	cmd_line	: $BBLOCK [DSC$K_S_BLN],
+	outfile		: $BBLOCK [DSC$K_S_BLN],
+	pid_d		: $BBLOCK [DSC$K_S_BLN];
+	
+    $INIT_DYNDESC (cmd_line);
+    $INIT_DYNDESC (outfile);
+    $INIT_DYNDESC (pid_d);
+
+    status = LIB$GET_FOREIGN (cmd_line);
+    IF NOT(.status) THEN RETURN (.status);
+
+    STR$CONCAT (cmd_line, verb, cmd_line);
+    status = CLI$DCL_PARSE (cmd_line, getcmd_cld, LIB$GET_INPUT);
+    IF NOT (.status)
+    THEN
+	RETURN (.status OR STS$M_INHIB_MSG);
+
+    status = CLI$GET_VALUE (cmd_pid, pid_d);
+    IF (.status)
+    THEN
+	status = OTS$CVT_TZ_L (pid_d, pid);	!Convert from ASCII to hex
+    IF NOT(.status)
+    THEN
+	IF (.status EQLU OTS$_INPCONERR)
+	THEN
+	    RETURN (getcmd__invpid)
+    ELSE
+	RETURN (.status);	!Return any error
+
+    IF (CLI$PRESENT (cmd_output))		!Was /OUTPUT given?
+    THEN					!If so, get the filename and
+	BEGIN					!.... open the file
+	CLI$GET_VALUE (cmd_output, outfile);	!Get the filename
+	status = madgoat_open_output (outfile);	!Try to open the file
+	IF NOT (.status)
+	THEN
+	    RETURN (.status);
+	outrtn = madgoat_rms_output;		!Use RMS routine for output
+	END
+    ELSE
+	IF (CLI$PRESENT (cmd_page))		!If /PAGE was given, then
+	THEN					!... use SMG$ for output
+	    outrtn = madgoat_put_output
+	ELSE
+	    outrtn = LIB$PUT_OUTPUT;		!Otherwise, just use LIB$ rtn
+
+    $ITMLST_INIT (ITMLST = itmlst,
+		(ITMCOD = JPI$_PID,
+		 BUFADR = epid,
+		 BUFSIZ = %ALLOCATION(epid)),
+		(ITMCOD = JPI$_USERNAME,
+		 BUFADR = username,
+		 BUFSIZ = %ALLOCATION(username)),
+		(ITMCOD = JPI$_PRCNAM,
+		 BUFADR = prcnam,
+		 BUFSIZ = %ALLOCATION(prcnam),
+		 RETLEN = prcnam_len));
+
+    status = $GETJPIW (PIDADR = pid, ITMLST = itmlst);
+
+%IF %BLISS(BLISS32E)
+%THEN
+    !
+    !  Convert the EPID to an IPID
+    !
+    pid = EXE$CVT_EPID_TO_IPID (.pid);		!Convert the EPID to IPID
+    IF (.pid EQLU 0)				!If it's invalid, say so
+    THEN
+	RETURN(SS$_NONEXPR);
+
+    IF (.pid LEQU .SCH$GL_SWPPID)		!If the process is SWAPPER or
+    THEN					!... NULL, return NOCLI error
+	RETURN (GETCMD__NOCLI);			!... to caller
+%FI
+
+    !
+    !  Now switch to kernel mode to queue an AST to the target process.
+    !
+    status = $CMKRNL (ROUTIN = krnl_get_dclbuffer,	!Call krnl_get_dclbuffer
+			ARGLST = krnl_arglst);		!... with its arglst
+
+%IF %BLISS(BLISS32V)
+%THEN
+    IF (.status)				!AST queued successfully?
+    THEN					!If so, then wait for the
+	status = $WAITFR (EFN = event_flag);	!... event flag to be set
+
+    IF (.status)				!If successful, then get the
+    THEN					!... status from the AST and
+	status = .ast_status;			!... use that as the status
+%FI
+
+    IF (.status)				!If successful, then dump
+    THEN					!... the commands to SYS$OUTPUT
+	BEGIN
+	!
+	!  First, print some user info as a header.
+	!
+	status = $FAO (userinfo, fao_buffer_d, fao_buffer_d,
+			%ALLOCATION(username), username, .epid, .prcnam_len,
+			prcnam);
+	(.outrtn) (fao_buffer_d);
+	fao_buffer_d[DSC$W_LENGTH] = %ALLOCATION(fao_buffer);
+	status = $FAO (infoline1, fao_buffer_d, fao_buffer_d, 0);
+	(.outrtn) (fao_buffer_d);
+!	(.outrtn) (null_line);
+	(.outrtn) (null_line);
+	!
+	!  Now dump the commands too.
+	!
+	status = list_cmds (cmd_buffer, recall_ptr, .outrtn);
+	END;
+
+    RETURN (.status);				!Return status back to VMS
+
+END;						!End of routine
+
+
+%SBTTL	'LIST_CMDS'
+ROUTINE list_cmds (buf_a, ptr_a, outrtn) =
+BEGIN
+!+
+!
+!  Routine:	LIST_CMDS
+!
+!  Functional Description:
+!
+!	This routine mimics the RECALL/ALL command.  It steps through a
+!	command recall buffer, writing each command to SYS$OUTPUT.  The
+!	commands are printed in LIFO order (last in, first out, so the
+!	most recently executed command is printed first).
+!
+!  Environment:
+!
+!	User-mode.
+!
+!  Formal parameters:
+!
+!	buf_a	- Address of the command buffer.  By reference.
+!	ptr_a	- Offset in buffer of the end of the last command.
+!		  Longword, by reference.
+!
+!  Implicit inputs:
+!
+!	PRC_S_COMMANDS
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+    BIND
+	buffer	= .buf_a	: REF $BBLOCK,
+	lastptr	= .ptr_a	: LONG;
+
+    BIND
+	fao_ctr_str	= %ASCID'!3UW !AS';
+
+    MACRO
+	overflow (address) =				!Macro to check for
+		(address) GEQU end_buff_ptr %,		!... wrapping past end
+	underflow (address) =				!Macro to check for
+		(address) LSSU buffer %;		!... wrapping past begin
+
+    LOCAL
+	loop		: UNSIGNED LONG,	!Loop control flag
+	src		: REF $BBLOCK,		!Work pointer into buffer
+	save_lastptr	: REF $BBLOCK,		!Saved address of last command
+	end_buff_ptr	: UNSIGNED LONG		!Pointer to last byte in buffer
+			  INITIAL(buffer + PRC_S_COMMANDS),
+	length		: UNSIGNED LONG,	!Length of each command
+	status		: UNSIGNED LONG,	!Status from LIB$PUT_OUTPUT
+	cmd_buffer	: $BBLOCK[256],		!Local copy of each command
+	cmd_buffer_d	: $staticdesc(256,cmd_buffer),
+	fao_buffer	: $BBLOCK[270],		!Output buffer for FAOL
+	fao_buffer_d	: $staticdesc(260,fao_buffer),
+	faol_prmlst	: VECTOR[2,LONG]	!$FAOL parameter list
+			  INITIAL (0,		!... Command number
+				 cmd_buffer_d);	!... Command descriptor
+
+    IF (.lastptr EQLU 0)			!If the offset is 0, then
+    THEN					!... there are no commands
+	RETURN (GETCMD__NOCMDS);		!... in the buffer.  Return.
+
+    save_lastptr = buffer + .lastptr;		!Save address of beginning
+    src = .save_lastptr;				!And start there
+
+    loop = true;				!Initialize loop control
+    WHILE .loop DO				!Loop until no more commands...
+	BEGIN
+	src = .src - 1;				!Point to the length byte
+	IF underflow(.src)			!See if we passed the beginning
+	THEN					!... of the buffer.  If so, we
+	    src = .end_buff_ptr - 1;		!... need to point to the end
+	length = .src[0,0,8,0];			!Now get the command length
+	IF (.length NEQU 0)			!If we have a command,
+	THEN					!... then process it
+	    BEGIN
+	    IF underflow(.src - .length)	!If we'll underflow, we must
+	    THEN				!... copy the string in two
+		BEGIN				!... pieces
+		LOCAL
+		    temp1 : UNSIGNED LONG,
+		    temp2 : UNSIGNED LONG;
+		temp1 = (.src - buffer);	!Size of second piece of cmd
+		temp2 = .length - .temp1;	!Size of command at buffer end
+		CH$MOVE (.temp2, .end_buff_ptr - .temp2, cmd_buffer);
+		CH$MOVE (.temp1, buffer, cmd_buffer + .temp2);
+		src = .end_buff_ptr - .temp2;	!Now point src to the beginning
+		END
+	    ELSE				!No underflow---just copy it
+		BEGIN
+		src = .src - .length;
+		CH$MOVE (.length, .src, cmd_buffer);	!Copy the string
+		END;
+	    !
+	    !  Here, src is pointing to the first character in the cmd string.
+	    !  Now back to the preceding length byte and check for overflow....
+	    !
+	    src = .src - 1;
+	    IF underflow(.src)
+	    THEN
+		src = .end_buff_ptr-1;
+
+	    !
+	    !  And back up so src is pointing to the null byte (with overflow
+	    !  check).
+	    !
+	    src = .src - 1;
+	    IF underflow(.src)
+	    THEN
+		src = .end_buff_ptr-1;
+
+	    !
+	    !  Now src points to 0, so we're ready to process the next command.
+	    !
+	    !  This command is formatted using $FAOL and written to SYS$OUTPUT.
+	    !
+	    faol_prmlst[0] = .faol_prmlst[0] + 1;	!Increment the command number
+	    fao_buffer_d[DSC$W_LENGTH] = 260;	!Reset length of $FAO buffer
+	    cmd_buffer_d[DSC$W_LENGTH] = .length;	!Copy cmd length to descriptor
+	    IF ($FAOL (CTRSTR = fao_ctr_str,	!Format the string
+			OUTLEN = fao_buffer_d,	!... and store in fao_buffer
+			OUTBUF = fao_buffer_d,	!...
+			PRMLST = faol_prmlst))	!...
+	    THEN				!If format was OK, then write
+		status = (.outrtn) (fao_buffer_d);
+	    !
+	    !  To avoid a potential infinite loop, we need to make sure that
+	    !  we haven't worked our way through the buffer and landed on our
+	    !  starting point.
+	    !
+	    IF (.src EQLU .save_lastptr)	!Are we back where we started?
+	    THEN				!If so, we need to exit the
+		loop = false;			!... (infinite) loop
+	    END
+	ELSE					!Length was 0, which means we
+	    loop = false;			!... are finished looping
+
+	END;  !WHILE loop DO
+
+    RETURN (SS$_NORMAL);
+	
+END;
+
+
+%IF %BLISS(BLISS32E)
+%THEN
+
+%SBTTL	'KRNL_GET_DCLBUFFER'
+ROUTINE krnl_get_dclbuffer (pid_a, buf_a, ptr_a) =
+BEGIN
+!+
+!
+!  Routine:	KRNL_GET_DCLBUFFER
+!
+!  Functional Description:
+!
+!	This routine calls the Alpha routine EXE$READ_PROCESS to retrieve
+!	the DCL command recall buffer for another process.
+!
+!  Environment:
+!
+!	Kernel-mode, IPL 0.
+!
+!  Formal parameters:
+!
+!	pid_a	- EPID of the process.  Longword, by reference.
+!	buf_a	- 1025-byte buffer to receive DCL command buffer.  By reference.
+!	ptr_a	- Longword to receive PRC_L_RECALLPTR.  By reference.
+!
+!  Implicit inputs:
+!
+!	NONE.
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!  Side effects:
+!
+!-
+    BIND
+	pid	= .pid_a	: UNSIGNED LONG,	!Target EPID
+	bufadr	= .buf_a	: $BBLOCK,		!Local buffer
+	ptradr	= .ptr_a	: $BBLOCK;		!Local pointer
+
+    EXTERNAL
+	CTL$AG_CLIDATA	: G_HAT REF $BBLOCK,		!Process Permanent Data
+	CTL$AL_CLICALBK	: G_HAT LONG,			!CLI callback address
+	CTL$GT_CLINAME	: G_HAT VECTOR[,BYTE];		!Process Permanent Data
+
+    EXTERNAL LITERAL
+	PPD$L_PRC;					!Pointer to PRC
+
+!
+!  EXE$READ_PROCESS accepts the following parameters:
+!
+!	ipid			Target process internal PID
+!	buffer_size		Number of bytes to transfer
+!	target_address		Address in target process
+!	local_address		Address for data in local process
+!	target_address_type	Either virtual memory or register
+!	ast_counter_address	Address of a counter to identify
+!				the different reads/writes
+    LOCAL
+	prc,					!Address of the PRC region
+	target_address,				!Work variable to hold addrs
+	cliname		: VECTOR[4,BYTE],	!4 bytes for CLI name
+	ast_counter	: INITIAL(0),		!AST counter for EXE$ routine
+	status;					!Status from EXE$ calls
+
+    !
+    !  The downside to using EXE$READ_PROCESS instead of our own AST
+    !  is that we need several pieces of info about the target process,
+    !  which means we have to call EXE$READ_PROCESS several times.
+    !  But that's OK: it's an Alpha!
+    !
+    prc = CTL$AG_CLIDATA;			!Point to the PPD
+    prc = .(.prc + PPD$L_PRC);			!Now point to the PRC
+
+    !
+    ! First, make sure that a CLI is mapped....
+    !
+    status = EXE$READ_PROCESS (.pid, %ALLOCATION(target_address),
+		CTL$AL_CLICALBK, target_address, EACB$K_MEMORY, ast_counter);
+
+    IF NOT(.status) THEN RETURN (.status);
+
+    IF (.target_address LSS 0)			!If no callback routine, then
+    THEN					!... no CLI is mapped
+	RETURN(getcmd__nocli);			!Return an error saying so
+
+    !
+    !  And that the CLI is named DCL.
+    !
+    status = EXE$READ_PROCESS (.pid, %ALLOCATION(cliname),
+		CTL$GT_CLINAME, cliname, EACB$K_MEMORY, ast_counter);
+
+    IF NOT(.status) THEN RETURN (.status);
+
+    !
+    !  If the CLI name starts with "DCL", then assume it really is DCL.
+    !  This lets GETCMD work for patched versions of DCL (like DCL_RECALL).
+    !
+    IF (.cliname[0] LSSU 3) OR			!Does the CLI name start out
+       (.cliname[1] NEQU %C'D') OR		!... with "DCL"?  If not,
+       (.cliname[2] NEQU %C'C') OR		!... assume it's not DCL and
+       (.cliname[3] NEQU %C'L')			!... return an error
+    THEN
+	RETURN (getcmd__nodcl);
+
+    !
+    !  Here, a CLI named DCL is mapped, so let's go get the command recall
+    !  information.  First, get the address of the last command executed.
+    !
+    target_address = .prc + PRC_L_RECALLPTR;
+    status = EXE$READ_PROCESS (.pid, 4, .target_address,
+			ptradr, EACB$K_MEMORY, ast_counter);
+
+    IF NOT(.status) THEN RETURN(.status);
+
+    !
+    !  Now get the command recall buffer itself (1024 bytes + 1).
+    !
+    target_address = .prc + PRC_G_COMMANDS;
+
+    status = EXE$READ_PROCESS (.pid, PRC_S_COMMANDS, .target_address,
+			bufadr, EACB$K_MEMORY, ast_counter);
+
+    IF NOT(.status) THEN RETURN(.status);
+
+    !
+    !  Change the RECALLPTR so it's a relative offset into the command buffer.
+    !
+    ptradr = .ptradr - .target_address;		!Make it a relative offset
+
+    IF (.ptradr EQLU 0)				!If the offset is 0, there
+    THEN					!... are no commands.  Return
+	RETURN (getcmd__nocmds);		!... an error.
+
+    RETURN(.status);				!Return the status to caller
+
+END;
+%FI	!BLISS-32E
+
+
+%IF %BLISS(BLISS32V)
+%THEN
+
+%SBTTL	'KRNL_GET_DCLBUFFER'
+FORWARD
+	wslock_end;
+ROUTINE krnl_get_dclbuffer (efn, pid_a, buf_a, ptr_a, stat_a) =
+BEGIN
+!+
+!
+!  Routine:	KRNL_GET_DCLBUFFER
+!
+!  Functional Description:
+!
+!	This routine queues a special Kernel AST to the target process.
+!	It peforms the following steps:
+!
+!	  1.  Make sure the target process exists
+!	  2.  Clear the specified Event Flag
+!	  3.  Allocates an extended ACB with enough room for a command
+!	      buffer and the code for two ASTs.
+!	  4.  Initializes the ACB and copies the AST code to it.
+!	  5.  Queues the AST to the target process.
+!
+!  Environment:
+!
+!	Kernel-mode, elevated IPL (2 and IPL$_SCHED).
+!
+!  Formal parameters:
+!
+!	efn	- The event flag number.  Longword, by value.
+!	pid_a	- EPID of the process.  Longword, by reference.
+!	buf_a	- 1025-byte buffer to receive DCL command buffer.  By reference.
+!	ptr_a	- Longword to receive PRC_L_RECALLPTR.  By reference.
+!	stat_a	- Longword to receive status from AST.  By reference.
+!
+!  Implicit inputs:
+!
+!	CTL$GL_PCB, CTL$GL_PHD
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!  Side effects:
+!
+!	Raises IPL to 2 and IPL$_SCHED; acquires and releases the SCHED
+!	spinlock.
+!
+!-
+    MAP
+	efn	: UNSIGNED LONG;			!Event flag (by value)
+    BIND
+	pid	= .pid_a	: UNSIGNED LONG,	!Target EPID
+	bufadr	= .buf_a	: $BBLOCK,		!Local buffer
+	ptradr	= .ptr_a	: $BBLOCK,		!Local pointer
+	ustat	= .stat_a;				!Local status
+
+    LOCAL
+	old_ipl		: UNSIGNED LONG,		!Place to save old IPL
+	wslock_range	: VECTOR[2,LONG]		!Addr range for $LKWSET
+			  INITIAL (krnl_get_dclbuffer,	!Lock down all code
+				   wslock_end);		!... from here to end
+
+    REGISTER
+	temp_ptr	: REF $BBLOCK,
+	temp		: UNSIGNED LONG,
+	ast_size	: UNSIGNED LONG,
+	acb_size	: UNSIGNED LONG,
+	acb_addr	: REF $BBLOCK,
+	ipid		: UNSIGNED LONG,
+	pcb		: REF $BBLOCK,
+	status		: UNSIGNED LONG;
+
+  !
+  !  Page faulting is not allowed at IPLs above 2.  Because this routine
+  !  raises IPL to IPL$_SCHED, we must ensure that the routine is locked
+  !  into memory.  The $LKWSET system service is called to lock down all
+  !  the pages for this routine and the two AST routines.  The AST routines
+  !  are only accessed from IPL 2, but let's be safe and lock them down too.
+  !
+  status = $LKWSET (INADR  = wslock_range,		!Lock this routine into
+		    RETADR = wslock_range);		!... memory
+  IF NOT(.status) THEN RETURN(.status);			!Return any errors
+
+  !
+  !  Before allocating non-paged pool and initializing the extended ACB,
+  !  check to make sure that the target process exists and get its internal
+  !  PID (the IPID).
+  !
+  !  The process could be deleted while we're in this routine, but we
+  !  check its validity up front so that we don't waste the processing
+  !  time for a process that never existed.
+  !
+  IF ((ipid = .pid) EQLU 0)			!If the specified PID is 0,
+  THEN						!... then use our own process
+     !
+     ! It's inefficient to queue the ASTs to our own process when we could
+     ! just go get the buffer.  However, it *is* useful for debugging.
+     !
+     ipid = .CTL$GL_PCB[PCB$L_PID]		!This process is the target
+  ELSE
+     BEGIN
+     !
+     !  Get the IPID of the target process.  We call EXE$EPID_TO_PCB instead
+     !  of EXE$EPID_TO_IPID because the latter doesn't check to see if either
+     !  PID is valid, while the former ensures that the IPID matches the IPID
+     !  stored in the PCB, returning 0 if the process doesn't exist.
+     !
+     !  The SCHED spinlock is held while we copy the PID out of the PCB.
+     !  Because it is released afterward, it is possible that the process
+     !  could be deleted before the AST is queued.  SCH$QAST will catch
+     !  this condition.
+     !
+     $SYS_LOCK (LOCKNAME = SCHED,		!Grab the SCHED spinlock
+		SAVIPL   = old_ipl);		!... Save IPL for restoring
+
+     !
+     !  EXE$EPID_TO_PCB is described in module SYSPCNTRL in the VMS source.
+     !
+     EXE$EPID_TO_PCB (.ipid; pcb);		!Convert to PCB address
+
+     IF (.pcb NEQU 0)				!Is the process real?
+     THEN					!If so, copy the IPID out
+	ipid = .pcb[PCB$L_PID];			!... of the PCB
+
+     $SYS_UNLOCK (LOCKNAME = SCHED,		!Release the SCHED spinlock
+		  NEWIPL = .old_ipl);		!... and restore the IPL
+
+     IF (.pcb EQLU 0)				!If there was no such process
+     THEN					!... then return an error
+	 RETURN (SS$_NONEXPR);			!...
+
+     IF (.ipid LEQU .SCH$GL_SWPPID)		!If the process is SWAPPER or
+     THEN					!... NULL, return NOCLI error
+	 RETURN (GETCMD__NOCLI);			!... to caller
+
+     END;
+
+  !
+  !  At this point, the process exists (or did) and its IPID is stored in ipid.
+  !
+  !  Clear the specified event flag using SCH$CLREF.  SCH$CLREF is described
+  !  in module SYSEVTSRV; it accepts two inputs: R3 = event flag number,
+  !  R4 = PCB address.  On success, it returns via RSB, otherwise it RETs,
+  !  eliminating the need to check for errors because it will RETurn to
+  !  the CMKRNL dispatcher.
+  !
+  status = SCH$CLREF (.efn, .CTL$GL_PCB);	!Clear the event flag
+  !No need to check status....
+
+  !
+  !  Now raise IPL to 2 to avoid process deletion while non-paged pool is
+  !  is held.
+  !
+  $SETIPL (NEWIPL = IPL$_ASTDEL, ENVIRON=UNIPROCESSOR);
+
+  !
+  !  Now allocate an extended ACB from non-paged pool by calling
+  !  EXE$ALONONPAGED (in module MEMORYALC in SYS).
+  !
+  ast_size = CH$DIFF(wslock_end, ast_code);	!Size of both AST routines
+  status = EXE$ALONONPAGED (.ast_size + ACB_K_LENGTH; acb_size, acb_addr);
+
+  IF (.status)					!Enough memory allocated?
+  THEN						!If so, begin filling in the
+    BEGIN					!... fields in the ACB
+    acb_addr[ACB$L_PID] = .ipid;		!Save the PID of target process
+    acb_addr[ACB$W_SIZE] = .acb_size;		!Save size of ACB
+    acb_addr[ACB$B_TYPE] = DYN$C_ACB;		!Set type to ACB
+!    MOVPSL(temp_ptr);				!Get the current PSL
+!    temp = .temp_ptr BITFLD(PSL$V_CURMOD);	!Get our access mode (kernel)
+!    acb_addr[ACB$B_RMOD] = ACB$M_KAST OR .temp;	!Store in ACB with Special KAST
+    acb_addr[ACB$B_RMOD] = ACB$M_KAST;		!Store in ACB with Special KAST
+
+    !
+    !  Now fill in the extended ACB fields
+    !
+    acb_addr[ACB_L_EFN] = .efn;			!Store the event flag to set
+    acb_addr[ACB_L_USERBUF] = bufadr;		!Store the process buffer addr
+    acb_addr[ACB_L_USERPTR] = ptradr;		!Store the process pointer addr
+    acb_addr[ACB_L_USERSTAT] = ustat;		!Store the process status addr
+    acb_addr[ACB_L_PID] = .CTL$GL_PCB[PCB$L_PID];	!Store our PID
+    acb_addr[ACB_L_IMGCNT] = .CTL$GL_PHD[PHD$L_IMGCNT];	!And our image count
+
+    !
+    !  Now copy the AST routines to the extended ACB.
+    !
+    CH$MOVE(.ast_size, ast_code, acb_addr[ACB_T_ASTCODE]);
+
+    acb_addr[ACB$L_KAST] = acb_addr[ACB_T_ASTCODE];		!AST address
+    acb_addr[ACB_L_2ND_KAST] = acb_addr[ACB_T_ASTCODE] +	!2nd AST address
+				CH$DIFF(ast2_code, ast_code);
+
+    !
+    !  Now we're ready to queue the AST to the target process.  We could just
+    !  call SCH$QAST, but it doesn't check to see if the target process is
+    !  swapped out of memory.  To avoid swapping the process into memory just
+    !  to get its recall buffer, let's make those checks and then queue it....
+    !
+    $SYS_LOCK (LOCKNAME = SCHED,		!Grab the SCHED spinlock again
+	       SAVIPL	= old_ipl);		!... and save the IPL
+    EXE$IPID_TO_PCB (.ipid; pcb);		!Look up the PCB again
+    IF ((.pcb NEQU 0)			AND	!If there is a PCB and it is
+	(.ipid EQLU .pcb[PCB$L_PID])	AND	!... still the same process
+	NOT(.pcb[PCB$V_DELPEN])		AND	!... and delete is not pending
+	NOT(.pcb[PCB$V_SUSPEN])		AND	!... and suspend is not pending
+	(.pcb[PCB$W_STATE] NEQU SCH$C_SUSP) AND	!... and state is not SUSP,
+	(.pcb[PCB$W_STATE] NEQU SCH$C_SUSPO) AND!... SUSPO, or MWAIT
+	(.pcb[PCB$W_STATE] NEQU SCH$C_MWAIT))	!...
+    THEN					!Then queue the AST with a
+	BEGIN					!... priority increment
+	status = SCH$QAST (PRI$_TICOM, .acb_addr; pcb);
+	!
+	!  If the AST was successfully queued to the target process and
+	!  the process is in the COM state, temporarily boost its priority
+	!  to match ours so this runs at quickly as possible.
+	!
+	IF ((.status) AND			!If AST was queued and the
+	    ((.pcb[PCB$W_STATE] EQLU SCH$C_COM) OR	!... process is in
+	     (.pcb[PCB$W_STATE] EQLU SCH$C_COMO)))	!... COM state
+	THEN
+	   IF ((.CTL$GL_PCB[PCB$B_PRI] LSSU 16) AND
+	       (.CTL$GL_PCB[PCB$B_PRI] GTRU .pcb[PCB$B_PRI]))
+	   THEN					!Boost its priority
+		! SCH$CHSEP is described in module RSE
+		SCH$CHSEP (.CTL$GL_PCB[PCB$B_PRI], .pcb);
+	END
+    ELSE					!Here, the target process was
+	status = SS$_NONEXPR;			!... deleted or swapped out
+
+    $SYS_UNLOCK (LOCKNAME = SCHED,		!Release the SCHED spinlock
+		 NEWIPL   = .old_ipl);		!... and restore IPL
+
+    IF NOT(.status)				!If an error occurred queueing
+    THEN					!... the AST, then release the
+	EXE$DEANONPAGED (.acb_addr);		!... ACB back to nonpaged pool
+
+    END;
+
+  $SETIPL (NEWIPL = 0, ENVIRON=UNIPROCESSOR);	!Lower IPL from 2 to 0
+
+  $ULWSET (INADR = wslock_range);		!Unlock these pages
+
+RETURN (.status);				!Return the final status
+
+END;
+
+
+%SBTTL	'AST_CODE'
+ROUTINE ast_code (pcb, acb) : NOVALUE ast_jsb =
+BEGIN
+!+
+!
+!  Routine:	AST_CODE
+!
+!  Functional Description:
+!
+!	This routine executes as a special Kernel-mode AST in the context
+!	of the target process.  It copies the process's DCL command recall
+!	buffer into the extended ACB and then queues an AST back to the
+!	requesting process to return the buffer to it.
+!
+!	This routine duplicates the MACRO trick of JMPing into SCH$QAST
+!	and letting its RSB return to the ASTDEL code.  This eliminates
+!	the problems of returning to code in memory that may have already
+!	been deallocated to nonpaged pool.
+!
+!  Environment:
+!
+!	Kernel-mode, IPL 2.  Called via JSB.
+!
+!  Formal parameters:
+!
+!	R4	- PCB address
+!	R5	- ACB address
+!
+!  Implicit inputs:
+!
+!	CTL$AG_CLIDATA, PPD$L_PRC, PRC_G_COMMANDS, PRC_S_COMMANDS,
+!	PRC_L_RECALLPTR
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!  Side effects:
+!
+!	Re-uses the ACB to queue an AST back to the requesting process.
+!
+!-
+    MAP
+	pcb	: REF $BBLOCK,
+	acb	: REF $BBLOCK;
+
+    BIND
+	dcl_cliname	= %ASCIC'DCL';
+
+    REGISTER
+	src	: REF $BBLOCK,
+	dst	: REF $BBLOCK,
+	prc	: REF $BBLOCK;
+
+    EXTERNAL
+	CTL$AG_CLIDATA	: G_HAT REF $BBLOCK,		!Process Permanent Data
+	CTL$GT_CLINAME	: G_HAT VECTOR[,BYTE];		!Process Permanent Data
+
+    EXTERNAL LITERAL
+	PPD$L_PRC;					!Pointer to PRC
+
+  !
+  !  First, let's make sure the CLI is DCL.  The CLI name is stored as an
+  !  ASCIC string at CTL$GT_CLINAME, so we can just check to see if the
+  !  longword there matches the %ASCIC string "DCL".
+  !
+  acb[ACB_L_AST_STATUS] = SS$_NORMAL;		!Start off assuming all is OK
+
+  !
+  !  See if the CLI name is DCL.  In order to support people running my
+  !  DCL_RECALL patch, just check to see if the CLI name starts with "DCL".
+  !  If it does, then assume it *is* DCL and continue.
+  !
+  IF (.CTL$GT_CLINAME[0] LSSU 3) OR		!Does the CLI name start out
+     (.CTL$GT_CLINAME[1] NEQU %C'D') OR		!... with "DCL"?  If not,
+     (.CTL$GT_CLINAME[2] NEQU %C'C') OR		!... assume that it is not
+     (.CTL$GT_CLINAME[3] NEQU %C'L')		!... and return the NODCL
+  THEN						!... error
+      acb[ACB_L_AST_STATUS] = GETCMD__NODCL;	!... the AST status to "No DCL"
+
+  !
+  !  Just because DCL is the CLI doesn't mean that it's actually been mapped
+  !  in, because LOGINOUT always copies the CLI name to CTL$GT_CLINAME.
+  !  We can, however, check to make sure DCL is there by checking the
+  !  address of the CLI callback routine, which is stored in CTL$AL_CLICALBK.
+  !  The address initially stored there points to routine in S0 space that
+  !  just returns a "no CLI" error.  If DCL *has* been mapped, the address
+  !  will be one in P1 space.
+  !
+  !  V3.6: Found a case where the CLICALBK address was 0, while cliname
+  !        had been set to DCL.  Check for 0 or S0 address (LSS -> LEQ).
+  !
+  IF (.CTL$AL_CLICALBK LEQ 0)			!Is the address <= 0?  If
+  THEN						!... so, it's in S0 space, so
+      acb[ACB_L_AST_STATUS] = GETCMD__NOCLI;	!... set error status
+
+  !
+  !  If we made it here with ACB_L_AST_STATUS still true, then DCL is the
+  !  CLI and it has been mapped.  We're now ready to go get the command
+  !  recall buffer.
+  !
+  IF (.acb[ACB_L_AST_STATUS])
+  THEN
+      BEGIN
+      !
+      !  Now get the pointer to the process's PRC region.  This address
+      !  is stored in the PPD at offset PPD$L_PRC.  The global symbol
+      !  CTL$AG_CLIDATA points to the PPD.
+      !
+      prc = CTL$AG_CLIDATA;			!Point to the PPD
+      prc = .(.prc + PPD$L_PRC);		!Now point to the PRC
+      IF (.prc EQLU 0)
+      THEN
+	  acb [ACB_L_AST_STATUS] = GETCMD__NOCLI;
+      END;
+
+   IF (.acb [ACB_L_AST_STATUS])
+   THEN
+      BEGIN
+      !
+      !  The command recall buffer begins at offset PRC_G_COMMANDS.  The
+      !  pointer to the end of the last command in the buffer is stored at
+      !  offset PRC_L_RECALLPTR.  We need to convert this PRC_L_RECALLPTR
+      !  address into a relative offset into the buffer.
+      !
+      acb[ACB_L_RECALLPTR] = .(.prc + PRC_L_RECALLPTR) -
+			      (.prc + PRC_G_COMMANDS);
+
+      !
+      !  Now we're ready to copy the whole command recall buffer to our
+      !  extended ACB.  A loop is used instead of CH$MOVE to keep register
+      !  usage within R0--R5.  (When CH$MOVE is used, BLISS saves R6 and
+      !  changes the JMP to SCH$QAST to a JSB.  Hence the reason for the
+      !  loop.)
+      !
+      src = .prc + PRC_G_COMMANDS;		!Point to the recall buffer
+      dst = acb[ACB_T_DCLBUFFER];		!Point to the buffer in the ACB
+      DECR i FROM PRC_S_COMMANDS TO 0		!Copy PRC_S_COMMANDS bytes
+	DO					!... from the recall buffer
+	   CH$WCHAR_A(CH$RCHAR_A(src),dst);	!... to the buffer in the ACB
+      !
+      !  Not used for reason given above.
+      !
+      !  CH$MOVE (PRC_S_COMMANDS, .prc + PRC_G_COMMANDS, acb[ACB_T_DCLBUFFER]);
+
+      END;
+
+  !
+  !  Now reset the ACB for queueing back to the original process.
+  !
+  acb[ACB$L_KAST] = .acb[ACB_L_2ND_KAST];	!KAST field points to 2nd AST
+  acb[ACB$L_PID]  = .acb[ACB_L_PID];		!Move requestor's PID
+  acb[ACB$B_RMOD] = .acb[ACB$B_RMOD] OR ACB$M_KAST;	!Make sure KAST is set
+
+  !
+  !  Now we're ready to JMP into SCH$QAST to queue the AST back.  BLISS is
+  !  tricked into generating a JMP so that control does *not* return back
+  !  to this routine.  It is possible on SMP machines that the second AST
+  !  *could* deallocate the extended ACB before SCH$QAST returned control
+  !  to this routine, resulting in a return to memory deallacted back to
+  !  pool.  The issue is avoided by JMPing into SCH$QAST, which will then
+  !  RSB to the ASTDEL code.
+  !
+  SCH$QAST (0, .acb; pcb);		!JMP into SCH$QAST and let it return
+					!... to the caller
+
+END;
+
+
+%SBTTL	'AST2_CODE'
+ROUTINE AST2_CODE (pcb, acb) : NOVALUE ast_jsb =
+BEGIN
+!+
+!
+!  Routine:	AST2_CODE
+!
+!  Functional Description:
+!
+!	This routine executes as a special Kernel-mode AST in the context
+!	of the requesting process.  It copies the target's command buffer
+!	from the extended ACB back into this program's buffer.
+!
+!	This routine duplicates the MACRO trick of JMPing into EXE$DEANONPAGED
+!	and letting its RSB return to the ASTDEL code.  This eliminates
+!	the problems of returning to code in memory that may have already
+!	been deallocated to nonpaged pool.
+!
+!  Environment:
+!
+!	Kernel-mode, IPL 2.  Called via JSB.
+!
+!  Formal parameters:
+!
+!	R4	- PCB address
+!	R5	- ACB address
+!
+!  Implicit inputs:
+!
+!	Addresses stored in the extended ACB
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!  Side effects:
+!
+!	JMPs into EXE$DEANONPAGED to deallocate the extended ACB back to
+!	nonpaged pool.
+!
+!-
+    MAP
+	pcb	: REF $BBLOCK,
+	acb	: REF $BBLOCK;
+
+    EXTERNAL
+	PRC_S_COMMANDS	: ADDRESSING_MODE (ABSOLUTE);	!Size of command buffer
+
+    REGISTER
+	src	: REF $BBLOCK,
+	dst	: REF $BBLOCK;
+
+  src = .pcb[PCB$L_PHD];			!Get the PHD address
+  !
+  !  If the original process is no longer running the same image that queued
+  !  the ASTs, then we don't want to do anything except deallocate the
+  !  extended ACB (otherwise, we'd copy the DCL command buffer to an address
+  !  that is no longer valid).  To ensure the same image is running, compare
+  !  the IMGCNT fields.
+  !
+  IF (.src[PHD$L_IMGCNT] EQLU .acb[ACB_L_IMGCNT])	!If the image count is
+  THEN							!... the same, we're
+     BEGIN						!... still running
+     IF (.acb[ACB_L_USERSTAT] = .acb[ACB_L_AST_STATUS])	!Copy status; if OK,
+     THEN						!... then copy to user
+	BEGIN						!... recall buffer
+	.acb[ACB_L_USERPTR] = .acb[ACB_L_RECALLPTR];	!Copy the offset
+	src = acb[ACB_T_DCLBUFFER];			!Point to ACB buffer
+	dst = .acb[ACB_L_USERBUF];			!Point to user buffer
+	DECR i FROM PRC_S_COMMANDS TO 0			!Copy the buffer
+	   DO						!Again, a loop is used
+	   CH$WCHAR_A(CH$RCHAR_A(src),dst);		!... to avoid MOVC3
+	END;
+     !
+     !  The process is waiting for the event flag to be set, so post it
+     !  to indicate that the recall buffer has been successfully copied.
+     !
+     SCH$POSTEF (.acb[ACB_L_PID], 0, .acb[ACB_L_EFN]);
+     END;
+
+  EXE$DEANONPAGED (.acb);		!JMP to deallocate the extended ACB
+
+END;
+
+!From LOGIN
+PSECT OWN = $CODE$(NOWRITE,EXECUTE);	! Cause this OWN to occur here
+OWN wslock_end : UNSIGNED LONG;		! Used to lock down previous code pages
+PSECT OWN = $OWN$(WRITE,NOEXECUTE);	! Restore normal own psect
+
+%FI	!BLISS-32 code
+
+END						!End of module BEGIN
+ELUDOM						!End of module

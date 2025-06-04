@@ -1,0 +1,178 @@
+/*****************************************************************************
+ *									     *
+ *  Copyright (c) 1983, 1988		                                     *
+ *  by Digital Equipment Corporation, Maynard, Mass.			     *
+ * 									     *
+ *  This software is furnished under a license and may be used and  copied   *
+ *  only  in  accordance  with  the  terms  of  such  license and with the   *
+ *  inclusion of the above copyright notice.  This software or  any  other   *
+ *  copies  thereof may not be provided or otherwise made available to any   *
+ *  other person.  No title to and ownership of  the  software  is  hereby   *
+ *  transferred.							     *
+ * 									     *
+ *  The information in this software is subject to change  without  notice   *
+ *  and  should  not  be  construed  as  a commitment by Digital Equipment   *
+ *  Corporation.							     *
+ * 									     *
+ *  Digital assumes no responsibility for the use or  reliability  of  its   *
+ *  software on equipment which is not supplied by Digital.		     *
+ *									     *
+ *****************************************************************************/
+/**
+*
+* FACILITY:	 SDL 
+*
+* ABSTRACT:	 
+*		routine to get a line of text from the input source file.
+*
+* ENVIRONMENT:	 
+*		VAX/VMS
+*
+* AUTHOR:	 
+*		C.T. Pacy
+*
+* CREATION DATE: 
+*
+* MODIFIED BY:
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+ 		|	|
+   Sept 19,1983	|  kd	| Make this a seperate routine and remove from the SDLIO
+		|	| file.  Make necessary changes for V2.0. This routine 
+		|	| is only required by the front end. Add some 
+		|	| documentation.
+________________|_______|______________________________________________________
+   15-Feb-1988	|  jg	| X3.2-0  If within a LITERAL, enclose the entire
+		|	|	  record in quotes, doubling any embedded
+		|	|	  ones.  If a literal record contains the
+		|	|	  keyword END_LITERAL, this terminates the
+		|	|	  literal statement.
+		|	|	  Move original line to new `lisbuf'.
+________________|_______|______________________________________________________
+
+*/	
+/*
+**/
+
+/**
+* FUNCTIONAL DESCRIPTION: SDL$GETLINE
+*
+*	This routine gets a line of text from the input source file
+*	and returns the length of the line read if successful, and
+*	-1 if EOF
+*	
+*
+* FORMAL PARAMETERS:
+*
+*	tbs
+*
+* IMPLICIT INPUTS:
+*
+*	tbs
+*
+* IMPLICIT OUTPUTS:
+*
+*	tbs
+*
+* ROUTINE VALUE:
+* COMPLETION CODES:
+*
+*	if successful, this routine returns the length of the buffer.
+*
+*	if the end of file was detected, this routine returns a -1.
+*
+**/
+
+%replace true by '1'b;
+%replace false by '0'b;
+
+sdl$getline:	proc (sdl$_shr_data, inbuf, lisbuf) returns (fixed bin(31))
+						options(ident('X3.2-0'));
+
+	%include 'sdl$library:sdlshr.in';	
+
+dcl 	inbuf char(1024) var ; 		/* buffer to contain the line read from*/
+				      	/* the input source file */
+dcl	lisbuf char(1024) var ;		/* jg - list line buffer */
+dcl	tempbuf char(1024) var ;	/* jg - temporary work buffer */
+dcl	(first, last, limit, len) fixed bin(31);
+dcl	endlit bit init (false) static;
+
+	if file_level = 0
+	then do; 
+		on endfile(infile) goto ex;	
+		read file(infile) into (inbuf);
+	end;
+	else do;
+		on endfile(incl_file) goto ex;
+		read file(incl_file) into (inbuf);
+	end;
+
+	lisbuf = inbuf;						/* jg */
+
+	/* JG
+	 * If within a LITERAL, enclose the record within quotes, thus
+	 * turning it into one long string literal.
+	 * Any embedded quotes must be doubled up.
+	 * If END_LITERAL occurs anywhere in the line, enclose the record in
+	 * quotes only as far as the END_LITERAL, and reset literal active.
+	 */
+
+	if sdl$v_literal_active then do;
+	    limit = index(translate(inbuf, 'ENDLITRA', 'endlitra'),
+			'END_LITERAL');
+	    if limit = 1 then
+		sdl$v_literal_active = false;	    /* no preceding text */
+	    else do;
+		if limit = 0 then 
+		    limit = length(inbuf)+1;	    /* no END_LITERAL */
+		else do;
+		    sdl$v_literal_active = false;   /* END_LITERAL, but text */
+		    endlit = true;		    /* to process */
+		    end;
+		len = limit;
+		tempbuf = inbuf;
+		if index(inbuf,'"') > 0 then do;
+		    tempbuf = '';
+		    first = 1;
+		    last = index(inbuf, '"');
+		    do while (last > 0 & last < limit);
+			tempbuf = tempbuf ||
+				  substr(inbuf, first, last-first+1) || '"';
+			len = len + 1;		/* count extra quote */
+			first = last+1;
+			last = index(inbuf, '"', first);
+			end;
+		    tempbuf = tempbuf || substr(inbuf, first);
+		    end;
+
+		tempbuf = substr(tempbuf, 1, len-1);
+		if endlit then do;
+		    /* Remove trailing blanks/tabs from string part.
+		     * Would like to use the PL/I trim built-in here, but
+		     * the name is already used by SDL.
+		     */
+		    len = length(tempbuf);
+		    do while (substr(tempbuf,len)=' ' |
+				substr(tempbuf,len)=byte(9));
+			len = len-1;
+			tempbuf = substr(tempbuf, 1, len);
+			end;
+		    end;
+
+		tempbuf = '"' || tempbuf || '"';
+		if endlit then tempbuf = tempbuf || ' ' || substr(inbuf,limit);
+		inbuf = tempbuf;
+		end;
+	    end;
+
+	return (length(inbuf));		/* return the length of the input 
+						line*/
+ex:
+	return (-1);
+end;
+ 
+

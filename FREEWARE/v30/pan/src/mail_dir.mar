@@ -1,0 +1,331 @@
+
+
+
+
+
+Dfab:	$fab	fac=<Put>, Rat=<Cr>
+Drab:	$rab	fab=Dfab,usz=500,rsz=500,ubf=buffer,rbf=buffer
+
+buffer:	.blkb	500
+
+
+descr:	.blkl	2
+mail_cont:	.blkl	1
+out:	.long	100
+	.long	out+8
+	.blkb	100
+
+	.library	/sys$login:peb/
+
+a1:	.ascii	/MAIL.MAI/
+a2 = . - a1
+ctr_d:	.ascid	/Default mail file is !AS/
+dir:	.ascid	/DIR/
+
+
+	$Maildef
+
+
+
+ctr1:	.ascid	/Mail file is   !AD    (!UL Deleted Bytes)/
+
+
+; & its full file spec (we need this later)
+
+open_out:	.word	4
+		.word	mail$_mailfile_deleted_bytes
+		.long	deleted_bytes 
+		.long	0
+;
+		.word	250
+		.word	mail$_mailfile_resultspec
+		.long	Mail_dir
+		.long	Mail_dir_len
+;
+		.long	0
+
+deleted_bytes:	.blkl	1
+
+
+
+
+
+
+open_in:	.word	0
+		.word	mail$_mailfile_name
+		.long	0
+		.long	0
+;
+def_it:		.word	0
+		.word	MAIL$_MAILFILE_DEFAULT_NAME
+		.long	DEFmail_dir
+		.long	0
+;
+		.long	0
+
+
+
+; a blank item list
+
+Null:		.word	0
+		.word	0
+		.long	0
+		.long	0
+;
+		.long	0
+
+
+
+; tell us the mail spec for the mail file
+
+begin_out:	.word	150
+		.word	mail$_mailfile_mail_directory
+		.long	DEFmail_dir
+		.long	DEFmail_dir_len
+;
+		.long	0
+
+
+DEFmail_dir:		.blkb	200
+DEFmail_dir_len:	.blkl	1
+
+
+Mail_Dir_Len:	.blkl	1
+Mail_Dir:	.blkb	255
+
+
+
+	.entry	do_mail_dir,0
+
+
+
+
+	Pushaw  Patt
+	pushaq  Patt
+	pushaq  Entry
+	calls   #3,g^cli$get_value 
+	check	r0,error	
+
+	pushaq	patt
+	pushaq	patt
+	calls	#2,g^str$upcase
+
+101$:	nop
+
+; output file
+
+	movl    #100,out
+	Pushaw  out
+	pushaq  out
+	pushaq  output
+	calls   #3,g^cli$get_value 
+	check	r0,error	
+
+
+
+	movb	out,Dfab+fab$b_fns
+	movl	out+4,Dfab+fab$l_fna
+
+	$create	fab=Dfab
+	check	r0,error
+
+	$connect	rab=Drab
+	check	r0,error
+
+
+
+
+
+	pushaw	begin_out
+	pushaw	Null
+	pushal	mail_cont
+	calls	#3,g^mail$mailfile_begin
+	check	r0,error
+
+
+; tack on MAIL.MAI
+
+
+	movab	DEFmail_dir, R6
+	addl2	DEFmail_dir_len, R6
+	incl	R6
+	movc3	#a2, a1, (R6)
+	addl2	#a2, DEFmail_dir_len
+	incl	DEFmail_dir_len
+
+
+	movl	DEFmail_dir_len, descr
+	movab	DEFmail_dir, descr+4
+;	pushaq	descr
+;	calls	#1,g^lib$put_output
+
+
+
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_d,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+	movw	DEFmail_dir_len, def_it
+
+; open the mail file
+
+
+	pushaq	dir
+	calls	#1,g^cli$present
+	blbc	r0,55$
+
+
+	movl    #100,Out
+	Pushaw  Out
+	pushaq  Out
+	pushaq  Dir
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+	movw	Out, open_in
+	movab	out+8,open_in+4
+
+55$:	nop
+
+
+	pushaw	open_out
+	pushaw	open_in
+	pushal	mail_cont
+	calls	#3,g^mail$mailfile_open
+	check	r0,error
+
+
+
+
+; tell us the mail file name & how many deleted bytes
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr1,outbuf=out,outlen=out,-
+		p1=mail_dir_len,-
+		p2=#mail_dir,-
+		p3=deleted_bytes 
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+
+	pushaw	info_out
+	pushaw	info_in
+	pushal	mail_cont
+	calls	#3,g^mail$mailfile_info_file
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_li,outbuf=out,outlen=out,-
+		p1=listed,-
+		p2=#Patt
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+error:	ret
+
+	.entry	folder_routine,0
+
+	nop
+	movl	8(ap),r6
+
+	movw	(R6),Descr
+	Movl	4(R6),Descr+4
+
+	pushaq	descr
+	pushaq	descr
+	calls	#2,g^str$upcase
+
+
+	pushaq	Patt
+	pushaq	descr
+	calls	#2,g^STR$MATCH_WILD  
+
+	cmpl	R0,#STR$_MATCH
+	beql	101$
+
+	movl	#1,r0
+	ret
+
+101$:	nop
+
+	incl	listed
+
+	movw	descr, Drab+rab$w_rsz
+	movw	descr, Drab+rab$w_usz
+
+	movl	descr+4, 	Drab+rab$l_Rbf
+	movl	descr+4,	Drab+rab$l_Ubf
+
+	$put	rab=Drab
+	check	r0,error
+
+
+
+	ret
+
+
+info_in:	.word	4
+		.word	mail$_mailfile_folder_routine
+		.long	folder_routine 
+		.long	0
+;
+		.long	0
+
+
+
+info_out:		.word	4
+			.word	mail$_mailfile_deleted_bytes
+			.long	deleted_bytes 
+			.long	0
+;
+			.long	0
+
+
+
+
+
+
+output:	.ascid	/OUTPUT/
+
+
+
+entry:	.ascid	/ENTRY/
+patt:	.long	100
+	.long	patt+8
+	.blkb	100
+
+ctr_li:	.ascid	/There are !UL mail folders  matching  "!AS"/
+
+listed:	.blkl	1
+
+	.end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

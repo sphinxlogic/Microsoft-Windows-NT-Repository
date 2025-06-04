@@ -1,0 +1,1044 @@
+%title 'nm$fileio'
+module nm$fileio (
+                 ident='10',
+    		 addressing_mode(external=general)
+    	         ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	15-Mar-1985
+!
+! Revision history:
+!
+!   01	14-Nov-1985
+!	Ignore RMS$_RTB (record too big) errors when reading file
+!
+!   02  09-Apr-1986 
+!	Change NM$CREATE_CTL_FILE so as to generate the filename
+!	internally. Force channel to be assigned in user mode.
+!	Change use of NM$GT_xxx to accord with new definiton as
+!	counted strings.
+!
+!   03	26-Jun-1987
+!	Add NM$READ_CTL_EOK, a variation on NM$READ_CTL that doesn't
+!	barf on reading EOF.
+!
+!   04	31-Jan-1989
+!	Add NM$WRITE_CTL_BLK, NM$GET_VBN, NM$POINT_VBN, needed to 
+!	support foreign messages.  Change calling sequence for
+!	NMREAD_CTL_BLK for reasons of compatibility.
+!
+!   05	5-Feb-1989
+!	Merge function of NM$READ_CTL_EOK, NM$READ_CTL_BLK_EOK,
+!	into the non-EOK routines.
+!
+!   06	4-Jul-1992
+!	Make CTL_FILENAME own data - it needs to remain valid after
+!	a stack unwind.
+!
+!   07	20-Sep-1993
+!	Rearrange NM$CREATE_CTL_FILE to remove the exec-mode processing
+!	to a separate module, leaving only user-mode stuff here.  
+!	This change needed as a consequence of changes in image
+!	activator behaviour on Alpha.
+!
+!   08	4-Oct-1993
+!	Add ALIAS attributes to RMS structures to allow us
+!	to compile with /CHECK=ADDRESS_TAKEN
+!
+!   09	17-Nov-1993
+!	Optionally return creation date-time when opening
+!	an existing control file; used by the Analyze command.
+!
+!   10	3-Dec-1993
+!	Tweak interface to NM$UNIQUE_NAME
+!
+!--
+
+
+!
+! Library declarations
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+!
+! Module-wide data
+!
+own
+    ctl_fab 	 : $fab_decl alias,			! FAB for control file
+    ctl_nam 	 : $nam_decl alias,			! NAM block, ditto
+    ctl_rab 	 : $rab_decl,				! RAB, ditto
+    ctl_xabpro	 : $xabpro_decl alias,			! Protection XAB
+    ctl_xabdat	 : $xabdat_decl alias,			! Date XAB
+    ctl_filename : vector[nm$s_filename+1,byte] alias,	! Filename
+    ctl_exp_buf	 : vector[nm$s_filespec,byte] alias;	! Expanded filespec
+
+%sbttl 'create control file'
+global routine nm$create_ctl_file (fileid) : novalue =
+
+!++
+! Functional description:
+!
+! Creates an Nmail control file.  The file is given a more-or-less
+! arbitrary name, and the file ID is returned to the caller for 
+! future use.
+!
+! Note that there is code in here to fully initialise the RMS
+! structures; however, it's now necessary to do the actual creation
+! from exec mode, and the exec mode code doesn't necessarily take any
+! notice of user mode (for example, it forces the owner to be [1,4]
+! regardless of what we might say in our XAB).  The redundant code
+! is left here as a reminder of what goes on elsewhere, and just in
+! case I ever remove the need for exec-mode processing.
+!
+! Formal parameters:
+! 
+! fileid.wr.r = 28-byte id for file opened
+!
+! Completion codes:
+!
+! none
+!
+!--
+
+    begin
+
+    local 
+	status;
+
+    !
+    ! Generate a unique filename
+    !
+    nm$unique_name(ctl_filename);
+
+    !
+    ! Initialise the FAB for open-by-filespec
+    !
+    $fab_init(
+	     fab=ctl_fab,
+             fns=.ctl_filename[0],
+    	     fna=ctl_filename[1],
+	     dns=.nm$gt_work_def[0],
+	     dna=nm$gt_work_def[1],
+    	     lnm_mode=psl$c_exec,
+	     nam=ctl_nam,
+	     xab=ctl_xabpro,
+	     fac=(bro,put,get,upd),
+    	     rfm=var,
+             rat=cr,
+	     ctx=psl$c_exec
+	     );
+
+    !
+    ! NAM block to receive expanded filespec output
+    !
+    $nam_init(
+	     nam=ctl_nam,
+	     esa=ctl_exp_buf,
+	     ess=nm$s_filespec,
+	     rsa=ctl_exp_buf,
+	     rss=nm$s_filespec
+	     );
+
+    !
+    ! XAB to set up protection so that only system can get at the
+    ! file (avoids likelihood of forged mail)
+    !
+    $xabpro_init(
+    	     xab=ctl_xabpro,
+    	     pro=(rwd,rwd,,),
+    	     uic=(1,4)
+    	     );
+
+    !
+    ! Initialise the record access stream
+    !
+    $rab_init(
+	     rab=ctl_rab,
+	     fab=ctl_fab
+	     );
+
+    !
+    ! Open the control file.  We need to call an exec-mode routine
+    ! to do this, since the file must be created in a system-owned
+    ! directory.
+    !
+    status = nm$uss_create_ctl_file(ctl_fab);
+    if not .status 
+    then 
+    	nm$rms_error(nm$_open, ctl_fab);
+
+    !
+    ! Connect up the RAB
+    !
+    status = $connect(rab=ctl_rab);
+    if not .status
+    then 
+	nm$rms_error(nm$_rms, ctl_rab);
+
+    !
+    ! Return the device name, directory ID and file ID for
+    ! the file we just opened
+    !
+    ch$move(nm$s_fileid, ctl_nam[nam$t_dvi], .fileid);
+
+    end;
+
+%sbttl 'open existing control file'
+global routine nm$open_ctl_file (fileid, buff, bufsz, ronly, cdt) : novalue =
+
+!++
+! Functional description:
+!
+! Opens an Nmail control file. The file is opened by file ID.
+!
+! Formal parameters:
+! 
+! fileid.rr.r = 28-byte file ID for control file
+! buff.ra.v   = address of I/O buffer
+! bufsz.ra.v  = address to return length of data read
+! ronly.rl.v  = true if read-only access required
+! cdt.wq.r    = creation date/time (optional output parameter)
+!
+! Completion codes:
+!
+! none
+!
+!--
+
+    begin
+
+    builtin
+	nullparameter;
+
+    local 
+	status;
+
+    !
+    ! Initialise FAB for open-by-file-ID.  If we're in read-only mode
+    ! then we get to read whilst others can write.  If we're in read-write
+    ! mode then all others can only read.
+    !
+    $fab_init(
+	     fab=ctl_fab,
+	     nam=ctl_nam,
+    	     fop=nam,
+    	     lnm_mode=psl$c_exec,
+             fac=(bro,get,put,upd),
+    	     shr=(upi,get),
+	     xab=ctl_xabdat,
+	     ctx=psl$c_user
+	     );
+    if .ronly
+    then
+        begin
+    	ctl_fab[fab$b_fac] = fab$m_bro or fab$m_get;
+    	ctl_fab[fab$b_shr] = fab$m_upi or fab$m_get or fab$m_put or fab$m_upd;
+        end;
+    
+    !
+    ! NAM block to supply the file ID to be opened
+    !
+    $nam_init(
+	     nam=ctl_nam,
+	     esa=ctl_exp_buf,
+	     ess=nm$s_filespec,
+	     rsa=ctl_exp_buf,
+	     rss=nm$s_filespec
+	     );
+    ch$move(nm$s_fileid, .fileid, ctl_nam[nam$t_dvi]);
+
+    !
+    ! Set up the RAB with buffer sizes and so forth.
+    ! Note we save the pointer to the user's return length 
+    ! longword in the RAB context cell
+    !
+    $rab_init(
+	     rab=ctl_rab,
+	     fab=ctl_fab,
+	     ctx=.bufsz,
+    	     ubf=.buff,
+    	     usz=nm$s_ctl_buf
+	     );
+
+    !
+    ! Set up XAB used to get creation date
+    !
+    $xabdat_init(xab=ctl_xabdat);
+
+    !
+    ! Open the control file
+    !
+    status = $open(fab=ctl_fab);
+    if not .status 
+    then 
+    	nm$rms_error(nm$_open, ctl_fab);
+
+    !
+    ! Connect up the RAB
+    !
+    status = $connect(rab=ctl_rab);
+    if not .status
+    then 
+	nm$rms_error(nm$_rms, ctl_rab);
+
+    !
+    ! Return creation date and time if it's wanted
+    !
+    if not nullparameter(cdt)
+    then
+	$movq(ctl_xabdat[xab$q_cdt], .cdt);
+
+    end;
+
+%sbttl 'close control file'
+global routine nm$close_ctl_file (del) : novalue =
+
+!++
+! Functional description:
+!
+! Closes the control file, possibly deleting it
+!
+! Formal parameters:
+!
+! del.rl.v = true if file to be deleted
+!	     false otherwise
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local status;
+
+    !
+    ! No XABs used here
+    !
+    ctl_fab[fab$l_xab] = 0;
+
+    !
+    ! Set delete option in FAB and close the file.  If we opened 
+    ! the file in exec-mode, then we need to close it in exec mode.
+    !
+    ctl_fab[fab$v_dlt] = .del;
+    if .ctl_fab[fab$l_ctx] eql psl$c_exec
+    then
+	status = nm$uss_close_ctl_file(ctl_fab)
+    else	
+    	status = $close(fab=ctl_fab);
+
+    !
+    ! Check for errors
+    !
+    if not .status 
+    then
+	nm$rms_error(nm$_close, ctl_fab);
+
+    end;
+
+%sbttl 'close control file on error'
+global routine nm$rundown_ctl : novalue =
+
+!++
+! Functional description:
+!
+! Closes the control file in case of error.
+! Errors are ignored, the file is not deleted.
+!
+! Formal parameters:
+!
+! None
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! No XABs used here
+    !
+    ctl_fab[fab$l_xab] = 0;
+
+    !
+    ! Set no-delete option, close file
+    !
+    ctl_fab[fab$v_dlt] = false;
+    $close(fab=ctl_fab);
+
+    end;
+
+%sbttl 'read next record'
+global routine nm$read_ctl (eok) =
+
+!++
+! Functional description:
+!
+! Reads next record from the control file.
+! Usually this is sequential, but if nm$point_rfa has been called,
+! then it will be random access.
+!
+! Note that EOF is never expected in a well-formed control file, 
+! hence is treated as a hard error.  Certain special cases can override 
+! this by providing a non-zero parameter in the routine call.
+!
+! Formal parameters:
+!
+! eok.rl.v = option parameter, if non-zero then end-of-file is ok
+!
+! Routine value:
+!
+! not_eof.wl.v = false if end-of-file seen, true otherwise
+!
+!--
+
+    begin
+
+    builtin
+	nullparameter;
+
+    local
+	status;
+
+    !
+    ! Read record (overlong records are returned truncated)
+    !
+    ctl_rab[rab$w_usz] = nm$s_ctl_buf;
+    status = $get(rab=ctl_rab);
+    if not .status
+    then
+	if .status neq rms$_rtb and .status neq rms$_eof
+	then
+	    nm$rms_error(nm$_read, ctl_rab);
+
+    !
+    ! Ensure sequential access selected for next time
+    !
+    ctl_rab[rab$b_rac] = rab$c_seq;
+
+    !
+    ! Return length of data to caller
+    !
+    .ctl_rab[rab$l_ctx] = .ctl_rab[rab$w_rsz];
+    
+    !
+    ! Special end-of-file processing
+    !
+    if .status eql rms$_eof 
+    then
+	begin
+	if nullparameter(eok) then nm$rms_error(nm$_read, ctl_rab);
+        false
+	end
+    else
+	true
+
+    end;
+
+%sbttl 'read record randomly by RFA'
+global routine nm$read_by_rfa (rfa : ref vector[3,word]) : novalue = 
+
+!++
+! Functional description:
+!
+! Reads record from the control file. The desired
+! record is indicated by RFA.
+!
+! Formal parameters:
+!
+! rfa.rw.r = RFA
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! Point to record to be read
+    !
+    nm$point_rfa(.rfa);
+
+    !
+    ! Read record
+    !
+    nm$read_ctl();
+
+    end;
+
+%sbttl 'update record on disk'
+global routine nm$update_ctl : novalue = 
+
+!++
+! Functional description:
+!
+! Rewrites the current record to the control file.
+! The record is assumed to have been modified in-place,
+! so that RAB$L_RBF and RAB$W_RSZ are still valid.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    !
+    ! Rewrite record
+    !
+    status = $update(rab=ctl_rab);
+    if not .status
+    then
+	nm$rms_error(nm$_write, ctl_rab);
+
+    end;
+
+%sbttl 'write record to control file'
+global routine nm$write_ctl (ptr, len) : novalue =
+
+!++
+! Functional description:
+!
+! Writes a record to the control file.
+!
+! Formal parameters:
+!
+! ptr.ra.v = address of data to write
+! len.rl.v = length of data to write
+!
+! Completion codes:
+!
+! always true
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    !
+    ! Stuff address and length into RAB
+    !
+    ctl_rab[rab$l_rbf] = .ptr;
+    ctl_rab[rab$w_rsz] = .len;
+
+    !
+    ! Write record
+    !
+    status = $put(rab=ctl_rab);
+    if not .status
+    then
+	nm$rms_error(nm$_write, ctl_rab);
+
+    !
+    ! Ensure sequential access selected for next time
+    !
+    ctl_rab[rab$b_rac] = rab$c_seq;
+
+    end;
+
+%sbttl 'return RFA of record just read'
+global routine nm$get_rfa (rfa : ref vector[3,word]) : novalue =
+
+!++
+! Functional description:
+!
+! Returns the 3-word Record's File Address (RFA) of
+! the most recent record read.
+!
+! Formal parameters:
+!
+! rfa.ww.r = 3-word RFA
+!
+! Routine values:
+!
+! none
+!
+!--
+
+    begin
+
+    bind
+	rab_rfa = ctl_rab[rab$w_rfa] : vector[3,word];
+
+    rfa[0] = .rab_rfa[0];
+    rfa[1] = .rab_rfa[1];
+    rfa[2] = .rab_rfa[2];
+
+    end;
+
+%sbttl 'set up so that next record is read by RFA'
+global routine nm$point_rfa (rfa : ref vector[3,word]) : novalue =
+
+!++
+! Functional description:
+!
+! Stores the RFA in the RAB, and sets the record access
+! code so that the next call to nm$read_ctl will result
+! in random-access-by-RFA.
+!
+! Formal parameters:
+!
+! rfa.rw.r = RFA
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    bind
+	rab_rfa = ctl_rab[rab$w_rfa] : vector[3,word];
+
+    !
+    ! Load the RFA into the RAB
+    !
+    rab_rfa[0] = .rfa[0];
+    rab_rfa[1] = .rfa[1];
+    rab_rfa[2] = .rfa[2];
+
+    !
+    ! Select read-by-RFA access
+    !
+    ctl_rab[rab$b_rac] = rab$c_rfa;
+
+    end;
+
+%sbttl 'rewind to beginning of file'
+global routine nm$rewind_ctl (buff, bufsz) : novalue =
+
+!++
+! Functional description:
+!
+! Positions file at beginning. Next read will
+! get the first record.
+!
+! Formal parameters:
+!
+! buff.ra.v   = address of I/O buffer 
+! bufsz.ra.v  = address to return length of data read
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    !
+    ! Save new pointers to buffer and return length 
+    !
+    ctl_rab[rab$l_ctx] = .bufsz;
+    ctl_rab[rab$l_ubf] = .buff;
+
+    !
+    ! Remove context that may be left over
+    !
+    ctl_rab[rab$l_bkt] = 0;
+    ctl_rab[rab$b_rac] = rab$c_seq;
+
+    !
+    ! Rewind stream
+    !
+    status = $rewind(rab=ctl_rab);
+    if not .status then nm$rms_error(nm$_rms, ctl_rab);
+
+    end;
+
+%sbttl 'set up so that next write appends to file'
+global routine nm$point_eof_ctl : novalue =
+
+!++
+! Functional description:
+!
+! Positions the file at EOF
+!
+! Formal parameters:
+!
+! none
+!
+! Completion codes:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    !
+    ! Disconnect stream
+    !
+    status = $disconnect(rab=ctl_rab);
+    if not .status then nm$rms_error(nm$_rms, ctl_rab);
+
+    !
+    ! Remove context that may be left over
+    !
+    ctl_rab[rab$l_bkt] = 0;
+    ctl_rab[rab$b_rac] = rab$c_seq;
+
+    !
+    ! Reconnect, specifying position-to-EOF
+    !
+    ctl_rab[rab$v_eof] = true;
+    status = $connect(rab=ctl_rab);
+    if not .status then nm$rms_error(nm$_rms, ctl_rab);
+    ctl_rab[rab$v_eof] = false;
+    
+    end;
+
+%sbttl 'flush buffers'
+global routine nm$flush_ctl : novalue =
+
+!++
+! Functional description:
+!
+! Issues a $FLUSH to call all buffers to be written out to disk.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    status = $flush(rab=ctl_rab);
+    if not .status then nm$rms_error(nm$_rms, ctl_rab);
+
+    end;
+
+%sbttl 'pad out to end of block'
+global routine nm$pad_blk_ctl(reqd) : novalue =
+
+!++
+! Functional description:
+!
+! Writes a record with a size calculated such that
+! the following record will start on a block boundary.
+!
+! Formal parameters:
+!
+! reqd.rl.v = if true, the record is always required
+!	      if false, the record may be omitted if
+!	      alignment is already correct
+!
+! Routine value:
+!
+! None
+!
+!--
+
+    begin
+
+    local 
+        ffb,
+        len,
+        pad : vector[512,byte];
+    	
+
+    !
+    ! The RAB contains the RFA for the last-written record. The
+    ! high-order word is in fact the byte offset for that record.
+    ! By getting this offset, and adding the size of the written
+    ! record, plus 2 for the record length word, we arrive at the
+    ! offset to the first free byte.  Round up to next even value
+    ! and discard any complete blocks.
+    !
+    ffb = .ctl_rab[rab$w_rfa4] + .ctl_rab[rab$w_rsz] + 2;
+    ffb = (.ffb + 1) and 510;
+
+    !
+    ! If we're already aligned, and the record isn't always
+    ! required, then return immediately.
+    !
+    if .ffb eql 0 and not .reqd then return;
+
+    !
+    ! Now, figure out the length of the record we need to write to
+    ! bring us up to a block boundary, allowing 2 bytes for the length
+    ! word. (Since ffb is in the range 0 to 510, len will be in the
+    ! range 0 to 510).
+    !
+    len = 512 - (.ffb + 2);
+
+    !
+    ! Write a pad record, filled with nulls
+    !
+    ch$fill(0, .len, pad);
+    nm$write_ctl(pad, .len);
+
+    !
+    ! Sanity check. Repeat first free byte calculations, and it
+    ! had better come out as zero.
+    !
+    ffb = .ctl_rab[rab$w_rfa4] + .ctl_rab[rab$w_rsz] + 2;
+    ffb = (.ffb + 1) and 510;
+    if .ffb neq 0 then signal(nm$_badalg);
+
+    end;
+
+%sbttl 'check block alignment'
+global routine nm$chk_aligned(rfa : ref vector[,word]) =
+
+!++
+! Functional description:
+!
+! Verifies that the given RFA does in fact represent an
+! alignment on a block boundary
+!
+! Formal parameters:
+!
+! rfa.rw.r = 3-word RFA
+! 
+! Routine values:
+!
+! alg.wl.v = true if block-aligned
+!	   = false if not
+!
+!--
+
+    !
+    ! We're block aligned if the byte offset is zero
+    !
+    (.rfa[2] eql 0);
+
+%sbttl 'read next block'
+global routine nm$read_ctl_blk (nblks, eok) =
+
+!++
+! Functional description:
+!
+! Reads next block(s) from the control file.
+!
+! Note that EOF is never expected in a well-formed
+! control file, hence is treated as a hard error.
+! This can be overridden by supplying a non-zero
+! parameter for 'eok'.
+!
+! Formal parameters:
+!
+! nblks.rl.v = number of blocks to read
+! eok.rl.v   = option, if non-zero then end-of-file is ok
+!
+! Routine value:
+!
+! not_eof.wl.v = false when end-of-file seen, true otherwise
+!
+!--
+
+    begin
+
+    builtin
+	nullparameter;
+
+    local
+	status;
+
+    !
+    ! Read block
+    !
+    ctl_rab[rab$w_usz] = 512 * .nblks;
+    status = $read(rab=ctl_rab);
+    if not .status
+    then
+	if .status neq rms$_eof
+	then
+	    nm$rms_error(nm$_read, ctl_rab);
+
+    !
+    ! Ensure that next time we'll read the next sequential block
+    !
+    ctl_rab[rab$l_bkt] = 0;
+
+    !
+    ! Return length of data to caller
+    !
+    .ctl_rab[rab$l_ctx] = .ctl_rab[rab$w_rsz];
+
+    !
+    ! Special end-of-file processing
+    !
+    if .status eql rms$_eof 
+    then
+	begin
+	if nullparameter(eok) then nm$rms_error(nm$_read, ctl_rab);
+        return false;
+	end;
+
+    !
+    ! Check we read a whole number of blocks
+    !
+    if (.ctl_rab[rab$w_rsz] and 511) neq 0 then signal(nm$_badbio);
+
+    !
+    ! If we get here it's ok
+    !
+    true
+
+    end;
+
+%sbttl 'write block to control file'
+global routine nm$write_ctl_blk (ptr, len) : novalue =
+
+!++
+! Functional description:
+!
+! Writes data to the control file in block mode
+!
+! Formal parameters:
+!
+! ptr.ra.v = address of data to write
+! len.rl.v = length of data to write
+!
+! Completion codes:
+!
+! always true
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    !
+    ! Stuff address and length into RAB
+    !
+    ctl_rab[rab$l_rbf] = .ptr;
+    ctl_rab[rab$w_rsz] = .len;
+
+    !
+    ! Write record
+    !
+    status = $write(rab=ctl_rab);
+    if not .status
+    then
+	nm$rms_error(nm$_write, ctl_rab);
+
+    !
+    ! Ensure that next time we'll write the next sequential block
+    !
+    ctl_rab[rab$l_bkt] = 0;
+
+    end;
+
+%sbttl 'return VBN and offset of record just written'
+global routine nm$get_vbn (vbn : ref vector, offs : ref vector[,word]) =
+
+!++
+! Functional description:
+!
+! Returns the Virtual Block Number and offset-in-block
+! for the record or block just written.
+!
+! Formal parameters:
+!
+! vbn.wl.r  = virtual block number    (optional  )
+! offs.ww.r = offset in block         (parameters)
+!
+! Routine values:
+!
+! vbn.wl.r = virtual block number
+!
+!--
+
+    begin
+
+    builtin
+	actualcount;
+
+    if actualcount() neq 0
+    then
+	begin
+        offs[0] = .ctl_rab[rab$w_rfa4];	! high word is offset
+        vbn[0]  = .ctl_rab[rab$l_rfa0];	! low longword is vbn
+	end;
+
+    .ctl_rab[rab$l_rfa0]
+
+    end;
+
+%sbttl 'set up for block mode I/O'
+global routine nm$point_vbn(vbn) : novalue =
+
+!++
+! Functional description:
+!
+! Sets up for block mode reading
+!
+! Formal parameters:
+! 
+! vbn.rl.r = VBN to position to
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! Ensure access-by-RFA not set (does it matter?)
+    ! Set up block number for next read
+    !
+    ctl_rab[rab$b_rac] = rab$c_seq;
+    ctl_rab[rab$l_bkt] = .vbn;
+
+    end;
+
+end
+eludom

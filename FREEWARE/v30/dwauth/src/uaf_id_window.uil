@@ -1,0 +1,301 @@
+!module	authorize_id_window
+!	version		= 'X1.0'
+!	names		= case_insensitive
+
+! Constants used to define reflect the maximum string size for various
+! fields in the identifier record.
+
+value
+	kgb$s_name			: 32;
+
+! Constants used to define sizes of some of the various fields in the entry
+! window.
+
+value
+	uaf$c_identifier_name_cols	: 12;			! Size (in characters) of identifier name field
+
+! Strings for the identifier dialog box.
+
+value
+	uaf$t_identifier_title		: compound_string	("Authorization entry identifiers");
+	uaf$t_identifier_name		: compound_string	("Identifier:");
+	uaf$t_identifiers_held		: compound_string	("Identifiers held:");
+	uaf$t_identifier_attrib		: compound_string	("Identifier attributes");
+	uaf$t_identifier_ok		: compound_string	("OK");
+	uaf$t_identifier_cancel		: compound_string	("Cancel");
+	uaf$t_identifier_grant		: compound_string	("Grant");
+	uaf$t_identifier_modify		: compound_string	("Modify Attributes");
+	uaf$t_identifier_remove		: compound_string	("Remove");
+
+! Strings for the identifier popup menu.
+
+	uaf$t_system_identifiers	: compound_string	("System identifiers");
+
+! Strings for the system identifier dialog box.
+
+	uaf$t_system_identifier_title	: compound_string	("System identifiers");
+	uaf$t_system_identifier_ok	: compound_string	("OK");
+
+! Strings for the various identifier flags.  NOTE!! The order of this list is
+! important.  The position in the list corresponds to the bit in the identifier
+! flags field.
+
+	uaf$t_identifier_attrib_list	: string_table	('RESOURCE',		! kgb$v_resource
+							 'DYNAMIC',		! kgb$v_dynamic
+							 'NOACCESS',		! kgb$v_noaccess
+							 'SUBSYSTEM',		! kgb$v_subsystem
+							 'IMPERSONATE'		! kgb$v_impersonate
+
+! The following two attributes cannot be enabled for a held identifier.
+! Therefore, they should not be in the list.
+
+!							 'HOLDER_HIDDEN',	! kgb$v_holder_hidden
+!							 'NAME_HIDDEN'		! kgb$v_name_hidden
+							 );
+
+
+! Define the identifier box object.
+
+
+object	identifier_window		: XmFormDialog
+		{arguments	{XmNdialogTitle		= uaf$t_identifier_title;
+				 XmNcancelButton	= identifier_cancel_button;
+				 XmNdefaultButton	= identifier_ok_button;
+				 XmNunitType		= XmPIXELS;
+				 XmNautoUnmanage	= false;
+				 XmNdefaultPosition	= false;
+				 };
+		 controls	{XmLabel		identifier_name_label;
+				 XmText			identifier_name_value;
+
+				 XmLabel		identifier_attrib_label;
+				 XmScrolledWindow	identifier_attrib_window;
+
+				 XmLabel		identifier_held_label;
+				 XmScrolledWindow	identifier_held_window;
+
+				 XmPushButton		identifier_grant_button;
+				 XmPushButton		identifier_modify_button;
+				 XmPushButton		identifier_remove_button;
+
+				 XmPushButton		identifier_ok_button;
+				 XmPushButton		identifier_cancel_button;
+				 };
+		};
+
+object	identifier_name_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_identifier_name;
+				 XmNtopAttachment	= XmATTACH_FORM;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText identifier_name_value;
+				 }; };
+object	identifier_name_value	: XmText
+		{arguments	{XmNmaxLength		= kgb$s_name;
+				 XmNtopAttachment	= XmATTACH_FORM;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_2col_left_with_lab;
+				 XmNcolumns		= uaf$c_identifier_name_cols;
+				 XmNmarginHeight	= 0;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_identifier_name); };
+		 };
+
+object	identifier_held_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_identifiers_held;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNtopWidget		= XmLabel identifier_name_label;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_2col_left;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 }; };
+object	identifier_held_window	: XmScrolledWindow
+		{arguments	{XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmLabel identifier_held_label;
+				 XmNbottomAttachment	= XmATTACH_WIDGET;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNbottomWidget	= XmPushButton identifier_ok_button;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_2col_left;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 XmNrightAttachment	= XmATTACH_POSITION;
+				 XmNrightPosition	= uaf$c_2col_right;
+				 XmNrightOffset		= uaf$c_right_offset;
+				 XmNscrollingPolicy	= XmCONSTANT;
+				 XmNscrollBarDisplayPolicy	= XmSTATIC;
+				 XmNvisualPolicy	= XmVARIABLE;
+				 };
+		 controls	{XmList			identifier_list; };
+		 };
+object	identifier_list		: XmList
+		{arguments	{XmNvisibleItemCount	= 20;
+				 XmNautomaticSelection	= false;
+				 XmNselectionPolicy	= XmSINGLE_SELECT;
+				 };
+		 callbacks	{MrmNcreateCallback		= procedure create_proc (uaf$c_identifier_list);
+				 XmNsingleSelectionCallback	= procedure list_proc (uaf$c_identifier_list); };
+		 };
+
+object	identifier_attrib_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_identifier_attrib;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNtopWidget		= XmLabel identifier_name_label;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_2col_right;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 }; };
+object	identifier_attrib_window	: XmScrolledWindow
+		{arguments	{XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmLabel identifier_attrib_label;
+				 XmNbottomAttachment	= XmATTACH_WIDGET;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNbottomWidget	= XmPushButton identifier_ok_button;
+				 XmNrightAttachment	= XmATTACH_FORM;
+				 XmNrightOffset		= uaf$c_right_offset;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_2col_right;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 XmNscrollingPolicy	= XmCONSTANT;
+				 XmNscrollBarDisplayPolicy	= XmSTATIC;
+				 XmNvisualPolicy	= XmVARIABLE;
+				 };
+		 controls	{XmList			identifier_attrib_list; };
+		 };
+object	identifier_attrib_list		: XmList
+		{arguments	{XmNvisibleItemCount	= 20;
+				 XmNitems		= uaf$t_identifier_attrib_list;
+				 XmNautomaticSelection	= false;
+				 XmNselectionPolicy	= XmMULTIPLE_SELECT;
+				 };
+		 callbacks	{MrmNcreateCallback		= procedure create_proc (uaf$c_identifier_attrib_list);
+				 XmNmultipleSelectionCallback	= procedure list_proc (uaf$c_identifier_attrib_list); };
+		 };
+
+! Define the objects for the identifier window popup menu box.
+
+object	identifier_popup_menu	: XmPopupMenu
+		{arguments	{XmNorientation		= XmVERTICAL; };
+		 controls	{XmPushButton		system_identifier_button; };
+		};
+
+object	system_identifier_button	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_system_identifiers; };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_identifier_system); };
+		};
+
+! Define the objects for the identifier window push buttons.
+
+object	identifier_ok_button	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_identifier_ok;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNleftAttachment	= XmATTACH_FORM;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_identifier_ok); };
+		 };
+object	identifier_cancel_button	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_identifier_cancel;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_right_offset;
+				 XmNrightWidget		= XmPushButton identifier_grant_button;
+				 XmNleftAttachment	= XmATTACH_WIDGET;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 XmNleftWidget		= XmPushButton identifier_ok_button;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_identifier_cancel); };
+		 };
+
+object	identifier_grant_button	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_identifier_grant;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_right_offset;
+				 XmNrightWidget		= XmPushButton identifier_modify_button;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_identifier_grant); };
+		 };
+
+object	identifier_modify_button	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_identifier_modify;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_right_offset;
+				 XmNrightWidget		= XmPushButton identifier_remove_button;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_identifier_modify); };
+		 };
+
+object	identifier_remove_button	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_identifier_remove;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNrightAttachment	= XmATTACH_FORM;
+				 XmNrightOffset		= uaf$c_right_offset;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_identifier_remove); };
+		 };
+
+! Define the system identifier box object.
+
+
+object	system_identifier_window	: XmFormDialog
+		{arguments	{XmNdialogTitle		= uaf$t_system_identifier_title;
+				 XmNcancelButton	= system_identifier_cancel_button;
+				 XmNdefaultButton	= system_identifier_cancel_button;
+				 XmNunitType		= XmPIXELS;
+				 XmNautoUnmanage	= false;
+				 XmNdefaultPosition	= false;
+				 };
+		 controls	{XmScrolledWindow	system_identifier_inner;
+
+				 XmPushButton		system_identifier_cancel_button;
+				 };
+		};
+
+object	system_identifier_inner	: XmScrolledWindow
+		{arguments	{XmNtopAttachment	= XmATTACH_FORM;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNbottomAttachment	= XmATTACH_WIDGET;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNbottomWidget	= XmPushButton system_identifier_cancel_button;
+				 XmNleftAttachment	= XmATTACH_FORM;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 XmNrightAttachment	= XmATTACH_FORM;
+				 XmNrightOffset		= uaf$c_right_offset;
+				 XmNscrollingPolicy	= XmCONSTANT;
+				 XmNscrollBarDisplayPolicy	= XmSTATIC;
+				 XmNvisualPolicy	= XmVARIABLE;
+				 };
+		 controls	{XmList			system_identifier_list; };
+		 };
+object	system_identifier_list		: XmList
+		{arguments	{XmNvisibleItemCount	= 20;
+				 XmNautomaticSelection	= false;
+				 XmNselectionPolicy	= XmSINGLE_SELECT;
+				 };
+		 callbacks	{MrmNcreateCallback		= procedure create_proc (uaf$c_system_identifier_list);
+				 XmNsingleSelectionCallback	= procedure list_proc (uaf$c_system_identifier_list); };
+		 };
+
+! Define the objects for the system identifier window push buttons.
+
+object	system_identifier_cancel_button	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_identifier_cancel;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNleftAttachment	= XmATTACH_FORM;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_system_identifier_cancel); };
+		 };

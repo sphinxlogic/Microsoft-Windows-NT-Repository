@@ -1,0 +1,527 @@
+.PAGE SIZE 55, 68
+.RIGHT MARGIN 68
+.TITLE Normalizing INSTALL#LIST/FULL listings
+.SUBTITLE B.#Z.#Lederman ITT World Communications
+.CENTER
+Normalizing INSTALL#LIST/FULL listings
+.BLANK.CENTER
+for system management and tuning:
+.BLANK.CENTER
+and a comparison of FORTRAN and Datatrieve programs.
+.BLANK 2.CENTER
+B. Z. Lederman
+.BLANK.CENTER
+ITT World Communications
+.BLANK.CENTER
+New York, NY 10004-2464
+.NOTE Abstract
+This is, in a sense, a two part article. The first part shows how to
+get some useful system management information by processing data
+from an INSTALL#LIST/FULL command. This first part is really quite
+simple, and involves only the most elementary Datatrieve commands
+and a simple sequential file. The second part compares two methods
+of getting the INSTALL listing into that sequential file, using the
+traditional programming language FORTRAN, and using Datatrieve as a
+programming language. 
+.END NOTE
+.PARAGRAPH
+One of the items to check on a VMS system is to see that commonly
+used images are installed (and normally installed open,
+header-resident, and often shared) so that VMS doesn't have to go
+"hunting" for an image when it is requested to run. Other items to
+check are how many global sections are being used, how often each
+image is used, and how often shared images are really being used by
+more than one process. This information can be obtained from the
+INSTALL utility, particularly if one allows the system to run in
+normal use for some time (to collect the usage counts).
+Unfortunately, the output of the INSTALL#LIST/FULL command is not
+easily processed. A portion of typical listing looks like this: 
+.BLANK.NO JUSTIFY.NO FILL.TEST PAGE 7
+DISK$VAXVMSRL4:<ALLIN1.LIB>.EXE
+   A1;5             Open     Shar Prv
+        Entry access count         = 50
+        Current / Maximum shared   = 0 / 7
+        Global section count       = 5
+        Privileges = SYSNAM GRPNAM TMPMBX WORLD OPER NETMBX SYSPRV
+.BLANK 2.TEST PAGE 5
+DISK$VAXVMSRL4:<SYS1.SYSCOMMON.SYSEXE>.EXE
+   ANALIMDMP;1                    Prv
+        Entry access count         = 0
+        Privileges = CMKRNL CMEXEC
+.BLANK.TEST PAGE 4
+   AUTHORIZE;1                    Prv
+        Entry access count         = 4
+        Privileges = CMKRNL
+.BLANK.TEST PAGE 6
+   BACKTRANS;1      Open     Shar Prv
+        Entry access count         = 0
+        Current / Maximum shared   = 0 / 0
+        Global section count       = 3
+        Privileges = GRPNAM PRMGBL
+.BLANK.JUSTIFY.FILL
+and so on. It's rather difficult to scan a long listing such as this
+to find the most often used images, or the most often shared images,
+etc. It would be much easier to process if the information looked
+like this (I have squeezed down the directory field to make the
+report fit the newsletter page): 
+.BLANK.NO JUSTIFY.NO FILL.TEST PAGE 12
+                                                        MAX
+      DIRECTORY                 IMAGE     QUAL   ENTRY SHARED GLOBAL
+.BLANK
+<ALLIN1.LIB>.EXE              A1          O SP        50    7    5
+<SYS1.SYSCOMMON.SYSEXE>.EXE   ANALIMDMP      P         0    0    0
+<SYS1.SYSCOMMON.SYSEXE>.EXE   AUTHORIZE      P         4    0    0
+<SYS1.SYSCOMMON.SYSEXE>.EXE   BACKTRANS   O SP         0    0    3
+<SYS1.SYSCOMMON.SYSEXE>.EXE   CDU         OH P         2    1    0
+<SYS1.SYSCOMMON.SYSEXE>.EXE   CMS         O S          0    0    2
+<SYS1.SYSCOMMON.SYSEXE>.EXE   COPY        OHS         20    2    1
+<SYS1.SYSCOMMON.SYSEXE>.EXE   DCL         OHS  L  16,859    5    1
+.BLANK
+The record definition for this domain is quite simple:
+.BLANK
+DEFINE RECORD INSTALL__P__RECORD OPTIMIZE
+01 INS__P__REC.
+!
+! This matches the records produced from the INSTALL__PROCESS
+! program which normalizes the data from an INSTALL#LIST/FULL
+!
+! B. Z. Lederman    29-Sep-1987          ITT World Communications
+!
+    10 DIRECTORY PIC X(64) EDIT__STRING T(48).
+    10 IMAGE PIC X(32) EDIT__STRING T(24).
+    10 QUAL PIC X(8).
+    10 QUALIFIERS REDEFINES QUAL.
+        20 OPEN PIC X.            ! matches INSTALL abbreviations
+        20 HDR PIC X.
+        20 SHAR PIC X.
+        20 PRV PIC X.
+        20 PROT PIC X.
+        20 LNKBL PIC X.
+        20 CMODE PIC X.
+        20 NOPURG PIC X.
+    10 ENTRY PIC 9(6) EDIT__STRING ZZZ,ZZ9.
+    10 MAX__SHARED PIC 9(6) EDIT__STRING ZZZ,ZZ9.
+    10 GLOBAL PIC 9(6) EDIT__STRING ZZZ,ZZ9.
+;
+.JUSTIFY.FILL
+.BLANK 2.TEST PAGE 5.CENTER
+What can be learned
+.PARAGRAPH
+Putting the data into a simple domain like this allows me to, for
+example, find the most used images (the highest Entry count), which
+shared images are actually used by many processes at the same time,
+which are or are not installed Open, Shared, Header resident,
+protected, etc. It also allows me to find installed images which are
+not used at all (Entry count of zero) so I can save pool by not
+installing them. The Datatrieve commands to do this are so
+elementary (for example, PRINT INSTALL__P SORTED BY DESC ENTRY) that
+I don't think it's necessary to discuss them here. What is more
+important is how I got from the INSTALL listing to the Datatrieve
+domain. 
+.BLANK 2.TEST PAGE 5.CENTER
+Capture the data, write a program
+.PARAGRAPH
+First, one must capture the output of the INSTALL command. This is 
+best done as a batch job. I use the following file:
+.BLANK.NO JUSTIFY.NO FILL
+$ INSTALL :== $SYS$SYSTEM:INSTALL/COMMAND
+$ INSTALL
+LIST/FULL
+$ EXIT
+$!
+$! This command file is intended to run as a Batch job to extract
+$! information about installed images into a log file which can
+$! then be processed to normalize the data.  If done as a
+$! SET HOST 0::/LOG the program written to process the information
+$! won't work because SET HOST deliberately inserts nulls at the
+$! beginning of each record (unless you re-write the program).
+$!
+$! Since INSTALL is privileged, it must be submitted from a
+$! privileged account (though the log file and processing program
+$! can be anywhere).
+$!
+$! B. Z. Lederman        29-Sep-1987     ITT World Communications
+.JUSTIFY.FILL
+.BLANK 2
+.PARAGRAPH
+My next step in this process was to write a FORTRAN program which
+extracted and normalized the data. This took several days because I
+had a lot of other work to do and could only put in fragments of
+time on the problem. From start to finish I would estimate close to
+but less than one (7-8 hour) work day for the entire effort,
+including the simple Datatrieve record definition shown before. This
+included time looking up and figuring out how to use OTS$ Run Time
+Library routines to extract and zero-fill the numeric data. The
+program is at the end of the article. It is definitely not portable
+FORTRAN, as it uses VMS RTL routines and character strings: if these
+features weren't available in the VAX#FORTRAN compiler, the program
+would have been very much more difficult and complicated as all of
+the character and string handling would have to be done in byte
+arrays, I'd have to write my own routines to find matching strings,
+etc. Also, if I couldn't leave the numbers as character strings and 
+push all of the strings together I'd have to use a more complicated 
+FORMAT statement and output would probably be slower.
+.PARAGRAPH
+The alternative is to do it all in Datatrieve. I have done
+processing like this before in Datatrieve, and felt that it would be
+a reasonable project and a good comparison between a "traditional"
+programming language and Datatrieve, even though this type of
+processing is not what one normally associates with a 4GL, and is
+possibly one of the worst to do in Datatrieve if you are going to
+look at processing speed. Creating a procedure that did most of what
+I wanted took about 1 to 1#1/2 hours: getting it to properly extract
+the maximum shared count took about the same amount of time, and was
+the greatest difficulty I had with the entire exercise. Both programs
+write to exactly the same file format.
+.BLANK 2.TEST PAGE 5.CENTER
+Some program development comparisons
+.PARAGRAPH
+Datatrieve has the advantage that you can invoke the procedure,
+examine data, edit the procedure, invoke it again, etc., all from
+within Datatrieve while debugging a new procedure, and this helped
+me during development. With traditional languages you have to edit,
+compile, run, examine data, edit, etc., with different products,
+though the LSE helped some with the FORTRAN program, and running on
+an unloaded VAX#11/785 let me compile and link relatively quickly. 
+.PARAGRAPH
+Neither the FORTRAN program nor the Datatrieve procedure is what I
+would call fully polished: there are certainly sections of code that
+could be "collapsed", or made more efficient. Also, please note that
+I had to squeeze some of the comments or put them on separate lines
+to fit the newsletter, so they look a bit more ragged then they
+really are. If we are to consider programmer productivity, then they
+should probably be left as they are. This is an application which is
+only going to be run occasionally, to check the state of the
+installed images on a system. Once you have the most used images
+installed, and have removed any infrequently used images to save
+pool (except those that must be installed because they are
+privileged), then you should only have to run the procedure
+occasionally as a check, or when the way the system is being used
+has changed significantly, or after installing new products. It
+doesn't make much sense to put a lot of effort optimizing a program
+which will perhaps be used once a month: therefore, I stopped working
+as soon as I had programs which functioned correctly. The only
+reason I would put more work on either of these is if I had to
+extract additional information from the INSTALL listing, in which
+case I might also think about improving the code at the same time.
+.BLANK 2.TEST PAGE 5.CENTER
+Differences in programming "style"
+.PARAGRAPH
+It is interesting to note some of the differences between the two
+languages. With FORTRAN, handling the different qualifiers in one
+field was simplified by using a type of sub-scripting (for example,
+QUAL(2:2)#=#'H'). In Datatrieve, this can be done more easily in
+the record definition, where one field QUAL is defined, and then
+re-defined for the individual characters: but in the processing
+procedure, it isn't possible to REDEFINE a DECLAREd field so the
+individual characters are handled separately, and this makes the
+Datatrieve procedure look a little more complicated. Another
+difference is with handling varying format input records. With
+Datatrieve, the REDEFINES feature comes in very handy when defining
+such a multi-format record (see INSTALL__IN__RECORD below): with
+FORTRAN a record description is possible using extensions to the
+language but I found it easier to index the input character string. 
+Also, note what has to be done in FORTRAN to extract a numeric value 
+from an arbitrary string with leading and trailing blanks: with 
+Datatrieve, all that is necessary is to equate the character 
+string to a numeric string in the STORE statement and the conversion 
+takes place automatically.
+.PARAGRAPH
+Many of the older programming languages such as FORTRAN and BASIC
+have implicit variable assignments: if you use a variable in a
+program, it will automatically be assigned space and a default
+variable type. Many newer languages, including Datatrieve, don't
+allow this: you must explicitely define all variables (in a record
+definition or DECLARE) and identify the type. Many programmers now
+favor this approach, and use the IMPLICIT#NONE statement in FORTRAN
+to turn off implicit variable assignments. Similarly, there are many
+programmers who are opposed to the use of labels and GOTO
+statements, and many who are just as enthusiastic about supporting
+their use. I am not a fanatic about the non-use of GOTO, though I am
+used to using them and it sometimes takes me a while to get used to
+not using them: but it should be noted that it was really no trouble
+at all to write this procedure in Datatrieve, which has no labels
+and no GOTO statements.
+.BLANK 2.TEST PAGE 5.CENTER
+Program execution speed
+.PARAGRAPH
+A question often asked concerns the "speed" of Datatrieve. I ran the
+procedure with FN$INIT__TIMER and FN$SHOW__TIMER at the beginning
+and end to find out how it did: elapsed time was 23 seconds. By
+putting the FORTRAN program in a batch procedure with
+SHOW#PROCESS/ACCOUNTING commands just before and after running the
+program, I got an elapsed time of 2.7 seconds. Yes, the FORTRAN
+program is faster: but for an application like this, is it worth
+while taking the extra programming and development time to cut the
+run time? I would say no. You would have to process a huge amount of
+data to make the extra programming effort worth while. If these
+programs had to manipulate data in an indexed file, or the application
+was more like "normal" Datatrieve (if anyone can define what that is
+anymore) the time difference would probably be less.
+.BLANK 2.NO JUSTIFY.NO FILL
+       PROGRAM INSTALL__PROCESS
+C
+C Parse an INSTALL LIST/FULL listing to extract useful information,
+C and put it into a more easily processed form (i.e., fixed length
+C aligned fields which can be examined with Datatrieve, etc.)
+C
+C B. Z. Lederman       29-Sep-1987
+C
+C System RTL calls.
+C
+       INTEGER*4 STR$UPCASE, STR$TRIM, STR$CONCAT
+       INTEGER*4 OTS$CVT__TU__L, OTS$CVT__L__TU
+C
+C Local Variables.
+C
+       INTEGER*4 IE, I1             ! temp value for conversions
+       INTEGER*2 IN__LEN /0/         ! length of input string
+       LOGICAL OUT__PUT  /.FALSE./
+       CHARACTER*64 FILE__SPEC       ! extracted file specification
+       CHARACTER*32 IMAGE           ! extracted image name
+       CHARACTER*8  QUAL            ! extracted install qualifiers
+       DATA QUAL / '        '/
+       CHARACTER*6  ENTRY           ! number of image entries
+       CHARACTER*6  SHARED          ! maximum shared
+       CHARACTER*6  GLOBAL          ! global sections
+       DATA ENTRY, SHARED, GLOBAL / '000000', '000000', '000000' /
+       CHARACTER*132 LINEIN         ! text input
+C
+       CHARACTER*64  IN__FILE
+       CHARACTER*64  OUT__FILE
+C
+       WRITE (6, 10)
+   10  FORMAT ('$ Enter INSTALL listing file name: ')
+       READ (5, '(A)', END = 950) IN__FILE
+       OPEN (UNIT = 1, FILE = IN__FILE, STATUS = 'OLD', ERR = 970)
+C
+       WRITE (6, 20)
+   20  FORMAT ('$ Enter processed output file name: ')
+       READ (5, '(A)', END = 950) OUT__FILE
+       OPEN (UNIT = 2, FILE = OUT__FILE, STATUS = 'NEW', ERR = 980,
+     1       CARRIAGECONTROL = 'LIST', ORGANIZATION = 'SEQUENTIAL',
+     1       RECL = 255, RECORDTYPE = 'VARIABLE')
+C
+C       Loop forever (until end of input file)
+C
+  200  READ (1, '(A)', END = 900) LINEIN
+       CALL STR$UPCASE (LINEIN, LINEIN)      ! convert to upper case
+       CALL STR$TRIM (LINEIN, LINEIN, IN__LEN) ! trim and get length
+C
+       IF (IN__LEN .EQ. 0) THEN              ! end of a data set
+           IF (OUT__PUT) THEN                ! if we have something
+              WRITE (2, '(A)') FILE__SPEC // IMAGE // QUAL //
+     1         ENTRY // SHARED // GLOBAL    ! write previous record
+              IMAGE = '                                '
+              ENTRY = '000000'              ! blank out
+              SHARED = '000000'             ! old data
+              GLOBAL = '000000'
+              QUAL = '        '
+              OUT__PUT = .FALSE.             ! reset write indicator
+           ENDIF
+           GOTO 200                         ! get next input record
+       ENDIF
+C
+C Pull out the information line-by-line by looking for unique
+C  identification for each line.
+C
+       IF (LINEIN(1:5) .EQ. 'DISK$') THEN
+           FILE__SPEC = LINEIN         ! start with disk information
+       ELSE IF (LINEIN(9:15) .EQ. 'ENTRY A') THEN
+           I = INDEX(LINEIN, '=')     ! find start of data
+           I = I + 2                  ! skip over = and blank space
+C
+C This seems a bit tedious, but it's the easiest way to pull out
+C left justified digits with blank spaces from an arbitrary field.
+C The OTS is what would be used with a re-read anyway.
+C
+           CALL OTS$CVT__TU__L(LINEIN(I:IN__LEN), IE, _%VAL(4),
+     1                         _%VAL(17))
+C
+C Put it back into a zero-filled field (just as easy to do it now
+C   as with a FORMAT statement)
+C
+           IF (IE .GT. 0) CALL OTS$CVT__L__TU(IE, ENTRY, _%VAL(6),
+     1                                        _%VAL(4))
+           OUT__PUT = .TRUE.
+       ELSE IF (LINEIN(9:15) .EQ. 'CURRENT') THEN
+           I1 = INDEX(LINEIN, '=')           ! find start of data
+           I = INDEX(LINEIN(I1:IN__LEN), '/') ! find maximum data
+           I = I + I1                        ! skip over "/"
+           CALL OTS$CVT__TU__L(LINEIN(I:IN__LEN), IE, _%VAL(4),
+     1                          _%VAL(17))
+           IF (IE .GT. 0) CALL OTS$CVT__L__TU(IE, SHARED, _%VAL(6),
+     1                                         _%VAL(4))
+           OUT__PUT = .TRUE.
+       ELSE IF (LINEIN(9:15) .EQ. 'GLOBAL ') THEN
+           I = INDEX(LINEIN, '=')     ! find start of data
+           I = I + 2                  ! skip over = and blank space
+           CALL OTS$CVT__TU__L(LINEIN(I:IN__LEN), IE, _%VAL(4),
+     1                                _%VAL(17))
+           IF (IE .GT. 0) CALL OTS$CVT__L__TU(IE, GLOBAL, _%VAL(6),
+     1                                        _%VAL(4))
+           OUT__PUT = .TRUE.
+       ELSE
+           I = INDEX(LINEIN, ';')            ! look for semicolon
+           IF (I .GT. 0) THEN                ! if there is one
+              I = I - 1                      ! don't copy semicolon
+              IMAGE = LINEIN(4:I)            ! take out image name
+              I1 = INDEX(LINEIN, 'OPEN')     ! look for installation
+              IF (I1 .GT. 0) QUAL(1:1) = 'O' ! qualifiers
+              I1 = INDEX(LINEIN, 'HDR')
+              IF (I1 .GT. 0) QUAL(2:2) = 'H'
+              I1 = INDEX(LINEIN, 'SHAR')
+              IF (I1 .GT. 0) QUAL(3:3) = 'S'
+              I1 = INDEX(LINEIN, 'PRV')
+              IF (I1 .GT. 0) QUAL(4:4) = 'P'
+              I1 = INDEX(LINEIN, 'PROT')
+              IF (I1 .GT. 0) QUAL(5:5) = 'P'
+              I1 = INDEX(LINEIN, 'LNKBL')
+              IF (I1 .GT. 0) QUAL(6:6) = 'L'
+              I1 = INDEX(LINEIN, 'CMODE')
+              IF (I1 .GT. 0) QUAL(7:7) = 'C'
+              I1 = INDEX(LINEIN, 'NOPURG')
+              IF (I1 .GT. 0) QUAL(8:8) = 'N'
+           ENDIF
+       ENDIF
+       GOTO 200                            ! get next input record
+C
+  900  CONTINUE
+C
+  950  CALL EXIT                      ! also closes files
+  970  STOP ' Error opening input file '
+  980  STOP ' Error opening output file '
+       END
+.BLANK 2
+DEFINE RECORD INSTALL__IN__RECORD OPTIMIZE
+01 INS__IN__REC.
+!
+! This reads data from an INSTALL#LIST/FULL log file
+!
+! B. Z. Lederman    29-Sep-1987		ITT World Communications
+!
+    10 TEXT__IN PIC X(80).
+    10 PARSE__FIELDS REDEFINES TEXT__IN.
+	20 DISK PIC XXX.
+	20 IMAGE PIC X(77).
+	20 PARSE__2 REDEFINES IMAGE.
+	    30 BLANK PIC X(5).
+	    30 TYPE PIC X(10).
+;
+.BLANK
+DEFINE PROCEDURE INSTALL__PROCESS
+!
+! This procedure reads the data from a log file containing an
+! INSTALL LIST/FULL command, and normalizes the data.
+!
+! B. Z. Lederman    29-Sep-1987		ITT World Communications
+!
+READY INSTALL__IN
+!
+! clear out a new data file (remember to purge old ones)
+!
+DEFINE FILE FOR INSTALL__P ALLOCATION = 30;
+READY INSTALL__P WRITE
+!
+DECLARE OUT__PUT PIC X.		! decide when to store output
+OUT__PUT = "F"
+!
+DECLARE I USAGE LONG.		! character pointer
+!
+DECLARE T__DIRECTORY PIC X(64).	! temporary data fields.
+DECLARE T__IMAGE PIC X(32).
+DECLARE T__OPEN PIC X.
+DECLARE T__HDR PIC X.
+DECLARE T__SHAR PIC X.
+DECLARE T__PRV PIC X.
+DECLARE T__PROT PIC X.
+DECLARE T__LNKBL PIC X.
+DECLARE T__CMODE PIC X.
+DECLARE T__NOPURG PIC X.
+DECLARE T__ENTRY PIC X(6).
+DECLARE T__MAX__SHARED PIC X(6).
+DECLARE T__SHARED__WORK PIC X(32).
+DECLARE T__GLOBAL PIC X(6).
+!
+FOR INSTALL__IN BEGIN
+   IF TEXT__IN = "" BEGIN                  ! end of a data set
+      IF OUT__PUT = "T" BEGIN              ! if we have something
+          STORE INSTALL__P USING BEGIN     ! store it
+            DIRECTORY = T__DIRECTORY
+            IMAGE = T__IMAGE
+            OPEN = T__OPEN
+            HDR = T__HDR
+            SHAR = T__SHAR
+            PRV = T__PRV
+            PROT = T__PROT
+            LNKBL = T__LNKBL
+            CMODE = T__CMODE
+            NOPURG = T__NOPURG
+            ENTRY = T__ENTRY
+            MAX__SHARED = T__MAX__SHARED
+            GLOBAL = T__GLOBAL
+            END
+!
+! clear out fields for next set of data
+!
+          T__IMAGE = "                                "
+          T__ENTRY = "000000"
+          T__MAX__SHARED = "000000"
+          T__GLOBAL = "000000"
+          OUT__PUT = "F"
+          T__OPEN = " "
+          T__HDR = " "
+          T__SHAR = " "
+          T__PRV = " "
+          T__PROT = " "
+          T__LNKBL = " "
+          T__CMODE = " "
+          T__NOPURG = " "
+      END
+   END ELSE BEGIN
+!
+! Pull out the information line-by-line by looking for unique
+!  identification for each line.
+!
+   IF DISK = "DIS" BEGIN
+      I = FN$STR__LOC (TEXT__IN, " ")             ! find end of data
+      T__DIRECTORY = FN$STR__EXTRACT(TEXT__IN, 1, I)
+   END ELSE IF TYPE = "Entry acce" BEGIN
+      I = FN$STR__LOC (TEXT__IN, "=")             ! find start of data
+      T__ENTRY = FN$STR__EXTRACT (TEXT__IN, (I + 2), 6)      ! get data
+      OUT__PUT = "T"
+   END ELSE IF TYPE = "Current / " BEGIN
+! find start of numbers
+      I = FN$STR__LOC (TEXT__IN, "=")
+! get numbers
+      T__SHARED__WORK = FN$STR__EXTRACT(TEXT__IN, I, 32)
+! find start of real data
+      I = FN$STR__LOC (T__SHARED__WORK, "/")
+! get real data
+      T__MAX__SHARED = FN$STR__EXTRACT(T__SHARED__WORK, (I + 1), 32)
+      OUT__PUT = "T"
+   END ELSE IF TYPE = "Global sec" BEGIN
+      I = FN$STR__LOC (TEXT__IN, "=")            ! find start of data
+      T__GLOBAL = FN$STR__EXTRACT (TEXT__IN, (I + 2), 6)    ! get data
+      OUT__PUT = "T"
+   END ELSE IF TYPE = "Compatabil" BEGIN      ! for compatability
+      OUT__PUT = "T"                          ! mode programs
+   END ELSE BEGIN
+      I = FN$STR__LOC (IMAGE, ";")     ! look for semicolon
+      IF I > 0 BEGIN                  ! if there is one
+! image name, no ";"
+          T__IMAGE = FN$STR__EXTRACT(IMAGE, 1, (I - 1))
+          IF FN$STR__LOC (IMAGE, "Open")   > 0 THEN T__OPEN = "O"
+          IF FN$STR__LOC (IMAGE, "Hdr")    > 0 THEN T__HDR = "H"
+          IF FN$STR__LOC (IMAGE, "Shar")   > 0 THEN T__SHAR = "S"
+          IF FN$STR__LOC (IMAGE, "Prv")    > 0 THEN T__PRV = "P"
+          IF FN$STR__LOC (IMAGE, "Prot")   > 0 THEN T__PROT = "P"
+          IF FN$STR__LOC (IMAGE, "Lnkbl")  > 0 THEN T__LNKBL = "L"
+          IF FN$STR__LOC (IMAGE, "Cmode")  > 0 THEN T__CMODE = "C"
+          IF FN$STR__LOC (IMAGE, "Nopurg") > 0 THEN T__NOPURG = "N"
+          END
+      END
+   END
+END
+END__PROCEDURE
+.PAGE

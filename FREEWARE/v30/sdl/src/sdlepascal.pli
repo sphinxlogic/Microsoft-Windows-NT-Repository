@@ -1,0 +1,1733 @@
+/****************************************************************************
+/*									    */
+/*  Copyright (c) 1984, 1988			                            */
+/*  by DIGITAL Equipment Corporation, Maynard, Mass.			    */
+/* 									    */
+/*  This software is furnished under a license and may be used and  copied  */
+/*  only  in  accordance  with  the  terms  of  such  license and with the  */
+/*  inclusion of the above copyright notice.  This software or  any  other  */
+/*  copies  thereof may not be provided or otherwise made available to any  */
+/*  other person.  No title to and ownership of  the  software  is  hereby  */
+/*  transferred.							    */
+/* 									    */
+/*  The information in this software is subject to change  without  notice  */
+/*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment  */
+/*  Corporation.							    */
+/* 									    */
+/*  DIGITAL assumes no responsibility for the use or  reliability  of  its  */
+/*  software on equipment which is not supplied by DIGITAL.		    */
+/*									    */
+/****************************************************************************/
+/*
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	Generates the PASCAL language output from the SDL tree
+
+author:
+	Jay Palmer.  Written using the Pascal backend by C.T. Pacy as a
+		starting point
+date:
+	May 1984
+
+
+/*			C H A N G E    L O G
+
+      Date	| Name	| Description
+________________|_______|______________________________________________________
+   23-Mar-1985	| KD 	| Add ident (2-0)
+________________|_______|______________________________________________________
+   24-Mar-1985	| KD	| 2-1  Correct problem with type name not being 
+		|	|	generated for unions.
+________________|_______|______________________________________________________
+    3-Apr-1985	| KD	| 2-2  Add multdefsym (multiply defined symbol) error
+		|	|	message.
+________________|_______|______________________________________________________
+    1-May-1985	| KD	| 2-3  Put out 'ZERO' initializer for BYTE_DATA 
+		|	|	parameters and surpress the [REFERENCE].
+________________|_______|______________________________________________________
+    3-May-1985	| KD	| 2-4  Make VAR parameters with DEFAULT 0 become
+		|	|	[optional].
+________________|_______|______________________________________________________
+    3-May-1985	| KD	| 2-5  Let BOOLEAN with DEFAULT 0 be intialized with
+		|	|	:= false.
+________________|_______|______________________________________________________
+     6-Jun-1985	|  KD	| 2-6  Add a close for output file.  Add condition
+		|	|	handler for undefinedfile condition.
+________________|_______|______________________________________________________
+    11-Jun-1985	|  kd	| T2.9-0 Make the backend ident be the sdl version
+________________|_______|______________________________________________________
+    10-Jul-1985	|  kd	| T2.9-1 Structures made up of named types put out an
+		|	|	 empty record.
+________________|_______|______________________________________________________
+    29-Jul-1985 |  pc   | T2.9-2 "end of comment" delimiters i.e '}' and '*)'
+		|	|        that appear within comment text cause 
+		|	|        compile problems
+________________|_______|______________________________________________________
+    21-Aug-1985	|  kd	| T2.9-3 Change comments flag to sdl$v_comment_opt.
+________________|_______|______________________________________________________
+    4-Sept-1985	|  pc	| T2.9-4 Added code to handle comment nodes that
+		|	| 	 appear immediatly after a union declaration.
+		|	|	 This is a fix for bug 105.
+________________|_______|______________________________________________________
+    25-Mar-1986	|  pc	| V3.0-1 Add LIST parameter stuff.
+		|	|
+		|	| 01-May-1987  [jw]  Note:  This implementation of LIST
+		|	|	       is incompatible with the latest
+		|	|	       implementation in SDL's front end.  It
+		|	|	       should be modified at some future date.
+________________|_______|______________________________________________________
+    19-Mar-1987	|  jw	| T3.1-0 Initialized the output buffer (buf) to '' in
+		|	|	 the outer-level declaration.
+________________|_______|______________________________________________________
+    01-May-1987	|  jw	| X3.1-1 Modify for addition of COMPLEX data types.
+		|	|	 Also, change version to "X" and bump level.
+________________|_______|______________________________________________________
+    12-May-1987	|  jw	| X3.1-2 Added handling of CHARACTER LENGTH * (unknown);
+		|	|	 added handling of RTL_STR_DESC attribute.
+		|	|
+		|	|	 Note:  Handling of RTL_STR_DESC may be
+		|	|	        incorrect or incomplete; verify its
+		|	|	        correctness when RTL enhancements are
+		|	|		"officially" made to this routine.
+________________|_______|______________________________________________________
+    01-Jul-1987	|  jw	| X3.1-3 Prevented conformant array syntax from
+		|	|	 appearing in the context of a TYPE declaration
+		|	|	 by modifying the routine GENERATE_TYPES.
+________________|_______|______________________________________________________
+    08-Jul-1987	|  jw	| X3.1-4 Generate INVPARMTYP error message for a
+		|	|	 parameter declared CHARACTER LENGTH *
+		|	|	 DIMENSION n (as implemented in SDLPASCAL.PLI)
+		|	|	 since what is on the right hand side of the
+		|	|	 colon must be either a conformant or a
+		|	|	 type name.
+________________|_______|______________________________________________________
+    08-Jul-1987	|  jw	| X3.1-5 Generate INVPARMTYP error message for a
+		|	|	 parameter declared CHARACTER LENGTH n
+		|	|	 DIMENSION m when passed by DESCRIPTOR or
+		|	|	 RTL_STR_DESC, since either case yields neither
+		|	|	 a conformant nor a type name.
+________________|_______|______________________________________________________
+    21-Jan-1988	|  PG	| X3.2-0 Add CONSTANT STRING
+________________|_______|______________________________________________________
+    02-Feb-1988	|  jg	| X3.2-1  User defined types + VOID
+________________|_______|______________________________________________________
+    18-Feb-1988	|  jg	| X3.2-2 Add support for conditional compilation and
+		|	|	  LITERAL.
+________________|_______|______________________________________________________
+    25-Mar-1988	|  jg	| X3.2-3  Replace unnecessary recursive descent in
+		|	|	   generate_types with a while loop (caused
+		|	|	   ACCVIO on large sources).
+________________|_______|______________________________________________________
+    30-Mar-1988	|  jg	| X3.2-4  Clear section variable at LITERAL, so that
+		|	|	   a new section starts afterwards.
+________________|_______|______________________________________________________
+    13-FEB-1990 |  WRV  | X3.2-VMS1 Modifiers are members of VMS tools group.
+                |  RHT  |           Added code for file dependency recording for
+                |       |           VMS VDE system builder.
+________________|_______|______________________________________________________
+    20-Oct-1994	|  RC	| EV1-40    Native Alpha port.  See SDLGETFNM.PLI.
+________________|_______|______________________________________________________
+*/
+%replace MODULE_IDENT by 'EV1-40';
+
+sdl$output: proc (out_file, def_filename, sdl$_shr_data)
+	    options (ident(MODULE_IDENT));
+
+/* INCLUDED FILES */
+%include 'sdl$library:sdlnodef.in';
+%include 'sdl$library:sdltypdef.in';
+%include 'sdl$library:sdlshr.in';
+%include 'sdl$library:sdlmsgdef.in';
+%include 'SDL$LIBRARY:sdlgetfnm.in';
+
+ 
+dcl null builtin;
+
+/* CONSTANTS */
+%replace true by '1'b;
+%replace false by '0'b;
+%replace lang_ext by '.pas';		/* language extension for pascal */
+%replace lang_name by 'EPASCAL';	/* Language name for conditional - jg */
+%replace var_section by 1;
+%replace type_section by 2;
+%replace comment_section by 3;
+%replace const_section by 4;
+
+/*
+ * hash table to hold generated type names and node addresses
+ */
+	dcl htable (0:255) ptr;
+
+	dcl 1 hrec based,
+		2 hrnode ptr,
+		2 hrtype fixed bin(31),
+		2 hrnext ptr;
+
+	dcl 1 hparm,
+		2 hpcnt fixed bin(15) init (4),
+		2 hpnode ptr;
+
+	dcl hashf entry (any,fixed bin(31)) returns (fixed bin(31));
+
+	/* Special flags to keep track of whether these special types exist. */
+	dcl word_type_flag	bit(1) aligned;
+	dcl byte_type_flag	bit(1) aligned;
+	dcl uword_type_flag	bit(1) aligned;
+	dcl ubyte_type_flag	bit(1) aligned;
+
+	/* hash table to hold record field names, so that output_item may
+	   check for duplicates. */
+	%replace fhmax by 511;
+	dcl field_hash_table(0:fhmax) ptr;
+/*
+ * The following array gives the EPASCAL equivalents for SDL data types
+ */
+	dcl types(24) char (25) var;				/* jg */
+ 
+/*
+ * The following initialization of the types array is done with
+ * assignments so that the numeric values of the symbols used for
+ * indices do not have to be known 
+ */
+ 
+	types(typ$k_address)='';
+	types(typ$k_byte)='[BYTE] -128..127';
+	types(typ$k_char)='CHAR';
+	types(typ$k_boolean)='BOOLEAN';
+	types(typ$k_decimal)='';
+	types(typ$k_double)='DOUBLE';
+	types(typ$k_float)='REAL';
+	types(typ$k_grand)='DOUBLE';
+	types(typ$k_huge)='BYTE_DATA(16)';
+	types(typ$k_double_complex)='BYTE_DATA(16)';
+	types(typ$k_float_complex)='BYTE_DATA(8)';
+	types(typ$k_grand_complex)='BYTE_DATA(16)';
+	types(typ$k_huge_complex)='BYTE_DATA(32)';
+	types(typ$k_longword)='INTEGER';
+	types(typ$k_octaword)='BYTE_DATA(16)';
+	types(typ$k_quadword)='LARGE_INTEGER';
+	types(typ$k_vield)='[BIT(';
+	types(typ$k_word)='[WORD] -32768..32767';
+	types(typ$k_structure)='';
+	types(typ$k_union)='';
+	types(typ$k_any)='ANYTYPE';
+	types(typ$k_entry)='';
+/*
+ * These equivalents are used for unsigned data types
+ */
+	dcl unsigned (22) char (40) var;
+
+	unsigned(typ$k_byte)='[BYTE] 0..255';
+	unsigned(typ$k_word)='[WORD] 0..65535';
+	unsigned(typ$k_longword)='BYTE_DATA(4)';
+	unsigned(typ$k_quadword)='BYTE_DATA(8)';
+	unsigned(typ$k_octaword)='BYTE_DATA(16)';
+
+/* This is the list of Pascal reserved words to be converted to
+ * noninterfering spellings (via a trailing _)
+ */
+
+dcl reserved_names (41) char (12) var static init (
+'AND',		'ARRAY',	'BEGIN',	'CASE',
+'CONST',	'DIV',		'DO',		'DOWNTO',
+'ELSE',		'END',		'FOR',		'FILE',
+'FUNCTION',	'FUNCTION_BODY', 'GOTO',	'IF',
+'IN',		'INTERRUPT_SERVICE', 'LABEL',	'MOD',
+'MODULE',	'NIL',		'NOT',		'OF',
+'OR',		'OTHERWISE',	'PACKED',	'PROCEDURE',
+'PROCEDURE_BODY', 'PROCESS_BLOCK', 'PROGRAM',	'RECORD',
+'REPEAT',	'SET',		'THEN',		'TO',
+'TYPE',		'UNTIL',	'VAR',		'WHILE',
+'WITH');
+
+dcl first_index (26) fixed bin static init (
+	1,3,4,6,9,11,14,0,15,0,0,17,18,20,21,24,0,27,30,31,34,35,38,0,0,0);
+dcl num_of_indices (26) fixed bin static init (
+	2,1,2,3,2,3,1,0,2,0,0,1,2,1,3,3,0,3,1,3,2,3,2,0,0,0);
+
+/* LOCAL VARIABLES */
+	dcl out_file char(128) var ;
+	dcl def_filename char(132) var;
+	dcl output_file file output record sequential;
+	dcl buf char(1024) var init('');
+	dcl based_string char(1024) var based;
+	dcl i fixed bin(31);
+	dcl tab char initial (byte(9));
+	dcl pcnt fixed bin(31);
+	dcl modname char (32) var;
+	dcl (prev_opt_flag,first_att,list_flag)			bit(1) aligned;
+	dcl (var_flag,ro_flag,ref_flag,opt_flag)		bit(1) aligned;
+	dcl tmp_optional_flag bit(1) aligned;
+	dcl tmp_default_flag bit(1) aligned;
+	dcl char_desc_default0_flag bit(1) aligned;
+	dcl boolean_default0_flag bit(1) aligned;
+	dcl (typcnt,section) fixed bin(31) ;
+
+	dcl process_conditional bit init (false);		/* jg */
+
+/************************* MAIN PROCEDURE **************************/
+
+byte_type_flag = false;
+word_type_flag = false;
+ubyte_type_flag = false;
+uword_type_flag = false;
+
+
+/* 
+ * Output the little SDL header with time and date info 
+ */
+
+    on undefinedfile (output_file) 
+	begin;
+	    call errmsg (sdl$_shr_data, sdl$_outfilopn,,(sdl$gt_filename));
+	    goto exit;
+	end;
+
+/* first open up the output file */
+			/* concatenate the extension for the language */
+	open file (output_file) title (out_file) 
+		environment (default_file_name( def_filename || lang_ext),
+			     user_open (sdl$getfnm) );
+	outfile = output_file;	/* equate the file with the file variable 
+					in the shared structure */
+	CALL sdl$header(sdl$_shr_data, '{','}',line_length);
+
+/*
+ * Go down the tree
+ */
+	call outputnode( tree_root->nod$a_flink,tree_root,0, 0, 0);
+
+/* Get the fully resolved language specific output file and
+   and move it the shared data area for the front-end. The reultant
+   name will be recorded as a file dependency for the VDE system builder.
+*/
+
+	vde_lang_file = sdl$gt_filename;
+ 
+	close file (output_file);
+exit: 
+
+	return;
+
+
+
+/*******************************************************************/
+/*                                                                 */
+/*                           OUTPUTNODE                            */
+/*                                                                 */
+/*  This is a recursive routine that travels through the SDL tree  */
+/*  and outputs the appropriate data declaration for each tree     */
+/*  node.  Each node describes a data object                       */
+/*******************************************************************/
+
+outputnode:	PROCEDURE (initp,startp,level,tag,casenum);
+
+/*
+ * parameters:	initp	= address of node to output
+ * 		startp	= address of where we started (i.e. where to 
+ * 			  stop in traversing a circular list )
+ * 		level	= level number of aggregate (incremented by 1
+ * 			  with each sub-aggregate
+ *		tag	= count to use for tags
+ *		casenum = current case in structure
+ */
+  %replace varmode by '0'b;
+  dcl (initp,startp,p,q)				ptr;
+  dcl (level, tag, maxtag, posn, casenum, unioncnt)	fixed bin(31);
+  dcl (b1,i,j)						fixed bin;
+  dcl temp_name 					char(32) var;
+  dcl digit_flag					bit(1) aligned;
+  dcl ch						char(1);
+  dcl (temp1,temp2)					char(128) var;
+
+  p = initp;
+  unioncnt = 0;
+
+/* Case on the node type and go do the appropriate Processing */
+
+  DO WHILE (p^=startp);
+
+	/* Check spelling for reserved */
+	temp_name = p->nod$t_name;
+	if temp_name ^= ''
+	  then do;
+	  b1 = rank(substr(temp_name,1,1)) - rank('A') + 1;
+	  if b1 > 0 & b1 < 27 then do;
+	    i = first_index(b1);
+	    j = num_of_indices(b1);
+	    do while (j > 0 & temp_name^=reserved_names(i));
+	     j = j-1;
+	     i = i+1;
+	     end;
+	    /* Convert to safe spelling if found */
+	    if j > 0 then 
+	     p->nod$t_name = temp_name || '_';
+	    end;
+	  end;
+
+	/* Set flag if this should be a [list] parameter - that is, it's
+	 * the last parameter and ( its parent's variable flag is on or
+         * the LIST option was specified on the parameter
+         */
+	if p->nod$a_flink = startp & p->nod$b_type = nod$k_parmnode &
+	   ( p->nod$a_parent->nod$v_variable | p->nod$v_list )
+	then list_flag = true;
+	else list_flag = false;
+
+	prev_opt_flag = false;
+
+	GOTO case(p->nod$b_type);
+
+ 
+CASE (NOD$K_ROOTNODE):		/* Root node */
+
+	buf='';
+	GOTO common_2;
+
+ 
+CASE (NOD$K_COMMNODE):		/* Comment node */
+
+	IF section ^= comment_section THEN 
+		IF level=1 THEN
+			CALL sdl$putline (outfile, ' ',line_length);
+
+	section = comment_section;
+	GOTO common;
+ 
+
+CASE (NOD$K_CONSTNODE):		/* Constant node */
+
+	IF section ^= const_section THEN DO;
+		CALL sdl$putline (outfile, ' ',line_length);
+		buf='CONST';
+		END;
+	ELSE
+		buf='';
+
+	section = const_section;
+	buf = buf || tab || p->nod$t_name || ' = ';
+
+
+	/* If this constant is a mask, make it a hex number, otherwise decimal */
+	if p->nod$v_mask
+	then do;
+	  temp_name = '%x';
+	  digit_flag = false;
+	  do i = 1 to 8;
+	    ch = substr('0123456789ABCDEF',
+			posint(p->nod$l_typeinfo,33-4*i,4)+1, 1);
+	    if digit_flag | ch ^= '0'
+	    then do;
+	      temp_name = temp_name || ch;
+	      digit_flag = true;
+	      end;
+	    end;
+	  if ^digit_flag then temp_name = temp_name || '0';
+	  end;
+	else
+	  if p->nod$w_datatype = typ$k_char then do;
+	    temp1 = p->nod$a_typeinfo2->based_string;
+	    call sdl$cvtstr(temp1,temp2, '''''''');
+	    temp_name = ''''||temp2||'''';
+	    end;
+	  else
+	    temp_name = trim(p->nod$l_typeinfo);
+
+	buf = buf || temp_name || ';';
+	GOTO common;
+
+ 
+CASE (NOD$K_ENTRYNODE):		/* Entry node */
+
+	buf = '';
+	section = 0;
+	prev_opt_flag = false;  /* initialize the optional parameter flag */
+	CALL sdl$putline (outfile, ' ',line_length);
+
+
+	IF p->nod$w_datatype = 0 | p->nod$w_datatype = typ$k_void THEN
+		buf	= buf || 'PROCEDURE ';				/* jg */
+	ELSE
+		buf	= buf || 'FUNCTION ';
+	buf = buf || p->nod$t_name;
+/*
+ * if it has parameters, then go down the parameter list
+ */
+	IF p->nod$a_child^=null THEN DO;
+		buf = buf || '(';
+		pcnt = 0;
+		CALL outputnode( p->nod$a_child->nod$a_flink, p->nod$a_child, level, tag, 0 );
+			
+	/* replace the semicolon appended by the parameter routine with a closing parentheses */
+
+		substr(buf,length(buf),1) = ')';
+		END;
+/*
+ * if it's a function, output the datatype
+ */
+	IF p->nod$w_datatype^=0 & p->nod$w_datatype^=typ$k_void THEN DO;
+		buf = buf || ' : ';				/* jg */
+		CALL puttype(p,buf,varmode);
+		END;
+
+/*
+ * add the SEPARATE or EXTERNAL directives
+ */
+	if sdl$v_global_opt
+	then buf = buf || '; SEPARATE;';
+	else buf = buf || '; EXTERNAL;';
+
+/* 
+ * if there is attached comment, then append it to end of line and 
+ * output it 
+ */
+
+	call addcomments(buf,p);
+
+	GOTO common_3;
+
+ 
+CASE (NOD$K_ITEMNODE):		/* Item node */
+
+	/* jg  Ignore a declared item */
+
+	if p->nod$v_declared then goto common;
+
+	/* Begin a new VAR or TYPE section if necessary. */
+	IF p->nod$v_based | p->nod$v_typedef			/* jg */
+	THEN do;
+	    if section = type_section
+	    then buf = buf || tab;
+	    else do;
+		section = type_section;
+		CALL sdl$putline (outfile, ' ',line_length);
+		buf = 'TYPE' || tab;
+		end;
+	    end;
+
+	ELSE do;
+	    if section = var_section
+	    then buf = buf || tab;
+	    else do;
+		section = var_section;
+		CALL sdl$putline (outfile, ' ',line_length);
+		buf = 'VAR'  || tab;
+		end;
+	    end;
+	tag=0;
+
+	buf = buf || p->nod$t_name;
+
+	IF p->nod$v_based | p->nod$v_typedef			/* jg */
+	THEN
+	    buf = buf || ' = ';
+	ELSE
+	    buf = buf || ' : ';
+
+	IF p->nod$w_datatype = typ$k_structure | p->nod$w_datatype = typ$k_union
+	THEN
+	    DO;
+	    buf = buf || 'PACKED RECORD';
+
+	    /* Output the record declaration, and travel down its child nodes once for each tag */
+
+	    IF p->nod$l_typeinfo ^= 0
+	    THEN
+		buf = buf || ' { WARNING: aggregate has origin of ' || trim(p->nod$l_typeinfo) || ' }';
+
+	    maxtag = scan_cases( p ) - 1;
+
+	    IF maxtag > 1
+	    THEN
+		buf = buf || ' CASE INTEGER OF';
+
+	    CALL addcomments(buf,p);
+
+	    DO tag = 1 TO maxtag;
+		buf = tab || '    ';
+
+		IF maxtag ^= 1
+		THEN
+		    buf = tab || trim(tag) || ' : (';
+
+		CALL output_item( p, 1, tag, 0 );
+
+		IF maxtag ^= 1
+		THEN
+		    DO;
+		    IF length(buf) = 0
+		    THEN
+			buf = tab || '    ';
+
+		    buf = buf || ')';
+		    END;
+
+		IF maxtag ^= tag 
+		THEN
+		    buf = buf || ';';
+
+		CALL sdl$putline (outfile,  buf, line_length );
+		buf = '';
+		END;
+
+	    CALL sdl$putline (outfile,  tab || 'END;', line_length );
+ 
+	    END;
+
+	/* Not a structure, just output it */
+
+	ELSE
+	    CALL Output_Item( p, 1, 0, 1 );
+
+	GOTO common_3;
+
+CASE (NOD$K_MODULNODE):		/* Module node */
+/*
+ * output module name as a  comment
+ */
+	section = 0;
+	CALL sdl$putline (outfile, ' ',line_length);
+	modname=p->nod$t_name;
+	buf = '{** MODULE ' || modname;
+	IF p->nod$t_naked ^= '' THEN
+		buf = buf || ' IDENT ' || p->nod$t_naked;
+	buf = buf || ' **}';
+	CALL sdl$putline (outfile,  buf, line_length );
+	buf = '';
+	CALL addcomments(buf,p);
+/*
+ * generate types needed for pointer, parameter and return type declarations
+ */
+	htable = null;
+	IF p->nod$a_child ^= null THEN DO;
+		typcnt = 0;
+		CALL generate_types( p->nod$a_child->nod$a_flink, p->nod$a_child );
+		IF typcnt^=0 THEN
+			CALL sdl$putline (outfile, ' ',line_length);
+		END;
+	GOTO common_2; 
+
+CASE(NOD$K_PARMNODE):		/* Parameter node */
+/*
+ * Because parameter declarations can be so long, output the buffer so far,
+ * and start fresh with passing mechanism and the parameter name
+ */
+	IF pcnt >= 0
+	THEN
+	    DO;
+	    CALL sdl$putline (outfile, buf,line_length);
+	    buf = tab;
+	    END;
+	pcnt = pcnt+1;		/* use this for generating parameter names */
+
+	  /* Check for each attribute and decide which attributes (and VAR)
+	     written out.  Note that some combinations of attributes have
+	     already been disallowed by the front end:
+		ANY & DESC		DESC & REF
+		DESC & VALUE		DESC & DEFAULT
+		OUT & VALUE		IN & DEFAULT
+		VALUE & REF		REF & DEFAULT
+		DEFAULT & OPTIONAL	OPTIONAL & DESC
+		OUT & DEFAULT		ANY & DEFAULT (unless VALUE) */
+
+	  var_flag = true;
+	  ro_flag = false;
+	  ref_flag = false;
+	  opt_flag = false;
+	  tmp_optional_flag = p->nod$v_optional;
+	  tmp_default_flag = p->nod$v_default;
+	  char_desc_default0_flag = false;
+
+	  if p->nod$v_in
+	  then do;
+		var_flag = false;
+		if ^p->nod$v_value & pass_by_immediate(p)
+		then ref_flag = true;
+		if ^var_flag & sdl$v_global_opt
+		then ro_flag = true;
+		end;
+
+	  if p->nod$v_ref
+	  then do;
+	      if pass_by_immediate(p)
+	      then do;
+		ref_flag = true;
+		var_flag = false;
+		end;
+	      end;
+
+	  if p->nod$v_out
+	  then do;
+	    var_flag = true;
+	    ref_flag = false;
+	    ro_flag = false;
+	    end;
+
+	  if p->nod$w_datatype = typ$k_any & ^p->nod$v_value
+	  then do;
+	    var_flag = true;
+	    ref_flag = false;
+	    end;
+
+	  if p->nod$w_datatype = typ$k_boolean & p->nod$v_default &
+	    p->nod$l_initial = 0 then
+		boolean_default0_flag = true;
+
+	  if p->nod$v_desc | p->nod$v_rtl_str_desc
+	  then do;
+		if list_flag
+		then
+		call errmsg(sdl$_shr_data, sdl$_invparmtyp, p->nod$l_srcline,
+		     'VAXELN Pascal');
+
+		if p->nod$w_datatype ^= typ$k_char
+		then do;
+		  var_flag = true;
+		  ref_flag = false;
+		  end;
+		else
+		  if (p->nod$v_default & p->nod$l_initial = 0) then
+		    char_desc_default0_flag = true;
+		end;
+
+	  if p->nod$v_value
+	  then do;
+		if ^pass_by_immediate(p)
+	        then
+		call errmsg(sdl$_shr_data, sdl$_invparmtyp, p->nod$l_srcline,
+		     'VAXELN Pascal');
+		ref_flag = false;
+		var_flag = false;
+		end;
+
+	    /* Make 'default 0' for VAR params. look like [optional] ...
+		except for pointer value parameters */
+	    if var_flag & tmp_default_flag & p->nod$l_initial = 0
+		& p->nod$w_datatype ^= typ$k_address 
+	    then do;
+		tmp_optional_flag = true;
+		tmp_default_flag = false;
+		opt_flag = true;
+		end;
+
+	  if tmp_default_flag 
+	  then do;
+	      if ^(is_integer_compat_type(p) | p->nod$w_datatype = typ$k_any) |
+		 list_flag | p->nod$v_vardim
+	      then
+		  if ^var_flag & ^char_desc_default0_flag &
+		    ^boolean_default0_flag then
+		call errmsg(sdl$_shr_data, sdl$_invparmtyp, p->nod$l_srcline,
+		     'VAXELN Pascal');
+	      if var_flag
+	      then do;
+		    var_flag = false;
+		    ref_flag = true;
+		    end;
+	      end;
+
+	  if tmp_optional_flag
+	  then do;
+	      if p->nod$v_vardim
+	      then
+		call errmsg(sdl$_shr_data, sdl$_invparmtyp, p->nod$l_srcline,
+		     'VAXELN Pascal');
+	      opt_flag = ^list_flag;
+	      end;
+
+	  else do;
+	    /* Error if this is a required parameter and an optional parameter
+	       has been previously encountered for this routine. */
+	      if prev_opt_flag
+	      then call errmsg (sdl$_shr_data, sdl$_invreqparm, ,
+					(p->nod$t_name));
+	      end;
+
+	  if p->nod$v_vardim
+	  then do;
+	      if list_flag
+	      then
+		call errmsg(sdl$_shr_data, sdl$_invparmtyp, p->nod$l_srcline,
+		     'VAXELN Pascal');
+	      end;
+
+	  /* Now, build the output string. */
+
+	  /* First, VAR if called for. */
+	  if var_flag then buf = buf || 'VAR ';
+
+	  /* Now, the name. */
+	  if p->nod$t_name = ''
+	  then do;
+	    if pcnt ^= 0
+	    then buf = buf || '$P' || trim(pcnt) || ' : ';
+	    end;
+	  else buf = buf || p->nod$t_name || ' : ';
+
+	  /* Put out the attributes. */
+	  first_att = true;
+	  call put_param_att(list_flag,'LIST');
+	  call put_param_att(opt_flag & var_flag,'OPTIONAL');
+	  call put_param_att(ro_flag,'READONLY');
+	  /* don't put out REFERENCE attribute for BYTE_DATA */
+	  if index(buf, 'BYTE_DATA') ^= 0 then
+	    call put_param_att(ref_flag,'REFERENCE');
+
+	  if ^first_att
+	  then	/* att the right bracket if any attributes were added */
+	    buf = buf || '] ';
+
+	 /*
+	  * Report INVPARMTYP error for any of the following SDL parameters:
+	  *
+	  *	CHARACTER LENGTH * DIMENSION m
+	  *	CHARACTER LENGTH n DIMENSION m { DESCRIPTOR | RTL_STR_DESC }
+	  *
+	  * VAXELN Pascal expects either a conformant or a type name on the
+	  * right hand side of the colon.  The above parameter descriptions
+	  * would generate:
+	  *
+	  *	PACKED ARRAY [1..m] OF STRING(<$n>);
+	  *
+	  * which is neither a conformant nor a type name.
+	  */
+	  if p->nod$v_dimen then
+	      if ^p->nod$v_vardim &
+	         (p->nod$w_datatype = typ$k_char) &
+	         ((p->nod$l_typeinfo = sdl$k_unknown_length) |
+	          p->nod$v_desc |
+		  p->nod$v_rtl_str_desc) then
+		  call errmsg(sdl$_shr_data, sdl$_invparmtyp,
+			      p->nod$l_srcline, 'VAXELN Pascal');
+
+	  /* Put out the datatype and default value (if any) and append a
+	     semicolon.  The extra one at the end of the list will be
+	     removed in the processing of the entry node. */
+	  if p->nod$w_datatype = typ$k_any |
+	     (p->nod$v_desc & p->nod$w_datatype ^= typ$k_char)
+	  then
+	    if p->nod$v_value & p->nod$w_datatype = typ$k_any
+	    then buf = buf || 'INTEGER';
+	    else buf = buf || 'ANYTYPE';
+
+	  /* check for special case of address (entry)as proc or func */
+	  else if p->nod$w_datatype = typ$k_address &
+		  p->nod$a_typeinfo2 ^= null &
+		  p->nod$a_typeinfo2->nod$a_flink->nod$w_datatype = typ$k_entry
+	  THEN do;
+		q = p->nod$a_typeinfo2->nod$a_flink->
+				nod$a_typeinfo2->nod$a_flink;
+		buf = buf || '^ANYTYPE';
+		END;
+
+	  else call puttype(p, buf, varmode);
+
+	  /* Add default initial value if required */
+
+	  IF tmp_default_flag  	/* if a default value is present */
+	  then do;
+		/* use 'ZERO' initializer for BYTE_DATA */
+		if index(buf, 'BYTE_DATA') ^= 0
+		then 
+		    buf = buf || ' := ZERO';
+
+		else
+		/* initialize pointer value parameters that have default 0
+		    with 'nil' ... remember that character descriptors with
+		    defaults are ^ANYTYPE */
+		if (p->nod$w_datatype = typ$k_address & 
+			p->nod$l_initial = 0) | char_desc_default0_flag then
+		    buf = buf || ' := nil';
+		
+		else
+		/* boolean data should be initialized with 'false' */
+		if boolean_default0_flag then
+		    buf = buf || ' := false';
+
+		else  /* anything else get the intial value */
+		    buf = buf || ' := ' || trim(p->nod$l_initial);
+		prev_opt_flag = true;
+		end;
+
+	  /* optional is OK for non-VAR parameters (and this case has
+	     already been processed) and means a default of
+	     zero, but this is only allowed on integer types. */
+	  if opt_flag & ^var_flag
+	  then do;
+	    if ^is_integer_compat_type(p)
+	    then
+		call errmsg(sdl$_shr_data, sdl$_invparmtyp, p->nod$l_srcline,
+		     'VAXELN Pascal');
+	    else buf = buf || ' := 0';
+	    end;
+ 
+	  buf = buf || ';';
+
+	  GOTO common_2;
+
+
+CASE (NOD$K_OBJNODE):		/* Object node for pointer items */
+
+/* if it's an aggregate THEN output the aggregate name as a type name */
+
+	IF p->nod$w_datatype=typ$k_structure | p->nod$w_datatype=typ$k_union
+	THEN 
+	    buf = buf || p->nod$t_name || ' ';
+
+/* otherwise output the datatype */
+
+	ELSE
+	    CALL puttype( p, buf, varmode );
+
+	GOTO common_3;
+ 
+
+CASE (NOD$K_TYPNODE):		/* Object node for pointer items */
+
+	GOTO common_3;
+
+
+CASE (NOD$K_HEADNODE):		/* Header node */
+
+	buf = '';
+	GOTO common_2;
+
+case(nod$k_condnode):						/* jg */
+
+	/* Search for this language in the list */
+
+	q = p->nod$a_typeinfo2->nod$a_flink;
+	do while (^process_conditional & q->nod$b_type = nod$k_objnode);
+	    if q->nod$t_name = lang_name then process_conditional = true;
+	    q = q->nod$a_flink;
+	end;
+
+	/*
+	 * If this language has been found, then children will be processed
+	 * at common_2 at the same level.
+	 *
+	 * Process a comment attached to IFLANGUAGE only if for this language.
+	 */
+	if process_conditional then goto common;
+	else goto common_2;
+
+case(nod$k_litnode):						/* jg */
+
+	/* Process literal node */
+
+	section = 0;
+	buf = p->nod$a_typeinfo2->based_string;
+	goto common;
+
+COMMON:
+	CALL addcomments(buf,p);
+
+COMMON_2:
+	if process_conditional then do;				/* jg */
+	    process_conditional = false;
+	    call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,
+				level, tag, 0);
+	    end;
+
+	else if p->nod$a_child^=null() & p->nod$b_type ^= nod$k_condnode
+	THEN
+	    CALL outputnode( p->nod$a_child->nod$a_flink, p->nod$a_child, 
+					level+1, tag, 0 );
+COMMON_3:
+
+	p = p->nod$a_flink;
+	END;
+    RETURN;
+
+
+is_integer_compat_type : procedure(p) returns(bit(1) aligned);
+
+  /* Return true if the node pointed to by p denotes a type to which
+     an integer can be assigned. */
+
+  dcl p		ptr value;
+
+  if (p->nod$w_datatype = typ$k_byte | p->nod$w_datatype = typ$k_longword |
+      p->nod$w_datatype = typ$k_quadword | p->nod$w_datatype = typ$k_word |
+      p->nod$w_datatype = typ$k_float |
+      p->nod$w_datatype = typ$k_double | p->nod$w_datatype = typ$k_grand |
+      (p->nod$w_datatype = typ$k_vield & p->nod$l_typeinfo ^= 1))
+  then return(true);
+  else return(false);
+
+  end is_integer_compat_type;
+
+
+pass_by_immediate : procedure(p) returns(bit(1) aligned);
+
+  /* Return true if the node pointed to by p is a type that normally
+     would be passed by immediate value in epascal. */
+
+  dcl p		ptr value;
+
+  if (p->nod$w_datatype = typ$k_byte |
+      (p->nod$w_datatype = typ$k_char & p->nod$l_typeinfo = 1 & ^p->nod$v_desc & ^p->nod$v_rtl_str_desc) |
+      p->nod$w_datatype = typ$k_address | p->nod$w_datatype = typ$k_any |
+      p->nod$w_datatype = typ$k_boolean | p->nod$w_datatype = typ$k_longword |
+      p->nod$w_datatype = typ$k_float | p->nod$w_datatype = typ$k_word |
+      p->nod$w_datatype = typ$k_vield)
+  then return(true);
+  else return(false);
+
+  end pass_by_immediate;
+
+
+put_param_att : procedure(att_flag, name);
+
+  /* If att_flag is true, add the name of the attribute to the buffer. */
+
+  dcl att_flag	bit(1) aligned value,
+      name	char(*) varying;
+
+  if att_flag
+  then do;
+    if first_att
+    then do;
+      buf = buf || '[';
+      first_att = false;
+      end;
+    else buf = buf || ',';
+
+    buf = buf || name;
+    end;
+
+  end put_param_att;
+
+
+/********************************************************************/
+/*                                                                  */
+/*                           SCAN_CASES                             */
+/*                                                                  */
+/*    This routine scans an item for the maximum case number        */
+/********************************************************************/
+
+Scan_Cases:	PROCEDURE (p) RETURNS( FIXED BINARY(31) );
+
+/* This routine scans an item for the maximum case number.
+
+   Parameter:	p = pointer to current node */
+
+    DECLARE	p	                PTR VALUE,
+		q			PTR,
+		(item_count, item_max)	FIXED BINARY (31);
+
+    item_count = 0;
+
+    /* Scan over the linked list, computing the maximal tag */
+
+    IF p->nod$b_type = nod$k_itemnode
+    THEN
+/* If the item is a typenode, just return an item_count of 1 */
+	IF (p->nod$w_datatype = typ$k_structure & p->nod$a_typeinfo2^=null)
+	   & (p->nod$a_typeinfo2->nod$b_type=nod$k_typnode)
+	THEN
+	    RETURN(1);
+	ELSE
+/* The following statement enables based pointers for Top level aggregates only*/
+	IF (p->nod$w_datatype = typ$k_structure & p->nod$a_typeinfo2=null)
+	   | (p->nod$w_datatype = typ$k_structure & level = 1)
+	THEN
+	    DO;
+	    IF p->nod$a_child ^= null
+	    THEN
+		DO;
+		q = p->nod$a_child->nod$a_flink;
+		item_max = 0;
+
+		DO WHILE (q ^= p->nod$a_child);
+		    item_max = MAX( item_max, scan_cases( q ) );
+		    q = q->nod$a_flink;
+		    END;
+
+		item_count = 1 + item_max;
+		END;
+	    END;
+
+	/* a Union is a bit more tricky, but still possible */
+
+	ELSE IF p->nod$w_datatype = typ$k_union
+	THEN
+	    DO;
+	    IF p->nod$a_child ^= null
+	    THEN
+		DO;
+		q = p->nod$a_child->nod$a_flink;
+		item_count = item_count + 1;
+		DO WHILE (q ^= p->nod$a_child);
+		    item_count = item_count + scan_cases( q );
+		    q = q->nod$a_flink;
+		    END;
+		END;
+	    END;
+
+	/* Simple item, just give a count of 1 */
+
+	ELSE
+	    item_count = 1;
+
+    RETURN (item_count);
+END Scan_Cases;
+
+/****************************************************************/
+/*								*/
+/*			    OUTPUT_ITEM				*/
+/*								*/
+/*		This routine outputs an SDL "item"		*/
+/****************************************************************/
+
+Output_Item:	PROCEDURE (p, level, tag, caseparm);
+
+/*
+ * Parameter:	p		= pointer to current node
+ *		level		= depth in definition tree
+ *		tag		= current iteration of main output loop
+ *		caseparm	= number of current element
+ */
+    DECLARE	(p, q)                                   PTR,
+		(tag, caseparm, level, newparm, oldparm,i) FIXED BINARY (31),
+	        tbuf char(1024) var initial(''), /* temperary buffer */
+
+		1 hash_link based,
+		  2 name ptr,
+		  2 next ptr,
+
+		new_ptr	ptr,
+		vs32	char(32) varying based;
+
+    /* Handle Comments Correctly */
+
+    IF p->nod$b_type = nod$k_commnode
+    THEN
+	DO;
+	IF tag = 0 | tag = caseparm
+	THEN
+	    DO;
+	    IF length(buf) = 0
+	    THEN
+		buf = tab;
+
+	    CALL addcomments(buf,p);
+	    END;
+	RETURN;
+	END;
+
+    IF p->nod$b_type ^= nod$k_itemnode
+    THEN
+	RETURN;
+
+    IF length(buf) = 0
+    THEN
+	buf = tab || '    ';
+
+    /* Clear the field hash table if this is a level1 record. */
+    IF level = 1 &
+	(p->nod$w_datatype = typ$k_structure | p->nod$w_datatype = typ$k_union)
+    THEN
+	field_hash_table = null;
+
+    IF (tag = 0 | tag = caseparm) &  (^ p->nod$v_userfill | level = 2)
+    THEN
+	DO;
+	IF level > 1
+	THEN
+	    DO;
+	    buf = buf || p->nod$t_name;
+
+	    /* Using the field-hash-table, see if this name already exists for
+	       a field in this record.  Give an error if it does.  If not,
+	       enter it into the hash table. */
+
+	    /* compute the hash index */
+	    i = length(p->nod$t_name);
+	    i = i + rank(substr(p->nod$t_name,1,1)) +
+		rank(substr(p->nod$t_name,i,1));
+	    i = mod(i,fhmax);
+	    if field_hash_table(i) = null
+	    then do;	/* empty hash list - make this item the first in it */
+		allocate hash_link set(new_ptr);
+		new_ptr->hash_link.next = null;
+		field_hash_table(i) = new_ptr;
+		new_ptr->hash_link.name = addr(p->nod$t_name);
+		end;
+
+	    else do;	/* look for name in this hash list */
+		q = field_hash_table(i);
+		do while (true);
+		  if q->hash_link.name->vs32 = p->nod$t_name
+		  then do;
+		    call errmsg(sdl$_shr_data, sdl$_multdefsym, 
+				p->nod$l_srcline,
+				substr(p->nod$t_name,1));
+		    goto finished_hash;
+		    end;
+
+		  else if q->hash_link.next = null
+		  then do;	/* end of list - insert new one here */
+		    allocate hash_link set(new_ptr);
+		    new_ptr->hash_link.next = null;
+		    q->hash_link.next = new_ptr;
+		    new_ptr->hash_link.name = addr(p->nod$t_name);
+		    goto finished_hash;
+		    end;
+
+		  else q = q->hash_link.next;	/* look at next name in list */
+		  end;
+
+finished_hash:
+
+		end;
+
+	    IF p->nod$v_based | p->nod$v_typedef		/* jg */
+	    THEN
+		buf = buf || ' = ';
+	    ELSE
+		buf = buf || ' : ';
+	    END;
+
+	/* if this is a structure or aggregate then special case;
+	   travel down its child nodes */
+	IF (p->nod$w_datatype=typ$k_structure 
+	    | p->nod$w_datatype=typ$k_union )
+	    & p->nod$a_typeinfo2=null()
+	THEN
+	    DO;
+	    IF level > 2
+	    THEN
+		DO;
+		posn = (p->nod$a_parent->nod$l_typeinfo + p->nod$l_offset) * 8;
+
+		IF p->nod$w_datatype = typ$k_vield
+		THEN
+		    posn = posn + p->nod$l_typeinfo2;
+
+		buf = buf || '[POS(' || trim(posn) || ')] ';
+		END;
+
+	    buf = buf || 'BYTE_DATA(' || trim(p->nod$l_fldsiz) || ')';
+	    END;
+
+	/* Otherwise, append the semicolon and that's it */
+
+	ELSE
+	    DO;
+	    IF level > 2
+	    THEN
+		DO;
+		posn = (p->nod$a_parent->nod$l_typeinfo + p->nod$l_offset) * 8;
+
+		IF p->nod$w_datatype = typ$k_vield
+		THEN
+		    posn = posn + p->nod$l_typeinfo2;
+
+		buf = buf || '[POS(' || trim(posn) || ')] ';
+		END;
+
+	    CALL puttype( p, buf, varmode );
+	    END;
+
+	buf = buf || ';';
+	CALL addcomments(buf, p);
+	END; 
+
+    /* Dive into the structure */
+    IF p->nod$a_child ^= null()
+    THEN DO;
+	q = p->nod$a_child->nod$a_flink;
+
+	IF p->nod$w_datatype = typ$k_union 
+	THEN DO;
+	    /* handle comment nodes that appear immediatly */
+	    /* after a union declaration.		   */
+	    DO WHILE (q->nod$b_type = nod$k_commnode );
+		IF tag = (caseparm+1) THEN
+		  CALL addcomments(tbuf,q);
+		q = q->nod$a_flink;
+	    END;
+	    /* now process the first item */
+	    /*				  */
+	    DO WHILE (q ^= p->nod$a_child);
+		caseparm = caseparm + 1;
+		CALL output_item( q, level+1, tag, caseparm );
+		q = q->nod$a_flink;
+		DO WHILE (q->nod$b_type = nod$k_commnode &
+			q ^= p->nod$a_child);
+			IF tag = caseparm THEN
+			  CALL addcomments(buf,q);
+			q = q->nod$a_flink;
+			END;
+		END;
+	END;
+	ELSE
+	    DO;
+	    oldparm = caseparm;
+	    newparm = caseparm;
+
+	    DO WHILE (q ^= p->nod$a_child);
+		caseparm = oldparm + 1;
+		CALL output_item( q, level+1, tag, caseparm );
+		newparm	 = MAX( newparm, caseparm );
+		q = q->nod$a_flink;
+		END;
+
+	    caseparm = newparm;
+	    END;
+	END;
+
+END Output_Item;
+
+/********************************************************************/
+/*                                                                  */
+/*                               PUTTYPE                            */
+/*                                                                  */
+/*    This routine formats the datatype information for an item     */
+/********************************************************************/
+
+PUTTYPE:	PROCEDURE (p,buf,type_mode);
+/*
+ * Parameter:	p	= pointer to current node
+ *		buf	= buffer to append type text to
+ *		type_mode	= boolean indicating whether we're generating
+ *				  type names or the real thing.  IF true,
+ *				  this routine is being called by
+ *				  generate_types
+ */
+	dcl p ptr;
+	dcl buf char(*) var;
+	dcl type_mode bit aligned;
+	dcl (i,k) fixed bin;	
+	dcl q ptr;
+	dcl gbuf char(1024) var;
+	dcl tname char(32) var;
+	dcl data_type_string char(18) var init ('');
+
+/*
+ * General header for start of buf name
+ */
+	gbuf = modname;
+	if length (gbuf) > 20
+	then gbuf = substr (gbuf,1,20);
+
+/* 
+ * Storage classifications
+ */
+	IF ^type_mode THEN DO;
+		IF p->nod$v_common THEN
+		   IF sdl$v_global_opt THEN
+			call errmsg(sdl$_shr_data, sdl$_invout, p->nod$l_srcline,
+				'VAXELN Pascal');
+		   ELSE
+			buf = buf || '[EXTERNAL] ';
+		IF p->nod$v_global THEN
+		   IF ^sdl$v_global_opt THEN
+			buf = buf || '[EXTERNAL] ';
+		END;
+
+/* 
+ * see if there is a generated type name for this node.
+ * if so, use it and don't go any further
+ */
+	hpnode = p;
+	i = hashf(hparm,256);
+	DO q=htable(i) REPEAT q->hrnext WHILE (q ^= null);
+		IF q->hrnode = p
+		THEN
+			DO;
+			if p->nod$w_datatype = typ$k_byte
+			then if p->nod$v_unsigned
+			     then tname = '$$ubyte';
+			     else tname = '$$byte';
+
+			else if p->nod$w_datatype = typ$k_word
+			then if p->nod$v_unsigned
+			     then tname = '$$uword';
+			     else tname = '$$word';
+
+			else tname = '$$typ' || trim(q->hrtype);
+
+			if substr(modname,1,1) < 'a'
+			then tname = translate(tname,
+				'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+				'abcdefghijklmnopqrstuvwxyz');
+
+			buf = buf || gbuf || tname;
+
+			GOTO ret;
+			END;
+		END;
+/*
+ * if there is a dimension, append it 
+ */
+	IF p->nod$v_dimen
+	THEN
+	  IF p->nod$v_vardim
+	  THEN DO;
+	    buf = buf || 'PACKED ARRAY[$L' || trim(pcnt) || '..$U' ||
+		trim(pcnt) || ':INTEGER] OF ';
+	    END;
+	  ELSE DO;
+	    buf = buf || 'PACKED ARRAY[' || trim(p->nod$l_lodim) || '..' ||
+		trim(p->nod$l_hidim) || '] OF ';
+	    END;
+
+/*
+ * if an aggregate parameter, use the aggregate name for the datatype
+ */
+	IF 
+	    p->nod$b_type = nod$k_parmnode & 
+	    (p->nod$w_datatype=typ$k_structure 
+	    | p->nod$w_datatype=typ$k_union)
+	THEN
+	    buf = buf || p->nod$a_typeinfo2->nod$t_name;
+/*
+   If the data type is char, make it into a string always, unless the length
+   is one, in which case use char.
+ */
+	ELSE IF  p->nod$w_datatype=typ$k_char
+	THEN
+	    IF p->nod$v_varying
+	    THEN
+		IF p->nod$v_desc | (p->nod$l_typeinfo = sdl$k_unknown_length)
+		THEN
+		    buf = buf || 'VARYING_STRING(<$N' || trim(pcnt) || '>)';
+		ELSE
+		    buf = buf || 'VARYING_STRING(' || trim(p->nod$l_typeinfo)
+			      || ')';
+
+	    ELSE
+		DO;
+		IF p->nod$v_desc | p->nod$v_rtl_str_desc
+		THEN
+		    /* Make character descriptor parameters with default 0 
+			get a ^ANYTYPE to allow the initializer value. */
+		    if tmp_default_flag 
+		    then
+			buf = buf || '^ANYTYPE';
+		    else
+			buf = buf || 'STRING(<$n' || trim(pcnt) || '>)'; 
+		ELSE IF p->nod$l_typeinfo = 1
+		THEN
+		    buf = buf || 'CHAR';
+		ELSE IF p->nod$l_typeinfo = sdl$k_unknown_length
+		THEN
+		    buf = buf || 'STRING(<$n' || trim(pcnt) || '>)'; 
+		ELSE
+		    buf = buf || 'STRING(' || trim(p->nod$l_typeinfo) || ')';
+		END;
+/* 
+ * Use an array for packed decimal 
+ */
+	ELSE IF p->nod$w_datatype = typ$k_decimal
+	THEN
+	    buf = buf || 'PACKED ARRAY[1..' || trim(p->nod$l_typeinfo+1)
+		      || '] OF [BIT(4)] 0..15;';
+/* 
+ * Check for the unsigned attribute-- IF present use different
+ * datatype equivalences 
+ */
+	ELSE IF p->nod$v_unsigned
+	THEN
+	    buf = buf || unsigned(p->nod$w_datatype);
+
+/*
+ * Check for type name attribute
+ */
+	ELSE IF (p->nod$w_datatype = typ$k_structure 
+		| p->nod$w_datatype = typ$k_union) &
+	        (p->nod$a_typeinfo2 ^= null & 
+		p->nod$a_typeinfo2->nod$b_type = nod$k_typnode)
+	THEN
+		   buf = buf || p->nod$a_typeinfo2->nod$t_name;
+
+/*
+ * Check for special case of 1 bit
+ */
+	ELSE IF p->nod$w_datatype = typ$k_vield &
+	        p->nod$l_typeinfo = 1 THEN
+		   buf = buf || 'BOOLEAN';
+
+/*
+ * JG
+ * Check for user datatype, in which case get the type name
+ */
+	ELSE IF p->nod$w_datatype = typ$k_user then
+	   buf = buf || p->nod$a_typeinfo2->nod$a_flink->nod$t_name;
+/* 
+ * Otherwise, just append from the datatype equivalence array 
+ */
+	ELSE
+	    buf = buf || types(p->nod$w_datatype);
+
+       /*
+	* Put out warning if this is a COMPLEX data type
+	*/
+	if p->nod$v_complex then do;
+	    select (p->nod$w_datatype);
+		when (typ$k_float_complex) data_type_string = 'F_FLOATING COMPLEX';
+		when (typ$k_double_complex) data_type_string = 'D_FLOATING COMPLEX';
+		when (typ$k_grand_complex) data_type_string = 'G_FLOATING COMPLEX';
+		when (typ$k_huge_complex) data_type_string = 'H_FLOATING COMPLEX';
+		otherwise do;
+		    call errmsg (sdl$_shr_data, sdl$_bugcheck, p->nod$l_srcline, );
+		    goto exit;
+		    end;
+	    end; /* select */
+	    call errmsg (sdl$_shr_data, sdl$_typnotsup, p->nod$l_srcline, (data_type_string));
+	    end;
+
+/*
+   If it's a bitfield, finish up the type name
+ */
+	if p->nod$w_datatype = typ$k_vield & p->nod$l_typeinfo > 1
+	then do;
+	  buf = buf || trim(p->nod$l_typeinfo) || ')] ';
+	  if p->nod$l_typeinfo = 32
+	  then buf = buf || 'INTEGER';
+	  else do;
+	    k = 2**(p->nod$l_typeinfo);
+	    if p->nod$v_signed
+	    then buf = buf || trim(-divide(k,2,31)) || '..' ||
+			      trim(divide(k,2,31)-1);
+	    else buf = buf || '0..' || trim(k-1);
+	    end;
+	  end;
+
+/* remove any ] [ that may have been introduced */
+
+	k = index(buf, '] [');
+	if k ^= 0 then
+	    buf = substr(buf,1,k-1) || ',' || substr(buf,k+3);
+
+/*
+ * if it's a pointer, then go down its object node and get its type
+ */
+	IF p->nod$w_datatype = typ$k_address
+	THEN 
+	    IF p->nod$a_typeinfo2 = null
+	    THEN
+		buf = buf || '^ANYTYPE';
+	    ELSE
+		DO;
+		buf = buf || '^';
+
+		IF ^type_mode
+		THEN
+		    CALL outputnode( p->nod$a_typeinfo2->nod$a_flink, p->nod$a_typeinfo2, level, tag, 0 );
+		ELSE
+		    DO;
+		    CALL generate_types( p->nod$a_typeinfo2->nod$a_flink, p->nod$a_typeinfo2 );
+		    CALL puttype( p->nod$a_typeinfo2->nod$a_flink, buf, type_mode );
+		    END;
+		END;
+ret:
+    RETURN;
+
+END PUTTYPE;
+ 
+/* this routine adds any associated comments to the end of the line
+ *  (neatly formatted to the 40th column)
+ */
+ADDCOMMENTS:	PROCEDURE (buf,p);
+dcl buf char(1024) var;
+dcl p ptr;
+dcl (bracket,star_paren) fixed binary ;
+
+	IF p->nod$a_comment^=null() & sdl$v_comment_opt 
+	THEN DO;
+		IF buf ^= '' THEN
+			buf	= fill(buf,40);
+
+	    /* add "start of comment" delimiter" */
+		buf	= buf || '{' || p->nod$a_comment->based_string;
+
+	    /* If there are any "end of comment" delimiters (i.e '}' or '*)' )
+	     * in the comment then change them to question marks.
+	    */
+
+		bracket = index(buf,'}');
+		do while( bracket ^= 0 );
+		    substr(buf,bracket,1) = '?';
+		    bracket = index(buf,'}');
+		end;
+
+		star_paren = index(buf,'*)');
+		do while( star_paren ^= 0 );
+		    substr(buf,star_paren,2) = '??';
+		    star_paren = index(buf,'*)');
+		end;
+
+	    /* add "end of comment" delimiter at the end of the comment line */
+		buf	= fill(buf,76) || '}';
+		END;
+	CALL sdl$putline (outfile, buf,line_length);
+	buf = '';
+	RETURN;
+END ADDCOMMENTS;
+
+/*
+ * This routine goes through a module's tree and generates type names
+ * for any of its child nodes that must have them.  These are:
+ *	
+ *	entries whose return types are arrays or have the byte, word or bit attribute
+ *	parameters that are arrays or have the byte, word or bit attribute
+ *	pointers that point to arrays or pointers or something with the byte,
+ *		word or bit attribute.
+ *
+ * The generated type declarations are output at the beginning of the module.
+ * The address of a node with a generated type name is stored in
+ * a table, along with the number used to form the type name, for
+ * later retrieval by PUTTYPE when the declaration using the generated
+ * type is PROCessed.
+ */
+GENERATE_TYPES: PROCEDURE (initp,startp);			/* jg */
+%replace typmode by '1'b;
+dcl (initp, p,startp,q) ptr;					/* jg */
+dcl (q1,q2,r) ptr;
+dcl gbuf char(1024) var;
+dcl savecnt fixed bin;
+dcl tname char(32) varying;
+
+    p = initp;							/* jg */
+    do while (p^=startp);			/* jg - change if to while */
+	IF p->nod$b_type = nod$k_entrynode |
+	   p->nod$b_type = nod$k_parmnode |
+	   p->nod$b_type = nod$k_objnode |
+	   p->nod$b_type = nod$k_typnode THEN DO;
+
+	    IF (
+		(p->nod$v_dimen &
+		^(p->nod$v_vardim & p->nod$b_type = nod$k_parmnode)) |
+		(p->nod$w_datatype = typ$k_address &
+		 p->nod$a_typeinfo2 ^= null &
+		 p->nod$a_typeinfo2->nod$a_flink->
+		    nod$w_datatype ^= typ$k_entry) |
+		 p->nod$w_datatype=typ$k_decimal |
+		 p->nod$w_datatype=typ$k_byte |
+		 p->nod$w_datatype=typ$k_word
+		) &
+
+	       /*
+	        * and not CHARACTER LENGTH *, DESCRIPTOR or RTL_STR_DESC --
+	        * all of which which generate conformant array syntax, which
+	        * is invalid in this context
+	        */
+	        ^(
+	          (p->nod$w_datatype = typ$k_char) &
+		  ((p->nod$l_typeinfo = sdl$k_unknown_length) |
+		   p->nod$v_desc |
+		   p->nod$v_rtl_str_desc)
+		 ) then do;
+
+			IF typcnt=0 THEN DO;
+				CALL sdl$putline (outfile, ' ',line_length);
+				CALL sdl$putline (outfile, 'TYPE	
+{*** SDL-Generated type names ***}',line_length);
+				END;
+			typcnt=typcnt+1;
+			gbuf=modname;
+			IF length(gbuf)>20 THEN 
+				gbuf=substr(gbuf,1,20);
+			if p->nod$v_unsigned &
+			   (p->nod$w_datatype = typ$k_byte |
+			    p->nod$w_datatype = typ$k_word)
+			then do;
+			    if p->nod$w_datatype = typ$k_byte
+			    then do;
+				if ubyte_type_flag
+				then
+				    goto type_already_exists;
+				tname = '$$ubyte';
+				ubyte_type_flag = true;
+				end;
+			    else do;
+				if uword_type_flag
+				then
+				    goto type_already_exists;
+				tname = '$$uword';
+				uword_type_flag = true;
+				end;
+			    end;
+
+			else if p->nod$w_datatype = typ$k_byte
+			then do;
+				if byte_type_flag
+				then
+				    goto type_already_exists;
+				tname = '$$byte';
+				byte_type_flag = true;
+				end;
+
+			else if p->nod$w_datatype = typ$k_word
+			then do;
+				if word_type_flag
+				then
+				    goto type_already_exists;
+				tname = '$$word';
+				word_type_flag = true;
+				end;
+
+			else tname = '$$typ' || trim(typcnt);
+
+			if substr(modname,1,1) < 'a'
+			then tname = translate(tname,
+				'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+				'abcdefghijklmnopqrstuvwxyz');
+
+			tname = gbuf || tname;
+			gbuf=tab||tname||' = ';
+			savecnt=typcnt;
+			CALL puttype((p),gbuf,typmode);
+			CALL sdl$putline (outfile, gbuf||';',line_length);
+type_already_exists:
+			allocate hrec set (r);
+			r->hrnext=null;
+			r->hrnode=p;
+			r->hrtype=savecnt;
+			hpnode=p;
+			i = hashf(hparm,256);
+			q2=null;
+			DO q1=htable(i) REPEAT q1->hrnext WHILE (q1^= null); 
+				IF q1->hrnode = p THEN DO;
+					r->hrnext=q1->hrnext;
+					GOTO found;
+					END;
+				q2=q1;
+				END;
+found:
+			IF q2 = null THEN
+				htable(i) = r;
+			ELSE
+				q2->hrnext=r;
+
+			END;
+		END;
+travel:
+	if ^p->nod$v_declared then do;				/* jg */
+	    IF p->nod$b_type=nod$k_itemnode THEN
+		IF (p->nod$w_datatype=typ$k_address) & (p->nod$a_typeinfo2 ^= null)
+		THEN
+		    CALL generate_types( p->nod$a_typeinfo2->nod$a_flink, p->nod$a_typeinfo2 );
+	    IF p->nod$a_child ^= null THEN
+		CALL generate_types( p->nod$a_child->nod$a_flink, p->nod$a_child );
+	    end;
+
+/* JG - change recursive descent to while loop */
+	p = p->nod$a_flink;
+	do while (p^=startp & p->nod$b_type = nod$k_commnode);
+		p = p->nod$a_flink;
+		end;
+/****	CALL generate_types( q, startp ); ****/
+	
+   END;		/* while (p ^= startp) */
+   RETURN;
+END GENERATE_TYPES;
+END OUTPUTNODE;
+END SDL$OUTPUT;

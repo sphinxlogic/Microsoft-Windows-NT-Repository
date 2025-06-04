@@ -1,0 +1,347 @@
+
+
+			 SCAN PRINTERS V2.6
+			--------------------
+
+
+
+	SCAN PRINTERS est un utilitaire développé pour permettre d'alléger
+	la charge de surveillance des queues d'impression sur OpenVMS à
+        partir de la version 5.2
+
+	Cet outil a été conçu de manière à être rapidement opérationnel
+	sur le site où on l'installe, et est donc facilement paramétrable 
+	et facile à mettre en ÷uvre.
+
+
+	I - PRINCIPE de FONCTIONNEMENT
+
+	Lancé en principe en process détaché au démarrage du système son
+	principe de fonctionnement de base est le suivant :
+
+	- Scrutation toutes les 15 minutes des queues d'impression non
+	  génériques.
+
+	- Envoi d'un message à l'operateur PRINTER pour toute imprimante
+	  trouvée dans l'état "stalled", "paused", "stopped" ou ayant des
+          jobs holding.
+
+	Toutes ces anomalies sont répertoriéees dans un fichier journal
+	SYS$MANAGER:SCAN_PRINTERS.LOG
+
+	Il n'a besoin d'être activé que sur un seul membre d'un VAXCluster.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	1992	-    H. MERCUSOT 	  -	   Cap Sesa Exploitation   
+
+	II - PARAMETRAGE
+
+	Le principe du paramétrage de la procédure est basée sur l'utilisation
+	de noms logiques définis dans une table partagée au niveau système
+	SCNPRT_TABLE. Si cette table n'existe pas, le logiciel prend toutes 
+        les valeurs par défaut.
+
+	Ces noms logiques sont les suivants :
+
+  SCNPRT$HIBERNATE_DELAY      Durée d'attente entre chaque scrutation des queues
+                              d'impression.
+				Défaut : 00:15:00
+
+  SCNPRT$EXPECTED_ALT_DATE    Date ou Heure à partir de laquelle ce n'est pas
+                              SCNPRT$HIBERNATE_DELAY qui est utilisé mais
+			      SCNPRT$ALT_HIBERNATE_DELAY.
+                                Défaut : 18:00:00
+
+  SCNPRT$ALT_HIBERNATE_DELAY  Durée d'attente une fois que 
+                              SCNPRT$EXPECTED_ALT_DATE est atteint. Une 
+			      fois cette durée utilisée, on réutilise
+                              SCNPRT$HIBERNATE_DELAY jusqu'à atteindre
+                              une nouvelle fois SCNPRT$EXPECTED_ALT_DATE.
+				Défaut : 14:00:00
+
+  SCNPRT$SPECIAL_HIBERNATE_DELAY  Durée d'attente une fois que l'on sort
+                              d'une attente de SCNPRT$ALT_HIBERNATE_DELAY 
+                              et que l'on est un jour dont le nom se trouve
+                              dans la liste SCNPRT$SPECIAL_DAYS. Une fois cette
+                              durée utilisée, on teste à nouveau le jour pour 
+                              voir s'il est encore dans la liste 
+                              SCNPRT$SPECIAL_DAYS s'il l'est on attend une 
+                              nouvelle fois SCNPRT$SPECIAL_HIBERNATE_DELAY, 
+                              sinon on repart en phase de scrutation.
+                              Si SCNPRT$SPECIAL_DAYS n'est pas défini ce 
+                              nom logique ne sert pas.
+				Défaut : 23:59:59 
+
+  SCNPRT$SPECIAL_DAYS         Liste de noms de jours pour lesquels on veut
+                              attendre SCNPRT$SPECIAL_HIBERNATE_DELAY. Cette
+                              liste est composée de noms en anglais séparés
+                              par une virgule et doit être entourée de "
+
+  SCNPRT$REQUEST_CLASS        Classe OPCOM pour envoi des REQUEST.
+				Défaut : PRINTER
+
+  SCNPRT$MESSAGE              Usernames auxquels seront envoyés des REPLY.
+                              La liste des usernames doit être entourée de "
+				Défaut : aucun
+
+  SCNPRT$MAIL                 Usernames auxquels seront envoyés des MAIL 
+                              (1 par passe) sur les problèmes rencontrés 
+                              lors d'une passe de scrutation. Cette liste doit 
+                              être entourée de " et composée de usernames 
+                              accessibles par MAIL.
+				Défaut : aucun
+
+  SCNPRT$MAIL_ON_STOP         Usernames auxquels seront envoyés des MAIL si le
+                              process SCAN PRINTERS vient à s'arrêter suite à 
+                              une erreur.
+                              Cette liste doit être entourée de " et composée
+                              de usernames accessibles par MAIL.
+				Défaut : aucun
+
+
+  SCNPRT$MAIL_ON_STALLED      Ce nom logique donne le nombre de fois où une 
+                              imprimante doit être trouvée "stalled" avant de 
+                              faire l'objet d'un MAIL.
+				Défaut : 0 (Aucun MAIL)
+
+  SCNPRT$PRIORITY             Priorité du process détaché.
+ 				Défaut : 2
+
+  SCNPRT$RESTART_QUEUE        Tentative de redémarrage des queues "stopped"
+                              ou "paused" par un START/QUEUE. (YES ou NO)
+				Défaut : NO
+
+  SCNPRT$RELEASE_HOLD         SET ENTRY/RELEASE des jobs holding d'une queue.
+                              (YES ou NO)
+				Défaut : NO
+
+  SCNPRT$WORK_DIRECTORY       Directory temporaire. Pour les fichiers de MAIL.
+				Défaut : SYS$SCRATCH
+
+  SCNPRT$STATISTICS_FILE      Nom d'un fichier où seront enregistrées des
+                              statistiques sur les queues trouvées en anomalies.
+				Défaut : aucun
+
+  SCNPRT$EXCLUSION_FILE       Nom d'un fichier où sont stockés les noms des
+                              queues que SCAN PRINTERS ne doit pas prendre
+                              en compte s'il les trouve en anomalie.
+                              (Les noms doivent être entourés de #)
+				Défaut : aucun
+
+  SCNPRT$IGNORE_CLUSTER       Détermine si dans le fichier statistique, sera
+                              enregistré le nom du n÷ud ou le nom du cluster
+                              ou tourne SCAN PRINTERS.
+                                Défaut : YES
+
+	La modification de la valeur d'un de ces noms logiques est 
+        automatiquement prise en compte à la prochaine passe de SCAN PRINTERS.
+
+  	Les autres noms logiques visibles dans la table SCNPRT_TABLE sont
+        mis à jour par le process détaché et uniquement si cette table 
+        existe.
+
+  SCNPRT$VERSION              Version du logiciel.
+
+  SCNPRT$LAST_SCAN_BEGIN      Date de début de la dernière passe.
+
+  SCNPRT$LAST_SCAN_END        Date de fin de la dernière passe ou d'arrêt par
+                              SCNPRT_SHUT.COM
+
+  SCNPRT$STATE                Etat du process :
+                              SCANNING   : Scrutation des queues en cours.
+                              STATISTICS : En cours d'écriture sur le fichier
+                                           de statistiques.
+                              MAILING    : Envoi d'un mail en fin de passe à
+                                           SCNPRT$MAIL
+                              HIBERNATE  : En attente, 
+                                           durée SCNPRT$HIBERNATE_DELAY
+                              HIB_ALT    : En attente,
+                                           durée SCNPRT$ALT_HIBERNATE_DELAY
+                              HIB_SPECIAL: En attente,
+                                           durée SCNPRT$SPECIAL_HIBERNATE_DELAY
+                              STOPPING   : En cours d'arrêt aprés une erreur.
+                              STOPPED    : Arrêté aprés une erreur.
+                              STOPPED BY : Arrêté par un utilisateur via
+                                           SCNPRT_SHUT.COM
+
+
+
+	III - MISE EN ×UVRE
+
+	SCAN PRINTERS est composé de 8 procédures de commande.
+
+	SCNPRT_STUP.COM : Procédure de lancement, à inclure dans les procédures
+                          de STARTUP du système. Elle fait appel à
+                          SCNPRT_REQUIRED.COM, SCNPRT_LOGICALS.COM et
+                          SCAN_PRINTERS.COM. Cet appel se fait en considérant
+                          que ces procédures sont sur SCNPRT_DIR: 
+                          (SYS$MANAGER si non défini).
+                          Paramètres possibles :
+                          NOLOG   - Pas de création de la table des noms 
+                                    logiques SCNPRT_TABLE, et destruction si 
+                                    elle existe.
+                          RESTART - Arrêt du process détaché avant redémarrage.
+                          ABORT   - Arrêt du process détaché sans contrôle
+                                    préalable si RESTART spécifié.
+
+	SCNPRT_REQUIRED.COM : Procédure testant les prérequis au lancement
+                              du process détaché. (Queue Manager activé et
+                              privilèges requis).
+
+        SCNPRT_LOGICALS.COM : Procédure de définition de la table des noms
+                              logiques ainsi que des valeurs à donner aux
+                              différents noms logiques de paramétrage. C'est
+                              le seule procédure à modifier.
+                              Paramètre possible : NOLOG qui permet de ne pas
+                              utiliser de noms logiques et efface la table
+                              SCNPRT_TABLE si elle existe.
+
+        SCNPRT_DETACHED.COM : Procédure qui crée le process détaché 
+                              Scnprt_Deamon.
+                          Paramètres possibles :
+                          RESTART - Arrêt du process détaché avant redémarrage.
+                          ABORT   - Arrêt du process détaché sans contrôle
+                                    préalable si RESTART spécifié.
+
+        SCAN_PRINTERS.COM : Procédure s'executant en process détaché, c'est le
+                            "noyau" de SCAN PRINTERS.
+
+	SCNPRT_SHUT.COM : Procédure à inclure dans le SHUTDOWN du système. Elle
+                          stoppe le process détaché ScanPrt_Daemon.
+			  Sans paramètre cette procédure stoppe le process en
+                          fin de passe de scrutation. Ceci évite de laisser 
+                          "trainer" des fichiers temporaires et de perdre des 
+    			  statistiques
+                          Paramètre possible : ABORT qui arrête le process sans
+                                               contrôle préliminaire.
+
+	SCNPRT_STATISTICS : Procédure permettant de sortir des statistiques
+                            succintes en provenance du fichier 
+                            SCNPRT$STATISTICS_FILE.
+                            Paramètres possibles :
+                            En premier   : Nom du n÷ud dont on veut avoir des
+                                           stat., n÷ud ou cluster courant par 
+                                           defaut, selon SCNPRT$IGNORE_CLUSTER.
+                            En second    : Nom de la queue dont on veut des
+                                           stat., toutes par défaut.
+
+			    En troisième : Date de début de recherche, option.
+
+                            En quatrième : Date de fin de recherche, option.
+
+	SCNPRT_MERGE_STAT : Procédure permettant la fusion d'un fichier de stat.
+                            avec le fichier de stat. du n÷ud local défini par
+                            SCNPRT$STATISTICS_FILE.
+                            Paramètres : Nom du fichier que l'on veut fusionner
+                                         avec le fichier local.
+
+
+	On trouvera donc généralement dans les procédures de startup du
+	système les ordres suivants :
+
+	$ define/system/executive scnprt_dir xxxxxx ! Directory de SCAN PRINTERS
+        $ @scnprt_dir:snprt_stup [NOLOG ou rien]
+
+	Et dans les procédures de shutdown :
+
+	$ @scnprt_dir:scnprt_shut [ABORT ou rien]
+
+
+
+	IV - FICHIER D'EXCLUSION
+
+	Ce fichier, défini par SCNPRT$EXCLUSION_FILE, contient une liste des
+	imprimantes que SCAN PRINTERS doit ignorer s'il les trouve en anomalie.
+
+	Cette liste est composée d'un fichier séquentiel, chaque ligne contient
+        le nom de la queue d'impression, en minuscule ou majuscule, entouré du
+        signe #
+
+
+	V - FICHIER DE STATISTIQUES
+
+	Ce fichier, défini par SCNPRT$STATISTICS_FILE, contient les 
+        enregistrements de statistiques pour toute queue trouvée en anomalie. 
+        Il peut être local au système ou distant, et commun à tous les systèmes
+        qui "tournent" SCAN PRINTERS.
+
+	Ce fichier est composé de 2 types d'enregistrements :
+
+	TYPE I : 
+
+	Date d'enregistrement 
+        N÷ud ou Cluster source de l'enregistrement
+        Nom de la queue d'impression
+        N÷ud sur lequel la queue est démarrée
+        Device associé
+        Etat de la queue d'impression (stopped, stalled, paused, holding)
+        Nombre de jobs "executing" (Un job "aborting" est considéré "executing")
+        Nombre de jobs "pending"
+        Nombre de jobs "retained"
+        Nombre de jobs "holding"
+        Symbiont utilisé (Paramètre /PROCESSOR)
+        Forme montée sur la queue (Paramètre /FORM)
+        Bibliothèque de modules utilisée (Paramètre /LIBRARY)
+
+	Si le nombre de jobs "executing" est différent de zéro on trouve alors
+        un enregistrement de type II.
+
+	TYPE II :
+ 
+	Date d'enregistrement 
+        N÷ud source de l'enregistrement
+        Nom de la queue d'impression
+        N÷ud sur lequel la queue est démarrée
+        Device associé
+        La valeur "STAT"
+        Nom du job en cours
+        Username du job en cours d'execution 
+        Numéro de l'entrée
+        Fichier en cours d'impression
+
+	Chaque champs est séparé du suivant par un /
+
+
++-----------------------------------------------------------------------------+
+|                               | Cap Sesa Exploitation                       |
+| MERCUSOT Hugues               |                                             |
+|                               | Burolines Bat. 2                            |
+|                               | Zac de l'Aeroport                /\         |
+| MERCUSOT_H@decus.fr           | 2 ter, rue M. Doret            /    \       |
+| PSI%0208081060112219::MERCUSH | 31700 Blagnac                 (_//\\_)      |
+| PSI%0208091150416::MERCUSOT_H | FRANCE                          /__\        |
+|                               |                                             |
++-------------------------------+---------------------------------------------+
+| All opinions expressed are mine, and may not reflect those of my employer   |
++-----------------------------------------------------------------------------+

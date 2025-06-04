@@ -1,0 +1,221 @@
+DELETE INSTALL_F;
+REDEFINE DOMAIN INSTALL_F USING INSTALL_F_RECORD ON INS.SEQ;
+
+DELETE INSTALL_F_RECORD;
+REDEFINE RECORD INSTALL_F_RECORD OPTIMIZE
+01 INS_F_REC.
+!
+! This matches the records produced from the INSTALL_PROCESS
+! program which normalizes the data from an INSTALL/LIST/FULL
+!
+! B. Z. Lederman    29-Sep-1987		ITT World Communications
+!		    25-Apr-1988 Make numeric fields numeric for FORTRAN
+!
+    10 DIRECTORY PIC X(64) EDIT_STRING T(56).
+    10 IMAGE PIC X(32) EDIT_STRING T(24).
+    10 QUAL PIC X(8).
+    10 QUALIFIERS REDEFINES QUAL.
+	20 OPEN PIC X.		    ! matches INSTALL abbreviations
+	20 HDR PIC X.
+	20 SHAR PIC X.
+	20 PRV PIC X.
+	20 PROT PIC X.
+	20 LNKBL PIC X.
+	20 CMODE PIC X.
+	20 NOPURG PIC X.
+    10 ENTRY USAGE LONG EDIT_STRING ZZZ,ZZ9.
+    10 MAX_SHARED USAGE LONG EDIT_STRING ZZZ,ZZ9.
+    10 GLOBAL USAGE LONG EDIT_STRING ZZZ,ZZ9.
+;
+
+DELETE INSTALL_IN;
+REDEFINE DOMAIN INSTALL_IN USING INSTALL_IN_RECORD ON INSTALL_PROCESS.LOG;
+
+DELETE INSTALL_IN_RECORD;
+REDEFINE RECORD INSTALL_IN_RECORD OPTIMIZE
+01 INS_IN_REC.
+!
+! This reads data from an INSTALL/LIST/FULL log file
+!
+! B. Z. Lederman    29-Sep-1987		ITT World Communications
+!
+    10 TEXT_IN PIC X(80).
+    10 PARSE_FIELDS REDEFINES TEXT_IN.
+	20 DISK PIC XXX.
+	20 IMAGE PIC X(77).
+	20 PARSE_2 REDEFINES IMAGE.
+	    30 BLANK PIC X(5).
+	    30 TYPE PIC X(10).
+;
+
+DELETE INSTALL_P;
+REDEFINE DOMAIN INSTALL_P USING INSTALL_P_RECORD ON
+USER$DEVICE:[LEDERMAN]INS_P.SEQ;
+
+DELETE INSTALL_PROCESS;
+REDEFINE PROCEDURE INSTALL_PROCESS
+!
+FN$INIT_TIMER	    ! Just for some extra information
+!
+! This procedure reads the data from a log file containing an
+! INSTALL /LIST/FULL command, and normalizes the data.
+!
+! B. Z. Lederman    29-Sep-1987		ITT World Communications
+!
+READY INSTALL_IN
+!
+! clear out a new data file (remember to purge old ones)
+!
+DEFINE FILE FOR INSTALL_P ALLOCATION = 30;
+READY INSTALL_P WRITE
+!
+DECLARE OUT_PUT PIC X.		! decide when to store output
+OUT_PUT = "F"
+!
+DECLARE I USAGE LONG.		! character pointer
+!
+DECLARE T_DIRECTORY PIC X(64).	! temporary data fields.
+DECLARE T_IMAGE PIC X(32).
+DECLARE T_OPEN PIC X.
+DECLARE T_HDR PIC X.
+DECLARE T_SHAR PIC X.
+DECLARE T_PRV PIC X.
+DECLARE T_PROT PIC X.
+DECLARE T_LNKBL PIC X.
+DECLARE T_CMODE PIC X.
+DECLARE T_NOPURG PIC X.
+DECLARE T_ENTRY PIC X(6).
+DECLARE T_MAX_SHARED PIC X(6).
+DECLARE T_SHARED_WORK PIC X(32).
+DECLARE T_GLOBAL PIC X(6).
+!
+FOR INSTALL_IN BEGIN
+    IF TEXT_IN = "" BEGIN			! end of a data set
+	IF OUT_PUT = "T" BEGIN			! if we have something
+	    STORE INSTALL_P USING BEGIN		! store it
+		DIRECTORY = T_DIRECTORY
+		IMAGE = T_IMAGE
+		OPEN = T_OPEN
+		HDR = T_HDR
+		SHAR = T_SHAR
+		PRV = T_PRV
+		PROT = T_PROT
+		LNKBL = T_LNKBL
+		CMODE = T_CMODE
+		NOPURG = T_NOPURG
+		ENTRY = T_ENTRY
+		MAX_SHARED = T_MAX_SHARED
+		GLOBAL = T_GLOBAL
+		END
+!
+! clear out fields for next set of data
+!
+	    T_IMAGE = "                                "
+	    T_ENTRY = "000000"
+	    T_MAX_SHARED = "000000"
+	    T_GLOBAL = "000000"
+	    OUT_PUT = "F"
+	    T_OPEN = " "
+	    T_HDR = " "
+	    T_SHAR = " "
+	    T_PRV = " "
+	    T_PROT = " "
+	    T_LNKBL = " "
+	    T_CMODE = " "
+	    T_NOPURG = " "
+	END
+    END ELSE BEGIN
+!
+! Pull out the information line-by-line by looking for unique
+!  identification for each line.
+!
+    IF DISK = "DIS" BEGIN
+	I = FN$STR_LOC (TEXT_IN, " ") 		! find end of data
+	T_DIRECTORY = FN$STR_EXTRACT(TEXT_IN, 1, I)
+    END ELSE IF TYPE = "Entry acce" BEGIN
+	I = FN$STR_LOC (TEXT_IN, "=")			! find start of data
+	T_ENTRY = FN$STR_EXTRACT (TEXT_IN, (I + 2), 6)	! get data
+	OUT_PUT = "T"
+    END ELSE IF TYPE = "Current / " BEGIN
+	I = FN$STR_LOC (TEXT_IN, "=")			! find start of numbers
+	T_SHARED_WORK = FN$STR_EXTRACT(TEXT_IN, I, 32)	! get numbers
+	I = FN$STR_LOC (T_SHARED_WORK, "/")		! find start of real data
+	T_MAX_SHARED = FN$STR_EXTRACT(T_SHARED_WORK, (I + 1), 32) ! get real data
+	OUT_PUT = "T"
+    END ELSE IF TYPE = "Global sec" BEGIN
+	I = FN$STR_LOC (TEXT_IN, "=")			! find start of data
+	T_GLOBAL = FN$STR_EXTRACT (TEXT_IN, (I + 2), 6)	! get data
+	OUT_PUT = "T"
+    END ELSE BEGIN
+	I = FN$STR_LOC (IMAGE, ";")	! look for semi-colon
+	IF I > 0 BEGIN			! if there is one
+	    T_IMAGE = FN$STR_EXTRACT(IMAGE, 1, (I - 1))   ! image name, no ";"
+	    IF FN$STR_LOC (IMAGE, "Open")   > 0 THEN T_OPEN = "O"
+	    IF FN$STR_LOC (IMAGE, "Hdr")    > 0 THEN T_HDR = "H"
+	    IF FN$STR_LOC (IMAGE, "Shar")   > 0 THEN T_SHAR = "S"
+	    IF FN$STR_LOC (IMAGE, "Prv")    > 0 THEN T_PRV = "P"
+	    IF FN$STR_LOC (IMAGE, "Prot")   > 0 THEN T_PROT = "P"
+	    IF FN$STR_LOC (IMAGE, "Lnkbl")  > 0 THEN T_LNKBL = "L"
+	    IF FN$STR_LOC (IMAGE, "Cmode")  > 0 THEN T_CMODE = "C"
+	    IF FN$STR_LOC (IMAGE, "Nopurg") > 0 THEN T_NOPURG = "N"
+	    END
+	END
+    END
+END
+!
+FN$SHOW_TIMER	    ! just for some extra info.
+!
+END_PROCEDURE
+
+DELETE INSTALL_P_RECORD;
+REDEFINE RECORD INSTALL_P_RECORD OPTIMIZE
+01 INS_P_REC.
+!
+! This matches the records produced from the INSTALL_PROCESS
+! program which normalizes the data from an INSTALL/LIST/FULL
+!
+! B. Z. Lederman    29-Sep-1987		ITT World Communications
+!
+    10 DIRECTORY PIC X(64) EDIT_STRING T(56).
+!    10 TRIMMED COMPUTED BY FN$TRIM_FILESPEC(DIRECTORY,18).
+    10 PRINT_THIS.
+	20 IMAGE PIC X(32) EDIT_STRING T(18).
+	20 QUAL PIC X(8).
+	20 QUALIFIERS REDEFINES QUAL.
+	    30 OPEN PIC X.		    ! matches INSTALL abbreviations
+	    30 HDR PIC X.
+	    30 SHAR PIC X.
+	    30 PRV PIC X.
+	    30 PROT PIC X.
+	    30 LNKBL PIC X.
+	    30 CMODE PIC X.
+	    30 NOPURG PIC X.
+	20 ENTRY PIC 9(6) EDIT_STRING ZZZ,ZZ9.
+	20 MAX_SHARED PIC 9(6) EDIT_STRING ZZZ,ZZ9.
+	20 GLOBAL PIC 9(6) EDIT_STRING ZZZ,ZZ9.
+;
+
+DELETE INSTALL_REPORT;
+REDEFINE PROCEDURE INSTALL_REPORT
+READY INSTALL_P
+REPORT INSTALL_P SORTED BY DESC ENTRY, MAX_SHARED, ASCENDING IMAGE ON
+*."file name or TT:"
+SET REPORT_NAME = "Installed Image Use"
+PRINT TRIMMED USING X(18), PRINT_THIS
+END_REPORT
+END_PROCEDURE
+
+DELETE T132;
+REDEFINE PROCEDURE T132
+SET COLUMNS_PAGE=132
+FN$WIDTH(132)
+![?3h
+END_PROCEDURE
+
+DELETE T80;
+REDEFINE PROCEDURE T80
+SET COLUMNS_PAGE=80
+FN$WIDTH(80)
+![?3l
+END_PROCEDURE
+

@@ -1,0 +1,382 @@
+MODULE PPL$CREBARR ( ADDRESSING_MODE ( EXTERNAL = GENERAL ), !
+		    IDENT = 'V57-001'
+		  ) =
+BEGIN
+
+!
+!			  COPYRIGHT (c) 1986 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:
+!		PPL ( Parallel Processing Library )
+!
+! ABSTRACT:
+!	    Contains the create_barrier user-visible service.
+!
+! ENVIRONMENT: 
+!	    Multi-processor, multi-process and multi-thread reentrant
+!	    user mode.
+!
+!--
+!<BLF/PAGE>
+
+!++
+!
+! AUTHOR:	Catherine M. Fariz, CREATION DATE: (07-01-87)
+!
+!
+! MODIFIED BY:
+!
+!	Catherine M. Fariz, (01-01-87):  VERSION 00
+!
+! X01-000	- Original version
+!
+! X01-001	- To correct header and ident.			CMF 27-JAN-1987
+!
+! X01-002	- Add quorum functionality.			DLR 7-JUL-1987
+!
+! X01-003	- Add spin_wait functionality.			DLR 4-NOV-1987
+!
+! V50-001	- Changed PPL$$Name_Lookup to return PPL$_Normal instead of
+!		    SS$_Normal					WWS 6-Jul-1988
+! V50-002	- Corrected the routine comments to reflect the correct 
+!		    completion codes				WWS 8-Jul-1988
+!
+! V51-001	- Replaced uses of local PPLSECT by global PPL$$GL_PPLSECT
+!								WWS 9-SEP-1988
+! V53-001	- reference to csb_v_restricted deleted		HPO 23_JUN-1989
+!
+! V53-002       - Changed to SIGNAL instances of PPL$_BADLOGIC  WWS 30-JUN-1989
+!
+! V53-003	- Changed WRONUMARG to INVARG in PPL$CREATE_BARRIER
+!		    For invalid element id.			PJC 17-JUL-1989
+!
+! V53-004	- Added critical_region to PPL$CREATE_BARRIER   PJC  7-AUG-1989
+!                   around mutex.
+!
+! V53-005	- Added ppl$$condition_handler to ppl$create_	PJC 30-NOV-1989
+!		    barrier.  
+!
+! V57-001	- EVMS/Alpha port				PJC 12-Nov-1991
+!--
+!<BLF/PAGE>
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+
+LIBRARY 'RTLSTARLE';			! System symbols
+LIBRARY 'SYS$LIBRARY:XPORT';
+UNDECLARE %QUOTE $DESCRIPTOR;		! clears up conflict
+LIBRARY 'OBJ$:PPLLIB';
+REQUIRE 'RTLIN:RTLPSECT';		! Define DECLARE_PSECTS macro
+
+!
+! FORWARD ROUTINE
+!
+FORWARD ROUTINE
+    PPL$CREATE_BARRIER;
+!
+! MACROS:
+!
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! PSECT DECLARATIONS
+!
+DECLARE_PSECTS (PPL);		! Declare psects for PPL facility
+
+!
+! OWN STORAGE:
+!
+
+!
+! LINKAGE DECLARATIONS;
+!
+LINKAGE
+    JSB_R0_R01 =	JSB(REGISTER=0;REGISTER=0,REGISTER=1);
+
+!
+! EXTERNAL ROUTINES
+!
+EXTERNAL ROUTINE
+    PPL$$CONDITION_HANDLER,
+    PPL$$NAME_LOOKUP,		! Determine if the name exists in the NIL list
+    STR$ANALYZE_SDESC_R1:	JSB_R0_R01;	! Cleanse string descriptor
+!
+! EXTERNAL REFERENCES
+!
+EXTERNAL
+    PPL$$GL_PPLSECT :	REF PPLSECT_BLOCK,
+    PPL$$GL_CONTEXT :	REF CTX_BLOCK;
+
+
+%SBTTL 'ROUTINE: PPL$CREATE_BARRIER() - Creates a barrier for synchronization'
+!
+GLOBAL ROUTINE PPL$CREATE_BARRIER
+    (
+	BARRIER_ID	    : REF VECTOR [1],
+	BARRIER_NAME	    : REF $BBLOCK,
+	quorum		    : ref vector [1, word, signed],
+	flags		    : ref vector [1]
+    ) =	
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Creates a Barrier that will allow all processes of an
+!	application to synchronize to the specified point, and returns
+!	its id.
+!
+!	This routine must be used in conjunction with the
+!	routine PPL$WAIT_AT_BARRIER.  This routine will ensure
+!	that all the processes have arrived at the same point
+!	in the code and will wake all waiting processes up to
+!	continue.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value =
+!		PPL$CREATE_BARRIER ( barrier-name,
+!				     barrier-id,
+!				     quorum )
+!
+! FORMAL ARGUMENT(S):
+!
+!	BARRIER-NAME
+!	VMS USAGE	:  char_string
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	The name of the barrier determined by the user.  This will
+!	be used by the user to acquire the ID of the BARRIER.
+!
+!	BARRIER-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the barrier.  This identifier must be
+!	used in other calls to identify the barrier.
+!
+!	QUORUM
+!	VMS USAGE	: word_signed
+!	TYPE		: word (signed)
+!	ACCESS		: read only
+!	MECHANISM	: by reference
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/identifier List entry.
+!	
+! IMPLICIT OUTPUTS:
+!
+!	A Name/Identifier List entry and a Counting Semaphore bLock.
+!
+!
+! COMPLETION CODES:
+!
+!	PPL$_ELEALREXI	An element of the same name already exists,
+!			( Success ).
+!
+!	PPL$_INCOMPEXI	An incompatible kind of element with the same
+!			name already exists.
+!
+!	PPL$_INSVIRMEM  Insufficient memory available to create the
+!			element.
+!
+!	PPL$_INVARG	Invalid argument(s).
+!
+! ???	PPL$_INVELENAM	Invalid element name, illegal character
+!			string.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_NOSUCHNAME	No element with the specified NAME exists.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+BEGIN
+
+builtin
+	actualcount,
+	nullparameter;
+
+
+literal
+	k_max_args = 3,		! Max number of arguments (add spin_flag later)
+	k_min_args = 1;		! Min number of arguments
+
+local
+	proto		: csb_block,		  ! Prototype csb block
+	spin_flag	: unsigned word,
+	count		: unsigned word,
+	barrier		: ref csb_block,	  ! Barr sem block
+	barr_name	: ref $bblock [dsc$c_s_bln],  ! barrier name ptr
+	barrname_desc	: $bblock [dsc$c_s_bln],  ! barrier name descriptor
+	eid		: unsigned long,	  ! element id
+	ast_status	: volatile unsigned long, ! used for critical regions
+	status		: unsigned long,
+        top_flag	: volatile unsigned long,    ! if top lock needs $deq
+        mutex_flag	: volatile unsigned long,    ! if we have a mutex 
+        mutex		: volatile unsigned long;    ! Address of mutex bit
+
+literal
+    m_valid_flags = ppl$m_spin_wait;
+
+enable		! handler variables are initially zero from volatile def.
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate parameters.
+!-
+if (actualcount () gtr k_max_args) or (actualcount () lss k_min_args) then
+    return ppl$_wronumarg;
+
+if nullparameter ( barrier_id ) then
+    return ppl$_invarg;
+
+if nullparameter (quorum) then
+    count = 1
+else if (.quorum[0] lss 1) then
+    return ppl$_invarg
+else
+    count = .quorum[0];
+
+%(  hooks for inclusion of spin_flag later
+if nullparameter (flags) then
+    spin_flag = false
+else
+    (
+    if (.flags[0] and not m_valid_flags) neq 0 then
+	return ppl$_invarg;
+    if (.flags[0] and ppl$m_spin_wait) neq 0 then
+	spin_flag = true
+    else
+	spin_flag = false;
+    );
+)%
+
+barr_name = 0;
+if not nullparameter (barrier_name)  then
+    (	!make a copy of it
+    barrname_desc[dsc$b_dtype] = dsc$k_dtype_t;
+    barrname_desc[dsc$b_class] = dsc$k_class_s;
+    str$analyze_sdesc_r1 ( barrier_name[base_];
+		       barrname_desc[dsc$w_length],
+		       barrname_desc[dsc$a_pointer] );
+    barr_name = barrname_desc[base_];
+    );
+
+
+verify_init_;
+
+
+!+
+! Prepare the proto for the name creation, iff element does not exist.
+!-
+ch$fill (0, csb_s_bln, proto[base_]);
+proto[csb_l_type] = ppl$k_barrier_synch;
+proto[csb_w_csmax] = 1;	!these are reset to be real later in this rtn
+proto[csb_w_csval] = 1;
+!***   PROTO[CSB_L_EID] = 0;
+    	!*** SOME BUG IS TEMP AVOIDED BY TAKING GARBAGE ON THE STACK FOR EID
+
+
+status = ppl$$name_lookup ( barr_name[base_], barrier, csb_s_bln, proto);
+
+
+if not .status then	    ! Presumably, we got ppl$_insvirmem
+    return (.status);
+
+if .status eql ppl$_normal then	! something already existed, nothing created -
+    (				! better be a barrier
+    if ( .barrier[csb_l_type] neq ppl$k_barrier_synch ) then
+	return ppl$_incompexi;
+    status = ppl$_elealrexi;
+    )
+else
+    status = ppl$_normal;   !so user just sees that it worked
+
+
+!+
+! Ensure that the EID is correctly initialized.
+!-
+eid = .barrier - ppl$$gl_pplsect[base_];
+if .barrier[csb_l_eid] neq .eid then
+    (		    !it's either un-initted or wrong
+    if (.barrier[csb_l_eid] eql 0) then
+	barrier[csb_l_eid] = .eid
+    else
+	ppl_signal_(ppl$_badlogic);
+    );
+
+barrier_id[0] = .eid;
+
+!leave now if we're just picking up on an existing barrier
+if (.status eql ppl$_elealrexi) then return .status;
+
+
+!for the real creator of the barrier, init the quorum & flags
+
+
+enter_critical_region_;	    ! disable asts
+
+!mutex access to the counting fields of the barrier block
+mutex = barrier[csb_v_lock];
+mutex_flag = 1;
+lock_bit_ (barrier[csb_v_lock]);
+
+!set the quorum
+barrier[csb_w_csmax] = .count;
+barrier[csb_w_csval] = .count;
+
+%(
+!set flags
+barrier[csb_v_spin_wait] = .spin_flag;
+)%
+
+unlock_bit_ (barrier[csb_v_lock]);
+mutex_flag = 0;
+
+leave_critical_region_;	    ! disable asts
+
+.status
+
+
+END;	!ppl$create_barrier
+
+
+
+END	! End of module PPL$CREBARR
+ELUDOM

@@ -1,0 +1,109 @@
+X-NEWS: sao.aarnet.edu.au news.software.anu-news: 2113
+Relay-Version: VMS News - V6.0 1/9/90 VAX/VMS V5.3; site csc.anu.oz.au
+Path: csc.anu.oz.au!munnari.oz.au!samsung!cs.utexas.edu!solo!vaxb.acs.unt.edu!billy
+Newsgroups: news.software.anu-news
+Subject: News 6.0 DECNET/NNTP possible manual addition
+Message-ID: <1990Dec11.115307.43180@vaxb.acs.unt.edu>
+From: billy@vaxb.acs.unt.edu
+Date: 11 Dec 90 11:47:07 GMT
+Lines: 99
+
+Hi,
+
+Section 14.2.3 DECNET Server and Client Nodes of the ANU News 6.0 manual is
+very vague.  For example, it says "the process is not documented here" at one
+point.  I've played with this stuff and figured it out.  I sent the following 
+instructions to the person downstream and we were able to use them to
+successfully bring up a news feed.  These directions were originally VERY site
+specific.  I've tried to generalize some, but it is not totally general.  Also,
+these instructions may not be optimal (i.e. I may have done unnecessary steps)
+and may not work with all configurations of News.  These directions also do not
+address NNTP_DECM.EXE, but the differences are adquately explained in the
+manual already. (Enough disclaimers I think :).
+
+I'm sending them out in hopes that someone in netland will benefit from them
+and maybe that Geoff can clean them up somewhat and combine them with the
+existing material in the next release of the manual.
+
+
+Here are the steps:
+
+1.  Create an account which looks like the following (you can use any UIC
+    however):
+
+Username: NNTP$SERVER                      Owner:  nntp$server default
+Account:  DECNET                           UIC:    [376,377] ([NNTP$SERVER])
+CLI:      DCL                              Tables: 
+Default:  NEWS_ROOT:[NNTP$SERVER]
+LGICMD:   NL:
+Login Flags:  Restricted
+Primary days:   Mon Tue Wed Thu Fri        
+Secondary days:                     Sat Sun
+Primary   000000000011111111112222  Secondary 000000000011111111112222
+Day Hours 012345678901234567890123  Day Hours 012345678901234567890123
+Network:  ##### Full access ######            ##### Full access ######
+Batch:    ##### Full access ######            ##### Full access ######
+Local:    -----  No access  ------            -----  No access  ------
+Dialup:   -----  No access  ------            -----  No access  ------
+Remote:   -----  No access  ------            -----  No access  ------
+Expiration:            (none)    Pwdminimum:  4   Login Fails:     0
+Pwdlifetime:           (none)    Pwdchange:  30-NOV-1990 10:56 
+Last Login:            (none) (interactive), 30-NOV-1990 11:16 (non-interactive)
+Maxjobs:         2  Fillm:        40  Bytlm:        20480
+Maxacctjobs:     0  Shrfillm:      0  Pbytlm:           0
+Maxdetach:       2  BIOlm:        18  JTquota:       1024
+Prclm:           6  DIOlm:        18  WSdef:          700
+Prio:            4  ASTlm:        24  WSquo:         1500
+Queprio:         0  TQElm:        20  WSextent:      8000
+CPU:        (none)  Enqlm:       100  Pgflquo:      10500
+Authorized Privileges: 
+  TMPMBX NETMBX
+Default Privileges: 
+  TMPMBX NETMBX
+
+1a. You need to give the account some type of password and remember it below
+    (after you do that step, it doesn't matter if you forget it).
+
+2.  Give NNTP$SERVER a disk quota if it is on a drive with disk quota enabled.
+
+3.  Create a directory NEWS_DEVICE:[NNTP$SERVER] which is owned by
+    NNTP$SERVER.
+
+4.  In that directory, put the following file (call it NNTP.COM):
+
+$! NNTP.COM - executed in response to an incoming connect
+$! to "NNTP="
+$ RUN NEWS_MANAGER:NNTP_DEC
+
+5.  SET PROTECTION:W:E NEWS_MANAGER:NNTP_DEC.EXE
+
+6.  INSTALL ADD NEWS_MANAGER:NNTP_DEC.EXE/PRIV=SYSPRV/OPEN
+
+7.  Run authorize and type ADD/PROXY remote-node::NEWSMGR NNTP$SERVER/DEFAULT
+
+8.  RUN SYS$SYSTEM:NCP and then at the NCP prompt (it is one long command): 
+
+    DEFINE OBJECT NNTP NUMBER 197 FILE NEWS_MANAGER:NNTP_DEC.EXE USER
+    NNTP$SERVER PASSWORD [put the one from above here] PROXY BOTH ALIAS
+    INCOMING ENABLED
+
+    and
+
+    SET OBJECT NNTP NUMBER 197 FILE NEWS_MANAGER:NNTP_DEC.EXE USER
+    NNTP$SERVER PASSWORD [put the one from above here] PROXY BOTH ALIAS
+    INCOMING ENABLED
+
+    Note: if you type SHOW KNOWN OBJECTS in NCP and 197 is used (it shouldn't
+          be), then I believe you can pick anything you want instead (not sure 
+          if mine and yours have to be the same number or not).
+
+9.  DEFINE/SYSTEM/EXEC NEWS_remotenode_TASK "TASK=NNTP"
+    Also, add this line to your ANU News startup file.
+
+
+================================================================================
+Billy Barron                  Bitnet : BILLY@UNTVAX
+VAX/Unix Systems Manager      THENET : NTVAX::BILLY
+University of North Texas   Internet : billy@vaxb.acs.unt.edu
+                                SPAN : UTSPAN::UTADNX::NTVAX::BILLY
+================================================================================

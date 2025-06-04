@@ -1,0 +1,186 @@
+	.title	ACC_CKPT	-- accounting checkpoint
+	.disable	global
+	.if	NDF,EVAX
+EVAX=0
+	.endc
+	.if	NE,EVAX
+	.disable	FLAGGING
+	.endc
+
+	.external	CTL$GL_VOLUMES,CTL$GL_FINALSTS,CTL$GL_PHD,CTL$GL_PCB,-
+			CTL$GQ_LOGIN
+	.if NE,EVAX
+	.external	EXE$NAM_To_PCB
+	.iff
+	.external	EXE$NAMPID
+	.endc
+	.external	EXE$PRCPURMSG,EXE$ALONONPAGED
+	.external	SCH$GL_SWPPID,SCH$QAST
+	.external	SMP$GL_FLAGS	; for UNLOCK macro
+	.external	INI$BRK
+	.library	"sys$share:lib.mlb"
+	.link		"sys$system:sys.stb"/se
+	$ACBDEF
+	$DYNDEF
+	$IPLDEF
+	$LCKDEF
+	$LDRIMGDEF
+	.if NE,EVAX
+	$NSADEF
+	.endc
+	$PCBDEF
+	$PHDDEF
+	$PRDEF		; define processor registers for SETIPL
+	$PRIDEF
+	$SBDEF		; define maximum node size
+	$SPLCODDEF
+	$SSDEF
+	$SYIDEF
+	.page
+
+	.psect	$CODE,RD,NOWRT,EXE,PIC
+;
+;	context: kernel mode, IPL 0
+;	4(AP) target process external PID address
+;	8(AP) target process name
+;
+	.if	DF,EVAX
+CKPT_PROC:.call_entry	max_args=2,home_args=TRUE
+	.iff
+	.entry	CKPT_PROC,^M<R2,R4,R5>
+	.endc
+	cmpl	#2,(AP)
+	bneq	badarg
+	.if NE,EVAX
+	movl	#NSA$C_MSG_CUSTOMER,r0
+	jsb	G^EXE$NAM_TO_PCB
+	.iff
+	jsb	G^EXE$NAMPID
+	.endc
+;
+;	r0= status
+;	r1= IPID
+;	r2-r3: scratch
+;	r4: pcb target process
+;	Spinlock SCHED held if no error
+;
+	blbc	r0,ret0
+	cmpw	r1,G^SCH$GL_SWPPID	; avoid SWAPPER and NULL
+	bgtru	pid_ok			; br if ok
+	movl	#SS$_NONEXPR,r0		; pas de ça lisette.
+	brb	retunl
+badarg:	movl	#SS$_INVARG,R0
+	ret
+pid_ok:	movl	r1,-(SP)
+	movzbl	#ACB$C_LENGTH,r1
+	jsb	G^EXE$ALONONPAGED
+	blbc	r0,retunl
+	clrq	(r2)
+	movw	r1,ACB$W_SIZE(r2)
+	movw	#DYN$C_ACB,ACB$B_TYPE(R2)	; type/rmod
+	movl	(SP)+,ACB$L_PID(R2)
+	moval	acc_ckpt,ACB$L_AST(R2)
+	clrq	ACB$L_ASTPRM(R2)
+;
+	movl	r2,r5
+	movl	#PRI$_TICOM,R2
+	jsb	G^SCH$QAST		; pour le meilleur ou pour le pire...
+;
+;	R4= target process PCB addr
+;
+retunl:	UNLOCK	SCHED
+ret0:	setipl	#0
+	ret
+
+;
+;	special kernel ast
+;	IPL: 2
+; 	context: target process
+;	R0: scratch
+;
+	.entry	acc_ckpt,^M<R4,R5>
+;
+	movl	G^CTL$GL_PCB,r4		; current PCB
+	clrl	R5			; not a special kernel ast
+	bisl	#^X20000000,G^CTL$GL_FINALSTS
+	jsb	G^EXE$PRCPURMSG
+	
+;
+; RESOURCE DATA
+;
+	MOVL	G^CTL$GL_PHD,R0		; PHD ADDRESS
+.IF EQ,EVAX
+	CLRL	PHD$L_VP_CPUTIM(R0)	; VECTOR CPU TIME
+.ENDC
+	CLRL	G^CTL$GL_VOLUMES	; VOLUMES MOUNTED
+	CLRQ	PHD$L_DIOCNT(R0)	; DIRECT AND BUFFERED IO COUNTS
+;;;	CLRQ	G^CTL$GL_WSPEAK		; WORKING SET AND PAGE FILE PEAK
+	CLRL	PHD$L_PGFLTIO(R0)	; PAGE FAULT I/O COUNT
+	CLRL	PHD$L_PAGEFLTS(R0)	; PAGE FAULT COUNT
+	CLRL	PHD$L_CPUTIM(R0)	; CPU TIME
+	CLRL	PHD$L_IMGCNT(R0)	; IMAGE EXECUTION COUNT
+	bicl	#^X20000000,G^CTL$GL_FINALSTS ; FINAL STATUS
+	$GETTIM_S G^CTL$GQ_LOGIN	; LOGIN TIME
+;
+	ret
+;
+	.psect	$INIT,RD,WRT,NOSHR,EXE,PIC
+lockname:	.ascii	/ACC_CKPT_/
+nodename:	.blkb	SB$S_NODENAME
+nodename_s= .-nodename
+nodename_l:	.blkw	1
+syilist:	.word	nodename_s, SYI$_SCSNODE
+	.blkl	1
+	.blkl	1
+	.long	0
+lock_d:	.long	nodename-lockname
+	.blkl	1
+lksb:	.blkl	1
+lkid:	.blkl	1
+valblk:	.blkq	2	; 16 bytes
+	.psect	$INIT_CODE,RD,WRT,EXE,PIC
+;
+;	called at IPL 2, cannot use system services
+;			 since some of them change IPL to 0, and REI crashes
+;
+	.entry	init,^M<R2>
+	clrl	r2
+	moval	nodename,syilist+4	; avoid .address fixups
+	moval	nodename_l,syilist+8
+	moval	lockname,lock_d+4
+	setipl	#0			; temp X fingers, do not delete process!
+	$GETSYI_S	itmlst=syilist
+	incl	r2
+	blbc	r0,330$
+;	jsb	G^INI$BRK
+	movzwl	nodename_l,r0
+1$:	cmpb	<nodename-1>[r0],#^A' '	; remove trailing spaces
+	bneq	10$
+	decl	r0
+	brb	1$
+10$:	addw	r0,lock_d	; removes the trailing '_' if not in cluster
+	$ENQW_S	resnam=lock_d,-
+		lkmode=#LCK$K_EXMODE,-
+		lksb=lksb,-
+		flags=#<LCK$M_SYSTEM!LCK$M_NOQUEUE>
+	incl	r2
+	blbc	r0,330$
+	incl	r2
+	movzwl	lksb,r0
+330$:	blbc	r0,33$
+	moval	ckpt_proc,valblk
+	movl	4(AP),r0
+	movl	r0,valblk+4
+	movl	lkid,valblk+8
+	$ENQW_S	lksb=lksb,-
+		lkmode=#LCK$K_PRMODE,-
+		flags=#<LCK$M_CONVERT!LCK$M_VALBLK!LCK$M_CVTSYS>
+	incl	r2
+	blbc	r0,33$
+	incl	r2
+	movzwl	lksb,r0
+33$:	ashl	#16,r2,r2
+	bisl	r2,r0
+	setipl	#IPL$_ASTDEL
+	ret
+	.end	init

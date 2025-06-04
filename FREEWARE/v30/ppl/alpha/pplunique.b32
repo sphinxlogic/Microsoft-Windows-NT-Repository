@@ -1,0 +1,803 @@
+module ppl$unique (IDENT = 'V57-001', addressing_mode (external=general)) =
+begin
+
+!
+!			  COPYRIGHT (c) 1986 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:
+!		PPL ( Parallel Processing Library )
+!
+! ABSTRACT:
+!
+!	This module creates unique names from a user supplied string
+!	and the pid of the Top process in a paralle application.
+!
+! ENVIRONMENT:
+!
+!
+!--
+!<BLF/PAGE>
+
+!++
+!
+! AUTHOR:	Terry Grieb, CREATION DATE: (17-AUG-1986)
+!
+!
+! MODIFIED BY:
+!
+! 	TERRY GRIEB, (17-AUG-1986): VERSION 00
+! 01-001	- Original version
+!
+! 01-002	- Added header and comments to PPL$UNIQUE	CMF 20-JAN-1987
+!		- Corrected access violation for null param in
+!		  the same routine.
+!		- Corrected the status returned.
+!		- Added various comments within the module.
+!
+! 01-003	- To correct the ident to match the cms 	CMF 26-JAN-1987
+!		  generation number.
+!
+! 01-004	- To correct the placement of the Psect dec.    CMF 12-Feb-1987
+!
+! 01-005	- To add validity checking to avoid ACCVIOs.	CMF 18-Mar-1987
+!
+! 01-006	- Add auto-init.				DLR 31-AUG-1987
+!
+! V050-001	- Correct routine comments to reflect correct 	WWS  8-Jul-1988
+!		  completion codes.
+!
+! V051-001	- Removed unused declaration of local PPLSECT	WWS  9-Sep-1988
+!
+! V53-001	- Rewrote PPL$$Choose_Application_Number,	WWS 14-Apr-1989
+!		    PPL$$Set_Application_Number, and 
+!		    PPL$$Get_Application_Number to handle named 
+!		    applciations.
+!
+! V53-002	- Changed debug_msg_ to take a string literal	WWS  9-May-1989
+!		    instead of an %ascid
+!
+! V53-003	- Signal PPL$_BADLOGIC instead of returning it	WWS 30-Jun-1989
+!
+! V53-004	- Removed local ctx declaration			PJC 14-Aug-1989
+!
+! V53-005	- Added spin of one clock unit to ppl$$choose_  PJC 18-Oct-1989
+!		  application_number
+!
+! V53-006	- Added ppl$$condition_handler to ppl$unique_	PJC 30-Nov-1989
+!		  name
+!		- Added PPL$M_PROC_UNIQUE and PPL$M_CALL_UNIQUE
+!		  options (flags) to ppl$unique_names.
+!
+! V57-001	- EVMS/Alpha port.				PJC 12-Nov-1991
+!
+! V57-002	- Add code to reserve/unreserve event flags	PJC 06-Aug-1993
+!
+! V57-003	- Convert to global event flag.			PJC 30-Aug-1993
+!
+!--
+!<BLF/PAGE>
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+
+LIBRARY 'RTLSTARLE';			! System symbols
+LIBRARY 'SYS$LIBRARY:XPORT';	
+UNDECLARE %QUOTE $DESCRIPTOR;		! Clears up conflicts
+LIBRARY	'OBJ$:PPLLIB';
+REQUIRE 'RTLIN:RTLPSECT';		! Define DECLARE_PSECTS macro
+
+!
+! FORWARD ROUTINE
+!
+FORWARD ROUTINE
+	PPL$UNIQUE_NAME;
+
+!
+! MACROS:
+!
+!+
+! Format for creating application-unique names.
+!-
+MACRO	ppl_x_unique = '!AS_!XL' %;
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! PSECT DECLARATION:
+!
+DECLARE_PSECTS (PPL);			! Declare psects for PPL facility
+
+!
+! OWN STORAGE:
+!
+OWN
+	APPLICATION_NUMBER;	! A non-zero number unique to each application
+
+!
+! LINKAGE DECLARATIONS:
+!
+LINKAGE
+	JSB_R0_R01 =	JSB(REGISTER=0;REGISTER=0,REGISTER=1);
+
+
+!
+! EXTERNAL REFERENCES:
+!
+external
+    ppl$$gl_context : ref ctx_block,
+    ppl$$gl_pplsect : ref pplsect_block,
+    ppl$$gl_system;
+
+
+EXTERNAL ROUTINE
+    str$analyze_sdesc_r1:	jsb_r0_r01,
+    str$copy_dx,
+    ppl$$condition_handler;
+
+BIND
+    x_unique	=   UPLIT BYTE (%ascic ppl_x_unique),	! Has !AS !XL
+    x_num_lock	=   UPLIT BYTE (%ascic ppl_x_num_lock),
+    x_name_lock	=   UPLIT BYTE (%ascic ppl_x_name_lock);
+
+
+
+GLOBAL ROUTINE PPL$$CHOOSE_APPLICATION_NUMBER
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   This routine determines the application number for this application.  This
+!   is a number which is unique to this instantiation of the application, but
+!   common to all participants in it.
+!
+! FORMAL PARAMETERS:
+! 
+    (
+    app_num  :  ref vector[1]		    ! The application number
+    ) =
+! 
+! IMPLICIT INPUTS:
+! 
+!   The system clock
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   APPLICATION_NUMBER, an OWN variable
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_NORMAL
+!
+!   Any status returned by $GETTIME
+! 
+! SIDE EFFECTS:
+! 
+!   None
+!--
+    BEGIN   ! ppl$$choose_application_number
+    
+    builtin
+	nullparameter;
+	
+    local
+	spin	    :   unsigned long initial(0),
+	lcknam	    :   $bblock[dsc$c_s_bln],   ! Descriptor for name-lock name
+	status;
+
+
+    debug_msg_(0, '!_Entering ppl$$choose_application_number');
+
+    lcknam[dsc_l_length] = ppl_k_numlk_len;
+    lcknam[dsc$a_pointer] = ch$plus (x_num_lock, 1);
+
+    !+
+    ! Grab for a num_lock, creating it if we must.  It is in
+    ! its value block that we will get our application number.
+    !-
+
+    status = $enqw (
+        efn=    .ppl$$gl_context[ctx_l_ef],
+        lkmode= lck$k_pwmode,           ! Write, allowing readers
+        lksb=   num_lksb[base_],
+        flags=  lck$m_valblk or         ! Get a value block
+                .ppl$$gl_system,        ! Possibly system-wide
+        resnam= lcknam[base_],          ! The lock name
+        parid=  0,
+        astadr= 0,
+        astprm= 0,
+        blkast= 0,
+        acmode= psl$c_user);
+
+    !+
+    ! Check statuses.
+    !-
+
+    if .status then status = .num_lksb[lksb_w_status];
+    if (not .status) then 
+	return signal (ppl$_syserror, 0, .status, 0);
+     
+    !+
+    ! Increment application number field (num_l_appnum) in num lock 
+    ! lksb and then take that value for our application number.
+    !-
+                 
+    num_lksb[num_l_appnum] = .num_lksb[num_l_appnum] + 1;
+    application_number = .num_lksb[num_l_appnum];
+
+    !+
+    ! Convert the lock to Null status to as to keep it around.
+    ! This also writes out the updated application number and allows
+    ! others to get at this lock.
+    !-
+
+    status = $enq (                     ! No need to wait
+        efn=    .ppl$$gl_context[ctx_l_ef],
+        lkmode= lck$k_nlmode,           ! Null
+        lksb=   num_lksb[base_],
+        flags=  lck$m_valblk or         ! We want a value block
+                lck$m_convert or        ! Just converting
+                .ppl$$gl_system,        ! Possibly a system lock
+        resnam= 0,
+        parid=  0,
+        astadr= 0,
+        astprm= 0,
+        blkast= 0,
+        acmode= psl$c_user);
+
+    if .status then status = .num_lksb[lksb_w_status];
+
+    if (not .status) then 
+	return signal (ppl$_syserror, 0, .status, 0);
+    
+    ! Return it if requested
+    if not nullparameter(app_num) then app_num[0] = .application_number;
+    
+    debug_msg_(0, '!_ppl$$choose_application_number complete, #!XL',
+		.application_number);
+
+    return ppl$_normal;
+    
+    end;    ! ppl$$choose_application_number
+
+
+
+GLOBAL ROUTINE PPL$$SET_APPLICATION_NUMBER (
+		appnam : ref $bblock[dsc$c_s_bln],
+		appnum : ref vector[1]) =
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   This routine establishes the application number for the current instance of
+!   the named application.
+!
+!   This routine should only be called once, when joining an application.
+! 
+! FORMAL PARAMETERS:
+! 
+!   appnam is the address of a character string descriptor pointing to the name
+!	of the application.
+!   appnum is the address of a longword to receive the application number for
+!	the current instance of the application by the specified name
+! 
+! IMPLICIT INPUTS:
+! 
+!   The application name lock value block, if it exists
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   The application name lock value block
+!   The static variable, application_number
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_NORMAL
+!
+!   Any status returned by $ENQ.
+! 
+! SIDE EFFECTS:
+! 
+!   The name lock may be created.
+!   The name lock is seized and NOT RELEASED by this routine.
+!--
+    BEGIN
+
+    builtin
+	nullparameter;
+	
+    local
+	lckbuf	    :   $bblock[32],	    ! Buffer for name-lock name
+	lcknam	    :   $bblock[dsc$c_s_bln],   ! Descriptor for name-lock name
+	lcknam2	    :   $bblock[dsc$c_s_bln],   ! Descriptor for num-lock name
+	status;
+
+
+    debug_msg_(0, '!_entering ppl$$set_application_number, name = "!AS"',
+		appnam[base_]);
+
+    !+
+    ! Apply the name-lock template to form the name-lock name, and then get it.
+    !-
+    ch$copy(ch$rchar(x_name_lock),	ch$plus(x_name_lock, 1),
+	    .appnam[dsc$w_length],	.appnam[dsc$a_pointer],
+	    0, %allocation(lckbuf),	lckbuf[base_]);
+
+    lcknam[dsc_l_length] = ch$rchar(x_name_lock) + .appnam[dsc$w_length];
+    lcknam[dsc$a_pointer] = lckbuf[base_];
+
+    debug_msg_(4, '!_(ppl$$set_application_number) Get name-lock "!AS"', 
+		    lcknam[base_]);
+
+    status = $enqw( efn= .ppl$$gl_context[ctx_l_ef],
+		    lkmode= lck$k_pwmode,
+		    lksb= name_lksb[base_],
+		    resnam= lcknam[base_],
+		    flags= lck$m_valblk or .ppl$$gl_system);
+    if .status then status = .name_lksb[ lksb_w_status ];
+
+    IF .status eql SS$_VALNOTVALID then
+	begin
+	application_number = 0;	    ! Not an error, just no application
+	debug_msg_(2, '!_(ppl$$set_application_number) no name-lock value block');
+	end
+    else if not .status then
+	return .status		    ! Error
+    else
+	application_number = .name_lksb[name_l_app_num];    ! Get app number
+
+    !+
+    ! Check if the application exists
+    !-
+    if .application_number eql 0 then
+	begin
+	!+
+	!  There currently is no application, so choose a number, and put it
+	!  into the name-lock value block (it will be writen out later).
+	!-
+	debug_msg_(2, '!_(ppl$$set_application_number) no application number');
+
+	! This will set "application_number" externally, and put the value into
+	! the name-lock value block on return.
+	status = ppl$$choose_application_number(name_lksb[name_l_app_num]);
+	if not .status then
+	    begin   ! An error occurred, don't leave holding the name-lock!
+	    $deq(lkid= .name_lksb[lksb_l_lockid]); ! Don't check the status
+	    return .status;
+	    end
+	else
+	    begin
+	    status = ppl$_formedapp;    ! This is a forming process
+	    end
+	end
+    else 
+	begin
+
+	!+
+	! There currently is an application, so copy the number out of the
+	! value block, and put it into the static storage
+	!-
+	debug_msg_(2, '!_(ppl$$set_application_number) found name lock');
+
+	application_number = .name_lksb[name_l_app_num];
+
+	lcknam2[dsc_l_length] = ppl_k_numlk_len;
+	lcknam2[dsc$a_pointer] = ch$plus (x_num_lock, 1);
+
+	!+
+	! Grab a null hold on the application numbering lock.
+	!-
+
+	status = $enqw (
+	    efn=    .ppl$$gl_context[ctx_l_ef],
+	    lkmode= lck$k_nlmode,           ! Null, just grab ahold
+	    lksb=   num_lksb[base_],
+	    flags=  lck$m_valblk or         ! Get a value block
+		    .ppl$$gl_system,        ! Possibly system-wide
+	    resnam= lcknam2[base_],          ! The lock name
+	    parid=  0,
+	    astadr= 0,
+	    astprm= 0,
+	    blkast= 0,
+	    acmode= psl$c_user);
+
+	if .status then status = .num_lksb[lksb_w_status];
+
+	if (not .status) then 
+	    return signal (ppl$_syserror, 0, .status, 0);
+
+	status = ppl$_joinedapp;	    ! This is a joining process
+	end;
+
+    if not nullparameter(appnum)
+    then
+	appnum[0] = .application_number;
+
+    debug_msg_(0, '!_ppl$$set_application_number complete, #!XL',
+		.application_number);
+
+    return .status;
+    
+    end;	! ppl$$set_application_number
+
+
+
+
+
+GLOBAL ROUTINE PPL$$GET_APPLICATION_NUMBER (appnum : ref vector[1]) =
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   This routine returns the application number for the current instance of
+!   the named application.
+!
+!   This routine is called from PPL$TELL in creating lock names
+! 
+! FORMAL PARAMETERS:
+! 
+!   appnum is the address of a longword to receive the application number for
+!	the current instance of the application by the specified name
+! 
+! IMPLICIT INPUTS:
+! 
+!   The application_number in static storage
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   The application_number static storage, if necessary
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_NORMAL
+!
+!   Any status returned by PPL$$CHOOSE_APPLICATION_NUMBER
+!
+! SIDE EFFECTS:
+! 
+!   None.
+!--
+    BEGIN
+
+    local
+	status;
+
+
+    if .application_number eqlu 0 then 
+	begin
+	status = ppl$$choose_application_number ();
+	if not .status then return .status;
+	end;
+
+    appnum[0] = .application_number;
+
+    ppl$_normal
+
+    END; ! PPL$$GET_APPLICAITON_NUMBER
+
+
+
+%SBTTL 'ROUTINE: PPL$$APPEND_UL ()'
+!
+global routine ppl$$append_ul (
+	desc:	ref $bblock [dsc$c_s_bln],
+	buflen,
+	value
+	): novalue =
+    begin
+    macro
+	digits_(x) = ((x)+1)/3 %;	! Decimal digits needed for x-bit value
+    local
+	v,
+	p,
+	q;
+
+    !+
+    ! We'll append an underscore and a decimal number.
+    ! Verify that there's enough room remaining.
+    !-
+
+    if .desc[dsc$w_length] + 1 + digits_(%bpval) gtru .buflen
+    or .value lss 0
+    then
+	ppl_signal_(ppl$_badlogic);
+
+    p = .desc[dsc$a_pointer] + .buflen;
+    v = .value;
+    do  begin
+	p = .p - 1;
+	ch$wchar ((.v mod 10) + %c'0', .p);
+	v = .v / 10;
+        end
+    until .v eql 0;
+
+    q = .desc[dsc$a_pointer] + .desc[dsc$w_length];
+    ch$wchar_a (%c'_', q);
+    v = .value;
+    do  begin
+	ch$wchar_a (ch$rchar_a (p), q);
+	v = .v / 10;
+        end
+    until .v eql 0;
+
+    !+
+    ! Update the length of the string
+    !-
+
+    desc[dsc_l_length] = .q - .desc[dsc$a_pointer];
+    end;			! End of Routine PPL$$APPEND_UL
+
+
+%SBTTL 'ROUTINE: PPL$UNIQUE_NAME () - Creates a unique name using top PID'
+!
+GLOBAL ROUTINE PPL$UNIQUE_NAME (
+	name_string:	ref $bblock,
+	result_string:	ref $bblock,
+	result_length:	ref vector[1,word],
+	flags:	ref vector [1]
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns a unique name which is a name string
+!	suffixed by a number unique to the application ( the 
+!	application  number  ), or a name string suffixed with a
+!	number unique to the calling process, or a name string
+!	suffixed with a number unique to the call.  
+!
+!	This is accomplished by appending either the application
+!	number, the process pid, or the process pid plus an 
+!	incremented static number.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$UNIQUE_NAME ( NAME_STRING,
+!					    RESULTANT_STRING,
+!					    [ RESULTANT_LENGTH ] )
+!
+! FORMAL PARAMETERS:
+!
+!	NAME_STRING
+!	VMS USAGE	:  char_string
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	The user-supplied string to be appended by the 'TOP' processes'
+!	PID.  When combined, they will provide a name unique to this
+!	application.
+!
+!	RESULTANT_STRING
+!	VMS USAGE	:  char_string
+!	TYPE		:  character string
+!	ACCESS		:  write only
+!	MECHANISM	:  by descriptor
+!
+!	The unique name that is the result of the user-supplied string
+!	and the appended ASCII value of the PID of the 'TOP' process.
+!
+!	RESULTANT_LENGTH
+!	VMS USAGE	:  string_length
+!	TYPE		:  word ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The length of the unique name is written here.
+!
+!	FLAGS
+!	VMS USAGE	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	Specifies whether the supplied name should be unique to the
+!	application, to the calling process, or to this particular
+!	call.  (The default is application unique.)
+!
+!	PPL$M_PROC_UNIQUE	Indicates that the caller wishes the returned
+!				name to be unique to the calling process.
+!
+!	PPL$M_CALL_UNIQUE	Indicates that the caller wishes the returned
+!				name to be unique to this particular call.
+!
+! IMPLICIT INPUTS:
+!
+!	Application_top_pid.
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVARG	Invalid arguments.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_WRONUMARG	Wrong number of auguments.
+!
+!	Any error returned by STR$COPY_DX.
+!
+!	Any error returned by system services used in subroutine calls.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+begin	!ppl$unique_name
+
+builtin
+	actualcount,
+	nullparameter;
+
+own
+	call_count;
+
+local
+	outbuf	    : $bblock [nam$c_maxrss],
+	outdsc	    : $bblock [dsc$c_s_bln],
+	ctrdsc	    : $bblock [dsc$c_s_bln],
+	usrdsc	    : $bblock [dsc$c_s_bln],
+	status	    : unsigned long,
+        ast_status  : unsigned volatile long,
+        top_flag    : unsigned volatile long,
+        mutex_flag  : unsigned volatile long,
+        mutex       : unsigned volatile long,
+	cflags	    : unsigned long,
+	length	    : unsigned long,
+	unique_number;
+
+
+literal
+	max_arg = 4,		! Maximum number of arguments allowed
+	min_arg = 2;		! Minimum number of arguments allowed
+
+enable		! handler variables are initially zero from volatile def.
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+    debug_msg_(0, '!_Entering ppl$unique_name, input name = "!AS"',
+			name_string[base_]);
+
+    verify_init_;
+
+    if (actualcount () gtr max_arg )
+    then
+	return PPL$_WRONUMARG;
+
+    if (actualcount () lss min_arg )
+    then
+	return PPL$_WRONUMARG;
+
+    if not nullparameter (flags) then
+	cflags = .flags[0]
+    else
+	cflags = 0;
+
+    if .cflags neq 0 then
+	begin
+
+	if (.cflags and not (ppl$m_proc_unique or ppl$m_call_unique)) neq 0 then
+	    ppl_signal_(ppl$_invarg)
+	else if (.cflags and ppl$m_call_unique) neq 0 then
+	    call_count = .call_count + 1;
+
+	unique_number = .ppl$$gl_context[ctx_l_my_pid];
+
+	end
+    else      ! we use the application number
+	begin
+
+	if .application_number eql 0 then
+	    begin
+	    debug_msg_(0, '!_(ppl$unique_name) first call');
+
+	    !+
+	    !   Find or choose some non-zero number that:
+	    !	is unique to this application, and
+	    !	is common amoung all processes in this application.
+	    !-
+
+	    status = ppl$$choose_application_number ();
+	    if not .status then return .status;
+	    end;
+
+	unique_number = .application_number;
+
+	end;
+
+
+    ctrdsc[dsc_l_length] = ch$rchar (x_unique);
+    ctrdsc[dsc$a_pointer] = ch$plus (x_unique, 1);
+
+    outdsc[dsc_l_length] = %allocation (outbuf);
+    outdsc[dsc$a_pointer] = outbuf[base_];
+
+    length = .outdsc[dsc_l_length];
+
+    !+
+    ! Determine if we have a valid descriptor
+    !-
+    if ( not nullparameter ( name_string ) )
+    then
+        str$analyze_sdesc_r1 (name_string[base_];
+	    usrdsc[dsc_l_length],
+	    usrdsc[dsc$a_pointer])
+    else
+	return PPL$_INVARG;
+
+    status = $fao (ctrdsc[base_], outdsc[dsc$w_length], outdsc[base_],
+	usrdsc[base_], .unique_number);
+
+    if not .status
+    then
+	signal (ppl$_syserror, 0, .status);
+
+    if (.cflags and ppl$m_call_unique) neq 0 
+    then
+	begin
+	usrdsc[dsc$a_pointer] = .outdsc[dsc$a_pointer];
+	usrdsc[dsc_l_length] = .outdsc[dsc_l_length];
+	outdsc[dsc_l_length] = .length;
+	status = $fao (ctrdsc[base_], outdsc[dsc$w_length], outdsc[base_],
+		usrdsc[base_], .call_count);
+
+	if not .status then
+	    signal (ppl$_syserror, 0, .status);
+
+	end;
+
+    status = str$copy_dx (result_string[base_], outdsc[base_]);
+
+    if not .status
+    then
+	return .status;
+
+    if not nullparameter (result_length)
+    then
+	begin
+	if ( not nullparameter ( result_string ) )
+	then
+	    begin
+		str$analyze_sdesc_r1 (result_string[base_];
+	    	    ctrdsc[dsc_l_length],
+	    	    ctrdsc[dsc$a_pointer]);
+		result_length[0] = minu (.ctrdsc[dsc$w_length], .outdsc[dsc$w_length]);
+	    end		! End IF to check for null RESULT_STRING.
+        else
+	    return PPL$_INVARG;
+	end;		! End IF to check for null RESULT_LENGTH.
+
+    debug_msg_(0, '!_ppl$unique_name complete, result = "!AS"',
+			    result_string[base_]);
+
+    return PPL$_NORMAL;
+    end;			! End of Routine PPL$UNIQUE_NAME
+
+
+end				! End of Module PPL$UNIQUE
+eludom	

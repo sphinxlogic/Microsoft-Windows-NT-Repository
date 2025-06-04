@@ -1,0 +1,156 @@
+%TITLE 'NETACCESS'
+MODULE NETACCESS (IDENT='V1.0') =
+BEGIN
+!++
+! FACILITY: 	    FINGER
+!
+! ABSTRACT: 	    Checks remote address for access to FINGER info.
+!
+! MODULE DESCRIPTION:
+!
+!   description
+!
+! AUTHOR:   	    M. Madison
+!   	    	    Copyright © 1994, MadGoat Software.
+!   	    	    ALL RIGHTS RESERVED.
+!
+! CREATION DATE:    30-APR-1990
+!
+! MODIFICATION HISTORY:
+!
+!   30-APR-1990	V1.0	Madison	    Initial coding.
+!--
+
+    LIBRARY 'SYS$LIBRARY:STARLET';
+
+    FORWARD ROUTINE
+    	ACCESS_OK,
+    	ASC_TO_ADDR;
+
+    EXTERNAL ROUTINE
+    	LIB$CVT_DTB 	: BLISS ADDRESSING_MODE (GENERAL);
+
+%SBTTL 'ACCESS_OK'
+GLOBAL ROUTINE ACCESS_OK (REMADR, LCLADR) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Checks remote host against list of allowed addresses.
+!   Local host always allowed.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   ACCESS_OK  remadr, lcladr
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+	LNMBUF	: VECTOR [255,BYTE],
+        LNMLEN  : WORD,
+        LNMCOUNT,
+	NETMASK,
+	LNMLST  : $ITMLST_DECL (ITEMS=2),
+    	STATUS;
+
+    IF .LCLADR EQLU .REMADR THEN RETURN SS$_NORMAL;
+
+    $ITMLST_INIT (ITMLST=LNMLST,
+        (ITMCOD=LNM$_INDEX, BUFADR=UPLIT(0), BUFSIZ=4),
+        (ITMCOD=LNM$_STRING, BUFADR=LNMBUF, BUFSIZ=255, RETLEN=LNMLEN));
+
+    IF NOT $TRNLNM (LOGNAM=%ASCID'FINGER_NETMASK',
+		TABNAM=%ASCID'LNM$SYSTEM', ITMLST=LNMLST) THEN
+        RETURN (SS$_NORMAL);
+
+    NETMASK = ASC_TO_ADDR (LNMBUF, .LNMLEN);
+
+    $ITMLST_INIT (ITMLST=LNMLST,
+        (ITMCOD=LNM$_MAX_INDEX, BUFADR=LNMCOUNT, BUFSIZ=4));
+    IF $TRNLNM (LOGNAM=%ASCID'FINGER_LOCAL', ITMLST=LNMLST,
+		TABNAM=%ASCID'LNM$SYSTEM') THEN
+    BEGIN
+        INCR I FROM 0 TO .LNMCOUNT DO
+        BEGIN
+            $ITMLST_INIT (ITMLST=LNMLST,
+                (ITMCOD=LNM$_INDEX, BUFADR=I, BUFSIZ=4),
+                (ITMCOD=LNM$_STRING, BUFADR=LNMBUF, BUFSIZ=255,
+                    RETLEN=LNMLEN));
+            IF $TRNLNM (LOGNAM=%ASCID'FINGER_LOCAL', ITMLST=LNMLST,
+			TABNAM=%ASCID'LNM$SYSTEM') THEN
+            BEGIN
+		LOCAL OKHOST;
+                OKHOST = ASC_TO_ADDR (LNMBUF, .LNMLEN);
+                IF (.NETMASK AND .OKHOST) EQLU (.NETMASK AND .REMADR) THEN
+    	    	    RETURN SS$_NORMAL;
+            END;
+        END;
+    END;
+
+    RMS$_PRV
+
+END; ! ACCESS_OK
+
+%SBTTL 'ASC_TO_ADDR'
+ROUTINE ASC_TO_ADDR (STR_A, STRLEN) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Given a host name, returns a queue of possible Internet addresses.
+!
+! RETURNS:  	IP address, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   ASC_TO_ADDR  host, adrque
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES: None.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	ADRL,
+    	ADRB : REF VECTOR [4,BYTE],
+    	CHP, DOTP,
+    	LEN, XLEN, VAL;
+
+    ADRB = ADRL;
+    CHP = .STR_A;
+    LEN = .STRLEN;
+    INCR I FROM 0 TO 3 DO
+    BEGIN
+    	IF .LEN LSS 1 THEN EXITLOOP;
+    	DOTP = CH$FIND_CH (.LEN, .CHP, %C'.');
+    	IF CH$FAIL (.DOTP) THEN XLEN = .LEN
+    	ELSE XLEN = CH$DIFF (.DOTP, .CHP);
+    	LIB$CVT_DTB (.XLEN, .CHP, VAL);
+    	ADRB [.I] = .VAL<0,8,0>;
+    	LEN = .LEN - .XLEN - 1;
+    	CHP = CH$PLUS (.DOTP, 1);
+    END;
+
+    .ADRL
+
+END; ! ASC_TO_ADDR
+
+END
+ELUDOM

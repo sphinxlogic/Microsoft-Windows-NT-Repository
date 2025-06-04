@@ -1,0 +1,1037 @@
+dfab:	$fab	fac=put,  Rat=<Cr>
+drab:	$rab	fab=dfab,usz=500,rsz=500
+
+
+
+
+
+fab:	$fab	fac=<put>,Rat=<Cr>, nam=nam,fop=nam, dnm=<sys$login:.com>
+rab:	$rab	fab=fab,usz=500,rsz=500
+
+
+nam:    $nam    rsa=result,-
+                rss=200,-
+                esa=exp,-
+                ess=200
+
+
+
+
+buffer:	.blkb	5000
+
+result:	.blkb	200
+exp:	.blkb	200
+
+
+
+
+
+
+
+
+	.library	/sys$login:peb/
+	.library	/sys$library:lib/
+	$sjcdef
+
+
+msg:	.ascid	/	... Submit PAN command to batch .../
+
+	.entry	do_batch,0
+
+
+
+
+
+
+; get INTERVAL (default is 00:30)
+
+	movl	#100,interval
+	Pushaw  interval
+	pushaq  interval
+	pushaq  v_interval
+	calls   #3,g^cli$get_value 
+	blbs	r0,44$
+
+	movl	def_int, interval
+	movc3	def_int, def_int+8, interval+8
+
+44$:	nop
+
+
+	movw	interval, pp2
+	movab	interval+8, pp2+4
+
+
+
+
+
+; get RETRY_MAX (default is 10)
+
+	movl	#100, RETRY_MAX
+	Pushaw  RETRY_MAX
+	pushaq  RETRY_MAX
+	pushaq  v_RETRY_MAX
+	calls   #3,g^cli$get_value 
+	blbs	r0,441$
+
+	movl	def_retry, RETRY_MAX
+	movc3	def_retry, def_retry+8, RETRY_MAX+8
+
+441$:	nop
+
+
+	movw	RETRY_MAX, pp3
+	movab	RETRY_MAX+8, pp3+4
+
+	pushaq	msg
+	calls	#1,g^lib$put_output
+
+
+;	pushaq	command_line
+;	calls	#1,g^lib$put_output
+
+	movl	#100,p1
+	movc5	#100,(sp),#^a/ /,#100,p1+8
+	clrl	el_num
+
+	pushal	descr
+	pushaq	command_line
+	pushaq	Delimiter 
+	pushal	el_num
+	pushaq	p1
+	calls	#5,g^STR$ELEMENT
+	check	r0,error
+
+; ---------------------------------
+
+	clrl	p1
+	movab	p1+8,R6
+
+10$:	cmpb	#^a/ /,(R6)
+	beql	20$
+
+	incl	p1
+	incl	r6
+	brw	10$
+
+20$:	nop
+; ---------------------------------
+
+
+
+	movl	#100,p2
+	movc5	#100,(sp),#^a/ /,#100,p2+8
+	movl	#1,el_num
+
+	pushal	descr
+	pushaq	command_line
+	pushaq	Delimiter 
+	pushal	el_num
+	pushaq	p2
+	calls	#5,g^STR$ELEMENT
+	check	r0,error
+
+; ---------------------------------
+
+	clrl	p2
+	movab	p2+8,R6
+
+30$:	cmpb	#^a/ /,(R6)
+	beql	40$
+
+	incl	p2
+	incl	r6
+	brw	30$
+
+40$:	nop
+; ---------------------------------
+
+
+
+
+
+
+; create the .COM file
+
+
+	movl	#500,out
+	$fao_s	ctrstr=ctr,outbuf=out,outlen=out,-
+		p1=#p1,-
+		p2=#p2
+
+
+
+; make sure the file name is ASCII 
+
+	movab	out+8, R6
+	movzwl	out,   R7
+
+99$:	locc	(R6), valid, valid+8
+	bneq	100$
+
+	movb	#^a/$/, (R6)	
+
+100$:	nop
+
+	incl	R6
+	decl	R7
+	bneq	99$
+
+
+	cmpb	out, #30
+	bleq	200$
+	movb	#30,out
+200$:	nop
+
+
+	movb	out,fab+fab$b_fns
+	movab	out+8,fab+fab$l_fna
+
+	$create	fab=fab
+	check	r0,error
+
+	$connect	rab=rab
+	check	r0,error
+
+
+
+        cvtbl   NAM+NAM$B_RSL,Descr
+        movab   result,descr+4
+        pushaq  descr
+        calls   #1,g^lib$put_output
+
+
+
+	cvtbw	NAM+NAM$B_RSL, FileH
+	movab	result, FileH+4
+
+; fill up the file
+
+
+
+
+
+        movw    line1,Rab+Rab$w_Rsz
+        movw    line1,Rab+Rab$w_Usz
+
+        movab   line1+8,Rab+rab$l_Ubf
+        movab   line1+8,Rab+rab$l_Rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+
+
+        movw    line2,Rab+Rab$w_Rsz
+        movw    line2,Rab+Rab$w_Usz
+
+        movab   line2+8,Rab+rab$l_Ubf
+        movab   line2+8,Rab+rab$l_Rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+
+
+        movw    line3,Rab+Rab$w_Rsz
+        movw    line3,Rab+Rab$w_Usz
+
+        movab   line3+8,Rab+rab$l_Ubf
+        movab   line3+8,Rab+rab$l_Rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+
+
+
+
+        movw    line4,Rab+Rab$w_Rsz
+        movw    line4,Rab+Rab$w_Usz
+
+        movab   line4+8,Rab+rab$l_Ubf
+        movab   line4+8,Rab+rab$l_Rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+
+
+
+        movw    line5,Rab+Rab$w_Rsz
+        movw    line5,Rab+Rab$w_Usz
+
+        movab   line5+8,Rab+rab$l_Ubf
+        movab   line5+8,Rab+rab$l_Rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+
+
+
+
+        movw    line6,Rab+Rab$w_Rsz
+        movw    line6,Rab+Rab$w_Usz
+
+        movab   line6+8,Rab+rab$l_Ubf
+        movab   line6+8,Rab+rab$l_Rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+; re-instate the PAN symbol
+
+
+	movl	#500,out
+	$fao_s	ctrstr=ctr1,outbuf=out,outlen=out,-
+		p1=exe_file_name_len,-
+		p2=#exe_file_name
+
+
+
+
+        movw    out,Rab+Rab$w_Rsz
+        movw    out,Rab+Rab$w_Usz
+
+        movab   out+8,Rab+rab$l_Ubf
+        movab   out+8,Rab+rab$l_Rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+
+
+; start header...
+
+
+
+
+	movl	#500,out
+	$fao_s	ctrstr=ct3,outbuf=out,outlen=out,-
+		p1=#start
+
+        movw    out,Rab+Rab$w_Rsz
+        movw    out,Rab+Rab$w_Usz
+
+        movab   out+8,Rab+rab$l_Ubf
+        movab   out+8,Rab+rab$l_Rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+
+
+
+	movl	#500,out
+	$fao_s	ctrstr=ctr22,outbuf=out,outlen=out,-
+		p1=#command_line
+
+
+        movw    out,Rab+Rab$w_Rsz
+        movw    out,Rab+Rab$w_Usz
+
+        movab   out+8,Rab+rab$l_Ubf
+        movab   out+8,Rab+rab$l_Rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+
+
+        movw    ctr23,Rab+Rab$w_Rsz
+        movw    ctr23,Rab+Rab$w_Usz
+
+        movab   ctr23+8,Rab+rab$l_Ubf
+        movab   ctr23+8,Rab+rab$l_Rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+
+; and the command to do...
+
+
+	movl	#500,out
+	$fao_s	ctrstr=ctr2,outbuf=out,outlen=out,-
+		p1=#command_line
+
+
+        movw    out,Rab+Rab$w_Rsz
+        movw    out,Rab+Rab$w_Usz
+
+        movab   out+8,Rab+rab$l_Ubf
+        movab   out+8,Rab+rab$l_Rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+
+	movl	#500,out
+	$fao_s	ctrstr=ct3,outbuf=out,outlen=out,-
+		p1=#end
+
+        movw    out,Rab+Rab$w_Rsz
+        movw    out,Rab+Rab$w_Usz
+
+        movab   out+8,Rab+rab$l_Ubf
+        movab   out+8,Rab+rab$l_Rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+; ------------------------------------------------------------
+; write retry code to the file
+
+
+
+
+	movab	retry_code, R6
+
+
+150$:	nop
+
+
+	movq	(R6), descr
+	movzbw	descr, Rab+Rab$w_Usz
+	movzbw	descr, Rab+Rab$w_Rsz
+
+	movl	descr+4, Rab+Rab$l_ubf
+	movl	descr+4, Rab+Rab$l_rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+	movzbl	descr, R5
+	addl2	R5,R6
+	addl2	#4,R6
+	addl2	#4,R6
+
+	tstl	(R6)
+	bneq	150$
+
+
+
+; ------------------------------------------------------------
+; write mailing DCL to the file
+
+; should we ?
+
+
+; get NOTIFY  (default is Mail)
+
+	movl	#500,out
+	Pushaw  out
+	pushaq  out
+	pushaq  notify
+	calls   #3,g^cli$get_value 
+	blbs	r0,444$
+	
+
+	movl	mail, out
+	movc3	mail,mail+8,out+8
+
+444$:	nop
+
+
+
+
+
+	cmpb	#^a/N/,out+8
+	beql	70$
+
+
+	movab	com, R6
+
+
+50$:	nop
+
+
+	movq	(R6), descr
+	movzbw	descr, Rab+Rab$w_Usz
+	movzbw	descr, Rab+Rab$w_Rsz
+
+	movl	descr+4, Rab+Rab$l_ubf
+	movl	descr+4, Rab+Rab$l_rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+	movzbl	descr, R5
+	addl2	R5,R6
+	addl2	#4,R6
+	addl2	#4,R6
+
+	tstl	(R6)
+	bneq	50$
+
+70$:	nop
+
+
+
+; and the delete line
+
+
+	movzbw	delete_line, Rab+Rab$w_Usz
+	movzbw	delete_line, Rab+Rab$w_Rsz
+
+	movl	delete_line+4, Rab+Rab$l_ubf
+	movl	delete_line+4, Rab+Rab$l_rbf
+
+	$put	rab=rab
+	check	r0,error
+
+
+	$close	fab=fab
+	check	r0,error
+
+
+; get QUEUE (default is Sys$Batch)
+
+	movl	#500,out
+	Pushaw  out
+	pushaq  out
+	pushaq  queue
+	calls   #3,g^cli$get_value 
+	blbs	r0,88$
+
+	movl	sys$batch, out
+	movc3	sys$batch,sys$batch+8,out+8
+
+88$:	nop
+
+	movw	out, item
+	movab	out+8, item+4
+
+	movw	out, pp1
+	movab	out+8, pp1+4
+
+
+	$sndjbcw_s	func=#Sjc$_Enter_FIle,-
+			itmlst=item,-
+			iosb=iosb
+        check   r0,error                
+        movl    iosb,r0                 
+        check   r0,error                
+
+
+; tell us the print message
+
+	movl	job_status_len,Descr
+	movab	job_status,Descr+4
+
+	pushaq	Descr
+	calls	#1,g^lib$put_output
+
+
+
+
+; ============================================================
+
+
+
+
+
+
+
+error:	nop
+	$exit_s	code=R0
+	ret
+
+descr:	.blkl	2
+
+
+Delimiter:	.ascid	/ /
+
+el_num:	.long	1
+
+
+out:	.long	500
+	.long	out+8
+	.blkb	500
+
+
+p1:	.long	100
+	.long	p1+8
+	.blkb	100
+
+p2:	.long	100
+	.long	p2+8
+	.blkb	100
+
+
+ctr:	.ascid	/PAN$_!AS_!AS/
+
+
+line1:	.ascid	/$ Verify='f$verify(0)      !Batch command file, build by PAN/
+line2:	.ascid	/$ Set Noon                 !to execute a user command /
+line3:	.ascid	+$ Delete/Symbol/All/Global !Ensure environment+
+line4:	.ascid	/$ Assin NL: sys$print      ! /
+line5:	.ascid	/$ Set Output_Rate=:0:05    ! /
+line6:	.ascid	+$ set message /FACILITY /IDENTIFICATION /SEVERITY /TEXT +
+ctr1:	.ascid	/$ Pan:=$!AD/
+ctr2:	.ascid	/$ PAN !AS/
+ctr22:	.ascid	/$ command_line:=$ PAN !AS/
+ctr23:	.ascid	/$ write sys$output "''command_line'"/
+
+
+ct3:	.ascid	/$ Write Sys$Output "!AS"/
+
+start:	
+.ascid	/********************* Pan command execution follows **************************/
+
+
+end:	
+.ascid	/********************* Execution of Pan command complete **********************/
+
+item:	.word	0
+	.word	sjc$_queue
+	.long	0
+	.long	0
+;
+FileH:	.word	0				;File_Spec_Len
+	.word	sjc$_file_specification
+	.long	0
+	.long	0
+;
+	.word	0
+	.word	sjc$_notify
+	.long	one
+	.long	0
+;
+	.word	0
+	.word	sjc$_no_delete_file	
+	.long	one
+	.long	0
+;
+	.word	255
+	.word	sjc$_job_status_output
+	.long	job_status
+	.long	job_status_len
+;
+pp1:	.word	0				;p1      queue
+	.word	sjc$_parameter_1
+	.long	0
+	.long	0
+;
+pp2:	.word	0				;p2      interval
+	.word	sjc$_parameter_2
+	.long	0
+	.long	0
+;
+pp3:	.word	0				;p3      retry_max
+	.word	sjc$_parameter_3
+	.long	0
+	.long	0
+;
+pp4:	.word	1				;p3	number of times we have done this
+	.word	sjc$_parameter_4
+	.long	never
+	.long	0
+;	
+	.long	0
+
+zero:	.long	0
+one:	.long	1
+
+never:	.ascii	/0/
+
+job_status_len:	.blkl	1
+job_status:	.blkb	255
+
+queue:	.ascid	/QUEUE/
+
+
+iosb:	.blkl	2
+
+
+com:
+.ascid	+$ !---------------------------------------+
+.ascid	+$ pid:='f$getjpi("","pid")+
+.ascid	+$ user:='f$getjpi("","username")+
+.ascid	+$ open/write out  'pid'.pan_tmp_mail+
+.ascid	+$ write out "Your batch PAN command +
+.ascid	+$ write out "$ PAN ''saved_pan_command'+
+.ascid	+$ write out "has completed (With ''p3' retries left) +
+.ascid	+$ write out " "+
+.ascid	+$ write out "Please view the log file +
+.ascid	+$ write out "''PAN$_BATCH_LOG_FILE_SPEC'+
+.ascid	+$ write out "for errors and results+
+.ascid	+$ close out +
+.ascid	+$ !+
+.ascid	+$ mail 'pid'.pan_tmp_mail 'user'/sub="Batched PAN command complete"+
+.ascid	+$ delete/nolog 'pid'.pan_tmp_mail;*+
+.long	0
+
+
+notify:	.ascid	/NOTIFY/
+
+
+sys$batch:	.ascid	/sys$batch/
+mail:		.ascid	/MAIL/
+
+file_n:		.ascid	/FILE/
+
+	.entry	scan_batch_log, 0
+
+
+
+
+
+
+
+	movl    #100,out
+	Pushaw  out
+	pushaq  out
+	pushaq  file_out
+	calls   #3,g^cli$get_value 
+	check	r0,error	
+
+
+
+
+	movb	Out,Dfab+fab$b_fns
+	movl	Out+4,Dfab+fab$l_fna
+
+
+
+	$create	fab=Dfab
+	check	r0,error
+
+	$connect	rab=Drab
+	check	r0,error
+
+
+
+
+	pushaq	continue
+	calls	#1,g^cli$present
+	blbc	r0,155$
+	clrl	continue
+155$:	nop
+
+
+
+
+
+	pushaq	ignore
+	calls	#1,g^cli$present
+	blbc	r0,55$
+
+	clrl	start
+
+55$:	nop
+
+; get the file name
+
+
+
+	movl	#500,out
+	Pushaw  out
+	pushaq  out
+	pushaq  file_n
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+; open that
+	clrb	fab+fab$b_dns
+	$fab_store	fab=fab, shr=<get,put>, fac=<get>
+
+        movab   buffer,Rab+rab$l_Ubf
+        movab   buffer,Rab+rab$l_Rbf
+
+
+	movb	out, fab+fab$b_fns
+	movab	out+8, fab+fab$l_fna
+
+	$open	fab=fab
+	check	r0,error
+
+        cvtbl   NAM+NAM$B_RSL,Descr
+        movab   result,descr+4
+;        pushaq  descr
+ ;       calls   #1,g^lib$put_output
+
+	$connect	rab=rab
+	check	r0,error
+
+; get all the search list items
+
+	movab	all_list, point
+
+5$:	movl	#500,out
+	Pushaw  out
+	pushaq  out
+	pushaq  list
+	calls   #3,g^cli$get_value 
+	blbs	r0,10$
+	brw	20$
+10$:	nop
+
+	movl	out, @point
+	addl2	#4, point
+
+	movc3	out, out+8, @point
+
+	addl2	out, point
+
+	brw	5$
+
+
+
+20$:	nop	; ------ all items found
+
+
+scan_loop:	nop
+
+
+
+
+	movc5	#0,(sp),#0,#5000,buffer
+
+	$get	rab=rab
+	blbs	r0,5$
+
+	cmpl	r0, #rms$_eof
+	bneq	6$
+
+	brw	eof
+6$:	$exit_s	code=R0
+
+5$:	nop
+
+
+
+; ------------------------------------------------
+; have we seen the START banner ??
+
+
+	tstl	start
+	beql	100$
+
+; is this start ?
+
+	cmpc3	start, start+8, buffer
+	bneq	101$
+
+
+	pushaq	start_fnd
+	calls	#1,g^lib$put_output
+
+
+
+	clrl	start
+
+
+101$:	nop
+	brw	scan_loop
+
+100$:	nop
+; ------------------------------------------------
+
+
+
+; is this end ?
+
+	cmpc3	end, end+8, buffer
+	bneq	111$
+
+	pushaq	end_fnd
+	calls	#1,g^lib$put_output
+
+
+	pushaq	no_sea
+	calls	#1,g^lib$put_output
+
+	$exit_s	code=#^x08D78053
+
+111$:	nop
+
+
+
+; do we match on any of the search strings
+
+
+	movab	all_list, point
+
+500$:	nop
+
+	movl	@point, R7
+	addl2	#4, Point
+	movl	Point ,R8
+
+	tstl	R7
+	bneq	501$
+	brw	scan_loop
+501$:	nop
+
+
+
+
+
+
+	cmpc3	R7, (R8), buffer
+	beql	600$
+	
+	addl2	R7, Point
+	brw	500$
+
+600$:	nop
+
+	movl	r7, descr
+	movl	r8, descr+4
+
+
+	tstl	continue
+	beql	15500$
+
+	movl	#100,out	
+	$fao_s	ctrstr=ctr_fnd,outbuf=out,outlen=out,-
+		p1=#descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+15500$:	nop
+
+
+
+
+
+	movzwl	Rab+Rab$w_Rsz, descr
+	movab	buffer, descr+4
+
+;	pushaq	descr
+;	calls	#1,g^lib$put_output
+
+
+	movw	descr, Drab+rab$w_Rsz
+	movw	descr, Drab+rab$w_Usz
+
+	movl	descr+4, Drab+rab$l_Rbf
+	movl	descr+4, Drab+rab$l_Ubf
+
+	$put	rab=Drab
+	check	r0,error
+
+
+
+	tstl	continue
+	bneq	5500$
+	brw	scan_loop
+5500$:	nop
+
+
+
+	$exit_s	code=#1	
+	
+	ret
+
+
+eof:	nop
+
+	tstl	start	; have we seen the start banner ?
+	beql	10$
+
+	pushaq	no_start
+	calls	#1,g^lib$put_output
+
+	$exit_s	code=#^x08D78053
+
+10$:	nop
+
+
+
+
+	ret
+
+
+	
+
+
+
+list:		.ascid	/LIST/
+
+all_list:	.blkb	5000
+point:		.blkl	1
+
+valid:	.ascid	/_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890/
+ctr_fnd:	.ascid	/Search string "!AS" found /
+
+no_start:	.ascid	/%SEARCH-I-NOBANNER, no PAN start banner found /
+no_sea:		.ascid	/%SEARCH-I-NOMATCHES, no strings matched/
+
+start_fnd:	.ascid	/%SEARCH-I-STARTFND, Start PAN banner found/
+end_fnd:	.ascid	/%SEARCH-I-ENDFND,   End PAN banner found/
+
+
+
+
+interval:	.long	100
+		.long	interval+8
+		.blkb	100
+
+
+v_interval:	.ascid	/INTERVAL/
+def_int:	.ascid	/00:30:00/
+
+
+
+RETRY_MAX:	.long	100
+		.long	RETRY_MAX+8
+		.blkb	100
+
+v_RETRY_MAX:	.ascid	/RETRY_MAX/
+def_retry:	.ascid	/10/
+
+file_out:	.ascid	/OUT/
+
+ignore:		.ascid	/IGNORE/
+continue:	.ascid	/CONTINUE/
+
+retry_code:	
+.ascid	/$ If 'p3' .le. 0 then goto OK/
+.ascid	/$ wait 00:00:05/
+.ascid	+$ !---------------------------------------+
+.ascid	/$ saved_pan_command:='PAN$_BATCH_COMMAND'/
+.ascid	/$ pan scan 'PAN$_BATCH_LOG_FILE_SPEC' -/
+.ascid	/"-RMS-E-ACC", "-SYSTEM-F-LINKEXIT", "-SYSTEM-F-NOSUCHOBJ", -/
+.ascid	/"-SYSTEM-F-UNREACHABLE", "-SYSTEM-F-REMRSRC,"  /
+.ascid	/$ if "''$Status'" .nes. "%X00000001" then goto OK/
+.ascid	/$ p3=p3-1 /
+.ascid	/$ Write sys$output "Re-Submit command due to error/
+.ascid	/$ Write sys$output "There are ''p3' tries left/
+.ascid	~$ Submit /queue='p1' /after="+''p2'" 'f$environment("procedure")' - ~
+.ascid	+  /parameters=("''p1'", "''p2'", "''p3'") +
+.ascid	+$ Exit +
+.ascid	/$ OK:/
+.long	0
+
+
+delete_line:	.ascid	+$ Delete/Log  'f$environment("procedure")' +
+
+	.end	
+
+
+
+
+
+
+
+
+
+

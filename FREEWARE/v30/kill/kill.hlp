@@ -1,0 +1,210 @@
+ 
+
+1  KILL
+   KILL is used to delete or force image exit for one or more
+   processes in the cluster. These processes can be selected by
+   two methods:
+
+   o  By process ID, or
+
+   o  By username
+
+   These methods are mutually exclusive.
+
+   Format
+
+     KILL  /IDENTIFICATION=(pid[,pid...]) [/qualifiers]
+
+     KILL  [/qualifiers] user[/qualifiers][,user[/qualifiers]...]
+
+   Command Qualifiers    Defaults
+
+   /CONFIRM              /CONFIRM
+   /DISCONNECTED         /NODISCONNECTED
+   /FORCEX
+   /IDENTIFICATION=(pid[,pid...])
+   /KILL                 /KILL
+   /LOG                  /LOG
+   /NODE=node            /NONODE
+ 
+
+2  Parameters
+ 
+
+user
+
+   Specifies the username of the processes to select for deletion.
+   If a partial username is provided, all processes whose usernames
+   begin with that partial username will be selected.
+ 
+
+2  Qualifiers
+ 
+
+/CONFIRM
+
+      /CONFIRM (D)
+      /NOCONFIRM
+
+   Confirm before deleting or forcing image exit for the selected
+   processes. All of the /NOCONFIRM processes will be deleted before
+   attempting to confirm any of the /CONFIRM processes.
+ 
+
+/DISCONNECTED
+
+      /DISCONNECTED
+      /NODISCONNECTED (D)
+
+   Select disconnected processes, i.e., processes that have a
+   virtual terminal but no physical terminal. This qualifier has
+   no effect if virtual terminals are not enabled.
+ 
+
+/FORCEX
+
+   Force image exit for the selected processes. By default, KILL
+   deletes processes.
+ 
+
+/IDENTIFICATION
+
+      /IDENTIFICATION=(pid[,pid...])
+
+   Specifies the processes to select by process ID.
+ 
+
+/KILL
+
+      /KILL (D)
+
+   Delete the selected processes, the default. This qualifier can be
+   used to override a global /FORCEX for a particular user.
+ 
+
+/LOG
+
+      /LOG (D)
+      /NOLOG
+
+   Display an informational message for each process that is deleted
+   or forced to exit.
+ 
+
+/NODE
+
+      /NODE=node
+      /NONODE
+
+   Specifies the cluster node from which processes should be
+   selected. The node name can include wildcard characters (* and
+   %). /NONODE is equivalent to /NODE=local-node. /NODE has no
+   effect if you are not part of a cluster. /NODE should not be
+   used with the /IDENTIFICATION qualifier.
+ 
+
+2  Description
+   KILL is a generalized version of the STOP/ID command. The
+   processes to be killed can be selected by using one of two
+   available selection criteria:
+
+   Process ID   Specified in the /IDENTIFICATION qualifier. One of
+                the major differences between KILL/ID and STOP/ID is
+                that, with KILL/ID, you can list multiple PIDs.
+   Username     Specified in the command's only parameter. As with
+                /ID, you can list multiple usernames from which to
+                select processes. Also, like the SHOW USERS command,
+                partial usernames can be used.
+
+   Like STOP/ID, KILL will allow anyone to kill a process with
+   the same UIC; GROUP privilege is required to kill a process in
+   the same UIC group; and WORLD privilege is required to kill any
+   process on the system.
+
+   If you are running in a VAXcluster environment, processes from
+   other cluster nodes can also be killed. When killing by username,
+   the desired node is specified in the /NODE qualifier. The node
+   does not need to be specified when killing by PID, since the node
+   is part of the PID.
+
+   Unlike STOP/ID, KILL also gives you the option to force image
+   exit for the selected processes by using the /FORCEX qualifier.
+
+                                  NOTE
+
+      KILL will not let you kill (or force exit for) the process
+      that is running KILL.
+ 
+
+2  Examples
+
+   1.$ KILL BU
+     Kill BURKHDR      BURKHDR_1       -SUB-     *DCL            <N>? y
+     %KILL-I-KILLED, Killed BURKHDR_1
+     Kill BURKHDR      Clock_240002B5  -DET-     XCLOCK          <N>?
+     Kill BURKHDR      DECW$MWM        -DET-     DECW$MWM        <N>?
+     Kill BURKHDR      DECW$TE_02D0     MBA142:  DECW$TERMINAL   <N>? <Ctrl-Z>
+     $
+
+     This example demonstrates several points about the KILL
+     command:
+
+     1. KILL allows you to specify partial usernames. Wildcarded
+        usernames are supported in two cases: a * at the end of a
+        username will be ignored (BU* is treated in the same way as
+        BU) and a username of * will match all usernames.
+
+     2. By default KILL confirms and logs all kills. This can be
+        overridden with /NOCONFIRM and /NOLOG respectively.
+
+     3. The default answer to the confirmation question is no. This
+        means that you can safely move through the confirmation list
+        by pressing <Return> until you find the right process.
+
+     4. Pressing <Ctrl-Z> at the confirmation prompt exits KILL
+        ignoring the remaining processes.
+
+   2.$ KILL/ID=(24009253,2400E2BE,2400D8EA)
+     Kill BURKHDR      WKUVX1 BURKHDR_1       -SUB-     *DCL            <N>?
+     %KILL-W-SUICIDE, Skipping process 2400E2BE
+     Kill BURKHDR      WKUVX1 BURKHDR_2       -SUB-     *DCL            <N>?
+
+     If you specify the PID of your own process in the /ID list,
+     you will be warned with a message to that effect. When killing
+     by username, the process that is running KILL will be excluded
+     from the list of candidates.
+
+   3.$ KILL "<login>",BURKHDR/NODE=*
+     Kill <login>      WKUVX1 DECW$LOGINOUT   -SUB-     LOGINOUT        <N>?
+     Kill BURKHDR      WKUVX1 Clock_240002B5  -DET-     XCLOCK          <N>?
+     Kill BURKHDR      WKUVX1 DECW$MWM        -DET-     DECW$MWM        <N>?
+     Kill BURKHDR      WKUVX1 DECW$TE_02D0     MBA142:  DECW$TERMINAL   <N>?
+     Kill BURKHDR      WKUVX1 Darrell          FTA315:  RTPAD           <N>?
+     Kill BURKHDR      WKUVX1 My Evil Twin     FTA385:  TPU             <N>?
+     Kill BURKHDR      WKUVX4 Darrell          RTA1:    MAIL            <N>?
+     Kill BURKHDR      WKUVX4 SERVER_0018     -NET-     NETSERVER       <N>?
+
+     The /CONFIRM, /DISCONNECTED, /FORCEX, /KILL, /LOG, and /NODE
+     qualifiers are positional, i.e., their meaning depends on
+     where they are positioned within the command. Qualfiers that
+     appear after the KILL command are global to the command. These
+     global qualifiers can be overridden for a particular username
+     by including local qualifiers after the username. Thus, in the
+     example above, the /NODE=* qualifier applies only to processes
+     of the BURKHDR username.
+
+   4.$ KILL/DISC *
+     %KILL-W-NOPROCS, No matching processes were found
+
+     When killing by username, the warning message above will be
+     displayed if no processes are selected.
+
+   5.$ KILL BURKHDR
+     Kill BURKHDR      Clock_240002B5  -DET-     XCLOCK          <N>? f
+     %KILL-I-FORCEX, Forced exit for Clock_240002B5
+     Kill BURKHDR      DECW$MWM        -DET-     DECW$MWM        <N>? <Ctrl-Z>
+
+     It is possible to override the /KILL and /FORCEX qualifiers
+     from the confirmation prompt. Answering with the letter ``F''
+     means to force image exit. Answering with the letter ``K''
+     means to kill.

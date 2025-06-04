@@ -1,0 +1,85 @@
+/*
+**++
+**  FACILITY:  SDL
+**
+**  MODULE DESCRIPTION:
+**
+**      SDL$GETFNM contains an ENVIRONMENT (USER_OPEN) procedure that returns
+**	the resultant file specification into the varying length string
+**	SDL$GT_FILENAME.  If the resultant file name is not available, e.g. in
+**	case of an OPEN FILE error, either the expanded file name or the input
+**	file name is returned.
+**
+**  AUTHORS:
+**
+**      Roger Cornelis
+**
+**  CREATION DATE:     20-Oct-1994
+**
+**  DESIGN ISSUES:
+**
+**      SDL$GETFNM expects the PL/I RTL to supply an RMS NAMe block, and storage
+**	for the expanded and resultant file name strings.  In the unlikely event
+**	this ever changes, SDL$GETFNM can easily be modified to set these up
+**	itself before calling SYS$OPEN or SYS$CREATE.
+**
+**  MODIFICATION HISTORY:
+**
+**  Date	| Name  | Description
+** -------------+-------+-------------------------------------------------------
+**  20-Oct-1994 | RC    | EV1-40    Original version created for (native) Alpha port,
+**		|	|	    to get rid of dependency of PL/I RTL internal
+**		|	|	    file variable structure (different on VAX and Alpha).
+** -------------+-------+-------------------------------------------------------
+**--
+**/
+%replace MODULE_IDENT by 'EV1-40';
+
+%include 'sdl$library:sdlgetfnm.in';
+ 
+sdl$getfnm: procedure (fab, rab, open_flag) options (ident (MODULE_IDENT)) returns (fixed binary);
+
+    declare
+	1 fab like fabdef,
+	1 rab like rabdef,
+	open_flag fixed binary;
+
+    %include sys$create;
+    %include sys$open;
+
+    declare
+	status fixed binary,
+	string character(nam$c_maxrss) based (strptr),
+	strptr pointer,
+	strlen fixed binary;
+
+    if open_flag = 1
+    then
+	status = sys$open (fab, , );
+    else
+    	status = sys$create (fab, , );
+
+    if fab.fab$l_nam->nam$b_rsl ^= 0
+    then
+	do;
+	    strptr = fab.fab$l_nam->nam$l_rsa;
+	    strlen = posint (fab.fab$l_nam->nam$b_rsl);
+	    end;
+    else
+    if fab.fab$l_nam->nam$b_esl ^= 0
+    then
+	do;
+	    strptr = fab.fab$l_nam->nam$l_esa;
+	    strlen = posint (fab.fab$l_nam->nam$b_esl);
+	    end;
+    else
+    	do;
+	    strptr = fab.fab$l_fna;
+	    strlen = posint (fab.fab$b_fns);
+	    end;
+
+    sdl$gt_filename = substr (string, 1, strlen);
+
+    return (status);
+
+end sdl$getfnm;

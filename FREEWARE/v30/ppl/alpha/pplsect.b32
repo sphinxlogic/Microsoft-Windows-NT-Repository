@@ -1,0 +1,1687 @@
+module ppl$sect (ident='V57-001', addressing_mode (external=general)) =
+begin
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1986 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+!
+
+!++
+!
+! FACILITY:	PPL Facility of the VAX RTL (Parallel Processing Library)
+!
+! ABSTRACT:
+!
+!	This module contains routines for global sections.
+!
+! ENVIRONMENT:	VAX/VMS user mode
+!
+! AUTHOR: Peter D Gilbert, CREATION DATE:  7-OCT-1986
+!
+! MODIFIED BY:
+!
+!	X00-000		Original
+!
+!	X01-001		Added the routine headers.		CMF  23-JAN-1987
+!
+!	X01-002		Correct the ident to match the cms	CMF  26-JAN-1987
+!			generation number.
+!
+!	X01-003		Add comments around code used for 	CMF  27-JAN-1987
+!			debugging.
+!
+!	X01-004		Correct the ROUND_DOWN_ macro.		CMF  11-Feb-1987
+!
+!	X01-005		Replaced ref to we_chose with the 	CMF  12-Feb-1987
+!			correct item.
+!
+!	X01-006		Moved test for prior init to top	DLR  23-APR-1987
+!			of create_shared_memory.
+!
+!	X01-007		Fix so that mapping to an existing	DLR  01-FEB-1988
+!			file does not zero the pages.
+!
+!	V05-001		Fixed PPL$DELETE_SHARED_MEMORY and	WWS  06-Jul-1988
+!			PPL$FLUSH_SHARED_MEMORY to return 
+!			PPL$_NORMAL instead of SS$_NORMAL
+!
+!	V05-002		Corrected routine comments sections	WWS  08-Jul-1988
+!			dealing with completion codes.
+!
+!	V05-003		Added PPL$$FLUSH_SHARED_MEMORY as a	WWS  31-AUG-1988
+!			todo action to flush all processes
+!			modifications to the shared memory.
+!
+!	V051-001	Replaced references to local PPLSECT	WWS  09-Sep-1988
+!			    by global PPL$$GL_PPLSECT and
+!			    reformatted debugging messages
+!
+!	V53-001		Added PPL$M_SYSGBL and PPL$M_PERM flags	WWS  29-Mar-1989
+!			    and protection mask to PPL$C_S_M.
+!			Changed debugging messages to use the
+!			    debug_msg_ macro, and added messages
+!
+!	V53-002		Changed debug_msg_ macro to take a	WWS  09-May-1989
+!			    string literal instead of an %ascid
+!
+!	V53-003		Streamlined PPL$Flush_Shared_Memory	WWS  07-Jun-1989
+!
+!	V53-004		Modified PPL$Create_Shared_Memory for	WWS  15-Aug-1989
+!			    new memory arbitration scheme and
+!			    cleaned it up.
+!
+!	V53-005		Set 'starting' variable to		PJC  28-Aug-1989
+!			lsect[sect_l_start] within a branch
+!			of ppl$create_shared_memory
+!
+!	V53-006		Removed ppl$$gl_contect from call to	PJC  14-Sep-1989
+!			ppl$$tell
+!
+!	V53-007		Added a $dgblsc to ppl$delete_shared_   PJC  27-Mar-1990
+!			Memory.
+!		
+!	V57-001		EVMS/Alpha port: Remove VAX dependency	PJC  12-Nov-1991
+!			within a macro, perform some page 
+!			rounding (machine specific).
+!
+!	V57-002		SPR fix: Improved internal book keeping PJC  18-Feb-1992
+!			on shared memory sections.
+!
+!	V57-003		Add lib$get_ef and lib$free_ef calls to	PJC  06-Aug-1993
+!			manage event flags for calls that need
+!			them.
+!
+!	V57-004		Convert to use global event flag.	PJC  30-Aug-1993
+!--
+
+!<BLF/PAGE>
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+library	'sys$library:starlet';
+library	'sys$library:xport';
+undeclare %quote $descriptor;
+library	'obj$:ppllib';
+require 'rtlin:rtlpsect';
+
+!
+! FORWARD ROUTINE
+!
+forward routine
+	getfilename,
+	open_file,
+	ppl$create_shared_memory,
+	ppl$delete_shared_memory,
+	ppl$flush_shared_memory,
+	ppl$$flush_shared_memory;
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! OWN STORAGE:
+!
+
+!
+! LINKAGE:
+!
+linkage
+	jsb_r0_r01 =	jsb(register=0;register=0,register=1);
+
+!
+! PSECTS:
+!
+DECLARE_PSECTS ( PPL );			! Define psects
+
+!
+! EXTERNAL REFERENCES:
+!
+external routine
+	ppl$unique_name,
+	!
+	ppl$$tell,
+	ppl$$hiber,
+	ppl$$find_sect,
+	ppl$$name_lookup,
+	ppl$$choose_addresses,
+	!
+	lib$get_vm_page,
+	str$analyze_sdesc_r1:	jsb_r0_r01,
+	str$copy_dx;
+
+external
+	ppl$$gl_pplsect	: ref pplsect_block,
+	ppl$$gl_context	: ref ctx_block;
+
+
+
+external literal	!to tell ppl$$find_sect how/whether to allocate sect_blk
+    alloc_local,
+    alloc_common,
+    dont_alloc;
+
+
+!+
+! Format for a global section ident
+!-
+
+macro	xid_l_match =	0,0,32,0 %,
+	xid_l_version =	4,0,32,0 %,
+	xid_v_minor =	4,0,24,0 %,
+	xid_v_major =	4,24,8,0 %;
+literal	xid_s_bln =	8;
+
+!+
+! A macro like ch$fill which can be used to clear *lots* of memory.
+!-
+
+%if EVAX
+%then
+macro
+    ch$fill_l(val, size, addr) =
+	begin
+	local t1, t2, t3;
+	t1 = size;
+	t2 = %x'fffc';
+	t3 = addr;
+	while (t1 = .t1 - .t2) gtr 0 do t3 = ch$fill(val, .t2, .t3);
+	t2 = .t2 + .t1;
+	t3 = ch$fill(val, .t2, .t3);
+	end %;
+%fi
+%if VAX
+%then
+macro
+    ch$fill_l(val, size, addr) =
+	begin
+	builtin r3;
+	local t1, t2;
+	t1 = size;
+	t2 = %x'fffc';
+	r3 = addr;
+	while (t1 = .t1 - .t2) gtr 0 do r3 = ch$fill(val, .t2, .r3);
+	t2 = .t2 + .t1;
+	r3 = ch$fill(val, .t2, .r3);
+	end %;
+%fi
+
+
+!+
+! Macroes for rounding a number up or down to a multiple of a power of 2.
+!-
+
+macro
+	round_up_  (a,b) = (((a)+(b)-1) and not ((b)-1)) %,
+	round_down_(a,b) = ( (a)        and not ((b)-1)) %;
+
+!+
+! Macro to test an address for '0'.
+!-
+
+macro
+	zip_addr_(x) = ((x) eql 0 or (x) eql -1) %;
+
+!+
+! Note that we may be called upon to create *several* sections, some
+! with user-specified addresses, and some with addresses chosen by us.
+! To keep this straight, we use two different name spaces, and we append
+! a counter to the name.
+!-
+
+bind
+	x_our_sect =	UPLIT BYTE (%ascic ppl_x_our_sect),
+	x_user_sect =	UPLIT BYTE (%ascic ppl_x_user_sect);
+
+! +
+! Default file name strings.  We use different defaults depending
+! on whether the user specified the file name.
+!-
+
+bind
+	x_temp_dns =	UPLIT BYTE (%ascic ppl_x_temp_dns),
+	x_user_dns =	UPLIT BYTE (%ascic ppl_x_user_dns);
+
+!+
+! Flags for open_file.  These are defined the same 
+!-
+
+literal
+	open_m_write	= 1 ^ 0,	! Writable
+	open_m_create	= 1 ^ 1,	! Create the file
+	open_m_temp	= 1 ^ 2,	! Temporary file
+	open_m_cif	= 1 ^ 3,	! Create if it doesn't exist
+	open_m_pagfil	= 1 ^ 4;	! A page-file section -- no open needed
+
+%SBTTL 'ROUTINE GETFILENAME - Gets the name of the file to flush contents to.'
+!
+routine getfilename (
+	fab:	ref $bblock,
+	desc:	ref $bblock[dsc$c_s_bln]
+	) =
+    begin
+    bind
+	nam = .fab[fab$l_nam]:	$nam_decl;
+
+    debug_msg_(0, '!_Entering getfilename');
+    !+
+    ! Get the length/address of the best available file name string
+    !-
+
+    if nam[base_] neq 0
+    then
+	begin
+	if
+	    (desc[dsc$w_length] = .nam[nam$b_rsl]) neq 0
+	then
+	    desc[dsc$a_pointer] = .nam[nam$l_rsa]
+	elif
+	    (desc[dsc$w_length] = .nam[nam$b_esl]) neq 0
+	then
+	    desc[dsc$a_pointer] = .nam[nam$l_esa]
+	else
+	    begin
+	    desc[dsc$w_length] = .fab[fab$b_fns];
+	    desc[dsc$a_pointer] = .fab[fab$l_fna];
+	    end;
+	end
+    else
+	begin
+	desc[dsc$w_length] = .fab[fab$b_fns];
+	desc[dsc$a_pointer] = .fab[fab$l_fna];
+	end;
+
+    debug_msg_(0, '!_getfilename completed');
+
+    return desc[base_];
+    end;			! End of Routine GETFILENAME
+
+%SBTTL 'ROUTINE - OPEN_FILE - Opens the file to flush the global section to.'
+!
+routine open_file (
+	chan:	ref vector[1,word],		! Output parameter
+	pagcnt:	ref vector[1],			! Modify parameter
+	fns:	ref $bblock [dsc$c_s_bln],	! Input (file name string)
+	dns:	ref $bblock [dsc$c_s_bln],	! Input (default file name string)
+	rns:	ref $bblock [dsc$c_s_bln],	! Input (related file name string)
+	flags					! Open flags
+	) =
+!+
+! We need some mutex in here if we may be creating the file.  ????
+! We also need to communicate the file name to other processes.  ????
+!-
+
+    begin
+    builtin
+	nullparameter;
+    macro
+	xflag_(x) = ((.xflags and %name('open_m_',x)) neq 0) %;
+    local
+	fab:	$fab_decl,
+	nam:	$nam_decl,
+	rlf:	$nam_decl,
+	esa:	$bblock [nam$c_maxrss],
+	rsa:	$bblock [nam$c_maxrss],
+	xflags,
+	status;
+
+
+    debug_msg_(0, '!_Entering open_file');
+
+    !+
+    ! Set up the FAB, and NAM blocks.
+    !-
+
+    $fab_init(
+	fab = fab[base_],
+	nam = nam[base_],
+	shr = (get, put, upi),	! mse, del, upd
+!	bks = ((((512 + 9) * 6) + 15) / 512),	! ??
+	alq = .pagcnt[0],
+	rfm = fix,
+	mrs = 512,
+	rat = cr);
+
+    fab[fab$b_fns] = .fns[dsc$w_length]; 
+    fab[fab$l_fna] = .fns[dsc$a_pointer];
+    fab[fab$b_dns] = .dns[dsc$w_length]; 
+    fab[fab$l_dna] = .dns[dsc$a_pointer];
+
+    $nam_init(
+	nam = nam[base_],
+	esa = esa[base_],
+	ess = nam$c_maxrss,
+	rsa = rsa[base_],
+	rss = nam$c_maxrss);
+
+    if not nullparameter(rns)
+    then
+	begin
+
+	!+
+	! Set up the related file name string
+	!-
+
+	nam[nam$l_rlf] = rlf[base_];
+	$nam_init(nam = rlf[base_]);
+	rlf[nam$b_rss] = .rns[dsc$w_length];
+	rlf[nam$b_rsl] = .rns[dsc$w_length];
+	rlf[nam$l_rsa] = .rns[dsc$a_pointer];
+	end;
+
+    !+
+    ! Initialize the FAC and FOP.
+    !-
+
+    fab[fab$b_fac] = 0
+	or fab$m_bio			! Block I/O
+	or fab$m_get;			! Read
+    fab[fab$l_fop] = 0
+	or fab$m_cbt			! Contiguous best try
+	or fab$m_ufo			! User-file open
+	or fab$m_nam;
+
+    !+
+    ! Now process the flags
+    !-
+
+    xflags = .flags;
+    if xflag_(cif)
+    then
+	fab[fab$l_fop] = .fab[fab$l_fop]
+	    or fab$m_cif;		! Create if it doesn't exist
+    if xflag_(write)
+    then
+	fab[fab$b_fac] = .fab[fab$b_fac]
+	    or fab$m_put		! Put
+	    or fab$m_upd;		! Update
+    if xflag_(temp)
+    then
+	fab[fab$l_fop] = .fab[fab$l_fop]
+	    or fab$m_tmd;			! Delete it when we close it
+    if xflag_(create) or xflag_(cif)
+    then
+	begin
+	fab[fab$l_ctx] = ppl$_openout;
+	status = $create (fab = fab[base_]);	! Create it
+	end
+    else
+	begin
+	fab[fab$l_ctx] = ppl$_openin;
+	status = $open (fab = fab[base_]);	! Just open it
+	end;
+
+    !+
+    ! Store the channel number
+    !-
+
+    chan[0] = .fab[fab$l_stv];
+
+    !+
+    ! The file must be local and random access.
+    !-
+
+    if .fab[fab$l_sts] then
+    if not .$bblock[fab[fab$l_dev], dev$v_rnd] or .nam[nam$v_node]
+    then
+	begin
+	fab[fab$l_sts] = ss$_notfiledev;
+	fab[fab$l_stv] = 0;
+	end;
+
+    !+
+    ! Check the status
+    !-
+
+    if not .fab[fab$l_sts]
+    then
+	begin
+	local
+	    filename:	$bblock[dsc$c_s_bln];
+	filename[dsc_l_length] = 0;
+	getfilename (fab[base_], filename[base_]);
+
+!+
+! The following is used for debugging purposes.
+!-
+%(
+%if %variant %then
+	signal (.fab [fab$l_ctx], 1, filename[base_],
+	    .fab [fab$l_sts], .fab [fab$l_stv]);
+%fi
+)%
+	return .fab[fab$l_ctx];
+	end;
+
+    !+
+    ! Return the allocation amount.
+    !-
+
+    pagcnt[0] = maxu (.pagcnt[0], .fab[fab$l_alq]);
+
+    debug_msg_(0, '!_open_file complete');
+
+    !+
+    ! Return the RMS status.  This puts the onus of handling rms$_created
+    ! on our caller.
+    !-
+    return .fab[fab$l_sts];
+
+end;			! End of Routine OPEN_FILE
+
+%SBTTL 'ROUTINE: PPL$CREATE_SHARED_MEMORY - Creates and/or maps a global section'
+!
+global routine ppl$create_shared_memory (
+	section_name:	ref $bblock,
+	lenadr:		ref vector[2],
+	flags:		ref vector[1],
+	filename:	ref $bblock[dsc$c_s_bln],
+	prot:		ref vector[1]
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will create ( if needed ) and map a global
+!	section to memory.  The section will be demand zero by
+!	default upon creation.
+!
+!	By default the section can be written to.
+!
+!	A backing storage file will be opened if desired.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$CREATE_SHARED_MEMORY ( section_name,
+!						     lenadr,
+!						     [ flags ],
+!						     [ filename ] )
+!
+! FORMAL ARGUMENT(S):
+!
+!	SECTION_NAME
+!	VMS USAGE	:  char_string
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	Name of the global section you want to create.  The SECTION_NAME
+!	is the address fo a descriptor pointing to the global section name.
+!	Wihtin VMS, a global s3ection is a data structure or shareable image
+!	section potentially available to all processes in the system.
+!
+!	LENADR
+!	VMS USAGE	:  address_range
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  modify
+!	MECHANISM	:  by reference
+!
+!	The area of memory into which the section is to be mapped.  The
+!	LENADR parameter is the address of a two-longword array containing,
+!	in order, the length ( in bytes ) and the starting virtual address
+!	for the structure.
+!
+!	If the starting address is specified as zero, the virtual address
+!	space will be selected by the PPL$ facility, so that each process
+!	currently in the application will map the section to the same set
+!	of virtual addresses.
+!
+!	The length and starting virtual address of the global section actually
+!	created or mapped will be returned here.
+!
+!	FLAGS
+!	VMS USAGE	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by value
+!
+!	The flag mask specifying options fo the operation.  the flags argument
+!	is a longword bit vector wherein a bit, when set, specifies
+!	the corresponding option.
+!
+!	FLAG		DESCRIPTION
+!
+!	PPL$M_NOZERO	DO NOT pre-zero the global section.
+!
+!	PPL$M_NOWRT	Map section with no write access ( i.e., read-only ).
+!			By default the section is mapped with read/write access.
+!
+!	PPL$M_NOUNI	the global section name should not be made unique.
+!			By default, PPL$CREATE_SHARED_MEMORY will make the
+!			specified global section name unique to the
+!			application by using PPL$UNIQUE_NAME.
+!
+!	FILE_NAME
+!	VMS USAGE	:  char_string
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	The name of the file to be used for backing storage for the section.
+!	The default file specifications will be taken from SYS$SCRATCH:.DAT;
+!	the global section name will be used as a related file name.
+!
+!	If the specified file does not exist, it will be created.
+!	The file size will default to that of the section.
+!
+!	PROT
+!	VMS USAGE	:  file_protection
+!	TYPE		:  longword (unsigned)
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	Numeric value representing the protection mask to be applied to the
+!	global section.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_CREATED	Global section was created ( success ).
+!
+!	PPL$_INSVIRMEM	Insufficient virtual memory available.
+!
+!	PPL$_INVARG	Invalid argument(s).
+!
+!	PPL$_NONPIC	Cannot map section !AS to same addresses as others 
+!			mapped it.
+!
+!	PPL$_NORMAL	Normal successful completion; section already exists.
+!
+!	PPL$_WRONUMARG  Wrong number of arguments.
+!
+!	RMS$_XXX	Miscellaneous RMS errors dealing with the filename.
+!
+!	Any error returned by the system service $CRMPSC.
+!
+! SIDE EFFECTS:
+!
+!	Virtual address space has increased.
+!
+! NOTES:
+! 
+!	This routine is called not only by the user, but also internally by the
+!	PPL to do the memory mapping for ppl$$expreg.
+!-
+
+begin	!ppl$create_shared_memory
+
+builtin
+	nullparameter,
+	actualcount;
+
+local
+	ctx	    : ref ctx_block,
+	starting,			! Starting address
+	bytcnt,				! Number of bytes of storage
+	xprot,				! Sanitized copy of prot parameter
+	xflags,				! Sanitized copy of flags parameter
+	gsdnam:	$bblock [dsc$c_s_bln],	! Sanitized copy of section-name
+	inadr:	vector[2],		! Parameter for $CRMPSC
+	retadr:	vector[2],		! Parameter for $CRMPSC
+	buffer:	$bblock [nam$c_maxrss],	! Buffer for forming names
+	tmpfns:	$bblock [dsc$c_s_bln],	! File name string
+	tmpdns:	$bblock [dsc$c_s_bln],	! Default file name string
+	proto:	sect_block,		! Prototype global section block
+	lsect:	ref sect_block,		! Process-local section description
+	csect:	ref sect_block,		! Common (shared) section description
+	oflags,				! Flags for the open
+	cflags,				! Flags for the $CRMPSC
+	xnumb,				! Global section number
+	xname,				! Pointer to ASCIC name
+	open_status,			! Status from the open
+	crmpsc_status,			! Status from the $CRMPSC
+	status;
+
+literal
+	k_min_args  = 2,		! Minimum number of arguments
+	k_max_args  = 5,		! Maximum number of arguments
+	m_valid_flags = ppl$m_nozero or ppl$m_nowrt or ppl$m_pic or
+			ppl$m_nouni or ppl$m_nomap or ppl$m_perm or
+			ppl$m_system;
+
+
+    debug_msg_(0, '!_Entering ppl$create_shared_memory');
+    debug_msg_(1, '!_Entering ppl$create_shared_memory');
+
+    if (actualcount() lss k_min_args) or (actualcount() gtr k_max_args) then
+	return ppl$_wronumarg;
+
+    verify_init_;
+
+    !+
+    ! Grab the lenadr parameter.
+    !-
+
+    bytcnt = .lenadr[0];
+    starting = .lenadr[1];
+
+    ! Request to small?
+    if .bytcnt leq 0 then 
+	return ppl$_invarg;
+
+    !+
+    ! Grab the flags parameter.  Making sure we take into account 
+    ! application creation shared memory attributes (flags).
+    !-
+
+    xflags = (.ppl$$gl_pplsect[pplsect_l_mem_flags]
+	    and not (ppl$m_nosave_proc_info or ppl$m_ignore_exits));
+    if not nullparameter (flags)
+    then
+	xflags = (.xflags or .flags[0]);
+    if (.xflags and not m_valid_flags) neq 0
+    then
+	return ppl$_invarg;
+
+    !+
+    ! Grab the section protection
+    !-
+
+    xprot = (if nullparameter(prot)
+		then .ppl$$gl_pplsect[pplsect_l_prot]
+		else .prot[0]);
+
+    !+
+    ! Grab the section name.
+    !-
+
+    str$analyze_sdesc_r1 (section_name[base_];
+	gsdnam[dsc_l_length],
+	gsdnam[dsc$a_pointer]);
+
+    !+
+    ! Check the NOUNI flag
+    !-
+
+    if (.xflags and ppl$m_nouni) eql 0
+    then
+	begin
+
+	!+
+	! The flag was missing.  By default, we make the name unique.
+	!-
+
+	tmpfns[dsc_l_length] = %allocation (buffer);
+	tmpfns[dsc$a_pointer] = buffer[base_];
+	status = ppl$unique_name (gsdnam[base_], tmpfns[base_],
+	    tmpfns[dsc$w_length]);
+	if not .status then return .status;
+	gsdnam[dsc_l_length] = .tmpfns[dsc_l_length];
+	gsdnam[dsc$a_pointer] = .tmpfns[dsc$a_pointer];
+	end;
+
+    !+
+    ! Check for a user-specified file name.
+    !-
+
+    if nullparameter (filename)
+    then
+	begin
+	tmpfns[dsc_l_length] = .gsdnam[dsc_l_length];
+	tmpfns[dsc$a_pointer] = .gsdnam[dsc$a_pointer];
+	xname = x_temp_dns;
+	oflags = open_m_temp or open_m_cif or open_m_pagfil;
+	end
+    else
+	begin
+	str$analyze_sdesc_r1 (filename[base_];
+	    tmpfns[dsc_l_length],
+	    tmpfns[dsc$a_pointer]);
+	xname = x_user_dns;
+	oflags = open_m_cif;
+	end;
+    tmpdns[dsc_l_length] = ch$rchar (.xname);
+    tmpdns[dsc$a_pointer] = ch$plus (.xname, 1);
+
+
+    !+
+    ! If the starting address is not specified, we will choose the addresses
+    ! of where we map the section.  If it is specified, the section is
+    ! mapped where the caller requested.
+    !-
+
+    if .starting eql 0
+    then
+	begin
+
+        !+
+	! Round the byte count UP to a full number of pages.
+	!-
+%if EVAX
+%then	
+	bytcnt = round_up_(.bytcnt, .ppl$$gl_pplsect[pplsect_l_page_size]);
+%fi
+%if VAX
+%then
+	bytcnt = round_up_(.bytcnt, %uppage);
+%fi
+
+	end
+    else
+	begin
+	!+
+	! Round the starting address up to a page boundary, decreasing
+	! bytcnt to account for this, and rounding it down to a page boundary.
+	!-
+%if EVAX
+%then
+	bytcnt = .bytcnt + .starting;
+	starting = round_up_(.starting, .ppl$$gl_pplsect[pplsect_l_page_size]);
+	bytcnt = .bytcnt - .starting;
+	bytcnt = round_down_(.bytcnt, .ppl$$gl_pplsect[pplsect_l_page_size]);
+	end;
+
+    ! Request to small?
+    if .bytcnt / .ppl$$gl_pplsect[pplsect_l_page_size] eql 0 then 
+	return ppl$_invarg;
+%fi
+%if VAX
+%then
+	bytcnt = .bytcnt + .starting;
+	starting = round_up_(.starting, %uppage);
+	bytcnt = .bytcnt - .starting;
+	bytcnt = round_down_(.bytcnt, %uppage);
+	end;
+
+    ! Request to small?
+    if .bytcnt / %uppage eql 0 then 
+	return ppl$_invarg;
+%fi
+
+    !+
+    ! At this point, we have a starting address and a byte count.
+    ! Form a prototype section description.
+    !-
+
+    ch$fill (0, sect_s_bln, proto[base_]);
+    proto[sect_l_start] = .starting;		! Starting address
+
+    ! store in pagelets (512 bytes)
+%if EVAX
+%then
+    proto[sect_l_pages] = (round_(.bytcnt,
+                        .ppl$$gl_pplsect[pplsect_l_page_size])) / 512;
+%fi
+%if VAX
+%then
+    proto[sect_l_pages] = .bytcnt / %uppage;      ! Number of pages
+%fi
+    proto[sect_l_status] = ss$_normal;
+
+    if .starting eql 0
+    then
+	proto[sect_v_we_chose] = true
+    else
+	proto[sect_v_final] = true;
+
+    !+
+    ! Look for an lsect matching the input section name.
+    !-
+    lsect = ppl$$find_sect (ppl$$gl_context[ctx_q_sects], gsdnam[base_],
+				    alloc_local, proto[base_]);
+    if (.lsect leq 0) or (.lsect eql ppl$_insvirmem) then return ppl$_insvirmem;
+
+    !+
+    ! Also get that section's name in the application-wide list.
+    !-
+    csect = ppl$$find_sect (ppl$$gl_pplsect[pplsect_q_sects], gsdnam[base_],
+				    alloc_common, proto[base_]);
+    if (.csect leq 0) or (.csect eql ppl$_insvirmem) then return ppl$_insvirmem;
+
+
+    if (.xflags and ppl$m_perm) neq 0 then
+	csect[sect_v_perm] = true;
+
+    !+
+    ! If the user says this memory is PIC, we can put it anywhere
+    !-
+    cflags = 0;				! No create flags, yet.
+    if (.xflags and ppl$m_pic) neq 0	! If PIC, it can go anywhere
+    then
+	begin				! This is PIC memory
+	if .lsect[sect_v_we_chose] then
+	    begin
+	    lsect[sect_v_final] = true; ! We know (sort of) where we're...
+	    csect[sect_v_final] = true; ! ...going to put this.
+
+	    cflags = sec$m_expreg;	! Use the first available address...
+	    starting = %x'200';		! ...in P0 space (any P0 address here).
+	    end
+	else
+	    begin
+	    0; !starting is already set	! Put it where the user specified
+	    end;
+	end ! PIC
+    else
+	begin				! This is NOT PIC memory
+	if .csect[sect_v_final] then	! Has the location already been decided?
+	    begin			! Yes...
+	    lsect[sect_v_final] = true;	! ...it has.
+
+	    !+
+	    ! If there was an error during the arbitration for this section,
+	    ! give up now.  Save the status for future reference, perhaps;
+	    ! and return the error.
+	    !-
+	    if not .csect[sect_l_status] then
+		begin
+		lsect[sect_l_status] = .csect[sect_l_status];
+		return .csect[sect_l_status];
+		end;
+
+	    !+
+	    ! If it is already mapped then quit now.  Give the user back the
+	    ! current addresses
+	    !-
+	    if .lsect[sect_v_mapped] then
+		begin
+		lenadr[0] = .lsect[sect_l_pages] * %uppage;
+		lenadr[1] = .lsect[sect_l_start];
+		return ppl$_normal;
+		end;
+	    
+	    !+
+	    ! Since the user didn't say the section is PIC, and he specified
+	    ! the addresses, check them against the final decision.
+	    !-
+	    if .lsect[sect_l_start] neq .csect[sect_l_start]
+		or .lsect[sect_l_pages] neq .csect[sect_l_pages]
+	    then
+		return ppl$_nonpic;
+	    
+	    starting = .lsect[sect_l_start];		
+	    end ! lsect_v_final
+	else				! The address range is undecided
+	    begin
+	    status = ppl$$choose_addresses (csect[base_], lsect[base_]);
+	    if not .status then return .status;
+	    starting = .lsect[sect_l_start];	! The Decision.
+	    end;
+	end; ! NON PIC
+
+
+    if (.xflags and ppl$m_nomap) neq 0 then
+	begin
+	retadr[0] = .starting;
+	retadr[1] = .starting + .bytcnt - 1;
+	crmpsc_status = ss$_normal
+	end
+    else
+	while true do
+	    begin
+
+	    !+
+	    ! Open a file.
+	    !-
+	    if (.xflags and ppl$m_nowrt) eql 0 then
+		oflags = .oflags or open_m_write;
+		
+	    open_status = ss$_normal;
+	    
+	    if .lsect[sect_w_chan] eql 0
+		and (.oflags and open_m_pagfil) eql 0
+	    then
+		begin			!open_m_pagfil set IFF no user-specd 
+		local			!filename, so this says open if not
+		    pagcnt;		!page file
+
+		pagcnt = .lsect[sect_l_pages];
+		
+		open_status = open_file (
+			lsect[sect_w_chan],
+			pagcnt,
+			tmpfns[base_],	! File name
+			tmpdns[base_],	! Default file name
+			gsdnam[base_],	! Related file name
+			.oflags);	
+		if not .open_status then return .open_status;
+		end;
+
+	    !+
+	    ! Now map the section.
+	    !
+	    ! If we created the file, we should also clear it.
+	    ! We can either do this by writing the file with $QIOs,
+	    ! or by mapping, clearing the memory, and doing an $UPDSECW,
+	    ! or by using SEC$M_DZRO (and hoping it works).
+	    !-
+	    inadr[0] = .starting;
+	    inadr[1] = .starting + .bytcnt - 1;
+	    
+	    cflags = .cflags or sec$m_gbl;
+	    if (.xflags and ppl$m_nowrt)  eql 0 then
+		cflags = .cflags or sec$m_wrt;
+	    if (.xflags and ppl$m_perm)   neq 0 then
+		cflags = .cflags or sec$m_perm;
+	    if (.xflags and ppl$m_system) neq 0 then
+		cflags = .cflags or sec$m_sysgbl;
+
+	    ! Zero the section unless either
+	    !	a) the caller requested no zero, so don't; or
+	    !	b) the section file already existed, so map it.
+	    if (.xflags and ppl$m_nozero) eql 0 
+		and (.open_status eql rms$_created) then
+		    cflags = .cflags or sec$m_dzro;
+
+	    if (.oflags and open_m_pagfil) neq 0 then
+		cflags = .cflags or sec$m_pagfil
+	    else
+		cflags = .cflags and not sec$m_pagfil;	! oflags is modified below
+
+	    crmpsc_status = $crmpsc (
+		    inadr  =	inadr[0],
+		    retadr =	retadr[0],
+		    acmode =	psl$c_user,
+		    flags  =	.cflags,
+		    gsdnam =	gsdnam[base_],
+		    chan   =	.lsect[sect_w_chan],
+		    pagcnt =	.lsect[sect_l_pages],
+		    prot   =	.xprot);
+
+	    debug_msg_(9, %string('Index: !UL, (ppl$create_shared_memory) ',
+					'$CRMPSC(!AS, !XL-!XL), status = !XL'),
+		    .ppl$$gl_context[ctx_l_my_index], gsdnam[base_],
+		    .inadr[0], .inadr[1], .crmpsc_status);
+
+	    if .crmpsc_status then 
+		begin
+		lsect[sect_v_mapped] = true;
+		lock_bit_(csect[sect_v_lock]);  !Bump count of processes 
+		incr_(csect[sect_l_count]);
+		unlock_bit_(csect[sect_v_lock]);
+		end;
+
+	    if .crmpsc_status or (.oflags and open_m_pagfil) eql 0 then
+		EXITLOOP;
+
+	    !+
+	    ! If we were unable to create and map the section using a
+	    ! page-file section, try using a disk-file section (this
+	    ! explains the 'while true' above).
+	    !-
+
+	    oflags = .oflags and not open_m_pagfil;
+	    end;    ! endloop
+
+    !+
+    ! Check the status - give results back to the caller.
+    !-
+
+    lsect[sect_l_status] = .crmpsc_status;
+    if .lsect[sect_v_we_chose] then
+	begin				    ! Address was decided by EXPREG...
+	lsect[sect_l_start] = .retadr[0];   ! ...so record it here.
+	csect[sect_l_start] = .retadr[0];   ! And here as well.
+	end;
+
+    lenadr[0] = .retadr[1] - .retadr[0] + 1;
+    lenadr[1] = .retadr[0];
+
+    if not .crmpsc_status then return .crmpsc_status;
+
+    debug_msg_(0, '!_ppl$create_shared_memory complete, status = !XL',
+		    (if .crmpsc_status neq ss$_created
+			then ppl$_normal
+			else ppl$_created));
+
+    if (.crmpsc_status neq ss$_created) then
+	return ppl$_normal
+    else
+	begin
+
+        !+
+        ! If we created the section, ...
+        !-
+%(
+        !+
+	! ... then ensure that it's zero.
+	!-
+
+	local
+	    iosb: vector [4,word];
+	ch$fill_l(0, .lsect[sect_l_pages]*%uppage, .inadr[0]);
+	status = $updsecw (
+	    inadr=  retadr[0],
+	    acmode= psl$c_user,
+	    updflg= 0,		! May as well be 0; we modified all the pages
+	    efn=    0,
+	    iosb=   iosb[0],
+	    astadr= 0,
+	    astprm= 0);
+	if .status then status = .iosb[0];
+	if not .status then signal (ppl$_syserror, 0, .status);
+)%
+
+	return ppl$_created;
+	end;
+
+end;	! End of Routine PPL$CREATE_SHARED_MEMORY
+
+
+
+%SBTTL 'ROUTINE: PPL$DELETE_SHARED_MEMORY - unmaps from a shared global section'
+!
+global routine ppl$delete_shared_memory (
+	section_name:	ref $bblock,
+	lenadr:		ref vector[2],
+	flags:		ref vector[1]
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will delete a global section that was created
+!	using the routine PPL$CREATE_SHARED_MEMORY.
+!
+!	The contents of the global section will be flushed to disk if
+!	desired by the user.
+!
+!	An implicit unmapping from the global section is done before
+!	deletion occurs.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$DELETE_SHARED_MEMORY ( section_name,
+!						     [ lenadr ],
+!						     [ flags ] )
+!
+! FORMAL PARAMETERS:
+!
+!	SECTION_NAME
+!	VMS USAGE 	:  char-string
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	Name of the global section you want to delete.  The SECTION_NAME
+!	argument is the address of a character string pointing to the global
+!	section name.  Within VMS, a global section is a data structure or
+!	sharaeable image section potentially avaible to all processes in the
+!	system.
+!
+!	LENADR
+!	VMS USAGE 	:  address_range
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The area of memory into which the section was mapped.  The
+!	LENADR parameter is the address of a two-longword array containing,
+!	in order, the lenght ( in bytes ) and the starting virtual address
+!	for the area of memory.
+!
+!	FLAGS
+!	VMS USAGE 	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by value
+!
+!	the flag mask specifying options for the operation.  The flags
+!	argument is a longword bit vector wherein a bit, when set,
+!	specifies the corresponding option.
+!
+!	FLAG		DESCRIPTION
+!
+!	PPL$M_FLUSH	Flush the section to disk before deleting.
+!
+!	PPL$M_NOUNI	The global section name should not be made unique.
+!			By default, PPL$CREATE_SHARED_MEMORY will make the
+!			specified global section name unique to the application
+!			by using PPL$UNIQUE_NAME.
+!
+! IMPLICIT INPUTS:
+!
+!	The global section marked for deletion and the associated field
+!	to flush any information to.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The file the information will be flushed to.
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL	Normal Successful completion.
+!
+!	PPL$_NOSECEX	No such section exists.
+!
+!	PPL$_INVARG	Invalid Argument.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	The global section will not actually be deleted until all mapped
+!	processes have called this routine or have been deleted themselves.
+!
+!	The virtual memory available will decrease.
+!
+!--
+begin	!ppl$delete_shared_memory
+
+    builtin
+	nullparameter,
+	actualcount;
+
+    local
+	starting,			! Starting address
+	xflags,				! Sanitized copy of flags parameter
+	inadr:	vector[2],		! Parameter to $UPDSECW and $DELTVA
+	iosb:	vector[4,word],		! I/O status block
+	gsdnam:	$bblock [dsc$c_s_bln],	! Sanitized copy of section-name
+	buffer:	$bblock [nam$c_maxrss],	! Buffer for forming names
+	tmpfns:	$bblock [dsc$c_s_bln],
+	lsect:	ref sect_block,		! Local section block
+	csect:	ref sect_block,		! Common section block
+	status;
+
+    literal
+	m_valid_flags = ppl$m_flush or ppl$m_nouni;
+
+
+    debug_msg_(0, 'Index: !XL, Entering ppl$delete_shared_memory',
+		    .ppl$$gl_context[ctx_l_my_index]);
+    debug_msg_(1, 'Index: !XL, Entering ppl$delete_shared_memory',
+		    .ppl$$gl_context[ctx_l_my_index]);
+		    
+    if actualcount() gtr 3 then return ppl$_wronumarg;
+
+    !+
+    ! Grab the flags parameter.
+    !-
+
+    xflags = 0;
+    if not nullparameter (flags)
+    then
+	xflags = .flags[0];
+    if (.xflags and not m_valid_flags) neq 0
+    then
+	return ppl$_invarg;
+
+    !+
+    ! Grab the section name.
+    !-
+
+    str$analyze_sdesc_r1 (section_name[base_];
+	gsdnam[dsc_l_length],
+	gsdnam[dsc$a_pointer]);
+
+    !+
+    ! Check the NOUNI flag
+    !-
+
+    if (.xflags and ppl$m_nouni) eql 0
+    then
+	begin
+
+	!+
+	! The flag was missing.  By default, we make the name unique.
+	!-
+
+	tmpfns[dsc_l_length] = %allocation (buffer);
+	tmpfns[dsc$a_pointer] = buffer[base_];
+	status = ppl$unique_name (gsdnam[base_], tmpfns[base_],
+	    tmpfns[dsc$w_length]);
+	if not .status then return .status;
+	gsdnam[dsc_l_length] = .tmpfns[dsc_l_length];
+	gsdnam[dsc$a_pointer] = .tmpfns[dsc$a_pointer];
+	end;
+
+    !+
+    ! ??? Actually, we may've created it before joining the application,
+    ! ??? but now we happen to be in the application.
+    !-
+
+    if ppl$$gl_context[base_] neq 0
+    then
+	begin
+	csect = ppl$$find_sect (ppl$$gl_pplsect[pplsect_q_sects], gsdnam[base_],
+				dont_alloc);
+	lsect = ppl$$find_sect (ppl$$gl_context[ctx_q_sects], gsdnam[base_],
+				dont_alloc);
+	if lsect[base_] leq 0 then return ppl$_nosecex;
+	inadr[0] = .lsect[sect_l_start];
+	inadr[1] = .lsect[sect_l_start] + .lsect[sect_l_pages] * %uppage - 1;
+	end
+    else
+	begin
+	if nullparameter (lenadr) then return ppl$_invarg;
+	inadr[0] = .lenadr[1];
+	inadr[1] = .lenadr[1] + .lenadr[0] - 1;
+	end;
+
+    !+
+    ! Process the flags.
+    !-
+
+    if (.xflags and ppl$m_flush) neq 0
+    then
+	begin
+	status = $updsecw (
+	    inadr=  inadr[0],
+	    acmode= psl$c_user,
+	    updflg= 1,
+	    efn=    .ppl$$gl_context[ctx_l_ef],
+	    iosb=   iosb[0],
+	    astadr= 0,
+	    astprm= 0);
+	if .status then status = .iosb[0];
+	if not .status then 
+	    signal (ppl$_syserror, 0, .status);
+	end;
+
+    !+
+    ! Delete the address space.
+    !-
+
+    status = $deltva (inadr = inadr[0]);
+    if not .status then signal (ppl$_syserror, 0, .status);
+    lock_bit_(lsect[sect_v_lock]);
+    lsect[sect_w_namelen] = ppl$k_free_sect;
+    lsect[sect_v_mapped] = 0;
+    unlock_bit_(lsect[sect_v_lock]);
+
+    !+
+    ! Now we can deassign the channel.
+    !-
+
+    if .lsect[sect_w_chan] neq 0
+    then
+	begin
+	status = $dassgn (chan = .lsect[sect_w_chan]);
+	lsect[sect_w_chan] = 0;
+	if not .status then signal (ppl$_syserror, 0, .status);
+	end;
+
+    !+
+    !	If this is a permanent section dgblsc the section and set
+    !	the csect to be free.  If this is a temporary section decrement
+    !	the number of processes (count) participating in the section,
+    !	and if the count gets to zero set the csect to be free.
+    !-
+
+    if csect[base_] gtr 0
+    then
+	begin
+	lock_bit_(csect[sect_v_lock]);
+	if .csect[sect_v_perm] then
+	    begin
+	    csect[sect_w_namelen] = ppl$k_free_sect;
+	    csect[sect_l_count] = 0;
+	    status = $dgblsc (gsdnam = gsdnam[base_]);
+	    if (not .status) and (.status neq ss$_interlock) and 
+	    (.status neq ss$_nosuchsec) and (.status neq ss$_notcreator)
+	    then
+		begin
+		unlock_bit_(csect[sect_v_lock]);
+		signal (ppl$_syserror, 0, .status);	
+		end;
+	    end
+	else
+	    begin
+	    decr_(csect[sect_l_count]);
+	    if .csect[sect_l_count] leq 0 then
+		csect[sect_w_namelen] = ppl$k_free_sect;
+	    end;
+	unlock_bit_(csect[sect_v_lock]);
+	end;
+
+    debug_msg_(0, 'Index: !XL, ppl$delete_shared_memory complete',
+		    .ppl$$gl_context[ctx_l_my_index]);
+
+    return ppl$_normal;
+
+end;			! End of Routine PPL$DELETE_SHARED_MEMORY
+
+%SBTTL 'ROUTINE: PPL$FLUSH_SHARED_MEMORY - Writes the contents of Globas sectionto disk.'
+!
+global routine ppl$flush_shared_memory (
+	section_name:	ref $bblock,
+	lenadr:		ref vector[2],
+	flags:		ref vector[1]
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will write ( flush ) the contents of a global section out
+!	to disk.  Only pages that have been modified will be updated.
+!
+!	When a user calls PPL$FLUSH_SHARED_MEMORY, it calls PPL$$TELL to queue
+!	a request to the next process to flush it's memory and then hibernates.
+!	When the next process gets the message, it calls
+!	PPL$$FLUSH_SHARED_MEMORY, which flushes its memory and queues a request
+!	to the next process in turn.  When all the other processes have flushed
+!	their memory, the request will finally be queued to the process which
+!	originated the flush action.  When it gets the message, it will flush
+!	it's memory and, instead of queuing a request, it will wake itself and
+!	return.
+!
+! FORMAL PARAMETERS:
+!
+!	SECTION_NAME
+!	VMS USAGE	:  char_string
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	Name of the global section you want to flush.  The SECTION_NAME
+!	argument is the address of a character string pointing to the global
+!	section name.  Within VMS, a global section is a data structure
+!	or shareable image section potentially available to all processes
+!	in the system.
+!
+!	LENADR
+!	VMS USAGE	:  address_range
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	The area of memory into which the global section was mapped.  The
+!	LENADR parameter is the address of a two-longword array containing,
+!	in order, the length ( in bytes ) and the starting virtual address
+!	for the area of memory.
+!
+!	FLAGS
+!	VMS USAGE	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The flag maks specifying options for the operation.  The flags
+!	argument is a longword bit vector wherein a bit, when set, specifies
+!	the corresponding option.
+!
+!	FLAG		DESCRIPTION
+!
+!	PPL$M_NOUNI	The global section name should not be made unique.
+!			By default, PPL$CREATE_SHARED_MEMORY will make the
+!			specified global section name unique to the
+!			application by using PPL$UNIQUE_NAME.
+!
+! IMPLICIT INPUTS:
+!
+!	The file the section is flushed to.
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVARG	Invalid argument.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_NOSECEX	No such section exists.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+!	Any errors returned by system services and run-time library routines
+!	    used in subroutine calls.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+begin	!ppl$flush_shared_memory
+
+    builtin
+	nullparameter,
+	actualcount;
+
+    local
+	starting,			! Starting address
+	xflags,				! Sanitized copy of flags parameter
+	iosb:   vector[4,word],		! I/O status block
+	inadr:	vector[2],		! Parameter to $UPDSECW and $DELTVA
+	gsdnam:	$bblock [dsc$c_s_bln],	! Sanitized copy of section-name
+	buffer:	$bblock [nam$c_maxrss],	! Buffer for forming names
+	tmpfns:	$bblock [dsc$c_s_bln],	! Temporary file name string
+	csect:	ref sect_block,		! Pointer to a Common Section Block
+	index,				! Proc index
+	t_stat,				! Temporary holding place for status
+	status;
+
+    literal
+	m_valid_flags = ppl$m_flush or ppl$m_nouni;
+
+
+    debug_msg_(0, 'Index: !XL, Entering ppl$flush_shared_memory',
+		    .ppl$$gl_context[ctx_l_my_index]);
+    debug_msg_(1, 'Index: !XL, Entering ppl$flush_shared_memory',
+		    .ppl$$gl_context[ctx_l_my_index]);
+
+    if actualcount() gtr 3 then return ppl$_wronumarg;
+
+    !+
+    ! Grab the flags parameter.
+    !-
+
+    xflags = 0;
+    if not nullparameter (flags)
+    then
+	xflags = .flags[0];
+    if (.xflags and not m_valid_flags) neq 0
+    then
+	return ppl$_invarg;
+
+    !+
+    ! Grab the section name.
+    !-
+
+    str$analyze_sdesc_r1 (section_name[base_];
+	gsdnam[dsc_l_length],
+	gsdnam[dsc$a_pointer]);
+
+    !+
+    ! Check the NOUNI flag
+    !-
+
+    if (.xflags and ppl$m_nouni) eql 0
+    then
+	begin
+
+	!+
+	! The flag was missing.  By default, we make the name unique.
+	!-
+
+	tmpfns[dsc_l_length] = %allocation (buffer);
+	tmpfns[dsc$a_pointer] = buffer[base_];
+	status = ppl$unique_name (gsdnam[base_], tmpfns[base_],
+	    tmpfns[dsc$w_length]);
+	if not .status then return .status;
+	gsdnam[dsc_l_length] = .tmpfns[dsc_l_length];
+	gsdnam[dsc$a_pointer] = .tmpfns[dsc$a_pointer];
+	end;
+
+    !+
+    ! ??? Actually, we may've created it before joining the application,
+    ! ??? but now we happen to be in the application.
+    !-
+
+    if ppl$$gl_context[base_] neq 0
+    then
+	begin
+
+	!+
+	! We are a properly initialized member of a PPL application.
+	!
+	! Look up the global section in the list, and use the offset to its
+	! list-block as a handle for the section info.
+	!
+	! Tell each living participant in the application to flush it's memory.
+	!
+	! And finally flush our memory.
+	!-
+
+	csect = ppl$$find_sect (ppl$$gl_pplsect[pplsect_q_sects], gsdnam[base_],
+				dont_alloc);
+	if csect[base_] leq 0 then return ppl$_nosecex;
+
+	incru pindex from 0 to .ppl$$gl_pplsect[pplsect_w_procs]-1 do
+	    begin
+	    ! If this participant is alive (and it's no me), tell him to flush
+	    if alive_(pindex) and
+		    .pindex neq .ppl$$gl_context[ctx_l_my_index] then
+		begin
+		t_stat = ppl$$tell (.pindex,
+				    do_flush_shared_memory,
+				    csect[base_] - ppl$$gl_pplsect[base_]); 
+		if not .t_stat then return status = .t_stat;
+		end;
+
+	    end;
+	    
+	! Flush our memory
+	t_stat = ppl$$flush_shared_memory(csect[base_]);
+	if not .t_stat then return status = .t_stat;
+
+	if not .status then return .status;
+	end
+
+    else
+	!+
+	! We are *not* a properly initialized member of a PPL application.
+	!
+	! Therefore, it is ridiculously hard for us to get the other members of
+	! the application to flush their modifications to this section, and we
+	! can't even count on their having it mapped in the first place!  So, we
+	! will just flush the *whole* thing ourself.  Inefficient maybe, but
+	! that's the price you pay for mapping the section *before* joining the
+	! application.
+	!-
+	begin
+
+	if nullparameter (lenadr) then return ppl$_invarg;
+	inadr[0] = .lenadr[1];
+	inadr[1] = .lenadr[1] + .lenadr[0] - 1;
+
+	status = $updsecw (
+	    inadr=  inadr[0],
+	    acmode= psl$c_user,
+	    updflg= 0,		! Update the *whole* section 
+	    efn=    .ppl$$gl_context[ctx_l_ef],
+	    iosb=   iosb[0],
+	    astadr= 0,
+	    astprm= 0);
+
+	if .status then status = .iosb[0];
+	if not .status then 
+	    signal (ppl$_syserror, 0, .status);
+
+	end;
+
+    debug_msg_(0, 'Index: !XL, ppl$flush_shared_memory complete',
+		    .ppl$$gl_context[ctx_l_my_index]);
+
+    return .status;
+
+end;			! End of Routine PPL$FLUSH_SHARED_MEMORY
+
+
+
+%SBTTL 'PPL$$FLUSH_SHARED_MEMORY -- This routine actually does the flush'
+GLOBAL ROUTINE PPL$$FLUSH_SHARED_MEMORY
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   This routine flushes a section of shared memory to a file.
+!   
+!   This routine is called explicitly by PPL$FLUSH_SHARED_MEMORY and implicitly
+!   by got_back_again, as a response to a todo item queued by PPL$$TELL.
+!
+!   Note that arguments to routines called as a response to a todo item must be
+!   either values or offsets into the pplsect, regular addresses don't cut it!
+!
+! FORMAL PARAMETERS:
+! 
+    (
+	csect	:   ref sect_block	! Section block of section to be flushed
+    ) = 
+! 
+! IMPLICIT INPUTS:
+! 
+!   The contents of the memory specified by "csect".
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   A file which is named SYS$SCRATCH:g_sect_name.DAT unless explicitly
+!   specified in the call to PPL$CREATE_SHARED_MEMORY
+!
+! ROUTINE VALUE:
+! 
+!   The status returned by $UPDSECW
+! 
+! SIDE EFFECTS:
+! 
+!   The modified pages in the specified section are written out to a file
+!--
+    BEGIN
+
+    LOCAL
+	status	    :   unsigned long,	! Status return
+	iosb	    :   vector[4,word],	! I/O status block
+	inadr	    :   vector[2];		! Parameter to $UPDSECW and $DELTVA
+
+	
+    debug_msg_(0, 'Index: !XL, Entering ppl$$flush_shared_memory',
+		    .ppl$$gl_context[ctx_l_my_index]);
+
+    inadr[0] = .csect[sect_l_start];
+    inadr[1] = .csect[sect_l_start] + .csect[sect_l_pages] * %uppage - 1;
+
+    status = $updsecw (
+	inadr=  inadr[0],
+	acmode= psl$c_user,
+	updflg= 1,
+	efn=    .ppl$$gl_context[ctx_l_ef],
+	iosb=   iosb[0],
+	astadr= 0,
+	astprm= 0);
+
+    if .status then status = .iosb[0];
+    if not .status then 
+	signal (ppl$_syserror, 0, .status);
+
+    debug_msg_(0, 'Index: !XL, ppl$$flush_shared_memory complete',
+		    .ppl$$gl_context[ctx_l_my_index]);
+
+    return .status;
+
+end;			! End of Routine PPL$$FLUSH_SHARED_MEMORY
+
+
+end				! End of Module PPL$SECT
+eludom

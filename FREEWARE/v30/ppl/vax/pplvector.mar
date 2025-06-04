@@ -1,0 +1,249 @@
+	.TITLE	PPL$VECTOR - Entry vectors for PPLRTL.EXE
+	.IDENT	/V53-001/		; File: PPLVECTOR.MAR Edit:WWSv53001
+
+;
+;****************************************************************************
+;*									    *
+;*  COPYRIGHT (c) 1978, 1980, 1982, 1984, 1986 BY			    *
+;*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+;*  ALL RIGHTS RESERVED.						    *
+;* 									    *
+;*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+;*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+;*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+;*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+;*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+;*  TRANSFERRED.							    *
+;* 									    *
+;*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+;*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+;*  CORPORATION.							    *
+;* 									    *
+;*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+;*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+;* 									    *
+;*									    *
+;****************************************************************************
+;
+
+;++
+; FACILITY: Run-Time Library - Parallel Processing Procedures
+;
+; ABSTRACT:
+;
+;	This module contains the entry vector definitions for the
+;	VAX-11 Run-Time PPLrary shareable image PPLRTL.EXE
+;
+; ENVIRONMENT: User mode Reentrant
+;
+; AUTHOR: Catherine M. Fariz CREATION DATE: 26-November-1986
+;
+; MODIFIED BY:
+;
+; 1-001	- Original.						CMF 26-NOV-1986
+;
+; 1-002 - Delete non-existent file and replace with a future.	CMF 16-JAN-1987
+;
+; 1-003	- Add PPL$CREATE_VM_ZONE.  PDG 19-Jan-1987
+;
+; 1-004 - To correct the ident to match the cms generation 	CMF  26-JAN-1987
+;	  number.
+;
+; 1-005 - Add PPL$CREATE_BARRIER.  CMF 27-Jan-1987
+;
+; 1-006 - Add PPL$WAIT_AT_BARRIER. CMF 19-Feb-1987
+;
+; 1-007 - Add ppl$set_quorum, ppl$adjust_quorum			DLR 7-JUL-1987
+;
+; 1-008 - Add ppl$read_event and ppl$read_barrier.		DLR 6-NOV-1987
+;
+; V051-001	Added PPL$$EXPREG for use by the RTL for	WWS 26-Sep-1988
+;		use in supporting multiprocess C memory 
+;		management
+;
+; V53-00-1	Added the V5.3 routines				WWS 10-Mar-1989
+;
+; V54-00-1	Added JSB routines				PJC 19-Jul-1990
+;
+; V62-00-1	Removed the workq JSB routines			WWS 15-Aug-1994
+;--
+
+	.SBTTL	DECLARATIONS
+;
+; LIBRARY MACRO CALLS:
+;
+;	LIB$:PPLRTL.MLB required
+;
+; EXTERNAL DECLARATIONS:
+;
+	.DSABL	GBL		; Force all external symbols to be declared
+;
+; MACROS:
+;
+
+;+
+; Macro to define an entry vector for a CALL entry point
+;-              
+
+	.MACRO	VCALL	NAME
+	.EXTRN		NAME
+	.ALIGN	QUAD
+	.TRANSFER	NAME
+	.MASK		NAME
+	JMP		NAME+2
+	.ENDM
+
+;+
+; Macro to define an entry vector for a JSB entry point
+;-
+
+	.MACRO	VJSB	NAME
+	.EXTRN		NAME
+	.ALIGN	QUAD
+	.TRANSFER	NAME
+	JMP		NAME
+	.ENDM
+
+;+
+; Macro to define an alias for the next vectored entry point
+;-
+
+	.MACRO	ALIAS	NAME
+	.TRANSFER	NAME
+	.ENDM
+
+;+
+; Macro to define a placeholder for the next vectored CALL entry point
+;
+;	This routine is called via an entry in the transfer vector
+;	that has not yet been defined.  This allows us to add more
+;	entries to the vector without increasing GSMATCH, since an
+;	application linked with a new version, but running an old
+;	version will get an error if this routine is called.
+;
+;	We'd like this entry to allow for either a CALL entry or a
+;	JSB entry.  We do this by careful choice of the entry mask.
+;	The entry mask of this routine looks like the instruction:
+;
+;		BSBB	.+2
+;
+;	Then, we distinguish between a CALL and a JSB by checking
+;	whether SP = FP.
+;-
+
+	.MACRO	FUTURECALL
+	.ALIGN	QUAD
+	.WORD	^X0010				; Special entry mask!
+	BRW	NOT_IMPLEMENTED
+	.ENDM
+
+;
+; EQUATED SYMBOLS:
+;
+;	NONE
+;
+; OWN STORAGE:
+;
+;	NONE
+;
+; PSECT DECLARATIONS:
+;
+	.PSECT $$$$$PPL$VECTOR PIC, USR, CON, REL, LCL, SHR, -
+			   EXE, RD, NOWRT, QUAD
+
+
+	.SBTTL	PPLRTL Vector
+
+;+
+; Define vectored entry points for the Paralllel Processing Procedures 
+; by module in alphabetical order.
+;
+; Any additions to this file should be reflected in
+; COM$:PPLRTLVEC.DAT.  All new entry points must be appended to the end
+; of the list.  NEVER change existing entries unless you are sure that
+; what you do won't break existing programs.
+;-
+
+	VCALL PPL$INITIALIZE			; 0000
+	VCALL PPL$TERMINATE			; 0008
+	VCALL PPL$GET_INDEX			; 0010
+	VCALL PPL$UNIQUE_NAME			; 0018
+	VCALL PPL$SPAWN				; 0020
+	VCALL PPL$CREATE_SEMAPHORE		; 0028
+	VCALL PPL$CREATE_SPIN_LOCK		; 0030
+	ALIAS PPL$FIND_SYNCH_ELEMENT_ID		;
+	VCALL PPL$FIND_OBJECT_ID		; 0038
+	VCALL PPL$RELEASE_SPIN_LOCK		; 0040
+	VCALL PPL$READ_SEMAPHORE		; 0048
+	VCALL PPL$SEIZE_SPIN_LOCK		; 0050
+	VCALL PPL$CREATE_SHARED_MEMORY		; 0058
+	VCALL PPL$DELETE_SHARED_MEMORY		; 0060
+	VCALL PPL$FLUSH_SHARED_MEMORY		; 0068
+	VCALL PPL$INCREMENT_SEMAPHORE		; 0070
+	VCALL PPL$DECREMENT_SEMAPHORE		; 0078
+	VCALL PPL$CREATE_VM_ZONE		; 0080
+	VCALL PPL$CREATE_BARRIER		; 0088
+	VCALL PPL$WAIT_AT_BARRIER		; 0090
+	VCALL PPL$INDEX_TO_PID			; 0098
+	VCALL PPL$PID_TO_INDEX			; 00A0
+	VCALL PPL$STOP				; 00A8
+	VCALL PPL$SET_QUORUM			; 00B0
+	VCALL PPL$ADJUST_QUORUM			; 00B8
+	VCALL PPL$CREATE_EVENT			; 00C0
+	VCALL PPL$TRIGGER_EVENT			; 00C8
+	VCALL PPL$ENABLE_EVENT_AST		; 00D0
+	VCALL PPL$ENABLE_EVENT_SIGNAL		; 00D8
+	VCALL PPL$AWAIT_EVENT			; 00E0
+	VCALL PPL$READ_EVENT			; 00E8
+	VCALL PPL$READ_BARRIER			; 00F0
+	VCALL PPL$CREATE_APPLICATION		; 00F8
+	VCALL PPL$DELETE_APPLICATION		; 0100
+	VCALL PPL$CREATE_WORK_QUEUE		; 0108
+	VCALL PPL$DELETE_WORK_QUEUE		; 0110
+	VCALL PPL$READ_WORK_QUEUE		; 0118
+	VCALL PPL$INSERT_WORK_ITEM		; 0120
+	VCALL PPL$REMOVE_WORK_ITEM		; 0128
+	VCALL PPL$DELETE_WORK_ITEM		; 0130
+	VCALL PPL$DELETE_BARRIER		; 0138
+	VCALL PPL$DELETE_EVENT			; 0140
+	VCALL PPL$DELETE_SEMAPHORE		; 0148
+	VCALL PPL$DELETE_SPIN_LOCK		; 0150
+	VCALL PPL$DELETE_VM_ZONE		; 0158
+	VCALL PPL$DISABLE_EVENT			; 0160
+	VCALL PPL$RESET_EVENT			; 0168
+	VCALL PPL$READ_SPIN_LOCK		; 0170
+	VCALL PPL$SET_SEMAPHORE_MAXIMUM		; 0178
+	VCALL PPL$ADJUST_SEMAPHORE_MAXIMUM	; 0180
+	VJSB PPL$DECREMENT_SEMAPHORE_R2		; 0188
+	VJSB PPL$INCREMENT_SEMAPHORE_R0		; 0190
+	VJSB PPL$WAIT_AT_BARRIER_R2		; 0198
+	FUTURECALL				; 01A0
+	FUTURECALL				; 01A8
+	VJSB PPL$SEIZE_SPIN_LOCK_R1		; 01B0
+	VJSB PPL$RELEASE_SPIN_LOCK_R0		; 01B8
+
+;+
+; Add new entries here.  A new entry is added by REPLACING a FUTURECALL
+; with a VCALL or a VJSB (whichever) for the new entry point !!!
+; You also have to put the symbol into pplrtlvec.dat for VECTORTST.
+;-
+
+	FUTURECALL		; 01C0
+	FUTURECALL		; 01C8
+	FUTURECALL		; 01D0
+	VCALL PPL$$EXPREG	; 01D8		; For use by the RTL for MP C
+
+
+	.EXTRN	PPL$_NOTIMP
+	.EXTRN	LIB$SIGNAL
+
+NOT_IMPLEMENTED:
+	PUSHL	#PPL$_NOTIMP			; Signal the 'not implemented'
+	CALLS	#1, G^LIB$SIGNAL		; ... message with LIB$SIGNAL
+	CMPL	FP, SP				; Were we called by a CALL?
+	BNEQ	10$				; Branch if called by a JSB
+	RET					; It was a CALL -- do a RET
+10$:	MOVAB	4(SP), SP			; Pop the extra return address
+	RSB					; And return with an RSB
+
+	.END					; End of module PPL$VECTOR

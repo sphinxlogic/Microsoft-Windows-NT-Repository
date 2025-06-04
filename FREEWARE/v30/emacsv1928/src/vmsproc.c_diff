@@ -1,0 +1,119 @@
+*** vmsproc.c_old	Thu Jan 18 23:05:19 1996
+--- vmsproc.c	Fri Jan 19 02:51:51 1996
+***************
+*** 25,30 ****
+--- 25,33 ----
+  #include	<tt2def.h>
+  #include	<dvidef.h>
+  #include	<clidef.h>
++ #ifndef CLI$M_AUTHPRIV		/* Not defined with VAX C!!!  */
++ #define CLI$M_AUTHPRIV	128
++ #endif
+  #include	<descrip.h>
+  #include	<signal.h>
+  #include 	<errno.h>
+***************
+*** 38,43 ****
+--- 41,54 ----
+  #include	"config.h"
+  #include	"getpagesize.h"
+  
++ /* We need to do the following, or we may get declaration conflicts */
++ #ifdef select
++ #undef select
++ #endif
++ #ifdef connect
++ #undef connect
++ #endif
++ 
+  #ifdef HAVE_SOCKETS
+  #ifdef MULTINET
+  #include "multinet_root:[multinet.include.vms]inetiodef.h"
+***************
+*** 67,72 ****
+--- 78,86 ----
+  #include	"systty.h"
+  #include	"systime.h"
+  
++ #define select sys_select
++ #define connect sys_connect
++ 
+  extern Lisp_Object call_process_cleanup ();
+  
+  #define max(a,b) ((a) > (b) ? (a) : (b))
+***************
+*** 705,720 ****
+        for (j=0; j<len; j++)
+  	PTY_BUF (vs, i)[j] = PTY_BUF (vs, i)[j + PTY_LEN (vs, i)];
+        PTY_LASTLEN(vs, i) = len;
+- 
+- #if 1 /* experimenting.  Suggested by Roland B. Roberts.  */
+        PTY_STAT (vs, i) = SS$_NORMAL;
+        if (len)
+  	status = ptd$write (vs->chan, 0, 0, PTY_STRUCT (vs, i), len, 0, 0);
+        else
+  	status = SS$_NORMAL;
+- #else
+-       status = ptd$write (vs->chan, 0, 0, PTY_STRUCT (vs, i), len, 0, 0);
+- #endif
+        if (! (status & 1))
+  	{
+  	  errno = EVMSERR;
+--- 719,729 ----
+***************
+*** 1696,1702 ****
+    char old_dir[512];
+    short iosb[4];
+    int status;
+!   int spawn_flags = CLI$M_NOWAIT;
+    int pty_flag;
+    int child_sig ();
+    char in_dev_name[65];
+--- 1705,1711 ----
+    char old_dir[512];
+    short iosb[4];
+    int status;
+!   int spawn_flags = CLI$M_NOWAIT | CLI$M_AUTHPRIV;
+    int pty_flag;
+    int child_sig ();
+    char in_dev_name[65];
+***************
+*** 1937,1942 ****
+--- 1946,1958 ----
+    VMS_PROC_STUFF *ps;
+    int last_event_flag = 0;
+  
++   for (vs = &fdList[0], i=0; i<MAX_VMS_CHAN_STUFF; vs++, i++)
++     {
++       vs->busy = 0;
++       vs->eventFlag = -1;
++       vs->chan = 0;
++     }
++ 
+    fdList[1].busy = 1;		/* stdout */
+    fdList[2].busy = 1;		/* stderr */
+  
+***************
+*** 1958,1971 ****
+    if (timer_event / 32 != fdList[KEYBOARD_INDEX].eventFlag / 32)
+      croak ("Timer and keyboard event flags in different clusters.");
+    sys$clref (KEYBOARD_EVENT_FLAG);
+!   fdList[0].busy = 1;		/* stdin */
+! 
+!   for (vs = &fdList[3], i=3; i<MAX_VMS_CHAN_STUFF; vs++, i++)
+!     {
+!       vs->busy = 0;
+!       vs->eventFlag = -1;
+!       vs->chan = 0;
+!     }
+  
+    for (ps = procList, i = 0; i < MAX_VMS_PROC_STUFF; i++, ps++)
+      {
+--- 1974,1980 ----
+    if (timer_event / 32 != fdList[KEYBOARD_INDEX].eventFlag / 32)
+      croak ("Timer and keyboard event flags in different clusters.");
+    sys$clref (KEYBOARD_EVENT_FLAG);
+!   fdList[KEYBOARD_INDEX].busy = 1;		/* stdin */
+  
+    for (ps = procList, i = 0; i < MAX_VMS_PROC_STUFF; i++, ps++)
+      {

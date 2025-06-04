@@ -1,0 +1,1007 @@
+module ppl$delete (ident='V57-001', addressing_mode(external = general)) =
+begin
+!
+! COPYRIGHT (c) 1989 BY
+! DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.
+! ALL RIGHTS RESERVED.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+! ONLY  IN  ACCORDANCE  OF  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER
+! COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND  OWNERSHIP OF THE  SOFTWARE IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+
+!++
+! FACILITY:
+! 
+!   PPL Facility of the VAX RTL (Parallel Processing Library)
+! 
+! ABSTRACT:
+! 
+!   This module contains user-visible routines for Work Queue processing.
+! 
+! AUTHORS:
+! 
+!   Hans Oser
+! 
+! CREATION DATE: 22-JUN-1989
+! 
+! MODIFICATION HISTORY:
+!
+!   V53-001	- Fixed a typo in a debugging statement field	WWS 24-Jul-1989
+!		  reference
+!
+!   V53-002	- Added critical regions around mutexes		PJC 09-Aug-1989
+!
+!   V53-003	- Addition of ppl$delete_vm_zone		HPO 31-AUG-1989
+!
+!   V53-004	- Added ppl$$condition_handler to ppl$delete_	PJC 30-Nov-1989
+!		  event
+!
+!   V54-001	- EVMS/Alpha port				PJC 12-Nov-1991
+!
+!--
+
+!
+! TABLE OF CONTENTS:
+!
+FORWARD ROUTINE
+    ppl_delete_csb,
+    ppl$delete_barrier,
+    ppl$delete_event,
+    ppl$delete_semaphore,
+    ppl$delete_spin_lock,
+    ppl$delete_VM_zone;
+
+!
+! INCLUDE FILES:
+!
+library	'sys$library:starlet';
+library	'sys$library:xport';
+undeclare %quote $descriptor;
+library	'obj$:ppllib';
+require 'rtlin:rtlpsect';
+
+!
+!
+! LINKAGE DECLARATIONS
+!
+linkage
+    jsb_r0_r01	=   jsb(register = 0; register = 0, register = 1);
+
+!
+! EXTERNAL ROUTINES
+!
+external routine
+    ppl$$tell,
+    ppl$$post_event_deletion,
+    ppl$$name_mark_delete,
+    ppl$$name_search,
+    ppl$$name_delete,
+    ppl$$name_lookup,
+    ppl$$name_get_object_base,
+    ppl$$name_get_next_object,
+    ppl$$condition_handler,
+    lib$delete_vm_zone,
+    str$analyze_sdesc_r1:   jsb_r0_r01;
+
+
+!
+! EXTERNAL REFERENCES:
+!
+external
+    ppl$$gl_context:	ref ctx_block,		! Our context
+    ppl$$gl_pplsect:	ref pplsect_block;	! PPL facility section
+
+!
+! PSECTS:
+!
+declare_psects (ppl);			! Define psects
+
+
+
+%SBTTL 'ROUTINE PPL_DELETE_CSB'
+ROUTINE PPL_DELETE_CSB
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL_DELETE_CSB - Delete a csb Object 
+!
+!   The Delete a csb routine deletes the specified csb and releases any
+!   storage associated with it.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    object_id	:   ref vector [1, long, unsigned], 
+    object_name:   ref $BBLOCK,
+    object_type 
+    ) = 
+!
+!             object-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Identifier of the object. The optional object-id argument is the
+!             address of an unsigned longword containing the object identifier.
+!
+!
+!             object-name
+!             VMS Usage: char_string
+!             type:      character string
+!             access:    read only
+!             mechanism: by descriptor
+!
+!             Name of the object. The optional object-name argument is the
+!             address of a descriptor pointing to a character string containing
+!             the object-name.
+!
+!             object-type
+!             VMS Usage: mask_longword
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by value
+!
+!             Type of the object. This is parameter specifies the type
+!	      csb block to delete.
+!
+!
+!
+! IMPLICIT INPUTS:
+! 
+!   The PPL$ global section and Name/Identifier List.
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   The PPL$ global section and the lock structure
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_ELEINUSE         The specified element is currently in use and may not
+!			    be deleted.
+!
+!   PPL$_INVARG           Invalid argument.
+!
+!   PPL$_INVELEID         Invalid element identifier.
+!
+!   PPL$_INVELETYP        Invalid element type.
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_NOSUCHELE        No such element exists.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   none
+!--
+
+BEGIN   ! ppl_delete_csb
+
+BUILTIN
+	nullparameter;
+
+LOCAL
+	obj_block   : ref csb_block,		    ! work queue ctrl block
+	obj_name    : ref $bblock [dsc$c_s_bln],    ! work queue name
+	objnam_dsc  : $bblock [dsc$c_s_bln],	    ! name descriptor
+	ast_status  : volatile unsigned long,	    ! used in critical region
+	eleinuse    : unsigned long,
+	status	    : unsigned long,
+        top_flag    : unsigned volatile long,
+        mutex_flag  : unsigned volatile long,
+        mutex       : unsigned volatile long;
+
+enable		    ! handler variables are initially zero from volatile def.
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate the id
+!-
+if (ppl$$gl_pplsect[base_] eql 0) then return ppl$_noinit;
+
+obj_name = 0;
+if not nullparameter(object_name) then
+    (
+    objnam_dsc[dsc$b_dtype] = dsc$k_dtype_t;
+    objnam_dsc[dsc$b_class] = dsc$k_class_s;
+    str$analyze_sdesc_r1 (object_name[base_];
+			    objnam_dsc[dsc$w_length],
+			    objnam_dsc[dsc$a_pointer]);
+    obj_name = objnam_dsc[base_];
+    status = ppl$$name_search (obj_name[base_], obj_block);
+    IF (.status neq ppl$_normal) then return ppl$_invelenam;
+    )
+else
+    (
+    if nullparameter(object_id) then return ppl$_wronumarg;
+    obj_block = object_id[0] + ppl$$gl_pplsect[base_];
+    if (.obj_block[csb_l_eid] neq object_id[0]) then return ppl$_inveleid;
+    );
+
+!+
+! Make sure we have the id of the proper csb - type
+!-
+
+IF (.obj_block[csb_l_type] neq .object_type) then return ppl$_inveleid;
+
+eleinuse = false;
+
+enter_critical_region_;	    ! disable asts
+
+!+
+! test for empty csb
+!-
+mutex = obj_block[csb_v_lock];
+mutex_flag = 1;
+lock_bit_(obj_block[csb_v_lock]);
+
+if (.object_type eql ppl$k_spin_lock) then
+    if  (.obj_block[csb_w_csval] neq 0) then
+	eleinuse = true;
+ 
+if (.object_type neq ppl$k_spin_lock) then
+    if (.obj_block[csb_w_csval] neq .obj_block[csb_w_csmax]) then
+	eleinuse = true;
+
+if eleinuse then
+	ppl_signal_(ppl$_eleinuse)
+else
+	(
+	if  testbitssi(obj_block[csb_v_delete])  then
+	    ppl_signal_(ppl$_nosuchele);   ! someone else deleted it
+	status = ppl$$name_mark_delete ( obj_block);
+	unlock_bit_(obj_block[csb_v_lock]);
+	leave_critical_region_;		    ! enable asts
+	if not .status then 
+	    return ppl$_nosuchele;	! no element found
+	);
+!+
+! now we have a csb block
+!-
+status = ppl$$name_delete (obj_block);
+
+RETURN .status;
+
+END;    ! ppl_delete_csb
+
+%SBTTL 'ROUTINE PPL$DELETE_BARRIER'
+GLOBAL ROUTINE PPL$DELETE_BARRIER
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$DELETE_BARRIER-Delete a Barrier
+!
+!   The Delete a Barrier routine deletes the specified barrier and releases any
+!   storage associated with it.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    barrier_id	:   ref vector [1, long, unsigned], 
+    barrier_name:   ref $BBLOCK
+    ) = 
+!
+!             barrier-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Identifier of the barrier. The optional barrier-id argument is the
+!             address of an unsigned longword containing the barrier identifier.
+!
+!
+!             barrier-name
+!             VMS Usage: char_string
+!             type:      character string
+!             access:    read only
+!             mechanism: by descriptor
+!
+!             Name of the barrier. The optional barrier-name argument is the
+!             address of a descriptor pointing to a character string containing
+!             the barrier-name.
+!
+!
+! IMPLICIT INPUTS:
+! 
+!   The PPL$ global section and Name/Identifier List.
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   The PPL$ global section and the lock structure
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_ELEINUSE         The specified element is currently in use and may not
+!			    be deleted.
+!
+!   PPL$_INVARG           Invalid argument.
+!
+!   PPL$_INVELEID         Invalid element identifier.
+!
+!   PPL$_INVELETYP        Invalid element type.
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_NOSUCHELE        No such element exists.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   none
+!--
+
+BEGIN   ! ppl$delete_barrier
+
+BUILTIN
+	nullparameter,
+	actualcount;
+
+LITERAL
+	min_args = 1,		! Min number of arguments
+	max_args = 2;		! Max number of arguments
+
+LOCAL
+    id  :	ref vector [1, long, unsigned], 
+    name:	ref $BBLOCK,
+    status;
+!+
+! Validate parameters
+!-
+
+if  actualcount () gtr max_args then
+    return ppl$_wronumarg;
+
+if  actualcount () lss min_args then
+    return ppl$_wronumarg;
+
+if (nullparameter (barrier_id)) then 
+    id = 0 
+else 
+    id = .barrier_id[0];
+
+if (nullparameter (barrier_name)) then 
+    name = 0 
+else 
+    name = .barrier_name;
+
+status = ppl_delete_csb(.id, .name, ppl$k_barrier_synch);
+
+IF (.status neq ppl$_normal) then
+    debug_msg_(2,'!UL!_Deleted Barrier. ID = !XL',
+	    .ppl$$gl_context[ctx_l_my_index], .barrier_id[0]);
+
+RETURN .status;
+
+END;    ! ppl$delete_barrier
+
+
+
+%SBTTL 'PPL$DELETE_EVENT -- delete an event'
+GLOBAL ROUTINE PPL$DELETE_EVENT
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$DELETE_EVENT - Delete a Event
+!
+!   The Delete an Event routine deletes the specified event and re- leases any
+!   storage associated with it.
+!
+! 
+! FORMAL PARAMETERS:
+!
+    (
+    event_id	:   ref vector [1, long, unsigned], 
+    event_name	:   ref $BBLOCK
+    ) = 
+!
+!             event-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Identifier of the event. The optional event-id argument is the
+!             address of an unsigned longword containing the event identifier.
+!
+!
+!             event-name
+!             VMS Usage: char_string
+!             type:      character string
+!             access:    read only
+!             mechanism: by descriptor
+!
+!             Name of the event. The optional event-name argument is the address
+!             of a descriptor pointing to a character string containing the
+!             event-name.
+!
+! 
+! IMPLICIT INPUTS:
+! 
+!   The PPL$ global section and Name/Identifier List.
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   The PPL$ global section and the lock structure
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_ELEINUSE         The specified element is currently in use and may not
+!			    be deleted.
+!
+!   PPL$_INVARG           Invalid argument.
+!
+!   PPL$_INVELEID         Invalid element identifier.
+!
+!   PPL$_INVELETYP        Invalid element type.
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_NOSUCHELE        No such element exists.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   eqe blocks of all enabled processes will be removed
+!--
+
+
+BEGIN	   ! ppl$delete_event
+
+builtin
+	actualcount,
+	nullparameter;
+
+literal
+	min_args = 1,		! Min number of arguments
+	max_args = 2;		! Max number of arguments
+
+local
+	my_mkr		: ref mkr_block,
+	mkr		: ref mkr_block,
+	event		: ref event_block,		! event queue ctrl block
+	ev_name		: ref $bblock [dsc$c_s_bln],	! event queue name
+	eveqnam_dsc	: $bblock [dsc$c_s_bln],	! name descriptor
+	ast_status	: volatile unsigned long,	! used in critical
+	return_status	: unsigned long,
+	status		: unsigned long,
+        top_flag	: unsigned volatile long,
+        mutex_flag	: unsigned volatile long,
+        mutex		: unsigned volatile long;
+    
+enable		! handler variables are initially zero from volatile def.
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate parameters
+!-
+
+if  actualcount () gtr max_args then
+    return ppl$_wronumarg;
+
+if  actualcount () lss min_args then
+    return ppl$_wronumarg;
+
+
+!+
+! Validate the id
+!-
+
+if (ppl$$gl_pplsect[base_] eql 0) then return ppl$_noinit;
+
+ev_name = 0;
+if not nullparameter(event_name) then
+    (
+    eveqnam_dsc[dsc$b_dtype] = dsc$k_dtype_t;
+    eveqnam_dsc[dsc$b_class] = dsc$k_class_s;
+    str$analyze_sdesc_r1 (event_name[base_];
+			    eveqnam_dsc[dsc$w_length],
+			    eveqnam_dsc[dsc$a_pointer]);
+    ev_name = eveqnam_dsc[base_];
+    status = ppl$$name_search (ev_name[base_], event);
+    if (.status neq ppl$_normal) then return ppl$_invelenam;
+    )
+else
+    (
+    if nullparameter (event_id) then return ppl$_wronumarg;
+    event = .event_id[0] + ppl$$gl_pplsect[base_];
+    if (.event[ev_l_eid] neq .event_id[0]) then return ppl$_inveleid;
+    );
+
+!+
+! Make sure we have the id of a event
+!-
+
+if (.event[ev_l_type] neq ppl$k_event) then return ppl$_inveleid;
+
+enter_critical_region_;	    ! disable asts
+
+!+
+! test for no awaiting processes
+!-
+
+mutex = event[ev_v_lock];
+mutex_flag = 1;
+lock_bit_(event[ev_v_lock]);
+
+if (.event[ev_l_await_cnt] neq 0) then
+	ppl_signal_(ppl$_eleinuse)
+else
+    (
+    if  testbitssi(event[ev_v_deleted])  then
+	ppl_signal_(ppl$_nosuchele);   ! someone else deleted it
+    status = ppl$$name_mark_delete ( event);
+    if not .status then 
+	ppl_signal_(ppl$_nosuchele);	! no element found
+    );
+
+!+
+! delete all occurred events
+!-
+    while true do
+	(
+	while remq_busy_(status = remqhi(event[ev_l_triggers_f],mkr)) do 0;
+	IF remq_null_(.status) then exitloop;
+	ungrab_marker_(mkr);
+	);
+
+!+
+! signal event deletion to all enabled processes
+!-
+    my_mkr = 0;
+    return_status = ppl$_normal;
+    while true do
+	(
+	while remq_busy_(status = remqhi(event[ev_l_enables_f],mkr)) do 0;
+	if remq_null_(.status) then EXITLOOP;
+	if (.mkr[mkr_l_pid] eql .ppl$$gl_context[ctx_l_my_index]) then
+	    my_mkr= .mkr
+	else
+	    (
+	    status = ppl$$tell (.mkr[mkr_l_pid],
+		    do_delete_event,.event[ev_l_eid]);
+	    if not .status then return_status = .status;
+	    ungrab_marker_(mkr);
+	    );
+	 );
+     if (.my_mkr neq 0) then
+	(
+	ppl$$post_event_deletion(.event[ev_l_eid]);
+	return_status = ppl$_normal;
+	ungrab_marker_(my_mkr);
+	);
+!+
+! now we delete the event block
+!-
+unlock_bit_(event[ev_v_lock]);	! every lock should have an unlock
+mutex_flag = 0;
+
+leave_critical_region_;	    ! enable asts
+
+status = ppl$$name_delete (event);
+
+debug_msg_(2,'!UL!_Deleted Event. ID = !XL',
+	    .ppl$$gl_context[ctx_l_my_index], .event[ev_l_eid]);
+
+RETURN .status;
+
+END;	   ! ppl$delete_event
+
+
+
+%SBTTL 'ROUTINE PPL$DELETE_SEMAPHORE'
+GLOBAL ROUTINE PPL$DELETE_SEMAPHORE
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$DELETE_SEMAPHORE-Delete a Semaphore
+!
+!   The Delete a Semaphore routine deletes the specified semaphore and releases
+!   any storage associated with it.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    semaphore_id  :	ref vector [1, long, unsigned], 
+    semaphore_name:	ref $BBLOCK
+    ) = 
+!
+!             semaphore-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Identifier of the semaphore. The optional semaphore-id argument
+!             is the address of an unsigned longword containing the semaphore
+!             identifier.
+!
+!
+!             semaphore-name
+!             VMS Usage: char_string
+!             type:      character string
+!             access:    read only
+!             mechanism: by descriptor
+!
+!             Name of the semaphore. The optional semaphore-name argument is the
+!             address of a descriptor pointing to a character string containing
+!             the semaphore-name.
+!
+! 
+! IMPLICIT INPUTS:
+! 
+!  The PPL$ global section and Name/Identifier List.
+! 
+! IMPLICIT OUTPUTS:
+! 
+!  The PPL$  Name/Identifier List and the lock structure.
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_ELEINUSE         The specified element is currently in use and may not
+!			    be deleted.
+!
+!   PPL$_INVARG           Invalid argument.
+!
+!   PPL$_INVELEID         Invalid element identifier.
+!
+!   PPL$_INVELETYP        Invalid element type.
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_NOSUCHELE        No such element exists.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   none
+!--
+
+BEGIN   ! ppl$delete_semaphore
+
+builtin
+	nullparameter,
+	actualcount;
+
+literal
+	min_args = 1,		! Min number of arguments
+	max_args = 2;		! Max number of arguments
+
+local
+
+    id  :	ref vector [1, long, unsigned], 
+    name:	ref $BBLOCK,
+    status;
+
+!+
+! Validate parameters
+!-
+
+if  actualcount () gtr max_args then
+    return ppl$_wronumarg;
+
+if  actualcount () lss min_args then
+    return ppl$_wronumarg;
+
+if (nullparameter (semaphore_id)) then 
+    id = 0 
+else
+    id = .semaphore_id[0];
+
+if (nullparameter (semaphore_name)) then 
+    name = 0 
+else 
+    name = .semaphore_name;
+
+status = ppl_delete_csb(.id, .name, ppl$k_semaphore);
+
+if (.status neq ppl$_normal) then
+    debug_msg_(2,'!UL!_Deleted Semaphore. ID = !XL',
+	    .ppl$$gl_context[ctx_l_my_index], .semaphore_id[0]);
+
+RETURN .status;
+
+
+END;    ! ppl$delete_semaphore
+
+
+
+%SBTTL 'ROUTINE PPL$DELETE_SPIN_LOCK'
+GLOBAL ROUTINE PPL$DELETE_SPIN_LOCK
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$DELETE_SPIN_LOCK-Delete Spin Lock
+!
+!   The Delete Spin Lock routine deletes the specified spin lock and releases
+!   any storage associated with it.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    lock_id :	ref vector [1, long, unsigned], 
+    lock_name:	ref $BBLOCK
+    ) = 
+!
+!             lock-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Identifier of the lock. The optional lock-id argument is the
+!             address of an unsigned longword containing the lock identifier.
+!
+!
+!             lock-name
+!             VMS Usage: char_string
+!             type:      character string
+!             access:    read only
+!             mechanism: by descriptor
+!
+!             Name of the lock. The optional lock-name argument is the address
+!             of a descriptor pointing to a character string containing the
+!             lock-name.
+!
+!
+! IMPLICIT INPUTS:
+! 
+!  The PPL$ global section and Name/Identifier List.
+! 
+! IMPLICIT OUTPUTS:
+! 
+!  The PPL$  Name/Identifier List and the lock structure.
+! 
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_ELEINUSE         The specified element is currently in use and may not
+!			    be deleted.
+!
+!   PPL$_INVARG           Invalid argument.
+!
+!   PPL$_INVELEID         Invalid element identifier.
+!
+!   PPL$_INVELETYP        Invalid element type.
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_NOSUCHELE        No such element exists.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   none
+!--
+
+BEGIN   ! ppl$delete_spin_lock
+
+builtin
+	nullparameter,
+	actualcount;
+
+literal
+	min_args = 1,		! Min number of arguments
+	max_args = 2;		! Max number of arguments
+
+local
+    id	    : ref vector [1, long, unsigned], 
+    name    : ref $BBLOCK,
+    status  : unsigned long;
+
+
+!+
+! Validate parameters
+!-
+
+if  actualcount () gtr max_args then
+    return ppl$_wronumarg;
+
+if  actualcount () lss min_args then
+    return ppl$_wronumarg;
+
+if (nullparameter (lock_id)) then 
+    id = 0 
+else 
+    id = .lock_id[0];
+
+if (nullparameter (lock_name)) then 
+    name = 0 
+else 
+    name = .lock_name;
+
+status = ppl_delete_csb(.id, .name, ppl$k_spin_lock);
+
+if (.status neq ppl$_normal) then
+    debug_msg_(2,'!UL!_Deleted Spin Lock. ID = !XL',
+	    .ppl$$gl_context[ctx_l_my_index], .lock_id[0]);
+
+RETURN .status;
+    
+END;    ! ppl$delete_spin_lock
+    
+
+
+%SBTTL 'ROUTINE PPL$DELETE_VM_ZONE'
+GLOBAL ROUTINE PPL$DELETE_VM_ZONE
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$DELETE_VM_ZONE-Delete a Virtual Memory Zone
+!
+!   The Delete a Virtual Memory Zone routine deletes the specified storage zone
+!   and returns all pages owned by the zone to the application-wide page pool.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    zone_id :	ref vector [1,  long, unsigned], 
+    zone_name:	ref $bblock
+    ) = 
+!
+!             zone-id
+!	      VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Identifier of the zone. The optional zone-id argument is the
+!             address of an unsigned longword containing the zone identifier.
+!
+!
+!             zone-name
+!             VMS Usage: char_string
+!             type:      character string
+!             access:    read only
+!             mechanism: by descriptor
+!
+!             Name of the zone. The optional zone-name argument is the address
+!             of a descriptor pointing to a character string containing the
+!             zone-name.
+!
+!
+! IMPLICIT INPUTS:
+! 
+!   The PPL$ global section and Name/Identifier List
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   The PPL$ global section
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_INVELENAM        Invalid element name or illegal character string.
+!
+!   PPL$_INVELEID	  Invalid element id
+!
+!   PPL$_INVELETYP	  Invalid element type
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_NOSUCHELE        No such element exists.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+!   Any condition value returned by LIB$DELETE_VM_ZONE.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   none
+!--
+
+BEGIN   ! ppl$delete_vm_zone
+
+builtin
+    actualcount,
+    nullparameter;
+
+literal
+    min_args = 1,	    ! Min number of arguments
+    max_args = 2;	    ! Max number of arguments
+
+local
+    vm		: ref vm_block,
+    vm_name	: ref $bblock[dsc$c_s_bln],
+    vm_nam_dsc	: $bblock[dsc$c_s_bln],
+    zone	: ref vector [1,  long, unsigned], 
+    status	: unsigned long;
+
+
+!+
+! Validate parameters
+!-
+
+if actualcount () gtr max_args then
+    return ppl$_wronumarg;
+
+if actualcount () lss min_args then
+    return ppl$_wronumarg;
+
+!+
+! Validate the id
+!-
+
+if (ppl$$gl_pplsect[base_] eql 0) then return ppl$_noinit;
+
+vm_name = 0;
+
+if not nullparameter (zone_name) then
+    (
+    vm_nam_dsc[dsc$b_dtype] = dsc$k_dtype_t;
+    vm_nam_dsc[dsc$b_class] = dsc$k_class_s;
+    str$analyze_sdesc_r1 (zone_name[base_];
+			    vm_nam_dsc[dsc$w_length],
+			    vm_nam_dsc[dsc$a_pointer]);
+    vm_name = vm_nam_dsc[base_];
+    status = ppl$$name_search( vm_name[base_], vm);
+    if (.status neq ppl$_normal) then return ppl$_invelenam;
+    )
+else
+    (
+    if nullparameter (zone_id) then return ppl$_invarg;
+
+    if
+	begin
+	    status = ppl$$name_get_object_base(vm);
+	    while (.status eql ppl$_normal) do
+		(
+		if (.vm[vm_l_type] eql ppl$k_vm)
+		    and (.vm[vm_l_eid] eql (.vm - ppl$$gl_pplsect[base_]))
+		    and (.vm[vm_l_zone_id] eql .zone_id[0]) then
+		    (
+		    exitloop false;
+		    );
+		status = ppl$$name_get_next_object(VM);
+		)
+	end	! end of if
+    then    ! we could not find it
+	return ppl$_nosuchnam;
+    );
+
+zone = .vm[vm_l_zone_id];
+if (not nullparameter(zone_id)) then
+    if (.zone_id[0] neq .vm[vm_l_zone_id]) then
+	return ppl$_inveleid;
+if (.vm[vm_l_type] neq ppl$k_vm) then
+    return ppl$_inveletyp;
+ 
+ppl$$name_mark_delete (vm);
+ppl$$name_delete (vm);
+status = lib$delete_vm_zone ( zone);
+if (.status eql ss$_normal) then return ppl$_normal;
+return .status;
+					    
+END;    ! ppl$delete_vm_zone
+
+
+END                           ! End of module
+ELUDOM

@@ -1,0 +1,114 @@
+From:	SMTP%"system@lokidev.attmail.com" 28-AUG-1996 20:45:55.60
+To:	everhart@star.zko.dec.com
+CC:	
+Subj:	3 ltr bounced from bort
+
+Hi,
+
+THis is my synopsis of my observation using the 2nd RAH/WBH technique
+in the previous msg.
+------------
+Hi,
+
+I've implemented the following RMS intercepts using my system service
+interception scheme:
+
+	$CONNECT
+	$FIND
+	$GET
+	$PUT
+	$UPDATE
+
+Here's the template of the intercept for each of the above services.
+
+	.IF NDF	SS$_ARG_GTR_32_BITS
+	.IF_TRUE
+	SYSTEM_SERVICE	NAME=RMS_CONNECT,-		; $CONNECT
+			MODE=EXEC,-			; exec mode
+			NARG=3,-			; max call args
+			MARG=1,-			; min call args
+			HOME_ARGS=TRUE,-		; home arguments
+			MAX_ARGS=3			; max homed args
+	.IF_FALSE
+	SYSTEM_SERVICE	NAME=RMS_CONNECT,-		; $CONNECT
+			MODE=EXEC,-			; exec mode
+			NARG=3,-			; max call args
+			MARG=1,-			; min call args
+			QUAD_ARGS=TRUE			; 64 bit args ok
+
+	$SETUP_CALLG_64	ARGCNT=3,ARGLST=R12		; make 64 bit arglst
+	.ENDC
+	
+	EVAX_LDQ R1,RAB(AP)			; get RAB adr (64 bit ready) 
+	PUSHL	RAB$L_ROP(R1)			; save the current ROP bits 
+	BISL2	#<RAB$M_RAH!RAB$M_WBH>,-	; set Read-Ahead/Write-behind
+		RAB$L_ROP(R1)			;    in the RAB's ROP field
+
+	MOVAL	SERVICE_ROUTINE,R0		; use R0 since it's trashed
+						;   by return status anyway
+	.IF_32	<CALLG (AP),@RMS_CONNECT(R0)>
+	.IF_64	<EVAX_CALLG_64 (R12),@RMS_CONNECT(R0)>
+
+	EVAX_LDQ R1,RAB(AP)			; get RAB adr (64 bit ready) 
+	POPL	RAB$L_ROP(R1)			; restore the saved ROP bits 
+	RET
+
+
+It seems that the overhead of the argument list stack creation and the
+overhead of the AMAC$EMUL_CALL_x for the EVAX_CALLG_64 is considerable.
+I think that the best thing if to go with the first scheme I outlined
+in a previous message -- that is, just intercept the $CONNECT and set
+the RAH/WBH bits and forget it.  
+
+Now!  I could write the intercept in MACRO64 and this overhead could be
+easily minimized.  There'd be no need to stack the arguments at all.  I
+would simply need to:
+
+	SUBQ	#32,SP			; make room for 4 QWs on stack
+					; also call std stack alignment
+	LDAQ	R1,RAB$L_ROP(R16)	; get address of RAB$L_ROP field
+	STQ	R1,(SP)			; save the address of ROP field
+	LDL	R22,(R1)		; get ROP field bits
+	STL	R22,8(SP)		; save original field bits
+	LDQ	R0,#<RAB$M_RAH!RAB$M_WBH>(R31)	; put RAH/WBH mask in R0
+	BIS	R22,R0,R22		; set the bits
+	STL	R22,(R1)		; move new filed bits into place
+
+	LDQ	R27,ORIGINAL_SERVICE_RTN(R27)	; org rtn's linkage ptr
+	STQ	R26,16(SP)			; save this rtn's ret adr
+	LDQ	R26,PDSC$Q_ENTRY(R27)		; org rtn's entry address
+	JSR	R26,(R26)			; jump there and back
+
+	LDQ	R1,(SP)			; recover ROP field address
+	LDL	R22,8(SP)		; recover original ROP field bits
+	STL	R22,(R1)		; restore the ROP 
+	LDQ	R26,16(SP)		; get my return address
+	ADDQ	#32,SP
+	RET	R26
+
+I've never written a LEI in Macro64 but, since I just did all the effort
+above, maybe I should (at least) do one for academic purposes.  :)
+
+
+VAXman-
+
+For without are dogs, and sorcerers, and whoremongers, and murderers,
+and idolaters, and whosoever loveth and maketh a lie.  - Revelation -
+================== RFC 822 Headers ==================
+Return-Path: system@lokidev.attmail.com
+Received: by galaxy.zko.dec.com (UCX V4.0-10B, OpenVMS V6.2 VAX);
+	Wed, 28 Aug 1996 20:44:37 -0400
+Received: from mdau.md.mt.np.els-gms.att.net by mail11.digital.com (8.7.5/UNX 1.2/1.0/WV)
+	id UAA30662; Wed, 28 Aug 1996 20:18:22 -0400 (EDT)
+Date: Wed, 28 Aug 1996 20:15:18 -0500
+From: system@lokidev.attmail.com ("Brian Schenkenberger, VAXman-")
+Received: from lokidev by attmail; Thu Aug 29 00:17 GMT 1996
+Received: from alpha by oadec (OADEC V3.0);
+           Wed Aug 28 20:15:18 EDT 1996
+Subject: 3 ltr bounced from bort
+To: everhart@star.zko.dec.com
+X-VMS-Mail-To: OA%"attmail!internet!star.zko.dec.com!everhart"
+Mime-Version: 1.0
+Content-Type: Text/Plain; charset=us-ascii
+Content-Transfer-Encoding: 7bit
+Message-ID: <ATT-OADEC-3.0-00-system-18ADF76D009A78A6>

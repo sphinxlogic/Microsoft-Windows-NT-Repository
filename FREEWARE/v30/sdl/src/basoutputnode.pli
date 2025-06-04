@@ -1,0 +1,166 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980, 1988	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________|_______|______________________________________________________
+    22-Feb-1988	|  jg	| X3.2-0 Add conditional compilation and LITERAL
+________________|_______|______________________________________________________
+*/
+
+
+/*********************************************************************
+ * 
+ * This routine travels through a circular list and outputs the 
+ * appropriate data declaration for each item in the list. 
+ *
+ *********************************************************************/
+
+%include 'sdl$library:sdlnodef.in';	    /* node structure definition    */
+
+outputnode:	proc (fst_node,start_node,level);
+					    /********************/
+					    /*			*/
+					    /* outputnode	*/
+					    /*			*/
+					    /********************/
+
+/* declare parameters and variables */
+declare 
+    fst_node	pointer ,		    /* pointer to the first node in the list */
+    cur_node	pointer ,		    /* pointer to the current node being processed */
+    start_node	pointer,		    /* pointer to the first node in the list */
+    level fixed binary(31),		    /* level in the aggregate	    */
+    global_db fixed binary(7) external,	    /* for debugging		    */
+    local_db fixed binary(7) initial(1);    /* for debugging		    */
+
+/* declare external functions and subroutines */
+DCL DO_MODULE ENTRY (
+	pointer,
+	fixed binary(31) );
+
+DCL DO_CONST ENTRY (
+	pointer,
+	pointer,
+	fixed binary(31) );
+
+DCL DO_ITEM ENTRY (
+	pointer,
+	fixed binary(31) );
+
+DCL DO_ENTRY ENTRY (
+	pointer,
+	fixed binary(31) );
+
+DCL DO_PARAM ENTRY (
+	pointer,
+	fixed binary(31) );
+
+DCL DO_COM_NODE ENTRY (
+	pointer );
+
+DCL DO_CONDITIONAL ENTRY (					/* jg */
+	pointer,
+	fixed binary(31) );
+
+DCL DO_LITERAL ENTRY (						/* jg */
+	pointer,
+	fixed binary(31) );
+
+
+
+
+	global_db = 0; /* trun off debugging */
+
+	if( global_db = 1 ) then
+	if ( local_db = 1 ) then
+	put skip list ('in outputnode at level ',level);
+
+/*
+ * Case on the node type and go do the appropriate processing.
+ * The following code simulates a case statement.
+ */
+
+	cur_node = fst_node;
+	Do while ( cur_node ^= start_node );
+		goto case(cur_node->nod$b_type);
+
+			CASE (NOD$K_CONSTNODE):		/* Process constant node */
+			     call do_const(cur_node,start_node,level);
+			     goto END_OF_CASE;
+
+			CASE (NOD$K_MODULNODE):		/* Process module node */
+			     call do_module(cur_node,level);
+			     goto END_OF_CASE;
+
+			CASE (NOD$K_ITEMNODE):		/* Process item node */
+			     call do_item(cur_node,level);
+			     goto END_OF_CASE;
+
+			CASE (NOD$K_ENTRYNODE):		/* Process entry node */
+			     call do_entry(cur_node,level);
+			     goto END_OF_CASE;
+
+			CASE (NOD$K_PARMNODE):		/* Process parameter node */
+			     call do_param(cur_node,level);
+			     goto END_OF_CASE;
+
+			CASE (NOD$K_COMMNODE):		/* Process comment node */
+			     call do_com_node(cur_node);
+			     goto END_OF_CASE;
+
+			CASE (NOD$K_CONDNODE):		/* Process conditional node */
+			     call do_conditional(cur_node,level);
+			     goto END_OF_CASE;
+
+			CASE (NOD$K_LITNODE):		/* Process literal node */
+			     call do_literal(cur_node,level);
+			     goto END_OF_CASE;
+
+			END_OF_CASE:			/* process next node in list */
+			     cur_node = cur_node->nod$a_flink;
+
+	  end; /* end of Do While*/
+
+
+	if( global_db = 1 ) then
+	if ( local_db = 1 ) then
+    	put skip list ('end of outputnode at level ',level);
+
+
+ 
+end outputnode;
+

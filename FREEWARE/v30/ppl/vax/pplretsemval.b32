@@ -1,0 +1,278 @@
+MODULE PPL$RETSEMVAL ( ADDRESSING_MODE ( EXTERNAL= GENERAL),	!
+		       IDENT = 'V57-001'
+		     ) =
+BEGIN
+
+!
+!			  COPYRIGHT (c) 1986 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:
+!		PPL ( Parallel Processing Library )
+!
+! ABSTRACT:
+!
+!
+! ENVIRONMENT:
+!
+!
+!--
+!<BLF/PAGE>
+
+!++
+!
+! AUTHOR:	Catherine M. Fariz, CREATION DATE: (13-OCT-86)
+!
+!
+! MODIFIED BY:
+!
+! 	Catherine M. Fariz, (13-OCT-86): VERSION 00
+! 01-000	- Original version
+!
+! 01-001	To correct access vioalation for null param.	CMF 19-JAN-1987
+!
+! 01-002	To correct the ident to match the cms 		CMF 26-JAN-1987
+!		generation number.
+!		
+! V051-001	Replaced references to CTX[CTX_L_PPLSECT_ADR]	WWS  9-Sep-1988
+!		and local variable PPLSECT and by PPL$$GL_PPLSECT
+!
+! V053-001	ADAWI(%REF(0),SEM_BLOCK[CSB_V_LOCK]) added to	HPO  9-May-1989
+!		ensure cache consitency.
+!
+! V053-002	Test for object deletion added			HPO 29-JUN-1989
+!
+! V053-003	Removed local CTX and changed check for noinit	PJC 08-AUG-1989
+!		to reflect structure accessed in routine.
+!
+! V057-001	EVMS/Alpha port.				PJC 12-NOV-1991
+!
+! V057-002	Convert ppl$read_semaphore from reporting	PJC 26-JAN-1993
+!		csb_w_csval to reporting csb_w_semval.
+!--
+!<BLF/PAGE>
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+
+LIBRARY 'RTLSTARLE';			! System symbols
+LIBRARY 'SYS$LIBRARY:XPORT';
+UNDECLARE %QUOTE $DESCRIPTOR;
+LIBRARY 'OBJ$:PPLLIB';
+REQUIRE 'RTLIN:RTLPSECT';		
+
+! Define DECLARE_PSECTS macro
+!
+! FORWARD ROUTINE
+!
+
+!
+! MACROS:
+!
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! PSECT DECLARATIONS
+!
+DECLARE_PSECTS (PPL);			! Declare psect
+
+!
+! OWN STORAGE:
+!
+
+!
+! EXTERNAL REFERENCES:
+!
+EXTERNAL
+    PPL$$GL_PPLSECT :	REF PPLSECT_BLOCK,
+    PPL$$GL_CONTEXT :	REF CTX_BLOCK;
+
+
+%SBTTL 'ROUTINE: PPL$READ_SEMAPHORE () - Returns Max and current value'
+!
+GLOBAL ROUTINE PPL$READ_SEMAPHORE (
+
+    	SEMAPHORE_ID :		REF VECTOR [1],
+    	SEMAPHORE_VALUE : 	REF VECTOR [1, word, signed],
+    	SEMAPHORE_MAXIMUM :	REF VECTOR [1, word, signed]
+    	) =
+
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will return the current and maximum values of a
+!	counting semaphore.
+!
+!	If the parameters SEMAOPHORE_VALUE and SEMAPHORE_MAXIMUM are
+!	both null, then the routine will simply return PPL$_NORMAL
+!	after validating the SEMAPHORE_ID
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$READ_SEMAPHORE ( semaphore_id,
+!						[ semaphore_value ],
+!						[ semaphore_maximum ] )
+!
+! FORMAL ARGUMENT(S):
+!
+!	SEMAPHORE_ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the allocated semaphore.
+!
+!	SEMAPHORE_VALUE
+!	VMS USAGE	:  word_signed
+!	TYPE		:  word ( signed )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The value of the semaphore.
+!
+!	SEMAPHORE_MAXIMUM
+!	VMS USAGE	:  word_signed
+!	TYPE		:  word ( signed )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The maximum value of the semaphore.
+!
+! IMPLICIT INPUTS:
+!
+!	The Counting Semaphore Block.
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVARG	Invalid argument(s).
+!
+!	PPL$_INVELETYP	Invalid element type for specified operation.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_NOSUCHELE	No such element exists.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+BEGIN	!ppl$read_semaphore
+
+    BUILTIN
+    	ACTUALCOUNT,
+	NULLPARAMETER;
+
+    LITERAL
+    	MAX_ARGS = 3,
+	MIN_ARGS = 1;
+
+    LOCAL
+    	SEM_BLOCK :	REF CSB_BLOCK,	! Counting semaphore block
+	STATUS;			! Status
+
+!+
+! Validate number of parameters passed.
+!-
+
+    IF ( ACTUALCOUNT () GTR MAX_ARGS )
+    THEN
+    	RETURN PPL$_WRONUMARG;
+
+    IF ( ACTUALCOUNT () LSS MIN_ARGS )
+    THEN
+    	RETURN PPL$_WRONUMARG;
+
+
+!+
+! Validate the ID.
+!-
+
+!+
+! First, let's check to be sure it isn't a null param.
+!-
+
+    IF ( NULLPARAMETER ( SEMAPHORE_ID ) )
+    THEN
+	RETURN PPL$_INVARG;
+
+    if (.ppl$$gl_pplsect eql 0) then return ppl$_noinit;
+
+    SEM_BLOCK = .SEMAPHORE_ID[0] + PPL$$GL_PPLSECT[BASE_];
+
+    IF ( .SEM_BLOCK[CSB_L_EID] NEQ .SEMAPHORE_ID[0] )
+    THEN
+        RETURN PPL$_NOSUCHELE;
+
+!+
+! Make sure we have the ID of a counting semaphore.
+!-
+
+
+    IF ( .SEM_BLOCK[CSB_L_TYPE] NEQ PPL$K_COUNTING_SEMAPHORE )
+    THEN
+    	RETURN PPL$_INVELETYP;
+
+!+
+! Acquire the semaphore's current and maximum values
+!-
+
+    ADAWI(%REF(0),SEM_BLOCK[CSB_V_LOCK]);	! ENSURE CACHE CONSITENSY
+
+    IF (.SEM_BLOCK[CSB_V_DELETE] NEQ 0) THEN
+	RETURN PPL$_INVELEID;
+
+    IF ( NOT NULLPARAMETER ( SEMAPHORE_VALUE ) )
+    THEN
+	BEGIN
+	INTERLOCK_(SEM_BLOCK[CSB_W_SEMVAL]);
+    	SEMAPHORE_VALUE[0] = .SEM_BLOCK[CSB_W_SEMVAL];
+	END;
+
+    IF ( NOT NULLPARAMETER ( SEMAPHORE_MAXIMUM ) )
+    THEN
+	BEGIN
+	INTERLOCK_(SEM_BLOCK[CSB_W_CSMAX]);
+    	SEMAPHORE_MAXIMUM[0] = .SEM_BLOCK[CSB_W_CSMAX];
+	END;
+
+    RETURN PPL$_NORMAL;
+
+END;			! End of Routine PPL$READ_SEMAPHORE
+
+
+
+END				! End of module PPL$RETSEMVAL
+ELUDOM

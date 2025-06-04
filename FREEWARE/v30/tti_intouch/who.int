@@ -1,0 +1,36 @@
+1       program who ! show who is on the OpenVMS system
+        library "sys$library:librtl"
+        declare integer return_length, context, dec_pid
+
+        out$  = "<%%%%%%% <########### <############## " &
+              + "<###################### <######"
+        context    = -1
+        dec_pid    = 0
+        username$   = space$(12)
+        prcnam$     = space$(15)
+        image_name$ = space$(128)
+        tt$         = space$(7)
+
+1000    clear
+        print at 1,1, reverse,bold,underline: &
+  "PID      username     Proc Name       Image                   Terminal    "
+        do
+          call lib$getjpi(@jpi$_PID, context, , dec_pid)
+          if _integer = @ss$_nomoreproc then exit do
+          if _integer <> @ss$_normal then repeat do
+          get_jobdata
+          print using out$: pid$, username$, prcnam$, image$, tt$
+        loop
+        stop
+
+12000   routine get_jobdata
+          call lib$getjpi (@jpi$_username,dec_pid,,,username$)
+          call lib$getjpi (@jpi$_prcnam,dec_pid,,,prcnam$)
+          call lib$getjpi (@jpi$_terminal,dec_pid,,,tt$)
+          call lib$getjpi (@jpi$_imagname,dec_pid,,,image_name$)
+          image$ = filespec$(image_name$, 'name')
+          if trim$(image$) = "" then image$ = "(dcl)"
+          pid$ = encode$(dec_pid,16,8)
+        end routine
+
+99999   end

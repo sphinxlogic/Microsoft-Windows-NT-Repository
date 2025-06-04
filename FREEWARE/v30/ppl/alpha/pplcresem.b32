@@ -1,0 +1,414 @@
+MODULE PPL$CRESEM ( ADDRESSING_MODE ( EXTERNAL = GENERAL ), !
+		    IDENT = 'V53-003'
+		  ) =
+BEGIN
+
+!
+!			  COPYRIGHT (c) 1986 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:
+!		PPL ( Parallel Processing Library )
+!
+! ABSTRACT:
+!
+!
+! ENVIRONMENT: 
+!
+!
+!--
+!<BLF/PAGE>
+
+!++
+!
+! AUTHOR:	Catherine M. Fariz, CREATION DATE: (dd-mm-yy)
+!
+!
+! MODIFIED BY:
+!
+!	Catherine M. Fariz, (dd-mm-yy): VERSION 00
+!
+! X01-000	- Original version
+!
+! X01-001	- To correct access violation from null params. CMF 19-JAN-1987
+!
+! X01-002	- To correct ident.				CMF 26-JAN-1987
+!
+! X01-003	- Correct ident to match cms res. number.	CMF 26-JAN-1987
+!
+! X01-004	- To allow for null name.  A new ID will be	CMF 12-MAR-1987
+!		  returned for each null name supplied.
+!
+! X01-005	- Correct param order.  Now that the name is	CMF 13-MAR-1987
+!		  optional, it should be the last param.
+!
+! X01-006	- Fix for creating anonymous objects.		DLR 12-AUG-1987
+!
+! V05-001	- Fix forward PPL$Name_Lookup returning PPL$_Normal instead of
+!		    SS$_Normal					WWS 6-Jul-1988
+!		    
+! V05-002	- Updated routine comments to reflect correct completion codes
+!								WWS 8-Jul-1988
+!								
+! V51-001	- Replaced uses of local PPLSECT by global PPL$$GL_PPLSECT
+!								WWS 9-Sep-1988
+! V53-001	- Signal PPL$BADLOGIC instead of returning it	WWS 30-Jun-1989
+!
+! V53-002	- Removed local declaration of CTX.		PJC 14-Aug-1989
+!
+! V53-003	- Added ppl$$condition_handler to ppl$create_	PJC 30-Nov-1989
+!		  semaphore.
+!
+! V57-001	- EVMS/Alpha port: Reworked declaration of	PJC 12-Nov-1991
+!		  builtins, now done in ppllib.req
+!
+! V57-002	- Add init of semaphore value field		PJC 26-Jan-1993
+!--
+!<BLF/PAGE>
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+
+library 'rtlstarle';			! System symbols
+library 'sys$library:xport';
+undeclare %quote $descriptor;		! clears up conflict
+library 'obj$:ppllib';
+require 'rtlin:rtlpsect';		! Define DECLARE_PSECTS macro
+
+!
+! FORWARD ROUTINE
+!
+forward routine
+    ppl$create_semaphore;
+!
+! MACROS:
+!
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! PSECT DECLARATIONS
+!
+declare_psects (ppl);		! Declare psects for PPL facility
+
+!
+! OWN STORAGE:
+!
+
+!
+! LINKAGE DECLARATIONS;
+!
+linkage
+    jsb_r0_r01 =	jsb(register=0;register=0,register=1);
+
+!
+! EXTERNAL ROUTINES
+!
+external routine
+    ppl$$name_lookup,		! Determine if the name exists in the NIL list
+    str$analyze_sdesc_r1:	jsb_r0_r01,	! Cleanse string descriptor
+    ppl$$condition_handler;
+!
+! EXTERNAL REFERENCES
+!
+external
+    ppl$$gl_pplsect : ref pplsect_block,
+    ppl$$gl_context : ref ctx_block;
+
+
+%SBTTL 'ROUTINE: PPL$CREATE_SEMAPHORE () - Creates counting semaphore'
+!
+global routine ppl$create_semaphore (
+
+	semaphore_id :		ref vector [1],
+	semaphore_name :	ref $bblock,		
+	semaphore_maximum :	ref vector [1, WORD, SIGNED],
+	semaphore_initial :	ref vector [1, WORD, SIGNED]
+					     ) =	
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Creates and initializes a counting semaphore and a waiters
+!	queue.  Returns the semaphore identifier which must be used
+!	to increment, wait on, and acquire information about the
+!	semaphore.
+!
+!	The maximum value of the semaphore is optional.  It must
+!	be non-negative.  If no value is supplied, then a
+!	default value of 1 will be used.
+!
+!	The initial value of the semaphore is optional.  It must be
+!	non-negative and less than or equal to the maximum value.  If no
+!	value is specified, then a default equal to the maximum value
+!	will be used.
+!
+!	The counting semaphore created may be used for either
+!	resource control or for a barrier synch.  The meaning of the
+!	semaphore is determined by the user.  It can be used to
+!	control access to some variable or as a means of synchronizing
+!	the processes within the application.
+!
+!	If an element of the same name already exists, the type will
+!	be checked, if they match, the ID of the existing semaphore
+!	will be returned.  The existing semaphore will NOT be
+!	re-initialized with the values supplied to this routine.
+!
+!	The exception to this is a semaphore with a null name.  Each time
+!	the provided name is null, a new semaphore will be created and a 
+!	new ID will be returned to the user.  It will be the user's
+!	responsibility to see that other processes within the application
+!	acquire that ID if they need it.  This is allowed for users who
+!	do not want to deal with the trouble of handeling a name string.
+!
+!	If the types do not match, then an error will be returned to
+!	the user stating that no ID has been returned and no element
+!	will be created.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value =
+!		PPL$CREATE_SEMAPHORE ( semaphore-id,
+!				       [ semaphore-name ],
+!				       [ semaphore-maximum ],
+!				       [ semaphore-initial] )
+!
+! FORMAL ARGUMENT(S):
+!
+!	SEMAPHORE-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the semaphore.  This identifier must be
+!	used in other calls to identify the semaphore.
+!
+!	SEMAPHORE-NAME
+!	VMS USAGE	:  char_string
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	The name of the semaphore determined by the user.  This will
+!	be used by the user to acquire the ID of the semaphore.
+!
+!	SEMAPHORE-MAXIMUM
+!	VMS USAGE	:  longword_unsigned
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The maximum value of the semaphore.  If no value is supplied,
+!	then a default value of 1 will be used.
+!
+!	SEMAPHORE-INITIAL
+!	VMS USAGE	:  longword_unsigned
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The initial value of the semaphore.  If no value is supplied, then
+!	a default value equal to SEMAPHORE-MAXIMUM will be used.
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/identifier List entry.
+!	
+! IMPLICIT OUTPUTS:
+!
+!	A Name/Identifier List entry and a counting semaphore block.
+!
+!
+! COMPLETION CODES:
+!
+!	PPL$_ELEALREXI	An element of the same name already exists,
+!			( Success ).
+!
+!	PPL$_INCOMPEXI	An incompatible kind of element with the same
+!			name already exists.
+!
+!	PPL$_INSVIRMEM  Insufficient memory available to create the
+!			element.
+!
+!	PPL$_INVARG	Invalid argument(s).
+!
+! ???	PPL$_INVELENAM	Invalid element name, illegal character
+!			string.
+!
+!	PPL$_INVSEMINI	Invalid semaphore initial value, can not be
+!			greater than the maximum value.
+!
+!	PPL$_INVSEMMAX	Invalid semaphore maximum value, must be
+!			greater than zero.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_NOSUCHNAME	No element with the specified NAME exists.
+!
+!	PPL$_SEMININON	The semaphore initial value must be non-negative.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+BEGIN	!ppl$create_semaphore
+
+builtin
+	actualcount,
+	nullparameter;
+
+literal
+	def_sem_max_val = 1,	! Default maximum value
+	max_args = 4,		! Maximum number of arguments
+        min_args = 1;
+
+local
+	proto	    : csb_block,		! Proto type csb block
+	sem_block   : ref csb_block,		! Cou Sem block
+	sem_init    : signed word,		! Semaphore initial value
+	sem_max	    : signed word,		! Semaphore maximum value.
+	sem_name    : ref $bblock [dsc$c_s_bln],! The semaphore name
+	semname_desc: $bblock [dsc$c_s_bln],	! Semaphore name descriptor
+	eid	    : unsigned long,		! Element ID
+	status	    : unsigned long,
+        ast_status  : unsigned volatile long,
+        top_flag    : unsigned volatile long,
+        mutex_flag  : unsigned volatile long,
+        mutex       : unsigned volatile long;
+
+
+enable		! handler variables are initially zero from volatile def.
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate parameters.
+!-
+if actualcount () gtr max_args then
+    return ppl$_wronumarg;
+
+if actualcount () lss min_args then
+    return ppl$_wronumarg;
+
+if nullparameter ( semaphore_id ) then
+    return ppl$_invarg;
+
+!+
+! Get the Maximum semaphore value.  It has to fit in a word.
+!-
+sem_max = def_sem_max_val;
+if not nullparameter ( semaphore_maximum ) then
+    begin
+    sem_max = .semaphore_maximum[0];
+    if .sem_max leq 0 or .sem_max<0,16,1> neq .sem_max then
+	return ppl$_invsemmax;
+    end;			! End of If for SEMAPHORE_MAXIMUM validation
+
+!+
+! Get the Initial semaphore value.
+!-
+sem_init = .sem_max;
+if not nullparameter ( semaphore_initial ) then
+    begin
+    sem_init = .semaphore_initial[0];
+    if .sem_init lss 0 then
+	return ppl$_semininon;
+    if .sem_init gtr .sem_max then	! This also ensures it fits in a word
+	return ppl$_invsemini;
+    end;
+
+!+
+! Prepare proto for creating the name if it does not exist.
+!-
+ch$fill (0, csb_s_bln, proto[base_]);
+proto[csb_l_type] = ppl$k_semaphore;
+proto[csb_w_csmax] = .sem_max;
+proto[csb_w_csval] = .sem_init;
+proto[csb_w_semval] = .sem_init;
+
+!+
+! Validate the descriptor and acquire the length.
+!+
+sem_name = 0;
+if not nullparameter (semaphore_name) then
+    (
+    semname_desc[dsc$b_dtype] = dsc$k_dtype_t;
+    semname_desc[dsc$b_class] = dsc$k_class_s;
+    str$analyze_sdesc_r1 ( semaphore_name[base_];
+				semname_desc[dsc$w_length],
+				semname_desc[dsc$a_pointer] );
+    sem_name = semname_desc[base_];
+    );
+
+
+verify_init_;
+
+
+status = ppl$$name_lookup ( sem_name[base_], sem_block, csb_s_bln, proto);
+
+!+
+! If the element already existed, be sure it's a semaphore.
+! Otherwise, it's been created with all fields initted according to proto.
+!-
+if not .status then return .status; ! Presumably, we got PPL$_INSVIRMEM
+
+if .status eql ppl$_created then
+    status = ppl$_normal
+
+else	!.STATUS EQL PPL$_NORMAL - means it was found, but not created
+    (
+    if (.sem_block[csb_l_type] neq ppl$k_semaphore) then
+	return ppl$_incompexi;
+    status = ppl$_elealrexi;
+    );
+
+!+
+! Ensure that the EID is correctly initialized before we return.
+!-
+eid = .sem_block - ppl$$gl_pplsect[base_];
+if (.sem_block[csb_l_eid] neq .eid) then
+    begin
+    if .sem_block[csb_l_eid] eql 0 then
+	sem_block[csb_l_eid] = .eid
+    else
+	ppl_signal_(ppl$_badlogic);
+    end;
+
+semaphore_id[0] = .eid;
+
+
+return .status;
+
+end;	!ppl$create_semaphore
+
+
+
+END	! End of module PPL$CRESEM
+ELUDOM

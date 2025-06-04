@@ -1,0 +1,856 @@
+	.TITLE	SD	Set Default
+	.IDENT	/01-007/
+;========================================================================
+;=									=
+;=	Programmer:	Hunter Goatley, Western Kentucky University	=
+;=			goathunter@WKUVX1.WKU.EDU			=
+;=			Copyright © 1994, MadGoat Software.		=
+;=	Program:	SD.MAR						=
+;=	Purpose:	Improved SET DEFAULT command			=
+;=	System:		VAX 11/750  VAX/VMS v4.5			=
+;=	Date:		14-MAR-1987					=
+;=									=
+;========================================================================
+;=									=
+;=	This program allows easy default setting and keeps track of	=
+;=	the last ten default directory settings.  The command format	=
+;=	was inspired by the DECUS submission SD.COM and SD.FOR by	=
+;=	Alan Zirkle, NSWC,  October 22, 1984.				=
+;=									=
+;=	Associated files:   SD.HLB  and  SD.DOC				=
+;=									=
+;=   Modified by:							=
+;=									=
+;=	01-007		Hunter Goatley		 1-JUL-1993 08:30	=
+;=		Ported to OpenVMS AXP.  It really should be rewritten,	=
+;=		but since it's working....				=
+;=									=
+;=	01-006		Hunter Goatley		15-MAY-1990 14:28	=
+;=		Added call to LIB$DO_COMMAND to execute setup .COM 	=
+;=		upon entering a directory.				=
+;=									=
+;=	01-005		Hunter Goatley		 3-APR-1989 13:26	=
+;=		Modified so that "-" was an acceptable character in	=
+;=		directory names.					=
+;=									=
+;=	01-004		Hunter Goatley		 9-SEP-1987		=
+;=		Fixed bug in MAIN_OR_LOG.  A ":" was being written	=
+;=		into the buffer, writing over the character already	=
+;=		there.  Now the characters are moved over one before	=
+;=		the ":" is placed in the buffer.  Also added "-" to	=
+;=		LOOK macro.						=
+;=									=
+;=	01-003		Hunter Goatley		 4-MAY-1987		=
+;=		Added SWAP_STACK to swap stack entries 0 & 1 if user	=
+;=		specified "$ SD #"; changed CHANGED flag to accomodate	=
+;=		CHANGE without stack UPDATE.				=
+;=									=
+;=	01-002		Hunter Goatley		23-APR-1987		=
+;=		Removed restrictions on parameter specification		=
+;=		(blanks are no longer required to separate command	=
+;=		parameters).  Changed function of @, added %.		=
+;=									=
+;=	01-001		Hunter Goatley		14-MAR-1987		=
+;=		Original version.					=
+;=									=
+;========================================================================
+;
+;  Define ALPHA if R22 is a register and not a symbol
+;
+	.NTYPE	...IS_IT_ALPHA,R22		;Get the type of R22
+	...IS_IT_ALPHA = <...IS_IT_ALPHA@-4&^XF>-5
+	.IIF EQ,...IS_IT_ALPHA,	ALPHA=1
+
+	.LIBRARY	/SYS$LIBRARY:LIB.MLB/	; For $UAFDEF
+	$UAFDEF					; Include SYSUAF symbols
+	$LNMDEF					; Include LNM symbols
+	$HLPDEF					; Include HELP symbols
+	$RMSDEF					; Include RMS symbols
+	$FABDEF					; Include FAB symbols
+	$NAMDEF					; Include NAM symbols
+ESC=27
+BEL=7
+CR=13
+LF=10
+STACK_NUM = 9				; Number of stack entries maintained
+SD_M_CHANGED = 1			; Mask for CHANGED only
+SD_M_UPDATE = 2				; Mask for UPDATE only
+SD_V_UPDATE = 1				; Bit position of UPDATE STACK flag
+SD_M_UPDCHG = 3				; Mask for CHANGED and UPDATE
+
+	.MACRO	ON_ERR	DEST,?HERE
+	BLBS	R0,HERE
+	BRW	DEST
+HERE:	.ENDM	ON_ERR
+
+	.MACRO	LOOK	LEN,ADDR,?LABEL,?LOOP
+	MOVZWL	LEN,R0			; Get the length
+	DECL	R0			; Adjust length to look at next byte
+	MOVAB	ADDR,R1			; Get the address
+	INCL	R1			; Start looking at the next byte
+LOOP:	CMPB	#^A/^/,(R1)		; Is it a "^"?
+	BEQL	LABEL			; Yes - found it
+	CMPB	#^A/>/,(R1)		; Is it a ">"?
+	BEQL	LABEL			; Yes - found it
+	CMPB	#^A/#/,(R1)		; Is it a "#"?
+	BEQL	LABEL			; Yes - found it
+;	CMPB	#^A/-/,(R1)		; Is it a "-"?
+;	BEQL	LABEL			; Yes - found it
+	CMPB	#^A/[/,(R1)		; Is it a "["?
+	BEQL	LABEL			; Yes - found it
+	CMPB	#^A/</,(R1)		; Is it a "<"?
+	BEQL	LABEL			; Yes - found it
+	CMPB	#^A/ /,(R1)		; Is it a " "?
+	BEQL	LABEL			; Yes - found it
+	INCL	R1			; Bump pointer
+	SOBGTR	R0,LOOP			; Branch until no more
+LABEL:	TSTL	R0			; Test R0
+	.ENDM	LOOK
+
+	.MACRO	BRWRSB	DEST
+.IF DEFINED ALPHA
+	BSBW	DEST
+	RSB
+.IFF
+	BRW	DEST
+.ENDC
+	.ENDM	BRWRSB
+
+	.MACRO	JSB_ENTRY
+.IF DEFINED ALPHA
+	.JSB_ENTRY	INPUT=<R6,R7,R8,R9,R10,R11>,-
+			OUTPUT=<R6,R7,R8,R9,R10,R11>,-
+			SCRATCH=<R0,R1,R3,R4,R5>
+.ENDC
+	.ENDM	JSB_ENTRY
+
+
+	.MACRO	IF_CHAR	CHAR,DEST,?HERE
+.IF DEFINED ALPHA
+	CMPB	#^A/CHAR/,(R7)			; Is the first char = CHAR?
+	BNEQ	HERE				; Branch if not
+	BSBW	DEST				; Branch to the subroutine
+	RSB					; And return
+.IFF
+	CMPB	#^A/CHAR/,(R7)			; Is the first char = CHAR?
+	BNEQ	HERE				; No - continue on
+	BRW	DEST				; Yes - go handle it
+.ENDC
+HERE:	.ENDM	IF_CHAR
+
+	.MACRO	GET_DEFAULT_DIR
+	MOVW	#MAXDIR_L,DEFDIR_D
+	CALLG	GDEFDIR,G^SYS$SETDDIR		; Get it
+	.ENDM	GET_DEFAULT_DIR
+
+	.MACRO	SET_DEFAULT_DIR
+	CALLG	SDEFDIR,G^SYS$SETDDIR		; Set it
+	.ENDM	SET_DEFAULT_DIR
+
+	.MACRO	GET_SYMBOL	SYMNAM,DEST
+	PUSHAL	SYM_TABLE		; Push the address of table-id (global)
+	PUSHAW	DEST			; Set new length in DEST
+	PUSHAQ	DEST			; Push the address of the return desc
+	PUSHAQ	SYMNAM			; Push the desc addr of the symbol
+	CALLS	#4,G^LIB$GET_SYMBOL		; Get the symbol
+	.ENDM	GET_SYMBOL
+
+	.MACRO	SET_SYMBOL	SYMNAM,SRC
+	PUSHAL	SYM_TABLE		; Push the address of table-id (global)
+	PUSHAQ	SRC			; Push the address of the source desc
+	PUSHAQ	SYMNAM			; Push the desc addr of the symbol
+	CALLS	#3,G^LIB$SET_SYMBOL	; Set it
+	.ENDM	SET_SYMBOL
+
+	.MACRO	GET_DEFAULT_DEV
+	$TRNLNM_S -			; Translate SYS$DISK (get equivalence
+		TABNAM=TABLE_NAME, -	;    string for SYS$DISK)
+		LOGNAM=SYSDISK_D, -	; ...
+		ITMLST=TRNLNM_LIST	; ...
+	MOVW	DEFDEV_L,DEFDEV_D	; Set (in desc) length of equivalence
+	.ENDM	GET_DEFAULT_DEV
+
+	.MACRO	COPYDEF	COPY_LOC
+	MOVC3	DEFDEV_D,(R11),COPY_LOC	; Copy the default device spec
+	MOVC3	R8,(R9),(R3)		; Copy the default directory spec
+	ADDW3	DEFDEV_D,R8,COPY_LOC'_D	; Set the length in the descriptor
+	.ENDM	COPYDEF
+
+	.MACRO	GET_SD_SP
+	PUSHAL	SYM_TABLE		; Push the address of table-id (global)
+	PUSHAW	SD_SP_RET		; Set new length in SD_SP_RET
+	PUSHAQ	SD_SP_RET		; Push the address of the return desc
+	PUSHAQ	SD_SP_D			; Push the desc addr of the symbol
+	CALLS	#4,G^LIB$GET_SYMBOL	; Get it
+	.ENDM	GET_SD_SP
+
+	.PSECT	SD_DATA,NOEXE,WRT,LONG
+MAXDIR_L = UAF$S_DEFDEV+UAF$S_DEFDIR
+SYSDISK_D:
+	.ASCID	/SYS$DISK/
+	.ALIGN	LONG
+TABLE_NAME:				; Logical name table to search for 
+	.ASCID	/LNM$PROCESS_TABLE/	;    SYS$DISK equivalence string
+	.ALIGN	LONG
+TRNLNM_LIST:				; Item list for $TRNLNM service
+	.WORD	MAXDIR_L		; ...  Length of EQUIV buffer
+	.WORD	LNM$_STRING		; ...  Get the equiv string
+	.ADDRESS DEFDEV			; ...
+	.ADDRESS DEFDEV_L		; ...
+	.LONG	0			; End of TRNLNM item list
+DEFDEV_D:
+	.LONG	UAF$S_DEFDEV
+	.ADDRESS DEFDEV
+DEFDEV:					; Buffer to hold SYS$DISK equivalence
+	.BLKB	MAXDIR_L		;    string
+     	.ALIGN	LONG
+DEFDEV_L:				; Buffer to hold length of equivalence
+	.LONG	0			;    string returned
+DEFDIR_D:	       			; Descriptor for block to
+	.LONG	MAXDIR_L		; ...  receive the default
+	.ADDRESS DEFDIR			; ...  directory string
+DEFDIR:	.BLKB	MAXDIR_L		; The buffer itself
+	.ALIGN	LONG
+ORIGDEF_D:				; Buffer that holds a copy of the
+	.LONG	MAXDIR_L		; ... complete default spec
+	.ADDRESS ORIGDEF		; ... (Both device AND directory)
+ORIGDEF:.BLKB	MAXDIR_L		; ... Used to test if spec is different
+	.ALIGN	LONG
+FOR_BUFF_D:				; Buffer for the command line
+	.LONG	256			; ...  returned by LIB$GET_FOREIGN
+	.ADDRESS FOR_BUFF		; ...
+FOR_BUFF:				; ...
+	.BLKB	256			; ...
+	.ALIGN	LONG
+FAO_STR:.ASCID	\  !AS!AS\		; FAO control string for SHOWing default
+	.ALIGN	LONG
+FAO_OUT_L:				; Length of $FAO output string
+	.WORD	0			; ...
+	.ALIGN	LONG			; ...
+FAO_OUT_D:				; $FAO output buffer
+	.LONG	MAXDIR_L		; ...
+	.ADDRESS .+4			; ...
+	.BLKB	MAXDIR_L		; ...
+	.ALIGN	LONG
+SHOW_STACK:				; Flag indicating whether or not
+	.LONG	0			; ...  the stack is to be displayed
+CHANGED:				; Flag indicating if default was changed
+	.LONG	0			; ...
+NOT_THERE:				; "Unknown error" message.
+	.ASCID	/Unknown error./	; ...
+	.ALIGN	LONG
+SYSLOGIN:				; Logical = login device (used if
+	.ASCIC	/SYS$LOGIN:/		; ...  $ SD .)
+	.ALIGN	LONG
+HELP_FLAGS:
+	.LONG	HLP$M_PROMPT
+HELP_LIB_D:
+	.ASCID	/MADGOAT_SD_HLB/
+	.ALIGN	LONG
+DNF_MSG:.ASCID	<BEL>\!/\<ESC>\[1;7m  No such directory !AD on !AD  \<ESC>\[m!/\
+	.ALIGN	LONG
+DNR_MSG:.ASCID	<BEL>\!/\<ESC>\[1;7m  Device !AD not available  \<ESC>\[m!/\
+	.ALIGN	LONG
+DIR_MSG:.ASCID	<BEL>\!/\<ESC>\[1;7m  Invalid directory spec: !AD  \<ESC>\[m!/\
+;++++++++++++++
+	.ALIGN	LONG
+CHKFAB:	$FAB	FOP=NAM, -		; File Access Block used to $PARSE the
+		NAM=CHKNAM, -		; ...  various directory specs
+		FNA=DEFDIR		; ...
+CHKNAM:	$NAM	ESA=PAREXP, -		; NAMe block used by $PARSE
+		ESS=NAM$C_MAXRSS	; ...
+PAREXP:	.BLKB	NAM$C_MAXRSS		; Buffer that holds EXPanded $PARSEd str
+
+	.ALIGN	LONG
+TESTSPEC_D:				; Work buffer for various default
+	.LONG	NAM$C_MAXRSS		; ...  device/directory specs
+	.ADDRESS .+4	    		; ...  (Used for final $PARSE and
+TESTSPEC:				; ...   storage of STACK specs)
+	.BLKB	NAM$C_MAXRSS		; ...
+;--------------
+	.ALIGN	LONG
+SLOT_SPEC_D:				; Work descriptor for swapping entries
+	.LONG	NAM$C_MAXRSS		; ...
+	.ADDRESS PAREXP			; ...
+SYM_TABLE:	.LONG	LIB$K_CLI_GLOBAL_SYM	; Global symbol table-id
+	.ALIGN	LONG
+ZERO_D:	.ASCID	/0/			; Initial Stack Pointer value
+	.ALIGN	LONG
+SD_SP_D:.ASCID	/SD_SP/			; SD Stack Pointer (global symbol)
+	.ALIGN	LONG
+SD_SP_RET:				; Buffer for current SD_SP value
+	.ASCID	/    /
+	.ALIGN	LONG
+SLOT_D:	.ASCID	/SD_SLOT0/		; Symbol name for Stack entries
+	.ALIGN	LONG
+SLOT1_D:.ASCID	/SD_SLOT0/		; Stack entry symbol name used in SWAP
+	.ALIGN	LONG
+STACK_MSG:				; Message for showing stack
+	.ASCID	<LF>/  /<ESC>/[7m SD's Directory stack /<ESC>/[m/<CR><LF>
+	.ALIGN	LONG
+FAO_STACK:				; $FAO string for showing stack
+	.ASCID	/#!ZB  !AS/		; ...
+	.ALIGN	LONG
+NULL:	.ASCID	//			; Null - used to print blank line
+	.ALIGN	LONG
+HIDDEN:	.LONG	0			; Indicates hidden directory
+
+GDEFDIR:	.LONG	3			; Argument list to get DDIR
+		.LONG	0			; Don't want to change it
+		.ADDRESS DEFDIR_D		; Return length to DEFDIR_D
+		.ADDRESS DEFDIR_D		; Return address is DEFDIR_D
+
+SDEFDIR:	.LONG	1			; Argument list to set DDIR
+		.ADDRESS DEFDIR_D		; Descriptor for new default
+
+EXECUTE_COM:	.LONG	1			; LIB$DO_COMMAND argument list
+		.ADDRESS 10$			; ...  Command to execute
+	.ALIGN	LONG
+	10$:	.ASCID	\$ if f$search("SD_ENTER.COM").nes."" then @SD_ENTER.COM\
+
+;===============================================================================
+;
+	.PSECT	SD,EXE,NOWRT,LONG	;
+	.ENTRY	SD,^M<>	    		;
+	PUSHAW	FOR_BUFF_D		; The number of bytes returned
+	PUSHL	#0
+	PUSHAQ	FOR_BUFF_D		; Foreign buffer
+	CALLS	#3,G^LIB$GET_FOREIGN	; Get the username spcified
+					;
+	GET_DEFAULT_DEV			; Get the current default directory
+	GET_DEFAULT_DIR			; Get the current default directory
+	CLRL	R10			; Clear length of DEFDEV
+	MOVAB	DEFDEV,R11		; Initialize pointer to DEFDEV
+	MOVZWL	DEFDIR_D,R8		; R8 = length of current default dir
+	MOVL	DEFDIR_D+4,R9		; R9 -> current directory spec
+	COPYDEF	ORIGDEF			; Copy the default spec for comparison
+					;
+	GET_SD_SP			; Get the symbol SD_SP (stack pointer)
+	CMPL	#LIB$_NOSUCHSYM,R0	; Has SD_SP been defined yet?
+	BNEQU	10$			; No -- initialize the stack
+	BSBW	INIT_STACK		; Init stack if first run
+ 10$:	CMPB	#^A/?/,FOR_BUFF		; Give HELP?
+	BNEQ	20$			; No - go process the other parameters
+	PUSHAL	G^LIB$GET_INPUT		; Yes - call LBR$OUTPUT_HELP to get
+	PUSHAL	HELP_FLAGS		; ...  the HELP.
+	PUSHAQ	HELP_LIB_D		; ...  To get HELP, only SD ? is valid
+	CLRL	-(SP)			; ...  (the "?" must be the first param;
+	CLRL	-(SP)			; ...   if it not the only param, the
+	PUSHAL	G^LIB$PUT_OUTPUT	; ...   others are ignored).
+	CALLS	#6,G^LBR$OUTPUT_HELP	; ...
+	BRW	BYE			; Return to VMS (ignore other params)
+ 20$:
+CMD_LOOP:
+	MOVZWL	FOR_BUFF_D,R6		; Get the length of the command line
+   	BEQL	SHOW_DEFAULT		; If 0, go show the default directory
+	MOVL	FOR_BUFF_D+4,R7		; Get the command line buffer addr
+	LOOK	R6,(R7)			; Look for the separators
+;	LOCC	#^A/ /,R6,(R7)		; Find blank separating parameters
+	BEQL	10$			; If not found, ????
+	SUBL2	R0,R6			; R6 = length of 1st parameter now
+	CMPB	#^A/ /,(R1)		; If the separator was a blank, do not
+	BNEQ	10$			; ...  include it in the remaining
+	DECL	R0			; ...  part of the command line
+	INCL	R1			; ...
+ 10$:	MOVW	R0,FOR_BUFF_D		; Store the remaining length in desc
+	MOVL	R1,FOR_BUFF_D+4		; Save the address of the next param
+; Here:  R7 -> beginning of parameter, R6 = length of parameter
+ 20$:	BSBW	PROC_PARAMS		; Go process the parameters
+	BRB	CMD_LOOP		; Go get the next parameter
+					;
+SHOW_DEFAULT:
+	TSTL	CHANGED			; Do we need to change anything?
+	BNEQ	20$			; Yes - change it
+ 	TSTL	SHOW_STACK		; List the stack instead of showing
+	BEQLU	10$			; ...  the default?
+	BRW	80$			; Yes - just go show the stack
+ 10$:	BRW	60$			; No -- just show the default
+ 20$:	MOVAB	TESTSPEC,R3		; Get $PARSE test buffer address
+	MOVL	R3,CHKFAB+FAB$L_FNA	; Set the proper address in CHKFAB
+	TSTL	R10			; Do we have a new device?
+	BEQL	30$			; No - take the current device
+	MOVC3	R10,(R11),(R3)		; Yes - move it to the test buffer
+ 30$:	MOVC3	R8,(R9),(R3)		; Move the DEFDIR to the test buffer
+	ADDL3	R8,R10,R0		; Get the total length of the test str
+	MOVB	R0,CHKFAB+FAB$B_FNS	; Set the length in CHKFAB
+	$PARSE	FAB=CHKFAB		; Parse the directory spec
+	BLBS	R0,40$			; OK?  Yes - go SET and SHOW it
+	BRW	ERROR			; No - handle the error
+ 40$:	TSTL	R10			; Once again:  do we have a new device?
+	BEQL	50$			; No - just set the default directory
+	MOVW	R10,DEFDEV_D		; Set up the descriptor for DEFDEV
+	MOVL	R11,DEFDEV_D+4		; ...
+	PUSHAQ	DEFDEV_D		; Set SYS$DISK = DEFDEV
+	PUSHAQ	SYSDISK_D		; ...
+	CALLS	#2,G^LIB$SET_LOGICAL	; ...
+
+ 50$:	MOVW	R8,DEFDIR_D		; Set up DEFDIR descriptor
+	MOVL	R9,DEFDIR_D+4		; ...
+   	CLRL	-(SP)			; Set the new default directory spec
+	CLRL	-(SP)			; ...
+	PUSHAQ	DEFDIR_D		; ...
+	CALLS	#3,G^SYS$SETDDIR	; ...
+     	ON_ERR	ERROR			; Error?
+ 60$:	$FAO_S 	CTRSTR=FAO_STR, -	; Format the output string
+		OUTLEN=FAO_OUT_L, -	; ...
+		OUTBUF=FAO_OUT_D, -	; ...
+		P1=#DEFDEV_D, -		; ...
+		P2=#DEFDIR_D		; ...
+	BLBC	R0,70$			; Error?  Exit if so
+	MOVW	FAO_OUT_L,FAO_OUT_D	; Set FAO output string length in desc.
+	PUSHAQ	FAO_OUT_D		; Print it
+	CALLS	#1,G^LIB$PUT_OUTPUT	; ...
+	TSTL	CHANGED			; Was the spec changed?
+	BEQL	70$			; No - do nothing
+	BSBW	UPDATE_STACK		; Yes - update the stack
+ 70$:	TSTL	SHOW_STACK		; Should we show the stack?
+	BEQL	BYE			; No - exit back to VMS
+ 80$:	BSBW	LIST_STACK		; Yes - do it
+BYE:	BBC	#SD_V_UPDATE,CHANGED,10$	; Don't execute if no update	01-006
+	CALLG	EXECUTE_COM,G^LIB$DO_COMMAND	; Execute setup .COM		01-006
+ 10$:	$EXIT_S				; Return to VMS
+
+ERROR:	CMPL	#RMS$_DNF,R0		; Was the directory found?
+	BEQLU	10$			; Yes - continue on
+	BRW	20$
+ 10$:	MOVAB	PAREXP,R2		; Get the device spec
+	MOVZBL	CHKNAM+NAM$B_ESL,R0	; Get the length of the expanded str
+	LOCC	#^A/:/,R0,(R2)		; Look for the ":" (end of device spec)
+	INCL	R1			; Want to include ":" in length
+	SUBL2	R2,R1			; R1 = length of device spec
+	$FAO_S	CTRSTR=DNF_MSG, -	; Format "No such directory" message
+		OUTLEN=FAO_OUT_L, -	; ...
+		OUTBUF=FAO_OUT_D, -	; ...
+		P1=R8, -		; ...
+		P2=R9, -		; ...
+		P3=R1, -		; ...
+		P4=R2			; ...
+	MOVW	FAO_OUT_L,FAO_OUT_D	; Set length in output descriptor
+	PUSHAQ	FAO_OUT_D   		; Print the message
+	CALLS	#1,G^LIB$PUT_OUTPUT	; ...
+	BRW	70$
+ 20$:	CMPL	#RMS$_DNR,R0		; Is the device ready?
+	BEQLU	30$			; No - print error message
+	CMPL	#RMS$_DEV,R0		; Is the device ready?
+	BEQLU	30$			; No - print error message
+	BRW	40$			; Yes - continue on
+ 30$:	MOVAB	PAREXP,R2		; Get the device spec
+	MOVZBL	CHKNAM+NAM$B_ESL,R0	; Get the length of the expanded str
+	LOCC	#^A/:/,R0,(R2)		; Look for the ":" (end of device spec)
+	INCL	R1			; Want to include ":" in length
+	SUBL2	R2,R1			; R1 = length of device spec
+	$FAO_S	CTRSTR=DNR_MSG, -	; Format "No such directory" message
+		OUTLEN=FAO_OUT_L, -	; ...
+		OUTBUF=FAO_OUT_D, -	; ...
+		P1=R1, -		; ...
+		P2=R2			; ...
+	MOVW	FAO_OUT_L,FAO_OUT_D	; Set length in output descriptor
+ 	PUSHAQ	FAO_OUT_D		; Print the message
+	CALLS	#1,G^LIB$PUT_OUTPUT	; ...
+	BRW	70$
+ 40$:	CMPL	#RMS$_DIR,R0		; Was the directory spec valid?
+	BEQLU	50$			; No - print error message
+	CMPL	#RMS$_SYN,R0		; Was the directory spec valid?
+	BEQLU	50$			; No - print error message
+	BRW	60$			; Yes - continue on
+ 50$:	$FAO_S	CTRSTR=DIR_MSG, -	; Format "No such directory" message
+		OUTLEN=FAO_OUT_L, -	; ...
+		OUTBUF=FAO_OUT_D, -	; ...
+		P1=R8, -		; ...
+		P2=R9			; ...                                 
+	MOVW	FAO_OUT_L,FAO_OUT_D	; Set length in output descriptor
+	PUSHAQ	FAO_OUT_D		; Print the message
+	CALLS	#1,G^LIB$PUT_OUTPUT	; ...
+	BRW	70$
+ 60$:
+
+ 	PUSHAQ	NOT_THERE		; If here -- "Unknown error"
+	CALLS	#1,G^LIB$PUT_OUTPUT	; Print message
+ 70$:	RET				; Return to VMS
+
+PROC_PARAMS:
+	JSB_ENTRY
+	IF_CHAR	<.>,DOWN		; If subdir is given, try to go down
+	IF_CHAR	<^>,UP			; If ^ is given, go up one level
+	IF_CHAR	<->,UP			; If - is given, go up one level
+	IF_CHAR	<#>,BACK_STACK		; If #number is given, get from stack
+	IF_CHAR	<@>,TOP			; If @, goto the TOP
+	IF_CHAR	<%>,STACK_CURRENT	; If @, push current def onto the stack
+;
+;  Handle the various ways of specifying a main directory spec
+;
+	CMPB	#^A/[/,(R7)		; Is there a square bracket? [WHG]
+	BNEQ	10$			; No -- continue on
+	MOVZBL	#^A/]/,R0		; Move the closing bracket to R0
+	BRWRSB	NEW_ANGLE		; Yes - go handle it
+ 10$:	CMPB	#^A/</,(R7)		; Is there an angle bracket? <WHG>
+	BNEQ	20$			; No -- continue on
+	MOVZBL	#^A/>/,R0		; Move the closing bracket to R0
+	BRWRSB	NEW_ANGLE		; Yes - go handle it
+ 20$:	CMPB	#^A/_/,(R7)		; Check to see if the first character
+	BEQL	40$			; ...  may be part of a directory spec
+ 	CMPB	#^A/$/,(R7)		; ...  or logical (character is "_",
+	BEQL	40$			; ...  "$", or an alphanumeric)
+	CMPB	#^A/A/,(R7)		; Check for alphabetic character
+	BGTR	30$			; If < "A", not alpha
+	CMPB	#^A/Z/,(R7)		; If > "Z", not alpha
+	BGEQ	40$			; ...
+ 30$:	CMPB	#^A/0/,(R7)		; Check for numeric
+	BGTR	50$			; If < "0", not numeric
+ 	CMPB	#^A/9/,(R7)		; If > "9", not numeric
+	BLSS	50$			; ...
+ 40$:	BRWRSB	MAIN_OR_LOG		; It is either a main spec or a logical
+ 50$:	CMPB	#^A/>/,(R7)		; Do we go over?
+	BNEQ	60$			; No - go on
+	BRWRSB	OVER			; Yes - move over to the new directory
+ 60$:
+ 70$:	;New commands go here
+	CMPB	#^A/*/,(R7)		; Does the user want to show the stack?
+	BNEQU	80$			; No - skip it
+	MOVL	#1,SHOW_STACK		; Set SHOW_STACK flag & do it later
+					; ...(after processing all other params)
+ 80$:	RSB
+;
+STACK_CURRENT:				; Update stack with current default
+	JSB_ENTRY
+	BSBW	UPDATE_IMMED		; (Useful if SET DEFAULT is used and
+	RSB				; ... the stack is no longer up-to-date)
+NEW_ANGLE:
+	JSB_ENTRY
+	CMPB	#^A/./,1(R7)		; Is the parameter "[.sub]"?
+	BNEQ	20$			; No - handle the new spec
+	DECL	R6			; Don't count the leading bracket
+	CMPB	R0,(R7)[R6]		; Was the closing bracket given?
+	BNEQ	10$			; No - don't include first
+	DECL	R6			; Yes - don't count the last bracket
+ 10$:	INCL	R7			; Ignore the leading bracket
+	BRWRSB	DOWN			; Go move down a level(s)
+ 20$:	MOVL	#SD_M_UPDCHG,CHANGED	; Set CHANGED flag
+	CMPB	R0,-1(R7)[R6]		; Was the closing bracket given?
+    	BEQL	30$			; Yes - continue on
+	MOVB	R0,(R7)[R6]		; No - put it in
+	INCL	R6			; Bump length
+ 30$:	CMPB	#^A/./,-2(R7)[R6]	; Is it a hidden directory?  [SYS0.]
+	BNEQU	40$			; No - go make it a main
+	MOVL	#1,HIDDEN		; Set hidden flag
+	MOVC3	R6,(R7),(R9)		; Write over the current DEFDIR
+	MOVL	R6,R8			; The new length
+	BRB	60$			; Return
+ 40$:	BBCC	#0,HIDDEN,50$		; If previous was hidden, handle it
+	ADDL3	R8,R9,R0		; Get address of end of DEFDIR
+	MOVC3	R6,(R7),(R0)		; Copy the parameter to DEFDIR
+	SUBL3	R9,R3,R8		; R8 = length of DEFDIR
+	BRB	60$			; ....  Now have [SYS0.][SYSEXE]
+ 50$:	MOVC3	R6,(R7),(R9)		; Write over the current DEFDIR
+	MOVL	R6,R8			; The new length
+ 60$:	RSB
+
+MAIN_OR_LOG:
+	JSB_ENTRY
+	MOVL	#SD_M_UPDCHG,CHANGED	; Set CHANGED flag
+	LOCC	#^A/:/,R6,(R7)		; Was a device or logical given?
+	BNEQ	40$			; If there was, $PARSE it!
+	TSTW	FOR_BUFF_D		; Is there any more string left?
+	BEQLU	20$			; No - go move the colon in
+	CMPB	#^A/ /,(R7)[R6]		; No -- put one there and try it
+	BEQLU	20$
+	MOVQ	R0,-(SP)		; Save R0 and R1
+	MOVL	R7,R1			; Copy address of current byte in buffer
+	ADDL2	R6,R1			; Point to beginning of next
+	MOVZWL	FOR_BUFF_D,R0		; Now get the length
+	ADDL2	R0,R1			; R1 now points one byte past end of buff
+	INCL	R1
+ 10$:	MOVB	-(R1),1(R1)		; Move each byte over one place
+	SOBGEQ	R0,10$			; Loop until done
+	MOVAB	1(R1),FOR_BUFF_D+4	; ...
+	MOVQ	(SP)+,R0		; Restore the registers
+ 20$:	MOVB	#^A/:/,(R7)[R6]		; No -- put one there and try it
+	INCL	R6			; Bump length of parameter
+	MOVL	R7,CHKFAB+FAB$L_FNA	; Set address of directory to check
+	MOVB	R6,CHKFAB+FAB$B_FNS	; Set length in FAB for $PARSE
+	$PARSE	FAB=CHKFAB		; Call $PARSE to determine if valid :
+	BLBS	R0,60$			; No error: must have been a logical
+	BSBW	TOP			; Error: make it a main spec [param]
+	DECL	R7			; Pretend (for OVER) that there is ">"
+	BSBW	OVER			; ...
+ 30$:	RSB				; Return to caller
+
+ 40$:	CMPB	#1,R0			; Is the last character a ":"?
+	BGEQU	50$			; Yes - move on
+	INCL	R1			; No - dev & dir specified - split them
+	DECL	R0			; ...  up (do device, then do directory)
+	MOVW	R0,FOR_BUFF_D		; Reset FOR_BUFF_D so that it points
+	MOVL	R1,FOR_BUFF_D+4		; ...  to the directory spec (to handle
+	SUBL2	R0,R6			; ...  SD  dev:dir  (without []))
+ 50$:	MOVL	R7,CHKFAB+FAB$L_FNA	; Set address of directory to check
+	MOVB	R6,CHKFAB+FAB$B_FNS	; Set length in FAB for $PARSE
+	$PARSE	FAB=CHKFAB		; Call $PARSE to determine if valid :
+					; We don't care if the spec is valid yet
+ 60$:	MOVZBL	CHKNAM+NAM$B_ESL,R2	; Get the length of the expanded str
+	LOCC	#^A/:/,R2,PAREXP	; Look for the ":" (end of device spec)
+	BEQL	OK			; Not there?  Big trouble!!
+	INCL	R1			; Bump pointer past ":"
+	SUBL2	#3,R0			; Don't count ":" and ".;" from ESS
+	MOVL	R0,R8			; The returned exp str will be DEFDIR
+	MOVAB	PAREXP,R0		; Get the address of the expanded string
+	SUBL3	R0,R1,R10		; R10 = length of new device spec
+	MOVC3	R10,(R0),(R11)		; Copy the device spec to DEFDEV
+	MOVC3	R8,(R1),(R9)		; Copy the ESS dir spec to DEFDEV
+OK:	RSB
+
+DOWN:
+	JSB_ENTRY
+	MOVL	#SD_M_UPDCHG,CHANGED	; Set CHANGED flag
+	CMPL	#1,R6			; Is the param length = 1? (. only)
+	BNEQ	10$			; No - go on down
+	MOVZBL	SYSLOGIN,R6		; Make the parameter SYS$LOGIN:
+	MOVAB	SYSLOGIN+1,R7		; ...  and call MAIN_OR_LOG
+	BRWRSB	MAIN_OR_LOG		; ...
+ 10$:	DECL	R8			; Decrement length (don't count end "]")
+	ADDL3	R8,R9,R0		; Get address of end of DEFDIR
+	MOVZBL	(R0),-(SP)		; Push the closing bracket onto stack
+	MOVC3	R6,(R7),(R0)		; Copy the parameter to DEFDIR
+	MOVL	(SP)+,R0		; Pop the closing bracket
+	MOVB	R0,(R3)+		; Add it to DEFDIR
+	SUBL3	R9,R3,R8		; R8 = length of DEFDIR
+;****Go check it or whatever
+	RSB
+
+UP:
+	JSB_ENTRY
+	MOVL	#SD_M_UPDCHG,CHANGED	; Set CHANGED flag
+ 10$:	ADDL3	R9,R8,R1		; R1 points to end of DEFDIR
+	MOVB	-(R1),R2		; Get the closing bracket
+ 20$:	CMPB	#^A/./,-(R1)		; Scan backwards for "."
+	BEQL	30$			; Found - go change it
+	CMPL	R9,R1			; Have we gone past the beginning
+	BLSS	20$			; ...  (No subdirectory???) Loop
+	BRB	40$
+ 30$:	MOVB	R2,(R1)+		; Move the closing bracket into place
+	SUBL3	R9,R1,R8		; Get the new length of DEFDIR
+	DECL	R6			; Remove "-" from parameter length
+	BEQL	40$			; If length is now zero return
+	CMPB	(R7)+,(R7)		; Compare the first byte w/ second
+	BEQL	10$			; If the same - move up again
+	MOVL	R7,FOR_BUFF_D+4		; If not same, start of new parameter
+	MOVW	R6,FOR_BUFF_D		; ...  Reset FOR_BUFF desc and process
+					; ...  the next char as a new parameter
+ 40$:	RSB
+
+TOP:
+	JSB_ENTRY
+	MOVL	#SD_M_UPDCHG,CHANGED	; Set CHANGED flag
+	LOCC	#^A/./,R8,(R9)		; Yes - find the first "." (subdir)
+	BEQL	10$			; If not found, already at the top level
+	MOVB	-1(R9)[R8],(R1)+	; If found, move the closing bracket in
+	SUBL3	R9,R1,R8		; Get the new length of DEFDIR
+ 10$:
+	RSB
+
+OVER:
+	JSB_ENTRY
+	MOVL	#SD_M_UPDCHG,CHANGED	; Set CHANGED flag
+	INCL	R7			; Don't count ">"
+	DECL	R6			; ...
+	ADDL3	R9,R8,R1		; R1 points to end of DEFDIR
+	MOVZBL	-(R1),-(SP)		; Push the closing bracket
+ 10$:	CMPB	#^A/./,-(R1)		; Scan backwards looking for .
+	BEQL	20$			; If found, last subdir -- replace
+	CMPL	R9,R1			; If not, have we run out of DEFDIR?
+	BLSS	10$			; No - loop
+ 20$:	INCL	R1			; Bump over "[" or "."
+	MOVC3	R6,(R7),(R1)		; Copy the parameter in after "[" or "."
+	MOVL	(SP)+,R0		; Get the saved closing bracket
+	MOVB	R0,(R3)+		; Move it back into the buffer
+	SUBL3	R9,R3,R8		; The new length of DEFDIR
+ 	RSB
+
+BACK_STACK:
+	JSB_ENTRY
+	CMPB	#2,R6			; Is the parameter only #number < 10?
+	BEQL	30$			; Yes -- param is only 2 digits
+	BGTR	10$			; If < 2, it must be one character (#)
+	BRW	50$			; If neither, error
+ 10$:	TSTW	FOR_BUFF_D		; Is there no more command line?
+	BNEQU	20$			; False - pretend #1 was given
+	BRWRSB	SWAP_STACK		; True - "$ SD #" was the command - swap
+ 20$:	MOVB	#^A/1/,1(R7)		; Pretend #1 was given
+	INCL	R6			; ...
+;Handle the error!!
+ 30$:	INCL	R7			; Bump parameter pointer
+	MOVZBL	(R7),R0			; Get the stack number to test
+	SUBL2	#^A/0/,R0		; Make it non-ASCII
+	BLSS	50$			; If < 0, error
+	CMPL	#STACK_NUM,R0		; If > STACK_NUM, error
+	BLSS	50$			; ...
+	MOVZBL	SD_SP_RET+8,R1		; Get the ASCII Stack pointer
+	SUBB2	#^A/0/,R1		; Make it non-ASCII
+	SUBL2	R0,R1			; Get stack position # (SD_SP - #)
+	BGEQ	40$			; If not negative, have stack position
+	ADDL2	#STACK_NUM+1,R1		; If negative, add STACK_NUM+1 --> pos
+ 40$:	ADDB3	R1,#^A/0/,SLOT_D+15	; Make it ASCII and put in SLOT_D
+	MOVL	#SD_M_UPDCHG,CHANGED	; Set the CHANGED flag
+	GET_SYMBOL -			; Get the equivalence string for the
+		SLOT_D,TESTSPEC_D	; ...  symbol
+    	CMPL	#LIB$_NOSUCHSYM,R0	; Has SD_SP been defined yet?
+	BEQLU	50$			; No -- initialize the stack
+	LOCC	#^A/:/,TESTSPEC_D,TESTSPEC	; Look for the ":" (end of device spec)
+	BEQL	50$			; Not there?  Big trouble!!
+	INCL	R1			; Bump pointer past ":"
+	DECL	R0			; Don't count ":" from symbol
+	MOVL	R0,R8			; The returned exp str will be DEFDIR
+	MOVAB	TESTSPEC,R0		; Get the address of the value string
+	SUBL3	R0,R1,R10		; R10 = length of new device spec
+	MOVC3	R10,(R0),(R11)		; Copy the device spec to DEFDEV
+	MOVC3	R8,(R1),(R9)		; Copy the directory spec to DEFDEV
+ 50$:	RSB				; Return to caller
+;
+;  SWAP_STACK  - swap stack entries 0 & 1  (used only when  $ SD #  is given)
+;
+SWAP_STACK:
+	JSB_ENTRY
+	MOVL	#SD_M_CHANGED,CHANGED	; Set CHANGED flag (but no update)
+	MOVZBL	SD_SP_RET+8,R1		; Get the ASCII Stack pointer
+	MOVB	R1,SLOT1_D+15		; Set SD_SLOT1 # = SD_SP
+	PUSHL	R1			; Save the slot number for a second
+	GET_SYMBOL -			; Get the equivalence string
+		SLOT1_D,SLOT_SPEC_D	; ...
+	MOVL	(SP)+,R1		; Get the slot number again
+	SUBB2	#^A/0/,R1		; Make it non-ASCII
+	DECL	R1			; Make it point to previous stack entry
+	BGEQ	10$			; If not negative, have stack position
+	ADDL2	#STACK_NUM+1,R1		; If negative, add STACK_NUM+1 --> pos
+ 10$:	ADDB3	R1,#^A/0/,SLOT_D+15	; Make it ASCII and put in SLOT_D
+	GET_SYMBOL -			; Get the equivalence string for the
+		SLOT_D,TESTSPEC_D	; ...  symbol
+	SET_SYMBOL -			; Swap the two stack entries
+		SLOT1_D,TESTSPEC_D	; ...
+	SET_SYMBOL -			; ...
+		SLOT_D,SLOT_SPEC_D	; ...
+	LOCC	#^A/:/,TESTSPEC_D,TESTSPEC	; Look for the ":" (end of device spec)
+	BEQL	20$			; Not there?  Big trouble!!
+	INCL	R1			; Bump pointer past ":"
+	DECL	R0			; Don't count ":" from symbol
+	MOVL	R0,R8			; The returned exp str will be DEFDIR
+	MOVAB	TESTSPEC,R0		; Get the address of the value string
+	SUBL3	R0,R1,R10		; R10 = length of new device spec
+	MOVC3	R10,(R0),(R11)		; Copy the device spec to DEFDEV
+	MOVC3	R8,(R1),(R9)		; Copy the directory spec to DEFDEV
+ 20$:	RSB				; Return to caller
+
+INIT_STACK:
+	JSB_ENTRY
+; Implicit inputs:  R11 -> DEFDEV, R8 = length of def dir, R9 -> def dir
+;		    default specs in DEFDEV and DEFDIR
+	PUSHR	#^M<R0,R1,R2,R3,R4,R5>	; Save work registers
+	COPYDEF	TESTSPEC		; Copy the def dev & dir to TESTSPEC
+ 	MOVL	#STACK_NUM+1,R3		; Initialize loop counter
+ 10$:	SET_SYMBOL -			; Set the CLI symbol
+		SLOT_D,TESTSPEC_D	; ...
+	INCB	SLOT_D+15		; Increment SD_SLOT#
+	SOBGTR	R3,10$			; Loop until stack is initialized
+	SET_SYMBOL -			; Set SD_SP = 0
+		SD_SP_D,ZERO_D		; ...
+	MOVB	#^A/0/,SD_SP_RET+8	; Set SD_SP return buffer to "0" - in
+					; ... case we need to set something
+	POPR	#^M<R0,R1,R2,R3,R4,R5>	; Restore registers
+	RSB				; Return to caller
+
+LIST_STACK:
+	JSB_ENTRY
+; Implicit inputs:  SD_SP_RET
+	PUSHR	#^M<R0,R1,R2,R3,R4,R5>	; Save work registers
+	MOVW	#MAXDIR_L,FAO_OUT_D	; Re-init the FAO_OUT desctiptor length
+	MOVW	#NAM$C_MAXRSS,TESTSPEC_D; Re-init the TESTSPEC desctriptor
+					;
+	PUSHAQ	STACK_MSG		; Print "Directory stack" message
+	CALLS	#1,G^LIB$PUT_OUTPUT	; ...
+	MOVZBL	SD_SP_RET+8,R5		; Get the ASCII Stack pointer
+	SUBB2	#^A/0/,R5		; Make it non-ASCII
+	MOVL	R5,R4			; Make a work copy of it
+	CLRL	R3			; The stack position pointer
+ 10$:	ADDB3	#^A/0/,R4,SLOT_D+15	; Set SD_SLOT#
+	GET_SYMBOL -			; Get the SD_SLOT equivalence string
+		SLOT_D,TESTSPEC_D	; ...
+	$FAO_S	CTRSTR=FAO_STACK, -	; Format the stack output string
+		OUTLEN=FAO_OUT_L, -	; ...
+		OUTBUF=FAO_OUT_D, -	; ...
+		P1=R3, -		; ...
+		P2=#TESTSPEC_D		; ...
+	MOVW	FAO_OUT_L,FAO_OUT_D	; Set length in output descriptor
+	PUSHAQ	FAO_OUT_D		; Print the message
+	CALLS	#1,G^LIB$PUT_OUTPUT	; ...
+	INCL	R3			; Bump stack #
+	MOVW	#MAXDIR_L,FAO_OUT_D	; Reset the FAO_OUT desctiptor length
+	MOVW	#NAM$C_MAXRSS,TESTSPEC_D; Reset the FAO_OUT desctiptor length
+					;
+	DECL	R4			; Decrement temporary stack pointer
+	BGEQ	20$			; If not <0, continue on
+	MOVL	#STACK_NUM,R4		; If is is <0, reset it to point to top
+ 20$:	CMPL	R4,R5			; Have we reached the top entry yet?
+	BEQL	30$			; No - loop until yes
+	BRW	10$			; ...
+ 30$:	PUSHAQ	NULL			; Print a blank line
+	CALLS	#1,G^LIB$PUT_OUTPUT	; ...
+	POPR	#^M<R0,R1,R2,R3,R4,R5>	; Restore registers
+	RSB				; Return to caller
+
+UPDATE_STACK:
+	JSB_ENTRY
+	PUSHR	#^M<R0,R1,R2,R3>	; Save registers used by CMPC3
+	BBS	#SD_V_UPDATE,CHANGED,10$	; If UPDATE flag is set, update stack
+	BRW	40$			; If it is reset, simply return
+;
+; First, check to be sure the directory spec really did change (user may have
+; been in a directory and specified that directory on command line).  If the
+; default did not REALLY change, don't update the stack.
+;
+ 10$:	MOVZBL	CHKNAM+NAM$B_ESL,R0	; Get length of final $PARSEd spec
+	SUBL2	#2,R0			; Don't count ".;"
+	CMPW	R0,ORIGDEF_D		; Is the length the same as ORIGDEF?
+	BNEQ	20$			; No - we really did change directories
+	CMPC3	R0,ORIGDEF,PAREXP	; Yes - see if new default is really
+	BNEQU	20$			; ...  the original default
+     	BRW	40$			; If the same, don't update the stack
+;
+; If here, update the stack
+;
+ 20$:	MOVZBL	SD_SP_RET+8,R1		; Get the current Stack Pointer
+	SUBL2	#^A/0/,R1		; Make it non-ASCII
+	INCL	R1			; Increment stack pointer
+	CMPL	#STACK_NUM,R1		; Have we gone past stack limit?
+	BGEQ	30$			; No - no problem
+	CLRL	R1			; Yes - start over at 0
+ 30$:	ADDB3	R1,#^A/0/,SLOT_D+15	; Set SD_SLOT#
+	MOVB	SLOT_D+15,SD_SP_RET+8	; Move current SD_SLOT# # to SD_SP_RET
+					; ...  (Updates SD_SP in memory, too)
+	SUBW2	#2,FAO_OUT_D		; Set FAO outbuff length (exclude ' ')
+	ADDL2	#2,FAO_OUT_D+4		; Make descriptor point past '  '
+	SET_SYMBOL -			; Set the SD_SLOT# CLI symbol
+		SLOT_D,FAO_OUT_D	; ...
+	SET_SYMBOL -			; Set the SD_SP stack pointer symbol
+		SD_SP_D,SD_SP_RET	; ...
+ 40$:	POPR	#^M<R0,R1,R2,R3>	; Restore registers used by CMPC3
+	RSB				; Return to the caller
+
+UPDATE_IMMED:
+	JSB_ENTRY
+; Update stack with current default device & directory specification.
+; (Useful if SET DEFAULT was used and stack is no longer accurate.)
+;
+	MOVZBL	SD_SP_RET+8,R1		; Get the current Stack Pointer
+	SUBL2	#^A/0/,R1		; Make it non-ASCII
+	INCL	R1			; Increment stack pointer
+	CMPL	#STACK_NUM,R1		; Have we gone past stack limit?
+	BGEQ	10$			; No - no problem
+	CLRL	R1			; Yes - start over at 0
+ 10$:	ADDB3	R1,#^A/0/,SLOT_D+15	; Set SD_SLOT#
+	MOVB	SLOT_D+15,SD_SP_RET+8	; Move current SD_SLOT# # to SD_SP_RET
+					; ...  (Updates SD_SP in memory, too)
+	SET_SYMBOL -			; Set the SD_SP stack pointer symbol
+		SLOT_D,ORIGDEF_D	; ...
+	SET_SYMBOL -			; Set the SD_SP stack pointer symbol
+		SD_SP_D,SD_SP_RET	; ...
+	RSB				; Return to caller
+
+	.END	SD

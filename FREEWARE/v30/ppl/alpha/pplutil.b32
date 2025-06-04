@@ -1,0 +1,571 @@
+module ppl$util (addressing_mode(external=general)) =
+begin
+!
+! COPYRIGHT (c) 1987 BY
+! DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.
+! ALL RIGHTS RESERVED.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+! ONLY  IN  ACCORDANCE  OF  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER
+! COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND  OWNERSHIP OF THE  SOFTWARE IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+
+!++
+! FACILITY:
+! 
+!   PPL - The Parallel Processing Run-Time Library
+! 
+! ABSTRACT:
+! 
+!   This module contains routines which are used in debugging.
+!
+!   Typically these routines are only referenced by code which was compiled
+!   with the VARIANT qualifier specified.  However, since this module does not
+!   significantly increase the size of the image, it is linked it regardless.
+!   
+!   Thus, if we decide to ship "production-level" code with the variants
+!   compiled in, this module must be present for the link to complete
+!   successfully.  Doing this will allow us to debug shipped code much more
+!   easily by "turning on" diagnostics.
+!
+! MODIFICATION HISTORY:
+!
+! V53-001   - Changed routine name from UTIL$OUTPUT to PPL$$OUTPUT
+! 
+! V53-002   - Added conditional compilation
+!	    - Moved EQE queue from PROC to CTX block
+!
+! V53-003   - Move init-synch barrier from PPLSECT_BLOCK to PROC_BLOCK
+!	    - Added memory arbitration barrier to PPLSECT_BLOCK1
+!	    
+! V53-004   - Removed all occurrences of local CTX
+! 
+! V57-001   - Updated dump_sect routine to match new sect fields.
+!	      PJC Feb-17-1992
+!
+! V57-002   - Remove references to alive list and to process votes.
+!	      PJC Aug-06-1993
+!
+!--
+
+!
+! TABLE OF CONTENTS:
+!
+forward routine
+    ppl$$output	    : novalue 
+    %if %variant %then	     ,
+    dump_ppl	    : novalue,	! the ppl global section
+    dump_ctx	    : novalue,	! the per process context block
+    dump_sect	    : novalue,	! one of ppl's global section descriptors
+    dump_sects	    : novalue,	! all of ppl's global section descriptors
+    dump_sem	    : novalue,	! a semaphore
+    dump_waiters    : novalue,	! who waits on a semaphore
+    dump_proc	    : novalue, 
+    dump_procs	    : novalue,
+    dump_pil	    : novalue,
+    dump_pils	    : novalue,
+    dump_name	    : novalue,	! a name in the name/id list
+    dump_event	    : novalue,	! an event
+    dump_eqe	    : novalue,	! an event queue entry
+    resume,
+    suspend 
+    %fi;
+
+!
+! INCLUDE FILES:
+!
+library	'sys$library:starlet';
+library	'sys$library:xport';
+    undeclare %quote $descriptor;
+library 'obj$:ppllib';
+require 'rtlin:rtlpsect';
+    !define plit & code psects to allow transfer vector to stay at 200
+    DECLARE_PSECTS (PPL);
+
+!
+! MACROS:
+!
+macro
+    string_d (arg) =	    !make a string_desc for a catenated list of strings
+	uplit(%charcount(%string(arg,%remaining)),
+		uplit byte(%string(arg,%remaining))) %;
+
+!
+! EXTERNAL REFERENCES:
+!
+external
+    ppl$$gl_pplsect : ref pplsect_block,
+    ppl$$gl_context : ref ctx_block;
+
+
+
+global routine ppl$$output (ctrstr, p1): novalue =
+begin
+
+external routine
+    lib$put_output;
+
+local
+	buffer:	$bblock[132],
+	desc:	vector[2];
+
+    desc[0] = %allocation(buffer);
+    desc[1] = buffer[base_];
+    $faol (ctrstr = .ctrstr, outlen=desc[0], outbuf=desc[0], prmlst=p1);
+    lib$put_output (desc[0]);
+
+end;	!ppl$$output
+
+
+
+%if %variant %then
+global routine dump_ppl : novalue =
+begin
+
+
+ppl$$output (
+    %ascid %string('!/PPLSECT: !XL!/!_type: !XL!_size: !XL',
+	    '!_prot: !XL!_mem_flags: !XL!_top_pid: !XL',
+	    '!_procs: !XW!_cur_procs: !XW!_deleted: !UB'),
+		.ppl$$gl_pplsect, .ppl$$gl_pplsect[pplsect_l_type],
+		.ppl$$gl_pplsect[pplsect_l_size],
+		.ppl$$gl_pplsect[pplsect_l_prot],
+		.ppl$$gl_pplsect[pplsect_l_mem_flags],
+		.ppl$$gl_pplsect[pplsect_l_top_pid],
+		.ppl$$gl_pplsect[pplsect_w_procs],
+		.ppl$$gl_pplsect[pplsect_w_curr_procs],
+		.ppl$$gl_pplsect[pplsect_v_deleted]);
+
+ppl$$output
+    (%ascid %string
+	('!_spawn_mutex: !UB!_spawner: !UL!_arb_barr: !XL'),
+		.ppl$$gl_pplsect[pplsect_v_spawn_mutex],
+		.ppl$$gl_pplsect[pplsect_l_spawner],
+		.ppl$$gl_pplsect[pplsect_l_arb_barr]);
+
+ppl$$output
+    (%ascid %string ('!_barrQ  - !XL!_flink/blink: !XL !XL'),
+		ppl$$gl_pplsect[pplsect_l_barr_f],
+		.ppl$$gl_pplsect[pplsect_l_barr_f],
+		.ppl$$gl_pplsect[pplsect_l_barr_b]);
+
+ppl$$output
+    (%ascid %string ('!_procsQ - !XL!_flink/blink: !XL !XL',
+		'!/!_todos  - !XL!_flink/blink: !XL !XL'),
+		ppl$$gl_pplsect[pplsect_l_procs_f],
+		.ppl$$gl_pplsect[pplsect_l_procs_f],
+		.ppl$$gl_pplsect[pplsect_l_procs_b],
+		ppl$$gl_pplsect[pplsect_l_todov_f],
+		.ppl$$gl_pplsect[pplsect_l_todov_f],
+		.ppl$$gl_pplsect[pplsect_l_todov_b]);
+
+ppl$$output (%ascid %string ('!_names!_!_!XL !XL !XL !XL'),
+	.(ppl$$gl_pplsect[pplsect_a_names] + 0),
+	.(ppl$$gl_pplsect[pplsect_a_names] + 4),
+	.(ppl$$gl_pplsect[pplsect_a_names] + 8),
+	.(ppl$$gl_pplsect[pplsect_a_names] + 12));
+
+ppl$$output (%ascid %string ('!_sectsQ - !XL!_flink/blink: !XL !XL'),
+		(ppl$$gl_pplsect[pplsect_q_sects] + 0),
+		.(ppl$$gl_pplsect[pplsect_q_sects] + 0),
+		.(ppl$$gl_pplsect[pplsect_q_sects] + 4));
+
+ppl$$output
+    (%ascid '!_page_zone:!_!XL !XL !XL !XL',
+	.(ppl$$gl_pplsect[pplsect_o_page_zone] + 0),
+	.(ppl$$gl_pplsect[pplsect_o_page_zone] + 4),
+	.(ppl$$gl_pplsect[pplsect_o_page_zone] + 8),
+	.(ppl$$gl_pplsect[pplsect_o_page_zone] + 12));
+
+
+ppl$$output (%ascid %string
+	('!_bitmap_frees: !XW!_bitmap_off: !XL!_bitmap_len: !XL'),
+		.ppl$$gl_pplsect[pplsect_w_bitmap_frees],
+		.ppl$$gl_pplsect[pplsect_l_bitmap_off],
+		.ppl$$gl_pplsect[pplsect_l_bitmap_len]);
+
+end;	!dump_ppl
+
+
+
+global routine dump_ctx : novalue =
+begin
+
+(bind	flags   = ppl$$gl_context[ctx_v_sleeping] : bitvector [8];
+
+    ppl$$output
+	(string_d('!/CTX: !XL!/',
+		    '!_inast: !UB!_initted: !UB!_sleeping: !UB'),
+		ppl$$gl_context[base_], .flags[2], .flags[1], .flags[0]);
+);
+
+ppl$$output (%ascid %string ('!_my_idx: !XL!_pid: !XL'),
+                .ppl$$gl_context[ctx_l_my_index],
+                .ppl$$gl_context[ctx_l_my_pid]);
+
+ppl$$output (%ascid %string ('!_eqe: !XL!_flink/blink: !XL !XL!/'),
+		ppl$$gl_context[ctx_l_eqe_f],
+		.ppl$$gl_context[ctx_l_eqe_f], .ppl$$gl_context[ctx_l_eqe_b]);
+
+ppl$$output (%ascid %string ('!_events: !XL!_flink/blink: !XL !XL!/'),
+		ppl$$gl_context[ctx_q_events],
+		.ppl$$gl_context[ctx_l_events_f], 
+		.ppl$$gl_context[ctx_l_events_b]);
+
+ppl$$output (%ascid %string ('!_mem_list: !XL !XL!/'),
+	.(ppl$$gl_context[ctx_q_memory_list] + 0), 
+	.(ppl$$gl_context[ctx_q_memory_list] + 4));
+
+ppl$$output (string_d ('!_sectsQ  : !XL!_flink/blink: !XL !XL'),
+		    (ppl$$gl_context[ctx_q_sects] + 0),
+		    .(ppl$$gl_context[ctx_q_sects] + 0), 
+		    .(ppl$$gl_context[ctx_q_sects] + 4));
+
+ppl$$output (%ascid
+	%string ('!_my_proc: !XL!/'),
+	    .ppl$$gl_context[ctx_l_my_proc]);
+
+ppl$$output (%ascid %string
+	('!_tell_idx: !XL!_next: !XL!_tell_adr: !XL'),
+	.ppl$$gl_context[ctx_l_tell_index], .ppl$$gl_context[ctx_l_next_index],
+	ppl$$gl_context[ctx_a_tell]);
+
+
+ppl$$output (%ascid '!_top_lock:!_pages: !XL', .top_lksb[top_l_pages]);
+
+ppl$$output (%ascid %string ('!_!_stat: !XW!_rsrvd: !XW!_id: !XL'),
+	    .top_lksb[lksb_w_status], .top_lksb[lksb_w_rsrvd],
+	    .top_lksb[lksb_l_lockid]);
+
+ppl$$output (%ascid '!_name_lock:!_app_number: !XL', .top_lksb[name_l_app_num]);
+
+ppl$$output (%ascid %string ('!_!_stat: !XW!_rsrvd: !XW!_id: !XL'),
+	    .name_lksb[lksb_w_status], .name_lksb[lksb_w_rsrvd],
+	    .name_lksb[lksb_l_lockid]);
+
+ppl$$output (%ascid '!_app_lock:!_app_name: "!AF"', .app_lksb[app_l_name_len],
+	    app_lksb[app_a_name_buf]);
+
+ppl$$output (%ascid %string ('!_!_stat: !XW!_rsrvd: !XW!_id: !XL'),
+	    .app_lksb[lksb_w_status], .app_lksb[lksb_w_rsrvd],
+	    .app_lksb[lksb_l_lockid]);
+
+end;	!dump_ctx
+
+
+
+global routine dump_sect (sect : ref sect_block) : novalue =
+begin
+
+
+ppl$$output (string_d('!/SECT_BLOCK: !XL!/',
+		'!_type: !XL!_start: !XL!_pages !XL!/'),
+		.sect, .sect[sect_l_type], .sect[sect_l_start],
+		.sect[sect_l_pages]);
+
+ppl$$output
+	(string_d('!_getvm: !UB!_callback: !UB!_we_chose: !UB!_nummapped !UB!/',
+		    '!_mapped: !UB!_perm: !UB!_lock: !UB!_final: !UB'),
+	    .sect[sect_v_getvm], .sect[sect_v_callback],
+	    .sect[sect_v_we_chose], .sect[sect_l_count], .sect[sect_v_mapped],
+	    .sect[sect_v_perm], .sect[sect_v_lock], .sect[sect_v_final]);
+
+ppl$$output (string_d('!_sectsQ addr: !XL!_flink/blink: !XL/!XL'),
+	    sect[sect_l_sects_f], .sect[sect_l_sects_f], .sect[sect_l_sects_b]);
+
+ppl$$output (%ascid %string('!_status: !XL!_chan: !XW!_namelen: !XW'),
+	    .sect[sect_l_status], .sect[sect_w_chan], .sect[sect_w_namelen]);
+
+ppl$$output (%ascid %string('!_name: "!AF"'),
+	    .sect[sect_w_namelen], (sect[sect_a_name]));
+
+
+end;	!dump_sect
+
+
+
+global routine dump_sects (header : ref sect_block) : novalue =
+begin
+
+local
+    start : ref sect_block;
+
+
+if .header eqla 0 then return;
+
+start = .header;
+do
+(
+dump_sect (.start);
+start = start[sect_l_sects_f] + .start[sect_l_sects_f]
+		- %fieldexpand_(sect_l_sects_f, 0);
+)
+while (.header neqa .start);
+
+
+end; !dump_sects
+
+
+
+global routine dump_sem (sem_block  : ref csb_block) : novalue =
+begin
+
+ppl$$output (string_d('CSB: !XL!/',
+	'!_type: !XL!_eid: !XL!_csval: !SW!_csmax: !SW'),
+	.sem_block, .sem_block[csb_l_type], .sem_block[csb_l_eid],
+	.sem_block[csb_w_csval], .sem_block[csb_w_csmax]);
+
+if .sem_block[csb_l_type] nequ ppl$k_spin_lock then
+    (
+    bind flink = .(sem_block[csb_q_queue] + 0) : unsigned long,
+	    blink = .(sem_block[csb_q_queue] + 4) : unsigned long;
+
+    ppl$$output (string_d('!_Q: !XL/!XL'), flink, blink);
+    );
+
+end; !dump_sem
+
+
+
+global routine dump_waiters (sem    : ref csb_block) : novalue =
+begin
+        ! dump the waiting queue of a semaphore
+
+local
+    next    : ref mkr_block;
+
+
+(
+bind flink = .(sem[csb_q_queue] + 0) : unsigned long;
+next = flink;
+);
+
+while (.next nequ 0) and (.next nequ .sem) do
+    (
+        ppl$$output (string_d('!_mkr: !XL!_Q: !XL/!XL!_pid: !XL!_valid: !XB'),
+	    .next, .next[mkr_l_flink], .next[mkr_l_blink],
+	    .next[mkr_l_pid], .next[mkr_v_valid]);
+
+	next = next[mkr_l_flink] + .next[mkr_l_flink]
+				- %fieldexpand_ (mkr_l_flink,0);
+    );
+
+end; !dump_waiters
+
+
+
+global routine dump_proc (proc : ref proc_block) : novalue =
+begin
+
+ppl$$output (string_d('Q: !XL!_flink/blink: !XL !XL!/',
+	    '!_todos: !XL!_!_flink/blink: !XL !XL'),
+	    proc[proc_q_procs],
+	    .proc[proc_l_procs_f],
+	    .proc[proc_l_procs_b],
+	    proc[proc_q_todos],
+	    .proc[proc_l_todos_f],
+	    .proc[proc_l_todos_b]);
+
+ppl$$output (string_d('!_idx: !XL!_pid: !XL'),
+	    .proc[proc_l_index],
+	    .proc[proc_l_pid]);
+
+ppl$$output (string_d('!_exit_stat: !XL'),
+	    .proc[proc_l_exit_status]);
+
+ppl$$output (string_d('!_state: !UB!_lock: !UB!_sleeping: !UB'),
+	    .proc[proc_b_state], .proc[proc_v_lock],
+	    .proc[proc_v_sleeping]);
+
+ppl$$output (string_d('!_will_see: !UB'),
+	    .proc[proc_v_will_see]);
+
+end; !dump_proc
+
+
+
+global routine dump_procs : novalue =
+begin
+
+local
+    start   : unsigned long,
+    proc    : ref proc_block;
+
+start = ppl$$gl_pplsect[pplsect_q_procs] - %fieldexpand_(proc_l_procs_f,0);
+proc = first_sr_ (.start, proc_l_procs_f);
+while (proc[base_] neq .start) do
+    (
+    dump_proc (.proc);
+    proc = next_sr_ (proc[base_], proc_l_procs_f);
+    ); !endloop
+
+end; !dump_procs
+
+
+
+global routine dump_pil (proc : ref pil_block) : novalue =
+begin
+
+ppl$$output (string_d('Q: !XL/!XL!_pid: !XL'),
+	    .proc[pil_l_pils_f],
+	    .proc[pil_l_pils_b],
+	    .proc[pil_l_pid]);
+
+end; !dump_pil
+
+
+
+global routine dump_pils (header : ref pil_block) : novalue =
+begin
+
+local
+    start : ref pil_block;
+
+start = .header;
+do
+(
+dump_proc (.start);
+start = start[pil_l_pils_f] + .start[pil_l_pils_f]
+	    - %fieldexpand_(pil_l_pils_f, 0);
+)
+while (.header neqa .start);
+
+
+end; !dump_pils
+
+
+
+global routine dump_name (name) : novalue =
+begin
+
+$unit_field
+    nam_fields =
+	set
+	nam_l_flink =	[xlong],		! Self-relative forward link
+	nam_l_blink =	[xlong],		! Self-relative backward link
+	nam_w_length =	[xword],		! Length of the name
+	nam_v_deleted =	[xword],		! Name is pending deletion
+	nam_l_size =	[xlong],		! Size of the data portion
+	nam_a_data =	[$bytes(0)]		! The data portion
+	tes;
+literal	nam_s_bln=	$field_set_units;	! Size in bytes
+
+%if VAX
+%then
+macro   nam_block=      $bblock[nam_s_bln] field(nam_fields) %;
+%fi
+
+%if EVAX
+%then
+macro	nam_block=	volatile $bblock[nam_s_bln] field(nam_fields) %;
+%fi
+
+map
+    name    : ref nam_block;
+
+bind
+    data_block	= name[nam_a_data] : csb_block;
+
+
+ppl$$output (string_d('name: !XL!/!_flink: !XL!_blink: !XL!/',
+			'!_len: !XW!_del: !XW!_size: !XL!/',
+			'!_csb: !XL!_data: !AF'),
+	    .name,
+	    .name[nam_l_flink], .name[nam_l_blink],
+	    .name[nam_w_length], .name[nam_v_deleted], .name[nam_l_size],
+	    name[nam_a_data],
+	    .name[nam_l_size], (name[nam_a_data] + .name[nam_l_size]));
+
+
+if (.data_block[csb_l_type] eql ppl$k_semaphore) then
+    dump_sem (data_block[base_])
+else if (.data_block[csb_l_type] eql ppl$k_event) then
+    dump_event (data_block[base_]);
+
+
+end; !dump_name
+
+
+
+global routine dump_event (event : ref event_block) : novalue =
+begin
+
+ppl$$output (string_d('event: !XL!/!_type: !XL!_eid: !XL!/',
+	    '!_lock: !UB!_occurred: !UB!_spin: !UB'),
+	    event[base_],
+	    .event[ev_l_type], .event[ev_l_eid],
+	    .event[ev_v_lock], .event[ev_v_occurred], .event[ev_v_spin_wait]);
+
+ppl$$output
+    (string_d('!_trigQ: !XL!_flink/blink: !XL !XL!/',
+	    '!_enableQ: !XL!_flink/blink: !XL !XL'),
+	    event[ev_l_triggers_f],
+	    .event[ev_l_triggers_f], .event[ev_l_triggers_b],
+	    event[ev_l_enables_f],
+	    .event[ev_l_enables_f], .event[ev_l_enables_b]);
+
+
+end; !dump_event
+
+
+
+global routine dump_eqe (eqe : ref eqe_block) : novalue =
+begin
+
+bind
+    flags = eqe[eqe_v_enabled] : bitvector [8];
+
+
+ppl$$output (string_d('eqe: !XL!_eid: !XL!/!_flink/blink: !XL !XL!/',
+		'!_astrtn: !XL!_astprm: !XL!_sig: !XL'),
+	    eqe[base_],
+	    .eqe[eqe_l_eid],
+	    .eqe[eqe_l_flink],
+	    .eqe[eqe_l_blink],
+	    .eqe[eqe_a_astrtn],
+	    .eqe[eqe_l_astprm],
+	    .eqe[eqe_l_sig_value]);
+
+ppl$$output (string_d('!_enabled: !UB!_ast: !UB!_signal: !UB!_blkd: !UB'),
+	    .eqe[eqe_v_enabled], .eqe[eqe_v_ast], .eqe[eqe_v_signal],
+		.eqe[eqe_v_blocked]);
+
+end; !dump_eqe
+
+
+
+global routine suspend (pid : unsigned long) =
+begin
+
+external routine
+    sys$suspnd;
+
+   return sys$suspnd (pid, 0);
+
+end;	! suspend
+
+
+
+
+global routine resume (pid : unsigned long) =
+begin
+
+external routine
+    sys$resume;
+
+   return sys$resume (pid, 0);
+
+end;	! resume
+%fi
+
+end
+eludom

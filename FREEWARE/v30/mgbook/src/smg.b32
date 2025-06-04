@@ -1,0 +1,3114 @@
+%TITLE 'SMG'
+MODULE smg(IDENT = 'V1.0',
+    	ADDRESSING_MODE(EXTERNAL=LONG_RELATIVE, NONEXTERNAL=LONG_RELATIVE)) =
+BEGIN
+!++
+! FACILITY: 	MGBOOK
+!
+! MODULE DESCRIPTION:
+!
+!	This module contains all of the Screen Management Facility calls.
+!
+! AUTHOR:		Darrell Burkhead
+!			Copyright © 1995, MadGoat Software.
+!			ALL RIGHTS RESERVED.
+!
+! CREATION DATE:	December 5, 1994
+!
+! MODIFICATION HISTORY:
+!
+!	V1.0-4		Darrell Burkhead	17-JUL-1995 04:30
+!		Added support for the /TAB qualifier, which sets or resets
+!		the Tab terminal setting.
+!
+!	V1.0-3		Darrell Burkhead	26-APR-1995 13:26
+!		Added support for the RESTRICT_WIDTH qualifier.  Also added
+!		a status box.  Added scrolling to the centered displays:
+!		help, broadcast messages, etc.
+!
+!	V1.0-3		Darrell Burkhead	23-APR-1995 19:10
+!		Fixed 80/132-column mode switching.  For simplicity, only
+!		switch between 80 and 132 columns (sorry DECterms).  Don't
+!		switch for any of the centered displays (broadcast messages,
+!		signaled condition codes, etc.).  Don't interrupt batch mode
+!		to make the switches; switch during the end_batch call.
+!
+!	V1.0-2		Darrell Burkhead	28-FEB-1995 16:24
+!		Display markers ^ and v, when a scrolling region can be
+!		scrolled up and down respectively.
+!
+!	V1.0-1		Darrell Burkhead	23-FEB-1995 17:28
+!		Fixed width-switch check in show_scrolling_region.  It was
+!		1 character off.
+!
+!	V1.0		Darrell Burkhead	 5-DEC-1994 18:26
+!		Original version.
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';
+LIBRARY 'MGBOOK';
+LIBRARY 'MENU';
+LIBRARY 'FIELDS';
+LIBRARY	'DEBUG';
+
+FORWARD ROUTINE
+	smg_setup,
+	get_tab,
+	set_tab,
+	exit_handler : NOVALUE,
+	show_broadcast,
+	mgbook_handler,
+	add_message_text,
+	add_message_line,
+	delete_messages : NOVALUE,
+	create_menu,
+	delete_menu : NOVALUE,
+	select_from_menu,
+	scroll_entries,
+	create_scrolling_region,
+	delete_scrolling_region : NOVALUE,
+	show_scrolling_region,
+	extend_scrolling_region,
+	erase_scrolling_region,
+	hide_scrolling_region,
+	restore_disp_info,
+	change_viewport,
+	change_pb_width,
+	get_disp,
+	find_disp,
+	free_disp,
+	put_chars,
+	text_filter,
+	scroll,
+	display_scroll_markers,
+	read_key,
+	spawn,
+	enable_brdcast_trapping,
+	disable_brdcast_trapping,
+	display_copyright,
+	show_help,
+	show_status,
+	get_sinfo,
+	free_sinfo,
+	get_cursor_row,
+	get_cursor_col,
+	set_cursor_pos,
+	set_cursor_rel,
+	ring_bell,
+	start_batch,
+	end_batch,
+	hilight;
+
+EXTERNAL ROUTINE
+	g_hat(LIB$GET_VM, LIB$FREE_VM, STR$FREE1_DX),
+	g_hat(SMG$CURSOR_COLUMN, SMG$CURSOR_ROW),
+	g_hat(SMG$LABEL_BORDER, SMG$SET_CURSOR_ABS),
+	g_hat(SMG$SET_TERM_CHARACTERISTICS);
+
+EXTERNAL LITERAL
+	SMG$_PASALREXI;
+
+EXTERNAL
+	lnm$dcl_logical,
+	restrict_width;
+
+GLOBAL
+	pb_rows,
+	pb_cols;
+
+OWN
+	pasteboard,
+	tab_changed	: VOLATILE INITIAL(0),
+	tab_setting	: VOLATILE,
+	batch_flag	: VOLATILE INITIAL(0),
+	expected_pb_cols: VOLATILE,
+	keyboard,
+	exit_status,
+	desblk		: VECTOR[4,LONG] INITIAL(0, exit_handler,
+						 1, exit_status),
+	in_read_key	: INITIAL(0),	!Set if read_key is being called
+!
+	disp_que	: QUEDEF PRESET([QUE_L_HEAD] = disp_que,
+					[QUE_L_TAIL] = disp_que),
+	hidden_que	: QUEDEF PRESET([QUE_L_HEAD] = hidden_que,
+					[QUE_L_TAIL] = hidden_que),
+	copyright_disp,
+	in_brdcast	: INITIAL(0),
+	brd_sinfo	: SINFODEF PRESET([SINFO_L_DISP] = 0),
+	in_status	: INITIAL(0);
+
+_DEF(mlist)
+    mlist_l_numents		= _LONG,
+    mlist_l_maxwid		= _LONG,
+    mlist_q_entries		= _QUAD,
+    _OVERLAY(mlist_q_entries)
+	mlist_l_enthead		= _LONG,
+	mlist_l_enttail		= _LONG
+    _ENDOVERLAY
+_ENDDEF(mlist);
+
+_DEF(mctx)
+    mctx_t_sinfo		= _BYTES(SINFO_S_SINFODEF),
+    _ALIGN(LONG)
+    mctx_l_curitem		= _LONG,
+    mctx_l_curpos		= _LONG
+_ENDDEF(mctx);
+
+_DEF(disp)
+    disp_l_flink		= _LONG,
+    disp_l_blink		= _LONG,
+    disp_l_flags		= _LONG,
+    _OVERLAY(disp_l_flags)
+	disp_v_readkey		= _BIT,		!Set when read_key is called
+    _ENDOVERLAY
+    disp_l_sinfo		= _LONG,
+    disp_l_type			= _LONG,
+    disp_l_savedwid		= _LONG,
+    disp_l_savedrow		= _LONG,
+    disp_l_savedcol		= _LONG,
+    disp_l_cursorsinfo		= _LONG,
+    disp_l_cursorrow		= _LONG,
+    disp_l_cursorcol		= _LONG
+_ENDDEF(disp);
+
+LITERAL
+!
+! Display types:
+!
+	disp_c_booktext		= 1,
+	disp_c_bookmenu		= 2,
+	disp_c_shelfmenu	= 3,
+	disp_c_error		= 4,
+	disp_c_broadcast	= 5,
+	disp_c_help		= 6,
+	disp_c_status		= 7,
+!
+	disp_start_col		= 2;
+
+
+%SBTTL 'SMG_SETUP'
+GLOBAL ROUTINE smg_setup(change_tab, tab)= 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine creates the pasteboard and virtual keyboard that will
+!	be required by later SMG$ routines.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	desblk
+!
+! IMPLICIT OUTPUTS:	pasteboard, pb_rows, pb_cols, keyboard
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+LOCAL
+	status,
+	cur_tab,
+	term,
+	lnmlst	: $ITMLST_DECL(ITEMS = 1),
+	lnm_buff: VECTOR[255, BYTE];
+
+EXTERNAL ROUTINE
+	g_hat(SMG$CREATE_PASTEBOARD, SMG$CREATE_VIRTUAL_KEYBOARD,
+		SMG$GET_PASTEBOARD_ATTRIBUTES);
+
+    status = SMG$CREATE_PASTEBOARD(pasteboard, 0, pb_rows, pb_cols, 0, term);
+    IF .status EQL SMG$_PASALREXI
+    THEN BEGIN
+	LOCAL
+	    pb_info	: $BBLOCK[SMG$S_PASTEBOARD_INFO_BLOCK],
+	    pbinfo_size	: LONG INITIAL(%ALLOCATION(pb_info));
+
+	status = SMG$GET_PASTEBOARD_ATTRIBUTES(	!Get pasteboard info
+			pasteboard, pb_info, pbinfo_size);
+	IF .status
+	THEN BEGIN
+	    pb_rows = .pb_info[SMG$B_ROWS];	!Copy to the expected variables
+	    pb_cols = .pb_info[SMG$W_WIDTH];
+	    term = .pb_info[SMG$B_SMG_DEVTYPE];
+	    END;				!End of copy pasteboard info
+	END;					!End of pasteboard exists
+!
+! expected_pb_cols is used in all of the checks before calling change_pb_width.
+! It is changed when change_pb_width is called during batch mode.  Otherwise,
+! it should be identical to pb_cols.
+!
+    expected_pb_cols = .pb_cols;
+
+    IF .status AND .term NEQ SMG$K_VTTERMTABLE
+    THEN status = MGBOOK__UNDEFTERM;		!Unknown terminal type
+    IF .status AND .change_tab
+    THEN BEGIN
+	status = get_tab(cur_tab);
+	IF .status AND .cur_tab NEQ .tab
+	THEN BEGIN
+	    status = set_tab(.tab);
+	    IF .status
+	    THEN BEGIN
+		tab_changed = 1;
+		tab_setting = .cur_tab;
+		END;				!End of Tab changed
+	    END;				!End of need to change Tab
+	END;					!End of /TAB or /NOTAB
+	
+    IF .status
+    THEN status = $DCLEXH(DESBLK = desblk);	!Declare an exit handler to
+						!...delete the pasteboard
+    IF .status
+    THEN status = SMG$CREATE_VIRTUAL_KEYBOARD(keyboard);
+    IF .status
+    THEN status = enable_brdcast_trapping();	!Trap broadcast messsages
+    IF .status
+    THEN status = display_copyright();		!Display the copyright message
+
+    .status
+END;
+
+
+%SBTTL 'GET_TAB'
+ROUTINE get_tab(tab_a)= 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns the current Tab terminal setting.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	None.
+!
+! IMPLICIT OUTPUTS:	None.
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	tab	= .tab_a;
+
+LOCAL
+	ttdef	: $BBLOCK[4],
+	status;
+
+    status = SMG$SET_TERM_CHARACTERISTICS(	!Get the current Tab setting
+			pasteboard, 0, 0, 0, 0, ttdef);
+    IF .status
+    THEN tab = .ttdef[TT$V_MECHTAB];		!Save the result
+
+    .status
+END;						!End of get_tab
+
+
+%SBTTL 'SET_TAB'
+ROUTINE set_tab(tab)= 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine changes the current Tab terminal setting.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	None.
+!
+! IMPLICIT OUTPUTS:	None.
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+LOCAL
+	ttdef	: INITIAL(TT$M_MECHTAB),
+	status;
+
+    status =
+    (IF .tab
+     THEN SMG$SET_TERM_CHARACTERISTICS(		!Turn on Tab
+			pasteboard, ttdef)
+     ELSE SMG$SET_TERM_CHARACTERISTICS(		!Turn off Tab
+			pasteboard, 0, 0, ttdef));
+
+    .status
+END;						!End of get_tab
+
+
+%SBTTL 'EXIT_HANDLER'
+ROUTINE exit_handler(status) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine should be established as an exit handler.  It deletes
+!	the pasteboard used by MGBOOK to insure the the screen is cleared upon
+!	exit.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+EXTERNAL ROUTINE
+	g_hat(SMG$DELETE_PASTEBOARD);
+
+    IF .tab_changed
+    THEN set_tab(.tab_setting);			!Reset Tab setting
+
+    SMG$DELETE_PASTEBOARD(pasteboard);		!Clear the screen
+END;						!End of exit_handler
+
+
+%SBTTL 'SHOW_BROADCAST'
+ROUTINE show_broadcast = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is called when a broadcast message is trapped.  It
+!	displays the message in a pop-up virtual display.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	title	= %ASCID'Broadcast Messages';
+
+LOCAL
+	messages	: MLISTDEF PRESET(
+			[MLIST_L_NUMENTS]	= 0,
+			[MLIST_L_MAXWID] 	= 0,
+			[MLIST_L_ENTHEAD]	= messages[MLIST_Q_ENTRIES],
+			[MLIST_L_ENTTAIL]	= messages[MLIST_Q_ENTRIES]),
+	tmp_str		: $BBLOCK[DSC$C_S_BLN],
+	cur_str		: REF STRDEF,
+	in_batch	: INITIAL(.batch_flag),
+	disp_wid,
+	old_len,
+	status;
+
+EXTERNAL LITERAL
+	SMG$_NO_MORMSG;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$GET_BROADCAST_MESSAGE);
+
+ENABLE
+	mgbook_handler;
+
+    $INIT_DYNDESC(tmp_str);
+
+    DO BEGIN
+	status = SMG$GET_BROADCAST_MESSAGE(	!Get the next message
+				pasteboard, tmp_str);
+	IF .status EQL SMG$_NO_MORMSG
+	THEN EXITLOOP;				!Finished reading messages
+	IF .status
+	THEN BEGIN
+	    status = add_message_text(		!Add to the message queue
+				tmp_str, messages);
+	    IF .status EQL 0
+	    THEN status = SS$_NORMAL;		!Not an error, ignore it
+	    END;				!End of add message text
+    END WHILE .status;				!End of brdcast message loop
+
+    IF NOT .in_batch THEN start_batch();	!Enter batch mode
+
+    IF .status
+    THEN BEGIN
+	disp_wid = .messages[MLIST_L_MAXWID];
+	IF .in_brdcast
+	THEN BEGIN
+	    LOCAL new_len;
+
+	    old_len = .brd_sinfo[SINFO_L_LEN];
+	    new_len = .old_len + .messages[MLIST_L_NUMENTS];
+	    disp_wid =
+	    (IF .disp_wid + 2 GTR .brd_sinfo[SINFO_L_WID]
+	     THEN .disp_wid + 2			!Widen the display
+	     ELSE .brd_sinfo[SINFO_L_WID]);	!Use the old width
+
+	    status = hide_scrolling_region(brd_sinfo);
+	    IF .status
+	    THEN status = extend_scrolling_region(	!Resize display
+			brd_sinfo, .new_len, .disp_wid);
+	    IF .status
+	    THEN status = change_viewport(		!Resize viewport
+			brd_sinfo, .new_len, 0, 0, 0, .disp_wid);
+	    END					!End of add to display
+	ELSE BEGIN
+	    old_len = 0;			!Start with a clean display
+	    IF .title<0,16,0> GTR .disp_wid
+	    THEN disp_wid = .title<0,16,0>;
+	    disp_wid = .messages[MLIST_L_MAXWID] + 2;
+
+	    IF .brd_sinfo[SINFO_L_DISP] EQL 0
+	    THEN BEGIN
+		brd_sinfo[SINFO_L_LEN] = .messages[MLIST_L_NUMENTS];
+		brd_sinfo[SINFO_L_WID] =
+			brd_sinfo[SINFO_L_VIEWWID] = .disp_wid;
+		brd_sinfo[SINFO_L_ROW] = 3;
+		brd_sinfo[SINFO_L_FLAGS] = 0;
+		brd_sinfo[SINFO_V_USEPOS] = brd_sinfo[SINFO_V_CENTER] = 1;
+		status = create_scrolling_region(brd_sinfo, title,
+						 disp_c_broadcast);
+		END				!End of create brdcast display
+	    ELSE BEGIN
+		brd_sinfo[SINFO_L_TOP] = 1;
+		status = erase_scrolling_region(brd_sinfo);
+		IF .status
+		THEN status = extend_scrolling_region(	!Resize display
+			brd_sinfo, .messages[MLIST_L_NUMENTS], .disp_wid);
+		IF .status
+		THEN status = change_viewport(		!Resize viewport
+			brd_sinfo, .messages[MLIST_L_NUMENTS], 0, 0, 0,
+			.disp_wid);
+		END;				!End of resize brdcast display
+	    END;				!End of new display
+
+	IF .status
+	THEN BEGIN
+	    LOCAL pasted;
+
+	    cur_str = .messages[MLIST_L_ENTHEAD];
+	    INCR i FROM 1 TO .messages[MLIST_L_NUMENTS]
+	    DO BEGIN
+		status = put_chars(brd_sinfo, cur_str[STR_Q_TEXT],
+				.i + .old_len, disp_start_col);
+		IF NOT .status THEN EXITLOOP;
+		cur_str = .cur_str[STR_L_FLINK];!Move to the next line
+		END;				!End of message display loop
+
+	    scroll(brd_sinfo,			!Make sure the msg is visible
+			.brd_sinfo[SINFO_L_LEN]);
+	    pasted = show_scrolling_region(brd_sinfo);
+	    IF .pasted AND NOT .in_brdcast
+	    THEN in_brdcast = 1;		!Mark that we're here
+	    END					!End of display message text
+	ELSE IF .in_brdcast
+	THEN show_scrolling_region(brd_sinfo);	!Restore display
+	END;					!End of got some message lines
+
+    IF NOT .in_batch THEN end_batch();		!End batch mode
+
+    STR$FREE1_DX(tmp_str);			!Clean up
+    delete_messages(messages);
+
+    IF NOT .status
+    THEN SIGNAL(MGBOOK__BRDERR, 0, .status);	!Error displaying message
+
+    SS$_NORMAL
+END;						!End of show_broadcast
+
+
+%SBTTL 'MGBOOK_HANDLER'
+GLOBAL ROUTINE mgbook_handler(sig_a, mech_a, ena_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine displays signaled messages in a virtual display.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	sig	= .sig_a		: $BBLOCK,
+	mech	= .mech_a		: $BBLOCK,
+	ena	= .ena_a		: $BBLOCK,
+	sigcnt	= sig[0,0,32,0],
+	cond	= sig[CHF$L_SIG_NAME],
+	top_disp= .disp_que[QUE_L_HEAD]	: DISPDEF;
+
+LOCAL
+	sinfo_ptr	: REF SINFODEF,
+	messages	: MLISTDEF PRESET(
+			[MLIST_L_NUMENTS]	= 0,
+			[MLIST_L_MAXWID] 	= 0,
+			[MLIST_L_ENTHEAD]	= messages[MLIST_Q_ENTRIES],
+			[MLIST_L_ENTTAIL]	= messages[MLIST_Q_ENTRIES]),
+	cur_str		: REF STRDEF,
+	disp_wid,
+	disp_col,
+	temp_term,
+	title		: REF $BBLOCK,
+	status;
+
+ENABLE
+	mgbook_handler;				!For errors signaled by help
+
+    status = get_sinfo(sinfo_ptr);		!Allocate an SINFODEF
+    IF NOT .status THEN RETURN(SS$_NORMAL);	!On error, get out
+
+    title =
+    (IF .cond
+     THEN %ASCID'Info'				!Displaying information
+     ELSE %ASCID'Error');			!Displaying errors
+
+    sigcnt = .sigcnt - 2;			!Fix the count
+    $PUTMSG(					!Build a queue of message text
+	MSGVEC = sig,
+	ACTRTN = add_message_text,
+	ACTPRM = messages);
+
+    IF .title[DSC$W_LENGTH] GTR .disp_wid
+    THEN disp_wid = .title[DSC$W_LENGTH];
+    disp_wid = .messages[MLIST_L_MAXWID] + 2;
+
+    sinfo_ptr[SINFO_L_LEN] = .messages[MLIST_L_NUMENTS];
+    sinfo_ptr[SINFO_L_WID] = sinfo_ptr[SINFO_L_VIEWWID] = .disp_wid;
+    sinfo_ptr[SINFO_L_ROW] = 3;
+    sinfo_ptr[SINFO_L_FLAGS] = 0;
+    sinfo_ptr[SINFO_V_USEPOS] = sinfo_ptr[SINFO_V_CENTER] = 1;
+    status = create_scrolling_region(.sinfo_ptr, .title, disp_c_error);
+    IF .status
+    THEN BEGIN
+	cur_str = .messages[MLIST_L_ENTHEAD];	!Point to the first message
+	INCR cur_row FROM 1 TO .messages[MLIST_L_NUMENTS]
+	DO BEGIN
+	    put_chars(.sinfo_ptr, cur_str[STR_Q_TEXT],
+			.cur_row, disp_start_col);
+	    cur_str = .cur_str[STR_L_FLINK];	!Move to the next line
+	    END;				!End of message display loop
+
+	status = show_scrolling_region(.sinfo_ptr);
+
+	IF NOT .status THEN delete_scrolling_region(.sinfo_ptr);
+	END					!End of created the display
+    ELSE free_sinfo(sinfo_ptr);
+
+    delete_messages(messages);			!Delete message queue
+
+    IF .status AND NOT .in_read_key
+    THEN read_key(temp_term);			!Call read_key if we're not
+						!...already in it
+    SS$_NORMAL
+END;						!End of mgbook_handler
+
+
+%SBTTL 'ADD_MESSAGE_TEXT'
+ROUTINE add_message_text(line_a, messages_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is called by $PUTMSG to add some message text to
+!	a queue of message lines.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	line		= .line_a	: $BBLOCK,
+	messages	= .messages_a	: MLISTDEF;
+
+LOCAL
+	start_pos	: REF $BBLOCK INITIAL(.line[DSC$A_POINTER]),
+	len		: INITIAL(.line[DSC$W_LENGTH]),
+	cr_pos		: REF $BBLOCK,
+	max_wid		: INITIAL(.pb_cols - 2),
+	line_len,
+	sub_len,
+	status;
+
+    DO BEGIN
+	cr_pos = CH$FIND_CH(.len, .start_pos, %CHAR(13));
+	line_len =
+	(IF CH$FAIL(.cr_pos)
+	 THEN .len				!No CR found, use the rest
+	 ELSE CH$DIFF(.cr_pos, .start_pos));	!CR found, calculate length
+
+	DO BEGIN
+	    IF .line_len GTRU .max_wid
+	    THEN BEGIN
+		sub_len =
+		(DECR i FROM .max_wid-1 TO 0
+		 DO IF .start_pos[.i, 0, 8, 0] EQL %C' '
+		    THEN EXITLOOP .i) + 1;
+		IF .sub_len EQL 0
+		THEN sub_len = .max_wid;	!Can't wrap, cut off at max
+		END				!End of wrap this line
+	    ELSE sub_len = .line_len;		!Don't need to wrap this line
+	!
+	! Add the chunk decided upon above.
+	!
+	    status = add_message_line(messages, .start_pos, .sub_len);
+	!
+	! Set up for the next iteration.
+	!
+	    line_len = .line_len - .sub_len;
+	    start_pos = CH$PLUS(.start_pos, .sub_len);
+	    len = .len - .sub_len;
+	END WHILE .line_len GTR 0;		!Loop until wrapping is done
+
+	len = .len - 2;				!Skip CR/LF
+	start_pos = CH$PLUS(.start_pos, 2);	!...
+    END WHILE .len GTR 0;			!End of CR/LF strip loop
+
+    IF .status
+    THEN 0					!Don't write to SYS$OUTPUT
+    ELSE .status				!Return error
+END;						!End of add_message_text
+
+
+%SBTTL 'ADD_MESSAGE_LINE'
+ROUTINE add_message_line(messages_a, start_pos, len) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used by add_message_text to add a chunk of text to
+!	the list of message lines.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	messages	= .messages_a	: MLISTDEF;
+
+LOCAL
+	new_str		: REF STRDEF,
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(STR$COPY_R);
+
+    status = get_str(new_str);
+    IF .status
+    THEN BEGIN
+	status = STR$COPY_R(new_str[STR_Q_TEXT], len, .start_pos);
+	IF .status
+	THEN BEGIN
+	    BIND text = new_str[STR_Q_TEXT] : $BBLOCK;
+	!
+	! Update the list information.
+	!
+	    messages[MLIST_L_NUMENTS] = .messages[MLIST_L_NUMENTS] + 1;
+	    IF .text[DSC$W_LENGTH] GTRU .messages[MLIST_L_MAXWID]
+	    THEN messages[MLIST_L_MAXWID] = .text[DSC$W_LENGTH];
+	    INSQUE(.new_str, .messages[MLIST_L_ENTTAIL]);
+	    END;				!End of message line copied
+
+	IF NOT .status
+	THEN free_str(new_str);			!Error, clean up
+	END;					!End of STRDEF allocated
+
+    .status
+END;						!End of add_message_line
+
+
+%SBTTL 'DELETE_MESSAGES'
+ROUTINE delete_messages(messages_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to delete a list of strings.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	messages	= .messages_a	: MLISTDEF;
+
+LOCAL
+	cur_str	: REF STRDEF;
+
+    WHILE NOT REMQUE(.messages[MLIST_L_ENTHEAD], cur_str)
+    DO free_str(cur_str);			!Message line delete loop
+END;						!End of delete_messages
+
+
+%SBTTL 'CREATE_MENU'
+GLOBAL ROUTINE create_menu(menu_info_a, title_a, start_pos, shelf) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine creates a menu and displays it.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	menu_info	= .menu_info_a	: MINFODEF,
+	title		= .title_a	: $BBLOCK;
+
+BUILTIN
+	NULLPARAMETER;
+
+LOCAL
+	pos		: INITIAL(IF NULLPARAMETER(start_pos)
+				  THEN 1 ELSE .start_pos),
+	shelf_flag	: INITIAL(IF NULLPARAMETER(shelf)
+				  THEN 0 ELSE .shelf),
+	status;
+
+    status = LIB$GET_VM(%REF(MCTX_S_MCTXDEF),	!Allocate menu context block
+			menu_info[MINFO_L_CONTEXT]);
+    IF .status
+    THEN BEGIN
+	BIND
+	    context	= .menu_info[MINFO_L_CONTEXT]	: MCTXDEF,
+	    scroll_info	= context[MCTX_T_SINFO]		: SINFODEF;
+
+	$INIT_DYNDESC(menu_info[MINFO_Q_SEARCHSTR]);
+	menu_info[MINFO_L_SEARCHDISP] = 0;	!No search display yet
+	scroll_info[SINFO_L_DISP] = 0;		!In case of an error
+	scroll_info[SINFO_L_LEN] = .menu_info[MINFO_L_NUMENTS];
+	scroll_info[SINFO_L_WID] = (IF NOT NULLPARAMETER(title_a) AND
+					.title[DSC$W_LENGTH] GTRU
+					.menu_info[MINFO_L_WIDTH]
+				    THEN .title[DSC$W_LENGTH]
+				    ELSE .menu_info[MINFO_L_WIDTH]) + 2;
+	scroll_info[SINFO_L_VIEWWID] = .scroll_info[SINFO_L_WID];
+	scroll_info[SINFO_L_FLAGS] = 0;
+	status = create_scrolling_region(	!Create the display
+			scroll_info,
+			(IF NULLPARAMETER(title_a) THEN 0 ELSE title),
+			(IF .shelf_flag
+			 THEN disp_c_shelfmenu ELSE disp_c_bookmenu));
+	IF .status
+	THEN BEGIN
+	    LOCAL
+		cur_ent	: REF MENENTDEF INITIAL(.menu_info[MINFO_L_ENTHEAD]),
+		row	: INITIAL(1);
+
+	    WHILE .cur_ent NEQA menu_info[MINFO_Q_ENTRIES]
+	    DO BEGIN
+		status = put_chars(		!Write a menu line
+			scroll_info, cur_ent[MENENT_Q_TEXT], .row,
+			disp_start_col + .cur_ent[MENENT_L_LEVEL],
+			0, .cur_ent[MENENT_L_REND]);
+		IF NOT .status
+		THEN EXITLOOP;			!On error, get out
+
+		IF .row EQL .pos		!Is this the start pos?
+		THEN BEGIN
+		    context[MCTX_L_CURITEM] = .cur_ent;
+		    context[MCTX_L_CURPOS] = .row;
+		    END;			!End of found starting pos
+
+		row = .row + 1;
+		cur_ent = .cur_ent[MENENT_L_FLINK];
+	    END;				!End of viewport fill loop
+
+	    IF .status				!Show the filled-in viewport
+	    THEN status = show_scrolling_region(scroll_info);
+	    IF NOT .status
+	    THEN delete_scrolling_region(scroll_info);
+	    END					!End of scroll region created
+	ELSE LIB$FREE_VM(%REF(MCTX_S_MCTXDEF),	!Dealloc menu context block
+			menu_info[MINFO_L_CONTEXT])
+	END;					!End of allocated scroll info
+
+    .status
+END;						!End of create_menu
+
+
+%SBTTL 'DELETE_MENU'
+GLOBAL ROUTINE delete_menu(menu_info_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine deletes a menu.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	menu_info	= .menu_info_a			: MINFODEF,
+	context		= menu_info[MINFO_L_CONTEXT]	: REF MCTXDEF;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$DELETE_VIRTUAL_DISPLAY);
+
+    IF .menu_info[MINFO_L_SEARCHDISP] NEQ 0
+    THEN SMG$DELETE_VIRTUAL_DISPLAY(menu_info[MINFO_L_SEARCHDISP]);
+    delete_scrolling_region(			!Delete the display
+		context[MCTX_T_SINFO]);
+    LIB$FREE_VM(%REF(MCTX_S_MCTXDEF),		!Free menu context block
+		context);
+    STR$FREE1_DX(menu_info[MINFO_Q_SEARCHSTR]);	!Free the search string
+END;						!End of delete_menu
+
+
+%SBTTL 'SELECT_FROM_MENU'
+GLOBAL ROUTINE select_from_menu(menu_info_a, selected_a, select_flag_a,
+				ret_term_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine controls a menu created by create_menu.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!	RMS$_EOF:	Menu exit
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	menu_info	= .menu_info_a			: MINFODEF,
+	context		= .menu_info[MINFO_L_CONTEXT]	: MCTXDEF,
+	scroll_info	= context[MCTX_T_SINFO]		: SINFODEF,
+	cur_item	= context[MCTX_L_CURITEM]	: REF MENENTDEF,
+	cur_pos		= context[MCTX_L_CURPOS]	: LONG,
+	search_str	= menu_info[MINFO_Q_SEARCHSTR]	: $BBLOCK,
+	selected	= .selected_a			: REF MENENTDEF;
+
+BUILTIN
+	NULLPARAMETER;
+
+LOCAL
+	next_item	: REF MENENTDEF,
+	term		: WORD,
+	scroll_amount	: INITIAL(0),
+	moved		: INITIAL(1),
+	new_pos		: INITIAL(.context[MCTX_L_CURPOS]),
+	upd_search	: INITIAL(0),
+	temp_select	: INITIAL(0),
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(STR$LEFT, STR$CONCAT, STR$COPY_DX, STR$CASE_BLIND_COMPARE),
+	g_hat(SMG$CREATE_VIRTUAL_DISPLAY, SMG$CHANGE_VIRTUAL_DISPLAY),
+	g_hat(SMG$DELETE_VIRTUAL_DISPLAY, SMG$UNPASTE_VIRTUAL_DISPLAY),
+	g_hat(SMG$PASTE_VIRTUAL_DISPLAY, SMG$PUT_CHARS);
+
+KEYWORDMACRO
+    menu_item(sinfo, row, ent, reverse=0) =
+	BEGIN
+	BIND
+	    _ent	= ent			: MENENTDEF,
+	    text	= _ent[MENENT_Q_TEXT]	: $BBLOCK,
+	    len		= text[DSC$W_LENGTH]	: WORD,
+	    level	= _ent[MENENT_L_LEVEL]	: LONG;
+	LOCAL
+	    cur_row	: INITIAL(row),
+	    tmp_status;
+
+	tmp_status = hilight(			!Select or deselect menu item
+		sinfo, .cur_row, .level + disp_start_col, 1, .len,
+		._ent[MENENT_L_REND]
+			%IF %IDENTICAL(reverse, 1)	!Select or deselect
+			%THEN OR SMG$M_REVERSE %FI);
+    %IF %IDENTICAL(reverse, 1) %THEN
+	IF .tmp_status
+	THEN tmp_status = set_cursor_pos(	!Reposition the cursor
+				sinfo, .cur_row, .len + .level + 2);
+    %FI
+	.tmp_status
+	END%;					!End of macro menu_item
+
+MACRO
+    match(match_str, candidate) =
+	BEGIN
+	BIND
+	    _match_str = match_str	: $BBLOCK,
+	    _candidate = candidate	: $BBLOCK;
+	LOCAL
+	    saved_len : INITIAL(._candidate[DSC$W_LENGTH]),
+	    temp;
+
+	_candidate[DSC$W_LENGTH] = ._match_str[DSC$W_LENGTH];
+	temp = STR$CASE_BLIND_COMPARE(match_str, candidate);
+	_candidate[DSC$W_LENGTH] = .saved_len;	!Restore string length
+	.temp EQL 0				!Return comparison result
+	END%;					!End of macro match
+
+    DO BEGIN
+	IF .moved OR .upd_search
+	THEN BEGIN
+	    menu_item(				!Select the current item
+		SINFO	= scroll_info,
+		ROW	= .cur_pos,
+		ENT	= .cur_item,
+		REVERSE	= 1);
+	    moved = 0;				!Set up for next time
+	    upd_search = 0;			!...
+	    END;				!End of select current item
+
+	status = read_key(term);		!Read a keystroke
+	IF .status
+	THEN BEGIN
+	    SELECTONE .term OF
+	     SET
+		[SMG$K_TRM_CR,
+		 SMG$K_TRM_DO,
+		 SMG$K_TRM_ENTER,
+		 SMG$K_TRM_SELECT]:
+			BEGIN
+			selected = .cur_item;	!Point to the selected item
+			temp_select = 1;	!This is a selection key
+			EXITLOOP;
+			END;
+		[SMG$K_TRM_LEFT]:
+			BEGIN
+			next_item = .cur_item[MENENT_L_BLINK];
+			new_pos = .cur_pos - 1;
+			WHILE .next_item NEQA menu_info[MINFO_Q_ENTRIES] AND
+				.next_item[MENENT_L_LEVEL] GEQ
+					.cur_item[MENENT_L_LEVEL]
+			DO BEGIN
+			    next_item = .next_item[MENENT_L_BLINK];
+			    new_pos = .new_pos - 1;
+			    END;		!End of back search loop
+
+			IF .next_item EQLA menu_info[MINFO_Q_ENTRIES]
+			THEN status = RMS$_EOF;	!Can't back up, close the menu
+			END;			!End of left arrow
+		[SMG$K_TRM_UP]:			!Up arrow
+			scroll_amount = -1;
+		[SMG$K_TRM_RIGHT]:
+			BEGIN
+			next_item = .cur_item[MENENT_L_FLINK];
+			IF .next_item NEQA menu_info[MINFO_Q_ENTRIES] AND
+				.cur_item[MENENT_L_LEVEL] LSS
+				.next_item[MENENT_L_LEVEL]
+			THEN new_pos = .cur_pos + 1	!Move to sublevel
+			ELSE BEGIN
+			    selected = .cur_item;
+			    temp_select = 1;
+			    EXITLOOP;		!Get out
+			    END;		!End of select w/right arrow
+			END;			!End of right arrow
+		[SMG$K_TRM_DOWN]:		!Down arrow
+			scroll_amount = 1;
+		[SMG$K_TRM_KP5]:		!Move up one line
+			BEGIN
+			next_item = .cur_item[MENENT_L_BLINK];
+			new_pos =
+			(IF .next_item EQLA menu_info[MINFO_Q_ENTRIES]
+			 THEN BEGIN
+			    next_item = .next_item[MENENT_L_BLINK];
+			    .menu_info[MINFO_L_NUMENTS]
+			    END			!End of wrap around
+			  ELSE .cur_pos - 1);
+			END;			!End of KP5
+		[SMG$K_TRM_KP6]:		!Move down one line
+			BEGIN
+			next_item = .cur_item[MENENT_L_FLINK];
+			new_pos =
+			(IF .next_item EQLA menu_info[MINFO_Q_ENTRIES]
+			 THEN BEGIN
+			    next_item = .next_item[MENENT_L_FLINK];
+			    1
+			    END			!End of wrap around
+			  ELSE .cur_pos + 1);
+			END;			!End of KP6
+		[SMG$K_TRM_PREV_SCREEN,		!Previous screen
+		 SMG$K_TRM_KP7]:
+			scroll_amount = -.scroll_info[SINFO_L_VIEWLEN];
+		 [SMG$K_TRM_NEXT_SCREEN,	!Next screen
+		  SMG$K_TRM_KP8]:
+			scroll_amount = .scroll_info[SINFO_L_VIEWLEN];
+		 [SMG$K_TRM_DELETE]:		!Delete from search string
+			IF .search_str[DSC$W_LENGTH] GTR 0
+			THEN BEGIN
+			    STR$LEFT(search_str, search_str,
+					%REF(.search_str[DSC$W_LENGTH] - 1));
+			    upd_search = 1;	!Update the search display
+			    END;		!End of search string present
+		 [SMG$K_TRM_CTRLU]:		!Clear the search string
+			IF .search_str[DSC$W_LENGTH] GTR 0
+			THEN BEGIN
+			    STR$FREE1_DX(search_str);
+			    upd_search = 1;	!Update the search display
+			    END;
+		 [SMG$K_TRM_FIND,
+		  SMG$K_TRM_PF3]:		!Find next search string
+			BEGIN
+			next_item = .cur_item[MENENT_L_FLINK];
+			new_pos = .cur_pos + 1;
+			WHILE .next_item NEQA .cur_item
+			DO BEGIN
+			    IF .next_item EQLA menu_info[MINFO_Q_ENTRIES]
+			    THEN new_pos = 0	!Set up for wraparound
+			    ELSE IF match(search_str,
+					next_item[MENENT_Q_TEXT])
+			    THEN EXITLOOP;
+
+			    next_item = .next_item[MENENT_L_FLINK];
+			    new_pos = .new_pos + 1;
+			    END;		!End of search loop
+			END;			!End of find next title match
+		 [OTHERWISE]:			!Add to the search string
+			IF .term GEQU %C' ' AND .term LEQU %C'~' AND
+				.term NEQU %C'?'
+			THEN BEGIN
+			    LOCAL
+				temp_search	: $BBLOCK[DSC$C_S_BLN],
+				char_desc	: $BBLOCK[DSC$C_S_BLN],
+				matched		: INITIAL(0);
+
+			    $INIT_DYNDESC(temp_search);
+			    char_desc[DSC$W_LENGTH] = 1;
+			    char_desc[DSC$B_CLASS] = DSC$K_CLASS_S;
+			    char_desc[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+			    char_desc[DSC$A_POINTER] = term;
+			    STR$CONCAT(temp_search, search_str, char_desc);
+
+			    next_item = .cur_item;
+			    new_pos = .cur_pos;
+			    DO BEGIN
+				IF .next_item EQLA menu_info[MINFO_Q_ENTRIES]
+				THEN new_pos = 0	!Set up for wraparound
+				ELSE IF match(temp_search,
+					next_item[MENENT_Q_TEXT])
+				THEN BEGIN
+				    matched = 1;	!Match found
+				    EXITLOOP;		!Quit searching
+				    END;		!End of match found
+
+				next_item = .next_item[MENENT_L_FLINK];
+				new_pos = .new_pos + 1;
+			    END WHILE .next_item NEQA .cur_item;
+
+			    IF .matched
+			    THEN BEGIN
+				STR$COPY_DX(search_str, temp_search);
+				upd_search = 1;	!Update the display
+				END;		!End of new search string
+
+			    STR$FREE1_DX(temp_search);
+			    END			!End of printable character
+			ELSE BEGIN
+			    selected = .cur_item;
+			    EXITLOOP;
+			    END;		!Assume selection character
+	      TES;				!End of cases
+
+	    IF .upd_search
+	    THEN BEGIN
+		IF .menu_info[MINFO_L_SEARCHDISP] EQL 0
+		THEN SMG$CREATE_VIRTUAL_DISPLAY(
+			%REF(1), %REF(.search_str[DSC$W_LENGTH]),
+			menu_info[MINFO_L_SEARCHDISP], 0,
+			%REF(SMG$M_BOLD))
+		ELSE BEGIN
+		    SMG$UNPASTE_VIRTUAL_DISPLAY(	!Hide the display
+			menu_info[MINFO_L_SEARCHDISP], pasteboard);
+		    IF .search_str[DSC$W_LENGTH] GTRU 0
+		    THEN SMG$CHANGE_VIRTUAL_DISPLAY(	!Resize the display
+			menu_info[MINFO_L_SEARCHDISP], 0,
+			%REF(.search_str[DSC$W_LENGTH]));
+		    END;			!End of resize display
+
+		IF .search_str[DSC$W_LENGTH] GTRU 0
+		THEN BEGIN
+		    SMG$PUT_CHARS(		!Write the search string
+			menu_info[MINFO_L_SEARCHDISP], search_str,
+			%REF(1), %REF(1));
+		    SMG$PASTE_VIRTUAL_DISPLAY(	!Show the search string
+			menu_info[MINFO_L_SEARCHDISP], pasteboard,
+			%REF(.scroll_info[SINFO_L_ROW] +
+				.scroll_info[SINFO_L_VIEWLEN]),
+			%REF(.scroll_info[SINFO_L_COL] + 1));
+		    END;			!End of need to display string
+		END;				!End of update search string
+
+	    IF .scroll_amount NEQ 0
+	    THEN BEGIN
+		next_item = scroll_entries(	!Scroll and preserve the level
+				menu_info, .cur_item, .cur_pos, new_pos,
+				.scroll_amount);
+		scroll_amount = 0;		!Set up for next time
+		END;				!End of scroll
+
+	    IF .new_pos NEQA .cur_pos
+	    THEN BEGIN
+		menu_item(			!Deselect the current item
+			SINFO	= scroll_info,
+			ROW	= .context[MCTX_L_CURPOS],
+			ENT	= .cur_item);
+
+		IF .new_pos LSS .scroll_info[SINFO_L_TOP] OR
+		   .new_pos GEQ (.scroll_info[SINFO_L_TOP] +
+				 .scroll_info[SINFO_L_VIEWLEN])
+		THEN scroll(			!Only scroll if we need to
+			scroll_info, .new_pos - .cur_pos);
+
+		cur_item = .next_item;		!Update current item info
+		cur_pos = .new_pos;
+		moved = 1;			!We will need to hilight
+		END;				!End of need to scroll
+	    END;				!End of read a keystroke
+    END WHILE .status;				!End of keystroke loop
+
+    IF NOT NULLPARAMETER(select_flag_a)
+    THEN BEGIN
+	BIND select_flag = .select_flag_a;
+
+	select_flag = .temp_select;		!Tell whether a selection key
+	END;					!...was pressed
+    IF NOT NULLPARAMETER(ret_term_a)
+    THEN BEGIN
+	BIND ret_term = .ret_term_a : WORD;
+
+	ret_term = .term;			!Save the terminator char
+	END;					!End of return terminator
+
+    .status
+END;						!End of select_from_menu
+
+
+%SBTTL 'SCROLL_ENTRIES'
+ROUTINE scroll_entries(menu_info_a, cur_entry_a, old_pos, new_pos_a,
+			scroll_amount) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is 
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	menu_info	= .menu_info_a			: MINFODEF,
+	context		= .menu_info[MINFO_L_CONTEXT]	: MCTXDEF,
+	scroll_info	= context[MCTX_T_SINFO]		: SINFODEF,
+	cur_entry	= .cur_entry_a			: MENENTDEF,
+	new_pos		= .new_pos_a			: LONG;
+
+LOCAL
+	new_entry	: REF MENENTDEF INITIAL(cur_entry),
+	up_flag		: INITIAL(.scroll_amount LSS 0),
+	scroll_abs	: INITIAL(IF .up_flag
+				  THEN -.scroll_amount ELSE .scroll_amount);
+
+MACRO
+    next_ent(ent)=
+	BEGIN
+	BIND _ent = ent : REF MENENTDEF;
+
+	IF .up_flag
+	THEN ._ent[MENENT_L_BLINK]		!Scroll up
+	ELSE ._ent[MENENT_L_FLINK]		!Scroll down
+	END%,					!End of macro next_ent
+    move_to_next(ent)=
+	BEGIN
+	ent = next_ent(ent);			!Update the entry pointer
+	new_pos = (IF .up_flag			!Update the position
+		   THEN .new_pos - 1		!Scroll up
+		   ELSE .new_pos + 1);		!Scroll down
+	END%;					!End of macro move_to_next
+
+    new_pos = .old_pos;
+    move_to_next(new_entry);
+    IF .new_entry NEQA menu_info[MINFO_Q_ENTRIES]
+    THEN INCR i FROM 2 TO .scroll_abs
+	 DO BEGIN
+	    IF next_ent(new_entry) EQLA menu_info[MINFO_Q_ENTRIES]
+	    THEN BEGIN
+		IF .new_entry[MENENT_L_LEVEL] GTR .cur_entry[MENENT_L_LEVEL]
+		THEN move_to_next(new_entry);	!Wrap around
+		EXITLOOP;			!Reached border, get out
+		END;				!End of border entry
+
+	    move_to_next(new_entry);		!Move to the next position
+	    END;				!End of initial scroll loop
+
+    WHILE NOT (.new_entry NEQA menu_info[MINFO_Q_ENTRIES] AND
+		.new_entry[MENENT_L_LEVEL] LEQ .cur_entry[MENENT_L_LEVEL])
+    DO BEGIN
+	IF .new_entry EQLA menu_info[MINFO_Q_ENTRIES]
+	THEN new_pos =
+	    (IF .up_flag
+	     THEN .scroll_info[SINFO_L_LEN]+1	!Set up for last pos
+	     ELSE 0);				!Set up for pos 1
+
+	move_to_next(new_entry);		!Move to the next position
+	END;					!End of level justify loop
+
+    .new_entry					!Return the entry chosen
+END;						!End of scroll_entries
+
+
+%SBTTL 'CREATE_SCROLLING_REGION'
+GLOBAL ROUTINE create_scrolling_region(scroll_info_a, title_a, type) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine creates a display with a scrollable viewport.  It is used
+!	to display scrollable information, i.e., menus, chapter text, etc.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!	SS$_NORMAL:	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF,
+	title		= .title_a		: $BBLOCK;
+
+BUILTIN
+	NULLPARAMETER;
+
+LOCAL
+	disp_type	: INITIAL(IF NULLPARAMETER(type)
+				  THEN disp_c_booktext ELSE .type),
+	cur_disp	: REF DISPDEF,
+	max_len,
+	ast_stat,
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$CREATE_VIRTUAL_DISPLAY, SMG$CREATE_VIEWPORT);
+
+    status = get_disp(cur_disp, scroll_info,	!Allocate a display node
+			.disp_type);
+    IF NOT .status THEN RETURN(.status);	!On error, return the status
+
+    BEGIN
+    BIND next_disp	= .disp_que[QUE_L_HEAD]	: DISPDEF;
+
+	IF next_disp EQLA disp_que
+	THEN BEGIN
+	    cur_disp[DISP_L_SAVEDROW] = 1;
+	    cur_disp[DISP_L_SAVEDCOL] = 1;
+	    END					!This is the first display
+	ELSE BEGIN
+	    cur_disp[DISP_L_SAVEDROW] = .next_disp[DISP_L_SAVEDROW];
+	    cur_disp[DISP_L_SAVEDCOL] = .next_disp[DISP_L_SAVEDCOL];
+	    END;				!Reference lower display
+
+	IF NOT .scroll_info[SINFO_V_USEPOS]
+	THEN BEGIN
+	    scroll_info[SINFO_L_ROW] =		!Use the next available row
+		cur_disp[DISP_L_SAVEDROW] =
+		.cur_disp[DISP_L_SAVEDROW] + 1;
+	    scroll_info[SINFO_L_COL] =		!Use the next available column
+		cur_disp[DISP_L_SAVEDCOL] =
+		.cur_disp[DISP_L_SAVEDCOL] + 1;
+	    END;				!End of calculate position
+    END;					!End of bind block
+
+    scroll_info[SINFO_L_TOP] = 1;		!Start at the top
+
+    scroll_info[SINFO_L_UPDISP] = 0;
+    scroll_info[SINFO_L_DOWNDISP] = 0;
+
+    max_len = .pb_rows - .scroll_info[SINFO_L_ROW] - 1;
+    scroll_info[SINFO_L_VIEWLEN] = (IF .scroll_info[SINFO_L_LEN] GTRU
+					.max_len
+				    THEN .max_len
+				    ELSE .scroll_info[SINFO_L_LEN]); 
+
+    status = SMG$CREATE_VIRTUAL_DISPLAY(	!Create the virtual display
+		scroll_info[SINFO_L_LEN], scroll_info[SINFO_L_WID],
+		scroll_info[SINFO_L_DISP], %REF(SMG$M_BORDER));
+    IF .status
+    THEN status = SMG$CREATE_VIEWPORT(		!Create the scrolling region
+		scroll_info[SINFO_L_DISP], %REF(1), %REF(1),
+		scroll_info[SINFO_L_VIEWLEN], scroll_info[SINFO_L_VIEWWID]);
+    IF .status AND NOT NULLPARAMETER(title_a)
+    THEN BEGIN
+	LOCAL temp_title : $BBLOCK[DSC$C_S_BLN];
+
+	$INIT_DYNDESC(temp_title);
+	status = text_filter(temp_title,	!Filter out Ctrl chars
+				title);
+	IF .status
+	THEN BEGIN
+	    status = SMG$LABEL_BORDER(		!Label border if requested
+		scroll_info[SINFO_L_DISP], temp_title, %REF(SMG$K_TOP), 0,
+		%REF(SMG$M_BOLD));
+
+	    STR$FREE1_DX(temp_title);		!Clean up
+	    END;				!End of title filtered
+	END;
+
+     IF .status
+     THEN INSQUE(.cur_disp, hidden_que)		!Add to the hidden list
+     ELSE BEGIN
+	delete_scrolling_region(scroll_info);
+	free_disp(cur_disp);
+	END;					!End of clean up
+
+    .status
+END;						!End of create_scrolling_region
+
+
+%SBTTL 'DELETE_SCROLLING_REGION'
+GLOBAL ROUTINE delete_scrolling_region(scroll_info_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine deletes a scrollable viewport.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+LOCAL
+	cur_disp	: REF DISPDEF;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$DELETE_VIRTUAL_DISPLAY, SMG$DELETE_VIEWPORT);
+
+    SMG$DELETE_VIEWPORT(scroll_info[SINFO_L_DISP]);
+    SMG$DELETE_VIRTUAL_DISPLAY(scroll_info[SINFO_L_DISP]);
+
+    IF .scroll_info[SINFO_L_UPDISP] NEQA 0
+    THEN SMG$DELETE_VIRTUAL_DISPLAY(scroll_info[SINFO_L_UPDISP]);
+    IF .scroll_info[SINFO_L_DOWNDISP] NEQA 0
+    THEN SMG$DELETE_VIRTUAL_DISPLAY(scroll_info[SINFO_L_DOWNDISP]);
+
+    cur_disp = find_disp(hidden_que,		!Search the hidden queue
+			scroll_info);
+    IF .cur_disp EQLA 0
+    THEN BEGIN
+	cur_disp = find_disp(disp_que,		!Search the displayed queue
+				scroll_info);
+	IF .cur_disp NEQA 0
+	THEN restore_disp_info(.cur_disp);	!Restore pb width and cursor pos
+	END;					!End of not a hidden disp
+
+    IF .cur_disp NEQA 0
+    THEN BEGIN
+	REMQUE(.cur_disp, cur_disp);		!Remove from the queue
+	free_disp(cur_disp);			!Deallocate the DISPDEF
+	END;					!End of clean up DISPDEF
+END;						!End of delete_scrolling_region
+
+
+%SBTTL 'SHOW_SCROLLING_REGION'
+GLOBAL ROUTINE show_scrolling_region(scroll_info_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Paste the display for a scrolling viewport onto the pasteboard.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+LOCAL
+	cur_disp	: REF DISPDEF,
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$PASTE_VIRTUAL_DISPLAY);
+
+    cur_disp = find_disp(hidden_que,		!Find the DISPDEF for this
+			scroll_info);		!...scrolling region
+    IF .cur_disp EQLA 0
+    THEN BEGIN
+	SIGNAL(MGBOOK__UNKDISP);
+	RETURN(MGBOOK__UNKDISP OR STS$M_INHIB_MSG);
+	END					!End of DISPDEF not in queue
+    ELSE BEGIN
+	BIND next_disp	= .disp_que[QUE_L_HEAD]	: DISPDEF;
+
+	cur_disp[DISP_L_SAVEDWID] = .expected_pb_cols;
+	IF next_disp NEQA disp_que
+	THEN BEGIN
+	    cur_disp[DISP_L_CURSORSINFO] = .next_disp[DISP_L_SINFO];
+	    cur_disp[DISP_L_CURSORROW] = get_cursor_row(
+						.cur_disp[DISP_L_CURSORSINFO]);
+	    cur_disp[DISP_L_CURSORCOL] = get_cursor_col(
+						.cur_disp[DISP_L_CURSORSINFO]);
+	    END
+	ELSE cur_disp[DISP_L_CURSORSINFO] = 0;
+
+	REMQUE(.cur_disp, cur_disp);		!Remove from the hidden queue
+	INSQUE(.cur_disp, disp_que);		!Add to the display queue
+	END;					!End of found disp
+
+    IF .scroll_info[SINFO_V_CENTER]
+    THEN scroll_info[SINFO_L_COL] = 0;		!For the width test
+
+    IF .scroll_info[SINFO_L_VIEWWID] + .scroll_info[SINFO_L_COL] - 1 GTRU
+	.expected_pb_cols
+    THEN change_pb_width(.scroll_info[SINFO_L_VIEWWID] +
+			 .scroll_info[SINFO_L_COL] - 1);
+
+    IF .scroll_info[SINFO_V_CENTER]
+    THEN BEGIN
+	scroll_info[SINFO_L_COL] =		!Find center position
+		(.expected_pb_cols - .scroll_info[SINFO_L_VIEWWID]) / 2 + 1;
+	IF .scroll_info[SINFO_L_COL] LSS 0
+	THEN scroll_info[SINFO_L_COL] = 0;
+	END;					!End of center the display
+
+    status = SMG$PASTE_VIRTUAL_DISPLAY(
+		scroll_info[SINFO_L_DISP], pasteboard,
+		scroll_info[SINFO_L_ROW], scroll_info[SINFO_L_COL]);
+    IF .status
+    THEN status = display_scroll_markers(	!Mark whether we can scroll
+		scroll_info, .scroll_info[SINFO_L_TOP] GTR 1,
+		.scroll_info[SINFO_L_TOP] LSS .scroll_info[SINFO_L_LEN] -
+					.scroll_info[SINFO_L_VIEWLEN] + 1);
+    .status
+END;						!End of show_scrolling_region
+
+
+%SBTTL 'EXTEND_SCROLLING_REGION'
+GLOBAL ROUTINE extend_scrolling_region(scroll_info_a, new_len, new_wid) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Adjust the length of a scrolling region.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+BUILTIN
+	NULLPARAMETER;
+
+LOCAL
+	cursor_row,
+	cursor_col,
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$CHANGE_VIRTUAL_DISPLAY);
+
+    cursor_row = get_cursor_row(scroll_info);	!Save cursor position
+    cursor_col = get_cursor_col(scroll_info);
+    status = SMG$CHANGE_VIRTUAL_DISPLAY(scroll_info[SINFO_L_DISP], new_len,
+					(IF NULLPARAMETER(new_wid)
+					 THEN 0 ELSE new_wid));
+    IF .status
+    THEN BEGIN
+	scroll_info[SINFO_L_LEN] = .new_len;
+	IF NOT NULLPARAMETER(new_wid)
+	THEN scroll_info[SINFO_L_WID] = .new_wid;
+
+	status = set_cursor_pos(scroll_info,	!Restore cursor position
+			.cursor_row, .cursor_col);
+	END;					!End of resized display
+
+    .status
+END;						!End of extend_scrolling_region
+
+
+%SBTTL 'ERASE_SCROLLING_REGION'
+GLOBAL ROUTINE erase_scrolling_region(scroll_info_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Erase the contents of a scrolling region.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$ERASE_DISPLAY);
+
+    SMG$ERASE_DISPLAY(scroll_info[SINFO_L_DISP])
+END;						!End of erase_scrolling_region
+
+
+%SBTTL 'HIDE_SCROLLING_REGION'
+GLOBAL ROUTINE hide_scrolling_region(scroll_info_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Remove a scrolling region's display from the pasteboard.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+LOCAL
+	cur_disp	: REF DISPDEF,
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$UNPASTE_VIRTUAL_DISPLAY);
+
+    display_scroll_markers(scroll_info, 0, 0);	!Hide both markers
+
+    cur_disp = find_disp(hidden_que, scroll_info);
+    IF .cur_disp NEQA 0
+    THEN RETURN(SS$_NORMAL);			!Already hidden, get out
+
+    status = SMG$UNPASTE_VIRTUAL_DISPLAY(	!Hide this display
+		scroll_info[SINFO_L_DISP], pasteboard);
+
+    cur_disp = find_disp(disp_que,		!Find the DISPDEF for this
+			scroll_info);		!...scrolling region
+    IF .cur_disp EQLA 0
+    THEN BEGIN
+	SIGNAL(MGBOOK__UNKDISP);
+	RETURN(MGBOOK__UNKDISP OR STS$M_INHIB_MSG);
+	END					!End of DISPDEF not in queue
+    ELSE BEGIN
+	restore_disp_info(.cur_disp);		!Restore the pbd wid and cursor
+						!...pos
+	REMQUE(.cur_disp, cur_disp);		!Remove from the display queue
+	INSQUE(.cur_disp, hidden_que);		!Add to the hidden queue
+	END;					!End of display found
+
+    .status
+END;						!End of hide_scrolling_region
+
+
+%SBTTL 'RESTORE_DISP_INFO'
+ROUTINE restore_disp_info(cur_disp_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Restore the pasteboard width and cursor position from a display.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	cur_disp	= .cur_disp_a			: DISPDEF,
+	back_disp	= .cur_disp[DISP_L_BLINK]	: DISPDEF;
+
+LOCAL
+	status	: INITIAL(SS$_NORMAL);
+
+    IF back_disp EQLA disp_que			!Is this the top display?
+    THEN BEGIN
+	status = change_pb_width(.cur_disp[DISP_L_SAVEDWID]);
+	IF .status AND .cur_disp[DISP_L_CURSORSINFO] NEQA 0
+	THEN status = set_cursor_pos(		!Restore the cursor pos
+			.cur_disp[DISP_L_CURSORSINFO],
+			.cur_disp[DISP_L_CURSORROW],
+			.cur_disp[DISP_L_CURSORCOL]);
+	END					!End of top display
+    ELSE BEGIN
+	back_disp[DISP_L_SAVEDWID] =		!Not the top, relay the saved
+		    .cur_disp[DISP_L_SAVEDWID];	!...info up the hierarchy
+	back_disp[DISP_L_CURSORSINFO] = .cur_disp[DISP_L_CURSORSINFO];
+	back_disp[DISP_L_CURSORROW] = .cur_disp[DISP_L_CURSORROW];
+	back_disp[DISP_L_CURSORCOL] = .cur_disp[DISP_L_CURSORCOL];
+	END;					!End of not the top display
+
+    .status
+END;						!End of restore_disp_info
+
+
+%SBTTL 'CHANGE_VIEWPORT'
+GLOBAL ROUTINE change_viewport(scroll_info_a, new_len, start_row, start_col,
+				title_a, new_wid) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Adjust the length of a scrolling region's viewport.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+BUILTIN
+	NULLPARAMETER;
+
+LOCAL
+	max_len,
+	row	: INITIAL(IF NULLPARAMETER(start_row)
+			  THEN .scroll_info[SINFO_L_TOP] ELSE .start_row),
+	col	: INITIAL(IF NULLPARAMETER(start_col)
+			  THEN 1 ELSE .start_col),
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$CHANGE_VIEWPORT);
+
+    max_len = .pb_rows - .scroll_info[SINFO_L_ROW] - 1;
+    IF .new_len GTRU .max_len
+    THEN new_len = .max_len;			!Keep viewport on pasteboard
+    status = SMG$CHANGE_VIEWPORT(		!Set viewport char.
+		scroll_info[SINFO_L_DISP], row, col, new_len,
+		(IF NULLPARAMETER(new_wid) THEN 0 ELSE new_wid));
+    IF .status
+    THEN BEGIN
+	scroll_info[SINFO_L_VIEWLEN] = .new_len;
+	IF NOT NULLPARAMETER(new_wid)
+	THEN scroll_info[SINFO_L_VIEWWID] = .new_wid;
+	scroll_info[SINFO_L_TOP] = .row;
+
+	IF NOT NULLPARAMETER(title_a)
+	THEN BEGIN
+	    BIND title = .title_a : $BBLOCK;
+	    LOCAL temp_title : $BBLOCK[DSC$C_S_BLN];
+
+	    $INIT_DYNDESC(temp_title);
+	    status = text_filter(temp_title,	!Filter out Ctrl chars
+				title);
+	    IF .status
+	    THEN BEGIN
+		LOCAL center_pos;
+
+		center_pos = (.expected_pb_cols - .title[DSC$W_LENGTH]) / 2 +
+				.col - 1;
+		status = SMG$LABEL_BORDER(	!Center the title
+			scroll_info[SINFO_L_DISP], temp_title,
+			%REF(SMG$K_TOP), center_pos, %REF(SMG$M_BOLD));
+
+		STR$FREE1_DX(temp_title);	!Clean up
+		END;				!End of title filtered
+	    END;				!End of relabel border
+	END;					!End of changed viewport
+
+    .status
+END;						!End of change_viewport
+
+
+%SBTTL 'CHANGE_PB_WIDTH'
+ROUTINE change_pb_width(new_wid) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Adjust the width of the pasteboard.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+LOCAL
+	status	: INITIAL(SS$_NORMAL);
+
+OWN
+	can_do_wide	: INITIAL(1);
+
+EXTERNAL ROUTINE
+	g_hat(SMG$CHANGE_PBD_CHARACTERISTICS);
+
+LITERAL
+	normal_width	= 80,
+	wide_width	= 132;
+
+    IF .restrict_width
+    THEN RETURN(SS$_NORMAL);			!Don't change widths
+
+    new_wid =
+    (IF .new_wid GTR normal_width AND .can_do_wide
+     THEN wide_width
+     ELSE normal_width);
+
+    IF .batch_flag
+    THEN expected_pb_cols = .new_wid
+    ELSE BEGIN
+	IF .new_wid NEQ .pb_cols
+	THEN BEGIN
+	    status = SMG$CHANGE_PBD_CHARACTERISTICS(
+				pasteboard, new_wid, pb_cols);
+	    IF .status
+	    THEN BEGIN
+		expected_pb_cols = .pb_cols;
+		IF .new_wid EQL wide_width AND .pb_cols NEQ wide_width
+		THEN can_do_wide = 0;
+		END;				!End of width changed
+	    END;				!End of need to change width
+	END;					!End of not in batch mode
+
+    .status
+END;						!End of change_pb_width
+
+
+%SBTTL 'GET_DISP'
+ROUTINE get_disp(disp_a_a, sinfo_a, type) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Allocate a DISPDEF and fill it in.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	disp	= .disp_a_a	: REF DISPDEF,
+	sinfo	= .sinfo_a	: SINFODEF;
+
+LOCAL
+	status;
+
+    status = LIB$GET_VM(%REF(DISP_S_DISPDEF),	!Allocate the DISPDEF
+			disp);
+    IF .status
+    THEN BEGIN
+	disp[DISP_L_SINFO] = sinfo;		!Fill in the DISPDEF
+	disp[DISP_L_TYPE] = .type;
+	disp[DISP_L_FLAGS] = 0;
+	END;
+
+    .status
+END;						!End of get_disp
+
+
+%SBTTL 'FIND_DISP'
+ROUTINE find_disp(disp_que_a, sinfo_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Find a DISPDEF within the specified queue that corresponds to the
+!	specified scrolling-info block.
+!
+! RETURNS:  	The address of the DISPDEF found.  0 if none was found.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	disp_que	= .disp_que_a	: QUEDEF,
+	sinfo		= .sinfo_a	: SINFODEF;
+
+LOCAL
+	cur_disp	: REF DISPDEF INITIAL(.disp_que[QUE_L_HEAD]);
+
+    WHILE .cur_disp NEQA disp_que
+    DO IF .cur_disp[DISP_L_SINFO] EQLA sinfo
+	THEN EXITLOOP				!Found a match, get out
+	ELSE cur_disp = .cur_disp[DISP_L_FLINK];!Move to the next disp
+
+    IF .cur_disp NEQA disp_que
+    THEN .cur_disp				!Return the matching DISPDEF
+    ELSE 0					!No match, return 0
+END;						!End of find_disp
+
+
+%SBTTL 'FREE_DISP'
+ROUTINE free_disp(disp_a_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Allocate a DISPDEF and fill it in.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	disp	= .disp_a_a	: REF DISPDEF;
+
+    IF .disp[DISP_L_TYPE] EQL disp_c_error OR
+	.disp[DISP_L_TYPE] EQL disp_c_help OR
+	.disp[DISP_L_TYPE] EQL disp_c_status
+    THEN free_sinfo(disp[DISP_L_SINFO]);
+
+    LIB$FREE_VM(%REF(DISP_S_DISPDEF), disp)
+END;						!End of free_disp
+
+
+%SBTTL 'PUT_CHARS'
+GLOBAL ROUTINE put_chars(scroll_info_a, text_a, row, col, disp_flags,
+			 rend) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Write text to a scrollable viewport.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+BUILTIN
+	NULLPARAMETER;
+
+LOCAL
+	temp_desc	: $BBLOCK[DSC$C_S_BLN],
+	dflgs		: DFLGSDEF PRESET(
+			[DFLGS_L_FLAGS] = (IF NULLPARAMETER(disp_flags)
+					   THEN 0 ELSE .disp_flags)),
+	rendition	: INITIAL(IF NULLPARAMETER(rend) THEN 0 ELSE .rend),
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$PUT_CHARS, SMG$PUT_CHARS_HIGHWIDE);
+
+    $INIT_DYNDESC(temp_desc);
+
+    status = text_filter(temp_desc, .text_a);	!Filter out Ctrl chars
+    IF .status
+    THEN BEGIN
+	IF .dflgs[DFLGS_V_BOLD] THEN rendition = .rendition OR SMG$M_BOLD;
+	status =				!Call the output routine
+	(IF .dflgs[DFLGS_V_HIGHWIDE]
+	 THEN SMG$PUT_CHARS_HIGHWIDE
+	 ELSE SMG$PUT_CHARS)(scroll_info[SINFO_L_DISP], temp_desc,
+			 (IF NULLPARAMETER(row) THEN 0 ELSE row),
+			 (IF NULLPARAMETER(col) THEN 0 ELSE col), 0,
+			 rendition, 0,
+			 (IF .dflgs[DFLGS_V_SYMBOL]
+			  THEN UPLIT(SMG$C_SPEC_GRAPHICS) ELSE 0));
+	STR$FREE1_DX(temp_desc);
+	END;					!End of translated string
+
+    .status
+END;						!End of put_chars
+
+
+%SBTTL 'TEXT_FILTER'
+ROUTINE text_filter(out_dsc_a, text_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Filter out escape sequences and control characters (except Ctrl-G, the
+!	bell character).
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	out_dsc		= .out_dsc_a	: $BBLOCK,
+	text		= .text_a	: $BBLOCK,
+	match_str	=
+		%ASCID %STRING(%CHAR(0), %CHAR(1), %CHAR(2), %CHAR(3),
+				%CHAR(4), %CHAR(5), %CHAR(6), %CHAR(7),
+				%CHAR(8), %CHAR(9), %CHAR(10), %CHAR(11),
+				%CHAR(12), %CHAR(13), %CHAR(14), %CHAR(15),
+				%CHAR(16), %CHAR(17), %CHAR(18), %CHAR(19),
+				%CHAR(21), %CHAR(22), %CHAR(23), %CHAR(24),
+				%CHAR(25), %CHAR(26), %CHAR(27), %CHAR(28),
+				%CHAR(29), %CHAR(30), %CHAR(31)),
+	trans_str	= %ASCID %STRING('       ', %CHAR(7));
+
+EXTERNAL ROUTINE
+	g_hat(STR$TRANSLATE);
+
+    STR$TRANSLATE(out_dsc, text,		!Translate Ctrl chars to blanks
+		trans_str, match_str)		!...(except Ctrl-G, ring bell)
+END;						!End of text_filter
+
+
+%SBTTL 'SCROLL'
+GLOBAL ROUTINE scroll(scroll_info_a, scroll_amount) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Scroll a viewport by the specified amount.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+LOCAL
+	new_top,
+	direction,
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$SCROLL_VIEWPORT);
+
+    new_top = .scroll_info[SINFO_L_TOP] + .scroll_amount;
+    IF .new_top LSS 1
+    THEN new_top = 1
+    ELSE BEGIN
+	LOCAL
+	    max_top	: INITIAL(.scroll_info[SINFO_L_LEN] -
+				  .scroll_info[SINFO_L_VIEWLEN] + 1);
+
+	IF .new_top GTR .max_top
+	THEN new_top = .max_top;
+	END;					!End of 
+
+    scroll_amount = .new_top - .scroll_info[SINFO_L_TOP];
+    IF .scroll_amount LSS 0
+    THEN BEGIN
+	direction = SMG$M_DOWN;			!Scroll down
+	scroll_amount = -.scroll_amount;	!Absolute value
+	END
+    ELSE IF .scroll_amount GTR 0
+    THEN direction = SMG$M_UP
+    ELSE RETURN(SS$_NORMAL);			!Don't scroll
+	
+    status = SMG$SCROLL_VIEWPORT(scroll_info[SINFO_L_DISP], direction,
+				scroll_amount);
+    IF .status
+    THEN BEGIN
+	scroll_info[SINFO_L_TOP] = .new_top;	!Scrolled, save view position
+	status = display_scroll_markers(	!Mark whether we can scroll
+		scroll_info, .scroll_info[SINFO_L_TOP] GTR 1,
+		.scroll_info[SINFO_L_TOP] LSS .scroll_info[SINFO_L_LEN] -
+					.scroll_info[SINFO_L_VIEWLEN] + 1);
+	END;					!End of scroll successful
+
+    .status
+END;						!End of scroll
+
+
+%SBTTL 'DISPLAY_SCROLL_MARKERS'
+ROUTINE display_scroll_markers(scroll_info_a, up_flag, down_flag) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Turn on or off the ^ and v markers used to denote whether a scrolling
+!	region can be scrolled up or down.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF,
+	up_marker	= %ASCID'^',
+	down_marker	= %ASCID'v';
+
+LOCAL
+	marker_col,
+	status	: INITIAL(SS$_NORMAL);
+
+EXTERNAL ROUTINE
+	g_hat(SMG$CREATE_VIRTUAL_DISPLAY, SMG$PASTE_VIRTUAL_DISPLAY),
+	g_hat(SMG$PUT_CHARS, SMG$UNPASTE_VIRTUAL_DISPLAY);
+
+MACRO
+    update_marker(flag, old_flag, disp, marker, row, col)=
+	BEGIN
+	IF .flag
+	THEN BEGIN
+	    IF .disp EQL 0
+	    THEN BEGIN
+		status = SMG$CREATE_VIRTUAL_DISPLAY(
+			%REF(1), %REF(1), disp, 0, %REF(SMG$M_BOLD));
+		IF .status
+		THEN status = SMG$PUT_CHARS(	!Add marker text
+					disp, marker);
+		END				!End of create marker disp
+	    ELSE IF .old_flag
+	    THEN status = SMG$UNPASTE_VIRTUAL_DISPLAY(disp, pasteboard);
+
+	    IF .status
+	    THEN status = SMG$PASTE_VIRTUAL_DISPLAY(
+			disp, pasteboard, %REF(row), %REF(col));
+	    END					!End of display marker
+	ELSE IF .old_flag
+	THEN status = SMG$UNPASTE_VIRTUAL_DISPLAY(
+					disp, pasteboard);
+
+	old_flag = .flag;			!Save the marker state
+	END%;					!End of macro marker_on
+
+    marker_col = .scroll_info[SINFO_L_COL] + .scroll_info[SINFO_L_WID] - 1;
+    IF .marker_col GTR .expected_pb_cols
+    THEN marker_col = .expected_pb_cols;
+
+    update_marker(up_flag,			!Turn on or off the ^ marker
+		scroll_info[SINFO_V_UPFLAG], scroll_info[SINFO_L_UPDISP],
+		up_marker, .scroll_info[SINFO_L_ROW] - 1, .marker_col);
+    IF .status
+    THEN update_marker(down_flag,		!Turn on or off the v marker
+		scroll_info[SINFO_V_DOWNFLAG], scroll_info[SINFO_L_DOWNDISP],
+		down_marker, .scroll_info[SINFO_L_ROW] +
+				.scroll_info[SINFO_L_VIEWLEN], .marker_col);
+
+    .status
+END;						!End of display_scroll_markers
+
+
+%SBTTL 'READ_KEY'
+GLOBAL ROUTINE read_key(term_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine reads a keystroke from the keyboard.  It handles some
+!	keys that should work everywhere.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	keyboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	term	= .term_a		: WORD,
+	top_disp= disp_que[QUE_L_HEAD]	: VOLATILE REF DISPDEF;
+
+LOCAL
+	key_read	: INITIAL(0),
+	scroll_amount	: INITIAL(0),
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$READ_KEYSTROKE, SMG$REPAINT_SCREEN);
+
+EXTERNAL LITERAL
+	SMG$_EOF;
+
+MACRO	popup_disp=
+	   (.top_disp[DISP_L_TYPE] EQL disp_c_help OR
+	    .top_disp[DISP_L_TYPE] EQL disp_c_error OR
+	    .top_disp[DISP_L_TYPE] EQL disp_c_broadcast OR
+	    .top_disp[DISP_L_TYPE] EQL disp_c_status)%;
+
+    in_read_key = top_disp[DISP_V_READKEY] = 1;	!Currently reading kbd
+
+    DO BEGIN
+	status = SMG$READ_KEYSTROKE(keyboard, term);
+	IF .status
+	THEN SELECTONE .term OF
+	      SET
+		[SMG$K_TRM_CTRLD]:	spawn();
+		[SMG$K_TRM_CTRLE]:	$EXIT(CODE = SS$_NORMAL);
+		[SMG$K_TRM_CTRLR,
+		 SMG$K_TRM_CTRLW]:	SMG$REPAINT_SCREEN(pasteboard);
+		[SMG$K_TRM_CTRLZ,
+		 SMG$K_TRM_F10]:	status = SMG$_EOF;
+		[SMG$K_TRM_KP0]:	IF NOT .in_status
+					THEN show_status();
+		[SMG$K_TRM_KP9]:	IF .restrict_width
+					THEN BEGIN
+					    restrict_width = 0;
+					    SIGNAL(MGBOOK__RESTRICTOFF);
+					    END		!Toggle off
+					ELSE BEGIN
+					    restrict_width = 1;
+					    SIGNAL(MGBOOK__RESTRICTON);
+					    END;	!Toggle on
+		[SMG$K_TRM_QUESTION_MARK,
+		 SMG$K_TRM_HELP]:	IF .top_disp[DISP_L_TYPE] NEQ
+						disp_c_help
+					THEN show_help();
+		[SMG$K_TRM_UP,
+		 SMG$K_TRM_KP5]:	scroll_amount = -1;
+		[SMG$K_TRM_DOWN,
+		 SMG$K_TRM_KP6]:	scroll_amount = 1;
+		[SMG$K_TRM_PREV_SCREEN,
+		 SMG$K_TRM_KP7]:	BEGIN
+					BIND
+					   sinfo = .top_disp[DISP_L_SINFO]
+							: SINFODEF;
+					scroll_amount =
+						-.sinfo[SINFO_L_VIEWLEN];
+					END;	!End of prev screen
+		[SMG$K_TRM_NEXT_SCREEN,
+		 SMG$K_TRM_KP8]:	BEGIN
+					BIND
+					    sinfo = .top_disp[DISP_L_SINFO]
+							: SINFODEF;
+					scroll_amount =
+						.sinfo[SINFO_L_VIEWLEN];
+					END;	!End of prev screen
+		[OTHERWISE]:		key_read = 1;	!Pass on to the caller
+	      TES;
+
+	IF .scroll_amount NEQ 0
+	THEN BEGIN
+	    BIND sinfo = .top_disp[DISP_L_SINFO] : SINFODEF;
+
+	    IF popup_disp AND
+		((.scroll_amount GTR 0 AND
+		  .sinfo[SINFO_L_TOP] LSS .sinfo[SINFO_L_LEN] -
+					.sinfo[SINFO_L_VIEWLEN] + 1) OR
+		 (.scroll_amount LSS 0 AND .sinfo[SINFO_L_TOP] GTR 1))
+	    THEN scroll(sinfo, .scroll_amount)
+	    ELSE key_read = 1;			!Can't scroll, treat as normal
+	    scroll_amount = 0;			!Reset for next iteration
+	    END;				!End of scrolling key pressed
+
+	IF (.key_read OR .status EQL SMG$_EOF) AND popup_disp
+	THEN BEGIN
+	    LOCAL
+		is_owner	: INITIAL(.top_disp[DISP_V_READKEY]),
+		ast_stat;
+
+	    ast_stat = $SETAST(ENBFLG = 0);	!Disable interrupts
+	    IF .top_disp[DISP_L_TYPE] EQL disp_c_broadcast
+	    THEN BEGIN
+		hide_scrolling_region(brd_sinfo);
+		in_brdcast = 0;
+		END				!End of close brdcast disp
+	    ELSE BEGIN
+		IF .top_disp[DISP_L_TYPE] EQL disp_c_status
+		THEN in_status = 0;		!Exiting status window
+		delete_scrolling_region(	!Close error or help disp
+			.top_disp[DISP_L_SINFO]);
+		END;
+	    IF .ast_stat EQL SS$_WASSET
+	    THEN $SETAST(ENBFLG = 1);		!Reenable interrupts
+	!
+	! If the read_key call was started while this display was the
+	! top display, then it must be a read_key call from mgbook_handler,
+	! in which case, we need to exit from that read_key call.
+	!
+	    IF NOT .is_owner
+	    THEN BEGIN
+		key_read = 0;			!Ignore this keystroke
+		status = SS$_NORMAL;		!...
+		END;				!End of ignore keystroke
+	    END;				!End of kill broadcast, help,
+						!...or error disp
+    END WHILE .status AND NOT .key_read;
+
+    in_read_key = top_disp[DISP_V_READKEY] = 0;	!Finished reading kbd
+
+    RETURN
+    (IF .status EQL SMG$_EOF
+     THEN RMS$_EOF
+     ELSE .status);
+END;						!End of read_key
+
+
+%SBTTL 'SPAWN'
+ROUTINE spawn =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine spawns a subprocess.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+LOCAL
+	screen_disp,
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(LIB$SPAWN),
+	g_hat(SMG$SAVE_PHYSICAL_SCREEN, SMG$RESTORE_PHYSICAL_SCREEN);
+
+     status = SMG$SAVE_PHYSICAL_SCREEN(		!Save the screen contents
+			pasteboard, screen_disp);
+     IF .status
+     THEN BEGIN
+	status = disable_brdcast_trapping();
+	IF .status
+	THEN BEGIN
+	    status = LIB$SPAWN(0, 0, 0, 0, 0,	!Spawn a subprocess
+				0, 0, 0, 0, 0, %ASCID'MGBOOK_Sub> ');
+	    IF .status
+	    THEN status = enable_brdcast_trapping();
+	    END;				!End of brdcast trapping dis
+
+	SMG$RESTORE_PHYSICAL_SCREEN(		!Restore the screen contents
+			pasteboard, screen_disp);
+	END;					!End of screen contents saved
+
+    IF NOT .status
+    THEN SIGNAL(MGBOOK__SPAWNERR, 0, .status);	!On error, signal the status
+
+    SS$_NORMAL
+END;						!End of spawn
+
+
+%SBTTL 'ENABLE_BRDCAST_TRAPPING'
+ROUTINE enable_brdcast_trapping =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to enable the AST routine that is called to
+!	handle broadcast messages.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+EXTERNAL ROUTINE
+	g_hat(SMG$SET_BROADCAST_TRAPPING);
+
+    SMG$SET_BROADCAST_TRAPPING(			!Trap broadcast messages and
+			pasteboard,		!...display them in a
+			show_broadcast)		!...virtual display
+END;						!End of enable_brdcast_trapping
+
+
+%SBTTL 'DISABLE_BRDCAST_TRAPPING'
+ROUTINE disable_brdcast_trapping =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to disable the AST routine that is called to
+!	handle broadcast messages.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+EXTERNAL ROUTINE
+	g_hat(SMG$DISABLE_BROADCAST_TRAPPING);
+
+    SMG$DISABLE_BROADCAST_TRAPPING(		!Allow broadcast messages to be
+				pasteboard)	!...displayed as normal
+END;						!End of disable_brdcast_trapping
+
+
+%SBTTL 'DISPLAY_COPYRIGHT'
+ROUTINE display_copyright =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is called to display the copyright message on the last
+!	line of the screen.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:	pasteboard
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+EXTERNAL ROUTINE
+	g_hat(SMG$CREATE_VIRTUAL_DISPLAY, SMG$PUT_CHARS),
+	g_hat(SMG$PASTE_VIRTUAL_DISPLAY);
+
+BIND
+	copyright = %ASCID' Copyright © 1995, MadGoat Software ';
+
+LOCAL
+	copyright_len	: INITIAL(.copyright<0,16,0>),
+	status;
+
+    status = SMG$CREATE_VIRTUAL_DISPLAY(	!Create the copyright disp
+		%REF(1), copyright_len, copyright_disp, 0,
+		%REF(SMG$M_REVERSE));
+    IF .status
+    THEN status = SMG$PUT_CHARS(copyright_disp,	!Display the copyright
+				copyright);
+    IF .status
+    THEN status = SMG$PASTE_VIRTUAL_DISPLAY(	!Show the copyright display
+		copyright_disp, pasteboard, pb_rows,
+		%REF((.expected_pb_cols - .copyright_len)/2));
+
+    .status
+END;						!End of display_copyright
+
+
+%SBTTL 'SHOW_HELP'
+ROUTINE show_help =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine displays the help text and waits for a keystroke.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	top_disp	= .disp_que[QUE_L_HEAD]	: DISPDEF;
+
+LOCAL
+	messages	: MLISTDEF PRESET(
+			[MLIST_L_NUMENTS]	= 0,
+			[MLIST_L_MAXWID] 	= 0,
+			[MLIST_L_ENTHEAD]	= messages[MLIST_Q_ENTRIES],
+			[MLIST_L_ENTTAIL]	= messages[MLIST_Q_ENTRIES]),
+	help_sinfo	: REF SINFODEF,
+	any_key		: INITIAL(0),
+	status;
+
+MACRO
+	help_text(text) =
+	BEGIN
+	REGISTER tmp_status;
+
+	tmp_status = add_message_text(%ASCID text, messages);
+	IF .tmp_status EQL 0
+	THEN 1					!OK, return success
+	ELSE .tmp_status			!Not OK, return error detected
+	END%;					!End of help_text
+
+    status = get_sinfo(help_sinfo);		!Allocate an SINFODEF
+    IF .status THEN status = help_text(
+			'Key                Function');
+    IF .status THEN status = help_text(
+			'---                --------');
+    IF .status
+    THEN SELECTONE .top_disp[DISP_L_TYPE] OF
+	SET
+	  [disp_c_booktext]:
+	    BEGIN
+	    status = help_text(
+			'Left/Right Arrow   Previous/Next Topic');
+	    IF .status THEN status = help_text(
+			'Up Arrow, KP5      Scroll up by one line');
+	    IF .status THEN status = help_text(
+			'Down Arrow, KP6    Scroll down by one line');
+	    IF .status THEN status = help_text(
+			'Prev, KP7          Scroll up by one screen');
+	    IF .status THEN status = help_text(
+			'Next, KP8, Return  Scroll down by one screen');
+	    IF .status THEN status = help_text(
+			'Find, PF3          Find the next hotspot');
+	    IF .status THEN status = help_text(
+			'Select, KP.        Use the current hotspot');
+	    IF .status THEN status = help_text(
+			'Ctrl-B             Go back');
+	    END;				!End of book-specific help
+	  [disp_c_bookmenu, disp_c_shelfmenu]:
+	    BEGIN
+	    IF .top_disp[DISP_L_TYPE] EQL disp_c_bookmenu
+	    THEN BEGIN
+		status = help_text(
+			'Left Arrow         Move up one level or close');
+		IF .status THEN status = help_text(
+			'Right Arrow        Move down one level or select');
+		IF .status THEN status = help_text(
+			'Up/Down Arrow      Move within the current level');
+		IF .status THEN status = help_text(
+			'KP5/KP6            Move up or down by one menu item');
+		END				!End of book-menu-specific help
+	    ELSE BEGIN
+		status = help_text(
+			'Left Arrow         Close the current display');
+		status = help_text(
+			'Up Arrow, KP5      Move up by one menu item');
+		status = help_text(
+			'Down Arrow, KP6    Move down by one menu item');
+		status = help_text(
+			'F1, KP1            Create a new private library');
+		status = help_text(
+			'F2, KP2            Append to a private library');
+		status = help_text(
+			'F3, KP3            Close the private library');
+		status = help_text(
+			'F4, KP4            Write shelf info to private library');
+		END;				!End of shelf-menu-specific help
+
+	    IF .status THEN status = help_text(
+			'Prev, KP7          Move up by one screen');
+	    IF .status THEN status = help_text(
+			'Next, KP8          Move down by one screen');
+	    IF .status THEN status =
+			(IF .top_disp[DISP_L_TYPE] EQL disp_c_bookmenu
+			 THEN help_text('Do, Enter,')
+			 ELSE help_text('Do, Enter, Right Arrow,'));
+	    IF .status THEN status = help_text(
+			'Return, Select     Select the current menu item');
+	    IF .status THEN status = help_text(
+			'Find, PF3          Find the next title match');
+	    IF .status THEN status = help_text(
+			'Ctrl-X             Clear the match text');
+	    END;				!End of menu-specific help
+	  [OTHERWISE]:	any_key = 1;		!Display the any key message
+	TES;
+
+    IF .status THEN status = help_text(
+			'Ctrl-E             Exit MGBOOK');
+    IF .status THEN status = help_text(
+			'Ctrl-Z, F10        Close the current display');
+    IF .status THEN status = help_text(
+			'Ctrl-R, Ctrl-W     Refresh the screen');
+    IF .status THEN status = help_text(
+			'KP9                Toggle width change restriction');
+    IF .status AND NOT .in_status THEN status = help_text(
+			'KP0                Display status information');
+    IF .status THEN status = help_text(
+			'Ctrl-D             Spawn a DCL subprocess');
+    IF .status THEN status = help_text(
+			'Help, ?            Display this help');
+    IF .status AND .any_key THEN status = help_text(
+			'Any other key      Close the current display');
+    IF .status
+    THEN BEGIN
+	help_sinfo[SINFO_L_LEN] = .messages[MLIST_L_NUMENTS];
+	help_sinfo[SINFO_L_WID] = help_sinfo[SINFO_L_VIEWWID] =
+				.messages[MLIST_L_MAXWID] + 2;
+	help_sinfo[SINFO_L_ROW] = 3;
+	help_sinfo[SINFO_L_FLAGS] = 0;
+	help_sinfo[SINFO_V_USEPOS] = help_sinfo[SINFO_V_CENTER] = 1;
+	status = create_scrolling_region(.help_sinfo, %ASCID'Help',
+					disp_c_help);
+	END;
+    IF .status
+    THEN BEGIN
+	LOCAL
+	    cur_str : REF STRDEF,
+	    term;
+
+	cur_str = .messages[MLIST_L_ENTHEAD];
+	INCR i FROM 1 TO .messages[MLIST_L_NUMENTS]
+	DO BEGIN
+	    status = put_chars(.help_sinfo, cur_str[STR_Q_TEXT],
+				.i, disp_start_col);
+	    IF NOT .status THEN EXITLOOP;
+	    cur_str = .cur_str[STR_L_FLINK];	!Move to the next line
+	    END;				!End of message display loop
+
+	IF .status
+	THEN status = show_scrolling_region(.help_sinfo);
+
+	IF NOT .status
+	THEN delete_scrolling_region(.help_sinfo);
+	END				!End of display created    
+    ELSE free_sinfo(help_sinfo);
+
+    delete_messages(messages);			!Delete message queue
+    IF NOT .status
+    THEN SIGNAL(MGBOOK__HELPERR, 0, .status);	!Signal any errors
+
+    SS$_NORMAL
+END;						!End of show_help
+
+
+%SBTTL 'SHOW_STATUS'
+ROUTINE show_status =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine displays the status information and waits for a keystroke.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	top_disp	= .disp_que[QUE_L_HEAD]	: DISPDEF;
+
+LOCAL
+	messages	: MLISTDEF PRESET(
+			[MLIST_L_NUMENTS]	= 0,
+			[MLIST_L_MAXWID] 	= 0,
+			[MLIST_L_ENTHEAD]	= messages[MLIST_Q_ENTRIES],
+			[MLIST_L_ENTTAIL]	= messages[MLIST_Q_ENTRIES]),
+	status_sinfo	: REF SINFODEF,
+	any_key		: INITIAL(0),
+	temp_desc	: $BBLOCK[DSC$C_S_BLN],
+	status;
+
+MACRO
+	status_text(text) =
+	BEGIN
+	REGISTER tmp_status;
+
+    %IF NOT %NULL(%REMAINING)
+    %THEN
+	BEGIN
+	LOCAL
+	    out_buff	: $BBLOCK[256],
+	    out_desc	: $BBLOCK[DSC$C_S_BLN] PRESET(
+			[DSC$W_LENGTH]	= %ALLOCATION(out_buff),
+			[DSC$B_CLASS]	= DSC$K_CLASS_S,
+			[DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			[DSC$A_POINTER]	= out_buff);
+
+	tmp_status = $FAO(%ASCID text, out_desc, out_desc, %REMAINING);
+	IF .tmp_status
+	THEN tmp_status = add_message_text(out_desc, messages);
+	END;
+    %ELSE
+	tmp_status = add_message_text(%ASCID text, messages);
+    %FI
+	IF .tmp_status EQL 0
+	THEN 1					!OK, return success
+	ELSE .tmp_status			!Not OK, return error detected
+	END%;					!End of status_text
+
+EXTERNAL ROUTINE
+	shelf_file_open;
+
+    $INIT_DYNDESC(temp_desc);
+
+    status = get_sinfo(status_sinfo);		!Allocate an SINFODEF
+    IF .status AND .debug_enabled
+    THEN status = status_text('Debugging output enabled');
+    IF .status THEN status =
+	(IF .restrict_width
+	 THEN status_text('Width changes restricted')
+	 ELSE status_text('Width changes not restricted'));
+    IF .status THEN status =
+	(IF shelf_file_open(temp_desc)
+	 THEN status_text('Private shelf file !AS open', temp_desc)
+	 ELSE status_text('Private shelf file closed'));
+
+    IF .status
+    THEN BEGIN
+	status_sinfo[SINFO_L_LEN] = .messages[MLIST_L_NUMENTS];
+	status_sinfo[SINFO_L_WID] = status_sinfo[SINFO_L_VIEWWID] =
+				.messages[MLIST_L_MAXWID] + 2;
+	status_sinfo[SINFO_L_ROW] = 3;
+	status_sinfo[SINFO_L_FLAGS] = 0;
+	status_sinfo[SINFO_V_USEPOS] = status_sinfo[SINFO_V_CENTER] = 1;
+	status = create_scrolling_region(.status_sinfo, %ASCID'Status',
+					disp_c_status);
+	END;
+    IF .status
+    THEN BEGIN
+	LOCAL
+	    cur_str : REF STRDEF,
+	    term;
+
+	cur_str = .messages[MLIST_L_ENTHEAD];
+	INCR i FROM 1 TO .messages[MLIST_L_NUMENTS]
+	DO BEGIN
+	    status = put_chars(.status_sinfo, cur_str[STR_Q_TEXT],
+				.i, disp_start_col);
+	    IF NOT .status THEN EXITLOOP;
+	    cur_str = .cur_str[STR_L_FLINK];	!Move to the next line
+	    END;				!End of message display loop
+
+	IF .status
+	THEN status = show_scrolling_region(.status_sinfo);
+
+	IF .status
+	THEN in_status = 1
+	ELSE delete_scrolling_region(.status_sinfo);
+	END				!End of display created    
+    ELSE free_sinfo(status_sinfo);
+
+    delete_messages(messages);			!Delete message queue
+    IF NOT .status
+    THEN SIGNAL(MGBOOK__STSERR, 0, .status);	!Signal any errors
+
+    SS$_NORMAL
+END;						!End of show_status
+
+
+%SBTTL 'GET_SINFO'
+ROUTINE get_sinfo(sinfo_a_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine allocates an SINFODEF.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LIB$GET_VM(%REF(SINFO_S_SINFODEF), .sinfo_a_a)
+END;						!End of get_sinfo
+
+
+%SBTTL 'FREE_SINFO'
+ROUTINE free_sinfo(sinfo_a_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine deallocates an SINFODEF.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LIB$FREE_VM(%REF(SINFO_S_SINFODEF), .sinfo_a_a)
+END;						!End of free_sinfo
+
+
+%SBTTL 'GET_CURSOR_ROW'
+GLOBAL ROUTINE get_cursor_row(scroll_info_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns the current cursor row.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+    SMG$CURSOR_ROW(scroll_info[SINFO_L_DISP])
+END;						!End of get_cursor_row
+
+
+%SBTTL 'GET_CURSOR_COL'
+GLOBAL ROUTINE get_cursor_col(scroll_info_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns the current cursor column.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+    SMG$CURSOR_COLUMN(scroll_info[SINFO_L_DISP])
+END;						!End of get_cursor_col
+
+
+%SBTTL 'SET_CURSOR_POS'
+GLOBAL ROUTINE set_cursor_pos(scroll_info_a, row, col) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to set the cursor position in a display.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+    SMG$SET_CURSOR_ABS(scroll_info[SINFO_L_DISP], row, col)
+END;						!End of set_cursor_pos
+
+
+%SBTTL 'SET_CURSOR_REL'
+GLOBAL ROUTINE set_cursor_rel(scroll_info_a, delta_row, delta_col) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to set the cursor position in a display.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$SET_CURSOR_REL);
+
+    SMG$SET_CURSOR_REL(scroll_info[SINFO_L_DISP], delta_row, delta_col)
+END;						!End of set_cursor_rel
+
+
+%SBTTL 'RING_BELL'
+GLOBAL ROUTINE ring_bell(menu_info_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to ring the warning bell.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	menu_info	= .menu_info_a			: MINFODEF,
+	context		= .menu_info[MINFO_L_CONTEXT]	: MCTXDEF,
+	scroll_info	= context[MCTX_T_SINFO]		: SINFODEF;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$RING_BELL);
+
+    SMG$RING_BELL(scroll_info[SINFO_L_DISP])
+END;						!End of ring_bell
+
+
+%SBTTL 'START_BATCH'
+GLOBAL ROUTINE start_batch =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to begin batch SMG operations.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+EXTERNAL ROUTINE
+	g_hat(SMG$BEGIN_PASTEBOARD_UPDATE);
+
+    batch_flag = 1;				!In batch section
+    SMG$BEGIN_PASTEBOARD_UPDATE(pasteboard)
+END;						!End of start_batch
+
+
+%SBTTL 'END_BATCH'
+GLOBAL ROUTINE end_batch =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to end batch SMG operations.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+EXTERNAL ROUTINE
+	g_hat(SMG$END_PASTEBOARD_UPDATE);
+
+LOCAL
+	status;
+
+    batch_flag = 0;				!Out of batch section
+    status = SMG$END_PASTEBOARD_UPDATE(pasteboard);
+    IF .status AND .expected_pb_cols NEQ .pb_cols
+    THEN status = change_pb_width(		!Need to update the width.
+			.expected_pb_cols);
+    .status
+END;						!End of end_batch
+
+
+%SBTTL 'HILIGHT'
+GLOBAL ROUTINE hilight(scroll_info_a, row, col, num_rows, num_cols, rend)=
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to change the rendition of a portion of a
+!	scrolling region.
+!
+! RETURNS:  	None.
+!
+! IMPLICIT INPUTS:
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	scroll_info	= .scroll_info_a	: SINFODEF;
+
+EXTERNAL ROUTINE
+	g_hat(SMG$CHANGE_RENDITION);
+
+    SMG$CHANGE_RENDITION(scroll_info[SINFO_L_DISP],
+			row, col, num_rows, num_cols, rend)
+END;						!End of hilight
+
+END
+ELUDOM

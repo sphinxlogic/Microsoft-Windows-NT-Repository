@@ -1,0 +1,77 @@
+#9          18-JUN-1995 18:15:03.42                                  NEWMAIL
+From:   MX%"IPHSOFT@dipmza.physik.Uni-Mainz.DE"
+To:     MX%"levitte@e.kth.se"
+CC:     
+Subj:   XTERM_C.GC_PATCH
+
+Date: Sun, 18 Jun 1995 18:13:12 +0100
+From: IPHSOFT@dipmza.physik.Uni-Mainz.DE
+Subject: XTERM_C.GC_PATCH
+To: levitte@e.kth.se
+X-Envelope-to: levitte@e.kth.se
+X-VMS-To: VZDMZA::IN%"levitte@e.kth.se"
+X-VMS-Cc: IPHSOFT
+MIME-Version: 1.0
+Content-Type: TEXT/PLAIN; CHARSET=US-ASCII
+Content-Transfer-Encoding: 7BIT
+
+*** xterm_ori.c Sun Jun 18 17:06:01 1995
+--- xterm.c     Sun Jun 18 17:25:24 1995
+***************
+*** 6139,6144 ****
+--- 6340,6380 ----
+  #endif /* not USE_X_TOOLKIT */
+  }
+  
++ 
++ /*
++    This function is called only by x_destroy_window() upon deletion of a frame.
++    It frees some frame dependant storage that was allocated by x_make_gc() 
++    in XFNS.C.
++ */
++ 
++ static void
++ x_free_gc (f)
++      struct frame *f;
++ {
++   /* the pixmap used for the cursor_gc GC will be freed automatically
++      when we call XFreeGC on cursor_gc (at least I hope so). So we
++      just kill the border_tile pixmap. */
++   XFreePixmap(x_current_display,f->display.x->border_tile);
++   f->display.x->border_tile = (Pixmap) 0xDEADBEEF;
++   /* some GC's are also left over */
++   XFreeGC (x_current_display, f->display.x->normal_gc);
++   f->display.x->normal_gc = (GC) 0xDEADBEEF;
++   XFreeGC (x_current_display, f->display.x->reverse_gc); 
++   f->display.x->reverse_gc = (GC) 0xDEADBEEF;
++   XFreeGC (x_current_display, f->display.x->cursor_gc);
++   f->display.x->cursor_gc = (GC) 0xDEADBEEF;
++ #ifdef USE_THREE_D_BAR
++   XFreeGC (x_current_display, f->display.x->bar_foreground_gc);
++   f->display.x->bar_foreground_gc = (GC) 0xDEADBEEF;
++   XFreeGC (x_current_display, f->display.x->bar_background_gc);
++   f->display.x->bar_background_gc = (GC) 0xDEADBEEF;
++   XFreeGC (x_current_display, f->display.x->bar_top_shadow_gc);
++   f->display.x->bar_top_shadow_gc = (GC) 0xDEADBEEF;
++   XFreeGC (x_current_display, f->display.x->bar_bottom_shadow_gc);
++   f->display.x->bar_bottom_shadow_gc = (GC) 0xDEADBEEF;
++ #endif /* USE_THREE_D_BAR */
++ }                  
++ 
+  /* Destroy the X window of frame F.  */
+  
+  x_destroy_window (f)
+***************
+*** 6153,6160 ****
+--- 6389,6398 ----
+    XtDestroyWidget (f->display.x->widget);
+    free_frame_menubar (f);
+  #endif /* USE_X_TOOLKIT */
++   x_free_gc(f);
+  
+    free_frame_faces (f);
++ 
+    XFlushQueue ();
+  
+    xfree (f->display.x);
+

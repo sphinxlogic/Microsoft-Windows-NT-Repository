@@ -1,0 +1,101 @@
+	.library	/sys$login:peb/
+
+
+fab:	$fab	fnm=<disk$other:[decnet]china_90.note>,fac=get,-
+		shr=<put,get,del,upd>
+
+rab:	$rab	fab=fab,usz=5000,rsz=5000,ubf=buffer,rbf=buffer,-
+		krf=1
+
+buffer:	.blkb	5000
+
+	.entry	start,0
+
+
+	pushaw	out
+	pushaq	pmt
+	pushaq	out
+	calls	#3,g^lib$get_foreign
+	check	r0,error
+
+
+	movb	out, fab+fab$b_fns
+	movab	out+8, fab+fab$l_fna
+
+
+	$open	fab=fab
+	check	r0,error
+
+	$connect	rab=rab
+	check	r0,error
+
+loop:	nop
+
+
+	$get	rab=rab
+	check	r0,error
+
+
+        cmpw    #^x4000, buffer+2
+	bneq	loop
+
+
+	cmpl	buffer+72, last_note
+	beql	9$
+	clrl	flag
+	brw	10$
+9$:	nop
+
+
+; should we report the last notes UID ?
+
+	tstl	flag
+	bneq	20$
+
+
+	movl	#100,out
+        $fao_s  ctrstr=ctr_uid,outbuf=out,outlen=out,-
+                p1=last_uid,-
+                p2=buffer+74,-
+                p3=buffer+72
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+20$:	nop
+
+	incl	flag
+
+	movl	#100,out
+        $fao_s  ctrstr=ctr_uid,outbuf=out,outlen=out,-
+                p1=buffer,-
+                p2=buffer+74,-
+                p3=buffer+72
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+10$:	nop
+
+	movl	buffer+72, last_note
+	movl	buffer, last_uid
+
+	brw	loop
+
+error:	nop
+
+	ret
+
+last_note:	.blkl	1
+
+ctr_uid:        .ascid  /UID !XL is note !UW.!UW/
+
+out:		.long	100
+		.long	out+8
+		.blkb	100		
+
+pmt:	.ascid	/Whats the Notes confernce file name ? > /
+
+last_uid:	.blkl	1
+
+flag:		.blkl	1
+
+	.end	start

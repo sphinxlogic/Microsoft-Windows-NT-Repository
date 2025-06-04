@@ -1,0 +1,322 @@
+From:   MX%"IPHSOFT@dipmza.physik.Uni-Mainz.DE"
+To:     MX%"levitte@e.kth.se"
+CC:     
+Subj:   XFNS_C.SB_PATCH
+
+Date: Sun, 18 Jun 1995 18:09:57 +0100
+From: IPHSOFT@dipmza.physik.Uni-Mainz.DE
+Subject: XFNS_C.SB_PATCH
+To: levitte@e.kth.se
+X-Envelope-to: levitte@e.kth.se
+X-VMS-To: VZDMZA::IN%"levitte@e.kth.se"
+X-VMS-Cc: IPHSOFT
+MIME-Version: 1.0
+Content-Type: TEXT/PLAIN; CHARSET=US-ASCII
+Content-Transfer-Encoding: 7BIT
+
+*** xfns_ori.c;1        Sun Jun 18 17:06:00 1995
+--- xfns.c;1    Sun Jun 18 17:06:00 1995
+***************
+*** 222,227 ****
+--- 222,234 ----
+  Lisp_Object Qfont;
+  Lisp_Object Qforeground_color;
+  Lisp_Object Qgeometry;
++ #ifdef USE_THREE_D_BAR
++ Lisp_Object Qbar_background_color;
++ Lisp_Object Qbar_foreground_color;
++ Lisp_Object Qbar_shadow_width;
++ Lisp_Object Qbar_top_shadow_color;
++ Lisp_Object Qbar_bottom_shadow_color;
++ #endif /* USE_THREE_D_BAR */
+  /* Lisp_Object Qicon; */
+  Lisp_Object Qicon_left;
+  Lisp_Object Qicon_top;
+***************
+*** 392,398 ****
+    X_PARM_AUTOLOWER,
+    X_PARM_VERT_SCROLL_BAR,
+    X_PARM_VISIBILITY,
+!   X_PARM_MENU_BAR_LINES
+  };
+  
+  
+--- 399,416 ----
+    X_PARM_AUTOLOWER,
+    X_PARM_VERT_SCROLL_BAR,
+    X_PARM_VISIBILITY,
+! #ifndef  USE_THREE_D_BAR
+!     X_PARM_MENU_BAR_LINES
+! #else /* USE_THREE_D_BAR */
+!     X_PARM_MENU_BAR_LINES,
+!     X_PARM_BAR_FOREGROUND_PIXEL,
+!     X_PARM_BAR_BACKGROUND_PIXEL,
+!     X_PARM_BAR_SHADOW_WIDTH,
+!     X_PARM_BAR_TOP_SHADOW_PIXEL,
+!     X_PARM_BAR_BOTTOM_SHADOW_PIXEL
+! #endif /* USE_THREE_D_BAR */
+! 
+! 
+  };
+  
+  
+***************
+*** 418,423 ****
+--- 436,448 ----
+  void x_set_vertical_scroll_bars ();
+  void x_set_visibility ();
+  void x_set_menu_bar_lines ();
++ #ifdef USE_THREE_D_BAR
++    void x_set_bar_foreground_color ();
++    void x_set_bar_background_color ();
++    void x_set_bar_shadow_width ();
++    void x_set_bar_top_shadow_color ();
++    void x_set_bar_bottom_shadow_color ();
++ #endif /* USE_THREE_D_BAR */
+  
+  static struct x_frame_parm_table x_frame_parms[] =
+  {
+***************
+*** 437,442 ****
+--- 462,475 ----
+    "vertical-scroll-bars", x_set_vertical_scroll_bars,
+    "visibility", x_set_visibility,
+    "menu-bar-lines", x_set_menu_bar_lines,
++ # ifdef USE_THREE_D_BAR
++   "bar-foreground-color",    x_set_bar_foreground_color,
++   "bar-background-color",    x_set_bar_background_color,
++   "bar-shadow-width",        x_set_bar_shadow_width,
++   "bar-top-shadow-color",    x_set_bar_top_shadow_color,
++   "bar-bottom-shadow-color", x_set_bar_bottom_shadow_color,
++ #endif  /* USE_THREE_D_BAR */
++ 
+  };
+  
+  /* Attach the `x-frame-parameter' properties to
+***************
+*** 781,786 ****
+--- 814,927 ----
+      }
+  }
+  
++ 
++ #ifdef USE_THREE_D_BAR
++ 
++ void
++ x_set_bar_foreground_color (f, arg, oldval)
++      struct frame *f;
++      Lisp_Object arg, oldval;
++ {
++   f->display.x->bar_foreground_pixel = x_decode_color (arg, BLACK_PIX_DEFAULT);
++   if (FRAME_X_WINDOW (f) != 0)
++     {
++       BLOCK_INPUT;
++       XSetForeground (x_current_display, f->display.x->bar_foreground_gc,
++                     f->display.x->bar_foreground_pixel);
++       UNBLOCK_INPUT;
++ 
++       if (FRAME_VISIBLE_P (f))
++         redraw_frame (f);
++     }
++ }
++ 
++ void
++ x_set_bar_background_color(f, arg, oldval)
++      struct frame *f;
++      Lisp_Object arg, oldval;
++ {
++   Pixmap temp;
++   int mask;
++ 
++   f->display.x->bar_background_pixel = x_decode_color (arg, WHITE_PIX_DEFAULT);
++ 
++   if (FRAME_X_WINDOW (f) != 0)
++     {
++       BLOCK_INPUT;
++       XSetBackground (x_current_display, f->display.x->bar_background_gc,
++                 f->display.x->bar_background_pixel);
++       {
++       Lisp_Object bar;
++       for (bar = FRAME_SCROLL_BARS (f); !NILP (bar);
++            bar = XSCROLL_BAR (bar)->next) {
++         XSetWindowBackground (x_current_display,
++                               SCROLL_BAR_X_WINDOW (XSCROLL_BAR (bar)),
++                               f->display.x->bar_background_pixel);
++         }
++       }
++       UNBLOCK_INPUT;
++ 
++       if (FRAME_VISIBLE_P (f))
++         redraw_frame (f);
++     }
++ }
++ 
++ void
++ x_set_bar_shadow_width(f, arg, oldval)
++      struct frame *f;
++      Lisp_Object arg, oldval;
++ {
++ 
++    CHECK_NUMBER (arg, 0);
++ 
++    if (XINT (arg) == f->display.x->bar_shadow_width)
++       return;
++    f->display.x->bar_shadow_width = XINT (arg);
++    if (f->display.x->bar_shadow_width<0)  f->display.x->bar_shadow_width =0;
++ 
++    if (FRAME_X_WINDOW (f) != 0)
++     {
++       if (FRAME_VISIBLE_P (f))
++         redraw_frame (f);
++     }
++ }
++ 
++ void
++ x_set_bar_top_shadow_color (f, arg, oldval)
++      struct frame *f;
++      Lisp_Object arg, oldval;
++ {
++   f->display.x->bar_top_shadow_pixel = x_decode_color (arg, WHITE_PIX_DEFAULT);
++   if (FRAME_X_WINDOW (f) != 0)
++     {
++       BLOCK_INPUT;
++       XSetForeground (x_current_display, f->display.x->bar_top_shadow_gc,
++                     f->display.x->bar_top_shadow_pixel);
++       UNBLOCK_INPUT;
++       if (FRAME_VISIBLE_P (f))
++         redraw_frame (f);
++     }
++ }
++ 
++ void
++ x_set_bar_bottom_shadow_color (f, arg, oldval)
++      struct frame *f;
++      Lisp_Object arg, oldval;
++ {
++   f->display.x->bar_bottom_shadow_pixel = x_decode_color (arg, BLACK_PIX_DEFAULT);
++   if (FRAME_X_WINDOW (f) != 0)
++     {
++       BLOCK_INPUT;
++       XSetForeground (x_current_display, f->display.x->bar_bottom_shadow_gc,
++                     f->display.x->bar_bottom_shadow_pixel);
++       UNBLOCK_INPUT;
++       if (FRAME_VISIBLE_P (f))
++         redraw_frame (f);
++     }
++ }
++ 
++ #endif /* USE_THREE_D_BAR */
++ 
+  void
+  x_set_background_color (f, arg, oldval)
+       struct frame *f;
+***************
+*** 804,817 ****
+                      f->display.x->background_pixel);
+        XSetWindowBackground (x_current_display, FRAME_X_WINDOW (f),
+                            f->display.x->background_pixel);
+!       {
+!       Lisp_Object bar;
+!       for (bar = FRAME_SCROLL_BARS (f); !NILP (bar);
+!            bar = XSCROLL_BAR (bar)->next)
+!         XSetWindowBackground (x_current_display,
+!                               SCROLL_BAR_X_WINDOW (XSCROLL_BAR (bar)),
+!                               f->display.x->background_pixel);
+!       }
+  #else
+        temp = XMakeTile (f->display.x->background_pixel);
+        XChangeBackground (FRAME_X_WINDOW (f), temp);
+--- 945,960 ----
+                      f->display.x->background_pixel);
+        XSetWindowBackground (x_current_display, FRAME_X_WINDOW (f),
+                            f->display.x->background_pixel);
+! #ifndef USE_THREE_D_BAR
+!          {
+!          Lisp_Object bar;
+!          for  (bar = FRAME_SCROLL_BARS (f); !NILP (bar);
+!                bar = XSCROLL_BAR (bar)->next)
+!                XSetWindowBackground (x_current_display,
+!                               SCROLL_BAR_X_WINDOW (XSCROLL_BAR (bar)),
+!                                  f->display.x->background_pixel);
+!          }
+! #endif /* USE_THREE_D_BAR */
+  #else
+        temp = XMakeTile (f->display.x->background_pixel);
+        XChangeBackground (FRAME_X_WINDOW (f), temp);
+***************
+*** 2269,2274 ****
+--- 2432,2462 ----
+                                        | GCLineWidth,
+                                        &gc_values);
+  
++ #ifdef USE_THREE_D_BAR
++   gc_values.background = f->display.x->bar_background_pixel;
++   f->display.x->bar_background_gc  = XCreateGC (x_current_display,
++                                       FRAME_X_WINDOW (f),
++                                       GCBackground,
++                                       &gc_values);
++ 
++   gc_values.foreground = f->display.x->bar_foreground_pixel;
++   f->display.x->bar_foreground_gc  = XCreateGC (x_current_display,
++                                       FRAME_X_WINDOW (f),
++                                         GCForeground,
++                                       &gc_values);
++   gc_values.foreground = f->display.x->bar_top_shadow_pixel;
++   f->display.x->bar_top_shadow_gc  = XCreateGC (x_current_display,
++                                       FRAME_X_WINDOW (f),
++                                         GCForeground,
++                                       &gc_values);
++ 
++   gc_values.foreground = f->display.x->bar_bottom_shadow_pixel;
++   f->display.x->bar_bottom_shadow_gc  = XCreateGC (x_current_display,
++                                       FRAME_X_WINDOW (f),
++                                       GCForeground,
++                                       &gc_values);
++ #endif /* USE_THREE_D_BAR */
++ 
+    /* Cursor has cursor-color background, background-color foreground.  */
+    gc_values.foreground = f->display.x->background_pixel;
+    gc_values.background = f->display.x->cursor_pixel;
+***************
+*** 2429,2434 ****
+--- 2617,2634 ----
+                       "cursorColor", "Foreground", string);
+    x_default_parameter (f, parms, Qborder_color, build_string ("black"),
+                       "borderColor", "BorderColor", string);
++ #ifdef USE_THREE_D_BAR
++   x_default_parameter (f, parms, Qbar_foreground_color, build_string ("black"),
++                      "barForeground", "Foreground", string);
++   x_default_parameter (f, parms, Qbar_background_color, build_string ("white"),
++                      "barBackground", "Background", string);
++   x_default_parameter (f, parms, Qbar_shadow_width, make_number(0),
++                      "barShadowWidth", "ShadowWidth", number);
++   x_default_parameter (f, parms, Qbar_top_shadow_color, build_string ("white"),
++                      "barTopShadowPixel", "TopShadowPixel", string);
++   x_default_parameter (f, parms, Qbar_bottom_shadow_color, build_string ("black"),
++                      "barBottomShadowPixel", "BottomShadowPixel", string);
++ #endif /* USE_THREE_D_BAR */
+  
+    x_default_parameter (f, parms, Qmenu_bar_lines, make_number (0),
+                       "menuBarLines", "MenuBarLines", number);
+***************
+*** 4424,4429 ****
+--- 4634,4651 ----
+    staticpro (&Qforeground_color);
+    Qgeometry = intern ("geometry");
+    staticpro (&Qgeometry);
++ #ifdef USE_THREE_D_BAR
++   Qbar_background_color = intern ("bar-background-color");
++   staticpro (&Qbar_background_color);
++   Qbar_foreground_color = intern ("bar-foreground-color");
++   staticpro (&Qbar_foreground_color );
++   Qbar_shadow_width = intern ("bar-shadow-width");
++   staticpro (&Qbar_shadow_width);
++   Qbar_top_shadow_color = intern ("bar-top-shadow-color");
++   staticpro (&Qbar_top_shadow_color);
++   Qbar_bottom_shadow_color = intern ("bar-bottom-shadow-color");
++   staticpro (&Qbar_bottom_shadow_color);
++ #endif /* USE_THREE_D_BAR */
+    Qicon_left = intern ("icon-left");
+    staticpro (&Qicon_left);
+    Qicon_top = intern ("icon-top");
+

@@ -1,0 +1,221 @@
+.ad l
+.nh
+.TH MIFF 5 "1 May 1994" "ImageMagick"
+.SH NAME
+MIFF - Magick Image File Format is a platform-independent format for
+storing bitmap images.  MIFF is a part of the ImageMagick toolkit of
+image manipulation utilities for the X Window System.  ImageMagick is
+capable of converting many different image file formats to and from MIFF
+(e.g. JPEG, XPM, TIFF, etc.).
+.SH SYNOPSIS
+.B #include <image.h>
+.SH DESCRIPTION
+A MIFF image file consist of two sections.  The first section is a
+header composed of keywords describing the image in text form.  The
+next section is the binary image data.  The header is separated from
+the image databy a \fB:\fP character immediately followed by a
+\fBnewline\fP.
+.PP
+The MIFF header is composed entirely of ASCII characters.  The fields
+in the header are keyword and value combination in the
+\fIkeyword=value\fP format, with each keyword and value separated by an
+equal sign (=).  Each \fIkeyword=value\fP combination is delimited by
+at least one control or whitespace character.  Comments may appear in
+the header section and are always delimited by braces.  The MIFF header
+always ends with a colon (:) character, followed by a \fBnewline\fP
+character.  It is also common for a \fBformfeed\fP and a \fBnewline\fP
+character to appear before the colon. You can then list the image
+keywords with \fImore(1)\fP, without printing the binary image that
+follows the colon separator.
+.PP
+The following is a list of \fIkeyword=value\fP combinations that may be
+found in a MIFF file:
+.TP 5
+.B "class=\fIDirectClass\fP"
+.B "class=\fBPseudoClass\fP"
+indicates the type of binary image data stored in the MIFF file.  If
+this keyword is not present, \fBDirectClass\fP image data is assumed.
+.TP 5
+.B "colors=\fIvalue\fP"
+specifies the number of colors in a \fBDirectClass\fP image. For a
+\fBPseudoClass\fP image, this keyword specifies the size of the
+colormap.  If this keyword is not present in the header, and the image
+is \fBPseudoClass\fP, a linear 256 color grayscale colormap is used
+with the image data.
+.TP 5
+.B "columns=\fIvalue\fP"
+indicates the width of the image in pixels.  This is a required keyword and
+has no default.
+.TP 5
+.B "compression=\fBRunlengthEncoded\fP"
+.B "compression=\fBQEncoded\fP"
+indicates the type of algorithm used to compress the image data.  If this
+keyword is not present, the image data is assumed to be uncompressed.
+.TP 5
+.B "id=\fBImageMagick\fP"
+The id keyword identifies the file as a MIFF-format image file.  This keyword
+is required and has no default.
+.TP 5
+.B "matte=\fBTrue\fP"
+.B "matte=\fBFalse\fP"
+specifies whether a \fBDirectClass\fP image has matte data.  Matte data
+is generally useful for image compositing.  This keyword has no meaning
+for pseudo-color images.
+.TP 5
+.B "montage=\fI<width>x<height>{\+-}<x offset>{\+-}<y offset>\fP
+size and location of the individual tiles of a composite image.  See
+\fBX(1)\fP for details about the geometry specification.
+.PP
+Use this keyword when the image is a composite of a number of different
+tiles.  A tile consists of an image and optionally a border and a
+label.  \fI<width>\fP is the size in pixels of each individual tile in
+the horizontal direction and \fI<height>\fP is the size in the vertical
+direction.  Each tile must have an equal number of pixels in width and
+equal in height.  However, the width can differ from the height.  \fI<x
+offset>\fP is the offset in number of pixels from the vertical edge of
+the composite image where the first tile of a row begins and \fI<y
+offset>\fP is the offset from the horizontal edge where the first tile
+of a column begins.
+.PP
+If this keyword is specified, a directory of tile names must follow the
+image header.  The format of the directory is explained below.
+.TP 5
+.B "packets=\fIvalue\fP"
+specifies the number of compressed color packets in the image data
+section.  This keyword is optional for \fBRunlengthEncoded\fP
+images, mandatory for \fBQEncoded\fP images, and not used for 
+uncompressed image.
+.TP 5
+.B "rows=\fIvalue\fP"
+indicates the height of the image in pixels.  This is a required keyword
+and has no default.
+.TP 5
+.B "scene=\fIvalue\fP"
+indicates the sequence number for this MIFF image file.  This optional
+keyword is used when a MIFF image file is one in a sequence of files
+used in an animation.
+.TP 5
+.B "signature=\fIvalue\fP"
+this optional keyword contains a string that uniquely identifies
+the image colormap.  Unique colormap identifiers are normally used when
+animating a sequence of \fBPseudoClass\fP images.
+.PP
+The following is a sample MIFF header.  In this example, <FF> is a formfeed
+character:
+.PP
+    {
+      Rendered via Dore by Sandy Tennyson.
+    }
+    id=ImageMagick
+    class=PseudoClass  colors=256  signature=d79e1c308aa5bbcdeea8ed63df412da9
+    compression=RunlengthEncoded  packets=27601
+    columns=1280  rows=1024
+    scene=1  
+    <FF>
+    :
+.PP
+Note that \fIkeyword=value\fP combinations may be separated by newlines or
+spaces and may occur in any order within the header.  Comments (within
+braces) may appear anywhere before the colon.
+.PP
+If you specify the \fBmontage\fP keyword in the header, follow
+the header with a directory of image tiles.  This directory consists of
+a name for each tile of the composite image separated by a
+\fBnewline\fP character.  The list is terminated with a NULL character.
+.PP
+Following the header (or image directory if the \fBmontage\fP keyword 
+is in the header) is the binary image data itself.  How the image
+data is formatted depends upon the class of the image as specified (or
+not specified) by the value of the \fBclass\fP keyword in the header.
+.PP
+\fBDirectClass\fP images (class=DirectClass) are continuous-tone, RGB
+images stored as intensity values in red-green-blue order.  Each color
+value is one byte in size [0..255] and there are three bytes per pixel (four
+with an optional matte value).  The total number of pixels in a
+\fBDirectClass\fP image is calculates by multiplying the rows value by
+the column value in the header.
+.PP
+\fBPseudoClass\fP images (class=PseudoClass) are colormapped RGB
+images.  The colormap is stored as a series of red-green-blue pixel
+values, each value being a byte in size.  The number of colormap
+entries is indicated by the colors keyword in the header, with a
+maximum of 65,535 total entries allowed.  The colormap data occurs
+immediately following the header (or image directory if the
+\fBmontage\fP keyword is in the header).
+.PP
+\fBPseudoClass\fP image data is an array of index values into the color
+map.  If these are 256 or fewer colors in the image, each byte of image
+data contains an index value.  If the image contains more than 256
+colors, then the index value is stored as two contiguous bytes with the
+most significant byte being first.  The total number of pixels in a
+\fBPseudoClass\fP image is calculated by multiplying the rows value by
+the columns value in the header.
+.PP
+MIFF is capable of storing a digital signature for colormapped images.
+This signature was developed for use when animating a sequence of
+images on a colormapped X server.  All of the signatures in a sequence
+of MIFF files are checked, and if they all match, you do not need to
+compute a global colormap.
+.PP
+The default colormap identifier is a digital signature computed using
+RSA's Data Security MD5 Digest Algorithm. (See a description of this
+algorithm in Internet draft, [MD5], July 1992.  The colormap signature
+is computed if the MIFF file is part of a scene (i.e. the scene value
+does not equal 0).
+.PP
+The image data in a MIFF file may be uncompressed or may be compressed
+using one of two algorithms.  The compression keyword in the header
+indicates how the image data is compressed. The run-length encoding
+(RLE) algorithm may be used to encode image data into packets of
+compressed data.  For \fBDirectClass\fP images, runs of identical
+pixels values (not BYTE values) are encoded into a series of four-byte
+packets (five bytes if a matte value is included).  The first three
+bytes of the packet contain the red, green, and blue values of the
+pixel in the run.  The fourth byte contains the number of pixels in the
+run.  This value is in the range of 0 to 255 and is one less than
+the actual number of pixels in the run.  For example, a value of 127
+indicates that there are 128 pixels in the run.
+.PP
+For \fBPseudoClass\fP images, the same RLE algorithm is used.  Runs of
+identical index values are encoded into packets.  Each packet contains
+the colormap index value followed by the number of index values in the
+run.  The number of bytes n a \fBPseudoClass\fP RLE packet will be
+either two or three, depending upon the size of the index values.  The
+number of RLE packets stored in the file is specified by the packets
+keyword in the header, but is not required.
+.PP
+A more complex algorithm, the predictive arithmetic compression
+algorithm found in the lossless JPEG compression scheme, may be used to
+to achieve a greater compression ratio than run-length encoding.
+\fBPseudoClass\fP images are first promoted to \fBDirectClass\fP before
+encoding.  The number of compressed packets stored in the file is
+specified by the packets keyword in the header.
+.PP
+MIFF files may contain more than one image.  Simply concatenate each
+individual image (composed of a header and image data) into one file.
+.SH SEE ALSO 
+.B
+display(1), animate(1), import(1), montage(1), mogrify(1), convert(1), more(1), compress(1)
+.SH COPYRIGHT
+Copyright 1994 E. I. du Pont de Nemours and Company
+.PP
+Permission to use, copy, modify, distribute, and sell this software and
+its documentation for any purpose is hereby granted without fee,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of E. I. du Pont de Nemours
+and Company not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior
+permission.  E. I. du Pont de Nemours and Company makes no representations
+about the suitability of this software for any purpose.  It is provided
+"as is" without express or implied warranty.
+.PP
+E. I. du Pont de Nemours and Company disclaims all warranties with regard
+TO this software, including all implied warranties of merchantability
+and fitness, in no event shall E. I. du Pont de Nemours and Company be
+liable for any special, indirect or consequential damages or any
+damages whatsoever resulting from loss of use, data or profits, whether
+in an action of contract, negligence or other tortuous action, arising
+out of or in connection with the use or performance of this software.
+.SH AUTHORS
+John Cristy, E.I. du Pont de Nemours and Company Incorporated

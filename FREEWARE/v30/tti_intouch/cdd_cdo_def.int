@@ -1,0 +1,1570 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program: CDDPLUS_CDO_DEF.INT
+        ! System : INTOUCH
+        ! Author : Daniel James Swain
+        ! Date   : 14-MAR-1991
+        ! Purpose: This program will get a CDD/PLUS pathname from the 
+        !          user and extract using CDO, the records specified.
+        !          The output from CDO (show record/full) will be parsed
+        !          into INTOUCH definition files.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+1000    !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        action$ = 'initialize'
+        do
+          select case action$
+            case 'exit' : exit do
+            case else   : dispatch action$
+          end select
+        loop
+        close all
+
+9999    stop
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T I A L I Z E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! initialize variables and the screen
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !       screen is painted
+        !       cleared_screen$ = screen image of screen without user responses
+        !       mode$ = mode of operation (batch or not)
+        !       action$ = 'ask_path'
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine initialize
+
+        frame off
+        z$ = space$(80)
+        cset z$ = "CDD/Plus to INTOUCH Definition Conversion"
+        print at 1, 1, reverse : z$
+        print at 3, 1 : 'CDD path         : '
+        print at 5, 1 : 'Processing record: '
+        z$ = 'EXIT = Exit                                                ' + &
+             '\ = Back  HELP = Help'
+        print at 24, 1, reverse : z$;
+        ask window : current cleared_screen$
+        ask system : mode mode$
+        max_variant_depth = 9
+        dim variant_position (max_variant_depth)
+        dim variant_length(max_variant_depth)
+        dim variant_field_count(max_variant_depth)
+        action$ = 'ask_path'
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   P A T H
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! ask the user for the path and recordname(s) to process
+        !
+        ! Expected:
+        !       cdd_path$ = default path
+        !
+        ! Result  :
+        !       cdd_path$ = new path
+        !       action$   = create_cdo_command
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_path
+
+        do
+          if  mode$ <> 'BATCH'  then
+            message "Path is from CDD/Plus anchor or CDD$TOP and includes " + &
+                "the record name"
+          end if
+          line input at 21, 1, prompt 'CDD path? ', length 70, &
+                default cdd_path$ : u_reply$
+          clear area 21, 1, 21, 80
+          if  _exit or _back  then  
+            action$ = 'exit'
+            exit routine
+          end if
+          if  _help  then
+            message "Enter the path to the record(s) desired as you would to CDO"
+            delay 3
+            repeat do
+          end if
+          if  u_reply$ = ''  then
+            action$ = 'exit'
+            exit routine
+          end if
+        end do
+        cdd_path$ = ucase$(u_reply$)
+        print at 3, 20, bold : cdd_path$
+        action$ = 'ask_proceed'
+ 
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   P R O C E E D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! make sure that this is what they want to do
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_proceed
+
+        if  mode$ <> 'BATCH'  then
+          clear area 7, 1, 21, 80
+          print at 7, 1 : "CDO access can take a long time if many records "; &
+              "have been selected"
+        end if
+        do
+          line input at 21, 1, prompt 'Proceed (Y/N)? ', length 4, &
+                default 'N' : u_reply$
+          clear area 21, 1, 21, 80
+          if  _exit then  
+            action$ = 'exit'
+            exit routine
+          end if
+          if  _back  then
+            action$ = 'ask_path'
+            exit routine
+          end if
+          if  _help  then
+            message "Enter 'Y' if you want to proceed"
+            repeat do
+          end if
+          if  ucase$(u_reply$) <> 'Y'  then
+            action$ = 'ask_path'
+            exit routine
+          end if
+        end do
+        action$ = 'create_cdo_command'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C R E A T E   C D O   C O M M A N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! create a command file to run cdo and do show record/full on
+        ! cdd_path$
+        !
+        ! Expected:
+        !       cdd_path$ = path and record to extract
+        !
+        ! Result  :
+        !       sys$scratch:cdo_show_record.tmp is created
+        !       message displayed about running cdo
+        !       action$ = "process_cdo_output"
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine create_cdo_command
+
+        cdo_out_ch = _channel
+        open #cdo_out_ch : name 'sys$scratch:cdo_show_record.tmp', access output
+        print #cdo_out_ch : "define sys$output nla0:"
+        print #cdo_out_ch : "$ run sys$system:cdo"
+        print #cdo_out_ch : "set output sys$scratch:cdo_show_record_output.tmp"
+        print #cdo_out_ch : "show record/full "; cdd_path$
+        print #cdo_out_ch : "exit"
+        close #cdo_out_ch
+        print at 7, 1:;
+        message "Running CDO..."
+        pass "@sys$scratch:cdo_show_record.tmp"
+        clear area 7, 1, 22, 80
+        message ""
+        ask system, pass : success z
+        if  not z  then  
+          message error : "CDO failed - " + systext$
+          delay 3
+          action$ = ""
+          exit routine
+        end if
+        action$ = "process_cdo_output"
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   C D O   O U T P U T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! process the output from CDO
+        !
+        ! Expected:
+        !       CDO output is in a file "sys$scratch:cdo_show_record_output.tmp"
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_cdo_output
+
+        gosub pco_initialize
+        gosub pco_process_file
+        set window : current cleared_screen$
+        action$ = 'ask_path'
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P C O   I N I T I A L I Z E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! open the file
+        ! init some variables
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !       cdo_in_ch = input channel for cdo output
+        !       processing_definition = flag indicating if we are currently 
+        !                           processing a record definition.  In
+        !                           this case record means the entire record
+        !                           as INTOUCH would see it.  Not necessarily
+        !                           a record as in contains record in cdo.
+        !       eof = false
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine pco_initialize
+
+        cdo_in_ch = _channel
+        open #cdo_in_ch : name 'sys$scratch:cdo_show_record_output.tmp'
+        processing_definition = false
+        eof = false
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P C O   P R O C E S S   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! read the input file an process the contents
+        !
+        ! Expected:
+        !       cdo_in_ch = channel number of the input file
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine pco_process_file
+
+        do
+          gosub read_input_file
+          if  eof  then  exit do
+          do
+            gosub process_line
+            if  repeat_do  then
+              repeat_do = false
+              repeat do
+            end if
+          end do
+        loop
+        if  processing_definition  then  gosub finish_definition
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E A D   I N P U T   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! read a line from the input file.  Skip blank lines.  
+        ! get rid of "|", trim it, and return a ucased version and a 
+        ! normal version of the line
+        !
+        ! Expected:
+        !       cdo_in_ch = channel to use
+        !
+        ! Result  :
+        !       saved_text$ = last line read
+        !       saved_ucased_text$ = last line read (ucased)        
+        !       eof = true if end of file reached
+        !       ucased_text$ = uppercased text line
+        !       text$        = normal text line
+        !       raw_text$    = unchanged line
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine read_input_file
+
+        if  ucased_text$[1:11] <> 'ALIGNED ON ' then
+          saved_text$ = text$
+          saved_ucased_text$ = ucased_text$
+        end if
+        ! save last line read if it isn't "aligned on xxx boundary".  
+        ! I might need it since I can't always tell what
+        ! a field name is.  If I find datatype and I already have a datatype
+        ! then a new field started on the prior line.
+        do
+          when exception in
+            line input #cdo_in_ch : raw_text$
+          use
+          end when
+          if  _error  then
+            eof = true
+            exit routine
+          end if
+          text$ = trim$(edit$(change$(raw_text$, "|", ""), 16%))
+          if  text$ = ""  then  repeat do
+        end do
+        ucased_text$ = ucase$(text$)
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! process the line just read
+        !
+        ! Expected:
+        !       text$ = text line
+        !       ucased_text$ = text line upper cased
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_line
+
+        keyword$ = element$(ucased_text$, 1, ' ')
+        select case keyword$
+          case "DEFINITION"  : gosub process_definition
+          case "CONTAINS"    : gosub process_contains
+          case "VARIANT"     : gosub process_variant
+          case "END"         : gosub process_end
+          case "DESCRIPTION" : gosub process_description
+          case "DATATYPE"    : gosub process_datatype
+          case "QUERY_HEADER": gosub process_query_header
+          case "QUERY_NAME"  : gosub process_query_name
+          case "EDIT_STRING" : gosub process_edit_string
+          case "DTR"         : gosub process_edit_string
+          case "JUSTIFIED"   
+            field_justification$ = element$(ucased_text$, 2, ' ')
+          case "ARRAY"       : gosub process_array
+          case "ROW_MAJOR"
+            text$[1:10] = '' ! remove 'row_major '
+            gosub process_array
+          case else
+        end select
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   D E F I N I T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found definition of record line
+        ! if already processing a definition, then finish it
+        ! start new definition
+        !
+        ! Expected:
+        !       processing_definition = true if already processing a record
+        !
+        ! Result  :
+        !       processing_definition = true
+        !       definition file is created
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_definition
+
+        if  processing_definition = true then
+          gosub finish_definition
+        end if
+        z = elements(text$, ' ')
+        def_name$ = change$(element$(text$, z, ' '), '$%.', '_')
+	z$ = change$(def_name$, '*', '')
+	if  z$ = '' then def_name$ = 'BAD_NAME'
+        gosub start_definition
+        processing_definition = true
+        position = 1
+        clear area 5, 20,  5, 80
+        print at 5, 20, bold : def_name$
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   C O N T A I N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found a contains line.  I think they should be contains field,
+        ! contains record, contains cdd$data_aggregate, contains variants.  
+        ! I only want fields and variants.
+        ! if already processing a field then write it out.
+        !
+        ! Expected:
+        !       text$ = text line
+        !       ucased_text$ = text line uppercased
+        !
+        ! Result  :
+        !       if field definition in progress, then the field is written
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_contains
+
+        if  field_name$ <> ''  then  gosub write_field_definition
+        z$ = element$(ucased_text$, 2, ' ')
+        select case z$
+          case 'FIELD' : gosub process_field
+          case 'VARIANTS' : gosub start_variant
+          case else
+        end select
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found contains field. Start the definition of a field
+        !
+        ! Expected:
+        !       text$ = text line
+        !
+        ! Result  :
+        !       field_name$ = name of field
+        !       field_size = 0
+        !       field_scale = 0
+        !       field_attribute$ = ''
+        !       field_heading$ = ''
+        !       field_prompt$ = ''
+        !       field_desc$ = ''
+        !       edit_string$ = ''
+        !       field_justification$ = ''
+        !       field_printmask$ = ''
+        !       field_occurrences = 0
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_field
+
+        field_name$ = change$(element$(text$, 3, ' '), '$%.', '_')
+        if  field_name$[1:1] = '*'  then  field_name$ = 'F'
+        ! if 1st char = * then name was unspecified - use F
+        ! the F will be changed to f_1... f_n when written
+
+        if  mode$ <> 'BATCH'  then  &
+                message "On field: " + field_name$
+        if  processing_variant  then variant_field_count(variant_depth) = &
+                variant_field_count(variant_depth) + 1
+        field_size = 0
+        field_scale = 0
+        field_attribute$ = ''
+        field_heading$ = ''
+        field_prompt$ = ''
+        field_desc$ = ''
+        edit_string$ = ''
+        field_justification$ = ''
+        field_printmask$ = ''
+        field_occurrences = 0
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S T A R T   V A R I A N T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found contains variants.  Save the starting position, zero the
+        ! length
+        !
+        ! Expected:
+        !       variant_depth = current variant depth
+        !
+        ! Result  :
+        !       variant_depth is incremented
+        !       variant_position () = current position
+        !       variant_length() = 0
+        !       variant_field_count() = 0
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine start_variant
+
+        if  processing_variant  then  
+          save_position = position
+          gosub process_end_variant
+          position = save_position
+        end if
+        ! nested variants don't have an end variant at this location
+        ! save the position, because nested variants start at the next location
+        ! not the location that the prior variant started
+        variant_depth = variant_depth + 1
+        if  variant_depth > max_variant_depth  then
+          max_variant_depth = max_variant_depth + 10
+          redim variant_position(max_variant_depth)
+          redim variant_length(max_variant_depth)
+          redim variant_field_count(max_variant_depth)
+        end if
+        variant_position(variant_depth)    = position
+        variant_length(variant_depth)      = 0
+        variant_field_count(variant_depth) = 0
+        variant_size = 0
+        processing_variant = true
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   V A R I A N T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found the variant name line.  This could actually be the field
+        ! definition or it contains field definitions.  Line is just variant
+        ! next line starts the variant name definition
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !       next line is read, and treated as if it were a field def
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_variant
+
+        gosub read_input_file
+        if  eof  then
+          message error : "End of file reached while processing variant"
+          halt
+        end if
+        if  ucased_text$ = 'CONTAINS VARIANTS' THEN
+          repeat_do = true
+          exit routine
+        end if
+        field_name$ = change$(element$(text$, 1, ' '), '$%.', '_')
+        if  field_name$[1:1] = '*'  then  field_name$ = 'F'
+        if  mode$ <> 'BATCH'  then  &
+                message "On variant: " + field_name$
+        field_size = 0
+        field_scale = 0
+        field_attribute$ = ''
+        field_heading$ = ''
+        field_prompt$ = ''
+        field_desc$ = ''
+        edit_string$ = ''
+        field_justification$ = ''
+        field_printmask$ = ''
+        field_occurrences = 0
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   E N D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found end statement.  I want to deal with variant and variants
+        !
+        ! Expected:
+        !       ucased_text$ = text line
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_end
+
+        z$ = element$(ucased_text$, 2, ' ')
+        select case z$
+          case 'VARIANT' : gosub process_end_variant
+          case 'VARIANTS': gosub process_end_variants
+          case else
+        end select
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   E N D   V A R I A N T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found end variant (end of a single variant description)
+        ! must be processing a field (either a contains field or the variant
+        ! description itself, so write the field definition
+        ! Set position back to the starting position of the variant
+        ! set variant length() = max of current variant length and size of
+        ! this variant
+        !
+        ! Expected:
+        !       variant_size = size of this variant
+        !       variant_length(variant_depth) = largest variant so far
+        !       variant_position(variant_depth) = starting position of variant
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_end_variant
+
+        if  field_name$ <> ''  then  gosub write_field_definition
+        ! end variant field might have already been written if this
+        ! variant contained variants
+        position = variant_position(variant_depth)
+        variant_length(variant_depth) = &
+                max(variant_length(variant_depth), variant_size)
+        variant_size = 0
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   E N D   V A R I A N T S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found end variants.  this is the end of all variant definitions
+        ! for a single variant depth
+        !
+        ! Expected:
+        !       variant_position(variant_depth) = starting position of variant
+        !       variant_length(variant_depth) = size of largest variant
+        !
+        ! Result  :
+        !       variant_depth is decremented
+        !       if variant_depth = 0 then processing_variant = false
+        !       position = start of variant + size of largest variant
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_end_variants
+
+        position = variant_position(variant_depth) + &
+                variant_length(variant_depth)
+        variant_depth = variant_depth - 1
+        if  variant_depth < 0 then variant_depth = 0
+        if  variant_depth = 0  then 
+          processing_variant = false
+        else
+          variant_length(variant_depth) = &
+           max(variant_length(variant_depth), variant_length(variant_depth + 1))
+        end if
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   D E S C R I P T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found a description line.  I am only interested in this line if
+        ! I am processing a field.  
+        ! Save the description.
+        !
+        ! Expected:
+        !       text$ = text line
+        !
+        ! Result  :
+        !       field_desc$ = description text
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_description
+
+        if  datatype_found  then  gosub process_implicit_fieldname
+        if  field_name$ = ''  then  gosub process_implicit_fieldname
+        ! found a second datatype.  Assume that the prior line started
+        ! a new field definition, but didn't say contains field.
+        z$ = text$[13:len(text$)] ! skip "description "
+        if  z$[1:1] = "/"  then
+          field_desc$ = z$[4:len(z$)-3]  ! remove /* and */ (v4.2 of cdo)
+        else
+          field_desc$ = z$[2:len(z$)-1]  ! remove the ' at beginning and end
+        end if        
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   D A T A T Y P E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found a datatype line.  I am only interested in this line if
+        ! I am processing a field.  
+        ! Save the datatype, size, and scale
+        !
+        ! Expected:
+        !       text$ = text line
+        !
+        ! Result  :
+        !       datatype$ = datatype
+        !       field_size = size
+        !       field_scale = scale
+        !       datatype_found = true
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_datatype
+
+        if  datatype_found  then  gosub process_implicit_fieldname
+        if  field_name$ = ''  then  gosub process_implicit_fieldname
+        ! found a second datatype.  Assume that the prior line started
+        ! a new field definition, but didn't say contains field.
+        datatype_found = true
+        gosub parse_datatype
+        gosub convert_cdd_datatype_to_intouch
+        gosub parse_size
+        gosub parse_scale
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   I M P L I C I T   F I E L D N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found a second datatype.  Assume that the prior line started
+        ! a new field definition, but didn't say contains field.
+        !
+        ! Expected:
+        !       saved_text$ = last line
+        !       saved_ucased_text$ = last line ucased
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_implicit_fieldname
+
+        gosub write_field_definition
+        field_name$ = change$(element$(saved_ucased_text$, 1, ' '), '$%.', '_')
+        if  field_name$[1:1] = '*'  then  field_name$ = 'F'
+        if  mode$ <> 'BATCH'  then  &
+                message "On field: " + field_name$
+        field_size = 0
+        field_scale = 0
+        field_attribute$ = ''
+        field_heading$ = ''
+        field_prompt$ = ''
+        field_desc$ = ''
+        edit_string$ = ''
+        field_justification$ = ''
+        field_printmask$ = ''
+        field_occurrences = 0
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   D A T A T Y P E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! get the datatype from the datatype line
+        !
+        ! Expected:
+        !       ucased_text$ = text line uppercased
+        !       text$ = text line
+        !
+        ! Result  :
+        !       cdd_datatype$ = field's cdd datatype
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_datatype
+
+        z$ = ucased_text$[10:999] ! skip "datatype "
+        first_element_datatype$  = element$(z$, 1, ' ')
+        second_element_datatype$ = element$(z$, 2, ' ')
+        third_element_datatype$  = element$(z$, 3, ' ')
+        select case first_element_datatype$
+          case "SIGNED"      : gosub two_word_datatype
+          case "UNSIGNED"    : gosub two_word_datatype
+          case "F_FLOATING"  : gosub float_datatype
+          case "D_FLOATING"  : gosub float_datatype
+          case "G_FLOATING"  : gosub float_datatype
+          case "H_FLOATING"  : gosub float_datatype
+          case "LEFT"        : gosub three_word_datatype
+          case "RIGHT"       : gosub three_word_datatype
+          case "PACKED"      : cdd_datatype$ = "PACKED DECIMAL"
+          case "ZONED"       : cdd_datatype$ = "ZONED NUMERIC"
+          case "ALIGNED"     : cdd_datatype$ = "ALIGNED BIT"
+          case "UNALIGNED"   : cdd_datatype$ = "UNALIGNED BIT"
+          case "DATE"        : cdd_datatype$ = "DATE AND TIME"
+          case "TEXT"        : cdd_datatype$ = first_element_datatype$
+          case "VARYING"     : cdd_datatype$ = 'VARYING STRING'
+          case "UNSPECIFIED" : cdd_datatype$ = first_element_datatype$
+          case else
+            message error : "Unknown datatype: " + text$
+            halt
+        end select
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T W O   W O R D   D A T A T Y P E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! the datatype is made up of two words, so assemble them
+        !
+        ! Expected:
+        !       first_element_datatype$ = first word
+        !       second_element_datatype$ = second word
+        !
+        ! Result  :
+        !       cdd_datatype$ = datatype
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine two_word_datatype
+
+        cdd_datatype$ = first_element_datatype$ + ' ' + second_element_datatype$
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! T H R E E   W O R D   D A T A T Y P E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! the datatype is made up of three words, so assemble them
+        !
+        ! Expected:
+        !       first_element_datatype$ = first word
+        !       second_element_datatype$ = second word
+        !       third_element_datatype$ = three word
+        !
+        ! Result  :
+        !       cdd_datatype$ = datatype
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine three_word_datatype
+
+        cdd_datatype$ = first_element_datatype$ + " " + &
+                second_element_datatype$ + " " + third_element_datatype$
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F L O A T   D A T A T Y P E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! check to see if the second element is complex.  if so add this
+        ! to the datatype.
+        !
+        ! Expected:
+        !       first_element_datatype$ = one of the float types
+        !       second_element_datatype$ = complex or something else
+        !
+        ! Result  :
+        !       cdd_datatype$ = cdd datatype
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine float_datatype
+
+        cdd_datatype$ = first_element_datatype$
+        if  second_element_datatype$ = 'COMPLEX'  then  &
+          cdd_datatype$ = cdd_datatype$ + ' COMPLEX'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C O N V E R T   C D D   D A T A T Y P E   T O   I N T O U C H
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! convert from a cdd datatype to the INTOUCH datatype.
+        ! set the size if it is known
+        !
+        ! Expected:
+        !       cdd_datatype$ = cdd datatype
+        !
+        ! Result  :
+        !       datatype$ = INTOUCH datatype
+        !       field_size is set for those datatypes where the datatype
+        !                       determines the field size
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine convert_cdd_datatype_to_intouch
+
+        select case cdd_datatype$
+          case "SIGNED BYTE" 
+            datatype$ = "IN"
+            field_size = 1
+            field_attribute$ = 'NUM'
+          case "UNSIGNED BYTE"             
+            datatype$ = "IU"
+            field_size = 1
+            field_attribute$ = 'NUM'
+          case "SIGNED WORD"               
+            datatype$ = "IN"
+            field_size = 2
+            field_attribute$ = 'NUM'
+          case "UNSIGNED WORD"             
+            datatype$ = "IU"
+            field_size = 2
+            field_attribute$ = 'NUM'
+          case "SIGNED LONGWORD"           
+            datatype$ = "IN"
+            field_size = 4
+            field_attribute$ = 'NUM'
+          case "UNSIGNED LONGWORD"         
+            datatype$ = "IU"
+            field_size = 4
+            field_attribute$ = 'NUM'
+          case "SIGNED QUADWORD"           
+            datatype$ = "QS"
+            field_size = 8
+            field_attribute$ = 'NUM'
+          case "UNSIGNED QUADWORD"         
+            datatype$ = "UN"
+            field_size = 8
+          case "SIGNED OCTAWORD"           
+            datatype$ = "UN"
+            field_size = 16
+            field_attribute$ = 'NUM'
+          case "UNSIGNED OCTAWORD"         
+            datatype$ = "UN"
+            field_size = 16
+          case "F_FLOATING"                
+            datatype$ = "FL"
+            field_size = 4
+            field_attribute$ = 'NUM'
+          case "F_FLOATING COMPLEX"        
+            datatype$ = "UN"
+            field_size = 8
+          case "D_FLOATING"                
+            datatype$ = "FL"
+            field_size = 8
+            field_attribute$ = 'NUM'
+          case "D_FLOATING COMPLEX"        
+            datatype$ = "UN"
+            field_size = 16
+          case "G_FLOATING"                
+            datatype$ = "UN"
+            field_size = 8
+          case "G_FLOATING COMPLEX"        
+            datatype$ = "UN"
+            field_size = 16
+          case "H_FLOATING"                
+            datatype$ = "UN"
+            field_size = 16
+          case "H_FLOATING COMPLEX"        
+            datatype$ = "UN"
+            field_size = 32
+          case "UNSIGNED NUMERIC"          
+            datatype$ = "CH"
+            field_attribute$ = 'NUM'
+          case "LEFT OVERPUNCHED NUMERIC"  : datatype$ = "UN"
+          case "LEFT SEPARATE NUMERIC"     
+            datatype$ = "CH"
+            field_attribute$ = 'NUM'
+          case "RIGHT OVERPUNCHED NUMERIC" 
+            datatype$ = "RO"
+            field_attribute$ = 'NUM'
+          case "RIGHT SEPARATE NUMERIC"    : datatype$ = "CH"
+          case "PACKED DECIMAL"            
+            datatype$ = "C3"
+            field_attribute$ = 'NUM'
+          case "ZONED NUMERIC"             
+            datatype$ = "ZN"
+            field_attribute$ = 'NUM'
+          case "ALIGNED BIT"               
+            datatype$ = "UN"
+            z = position / 2.
+            if  fp(z) = 0  then  position = position + 1  ! for us words start on odd
+          case "UNALIGNED BIT"             : datatype$ = "UN"
+          case "DATE AND TIME"             
+            datatype$ = "DS"
+            field_size = 8
+          case "TEXT"                      : datatype$ = "CH"
+          case "VARYING STRING"            : datatype$ = "AC"
+          case "UNSPECIFIED"               : datatype$ = "UN"
+        end select
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   S I Z E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! if the field_size = 0 (wasn't determined by the datatype) then
+        ! parse the size parameter
+        !
+        ! Expected:
+        !       ucased_text$ = text line uppercased
+        !
+        ! Result  :
+        !       field_size = field size
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_size
+
+        if  field_size <> 0 then  exit routine ! I already know the size
+        do
+          z = pos(ucased_text$, 'SIZE IS')
+          if  z > 0  then  
+            z$ = ucased_text$[z:999]
+            field_size = val(element$(z$, 3, ' '))
+            exit do
+          end if
+          z = pos(ucased_text$, 'DIGITS')
+          if  z > 0  then
+            z$ = trim$(ucased_text$[1:z-1])
+            z1 = elements(z$, ' ')
+            field_size = val(element$(z$, z1, ' '))
+            exit do
+          end if
+          exit routine ! no size found ???maybe I should  halt?
+        end do
+        select case cdd_datatype$
+          case "PACKED DECIMAL" : field_size = ip(field_size / 2) + 1
+          case "LEFT SEPARATE NUMERIC" : field_size = field_size + 1
+          case "RIGHT SEPARATE NUMERIC" : field_size = field_size + 1
+          case else
+        end select
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   S C A L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! parse the scale
+        ! reverse the scale so that cdd's -2 becomes INTOUCH'S 2
+        !
+        ! Expected:
+        !       ucased_text$ = text line uppercased
+        !
+        ! Result  :
+        !       field_scale = scale
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_scale
+
+        z = pos(ucased_text$, 'SCALE')
+        if  z = 0  then  exit routine
+        z$ = ucased_text$[z:999]
+        field_scale = val(element$(z$, 2, ' ')) * -1
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   Q U E R Y   H E A D E R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found the query header.  
+        !
+        ! Expected:
+        !       ucased_text$ = text line uppercased
+        !       text$ = text line
+        !
+        ! Result  :
+        !       field_heading$ is set 
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_query_header
+
+        field_heading$ = text$[15:len(text$)-1] ! skip "query_header '", get length - last '
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   Q U E R Y   N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found the query name.  This will be used as the prompt
+        !
+        ! Expected:
+        !       ucased_text$ = text line uppercased
+        !       text$ = text line
+        !
+        ! Result  :
+        !       field_prompt$ is set 
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_query_name
+
+        field_prompt$ = text$[13:len(text$)-1] ! skip "query_name '", get length - last '
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   E D I T   S T R I N G
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found the edit string.  convert it to and INTOUCH printmask
+        !
+        ! Expected:
+        !       text_line$ = text line
+        !       ucased_text$ = text line uppercased
+        !
+        ! Result  :
+        !       field_printmask$ is set.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_edit_string
+
+        if  ucased_text$[1:3] = 'DTR' then
+          edit_string$ = text$[17:999]
+        else
+          edit_string$ = text$[13:999] ! skip "edit_string ", get length
+        end if
+        gosub expand_edit_string
+        if  edit_string$[1:1] = '-' then
+          edit_string$ = '-' + replace$(mid(edit_string$, 2), '-=9')
+        end if
+        field_printmask$ = ""
+        edit_string_size = len(edit_string$) ! ++DJS++ 01-JUN-1992
+        for edit_index = 1 to edit_string_size ! ++DJS++ 01-JUN-1992
+          z$ = edit_string$[edit_index:edit_index]
+          select case z$
+            case "A" : field_printmask$ = field_printmask$ + "#"
+            case "T" : field_printmask$ = field_printmask$ + "#"
+            case "X" : field_printmask$ = field_printmask$ + "#"
+            case "," : field_printmask$ = field_printmask$ + ","
+            case "." : field_printmask$ = field_printmask$ + "."
+            case "9" : field_printmask$ = field_printmask$ + "#"
+            case "C" 
+              field_printmask$ = field_printmask$ + "#"
+              if  field_printmask$[1:1] <> '-'  then  field_printmask$ = '-' + field_printmask$
+            case "G", "K"
+              field_printmask$ = field_printmask$ + "#"
+              if  field_printmask$[1:1] <> '+'  then  field_printmask$ = '+' + field_printmask$
+            case "S" : field_printmask$ = field_printmask$ + "+"
+            case "-" : field_printmask$ = field_printmask$ + "-"
+            case "+" : field_printmask$ = field_printmask$ + "+"
+            case "$" : field_printmask$ = field_printmask$ + "$"
+            case "\" 
+              z1 = len(field_printmask$)
+              field_printmask$ = field_printmask$ + field_printmask$[z1:z1]
+            case "B" : field_printmask$ = field_printmask$ + "#"
+            case "&" 
+              z1 = pos(edit_string$, '"', edit_index)
+              z2 = pos(edit_string$, '"', z1+1)
+              edit_index = z2
+              z1$ = edit_string$[edit_index+1:z1-1]
+              if  z1$ = 'DB' then
+                z2$ = '+'
+              else
+                z2$ = '-'
+              end if
+              if  field_printmask$[1:1] <> z2$ then field_printmask$ = z2$ + field_printmask$
+            case "Z" 
+              z1 = pos(edit_string$, '"', edit_index)
+              z2 = pos(edit_string$, '"', z1+1)
+              edit_index = z2
+              z1$ = edit_string$[z1+1:z2-1]
+              if  z1$ = ' ' then
+                z2$ = '#'
+              else
+                z2$ = '*'
+              end if
+              field_printmask$ = field_printmask$ + z2$
+            case '"' : field_printmask$ = field_printmask$ + ""
+              z1 = edit_index
+              z2 = pos(edit_string$, '"', z1+1)
+              if  z2 = 0 then
+                edit_index = edit_string_size
+                field_printmask$ = '' ! get rid of partial mask
+                message error : "Field "; field_name$; &
+                  ' - edit mask cannot be converted: '; edit_string$
+                exit routine
+              end if ! mismatched quotes
+              z1$ = edit_string$[z1+1:z2-1]
+              edit_index = z2
+              if  z1$ = 'V' then
+                field_printmask$ = field_printmask$ + '.'
+              else
+                for i = 1 to len(z1$)
+                  z2$ = z1$[i:i]
+                  field_printmask$ = field_printmask$ + "~" + z2$
+                next i
+              end if
+            case else
+              edit_index = edit_string_size
+              field_printmask$ = '' ! get rid of partial mask
+              message error : "Field "; field_name$; &
+                ' - edit mask cannot be converted: '; edit_string$
+              exit routine
+          end select
+        next edit_index
+        if  field_printmask$[1:2] = '-,' then field_printmask$[1:2] = '-#,'
+        if  len(field_printmask$) > 30 then 
+          message error : "Field "; field_name$; &
+            ' - edit mask is too long: '; edit_string$
+          field_printmask$ = ''
+        end if
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! E X P A N D   E D I T   S T R I N G
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! check to see if any expansion characters "(" exist in the string
+        ! if so, then expand it.
+        !
+        ! Expected:
+        !       edit_string$ = edit string
+        !
+        ! Result  :
+        !       edit_string$ = expanded edit string
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine expand_edit_string
+
+        do
+          z1$ = element$(edit_string$, 1, '(')
+          z2$ = element$(edit_string$, 2, '(')
+          if  z2$ = ''  then  exit do  !no more expansion characters
+          z3$ = right$(z1$, 1)
+          if  z3$ = '"' then z3$ = right$(z1$, 4)
+          ! found replacement string so get entire replacement string to repeat
+          z2 = pos(z2$, ')')
+          z3 = val(z2$[1:z2-1]) - 1
+          z4 = len(z1$) + 2 + z2 ! pos of ) + 1
+          edit_string$ = z1$ + repeat$(z3$, z3) + edit_string$[z4:999]
+        loop
+          
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   A R R A Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found an array statement.  determine how many occurrences there are
+        !
+        ! Expected:
+        !       text$ = text line
+        !
+        ! Result  :
+        !       field_occurrences
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_array
+
+        z$ = text$[7:999] ! get rid of "ARRAY "
+        field_occurrences = 1 ! start at 1 so mulitplication works
+        z = elements(z$, ' ')
+        for i = 1 to z
+          z1$ = element$(z$, i, ' ')
+          z1 = val(element$(z1$, 1, ':'))
+          z2 = val(element$(z1$, 2, ':'))
+          z3 = z2 - z1 + 1 ! get number of array elements
+          field_occurrences = field_occurrences * z3
+        next i
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N I S H   D E F I N I T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! finish the definition file
+        ! write out the last field if necessary
+        !
+        ! Expected:
+        !       structure def is open
+        !
+        ! Result  :
+        !       structure is closed
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine finish_definition
+
+        if  field_name$ <> ''  then  gosub  write_field_definition
+        close structure def
+        processing_definition = false
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S T A R T   D E F I N I T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! create a new definition file
+        !
+        ! Expected:
+        !       def_name$ = name of definition file to create
+        !
+        ! Result  :
+        !       definition file is created
+        !       structure def is opened
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine start_definition
+          check_structure_file
+          pass 'create/fdl=tti_run:define ' + def_name$ + '.def'
+          open structure def : name 'tti_run:define', &
+                datafile def_name$ + '.def', access outin
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   S T R U C T U R E   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   see if the structure file exists.  If not, open it
+        !
+        ! Expected:
+        !   filename$          filename without device, directory or extension
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   structure file exists
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_structure_file
+          close structure str
+          when exception in
+            open structure str : name 'tti_run:structure', &
+              datafile def_name$ + '.str'
+          use
+          end when
+          if  not _error then exit routine
+          structure_name$ = def_name$ + '.STR'
+          message 'Creating structure: '; structure_name$; '...'
+          pass 'create/fdl=tti_run:structure ' + structure_name$
+          ask system, pass : success pass_successful
+          if not pass_successful then
+            message error : 'Creation of '; structure_name$; ' failed'
+            message error delay : 'Systext: '; systext$
+            exit routine
+          end if
+          open structure str : name 'tti_run:structure', &
+            datafile structure_name$, access outin
+          add_structure_records
+          message ''
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A D D   S T R U C T U R E   R E C O R D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   add the data records to the new structure file
+        !
+        ! Expected:
+        !   structure_security$ 
+        !                      security level for this structure
+        !   structure_edit_level$ 
+        !                      structure edit level constant
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   the three structure records are added
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine add_structure_records
+          add structure str
+            str(rectype)         = 'STR'
+            str(str_edit_level)  = '031'
+            str(str_security)    = 'N'
+          end add
+          add structure str
+            str(whole_rec)       = ''
+            str(rectype)         = 'DAT'
+            str(file_name)       = def_name$ + '.DAT'
+            str(rms)             = 'RMS'
+            str(read_security)   = 'N'
+            str(update_security) = 'N'
+            str(write_security)  = 'N'
+            str(delete_security) = 'N'
+          end add
+          add structure str
+            str(whole_rec)       = ''
+            str(rectype)         = 'DEF'
+            str(file_name)       = def_name$ + '.DEF'
+            str(read_security)   = 'N'
+            str(update_security) = 'N'
+            str(write_security)  = 'N'
+            str(delete_security) = 'N'
+          end add
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! W R I T E   F I E L D   D E F I N I T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! need to write a field definition to the def structure
+        !
+        ! Expected:
+        !       processing_variant
+        !       total_length = total size of the field
+        !
+        ! Result  :
+        !       if processing a variant then variant_length is set to the
+        !       sum of variant length + total_length
+        !       datatype_found = false
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine write_field_definition
+
+        if  field_size = 0  then  exit routine ! not a real field
+        gosub setup_justification
+        gosub calc_total_field_length
+        if  field_name$ = 'F'  then
+          the_field_name$ = field_name$ + '_1'
+          dup_ctr = 1
+        else   
+          the_field_name$ = field_name$
+          dup_ctr = 0
+        end if
+        do
+          when exception in
+            add structure def
+              def(old_name)    = '*'
+              if  field_desc$ = '' then
+                def(desc)      = field_name$
+              else
+                def(desc)        = field_desc$
+              end if
+              def(first)       = position
+              def(len)         = field_size
+              def(dtype)       = datatype$
+              if  pos(field_attribute$, 'NUM') > 0  then
+                def(num)       = 'Y'
+              else
+                def(num)       = 'N'
+              end if
+              def(date)        = 'N'
+              def(df)          = 'YMD'
+              def(read)        = 'N'
+              if  pos(field_attribute$, 'NUM') > 0  and  &
+                  datatype$ = 'CH'  then
+                def(rj)        = 'Y'
+              else
+                def(rj)        = 'N'
+              end if
+              def(scale)       = lpad$(str$(field_scale), 2, '0')
+              def(uc)          = 'N'
+              def(write)       = 'N'
+              def(zf)          = 'N'
+              def(zs)          = 'N'
+              if  field_heading$ <> ''  then
+                def(heading)   = field_heading$
+              else
+                def(heading)   = field_name$
+              end if
+              if  field_prompt$ <> ''  then
+                def(prompt)    = field_prompt$
+              else
+                def(prompt)    = field_name$
+              end if
+              def(prmask)      = field_printmask$
+              def(name)        = the_field_name$
+              def(occurrence)  = field_occurrences
+            end add
+          use
+          end when
+          if  not _error  then  exit do
+          if  extype = -7009 then
+            dup_ctr = dup_ctr + 1
+            the_field_name$ = field_name$ + '_' + str$(dup_ctr)
+            if  len(the_field_name$) > 31  then
+              message error : "Duplicate name is causing field name length error"
+              halt
+            end if
+            repeat do
+          else
+            message error : systext$
+            halt
+          end if
+        end do
+        position = position + total_length
+        if  processing_variant  then  variant_size = variant_size + total_length
+        datatype_found = false
+        field_name$ = ''
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   J U S T I F I C A T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! setup printmask to justify strings properly
+        ! alter this mask if the justification is not blank
+        !
+        ! Expected:
+        !       field_printmask$ = edit mask
+        !       field_justification$ = requested justification
+        !       field_attribute$ = attributes
+        !
+        ! Result  :
+        !       field_printmask$ justified properly
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_justification
+
+        if  field_printmask$ <> ''  then
+          if  pos(field_attribute$, 'NUM') = 0  then &
+            field_printmask$ = '<' + field_printmask$[2:999]
+        end if
+        if  field_justification$ = ''  then  exit routine
+        if  pos(field_attribute$, 'NUM') > 0  then  exit routine ! can't change just
+        if  field_printmask$ = ''  then  field_printmask$ = '<' + repeat$('#', field_size-1)
+        select case field_justification$
+          case ''
+          case 'RIGHT'  : field_printmask$ = '>' + field_printmask$[2:999]
+          case 'LEFT'   : field_printmask$ = '<' + field_printmask$[2:999]
+          case 'CENTER' : field_printmask$ = field_printmask$[2:999]
+          case else
+        end select
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C A L C   T O T A L   F I E L D   L E N G T H
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! determine the total length of the field including all occurrences
+        !
+        ! Expected:
+        !       field_occurrences = number of array occurrences
+        !       field_size = size of each occurrence
+        !
+        ! Result  :
+        !       total_length = total size of the field
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine calc_total_field_length
+
+        total_length = field_size
+        if  field_occurrences > 0  then  &
+          total_length = field_size * field_occurrences
+
+        end routine
+
+
+
+

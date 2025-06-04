@@ -1,0 +1,2205 @@
+module ppl$tell ( IDENT = 'V62-002', addressing_mode (external=general)) =
+begin
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1986 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+!
+
+!++
+!
+! FACILITY:	PPL Facility of the VAX RTL (Parallel Processing Library)
+!
+! ABSTRACT:
+!
+!	This module contains code for inter-process communication,
+!	via locks and the VMS Lock Manager.
+!
+! ENVIRONMENT:	VAX/VMS user mode
+!
+! AUTHOR: Peter D Gilbert, CREATION DATE:  7-OCT-1986
+!
+! MODIFICATION HISTORY
+!
+!	X01-000		Original
+!
+!	X01-002		To correct the ident to match the cms	CMF  26-JAN-1987
+!			generation number.
+!
+!	X01-003		Change signaling of PPL$_INSVIRMEM to	CMF  26-JAN-1987
+!			returning the same.
+!
+!	X01-004		To manually add the changes provided by	CMF  29-JAN-1987
+!			Peter Gilbert to handle voting correctly.
+!			This mainly entailed adding a call to
+!			PPL$$INVALIDATE_PROPOSALS.
+!
+!			Updated comments to conform to standards.
+!
+!			Deleted all occurences of !!! and the code
+!			following.
+!
+!			Added comments to all places containing
+!			todo_.
+!
+!	X01-005		Added routines ppl$index_to_pid and	DLR 12-APR-1987
+!			ppl$pid_to_index.
+!
+!	X01-006		Restored use of todo list to handle	DLR 10-JUL-1987
+!			cross-process exceptions for the event
+!			services and for notification of process
+!			termination.  Moved ppl$tell defs for the
+!			pplsect to ppllib, for global visibility.
+!			Implemented event support.  Made fixes
+!			for ast- and multi-process-reentrancy.
+!
+!	V05-001		Fixed PPL$STOP/stop_nicely_but_firmly	WWS  6-Jul-1988
+!			return PPL$_NORMAL instead of SS$_NORMAL
+!
+!	V05-002		While searching for the NEXT_LIVING if	TJH  8-Aug-1988
+!			application died while we were looking
+!			for a next return false.  (This is a
+!			temporary fix pending further investigation.)
+!
+!	V05-003		Changed address voting proceedure to	WWS 31-Aug-1988
+!			use a todo instead of a special flag.
+!			Added todo for PPL$FLUSH_SHARED_MEMORY.
+!
+!	V051-001	- Replaced uses of local PPLSECT by	WWS 09-Sep-1988
+!			  global PPL$$GL_PPLSECT
+!			- Added routine-header comments
+!			- Reformatted debugging messages
+!			- Changed CTX_A_MY_PROC to CTX_L_MY_PROC
+!
+!       V052-001        - Made PPL$$Update_Voting_Ring more	WWS 05-Dec-1988
+!			  robust
+!
+!	V53-001		- Changed do_termination_updates_ macro	WWS 22-Mar-1989
+!			  to take the index by value
+!			- Altered PPL$Update_Voting_Ring to take
+!			  a proc block instead of an index
+!
+!	V53-002		- Added ppl$$gl_system to $ENQ requests	WWS 29-Mar-1989
+!			- Changed to debug_msg_ for debugging messages
+!
+!	V53-003		- Change calls to debug_msg_ to take a	WWS 09-May-1989
+!			  string literal instead of an %ascid
+!			- Got rid of %ascid in call to $setimr
+!
+!	V53-004		- Dequeue request for LIV1 lock in PPL$$Not_Alive
+!
+!	V53-005		- Modified Got_Back_Again for new	WWS 07-Jun-1989
+!			    PPL$Reserve_Addresses
+!
+!       V53-006         - "do_delete_event" added for event deletion
+!                                                               HPO 27-Jul-1989
+!
+!	V53-007		- Removed references to obsolete	WWS 24-Jul-1989
+!			    routine CHECK_VOTES
+!
+!	V53-008		- Moved the increment of pplsect_w_curr PJC 28-Jul-1989
+!			  and the macro call im_alive_ from 
+!			  join_application to ppl$$alive.
+!
+!	V53-009		- Added an $ENQ to convert grabbed tell PJC 28-Jul-1989
+!			  lock back to CR mode if CANCELGRANT
+!			  received upon dequeuing PW request, in
+!			  PPL$$TELL.
+!
+!	V53-010		- Modified call to PPL$$Post_Event in   WWS 28-Jul-1989
+!                         PPL$Tell to pass trigger parameters
+!			  by value.
+!
+!
+!	V53-011		- Replaced lock-naming macro, for ALIVE	PJC  1-Aug-1989
+!			  and TELL locks.  IDs are now Ascii   
+!
+!	V53-012		- Clean-up of recent additions		PJC  3-Aug-1989
+!
+!	V53-013		- Removed local CTXs			PJC 23-Aug-1989
+!			- Placed trigger parameters into to_do
+!			  block instead of offset of trigger
+!			  marker, added arg4 to TELL
+!
+!	V53-014		- Added lck$m_convert flag to $enq	PJC 26-Aug-1989
+!			  within ppl$$tell.
+!
+!	V53-015		- Made changes within PPL$$ALIVE to	PJC 17-Oct-1989
+!			  adapt to new initialization scheme.
+!
+!	V53-016		- Replaced $forcex with a call to	PJC  6-Nov-1989
+!			  ppl$$tell specifying do_termination,
+!			  and removed stop_nicely_but_firmly
+!			  routine.
+!
+!	V53-017		- Added alive_handler to handle signals PJC 30-Nov-1989
+!			  from ppl$$alive.
+!			- Added confirm_ macro in a number of 
+!			  number of places.
+!
+!	V57-001		- EVMS/Alpha port.			PJC 12-Nov-1991
+!
+!	V57-002		- Add code to fix alive ring links.	PJC 02-Feb-1993
+!			  In Response to V60-FT QAR 854 and 
+!			  EVMS-DELTA QAR 2190.  
+!
+!	V57-003		- Remove code associated with now	PJC 06-Aug-1993
+!			  defunct alive list and process votes.
+!			  Add code to reserve event flags.
+!
+!	V57-004		- Convert to global event flag.		PJC 30-Aug-1993
+!
+!	V62-001		- Set process state to running		WWS 15-Aug-1994
+!			  *before* releasing the top lock in
+!			  ppl$$alive to prevent race with
+!			  memory arbitration
+!	V62-002		- Lock TOP lock around call to		WWS 29-Aug-1994
+!			  do_termination_updates_ in 
+!			  PPL$$NOT_ALIVE.
+!--
+!<BLF/PAGE>
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+library	'sys$library:starlet';
+library	'sys$library:xport';
+undeclare %quote $descriptor;
+library	'obj$:ppllib';
+require 'rtlin:rtlpsect';
+
+!
+! FORWARD ROUTINE
+!
+forward routine
+	got_back_again:	novalue,
+	process_died,
+	ppl_exit_handler,
+	!
+	ppl$$alive,
+	ppl$$hiber:	novalue,
+	ppl$$next_living,
+	ppl$$not_alive,
+	ppl$$tell,
+
+	ppl$index_to_pid,	    !user-visible
+	ppl$pid_to_index,	    !user-visible
+	ppl$stop;
+
+!
+! MACROS:
+!
+macro
+    at_ast_level_ =	!indicate to other code that we're at ast level
+	begin		!some routines are called both at ast level & non-
+	ppl$$gl_context[ctx_v_at_ast_level] = true;
+	debug_msg_(2, 'Index: !UL, now at AST level',
+			.ppl$$gl_context[ctx_l_my_index]); 
+	end
+    %;
+
+
+macro
+    leaving_ast_level_ =
+	begin
+	debug_msg_(2, 'Index: !UL, leaving AST level',
+			.ppl$$gl_context[ctx_l_my_index]); 
+	ppl$$gl_context[ctx_v_at_ast_level] = false;
+	end
+    %;
+
+
+macro
+    form_lnam (resnam,res_fao,x) =
+	begin
+	    status = ppl$unique_name ( res_fao, resnam, resnam[dsc_l_length] );
+	    if not .status then
+		return .status;
+	    ppl$$append_ul ( resnam,%allocation(buffer), (x) );
+	end 
+    %;
+
+
+!+
+! Fields in a todo work_item.
+!-
+
+$unit_field
+    todo_fields =
+	set
+	todo_q_todos =	[xquad],		! Queue of todos
+	$overlay(todo_q_todos)
+	todo_l_flink=	[xlong],		! Forward link
+	todo_l_blink=	[xlong],		! Backward link
+	$continue
+	todo_l_request=	[xlong],	!work_item request
+	todo_l_arg1=	[xlong],	!event block
+	todo_l_arg2=	[xlong],	!other args
+	todo_l_arg3=	[xlong],
+	todo_l_arg4=	[xlong]
+	tes;
+literal	todo_s_bln=	$field_set_units;	! Size in bytes
+macro	todo_block=	$bblock[todo_s_bln] field(todo_fields) %;
+assert_(%fieldexpand(todo_q_todos,0) mod %qalign eql 0)
+
+!+
+! Work_item codes for the todo list are defined in ppllib.req
+!-
+
+
+
+!+
+! Define our module-specific fields in the context area.
+!-
+
+$unit_field
+    s_fields =
+	set
+	$overlay(ctx_a_tell)
+	s_0 =			[$bytes(0)],
+	ctx_l_tell_astrtn =	[xaddr],	! AST routine used by PPLTELL
+	ctx_l_tell_exit =	[xaddr],	! Exit handler used by PPLTELL
+	!
+!***	ctx_l_next_index =	[xlong],	! Index of 'next' process
+!***	ctx_l_next_chkpnt =	[xlong],	! See the living routine
+!***	ctx_l_tell_index =	[xlong],	! Index of the tell block
+!***	ctx_a_my_proc=		[xaddr],	! Addr of my proc_block
+	!
+	!i keep pointers to the next tell and alive locks at all times,
+	!and a pointer to the last process i talked to which wasn't 'next'
+	ctx_a_extra_tell_lock =	[xaddr],	!addr of a temp tell lock,
+						!from telling someone not 'next'
+	ctx_a_tell_lock =	[xaddr],	!addr of 'next' tell lock
+	ctx_a_alive_lock =	[xaddr],	!addr of 'next' alive lock
+	!
+	ctx_a_tell_lksb =	[$bytes(lksb_s_bln+lksb_s_valblk)],
+						!tell lock of one i'm watching
+	ctx_a_my_lksb =		[$bytes(lksb_s_bln+lksb_s_valblk)],
+						!my tell lock
+	ctx_a_liv0_lksb =	[$bytes(liv_s_bln)],
+						!my alive lock
+	ctx_a_liv1_lksb =	[$bytes(liv_s_bln)],
+						!alive lock of one i'm watching
+	ctx_a_exitblk =		[$bytes(desblk_s_bln)],
+	s_1 =			[$bytes(0)]
+	tes;
+
+!+
+! Make sure everything fits within the size of our portion
+!-
+
+literal	s_size = %fieldexpand(s_1,0)-%fieldexpand(s_0,0);
+assert_(s_size leq ctx_s_tell)
+
+%if s_size lss ctx_s_tell
+%then
+    %message ('CTX_S_TELL can be reduced from ',
+	%number(ctx_s_tell), ' to ', %number(s_size))
+%fi
+
+
+!+
+! Define convenient names for the various lock status blocks.
+!-
+
+macro
+	tell_lksb(o) =		zo_(ctx_a_tell_lksb,	o %expand rest_) %,
+	my_lksb(o) =		zo_(ctx_a_my_lksb,	o %expand rest_) %,
+	liv0_lksb(o) =		zo_(ctx_a_liv0_lksb,	o %expand rest_) %,
+	liv1_lksb(o) =		zo_(ctx_a_liv1_lksb,	o %expand rest_) %,
+	exitblk(o) =		zo_(ctx_a_exitblk,	o %expand rest_) %;
+macro
+	tell_l_msgcnt =		%fieldexpand_(lksb_a_valblk,0),0,%bpval,0 %;
+
+
+macro
+    grab_todo_(q) =
+	(
+	local	return_val : unsigned long;
+	return_val = true;  !assume it will all work
+	while remq_busy_ (
+		status = remqhi(ppl$$gl_pplsect[pplsect_q_todov],q) ) do 0;
+	if remq_null_ (.status) then
+	    (
+	    external routine ppl$$allocate;
+	    q = ppl$$allocate (todo_s_bln);
+	    if (.q leq 0) then
+		return_val = false	!we have a ppl$_insvirmem condition
+	    else
+		q = .q + .ppl$$gl_pplsect;
+	    )
+	else
+	    q = .q - %fieldexpand_ (todo_l_flink,0);
+	.return_val
+	)
+	%;
+
+macro
+    ungrab_todo_(q) =
+	begin
+	while 
+	    insq_busy_(insqti(q[todo_l_flink],ppl$$gl_pplsect[pplsect_q_todov]))
+	    do 0;
+	end %;
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! OWN STORAGE:
+!
+
+!
+! PSECT DECLARATION:
+!
+declare_psects (ppl);
+
+!
+! EXTERNAL REFERENCES:
+!
+
+external
+	ppl$$gl_pplsect	: ref pplsect_block,
+	ppl$$gl_context	: ref ctx_block_(s_fields),	!tell-specific fields
+	ppl$$gl_system;		    ! Flag indicating system-wide locking
+
+
+external routine
+    ppl$$trigger_ppl_event,
+    ppl$$get_application_number,
+    ppl$$flush_shared_memory,
+    ppl$$post_event_deletion,
+    ppl$$append_ul,
+    ppl$$reserve_shared_memory,
+    ppl$$condition_handler,
+    ppl$unique_name,
+    ppl$terminate,
+    lib$get_vm,
+    lib$free_vm;
+
+
+
+%SBTTL 'ppl$$hiber -- process hibernation routine'
+GLOBAL ROUTINE ppl$$hiber
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   This routine handles the details of blocking processes using $HIBER.
+! 
+! FORMAL PARAMETERS:
+! 
+!   None
+! 
+! ROUTINE VALUE:
+! 
+    : NOVALUE =
+! 
+! SIDE EFFECTS:
+! 
+!   Sets and clears the "sleeping" bit in the "proc_block"
+!--
+    begin
+
+    local
+	proc	    : ref proc_block,
+	ast_status  : volatile unsigned long,	! used in critical region
+	status	    : unsigned long;
+
+
+%if %variant %then
+    external routine lib$ast_in_prog;
+    if lib$ast_in_prog () then
+	debug_msg_(3, 'Index: !UL, (ppl$$hiber) About to hiber AT AST LEVEL!!',
+	             .ppl$$gl_context[ctx_l_my_index])
+    else
+        debug_msg_(3, 'Index: !UL, (ppl$$hiber) About to hiber',
+	             .ppl$$gl_context[ctx_l_my_index]);
+%fi
+
+    debug_msg_(0, 'Index: !UL, Entering ppl$$hiber',
+		    .ppl$$gl_context[ctx_l_my_index]); 
+
+    !+
+    ! Post the fact that we will be hibernating.
+    !-
+
+    proc = .ppl$$gl_context[ctx_l_my_proc];
+    testbitssi(proc[proc_v_sleeping]);
+    if empty_sr_(proc[proc_q_todos]) then status = $hiber;
+    testbitcci(proc[proc_v_sleeping]);
+
+    !+
+    ! Check whether we have some work to do.
+    !
+    ! Note that this test is not needed, we could always call got_back_again.
+    ! However, since we already have a pointer to our proc_block, check now,
+    ! as this will save us a call in the usual case.
+    !-
+
+    if not empty_sr_(proc[proc_q_todos]) 
+    then begin
+	enter_critical_region_;
+	got_back_again();
+	leave_critical_region_;
+	end;
+	
+    debug_msg_(3, 'Index: !UL, (ppl$$hiber) Now Awake',
+		    .ppl$$gl_context[ctx_l_my_index]);
+
+    debug_msg_(0, 'Index: !UL, ppl$$hiber complete',
+		    .ppl$$gl_context[ctx_l_my_index]); 
+
+    return;
+
+end;			! End of Routine PPL$$HIBER.
+
+
+
+routine process_died
+    (
+	pindex	: unsigned long
+    ) =
+
+begin
+
+! This AST routine is invoked as a result of a DEQ on the liv1 lock, which
+! happens when the process being watched by this process dies, or when this
+! process decides to watch someone else.
+! Sometimes this is called even when a process doesn't die, because we decide
+! to keep a different process' living lock and DEQ the current one.
+! For example, when this process was the latest one created it was watching
+! index 0, but when someone new is created after this, this one has to watch
+! that new one instead, and the new one picks up watching index 0.
+
+local
+    proc	: ref proc_block,
+    status	: unsigned long;		!how he died
+
+
+debug_msg_(0, 'Index: !SL, Entering process_died',
+		(if .ppl$$gl_context eql 0
+		    then -1
+		    else .ppl$$gl_context[ctx_l_my_index]));
+
+
+if (.ppl$$gl_pplsect eql 0) then return ppl$_normal;
+
+status = .liv1_lksb[lksb_w_status]; !this is just the lock request status
+
+!+
+! If we $DEQed the lock ourself (see the code in ppl$$next_living), thinking
+! there's a more appropriate 'next living process' to watch, we'll get
+! SS$_ABORT.  If we $DEQed with LCK$M_CANCEL (we don't currently), we'll get
+! SS$_CANCEL.
+!-
+if (.status eql ss$_abort) or (.status eql ss$_cancel) then
+    (
+    debug_msg_(6, 'Index: !UL, (process_died) Its OK, false alarm.');
+    return ss$_normal;	! because this ast didn't come in as a result of our
+			! getting the lock when the ppl$$next_living died, but
+			! because we $DEQd the lock of our own volition
+    );
+
+status = ss$_normal;
+
+
+get_proc_ (proc, .pindex);
+
+debug_msg_(6, %string('Index: !UL, (process_died)!/',
+		'!_Process #!UL: termination status = !XL, lock status = !XL'),
+	.ppl$$gl_context[ctx_l_my_index],	    ! My index
+	.pindex,				    ! dead one's index
+	.proc[proc_l_exit_status],		    ! dead one's status
+	.liv1_lksb[lksb_w_status]);
+
+
+!+
+! Signal the fact that this process has died (unless it was intentional).
+! A call to PPL$STOP or PPL$TERMINATE is clear indication of intent;
+! we also consider a successful completion status as intent.
+!-
+
+do_termination_updates_ (.pindex);
+
+debug_msg_(0, 'Index: !SL, process_died complete',
+		(if .ppl$$gl_context eql 0
+		    then -1
+		    else .ppl$$gl_context[ctx_l_my_index]));
+
+.status
+
+end; ! End of Routine PROCESS_DIED.
+
+
+
+%SBTTL 'ROUTINE: ppl$$process_term_ast - notification of process termination'
+GLOBAL ROUTINE ppl$$process_term_ast
+    (
+	pindex	: unsigned long
+    ) : NOVALUE =
+!+
+! This routine is just like process_died, but there are no locks to consider.
+! This gets invoked because ppl$spawn specified it as the completion-ast arg.
+!-
+begin
+
+debug_msg_(0, 'Index: !SL, Entering ppl$$process_term_ast',
+		(if .ppl$$gl_context eql 0
+		    then -1
+		    else .ppl$$gl_context[ctx_l_my_index]));
+
+if (.ppl$$gl_context eql 0) or (.ppl$$gl_pplsect eql 0) then return ppl$_normal;
+    !this process has already left the application - nothing we can do
+
+debug_msg_(2, 'Index: !UL, (ppl$$process_term_ast) handling termination',
+	    .ppl$$gl_context[ctx_l_my_index]);
+	    
+at_ast_level_;
+
+do_termination_updates_ (.pindex);
+
+leaving_ast_level_;
+
+debug_msg_(0, 'Index: !UL, ppl$$process_term_ast complete',
+		    .ppl$$gl_context[ctx_l_my_index]);
+
+end; !ppl$$process_term_ast
+
+
+
+routine ppl_exit_handler
+    (
+	exit_status : ref vector[1]
+    ) =
+
+begin
+
+external routine
+    do_all_cleanup;
+
+local
+    my_proc	: ref proc_block,
+    resnam	: $bblock [dsc$c_s_bln],
+    res_fao	: $bblock [dsc$c_s_bln],
+    buffer	: $bblock [nam$c_maxrss],
+    status;
+
+
+debug_msg_(0, 'Index: !SL, Entering ppl_exit_handler',
+		(if .ppl$$gl_context eql 0
+		    then -1
+		    else .ppl$$gl_context[ctx_l_my_index]));
+
+if (.ppl$$gl_context eql 0) then    !process already quit participation by call
+				    !to ppl$terminate - there is no ctx_block
+    (
+    debug_msg_(6, 'Index: !UL, (ppl_exit_handler) exit status = !XL (1)',
+		    .ppl$$gl_context[ctx_l_my_index], .exit_status[0]);
+    return (.exit_status[0]);
+    );
+
+
+debug_msg_(2, 'Index: !UL, (ppl_exit_handler) exit status = !XL (2)', 
+	    .ppl$$gl_context[ctx_l_my_index], .exit_status[0]);
+
+
+my_proc = .ppl$$gl_context[ctx_l_my_proc];
+
+!+
+! Save exit status so the rest of the world can find out about it.
+!-
+my_proc[proc_l_exit_status] = .exit_status[0];
+
+!+
+! Trigger termination event.
+!-
+if .exit_status[0] then	    !normal termination
+   begin
+   if (.ppl$$gl_pplsect[pplsect_l_normal_exit_ev] neq 0) then
+    ppl$$trigger_ppl_event (%ref(ppl$k_normal_exit), ppl$_normal_exit,
+			    .ppl$$gl_context[ctx_l_my_index], .exit_status[0]);
+   end
+else
+   if (.ppl$$gl_pplsect[pplsect_l_abnormal_exit_ev] neq 0) then
+    ppl$$trigger_ppl_event (%ref(ppl$k_abnormal_exit), ppl$_abnormal_exit,
+			    .ppl$$gl_context[ctx_l_my_index], .exit_status[0]);
+
+!+
+! Put the exit status in our living lock, and convert it so that
+! the value block will be written to the lock database.  Later, the
+! lock will be freed, and some other process will get the exit status.
+! Then cancel our locks and exit_handler.  Call do_termination_updates_
+! to set my state to terminated, and fix up the comms ring.
+!-
+status = ppl$$not_alive (.exit_status[0]);
+if not .status then return .status;
+
+!+
+! Call the 'other' exit handler
+!-
+status = ss$_normal;
+if .ppl$$gl_context[ctx_l_tell_exit] neq 0 then
+    status = (.ppl$$gl_context[ctx_l_tell_exit]) ();
+
+!+
+! Do the same cleanup as in ppl$terminate.
+!-
+status = do_all_cleanup();
+if not .status then return .status;
+
+debug_msg_(0, '!_ppl_exit_handler complete');
+
+.status
+
+end;			! End of Routine PPL_EXIT_HANDLER.
+
+
+
+routine got_back_again : novalue =
+
+begin
+
+! Called by ppl$$hiber when a hiber completes, and by got_message_ast.  Handles
+! requests from some other process - i.e., whatever is on the to_do list.
+
+external routine
+	ppl$$reserve_addresses,
+	ppl$$post_event;
+
+local
+	count	: unsigned long,
+	proc_bl	: ref proc_block,
+	status	: unsigned long;
+
+bind
+        proc = .ppl$$gl_context[ctx_l_my_proc] : proc_block;
+
+
+debug_msg_(0, 'Index: !UL, Entering got_back_again',
+		.ppl$$gl_context[ctx_l_my_index]); 
+
+status = ss$_normal;
+
+while true do		    !process to_do blocks, do reserve_addresses requests
+    (
+    
+    ! We re-check for work in a loop so we don't miss it if someone queued it
+    ! but didn't send a msg because will_see was still set at the time when we
+    ! had already done all the work found on that iteration.   The
+    ! synchronization here is for simultaneous access by this rtn and ppl$$tell
+    ! executing in different processes.
+    if empty_sr_(proc[proc_q_todos]) then EXITLOOP;
+
+    ! I promise to do my work, so no request message via an AST is needed.
+    !  My work is to process todo_ queue
+    testbitssi(proc[proc_v_will_see]);
+
+    count = 0;
+    while true do
+	(
+	    !+
+	    ! Remove a todo_block from queue, if one exists.
+	    ! Process that todo_block according to its specified request.
+	    !-
+	local	todo:	ref todo_block;
+
+	while remq_busy_(status = remqhi (proc[proc_q_todos], todo)) do 0;
+	if remq_null_(.status) then
+	    EXITLOOP;
+	count = .count + 1;
+
+	debug_msg_(3, 'Index: !UL, (got_back_again) processing a #!UL',
+		    .ppl$$gl_context[ctx_l_my_index], .todo[todo_l_request]);
+		    
+        selectone .todo[todo_l_request] of
+            set
+
+	    [do_termination] :
+		    begin
+		    !+
+		    !	Note: ppl$terminate status is not checked
+		    !	below, $exit is performed regardless of outcome.
+		    !-
+		    ppl$terminate();
+
+		    status = .todo[todo_l_arg1];	
+		    $exit(code = .status);
+		    end;
+
+	    [do_reserve_addresses] :
+		    begin
+		    bind
+			csect	= .todo[todo_l_arg1] + ppl$$gl_pplsect[base_]
+				    : sect_block;
+
+		    ppl$$reserve_addresses (csect[base_]);
+	
+		    end;		    
+	    [do_post_event] :
+		    begin
+		    bind
+			event	= .todo[todo_l_arg1] + ppl$$gl_pplsect[base_]
+				    : event_block;
+
+                    ppl$$post_event (event[base_],
+                                    .todo[todo_l_arg2],
+                                    .todo[todo_l_arg3],
+                                    .todo[todo_l_arg4]);
+		    end;
+
+	    [do_relink_comms_ring] :
+		    ppl$$next_living();
+
+	    [do_flush_shared_memory] :
+		    begin
+		    bind
+			csect	= .todo[todo_l_arg1] + ppl$$gl_pplsect[base_]
+				    : sect_block;
+
+		    ppl$$flush_shared_memory(csect[base_]);
+		    end;
+
+            [do_delete_event] :
+                    begin
+                        ppl$$post_event_deletion(.todo[todo_l_arg1]);
+                    end;
+
+	    [otherwise] :	!unrecognized code
+    		    begin		!** signal it during debugging
+		    debug_msg_(3, %string ('Index: !UL, (got_back_again)',
+				'Unrecognized TODO request'), 
+				.ppl$$gl_context[ctx_l_my_index]);
+
+    		    signal (ppl$_badlogic, .todo[todo_l_request]);
+		    return (ppl$_badlogic);
+    		    end;
+	    tes;
+
+	ungrab_todo_ (todo);	!put it back on the heap
+	);  !end loop	- todo_block processing
+
+    debug_msg_(3, 'Index: !UL: (got_back_again) Finished !UL messages',
+			.ppl$$gl_context[ctx_l_my_index], .count);	!show how many we did
+
+    testbitcci(proc[proc_v_will_see]);  ! tell everyone I'm not looking for
+					!  work any more
+    );	!end loop
+
+debug_msg_(0, 'Index: !UL, got_back_again complete',
+	    .ppl$$gl_context[ctx_l_my_index]);
+	    
+return .status;
+
+end;			! End of Routine GOT_BACK_AGAIN.
+
+
+
+routine got_message_ast =
+
+begin
+
+! This is the blocking AST routine for the tell lock, so it gets activated
+! when someone tries to convert the lock in order to tell this process
+! something.
+! It re-activates the lock so we can get another request in, and calls
+! got_back_again to process the current request.
+
+local
+	status	    : unsigned long;
+
+
+debug_msg_(0, 'Index: !UL, Entering got_message_ast',
+	    .ppl$$gl_context[ctx_l_my_index]);
+	    
+at_ast_level_;
+
+debug_msg_(3, 'Index: !UL, (got_message_ast) Got a message', 
+		.ppl$$gl_context[ctx_l_my_index]);
+
+status = .my_lksb[lksb_w_status];
+if not .status then
+    (
+    leaving_ast_level_;
+    ppl_signal_(.status);
+    );
+
+!+
+! Re-arm the Request lock
+!-
+status = $enqw (
+	efn=	.ppl$$gl_context[ctx_l_ef],
+	lkmode=	lck$k_prmode,
+	lksb=	my_lksb[base_],
+	flags=	lck$m_convert or .ppl$$gl_system,
+	resnam=	0,
+	parid=	0,
+	astadr=	0,
+	astprm=	0,
+	blkast=	got_message_ast,	! Catch blocking ASTs
+	acmode=	psl$c_user);
+if .status then
+    status = .my_lksb[lksb_w_status];
+if not .status then
+    (
+    leaving_ast_level_;
+    signal (ppl$_syserror, 0, .status);
+    );
+
+
+!+
+! Process the request.
+!-
+got_back_again();
+
+
+leaving_ast_level_;
+
+debug_msg_(0, 'Index: !UL, got_message_ast complete',
+	    .ppl$$gl_context[ctx_l_my_index]);
+	    
+return ss$_normal;
+
+end;			! End of GOT_MESSAGE_AST.
+
+
+
+global routine ppl$$update_voting_ring
+    (
+	proc	: ref proc_block    ! proc block of process that died
+    ) =
+!+
+! Called by the do_termination_updates_ macro.
+!
+! If the termination was normal, this routine is called in the context of the
+! terminating process by the process's exit handler.
+!
+! If the termination was abnormal, this routine is called in the context of a
+! process different from the one that died, called by process_term_ast or
+! process_died (exit handler didn't run).
+!-
+begin	!ppl$$update_voting_ring
+
+local
+    prev_proc	: ref proc_block,
+    prev	: unsigned long,
+    next	: unsigned long,
+    stat	: unsigned long,
+    ast_status	: unsigned long volatile,
+    top_flag    : unsigned volatile long,
+    mutex_flag  : unsigned volatile long,
+    mutex       : unsigned volatile long;
+
+
+enable 
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+bind
+    index = proc[proc_l_index] : unsigned long;
+
+
+debug_msg_(0, 'Index: !UL, (ppl$$update_voting_ring) for #!UL',
+	    .ppl$$gl_context[ctx_l_my_index], .index);
+debug_msg_(2, 'Index: !UL, (ppl$$update_voting_ring) for #!UL',
+	    .ppl$$gl_context[ctx_l_my_index], .index);
+
+confirm_(.proc neq 0);
+confirm_(.ppl$$gl_pplsect neq 0);
+
+enter_critical_region_;		!don't let an ast compete for these locks
+
+!+
+! If there is no other process still alive, don't bother with this routine.
+!-
+if .ppl$$gl_pplsect[pplsect_w_curr_procs] lss 1
+then
+    begin
+    debug_msg_(2, %string('Index: !UL, (ppl$$update_voting_ring) ',
+			    'No other processes, returning'),
+		    .ppl$$gl_context[ctx_l_my_index]);
+    leave_critical_region_;
+    return false;
+    end;
+
+!+
+! Find the closest index previous to proc which is still alive.  Start with
+! immediately prior process, and work backwards around the ring.
+!-
+prev = (if (.index eql 0) then
+	    (.ppl$$gl_pplsect[pplsect_w_procs] - 1)
+	else
+	    (.index - 1)
+	);
+
+while not alive_ (prev) do
+    (
+    if (.prev eql .index) then		    ! We've checked all the processes
+	(
+	leave_critical_region_;
+	return false;
+	)
+    else if (.ppl$$gl_pplsect eql 0) then   ! The application has terminated
+	(
+	leave_critical_region_;
+	return false;
+	)
+    else if (.ppl$$gl_pplsect[pplsect_w_curr_procs] lss 1) then
+        begin                               ! There's no other process left
+        leave_critical_region_;
+        return false;
+        end
+    else if (.ppl$$gl_pplsect[pplsect_w_curr_procs] lss 2) and
+	    (.index nequ .ppl$$gl_context[ctx_l_my_index]) then
+	begin
+        prev = .ppl$$gl_context[ctx_l_my_index];
+	exitloop;			    ! I'm the only one left
+	end
+    else
+	(
+	if (.prev eql 0) 
+	then
+	    prev = .ppl$$gl_pplsect[pplsect_w_procs] - 1
+	else
+	    decr_ (prev);
+	);
+    );
+
+debug_msg_(2, 'Index: !UL, (ppl$$update_voting_ring) previous = !UL',
+	.ppl$$gl_context[ctx_l_my_index], .prev);
+
+
+get_proc_ (prev_proc, .prev);
+confirm_(.prev_proc neq 0);
+
+
+lock_bit_ (proc[proc_v_lock]);
+if (.proc[proc_l_index] eql .index) then
+    proc[proc_b_state] = ppl$k_terminated;
+unlock_bit_ (proc[proc_v_lock]);
+
+
+!+
+! If the current process is not the predecessor of the dying process, tell
+! whoever that predecessor is to update its comms connections.
+! If the current process is the predecessor of the dying process, then either
+! a) I'm executing in process_term_ast or process_died, so I can do the
+! ppl$$next_living calculation right now, or b) I'm running in the exit_handler
+! and I *am* the dying process, and the last in the application, so I just
+! leave.
+!-
+if (.prev neq .ppl$$gl_context[ctx_l_my_index]) then
+    (
+    stat = ppl$$tell (.prev_proc[proc_l_index],
+	    			    do_relink_comms_ring);
+    )
+else	!I'm the pred of the one that died
+    (
+    if alive_ (prev) then   !let's keep going
+        ppl$$next_living() 
+    else		    !application is dead
+	(
+	leave_critical_region_;
+	return false;
+	);
+    );
+
+
+!+
+! If there's no next process, we should probably wake ourselves.
+!
+! N.B.: This wake should have no effect, since hibers are done in loops,
+!	    checking a "valid-wake" bit, which, in this case, won't be set...
+!
+! Else, be sure voting continues by telling next process.
+!-
+if (.ppl$$gl_pplsect[pplsect_w_curr_procs] leq 1) and
+				!(.liv1_lksb[lksb_l_lockid] eql 0) and
+		.ppl$$gl_context[ctx_v_sleeping] then
+    (
+    stat = $wake ();	!of course, we don't know why we're waking...
+    if not .stat then
+	(
+	leave_critical_region_;
+	return signal (ppl$_syserror, 0, .stat);
+	);
+    );
+
+leave_critical_region_;
+
+debug_msg_(0, 'Index: !UL, ppl$$update_voting_ring complete',
+	    .ppl$$gl_context[ctx_l_my_index]);
+
+.stat
+
+
+end; !ppl$$update_voting_ring
+
+
+
+global routine ppl$$next_living =
+
+!+
+! The code in this routine is not thread-reentrant.
+! However, this code is only called from AST level,
+! except for the call from join_application (which
+! must be mutexed as a critical section).
+!-
+
+begin
+
+local
+	resnam	    : $bblock [dsc$c_s_bln],
+	res_fao	    : $bblock [dsc$c_s_bln],
+	buffer	    : $bblock [nam$c_maxrss],
+	next	    : unsigned long,
+	status	    : unsigned long;
+
+
+debug_msg_(0, 'Index: !UL, entered ppl$$next_living',
+	    .ppl$$gl_context[ctx_l_my_index]);
+
+next = (.ppl$$gl_context[ctx_l_my_index] + 1) mod .ppl$$gl_pplsect[pplsect_w_procs];
+while not alive_ (next) and
+	    (.next neq .ppl$$gl_context[ctx_l_my_index]) do
+    (
+    if (.ppl$$gl_pplsect[pplsect_w_curr_procs] lss 1) then return false;
+		!the application died while we were looking for a next
+    next = (.next + 1) mod .ppl$$gl_pplsect[pplsect_w_procs];
+    );
+
+if (.next eql .ppl$$gl_context[ctx_l_my_index]) then   !no one else around
+    (
+    if (.liv1_lksb[lksb_l_lockid] neq 0) then
+        (	! release any lock and return false
+		!This will cause process_died to be called with an SS$_ABORT
+		!status, since we still have a queued request for that lock.
+	status = $deq (	lkid=	.liv1_lksb[lksb_l_lockid],
+			valblk=	liv1_lksb[lksb_a_valblk],
+	    		acmode=	psl$c_user,
+			flags=	0);
+        if not .status then signal (ppl$_syserror, 0, .status);
+        ch$fill (0, lksb_s_bln+lksb_s_valblk, liv1_lksb[base_]);
+        );
+    return false;
+    );
+
+if (.next eql .ppl$$gl_context[ctx_l_next_index]) then	!next hasn't changed lately
+    (
+    if (.liv1_lksb[lksb_l_lockid] neq 0) then
+	return true;  !already have right lock
+    )
+else
+    ppl$$gl_context[ctx_l_next_index] = .next;
+
+debug_msg_(3, 'Index: !UL, (ppl$$next_living) next_index = !UL',
+	    .ppl$$gl_context[ctx_l_my_index], .ppl$$gl_context[ctx_l_next_index]);
+
+!+
+! Free the old lock if we have one (which will result in a bogus invocation
+! of process_died), and then take out a lock on the New Number 2.  This way
+! we stay ready to catch the termination of a process in the process_died
+! ast routine, even if it doesn't execute its exit handlers.
+! Note that next can change either by process creation or termination.
+!-
+if (.liv1_lksb[lksb_l_lockid] neq 0) then
+    (
+    status = $deq (	lkid=	.liv1_lksb[lksb_l_lockid],
+		valblk=	liv1_lksb[lksb_a_valblk],
+		acmode=	psl$c_user,
+		flags=	0);
+    if not .status then signal (ppl$_syserror, 0, .status);
+    ch$fill (0, lksb_s_bln+lksb_s_valblk, liv1_lksb[base_]);
+    );
+
+res_fao[dsc_l_length]  = %charcount(ppl_x_alive_lock);
+res_fao[dsc$a_pointer] = uplit byte(ppl_x_alive_lock);
+resnam[dsc_l_length]   = %allocation(buffer);
+resnam[dsc$a_pointer]  = buffer[base_];
+form_lnam(resnam, res_fao, .ppl$$gl_context[ctx_l_next_index]);
+
+status = $enq (
+		efn=	.ppl$$gl_context[ctx_l_ef],
+		lkmode=	lck$k_pwmode,		! Write, allowing readers
+		lksb=	liv1_lksb[base_],
+		flags=	lck$m_valblk or		! We want a value block
+		      	lck$m_nodlckblk or	! We will release on demand
+			.ppl$$gl_system,	! Possibly system-wide
+		resnam=	resnam[base_],
+		parid=	0,
+		astadr=	process_died,
+		astprm=	.ppl$$gl_context[ctx_l_next_index],   !*** ctx[base_],
+		blkast=	0,
+		acmode=	psl$c_user);
+if not .status then 
+    signal (ppl$_syserror, 0, .status);
+
+!+
+! We assume this approach will get us the lockid.  Check.
+!-
+if (.liv1_lksb[lksb_l_lockid] eql 0) then
+    debug_msg_(3, 'Index: !UL, (ppl$$next_living) next lockid = 0',
+				    .ppl$$gl_context[ctx_l_my_index]);
+
+debug_msg_(0, 'Index: !UL, ppl$$next_living complete',
+	    .ppl$$gl_context[ctx_l_my_index]);
+
+return (.liv1_lksb[lksb_l_lockid] neq 0);
+
+end;			! End of Routine ppl$$next_living.
+
+
+
+%SBTTL 'alive_handler --  Handles signals from PPL$$ALIVE'
+ROUTINE alive_handler
+!
+! FORMAL PARAMETERS:
+!
+    (
+        sigvec: ref $bblock,    ! Signal vector
+        mchvec: ref $bblock,    ! Mechanism vector
+        enavec: ref vector      ! Enable vector
+    ) =
+!
+! COMPLETION CODES:
+!
+!   The condition code which was signalled.
+!
+!--
+    BEGIN
+
+    local
+        alive_flag  : unsigned long,
+        status      : unsigned long;
+
+    debug_msg_(12, 'Index: !SL, (alive_handler) status = !XL',
+                    (if .ppl$$gl_context[ctx_v_initialized]
+                     then .ppl$$gl_context[ctx_l_my_index]
+                     else -1),
+                    .sigvec[chf$l_sig_name]);
+
+    alive_flag = ..enavec[1];
+
+    !+
+    !   If unwinding do the following for PPL$$ALIVE
+    !-
+
+    if .sigvec[chf$l_sig_name] eqlu ss$_unwind then
+	begin
+	    $deq(lkid= .tell_lksb[lksb_l_lockid]);
+	    $deq(lkid= .liv0_lksb[lksb_l_lockid]);
+	    $deq(lkid= .liv1_lksb[lksb_l_lockid]);
+	    begin
+		 do_termination_updates_(.ppl$$gl_context[ctx_l_my_index]);
+	    end; ! bind
+
+	    return ss$_normal;
+	end
+    else
+        return ss$_resignal;
+
+    end;    ! alive_handler
+                                                                           
+
+
+
+global routine ppl$$alive (
+	astrtn,			! AST routine for when we receive a message
+	exit_handler,		! Caller-specified exit handler
+	cstatus		
+	) =
+!
+! Note: This routine is the seventh of eight routines in the initialization
+!	    process.  The 8th, and final routine is ppl$$reserve_shared_
+!	    memory.  
+!
+!   *** On normal execution the Top lock is released within this routine.
+!	    Upon bad status, routine ppl_init_top's exit handler should 
+!	    handle release of the Top lock.
+!
+! Responsibilities: Tell-locks, Live locks, curr_procs, and alive bit.  This
+!	    routine is responsible for managing these resources during
+!	    proper and improper execution.
+!
+! declare exit_handler
+! ppl$$next_living ()
+! 
+
+begin
+
+builtin
+	nullparameter;
+
+local
+	resnam	    : $bblock [dsc$c_s_bln],
+	res_fao	    : $bblock [dsc$c_s_bln],
+	buffer	    : $bblock [nam$c_maxrss],
+	prev_proc   : ref proc_block,
+        prev	    : unsigned long,
+	next	    : unsigned long,
+	status	    : unsigned long,
+	ast_status  : unsigned volatile long,
+	alive_flag  : unsigned volatile long;
+
+enable
+	alive_handler(alive_flag);
+
+debug_msg_(0, 'Index: !UL, Entering ppl$$alive',
+	    .ppl$$gl_context[ctx_l_my_index]);
+
+
+!+
+! Get my Request lock in PR mode, with a blocking AST routine.
+!
+! As soon as we release the top lock, we will have joined the application.
+! We must be ready to recieve communications from other processes,
+! and so we create another lock, as a communication channel.
+!
+! We wait for this to complete, since we become part of the application
+! when we release the top lock, and we want to be ready for it.  Note that
+! we expect no messages until after we unlock the top lock.
+!-
+if not nullparameter (astrtn) then
+    ppl$$gl_context[ctx_l_tell_astrtn] = .astrtn;
+
+res_fao[dsc_l_length]  = %charcount(ppl_x_tell_lock);
+res_fao[dsc$a_pointer] = uplit byte(ppl_x_tell_lock);
+resnam[dsc_l_length]   = %allocation(buffer);
+resnam[dsc$a_pointer]  = buffer[base_];
+form_lnam(resnam, res_fao, .ppl$$gl_context[ctx_l_my_index]);
+
+status = $enqw (
+	efn=	.ppl$$gl_context[ctx_l_ef],
+	lkmode=	lck$k_prmode,
+	lksb=	my_lksb[base_],
+	flags=	lck$m_nodlckblk or .ppl$$gl_system,
+	resnam=	resnam[base_],
+	parid=	0,
+	astadr=	0,
+	astprm=	0,
+	blkast=	got_message_ast,	! Catch blocking ASTs
+	acmode=	psl$c_user);
+if .status then
+    status = .my_lksb[lksb_w_status];
+if not .status then
+    signal (ppl$_syserror, 0, .status);
+
+!+
+! Create the lock that we hold onto as long as we're in the application.
+! Then downgrade it so that the value block will be written.
+!-
+
+res_fao[dsc_l_length]  = %charcount(ppl_x_alive_lock);
+res_fao[dsc$a_pointer] = uplit byte(ppl_x_alive_lock);
+resnam[dsc_l_length]   = %allocation(buffer);
+resnam[dsc$a_pointer]  = buffer[base_];
+form_lnam(resnam, res_fao, .ppl$$gl_context[ctx_l_my_index]);
+
+status = $enqw (
+	efn=	.ppl$$gl_context[ctx_l_ef],
+	lkmode=	lck$k_exmode,		! Write, allowing readers
+	lksb=	liv0_lksb[base_],
+	flags=	lck$m_valblk or		! We want a value block
+	      	lck$m_nodlckblk or	! We will release on demand
+		.ppl$$gl_system,	! Possibly system wide
+	resnam=	resnam[base_],
+	parid=	0,
+	astadr=	0,
+	astprm=	0,
+	blkast=	0,
+	acmode=	psl$c_user);
+if .status then
+    status = .liv0_lksb[lksb_w_status];
+if not .status then
+    signal (ppl$_syserror, 0, .status);
+
+liv0_lksb[liv_l_status] = ppl$_exhnevcal;	! Put our special status here
+liv0_lksb[liv_l_pid] = .ppl$$gl_context[ctx_l_my_pid];
+
+status = $enqw (
+	efn=	.ppl$$gl_context[ctx_l_ef],
+	lkmode=	lck$k_exmode,		! Write, allowing readers
+	lksb=	liv0_lksb[base_],
+	flags=	lck$m_valblk or		! We want a value block
+		lck$m_convert or	! Just converting
+	      	lck$m_nodlckblk or	! We will release on demand
+		.ppl$$gl_system,	! Possibly system wide
+	resnam=	0,
+	parid=	0,
+	astadr=	0,
+	astprm=	0,
+	blkast=	0,
+	acmode=	psl$c_user);
+if .status then
+    status = .liv0_lksb[lksb_w_status];
+if not .status then
+    signal (ppl$_syserror, 0, .status);
+
+!+
+! Declare an exit handler.
+!-
+if not nullparameter (exit_handler) then
+    ppl$$gl_context[ctx_l_tell_exit] = .exit_handler;
+exitblk[desblk_l_handler] = ppl_exit_handler;
+exitblk[desblk_l_argcnt] = 2;
+exitblk[desblk_l_arg1] = exitblk[desblk_l_arg2];
+exitblk[desblk_l_arg2] = ppl$_exhnevcal;	! Put our special status here
+status = $dclexh (desblk = exitblk[base_]);
+if not .status then
+    signal (ppl$_syserror, 0, .status);
+
+!+ 
+! Bump the number of participating processes.
+!-
+adawi (%ref(1), ppl$$gl_pplsect[pplsect_w_curr_procs]);	
+alive_flag = 1;
+
+!+
+! Determine the 'next living process' and start watching
+! its live lock.
+!-
+ppl$$next_living();
+
+debug_msg_(0, 'Index: !UL, ppl$$alive complete',
+	    .ppl$$gl_context[ctx_l_my_index]);
+
+!+
+! NOW we are initialized (we must do this *before* the unlock completes).
+!-
+
+ppl$$gl_context[ctx_v_initialized] = true;
+
+begin
+bind
+    proc = .ppl$$gl_context[ctx_l_my_proc] : proc_block;
+
+proc[proc_b_state] = ppl$k_running;
+end;
+
+!+
+! We're all ready to go.  Release the top lock.
+!
+!NOTE: this lock is grabbed many, many routines away  :-(
+!      in join_application.
+!-
+
+release_top_lock_ (status);
+if not .status then return signal (ppl$_syserror, 0, .status);
+
+!+
+! Start prev off pointing to my index. 
+!-
+prev = .ppl$$gl_context[ctx_l_my_index];
+
+!+
+! Find the first live process preceding us.
+!-
+do
+    begin
+    if (.prev eql 0) 
+    then
+        prev = .ppl$$gl_pplsect[pplsect_w_procs] - 1
+    else
+        decr_ (prev);
+    end
+    while ((not alive_ (prev)) and (.prev neq .ppl$$gl_context[ctx_l_my_index]));
+
+get_proc_ (prev_proc, .prev);
+confirm_(.prev_proc neq 0);
+
+!+
+! Tell the live process directly preceding us, if there is one, that we are
+! here and to start watching our live lock.
+!-
+
+if (.prev neq .ppl$$gl_context[ctx_l_my_index]) then
+    begin
+    status = ppl$$tell (.prev_proc[proc_l_index],
+	    			    do_relink_comms_ring);
+    if not .status then
+	ppl_signal_(.status);  
+    end;
+
+
+status = ppl$$reserve_shared_memory ();
+if not .status then
+    ppl_signal_(.status);  ! Responsibilities are taken care of by handler.
+
+return .status;
+
+end;			! End of Routine PPL$$ALIVE.
+
+
+
+global routine ppl$$not_alive
+    (
+	exit_status
+    ) =
+begin
+
+! This is called by ppl_exit_handler and ppl$terminate to remove all traces
+! of this process' participation in a PPL application.  Note that the call
+! from ppl$terminate means that the exit handler will never execute its call
+! from the same process.
+
+
+! do_termination_updates_
+! cancel exit_handler
+! $DEQ tell and living locks
+
+
+builtin
+	nullparameter;
+local
+	resnam	    : $bblock [dsc$c_s_bln],
+	ast_status  : volatile unsigned long,	! used for critical region
+	status	    : unsigned long;
+
+
+    debug_msg_(0, 'Index: !UL, Entering ppl$$not_alive',
+		.ppl$$gl_context[ctx_l_my_index]);
+
+    while true do
+	begin
+	enter_critical_region_;  ! disable asts
+
+	status = $enqw (                    ! Wait if necessary
+	    efn=    .ppl$$gl_context[ctx_l_ef],
+	    lkmode= lck$k_pwmode,           ! Write, allowing readers
+	    lksb=   top_lksb[base_],
+	    flags=  lck$m_valblk or         ! We want a value block
+		    lck$m_convert or        ! Just converting
+		    lck$m_noqueue or	    ! We want it NOW
+		    .ppl$$gl_system,        ! Possibly a system lock
+	    resnam= 0,
+	    parid=  0,
+	    astadr= 0,
+	    astprm= 0,
+	    blkast= 0,
+	    acmode= psl$c_user);
+
+	if .status nequ ss$_notqueued then exitloop;
+
+	leave_critical_region_;     ! Reenable ASTs to let any pending ones in
+	end;
+
+    if .status then status = .top_lksb[lksb_w_status];
+
+    do_termination_updates_ (.ppl$$gl_context[ctx_l_my_index]);  
+
+    release_top_lock_(status);
+
+    leave_critical_region_;	! enable asts
+
+    !+
+    ! Cancel our exit handler.
+    ! Ignore errors (such as SS$_NOHANDLER)
+    !-
+    status = $canexh (desblk = exitblk[base_]);
+
+
+    !+
+    ! Let go of our communication lock.
+    !-
+    status = $deq (
+	lkid=	.my_lksb[lksb_l_lockid],
+	valblk=	0,
+	acmode=	psl$c_user,
+	flags=	0);
+    if not .status
+    then
+    	signal (ppl$_syserror, 0, .status);
+    ch$fill (0, lksb_s_bln+lksb_s_valblk, my_lksb[base_]);
+
+
+    !+
+    ! Let go of our living lock.
+    !-
+    liv0_lksb[liv_l_status] = .exit_status;	! Put our special status here
+    status = $deq (
+	lkid=	.liv0_lksb[lksb_l_lockid],
+	valblk=	liv0_lksb[lksb_a_valblk],
+	acmode=	psl$c_user,
+	flags=	0);
+    if not .status
+    then
+    	signal (ppl$_syserror, 0, .status);
+
+    ch$fill (0, lksb_s_bln+lksb_s_valblk, liv0_lksb[base_]);
+
+    !+
+    ! Cancel our request for the living lock of the process we're watching.
+    !-
+    if .liv1_lksb[lksb_l_lockid] nequ 0 then
+	begin
+	status = $deq (
+	    lkid=	.liv1_lksb[lksb_l_lockid],
+	    acmode=	psl$c_user,
+	    flags=	0);
+	if not .status
+	then
+	    signal (ppl$_syserror, 0, .status);
+
+	ch$fill (0, lksb_s_bln+lksb_s_valblk, liv1_lksb[base_]);
+	end;
+
+    debug_msg_(0, 'Index: !UL, ppl$$not_alive complete',
+		.ppl$$gl_context[ctx_l_my_index]);
+
+
+    return ss$_normal;
+
+end;			! End of Routine PPL$$NOT_ALIVE.
+
+
+
+%SBTTL 'ppl$$tell -- ppl interprocess message passing facility'
+GLOBAL ROUTINE ppl$$tell
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!
+! This routine sends a message to the specified process.
+!
+! ASSUMES : ctx_block and pplsect exist
+!
+! ALGORITHM:
+! if telling next process then find out ppl$$next_living ();
+! if we have the tell_lock for the wrong process then $DEQ it;
+! find the proc_block for that process;
+! set up to_do info and queue it to proc_block;
+! testbitssi proc.rsrv_adr flag;
+! if process is sleeping then
+!    $wake it;	    ! no need for blocking ast - it's in a loop
+!    return;	    !  which checks for work
+! if we need a new tell_lock (for the right process) then
+!    form lock name;
+!    $ENQW (tell_lock, cr_mode);
+! $ENQ (tell_lock, pw_mode);	! convert lock, sending AST to target process
+! if status = cvtungrant or cancelgrant ! lock not granted or canceled
+! then status = normal; --???
+! else signal the error;
+! $DEQ (tell_lock);
+! if status = normal or cancelgrant then null;
+! else signal error;
+! ppl$$gl_context[ctx_l_tell_index] = index;
+! 
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+	process_index	: unsigned long,    !index of destination process
+	work_item	: unsigned long,    !request to that process
+	arg1		: unsigned long,    !request arg - an event_block usu.,
+	arg2		: unsigned long,    !but this rtn doesn't care
+	arg3		: unsigned long,
+	arg4		: unsigned long
+    ) =
+! 
+! IMPLICIT INPUTS:
+! 
+!   proc_blocks
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   None
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_NO_NEXT_PROC	    There is no next process to tell, there is currently
+!				only one process in the application.
+!				
+!   Any status retuned by $ENQ, $DEQ, $WAIT, etc.
+! 
+! SIDE EFFECTS:
+! 
+!   May cause an AST to be queued for another process
+!--
+begin
+
+builtin
+	nullparameter;
+
+local
+	resnam	    : $bblock [dsc$c_s_bln],
+	res_fao	    : $bblock [dsc$c_s_bln],
+	buffer	    : $bblock[nam$c_maxrss],
+	lksb	    : ref lksb_block,
+	index	    : unsigned long,
+	status	    : unsigned long,
+	ast_status  : unsigned volatile long,
+        top_flag    : unsigned volatile long,
+        mutex_flag  : unsigned volatile long,
+        mutex       : unsigned volatile long;
+  
+enable
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+  
+macro
+    exit_ (status) =	    !clean up for this routine
+	(
+	leave_critical_region_;
+	return status;
+	)
+	%;
+
+macro
+    signal_exit_ (code1, num_params, code2) =
+	(
+	leave_critical_region_;
+	%if %length eql 1 %then	    !only 1 param
+	    ppl_signal_(code1);
+	%else
+	    return signal (code1, num_params, code2);
+	%fi
+	)
+	%;
+
+
+debug_msg_(0, 'Index: !UL, Entering ppl$$tell',
+	    .ppl$$gl_context[ctx_l_my_index]);
+
+enter_critical_region_;
+
+!+
+! Figure out which process to tell.
+!-
+
+index = .process_index;
+if (.index eql tell_k_next_process) then
+    begin
+    if ppl$$next_living() then
+	index = .ppl$$gl_context[ctx_l_next_index]
+    else
+	exit_ (ppl$_no_next_proc);
+    end; !if
+
+!+
+! DEQ the old lock if it's not for the right process.
+!-
+
+if (.ppl$$gl_context[ctx_l_tell_index] neq .index) then 
+    !holding lock for wrong process
+    if (.tell_lksb[lksb_l_lockid] neq 0) then  !and it's not null
+	(
+	status = $deq (
+	    lkid=	.tell_lksb[lksb_l_lockid],
+	    valblk=	tell_lksb[lksb_a_valblk],
+	    acmode=	psl$c_user,
+	    flags=	0);
+	if not .status then
+	    signal_exit_ (ppl$_syserror, 0, .status);
+	tell_lksb[lksb_l_lockid] = 0;	!so we'll know whether we have the lock
+	);
+
+debug_msg_(3, 'Index: !UL, (ppl$$tell), Telling #!UL to do #!UL', 
+		.ppl$$gl_context[ctx_l_my_index], .index, .work_item);
+
+!+
+! Queue a request to the process.
+! First, find that process.
+!-
+
+begin !block
+    local
+	proc:	ref proc_block,
+	todo:	ref todo_block;
+
+    get_proc_ (proc, .index);
+    if (.proc eql 0) then signal_exit_ (ppl$_badlogic);
+
+    !+
+    ! If there's a work_item, add it to the process' todo list.
+    !-
+    if not nullparameter (work_item) then
+	(
+	if not grab_todo_ (todo) then exit_ (ppl$_insvirmem);
+	todo[todo_l_request] = .work_item;
+	todo[todo_l_arg1] = (if nullparameter (arg1) then 0 else .arg1);
+	todo[todo_l_arg2] = (if nullparameter (arg2) then 0 else .arg2);
+	todo[todo_l_arg3] = (if nullparameter (arg3) then 0 else .arg3);
+	todo[todo_l_arg4] = (if nullparameter (arg4) then 0 else .arg4);	
+        while insq_busy_ (insqti (todo[todo_l_flink], proc[proc_q_todos])) do 0;
+	)
+    else
+        signal_exit_ (ppl$_badlogic);
+
+    !+
+    ! Try to avoid doing the message_ast routine in that process.
+    !-
+    if isset_i(proc[proc_v_will_see]) then  !it's already in the msg processing loop
+    	exit_ (ss$_normal);
+    if isset_i(proc[proc_v_sleeping]) then  
+	begin			!   -it can wake up to process msgs w/o an ast
+	status = $wake(pidadr = proc[proc_l_pid]);
+	if (.status eql ss$_nonexpr) then
+	    begin
+	    ungrab_todo_ (todo);
+	    status = ppl$_normal;
+	    end
+	else if (not .status) then 
+	    signal (ppl$_syserror, 0, .status);
+	exit_(.status);
+	end;
+
+end; !block
+
+
+!+
+! If we have to get a new lock, then we have to get a new lock.
+!-
+if .tell_lksb[lksb_l_lockid] eql 0 then
+    (
+    res_fao[dsc_l_length]  = %charcount(ppl_x_tell_lock);
+    res_fao[dsc$a_pointer] = uplit byte (ppl_x_tell_lock);
+    resnam[dsc_l_length]   = %allocation(buffer);
+    resnam[dsc$a_pointer]  = buffer[base_];
+    form_lnam(resnam, res_fao, .index);
+
+    status = $enqw (
+	    efn=	.ppl$$gl_context[ctx_l_ef],
+	    lkmode=	lck$k_crmode,
+	    lksb=	tell_lksb[base_],
+	    flags=	.ppl$$gl_system,	! Possibly system wide
+	    resnam=	resnam[base_],
+	    parid=	0,
+	    astadr= 	0,
+	    astprm=	0,
+	    blkast=	0,
+	    acmode=	psl$c_user);
+
+    debug_msg_(7, 'Index: !UL, (ppl$$tell) New lock request, lockid = !XL, status = !XL,!XW',
+	    .ppl$$gl_context[ctx_l_my_index], .tell_lksb[lksb_l_lockid], 
+	    .status, .tell_lksb[lksb_w_status]);
+
+    if .status then	!the enq worked, so get the lock status
+	status = .tell_lksb[lksb_w_status];
+    if not .status then
+	signal_exit_ (ppl$_syserror, 0, .status);
+    ); !end if
+
+!+
+! Ring target by converting Request lock to PW.
+! Then cancel the lock request.
+!-
+status = $enq (
+	efn=	.ppl$$gl_context[ctx_l_ef],
+	lkmode=	lck$k_pwmode,		! Write, allowing readers
+	lksb=	tell_lksb[base_],
+	flags=	lck$m_convert or
+		lck$m_nodlckwt or
+		.ppl$$gl_system,
+	resnam=	0,
+	parid=	0,
+	astadr=	0,
+	astprm=	0,
+	blkast=	0,
+	acmode=	psl$c_user);
+
+debug_msg_(7, 'Index: !UL, (ppl$$tell) Lock conversion,  lockid = !XL, status = !XL,!XW',
+	.ppl$$gl_context[ctx_l_my_index], .tell_lksb[lksb_l_lockid], .status, 
+	.tell_lksb[lksb_w_status]);
+
+if .status eql ss$_cvtungrant or .status eql ss$_cancelgrant then
+    status = ss$_normal;
+if not .status then
+    signal_exit_ (ppl$_syserror, 0, .status);
+
+status =$deq (
+	lkid   = .tell_lksb[lksb_l_lockid],
+	valblk = 0,
+	flags  = lck$m_cancel,
+	acmode = psl$c_user);
+
+if not .status then
+    if .status eql ss$_cancelgrant then
+    begin
+
+        !+
+	! We can get SS$_CANCELGRANT if an AST routine called PPL$$TELL
+	! between the $ENQ and the $DEQ.  The $DEQ by the AST routine will
+	! cancel both lock requests, so that our $DEQ sees no queued requests.
+        !
+	! Or perhaps the process holding the lock really *did* release it --
+	! by dropping out of the application.
+	!-
+
+	debug_msg_(7, 'Index: !UL, (ppl$$tell) Lock cancelled, lockid = !XL, status = !XL,!XW',
+	    .ppl$$gl_context[ctx_l_my_index], .tell_lksb[lksb_l_lockid], 
+	    .status, .tell_lksb[lksb_w_status]);
+
+	status = $enq(
+		efn=	   .ppl$$gl_context[ctx_l_ef],
+		lkmode=	   lck$k_crmode,
+		lksb=	   tell_lksb[base_],
+		flags=	   lck$m_convert or
+			   .ppl$$gl_system,
+		resnam=	   0,
+		parid=	   0,
+		astadr=	   0,
+		astprm=	   0,
+		blkast=	   0,
+		acmode=	   psl$c_user);    
+
+	if not .status then
+	    signal_exit_ (ppl$_syserror, 0, .status);
+
+    end  ! of cancelgrant branch
+    else	! signal status from above
+	signal_exit_ (ppl$_syserror,0, .status);
+
+ppl$$gl_context[ctx_l_tell_index] = .index;
+
+debug_msg_(0, 'Index: !UL, ppl$$tell complete',
+	    .ppl$$gl_context[ctx_l_my_index]);
+
+exit_ (ss$_normal);
+
+end;			! End of Routine PPL$$TELL
+
+
+
+global routine ppl$index_to_pid
+    (
+	index	: ref vector [1],   !in
+        pid	: ref vector [1]    !out
+    ) =
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine accepts the PPL process index as input, and if the
+!	specified process exists in the application, returns the PID of
+!	that process.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$INDEX_TO_PID ( index, pid )
+!
+! FORMAL ARGUMENT(S)
+!
+!	INDEX
+!	VMS USAGE	:  longword_unsigned
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The index of the process within this parallel application.
+!
+!	PID
+!	VMS USAGE	:  longword_unsigned
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The process-id of a process in this parallel application.
+!
+! IMPLICIT INPUTS:
+!
+!	pplsect and ctx_block
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE.
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_NOINIT	Ppl$initialize has not been called.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.	
+!--
+begin	!ppl$index_to_pid
+
+literal
+	num_args = 2;		! required number of arguments
+
+builtin
+	actualcount;
+
+local
+	status  : unsigned long,
+	start	: unsigned long,
+	proc	: ref proc_block;
+
+
+debug_msg_(0, 'Index: !SL, Entering ppl$index_to_pid',
+	    (if .ppl$$gl_context eql 0
+		then -1
+		else .ppl$$gl_context[ctx_l_my_index]));
+
+verify_init_;
+
+debug_msg_(1, 'Index: !UL, Entering ppl$index_to_pid',
+	    .ppl$$gl_context[ctx_l_my_index]);
+
+
+if (actualcount () neq num_args) then
+    return ppl$_wronumarg;
+
+pid[0] = 0;
+
+start = ppl$$gl_pplsect[pplsect_q_procs] - %fieldexpand_(proc_l_procs_f,0);
+proc = first_sr_(.start, proc_l_procs_f);
+while (proc[base_] neq .start) do
+    (
+    if (.proc[proc_l_index] eql .index[0]) then	!found it
+	(
+	pid[0] = .proc[proc_l_pid]; !user gets translation even if it died...
+	if alive_ (index[0]) then
+	    return ppl$_normal
+	else
+	    return ppl$_no_such_party;
+	);
+    proc = next_sr_(proc[base_], proc_l_procs_f);
+    );
+
+ppl$_invarg
+
+
+end; !ppl$index_to_pid
+
+
+
+global routine ppl$pid_to_index
+    (pid	: ref vector [1],   !in
+    index	: ref vector [1]    !out
+    ) =
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine accepts a VMS process-id as input, and if that
+!	process exists within the current parallel application, returns
+!	the corresponding process index.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$PID_TO_INDEX ( pid, index )
+!
+! FORMAL ARGUMENT(S)
+!
+!	PID
+!	VMS USAGE	:  longword_unsigned
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The process-id of a process in this parallel application.
+!
+!	INDEX
+!	VMS USAGE	:  longword_unsigned
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The index of the process within this parallel application.
+!
+! IMPLICIT INPUTS:
+!
+!	pplsect and ctx_block
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE.
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_NOINIT	PPL$INITIALIZE has not been called by this process.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments. 
+!--
+begin	!ppl$pid_to_index
+
+literal
+	num_args = 2;		! required number of arguments
+
+builtin
+	actualcount;
+
+local
+	status  : unsigned long,
+	start	: unsigned long,
+	proc	: ref proc_block;
+
+
+debug_msg_(0, 'Index: !SL, Entering ppl$pid_to_index',
+	    (if .ppl$$gl_context eql 0
+		then -1
+		else .ppl$$gl_context[ctx_l_my_index]));
+
+verify_init_;
+
+debug_msg_(1, 'Index: !UL, Entering ppl$pid_to_index',
+		.ppl$$gl_context[ctx_l_my_index]);
+
+if (actualcount () neq num_args) then
+    return ppl$_wronumarg;
+
+index[0] = 0;
+
+start = ppl$$gl_pplsect[pplsect_q_procs] - %fieldexpand_(proc_l_procs_f,0);
+proc = first_sr_(.start, proc_l_procs_f);
+while (proc[base_] neq .start) do
+    (
+    if .proc[proc_l_pid] eql .pid[0] then	!found it
+	(
+	index[0] = .proc[proc_l_index];
+	if alive_ (proc[proc_l_index]) then
+	    return ppl$_normal
+	else
+	    return ppl$_no_such_party;
+	);
+    proc = next_sr_(proc[base_], proc_l_procs_f);
+    );
+
+ppl$_invarg
+
+
+end; !ppl$pid_to_index
+
+
+
+global routine ppl$stop
+    (
+	participant_index	: ref vector [1]    !in
+    ) =
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine accepts a PPL participant-index as input, and, if
+!	it exists within the current parallel application, causes its
+!	termination.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$STOP ( pid )
+!
+! FORMAL ARGUMENT(S)
+!
+!	PARTICIPANT-INDEX
+!	VMS USAGE	:  longword_unsigned
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The index of a participant in this parallel application.
+!
+! IMPLICIT INPUTS:
+!
+!	pplsect and ctx_block
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE.
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_NOINIT	PPL$INITIALIZE has not been called by this process.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments. 
+!--
+begin	!ppl$stop
+
+external routine
+	ppl$$cleanup_sub_processes;
+
+builtin
+	actualcount;
+
+literal
+	num_args = 1;		! how many arguments we expect
+
+local
+	status  : unsigned long,
+	start	: unsigned long,
+	proc	: ref proc_block;
+
+
+debug_msg_(0, 'Index: !SL, Entering ppl$stop',
+	    (if .ppl$$gl_context eql 0
+		then -1
+		else .ppl$$gl_context[ctx_l_my_index]));
+
+verify_init_;
+
+debug_msg_(1, 'Index: !UL, Entering ppl$stop',
+		.ppl$$gl_context[ctx_l_my_index]);
+
+if (actualcount () neq num_args) then
+    return ppl$_wronumarg;
+%(
+if (actualcount () eql 0) then	!terminate all subprocesses
+    (
+    ppl$$cleanup_sub_processes ();
+    return ppl$_normal;
+    );
+)%
+
+start = ppl$$gl_pplsect[pplsect_q_procs] - %fieldexpand_(proc_l_procs_f,0);
+proc = first_sr_(.start, proc_l_procs_f);
+while (proc[base_] neq .start) do
+    (
+    if .proc[proc_l_index] eql .participant_index[0] then	!found it
+	(
+	if alive_(proc[proc_l_index]) then   !make sure it is still there
+	    begin
+	    status = ppl$$tell(.proc[proc_l_index], do_termination, ppl$_inttermin);
+	    if (not .status) then
+		return .status;
+	    end;
+	return ppl$_normal;
+	);
+    proc = next_sr_(proc[base_], proc_l_procs_f);
+    );
+
+
+!if we get here, the loop completed without finding the specified process
+
+ppl$_no_such_party
+
+
+end; !ppl$stop
+
+
+
+global routine delete_proc_ast
+    (pid    : vector [1,long] ) : NOVALUE =
+begin
+
+$delprc (pidadr = pid);
+
+end; !delete_proc_ast
+
+
+
+end			! End of Module PPL$TELL
+eludom

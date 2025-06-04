@@ -1,0 +1,103 @@
+	.title	merge - force a merge copy on a shadowset
+;
+; This program is created as a hack to force a merge copy on a
+; Phase II shadowset. It uses a routine inside the SHdriver for the
+; dirty work. We call this entrypoint with the correct parameters.
+; We also disable writelogging because we want a full merge copy to occur.
+;
+;
+; Author:  Jur van der Burg
+;          Digital Equipment B.V.
+;          Utrecht, Holland  (Hack department).
+;          UTRTSC::VDBURG
+;
+;	June 21, 1993
+;
+; Use at your own risk. If your system crashes or your data gets corrupt,
+; don't call me.
+;
+; Updated: 27-JAN-1995
+;
+; Corrected call method for latest SHdriver. This should work for older
+; version too.
+;
+	.library	'sys$library:lib.mlb'
+	.link		'sys$system:sys.stb'/selective_search
+	.link		'sys$system:scsdef.stb'/selective_search
+
+	$iocdef
+	$ucbdef
+	$shaddef
+	$ddtdef
+	$devdef
+	$ssdef
+
+lckarr:	.long		lockbeg		; Point to area to lock in memory
+	.long		lockend
+
+indsc:	.long		80
+	.long		inbuf
+inbuf:	.blkb		80
+reslen:	.word		0
+prompt:	.ascid		/Enter device: /
+;
+        .entry 		start,0
+
+	pushal	reslen
+	pushaq	prompt
+	pushaq	indsc
+	calls	#3,g^lib$get_foreign	; Get the devicename
+	blbc	r0,10$
+	movw	reslen,indsc
+	pushaq	lckarr			; Address of lock array
+	$lkwset_s	inadr=lckarr	; Lock pages
+	blbc	r0,10$			; Exit on error
+	$cmkrnl_s	routin=merge	; Do the dirty work
+
+10$:	ret
+
+lockbeg=.
+
+	.entry	merge,^m<r2,r3,r4,r5>
+
+	pushl	r4
+	jsb	g^sch$iolockr		; Lock I/O database mutex for read
+	movl	(sp)+,r4
+	movaq	indsc,r1		; Get devicename descriptor
+	movl	#ioc$m_any,r2
+	clrl	r3
+	jsb	g^ioc$search		; Find the device
+	pushr	#^m<r0,r1>
+	jsb	g^sch$iounlock		; Unlock mutex
+	popr	#^m<r0,r1>
+	setipl	#0			; Restore IPL
+	blbc	r0,30$			; Error
+	movzwl	#ss$_incshamem,r0	; Assume no SHAD
+	bbc	#dev$v_vrt,-		; Shadow set virtual unit?
+		ucb$l_devchar2(r1),30$
+	movl	ucb$l_shad(r1),r5	; Get SHAD address
+	beql	30$			; Not there
+	movl	ucb$l_ddt(r1),r2	; Get DDT
+	movl	ddt$l_mntv_sqd(r2),r0	; Get entrypoint we need
+	lock	scs			; Make sure sync is okay
+	extzv	#shad$v_wlg,#shad$s_wlg,-
+		shad$w_status(r5),-(sp)	; Save writelog bit
+	bicw2	#shad$m_wlg,-		; Force full merge
+		shad$w_status(r5)
+	clrl	r2			; Connection ID (not used for full merge)
+	movl	g^clu$gl_club,r3	; Point to CLUB
+	movl	club$l_local_csb(r3),r3	; Get our own CSB
+	pushl	r5			; Save SHAD
+	jsb	(r0)			; Call the routine to do the dirty work for us
+	movl	(sp)+,r5		; Restore SHAD
+	insv	(sp)+,#shad$v_wlg,-	; Restore writelog
+		#shad$s_wlg,-
+		shad$w_status(r5)
+	unlock	scs,-			; Let the lock go
+		newipl=#0
+
+30$:	ret
+
+lockend=.
+
+	.end	start

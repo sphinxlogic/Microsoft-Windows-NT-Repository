@@ -1,0 +1,1908 @@
+!+
+! PPLLIB.REQ
+!   This defines things needed across all ppl modules, including data-types,
+!   constants, flags and macros.
+!-
+
+!+
+! MODIFICATION HISTORY:
+!
+! <unknown>
+!
+! V051-001	- Removed references to local varible PPLSECT	WWS 26-Sep-1988
+!		- Moved functionality of Ungrab_Event_Entry_ 
+!		    to Release_Event_Entry_ and created
+!		    new Ungrab_Event_Entry_
+!		- Changed PPL Global Section Protection
+!		- Altered field definitions, removing obsolete
+!		    fields, etc., for PPLSECT, CTX, SECT, PROC,
+!		    CSB, PIL
+!		- Added DO_FLUSH_SHARED_MEMORY message type
+!		- Added Interlock_ macro
+!		- Added/Reformatted debugging messages
+!
+! V052-001	- Made calls in do_termination_updates_ conditional
+!								WWS 05-Dec-1988
+!
+! V53-001	- Added debug_init_ and debug_msg_ macros	WWS 24-Mar-1989
+!		- Added flags for PPL$Create_Application, etal
+!
+! V53-002	- Added application characteristics to PPLSECT	WWS 27-Mar-1989
+!		- Changed debugging messages to use debug_msg_
+!		- Removed defunct TELL area from PPLSECT
+!
+! V53-003	- Added name-lock structures and macros		WWS 28-Mar-1989
+!		- Added system-wide locking support
+!
+! V53-004	- Put app_lock block into context area		WWS 04-Apr-1989
+!
+! V53-005	- Changed top_lock name format			WWS 10-Apr-1989
+!		- Changed verify_init_ to call PPL$Create_application
+!		  instead of PPL$Initialize
+!		  
+! V53-006	- Got rid of %ASCIDs				WWS 09-May-1989
+!		- Changed DEBUG_MSG_ macro to take a character string
+!		  constant argument instead of a descriptor
+!
+! V53-007	- Moved EQE queue from PROC_BLOCK to CTX_BLOCK	WWS 17-May-1989
+!
+! V53-008	- csb block modified: - to be used for work queues
+!				      - for object deletion.	HPO 14-Jun-1989
+! V53-009	- csb block modified: csb_v_in_wait and
+!		    csb_v_restricted eliminated.
+!
+! V53-010	- csb block modified for deletion of spin locks HPO 30-Jun-1989
+!
+! V53-011	- Removed obsolete fields from SECT_BLOCK	WWS 30-Jun-1989
+!		- Added memory arbitration barrier id to PPLSECT
+!		- Removed references to obsolete (mem arb) code
+!
+! V53-012	- Added macros for lock-name definitions	PJC 31-Jul-1989
+!
+! V53-013	- Removed CTX from verify_init_			PJC 09-Aug-1989
+!		- Added Check for zero in next_sr
+!
+! V53-014	- vm block added for use of ppl$create_vm_zone	HPO 24-AUG-1989
+!		  and ppl$delete_vm_zone. 
+!
+! V53-015	- Added ppl$m_noclisym, ppl$m_nolognam,		PJC 25-Aug-1989
+!		  ppl$m_nokeypad, ppl$m_notify, ppl$m_nocontrol
+!		  used as flags for ppl$spawn
+!
+! V53-016	- Initializing proc blocks to zero within	PJC 28-Sep-1989
+!		  create_proc_
+!
+! V53-017	- Added app_v_system flag to the app_lksb	PJC 17-Oct-1989
+!
+! V53-018	- Added fill areas to event block, to avoid	PJC 27-Oct-1989
+!		  data corruption associated with mutex.
+!
+! V53-019	- Added do_termination definition to be used	PJC 06-Nov-1989
+!		  in calls to ppl$$tell. Also added pil_l_index
+!		  field to PIL block.
+!
+! V53-020	- Added ppl_signal_ macro to handle  non-	PJC 30-Nov-1989
+!		  returning signals, and confirm_ to perform
+!		  development/variant logic tests.
+!		  Also, added spin_hiber_ macro.
+!
+! V57-001	- EVMS/Alpha port: make all fields longwords	PJC 12-Nov-1991
+!		  (minimum), on evax make global blocks volatile,
+!		  add builtin declarations here to avoid evms 
+!		  macro nesting difficulties, ...
+!
+! V57-002	- Updated sect fields and added a constant as	PJC 18-Feb-1992
+!		  part of an SPR fix.
+!
+! V57-003	- Add csb_w_semval field to csb structure.	PJC 26-Jan-1993
+!		  Convert grab_marker_ from returning an
+!		  insvirmem error to raising it as an exception.
+!
+! V57-004	- Increase the constant ppl$k_namelen in	PJC 03-Feb-1993
+!		  response to EVMS-DELTA QAR 
+!
+! V57-005	- Add data structures, etc for NUM lock.  To	PJC 06-Apr-1993
+!		  be used for unique numbers (in scope).
+!
+! V57-006	- Perform work to support two new flags to	PJC 06-Aug-1993
+!		  PPL$CREATE_APPLICATION; PPL$M_IGNORE_EXITS
+!		  and PPL$M_NOSAVE_PROC_INFO.
+!
+! V62-001	- Added flag to pplsect which indicates that	WWS 15-Aug-1994
+!		  a memory arbitration is in progress.
+!-
+
+require 'sys$library:arch_defs';
+library	'sys$library:starlet';
+library	'sys$library:xport';
+require	'obj$:pplmsg';	    !if these go into starlet, they must leave here
+undeclare %quote $descriptor;
+
+
+builtin
+    remqhi, 
+    remqti,
+    insqti, 
+    insqhi,
+    testbitssi, 
+    testbitcci, 
+    adawi;
+
+
+!==============================================================================!
+!									       !
+!			    P P L   M A C R O S    			       !
+!									       !
+!==============================================================================!
+
+macro	base_ = 0,0,0,0 %;
+
+macro	elif = else if %;
+			
+macro
+
+	!+
+	! Test a non-zero value for being a power of two.
+	! (zero currently passes this test).
+	!-
+
+	is_power_of_two_(x) = ( (((x)-1) AND (x)) EQL 0 ) %;
+
+
+macro
+
+	!+
+	! Macro to round a value to the next higher multiple of a number.
+	!
+	! The first parameter is the number which is to be rounded.
+	! The second parameter is the multiple up to which we round.
+	!	If omitted, the default for the second parameter is %UPVAL
+	!	The second parameter must be a power of 2.
+	!-
+
+	round_(a,b) =
+	    %if %null(b)
+	    %then (((a) + %upval-1) and not (%upval-1))
+	    %else (((a)+  (b)   -1) and not ((b)   -1))
+	    %fi %;
+
+
+macro
+
+	!+
+	! Macro to calculate floor(log2(constant))
+	!-
+
+	ln2_(a)=
+	    (%nbitsu(a)-1) %;
+
+macro
+
+	!+
+	! Macro to test an assertion about compile-time constants.
+	!-
+
+	assert_(a)=
+	    %if not (a)
+	    %then
+		%error('Assertion failed')
+	    %fi %;
+
+
+macro
+
+	!+
+	! Macro to signal and then return if necessary a value.
+	!-
+
+	ppl_signal_(value) = 
+	    begin
+		signal(value);
+		return(value);
+	    end %;
+
+macro
+
+	!+
+	! Variant macro to check for PPL$_BADLOGIC.
+	!-
+
+	confirm_(expression) =
+	    %if %variant
+	    %then
+		if not (expression) then ppl_signal_(ppl$_badlogic)
+	    %fi
+	%;
+
+macro
+
+	!+
+	! Macroes to increment/decrement a value
+	!-
+
+	incr_(x) = (x = .x + 1) %,
+	decr_(x) = (x = .x - 1) %;
+
+macro
+
+	!+
+	! Macros to determine the results of the ADAWI instruction
+	!-
+
+	psl_geq_(x) = ( ( (x) and (psl$m_n) ) eql 0 ) %,
+	psl_lss_(x) = ( ( (x) and (psl$m_n) ) neq 0 ) %,
+	psl_gtr_(x) = ( ( (x) and (psl$m_n or psl$m_z ) ) eql 0 ) %,
+	psl_eql_(x) = ( ( (x) and (psl$m_z) ) neq 0 )  %;
+
+macro
+
+	!+
+	! Macros to handle insq and remq conditions
+	!-
+
+	insq_busy_(x) = ( (x) ) %,	! Busy - retry
+	insq_not1_(x) = ( (x) eql 0 ) %,! Was not the first entry
+	insq_first_(x) = ( (x) eql 2 ) %,! Was the first entry
+	remq_busy_(x) = ( (x) eql 1 ) %,! Busy - retry
+	remq_last_(x) = ( (x) eql 2 ) %,! Last entry was removed
+	remq_null_(x) = ( (x) eql 3 ) %;! Nothing was removed
+
+macro
+	queue_empty_ (x) = (.x eql 0) %;
+
+macro
+
+	!+
+	! Macro to acquire a marker for a queue
+	!-
+
+    grab_marker_(q) =
+	begin
+	external routine
+		ppl$$allocate;
+
+	!+
+	! Grab one of our 'markers'
+	!-
+	while remq_busy_(status = remqhi((ppl$$gl_pplsect[pplsect_q_mkrs]), (q)))
+	    do 0;
+	if remq_null_(.status)
+	then
+	    begin
+	    !+
+	    ! we have no markers left so create one
+	    !-
+	    q = ppl$$allocate ( mkr_s_bln );
+	    if .q leq 0 then ppl_signal_(ppl$_insvirmem);
+	    q = .q + ppl$$gl_pplsect[base_];
+	    end
+	else
+	    q = .q - %fieldexpand_(mkr_l_flink,0);
+	q[mkr_l_pid] = .ppl$$gl_context[ctx_l_my_pid];
+	testbitcci(q[mkr_v_valid]);
+	end %;
+
+macro
+
+	!+
+	! Macro to ungrab a marker for a queue
+	!-
+
+    ungrab_marker_(q) =
+	begin
+	while
+	    insq_busy_(insqti(q[mkr_l_flink], ppl$$gl_pplsect[pplsect_q_mkrs]))
+	    do 0;
+	testbitcci(q[mkr_v_valid]);
+	end %;
+
+macro
+    grab_event_entry_ (q) =	!get an eqe - event queue entry block
+	(
+	external routine lib$get_vm;
+	while remq_busy_ (status = remqhi ((ppl$$gl_context[ctx_l_eqe_f]), (q)))
+	    do 0;
+	
+	if remq_null_(.status) then
+	    (		!no entries remain - allocate one
+	    status = lib$get_vm (%ref(eqe_s_bln), q);
+	    if not .status then return ppl$_insvirmem;
+	    )
+	else
+	    q = .q - %fieldexpand_(eqe_l_flink,0);
+	ch$fill (0, eqe_s_bln, .q);
+	)
+    %;
+
+macro
+    ungrab_event_entry_ (q) =	!disable an event queue entry block, but leave
+				! on the event queue
+	begin
+	q[eqe_v_enabled] = false;
+	end %;
+
+macro
+    release_event_entry_ (q) =	!disable an event queue entry block, and place
+				! on the available queue
+	begin
+	q[eqe_v_enabled] = false;
+	while insq_busy_(insqti ((q[eqe_l_flink]), (ppl$$gl_context[ctx_l_eqe_f])))
+	    do 0;
+	end %;
+
+macro
+    verify_init_ =	!intializes ctx, if necessary, by calling ppl$initialize
+	(
+	if .ppl$$gl_context eql 0 then
+	    (
+	    external routine ppl$create_application;
+	    status = ppl$create_application();
+	    if not .status then return .status;
+	    );
+  	)
+    %; !end verify_init_
+
+
+!+
+!	Clean-up routines are called by PPL$TERMINATE.  To facilitate
+!	information-hiding, the following mechanism is used.  It allows
+!	each sub-system to declare a clean-up routine to clean up its data
+!	structures (so that PPL$TERMINATE need not know the format of the
+!	data structures, or even the name of the clean-up routine).
+!
+!	A clean-up routine is declared by:
+!		forward routine clean_up: novalue;
+!		ppl$$end_routine_(clean_up);
+!		routine clean_up (context: ref ctx_block): novalue = ...
+!-
+
+macro	ppl$$end_psect_(x) =	%name(%exactstring(30,'_','ppl$ro_code'),x) %;
+macro	ppl$$end_routine_(x) =
+psect	nodefault=	%expand ppl$$end_psect_(2)(pic,share,nowrite,execute);
+own	%name('_',x):	psect(%expand ppl$$end_psect_(2))
+			initial(x-%name('_',x)) %;
+
+
+!+
+! Debugging macros
+!
+! The debug_init_ macro translates the logical name "PPL$DEBUG", converts the
+! equivalence string, which is a longword in hex, to an unsigned integer and
+! places it into the global variable PPL$$GL_DEBUG_FLAGS.
+!
+! The debug_msg_ macro checks to see if the bit indicated by "class" is set in
+! PPL$$GL_DEBUG_FLAGS, and, if it is set, calls ppl$$output with the remaining
+! arguments to produce a debugging message.
+!
+! The present debugging message classes are as follows:
+!
+!   Class	  Messages
+!  =======  ==================================
+!  0(0001)  Full routine trace	*
+!  1(0002)  Brief routine trace	*
+!  2(0004)  Verbose mode	*
+!  3(0008)  Interprocess messaging information	*
+!  4(0010)  Name_Lock information   *
+!  5(0020)  Top_Lock information    *
+!  6(0040)  Living_Lock information *
+!  7(0080)  Tell_Lock information   *
+!  8(0100)  Memory arbitration information *
+!  9(0200)  Create_Shared_Memory    *
+! 10(0400)  Shared_VM_Zone
+! 11(0800)  Exit Handling *
+! 12(1000)  Error Handling *
+!-
+macro
+    debug_init_ =
+	%if %variant
+	%then
+	begin
+
+	external routine
+	    ots$cvt_tz_l;
+
+	external
+	    ppl$$gl_debug_flags;
+	    
+	literal
+	    e_str_siz = 255;
+
+	macro
+	    x_tabnam = 'LNM$FILE_DEV' %quote %,
+	    x_lognam = 'PPL$DEBUG' %quote %;
+
+	local
+	    list    :   $itmlst_decl(items=1),
+	    e_str   :   vector [e_str_siz, byte],
+	    e_str_desc: vector [2] initial(e_str_siz, e_str),
+	    tabnamdesc:	$bblock[dsc$c_s_bln] PRESET(
+				    [dsc_l_length] = %charcount(x_tabnam),
+				    [dsc$a_pointer] = uplit byte(x_tabnam)),
+	    lognamdesc:	$bblock[dsc$c_s_bln] PRESET(
+				    [dsc_l_length] = %charcount(x_lognam),
+				    [dsc$a_pointer] = uplit byte(x_lognam)),
+	    status;
+
+
+	! Set up item list to return the equivalence string
+	$itmlst_init(
+	    itmlst=list,
+	    (itmcod=lnm$_string, bufadr=.e_str_desc[1], bufsiz=e_str_siz,
+		retlen=e_str_desc[0])
+	    );
+
+	status = $trnlnm (
+	    tabnam = tabnamdesc[base_],
+	    lognam = lognamdesc[base_],
+	    itmlst = list);
+
+	if not .status then
+	    ppl$$gl_debug_flags = 0 ! No logical name match, or an error
+	else
+	    begin   ! Successfully translated the logical name, no convert it
+	    status = ots$cvt_tz_l(e_str_desc[0], ppl$$gl_debug_flags);
+	    if not .status then ppl$$gl_debug_flags = 0;    ! Conversion error
+	    end;
+	end
+	%fi
+    %;
+
+macro
+    debug_msg_(class, string) =
+	%if %variant
+	%then
+	begin
+	external routine
+	    ppl$$output;
+	    
+	external
+	    ppl$$gl_debug_flags;
+	    
+	if .ppl$$gl_debug_flags neq 0 then
+	    if (.ppl$$gl_debug_flags and  (1 ^ (class))) neq 0 then
+		begin
+
+		local
+		    sdesc : $bblock [dsc$c_s_bln] preset (
+					[dsc_l_length] = %charcount(string),
+					[dsc$a_pointer] = uplit byte(string));
+
+		ppl$$output(
+			    sdesc[base_]
+			    %if not %null(%remaining) %then
+			    , %remaining
+			    %fi
+			    );
+		end;
+	end
+	%fi
+    %;
+
+
+!+
+! Macros to get the first or next object linked in a self-relative
+! interlocked queue (by forward link).  Note that the two longwords
+! for the queue need not be at the beginning of the structure.
+!-
+
+macro
+    first_sr_(z) =
+	begin
+
+	!+
+	! Calling protocol:
+	!
+	!	local
+	!	    start,
+	!	    sss:   ref sss_block;
+	!	start = rrr[rrr_q_queue] - %fieldexpand_(sss_l_flink,0);
+	!	sss = first_sr_(.start, sss_l_flink);
+	!-
+
+	local
+	    zz;
+
+	! The low order bit in the address of a queue header is used by the 
+	!   xxxQxI instructions as a software lock on the queue header.  
+	!   (This bit is normally zero since queue headers must be quadword
+	!   aligned).  If the address of the queue header is odd, it means
+	!   that some other processor is executing a xxxQxI instruction on
+	!   this queue, so loop until it is finished.
+	do zz = .$bblock[z,%remaining] while .zz;
+
+	! Return address of node in queue linked to the header
+	.zz + $bblock[z,%remaining] - %fieldexpand_(%remaining,0)
+	end %;
+
+macro
+    next_sr_(z) =
+	begin
+
+	!+
+	! Calling protocol:
+	!
+	!	local
+	!	    sss: ref sss_block;
+	!	sss = next_sr_(.sss, sss_l_flink);
+	!-
+	
+	local
+	    zz;
+
+	do zz = .$bblock[z,%remaining] while .zz;
+
+	.zz + $bblock[z,%remaining] - %fieldexpand_(%remaining,0)
+	end %;
+macro
+    empty_sr_(z) =
+	begin
+
+	!+
+	! Calling protocol:
+	!
+	!	if empty_sr_(rrr[rrr_q_queue]) then ...
+	!-
+
+	.$bblock[z,0,0,%bpval,0] eql 0
+	end %;
+
+!+
+! Macros for interlocking on a bit.
+!-
+
+macro
+    lock_bit_(z) =
+	begin
+	while testbitssi(z) do while .z do 0;
+	end %;
+macro
+    unlock_bit_(z) =
+	begin
+	testbitcci(z);
+	end %;
+
+!+
+! Macro to insure cache consistency before accessing shared memory.
+!
+! (From Peter Gilbert, 18-Aug-1988)
+! To insure that information written to shared memory by one processor and 
+!   read from shared memory by a second processor is actually the same 
+!   information, the following must take place in order:
+!
+!	1. The writing processor completes it's write "to memory" (ie cache)
+!	2. The writing processor executes an interlocked instruction affecting
+!	    some address X.
+!	3. The reading processor executes an interlocked instruction affecting
+!	    the *same* address X.
+!	4. The reading processor begins it's read from memory (ie not cache)
+!
+!
+! So, in practice, addr should be a word containing a mutex lock bit, etc.
+!
+! Note: addr must be the address of an aligned word.
+!-
+macro
+    interlock_(addr) =
+	begin
+	adawi(%REF(0), (addr))
+	end %;
+
+macro
+
+    !+
+    ! Macros to handle interlock check set and check clear.
+    !-
+
+    isset_i(value) = ( not psl_eql_(interlock_(value)) ) %,
+    isclear_i(value) = ( psl_eql_(interlock_(value)) ) %;
+
+!+
+!   The following macro, spin_hiber_, takes in a number of spins that
+!   one wishes to try while waiting for the hiber_bit to become set
+!   and then $hibers until the bit becomes set.
+!-
+
+macro
+    spin_hiber_(spins,hiber_bit) =
+	begin
+	local
+	    spin_count;
+
+
+	spin_count = 0;
+
+	until isset_i(hiber_bit) do
+	    begin
+	    if .spin_count gtru .spins then EXITLOOP;
+	    spin_count = .spin_count + 1;
+	    end;
+
+	until isset_i(hiber_bit) do ppl$$hiber();
+	end %;
+
+
+
+!+
+! Macros for PER PROCESS critical region - ast enabling/disabling.
+! These'll do you no good for multi-processor-accessed data.
+!-
+
+macro
+    enter_critical_region_ =	!enter PER PROCESS critical region
+				!(disable per process asts)
+	    !Requires: declaration of variable "ast_status" in scope where
+	    !this is used, and decl of ppl$$gl_context as "ref ctx_block".
+	    !Does some implicit interaction with PPLTELL ast routines to prevent
+	    !needless calls to $setast - that's the at_ast_level flag.
+	    !Only ast routines set it and clear it, so this won't hold up for
+	    !per thread asts, like for ada.  It also won't know if the user
+	    !called us at ast level.
+	(
+	!disable asts if we're not at ast level
+	if not .ppl$$gl_context[ctx_v_at_ast_level] then
+	    ast_status = $setast(enbflg = false);
+	)
+    %;
+
+
+macro
+    leave_critical_region_ =	!leave per process critical region
+	(
+        if (.ast_status eql ss$_wasset) then	!asts were enabled when we
+            $setast (enbflg = true);		!called enter_critical_region_
+	)
+    %;
+
+macro
+    get_top_lock_ (status) =
+    begin
+    external
+	ppl$$gl_system;
+
+    debug_msg_(5, 'Index: !UL, (get_top_lock_)',
+			.ppl$$gl_context[ctx_l_my_index]);
+
+    status = $enqw (			! Wait if necessary
+	efn=	0,
+	lkmode=	lck$k_pwmode,		! Write, allowing readers
+	lksb=	top_lksb[base_],
+	flags=	lck$m_valblk or		! We want a value block
+		lck$m_convert or	! Just converting
+		.ppl$$gl_system,	! Possibly a system lock
+	resnam=	0,
+	parid=	0,
+	astadr=	0,
+	astprm=	0,
+	blkast=	0,
+	acmode=	psl$c_user);
+
+    if .status then status = .top_lksb[lksb_w_status];
+
+    end
+    %;
+
+
+macro
+    release_top_lock_ (status) =
+    begin
+    external 
+	ppl$$gl_system;
+	
+    debug_msg_(5, 'Index: !UL, (release_top_lock_)', 
+		    .ppl$$gl_context[ctx_l_my_index]);
+		    
+    status = $enq (			! No need to wait
+	efn=	0,
+	lkmode=	lck$k_nlmode,		! No lock
+	lksb=	top_lksb[base_],
+	flags=	lck$m_valblk or		! We want a value block
+		lck$m_convert or	! Just converting
+		.ppl$$gl_system,	! Possibly a system lock
+	resnam=	0,
+	parid=	0,
+	astadr=	0,
+	astprm=	0,
+	blkast=	0,
+	acmode=	psl$c_user);
+
+    if .status then status = .top_lksb[lksb_w_status];
+
+    end
+    %;
+
+
+
+macro
+    get_proc_ (proc, idx) =
+		!in the caller, declare:    proc    : ref proc_block,
+		!			    index   : unsigned long; !BY VALUE
+    (
+    local   start   : unsigned long;
+    start = ppl$$gl_pplsect[pplsect_q_procs] - %fieldexpand_(proc_l_procs_f,0);
+    proc = first_sr_ (.start, proc_l_procs_f);
+    while true do
+        (
+	if (proc[base_] eql .start) then ( proc = 0; EXITLOOP; );
+	if (.proc[proc_l_index] eql idx) then EXITLOOP;
+	proc = next_sr_ (proc[base_], proc_l_procs_f);
+	); !endloop
+    )
+    %;
+
+
+macro
+    get_proc_by_pid_ (proc, pid) =
+		!in the caller, declare:    proc    : ref proc_block,
+		!			    pid	    : unsigned long; !BY VALUE
+    (
+    local   start   : unsigned long;
+    start = ppl$$gl_pplsect[pplsect_q_procs] - %fieldexpand_(proc_l_procs_f,0);
+    proc = first_sr_ (.start, proc_l_procs_f);
+    while true do
+        (
+	if (proc[base_] eql .start) then ( proc = 0; EXITLOOP; );
+	if (.proc[proc_l_pid] eql pid) then EXITLOOP;
+	proc = next_sr_ (proc[base_], proc_l_procs_f);
+	); !endloop
+    )
+    %;
+
+
+macro
+    create_proc_ (proc) =
+        !check for result proc leq 0 to assure allocate worked
+    (
+    local   start   : unsigned long;
+        !+
+        ! Create my proc_block, add it to the process list.
+        !-
+    external routine ppl$$allocate;
+    if (.ppl$$gl_pplsect[pplsect_l_mem_flags] and ppl$m_nosave_proc_info) nequ 0 then 
+	(
+        start = ppl$$gl_pplsect[pplsect_q_procs] - %fieldexpand_(proc_l_procs_f,0);
+        proc = first_sr_ (.start, proc_l_procs_f);
+        while true do
+            (
+            if (proc[base_] eql .start) then ( proc = 0; EXITLOOP; );
+	    if (.proc[proc_b_state] eql ppl$k_terminated) then
+		(
+		lock_bit_(proc[proc_v_lock]);
+		if (.proc[proc_b_state] eql ppl$k_terminated) then
+		    (
+		    proc[proc_b_state] = ppl$k_started;
+		    proc[proc_l_exit_status] = ppl$_exhnevcal;
+		    proc[proc_l_init_bar] = 0;
+		    unlock_bit_(proc[proc_v_lock]);
+		    EXITLOOP;
+		    );
+		unlock_bit_(proc[proc_v_lock]);
+		);
+            proc = next_sr_ (proc[base_], proc_l_procs_f);
+            ); !endloop
+        );
+    if (.proc eql 0) then
+        (
+        proc = ppl$$allocate ( proc_s_bln );
+        if (.proc gtr 0) then
+            (
+            proc = .proc + .ppl$$gl_pplsect;
+            ch$fill(0, proc_s_bln, .proc);              ! zero the proc block
+            proc[proc_b_state] = ppl$k_started;
+            proc[proc_l_exit_status] = ppl$_exhnevcal;
+            proc[proc_l_init_bar] = 0;
+            while insq_busy_ (
+                    insqti (proc[proc_q_procs],
+                            ppl$$gl_pplsect[pplsect_q_procs]) ) do 0;
+            );
+        );
+    )
+    %;
+
+
+
+!+
+! When processes spawn or terminate, we have to watch certain things...
+!-
+
+macro
+    do_termination_updates_ (index) =
+    (
+    external routine
+        ppl$$update_voting_ring;
+    local
+        proc    : ref proc_block;
+    if (.ppl$$gl_pplsect neq 0) then
+        (
+	get_proc_ (proc, index);
+	if (.proc neq 0) then
+	(
+	 lock_bit_ (proc[proc_v_lock]);
+	 if (.proc[proc_b_state] eql ppl$k_terminated) 
+	    or (.proc[proc_l_index] neq index) then
+	    (
+	    unlock_bit_(proc[proc_v_lock]); ! someone already handled the term
+	    )
+         else				    ! else, we attempt to handle it.
+            (
+            adawi (%ref(-1), ppl$$gl_pplsect[pplsect_w_curr_procs]);
+	    proc[proc_b_state] = ppl$k_terminated; 
+	    unlock_bit_(proc[proc_v_lock]); ! unlock, we were just checking.
+	    if .ppl$$gl_pplsect[pplsect_w_curr_procs] gtr 0 then
+		(
+		ppl$$update_voting_ring (.proc);
+		if (.proc[proc_l_exit_status] and not sts$m_inhib_msg)
+                        eql ppl$_exhnevcal then     !process died abnormally
+		    ppl$$trigger_ppl_event (%ref(ppl$k_abnormal_exit),
+                                            ppl$_abnormal_exit, index,
+                                            .proc[proc_l_exit_status]);
+		)
+            )
+	 )
+        )
+    else
+	(
+	if .ppl$$gl_pplsect[pplsect_w_curr_procs] gtr 0 then
+	    ppl$$update_voting_ring (.proc);
+	)
+    )
+    %;
+
+
+macro
+    alive_ (index) =    !see if this index (BY REF) is alive right now
+    (                       
+    local
+        proc    : ref proc_block;
+    get_proc_ (proc, .index);
+    if (.proc eql 0) then
+	0
+    else
+	(
+	lock_bit_ (proc[proc_v_lock]);
+	if (.proc[proc_b_state] eql ppl$k_running) then
+	    (
+	    unlock_bit_(proc[proc_v_lock]); 
+	    1
+	    )
+	else
+	    (
+	    unlock_bit_(proc[proc_v_lock]);
+	    0
+	    )
+	)
+
+    )
+    %;
+
+
+macro
+
+	!+
+	! Macro like %fieldexpand, but also applicable to O,P,S,E macros.
+	!-
+
+	%fieldexpand_(a,b,c,d,e) =
+	    %if %length eql 1 %then %fieldexpand(a) %else
+	    %if %length eql 2 %then %fieldexpand(a,b) %else
+	    %if %length eql 4 %then a,b,c,d %else
+	    %if %length eql 5 %then
+		%if e eql 0 %then a %else
+		%if e eql 1 %then b %else
+		%if e eql 2 %then c %else
+		%if e eql 3 %then d %else
+		%error('Invalid parameter to %fieldexpand_')
+		%fi %fi %fi %fi %else
+	    %error('Wrong number of arguments to %fieldexpand_')
+	    %fi %fi %fi %fi %;
+
+
+!==============================================================================!
+!									       !
+!			    P P L   L I T E R A L S			       !
+!									       !
+!==============================================================================!
+
+!+
+! Define architectural constants
+!-
+
+literal	%uppage = 512;				! Units per page on VMS
+						! Units per pagelet on EVMS
+
+literal	%upaddr = (%bpaddr+%bpunit-1)/%bpunit;	! Units per address
+literal	%qalign = 8;		! Alignment required by queue instructions
+
+%if EVAX
+%then
+literal PSL$M_C = 1;
+literal PSL$M_V = 2;
+literal PSL$M_Z = 4;
+literal PSL$M_N = 8;
+literal PSL$M_TBIT = 16;
+%fi
+
+!+
+! Define a literal for the allocation and alignment quantum used by
+! PPL$$ALLOCATE.  This must be a multiple of %qalign, and it's preferable
+! that this be a power of two.
+!-
+
+literal	alc_k_quantum = 8;
+assert_(alc_k_quantum mod %qalign eql 0)
+
+
+!+
+! Literals that should be visible to code linking with PPL.
+!-
+
+!some for shared memory options
+literal
+!* These four are defined in PPL$DEF so they are also user-visible
+!*	ppl$m_zero =	1 ^ 0,		! Zero global section
+!*	ppl$m_nowrt =	1 ^ 1,		! Read-only (non-writable) section
+!*	ppl$m_flush =	1 ^ 2,		! Flush the section
+!*	ppl$m_nouni =	1 ^ 3,		! Don't make the name unique
+	ppl$m_nomap =	1 ^ 4,		! Don't map the section
+	ppl$m_pic   =	1 ^ 5;		! PIC section (internal use only)
+
+!* These are also defined by PPL$DEF
+!*	ppl$m_init_synch    = 1 ^ 0,    ! suspend until all subprocs init
+!*	ppl$m_nodebug	    = 1 ^ 1,    ! execute called processes w/o DEBUG
+!*	ppl$m_stop_children = 1 ^ 2,    ! abort subprocesses of caller
+!*	ppl$m_non_blocking  = 1 ^ 3,    ! don't block
+
+!*	ppl$k_abnormal_exit = -2,	! Predefined event id
+!*	ppl$k_normal_exit   = -1,	! Predefined event id
+
+! These are just here temporarily, until I get them into PPL$DEF
+!*	ppl$m_spin_wait =   1 ^ 5,
+!*	ppl$m_formonly =    1 ^ 6,	! Only form an application, do not join
+!*	ppl$m_joinonly =    1 ^ 7,	! Only join an application, do not form
+	! Note that "perm" and "system" refer to both memory and applications
+!*	ppl$m_perm     =    1 ^ 8,	! Create a permanent application
+!*	ppl$m_system   =    1 ^ 9,	! Create a system-wide application
+!*	ppl$m_deleteall=    1 ^ 10,	! Delete all corresponding work items
+!*	ppl$m_tailfirst=    1 ^ 11,	! Remove from tail
+!*	ppl$m_athead   =    1 ^ 12,	! Insert at the head of queue
+!*	ppl$m_fromtail	=   1 ^ 13,	! remove from tail
+!*	ppl$m_forcedel	=   1 ^ 14,	! forced deletion of work queues
+
+! These are flags used for ppl$spawn
+!*	ppl$m_noclisym =    1 ^ 15,	! Do not inherit creators CLI symbols
+!*	ppl$m_nolognam =    1 ^ 16,	! Do not inherit creators logical names
+!*	ppl$m_nokeypad =    1 ^ 17,	! Inherit creators keypad state
+!*	ppl$m_notify   =    1 ^ 18,	! Send message to sys$output
+!*	ppl$m_nocontrol =   1 ^ 19,	! Do not attach line-feed to prompt
+!*	ppl$m_call_unique = 1 ^ 20,	! Request call unique name
+!*	ppl$m_proc_unique = 1 ^ 21,	! Request process unique name
+!*	ppl$m_spin_counted = 1 ^ 22,	! Instruct process to spin then block
+!*	ppl$m_nosave_proc_info = 1^23,	! Request that PPL reuse proc blocks
+!*	ppl$m_ignore_exits = 1^24;	! No PPL events 'til first enable/wait
+
+compiletime
+    bumper = 1;
+macro
+    bump =
+       %number(bumper)
+       %assign(bumper, bumper+1)
+    %;
+
+literal	    !process states of interest
+    ppl$k_started       = bump,
+    ppl$k_running       = bump,	!initted ok
+    ppl$k_terminated    = bump;
+
+
+!+
+! Work_item codes for the todo list in the proc_block.
+!-
+%assign(bumper, 0)
+
+literal
+    do_first_code		    = bump,
+    do_reserve_addresses	    = bump,
+    do_post_event		    = bump,
+    do_delete_event		    = bump,
+    do_relink_comms_ring	    = bump,
+    do_flush_shared_memory	    = bump,
+    do_termination		    = bump,
+    do_last_code		    = bump;
+
+literal
+    tell_k_next_process = -1;		! Special parameter to ppl$$tell
+
+!+
+! Values which can appear in the csb_l_type and sect_l_type fields.
+!-
+
+literal
+	ppl$k_pplsect =			2,	! Facility global section
+	ppl$k_spin_lock =		3,
+	ppl$k_semaphore =		5,	! Preferred synonym
+	ppl$k_counting_semaphore =	5,
+	ppl$k_global_section =		6,	! Global section description
+	ppl$k_barrier_synch =		7,	! barrier synch sem
+	ppl$k_event =			8,	! event
+	ppl$k_workq =			9,	! work queue
+	ppl$k_vm =			10;	! vm zone
+
+!+
+! Maximum application name length (in bytes)
+!-
+literal
+    ppl$k_max_name_len = 11;
+
+
+literal	
+    false = 0,
+    true = 1;
+
+!+
+! Max length of a shared section name.
+!-
+literal
+    ppl$k_namelen	= 64;
+
+!+
+! Used in sect[sect_w_namelen] field to indicate a free sect block.
+!-
+literal
+    ppl$k_free_sect	= 100;
+
+
+!==============================================================================!
+!									       !
+!			P P L   A P P L I C A T I O N
+!									       !
+!==============================================================================!
+
+!+
+! Our facilty name.  This is used as a prefix.
+!-
+
+macro	ppl_x_facnam = 'PPL$' %;
+
+
+!+
+! Name for some of our locks
+!-
+
+macro	
+    ppl_x_name_lock = %string(ppl_x_facnam, 'NAME_') %,
+    ppl_x_top_lock  = %string(ppl_x_facnam, 'TOP_') %,
+    ppl_x_appl_num  = %string(ppl_x_facnam, 'APP_') %,
+    ppl_x_alive_lock= %string(ppl_x_facnam, 'ALIVE') %,
+    ppl_x_tell_lock = %string(ppl_x_facnam, 'TELL') %,
+    ppl_x_num_lock  = %string(ppl_x_facnam, 'NUM_APP') %;
+
+
+!+
+! Length of Application num lock (num_lksb) lock name.
+!-
+literal	ppl_k_numlk_len = 11;	! Length of num_lksb lock name
+
+!+
+! Information about our section.
+!-
+
+literal	ppl_k_minpages = 10;	! Minimum number of pages we will allocate
+macro	ppl_x_our_sect = %string(ppl_x_facnam, 'OUR') %;
+
+
+!+
+! Section names for user-created sections.
+!-
+
+macro	ppl_x_user_sect = %string(ppl_x_facnam, 'USR') %;
+
+
+!+
+! Defaults for files.
+!-
+
+macro	ppl_x_temp_dns = 'SYS$SCRATCH:.TMP' %;	! Default for scratch files
+macro	ppl_x_user_dns = '.DAT' %;		! Default for user-specified
+
+
+!+
+! Name for the 'section' that contains the LIB$CREATE_VM_ZONE callback routines.
+! And another for the VM sections themselves.
+!-
+
+macro	ppl_x_lib_callback = %string(ppl_x_facnam, 'CALLBACK') %;
+macro	ppl_x_lib_vm = %string(ppl_x_facnam, 'VM') %;
+
+!+
+! Initialization synchronization barrier names
+!-
+macro	ppl_x_init_bar = %string(ppl_x_facnam, 'INIT') %;
+
+!+
+! The (system,owner,group,world) protection we will apply to mapped sections.
+! Note that a clear bit allows that access, and a set bit denies access.
+!
+!			W   G   O   S
+!
+!-			DEWRDEWRDEWRDEWR
+
+literal
+	ppl_k_prot = %b'1111111100001101';
+
+
+!+
+! Definitions for use in XPORT structure declarations.
+!-
+
+macro
+	xbyte =	%expand $bits(8) %,
+	xword =	%expand $bits(16) %,
+	xword_s=%expand $short_integer %,	! Signed word
+	xlong =	%expand $bits(32) %,
+	xquad =	$sub_block(2) %,
+	xdesc =	$sub_block(2) %,
+	xaddr =	$address %;
+$show(fields)
+
+
+macro	dsc_l_length = 0, 0, %bpval, 0 %;
+macro	dsc_l_next = dsc$c_d_bln, 0, %bpaddr, 0 %;
+literal	dsc_c_l_bln = dsc$c_d_bln+%upaddr;
+literal	dsc_k_l_bln = dsc$c_d_bln+%upaddr;
+
+
+$shr_msgdef( ppl, ppl$_facility, local,
+	<badlogic,	severe>,
+	<openin,	error>,
+	<openout,	error>,
+	<syserror,	warning>)
+
+
+!==============================================================================!
+!									       !
+!			P P L   D A T A   S T R U C T U R E S		       !
+!									       !
+!==============================================================================!
+
+!------------------------------------------------------------------------------!
+!			    Common Memory Structures			       !
+!------------------------------------------------------------------------------!
+
+!+
+! Format of storage in *the* PPL section.
+! Note:  Queue headers (ie all queue link quadwords) MUST be quadword aligned
+!
+! Note: This is allocated from common memory (obviously)
+!-
+
+literal	pplsect_s_names =   16;		! Size of storage for PPLNAMES
+$unit_field
+    pplsect_fields =
+	set
+	pplsect_l_type		= [xlong],  ! Type code (each block has one).
+	pplsect_l_size		= [xlong],  ! Size of this section (ditto).
+					    ! For the PPLSECT this size is the
+					    ! size of the whole global section,
+					    ! in bytes.
+	pplsect_q_procs		= [xquad],  ! Queue of proc_blocks
+	$overlay(pplsect_q_procs)
+	    pplsect_l_procs_f	= [xlong],  ! Forward link
+	    pplsect_l_procs_b	= [xlong],  ! Backward link
+	$continue
+	!
+	pplsect_q_sects		= [xquad],  ! Queue header for sections
+	$overlay(pplsect_q_sects)
+	    pplsect_l_sects_f	= [xlong],  ! Forward link
+	    pplsect_l_sects_b	= [xlong],  ! Backward link
+	$continue
+	!
+   	pplsect_q_barr_queue	= [xquad],  ! Queue of waiters at barrs which
+   	$overlay(pplsect_q_barr_queue)	    !  are about to be awakened
+   	    pplsect_l_barr_f	= [xlong],  ! Forward link
+   	    pplsect_l_barr_b	= [xlong],  ! Backward link
+   	$continue
+	!
+	pplsect_q_todov		= [xquad],  ! Available todo_blocks
+	$overlay(pplsect_q_todov)
+	    pplsect_l_todov_f	= [xlong],  ! Forward link
+	    pplsect_l_todov_b	= [xlong],  ! Backward link
+	$continue
+   	!
+	pplsect_q_mkrs		= [xquad],  ! Available mkr_blocks
+	$overlay(pplsect_q_mkrs)
+	    pplsect_l_mkrs_f	= [xlong],  ! Forward link
+	    pplsect_l_mkrs_b	= [xlong],  ! Backward link
+	$continue
+   	!
+	pplsect_o_page_zone	= [$bytes(4*%upval)],	! Cluster queue header
+	!
+	pplsect_a_names		= [$bytes(pplsect_s_names)],  ! Area to allocate to names
+	!
+	pplsect_l_prot		= [xlong],	! Section protection mask
+	pplsect_l_mem_flags	= [xlong],	! Section creation flags
+	pplsect_l_top_pid	= [xlong],	! Creator's pid
+	pplsect_v_deleted	= [xlong],	! True if app has been deleted
+	!
+	pplsect_l_normal_exit_ev= [xlong],	! Ids for PPL events
+	pplsect_l_abnormal_exit_ev = [xlong],	!  "
+	!
+	pplsect_free_1		= [xlong],	! Unused.
+	!
+	pplsect_v_arb_in_prog	= [xlong],	! Flag indicate mem arb in prog.
+	pplsect_l_arb_barr      = [xlong],      ! Id of memory arbitration barr.
+	!
+	pplsect_l_spawner	= [xlong],	! Only one proc spawns at a time
+	pplsect_v_spawn_mutex	= [xlong],	! Only one proc spawns at a time
+	pplsect_v_counting_votes= [xlong],	! Set => counting votes
+	!
+	pplsect_w_procs		= [xlong],	! Total # of processes (ever)
+	pplsect_w_curr_procs	= [xlong],	! Current # of processes
+	!
+	pplsect_l_page_size	= [xlong],	! System page size (in bytes)
+	!
+	pplsect_w_bitmap_frees	= [xlong],	! Count of bitmap frees
+	pplsect_l_bitmap_off	= [xlong],	! Offset to memory after bitmap
+	pplsect_l_bitmap_len	= [xlong],	! Size of bitmap in ??? units
+	pplsect_a_bitmap	= [$bytes(0)]	! Start of allocation bitmap
+						! NOTE: this must be last field
+						! in the PPLSECT structure!!
+	tes;
+literal	pplsect_s_bln	 =  $field_set_units;	! Size in bytes
+
+%if VAX
+%then
+macro	pplsect_block	 =  $bblock[pplsect_s_bln] field(pplsect_fields)   %;
+macro	pplsect_block_(s)=  $bblock[pplsect_s_bln] field(pplsect_fields,s) %;
+%fi
+
+%if EVAX
+%then
+macro	pplsect_block	 =  volatile $bblock[pplsect_s_bln] 
+				field(pplsect_fields)   %;
+macro	pplsect_block_(s)=  volatile $bblock[pplsect_s_bln] 
+				field(pplsect_fields,s) %;
+%fi
+
+! Check that things which must be quadword aligned, in fact, are.
+assert_(%fieldexpand_(pplsect_q_procs,0) mod %qalign eql 0)
+assert_(%fieldexpand_(pplsect_q_sects,0) mod %qalign eql 0)
+assert_(%fieldexpand_(pplsect_q_barr_queue,0) mod %qalign eql 0)
+assert_(%fieldexpand_(pplsect_q_todov,0) mod %qalign eql 0)
+assert_(%fieldexpand_(pplsect_q_mkrs,0) mod %qalign eql 0)
+assert_(%fieldexpand_(pplsect_o_page_zone,0) mod %qalign eql 0)
+assert_(%fieldexpand_(pplsect_a_names,0) mod %qalign eql 0)
+
+
+!+
+! Define the description of a mapped (or to-be-mapped) global section.
+!
+! Note: this is allocated from local memory (lsect) or common memory (csect)
+!-
+
+$unit_field
+    sect_fields =
+	set
+	sect_l_type=	[xlong],	! Type of element 
+	sect_l_id=	[xlong],	! ID of element 
+	sect_q_sects=	[xquad],
+	$overlay(sect_q_sects)
+	    sect_l_sects_f= [xlong],	! Forward link
+	    sect_l_sects_b= [xlong],	! Backward link
+	$continue
+	!
+	sect_l_start=	[xaddr],	! Starting address
+	sect_l_pages=	[xlong],	! Number of pages
+	sect_v_final=	[xlong],	! Decision is final
+	sect_v_lock=	[xlong],	! A lock
+	sect_v_fill1=	[xlong],	! (Obsolete)
+	sect_v_mapped=	[xlong],	! This storage has been mapped
+	sect_v_we_chose=[xlong],	! Storage allocate by us, by LIB$VM
+	sect_v_callback=[xlong],	! LIB$CREATE_VM_ZONE callback routines
+	sect_v_getvm=	[xlong],	! Storage for our shared VM zone
+	sect_v_perm=	[xlong],	! Indicate a permanent memory section
+	!
+	sect_l_status=	[xlong],	! Status (for LIB$VM sections)
+	sect_w_chan=	[xlong],	! Channel number for the mapped section
+	sect_w_namelen=	[xlong],	! Length of the global section name
+	sect_l_count=	[xlong],	! Count of processes mapped to section
+	sect_a_name=	[$bytes(0)]	! Start of the global section name
+	tes;
+literal	sect_s_bln=	$field_set_units;	! Size in bytes
+
+%if VAX
+%then
+macro	sect_block=	$bblock[sect_s_bln] field(sect_fields) %;
+%fi
+
+%if EVAX
+%then
+macro	sect_block=	volatile $bblock[sect_s_bln] field(sect_fields) %;
+%fi
+
+assert_(%fieldexpand(sect_q_sects,0) mod %qalign eql 0)
+
+
+!+
+! Fields in the per-process info list (PPLSECT_Q_PROCS)
+!
+! Note: this is allocated from common memory
+!-
+
+$unit_field
+    proc_fields =
+	set
+	proc_l_type	    = [xlong],		! Type of element
+	proc_l_eid	    = [xlong],		! ID of element
+	proc_q_procs	    = [xquad],		! Queue of procs
+	$overlay(proc_q_procs)
+	    proc_l_procs_f  = [xlong],		! Forward link
+	    proc_l_procs_b  = [xlong],		! Backward link
+	$continue
+	!
+	proc_q_todos	    = [xquad],		! Queue of things todo
+	$overlay(proc_q_todos)
+	    proc_l_todos_f  = [xlong],		! Forward link
+	    proc_l_todos_b  = [xlong],		! Backward link
+	$continue
+	!
+	proc_l_index	    = [xlong],		!Index of this process
+	proc_l_pid	    = [xlong],		!PID of this process
+	proc_l_extra	    = [xlong],		!extra space, not in use
+	proc_l_exit_status  = [xlong],		!yep
+	proc_l_init_bar	    = [xlong],		!ID of barrier to init-sync on
+	proc_l_app_lock	    = [xlong],		!ID of app-lock for delete_app.
+	proc_b_state	    = [xlong],		!started, running, terminated
+	proc_v_lock	    = [xlong],		!create-term mutex
+	proc_v_sleeping	    = [xlong],		!set when we are hibernating
+	proc_v_will_see	    = [xlong]		!set when no $enq needed to tell
+	tes;
+literal	proc_s_bln=	$field_set_units;	! Size in bytes
+
+%if VAX
+%then
+macro	proc_block=	$bblock[proc_s_bln] field(proc_fields) %;
+%fi
+
+%if EVAX
+%then
+macro	proc_block=	volatile $bblock[proc_s_bln] field(proc_fields) %;
+%fi
+
+assert_(%fieldexpand(proc_q_procs,0) mod %qalign eql 0)
+assert_(%fieldexpand(proc_q_todos,0) mod %qalign eql 0)
+
+!+
+! Fields in a Counting Semaphore Block -
+!
+! Spin_locks,  barriers and work-queues also use this same data structure. 
+! The fields "in_wait", "lock" and "restricted" apply only to barriers.
+!
+! Note: this is allocated from common memory
+!-
+
+$unit_field
+    csb_fields =
+	set
+	csb_l_type	= [xlong],		! elem type: sem, mutex, barr
+	csb_l_eid	= [xlong],		! Element ID - handle
+	csb_w_csval	= [xlong],		! initial and current value
+	csb_w_csmax	= [xlong],		! maximum vlaue
+	csb_v_delete	= [xlong],		! marked for deletion
+	csb_v_spin_wait	= [xlong],		! spin, don't $hiber
+	csb_v_lock	= [xlong],		! csb block mutex bit
+	csb_w_semval	= [xlong],		! read value
+	csb_a_slb_end	= [$bytes(0)],		! End of spin lock block
+	csb_q_queue	= [xquad],		! Queue for waiting processes
+	$overlay(csb_q_queue)
+	    csb_l_queue_f = [xlong],		! Forward link
+	    csb_l_queue_b = [xlong],		! Backward link
+	$continue
+	csb_a_sem_end	= [$bytes(0)],		! End of non work queue csb
+	csb_q_wqueue	= [xquad],		! Queue for waiting work items
+	$overlay(csb_q_wqueue)
+	    csb_l_wqueue_f = [xlong],		! Forward link
+	    csb_l_wqueue_b = [xlong]		! Backward link
+	$continue
+	tes;
+literal	csb_s_bln=	$field_set_units;	! Size in bytes
+
+%if VAX
+%then
+macro	csb_block=	$bblock[csb_s_bln] field(csb_fields) %;
+%fi
+
+%if EVAX
+%then
+macro	csb_block=	volatile $bblock[csb_s_bln] field(csb_fields) %;
+%fi
+
+assert_(%fieldexpand(csb_q_queue,0) mod %qalign eql 0)
+assert_(%fieldexpand_(sect_l_type,0) eql %fieldexpand_(csb_l_type,0))
+
+
+!+
+! Spin lock block declarations.
+!-
+
+literal	slb_s_bln=	%fieldexpand_(csb_a_slb_end,0);	! Size in bytes
+
+%if VAX
+%then
+macro	slb_block=	$bblock[slb_s_bln] field(csb_fields) %;
+%fi
+
+%if EVAX
+%then
+macro	slb_block=	volatile $bblock[slb_s_bln] field(csb_fields) %;
+%fi
+
+!+
+! mkr's are used in the modules: PPLEVENT, PPLSEM and PPLWORKQQ.
+! the parameter-portion is not used in module PPLSEM.
+!
+! PPLEVENT uses mkr'r to queue events:
+! ppl$trigger_event stores the event parameter in parameter field 1.
+!
+! ppl$$trigger_ppl_event stores:
+!   parameter field 1: trigger parameter (=exit code)
+!   parameter field 2: ppl process index
+!   parameter field 3: program status
+! 
+! PPLWORK uses mkr's to queue work-items:
+!
+!   parameter field 1:	priority of work item
+!   parameter field 2:	work item
+!   parameter field 3:  unused
+!
+! Note: this is allocated from common memory
+!-
+
+$unit_field
+    mkr_fields =
+	set
+	mkr_l_flink	= [xlong],
+	mkr_l_blink	= [xlong],
+	mkr_l_pid	= [xlong],
+	mkr_l_param1	= [xlong],  !these 3 are ONLY for events
+	mkr_l_param2	= [xlong],  !they could be in a trigger-specific
+	mkr_l_param3	= [xlong],  !block instead...
+	mkr_v_valid	= [xlong],  !true when wake is valid (sem/barrier)
+				    !or when entry is valid on an enable queue
+	mkr_v_flag	= [xlong]   !true for notify_one on events
+	tes;
+literal mkr_s_bln =	$field_set_units;	!size in bytes
+
+%if VAX
+%then
+macro 	mkr_block =	$bblock[mkr_s_bln] field(mkr_fields) %;
+%fi
+
+%if EVAX
+%then
+macro 	mkr_block =	volatile $bblock[mkr_s_bln] field(mkr_fields) %;
+%fi
+
+assert_(%fieldexpand_(mkr_l_flink,0) eql 0 )	! Queue at the beginning of block
+
+
+!+
+! Event block.
+! Event and semaphore/barrier blocks both appear as the data portion
+! in a name/id list entry.  Each has a queue of associated participants,
+! each entry of which is a "mkr".  An event's mkrs contain the participant
+! index of the requestor.  Semaphore/barrier mkrs contain PIDs.
+! 
+! Note: this is allocated from common memory
+!-
+
+$unit_field
+    event_fields =
+	set
+	ev_l_type	    = [xlong],	! elem type: event
+	ev_l_eid	    = [xlong],	! event id
+	ev_l_triggers_f	    = [xlong],	! flink - Q of unreceived triggers
+	ev_l_triggers_b	    = [xlong],	! blink
+	ev_l_enables_f	    = [xlong],	! flink - Q of enabled event-expecters
+	ev_l_enables_b	    = [xlong],	! blink
+	ev_v_occurred	    = [xlong],	! state = occurred when true
+	ev_v_spin_wait	    = [xlong],	! spin rather than $HIBER
+	ev_v_deleted	    = [xlong],	! mark for deletion
+	ev_v_fill1	    = [xlong],
+	ev_v_lock	    = [xlong],	! mutex access to this structure
+	ev_l_await_cnt	    = [xlong]	! count of processes awaiting
+	tes;
+literal	event_s_bln=	$field_set_units;	! Size in bytes
+
+%if VAX
+%then
+macro	event_block=	$bblock[event_s_bln] field(event_fields) %;
+%fi
+
+%if EVAX
+%then
+macro	event_block=	volatile $bblock[event_s_bln] field(event_fields) %;
+%fi
+
+assert_(%fieldexpand(ev_l_enables_f,0) mod %qalign eql 0)
+assert_(%fieldexpand(ev_l_triggers_f,0) mod %qalign eql 0)
+
+
+!------------------------------------------------------------------------------!
+!			    Local Memory Structures			       !
+!------------------------------------------------------------------------------!
+
+!+
+! Fields in a lock status block
+!
+! Note: these are used within a specific lock-block structure
+!-
+
+literal
+    lksb_s_valblk =	16;			! Size of the value block
+$unit_field
+    lksb_fields =
+	set
+	lksb_w_status =	[xword],		! Condition value
+	lksb_w_rsrvd=	[xword],		! MBZ
+	lksb_l_lockid =	[xlong],		! Lock identification
+	lksb_a_valblk =	[$bytes(0)]		! Lock value block
+	tes;
+literal	lksb_s_bln=	$field_set_units;	! Size in bytes
+macro	lksb_block=	$bblock[lksb_s_bln] field(lksb_fields) %;
+
+
+!+
+! Fields in the top lock.
+!
+! Note: this is part of the context block
+!-
+
+$unit_field
+    top_fields =
+	set
+	top_a_lksb =	[$bytes(lksb_s_bln)],	! LKSB
+	top_l_pages =	[xlong],		! Pages in *the* PPL section
+	top_l_fill1 =	[xlong],		! Must be 16 bytes long
+	top_l_fill2 =	[xlong],		! Must be 16 bytes long
+	top_l_fill3 =	[xlong] 		! Must be 16 bytes long
+	tes;
+literal	top_s_bln=	$field_set_units;	! Size in bytes
+macro	top_block=	$bblock[top_s_bln] field(top_fields) %;
+assert_(top_s_bln lequ lksb_s_bln+lksb_s_valblk);
+
+
+!+
+! Fields in the living locks.
+!
+! Note: these are in the TELL area of the context block (I think)
+!-
+
+$unit_field
+    liv_fields =
+	set
+	liv_a_lksb=	[$bytes(lksb_s_bln)],	! LKSB
+	liv_l_pid=	[xlong],		! PID for the process
+	liv_l_status=	[xlong],		! Exit status of this process
+	liv_l_fill2=	[xlong],		! Must be 16 bytes long
+	liv_l_fill3=	[xlong]
+	tes;
+literal	liv_s_bln=	$field_set_units;	! Size in bytes
+macro	liv_block=	$bblock[liv_s_bln] field(liv_fields) %;
+assert_(liv_s_bln lequ lksb_s_bln+lksb_s_valblk);
+
+
+!+
+! Fields in the name lock.
+!
+! Note: this is part of the context block
+!-
+
+$unit_field
+    name_fields =
+	set
+	name_a_lksb =	[$bytes(lksb_s_bln)],	! LKSB
+	name_l_app_num=	[xlong],		! Application number
+	name_l_fill1 =	[xlong],		! Must be 16 bytes long
+	name_l_fill2 =	[xlong],		! Must be 16 bytes long
+	name_l_fill3 =	[xlong]			! Must be 16 bytes long
+	tes;
+literal	name_s_bln=	$field_set_units;	! Size in bytes
+macro	name_block=	$bblock[name_s_bln] field(name_fields) %;
+assert_(name_s_bln lequ lksb_s_bln+lksb_s_valblk);
+
+
+!+
+! Fields in the app lock, used in PPL$TOP.
+!
+! Note: this is part of the context block
+!-
+
+$unit_field
+    app_fields =
+	set
+	app_a_lksb =	[$bytes(lksb_s_bln)],	! LKSB
+	app_l_name_len=	[xlong],		! Length of application name
+	app_a_name_buf=	[$bytes(ppl$k_max_name_len)],	! The application name
+	app_v_system =	[xbyte],		! Flag indicating system-wide
+	app_a_fill =	[$bytes(lksb_s_valblk - %upval -
+			    ppl$k_max_name_len - 1)]	! Must be 16 bytes long
+	tes;
+literal	app_s_bln=	$field_set_units;	! Size in bytes
+macro	app_block=	$bblock[app_s_bln] field(app_fields) %;
+assert_(app_s_bln lequ lksb_s_bln+lksb_s_valblk);
+
+
+!+
+! Fields in the num lock.
+!
+! Note: this is part of the context block
+!-
+
+$unit_field
+    num_fields =
+	set
+	num_a_lksb =	[$bytes(lksb_s_bln)],	! LKSB
+	num_l_appnum =	[xlong],		! Pages in *the* PPL section
+	num_l_fill1 =	[xlong],		! Must be 16 bytes long
+	num_l_fill2 =	[xlong],		! Must be 16 bytes long
+	num_l_fill3 =	[xlong] 		! Must be 16 bytes long
+	tes;
+literal	num_s_bln=	$field_set_units;	! Size in bytes
+macro	num_block=	$bblock[num_s_bln] field(num_fields) %;
+assert_(num_s_bln lequ lksb_s_bln+lksb_s_valblk);
+
+
+
+!+
+! Fields in our context area
+!
+! Note: this is allocated from local memory (obviously)
+!-
+
+literal	ctx_s_tell =	256;			! Size of storage for PPLTELL
+$unit_field
+    ctx_fields =
+	set
+	ctx_q_eqe =		[xquad],	! Available eqe's
+	$overlay(ctx_q_eqe)
+	    ctx_l_eqe_f =	[xlong],	! Forward link
+	    ctx_l_eqe_b =	[xlong],	! Backward link
+	$continue
+	!
+	ctx_q_events =		[xquad],	! Queue of events (eqe's)
+	$overlay(ctx_q_events)
+	    ctx_l_events_f =	[xlong],	! Forward link
+	    ctx_l_events_b =	[xlong],	! Backward link
+	$continue
+	!
+	ctx_q_memory_list =	[xquad],
+	$overlay(ctx_q_memory_list)
+	    ctx_l_mem_list_f =	[xlong],	! Forward link
+	    ctx_l_mem_list_b =	[xlong],	! Forward link
+	$continue
+	!
+	ctx_q_sects=		[xquad],	! Queue header for sections
+	$overlay(ctx_q_sects)
+	    ctx_l_sects_f =	[xlong],	! Forward link
+	    ctx_l_sects_b =	[xlong],	! Backward link
+	$continue
+	!
+	ctx_v_sleeping =	[xlong],
+	ctx_v_initialized =	[xlong],		! flag following fields as valid
+	ctx_v_at_ast_level =	[xlong],		! true when in a PPL AST rtn
+	!
+	ctx_l_my_index =	[xlong],	! Process index
+	ctx_l_my_pid =		[xlong],	! My PID
+	!
+	ctx_l_my_proc =		[xlong],	! my proc_block
+	!
+	ctx_l_tell_index =	[xlong],	! Index of the tell block
+	ctx_l_next_index =	[xlong],	! Index of 'next' process
+	!
+	ctx_l_ef =		[xlong],	! Event flag
+	ctx_l_spare =		[xlong],	! Spare field
+	!
+	ctx_a_tell =		[$bytes(ctx_s_tell)],	! Storage for PPLTELL
+	ctx_a_top_lksb =	[$bytes(top_s_bln)],	! Top lock status/value
+	ctx_a_name_lksb =	[$bytes(name_s_bln)],	! Name lock status/value
+	ctx_a_app_lksb =	[$bytes(app_s_bln)],	! Appl lock status/value
+	ctx_a_num_lksb =	[$bytes(num_s_bln)]	! Num lock status/value
+	tes;
+literal	ctx_s_bln=	$field_set_units;	! Size in bytes
+
+%if VAX
+%then
+macro	ctx_block=	$bblock[ctx_s_bln] field(ctx_fields) %;
+macro	ctx_block_(s)=	$bblock[ctx_s_bln] field(ctx_fields,s) %;
+%fi
+
+%if EVAX
+%then
+macro	ctx_block=	volatile $bblock[ctx_s_bln] field(ctx_fields) %;
+macro	ctx_block_(s)=	volatile $bblock[ctx_s_bln] field(ctx_fields,s) %;
+%fi
+
+assert_(%fieldexpand_(ctx_q_eqe,0) mod %qalign eql 0)
+assert_(%fieldexpand_(ctx_q_events,0) mod %qalign eql 0)
+assert_(%fieldexpand_(ctx_q_memory_list,0) mod %qalign eql 0)
+assert_(%fieldexpand_(ctx_q_sects,0) mod %qalign eql 0)
+%message ('CTX_S_BLN = %D ', %number(ctx_s_bln))
+
+
+macro	zo_(fld) =	$bblock[ppl$$gl_context[fld], %remaining] %;
+macro	rest_ =	%if not %null(%quote %remaining) %then,%quote %remaining %fi %;
+macro	appl_name(o,p,s,e) =	zo_(ctx_a_appl_name,o,p,s,e) %,
+	app_lksb(o) =		zo_(ctx_a_app_lksb,	o %expand rest_) %,
+	top_lksb(o) =		zo_(ctx_a_top_lksb,	o %expand rest_) %,
+	name_lksb(o) =		zo_(ctx_a_name_lksb,	o %expand rest_) %,
+	num_lksb(o) =		zo_(ctx_a_num_lksb,	o %expand rest_) %;
+
+
+!+
+! Fields in an exit handler block
+!
+! Note: this is allocated from local memory
+!-
+
+$unit_field
+    desblk_fields =
+	set
+	desblk_l_flink=   [xaddr],
+	desblk_l_handler= [xaddr],
+	desblk_l_argcnt=  [xlong],
+	desblk_l_arg1=    [xlong],
+	desblk_l_arg2=    [xlong],
+	desblk_l_arg3=    [xlong]
+	tes;
+literal	desblk_s_bln=	$field_set_units;	! Size in bytes
+macro	desblk_block=	$bblock[desblk_s_bln] field(desblk_fields) %;
+
+
+!+
+! Fields in the Process ID List
+!
+! This is allocated from local memory.
+!-
+
+$unit_field
+    pil_fields =
+	set
+	pil_q_pils =	[xquad],		! Queue of pils
+	$overlay(pil_q_pils)
+	    pil_l_pils_f= [xlong],		! Forward link
+	    pil_l_pils_b= [xlong],		! Backward link
+	$continue
+	pil_l_pid   =	[xlong],		! PID of a process
+	pil_l_index =	[xlong]			! Index of this process
+	tes;
+literal	pil_s_bln=	$field_set_units;	! Size in bytes
+
+%if VAX
+%then
+macro	pil_block=	$bblock[pil_s_bln] field(pil_fields) %;
+%fi
+
+%if EVAX
+%then
+macro	pil_block=	volatile $bblock[pil_s_bln] field(pil_fields) %;
+%fi
+
+assert_(%fieldexpand(pil_q_pils,0) mod %qalign eql 0)
+
+
+!+
+! event queue entry (queued to the the proc block)
+!
+! Note: this is allocated from local memory
+!-
+$unit_field
+    eqe_fields =
+	set
+	eqe_l_flink		= [xlong],  ! Event queue forward link
+	eqe_l_blink		= [xlong],  ! Event queue backward link
+	eqe_l_eid		= [xlong],  ! Event ID (ie address offset)
+	eqe_a_astrtn		= [xlong],  ! AST routine entry mask address
+	eqe_l_astprm		= [xlong],  ! AST routine user parameter
+	eqe_l_sig_value		= [xlong],  ! Event signal condition value
+	eqe_l_trigprm		= [xlong],  ! Trigger user parameter (for Await)
+	eqe_v_enabled		= [xlong],  ! Flag whether event is enabled 
+	eqe_v_ast		= [xlong],  !any or all of the next 3 can be set
+	eqe_v_signal		= [xlong],  !signal when event occurs
+	eqe_v_blocked		= [xlong]   !wake required when event occurs
+	tes;
+literal eqe_s_bln =	$field_set_units;	!size in bytes
+
+%if VAX
+%then
+macro 	eqe_block =	$bblock[eqe_s_bln] field(eqe_fields) %;
+%fi
+
+%if EVAX
+%then
+macro 	eqe_block =	volatile $bblock[eqe_s_bln] field(eqe_fields) %;
+%fi
+
+assert_(%fieldexpand_(eqe_l_flink,0) eql 0 )	! Queue at the beginning of block
+
+!+
+! the vm block is used to make vm_zone's a ppl object. Opon creation
+! of a zone it is possible to check if this zone already exists. In
+! this case no new zone is created and the zone_id of the existing
+! zone is returned to the caller.
+!
+! Note: this is allocated from common memory
+!-
+
+$unit_field
+    vm_fields =
+	set
+	vm_l_type	= [xlong],
+	vm_l_eid	= [xlong],
+	vm_l_zone_id	= [xlong]
+	tes;
+literal vm_s_bln =	$field_set_units;	!size in bytes
+macro 	vm_block =	$bblock[vm_s_bln] field(vm_fields) %;
+
+
+!==============================================================================!
+!									       !
+!		    Determine The Size of the PPL Global Section	       !
+!									       !
+!==============================================================================!
+
+!+
+! Code in PPL$INITIALIZE needs to guesstimate the amount of storage to
+! allocate for our section.  However, some of the structures for which
+! it must account are local to the modules that use them.  Here, we
+! define the values that PPL$INITIALIZE will use.  The modules should
+! verify that the sizes of their structures don't exceed these estimates.
+!-
+
+literal
+	init_k_nam =	4*%upval,	! nam_s_bln
+	init_k_vmp =	4*%upval;	! for PPLVM
+!+
+! Defaults for calculating ppl section size (which user can override)
+!-
+literal
+	k_processes		= 32,
+	k_spin_locks		= 4,
+	k_counting_semaphores	= 8,
+	k_barriers		= 8,
+	k_events		= 4,
+	k_global_sections	= 16;	! VM allocates quite a few
+
+literal
+	k_page_overhead		= 2,	! Number of additional pages to allocate
+	k_chars_per_name	= 32;	! Expected number of characters per name
+
+!+
+! Calculate the size (in bytes) of the PPL global section.
+! Also account for the bitmap size -- one bit per alc_k_quantum bytes.
+!-
+
+assert_(is_power_of_two_(alc_k_quantum))	! Check allocation quantum
+macro r(x) = round_(x,alc_k_quantum) %;	! Round up to mult of allocation
+assert_(init_k_nam mod %qalign eql 0)	! Saves a few parentheses below
+
+compiletime
+    guess1 = 0
+	+ k_page_overhead * %uppage			! For safety's sake
+	+ 1			* r(pplsect_s_bln)	! For the PPL section
+	+ 1			* r(init_k_vmp)		! For PPLVM
+	+ k_processes		* r(mkr_s_bln*2 + proc_s_bln)
+	+ k_global_sections	* r(init_k_nam + k_chars_per_name + sect_s_bln)
+	+ k_spin_locks		* r(init_k_nam + k_chars_per_name + slb_s_bln)
+	+ k_events		* r(init_k_nam + k_chars_per_name + event_s_bln)
+	+ k_counting_semaphores	* r(init_k_nam + k_chars_per_name + csb_s_bln)
+    	+ k_barriers		* r(init_k_nam + k_chars_per_name + csb_s_bln)
+	;
+
+compiletime
+    guess2 = %number(guess1) + (%number(guess1) - pplsect_s_bln) /
+		    (alc_k_quantum * %bpunit);
+
+literal
+    ! Convert the size to pages (the unit of $CRMPSC), rounding up.
+    ppl$k_init_size = (%number(guess2) + %uppage-1) / %uppage;
+
+%message ('PPL$K_INIT_SIZE = %D ', %number(ppl$k_init_size))

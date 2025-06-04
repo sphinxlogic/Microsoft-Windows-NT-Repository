@@ -1,0 +1,5675 @@
+%TITLE 'DTK$UTIL - DECtalk utility routines.'
+MODULE DTK$UTIL (
+		IDENT = '1-008'	! File: DTKUTIL.B32 Edit: TS1008
+		) =
+BEGIN
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1978, 1980, 1982, 1984, 1985, 1986, 1987, 1988, 1991 BY   *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+!
+
+!++
+! FACILITY:	DECtalk management
+!
+! ABSTRACT:
+!
+!	This module contains the utility routines needed for DECtalk support.
+!
+!
+! ENVIRONMENT:	User mode, Shared library routines.
+!
+! AUTHOR: T. Scarpelli CREATION DATE: 6-Aug-1985
+!
+! MODIFIED BY:
+!
+! 1-008 - Only check first few characters of DA_PRIMARY sequence for level 1 
+!		and level 3 DTC03's.
+!	  Make sure $CANCEL has completed by calling $SYNCH.  TS 6-Jan-1990
+! 1-007 - Fix DTK$SPELL_TEXT for lowercase text.  TS 26-May-1987
+! 1-006 - Use second efn to fix timing problem on LAT lines.  TS 17-Apr-1987
+! 1-005 - Add timeout value to input QIOWs.  TS 8-Oct-1986
+! 1-004 - Add DTK$CHECK_HDWR_STATUS routine.  TS 29-Aug-1986
+! 1-003 - Fix timing problem in processing phone status.  TS 9-Apr-1986
+! 1-002 - Add 4 sec timeout on all reads.  TS 20-Nov-1985
+! 1-001	- Original.  TS 6-Aug-1985
+!--
+
+
+%SBTTL 'Declarations'
+!
+! SWITCHES:
+!
+!	NONE
+!
+! LINKAGES:
+!
+!	NONE
+!
+! TABLE OF CONTENTS:
+!
+
+FORWARD ROUTINE
+
+! Public entry points
+
+    DTK$ANSWER_PHONE,			! Wait for phone to ring and answer it
+    DTK$CHECK_HDWR_STATUS,		! Check the hardware status
+    DTK$DIAL_PHONE,			! Dial a number on the phone
+    DTK$HANGUP_PHONE,			! Hangup the phone
+    DTK$INITIALIZE,			! Begin DECTalk access
+    DTK$LOAD_DICTIONARY,		! Define a word in the dictionary
+    DTK$NOT_IMPLEMENTED,		! Generate a "Not Implemented" message
+    DTK$OUTPUT,				! Output raw text
+    DTK$READ_KEYSTROKE,			! Read a key pressed on the phone keypad
+    DTK$READ_STRING,			! Read a series of keys from the keypad
+    DTK$RETURN_LAST_INDEX,		! Return last index spoken
+    DTK$RUN_SELF_TEST,			! Run local self-tests
+    DTK$SET_INDEX,			! Place index in current position
+    DTK$SET_KEYPAD_MODE,		! Turn on/off recognition of the keypad
+    DTK$SET_LOGGING_MODE,		! Set or reset logging mode
+    DTK$SET_MODE,			! Set or reset mode
+    DTK$SET_SPEECH_MODE,		! Turn speaking on or off
+    DTK$SET_TERMINAL_MODE,		! Set or reset terminal mode
+    DTK$SET_VOICE,			! Set speaking voice characteristics
+    DTK$SPEAK_FILE,			! Send text from a file to device
+    DTK$SPEAK_PHONEMIC_TEXT,		! Send phonemic text to device
+    DTK$SPEAK_TEXT,			! Send text to device to speak
+    DTK$SPELL_TEXT,			! Send text to device to spell
+    DTK$TERMINATE,			! Terminate DECTalk access
+
+! Private entry points
+
+    DTK$$FLUSH_BUFFER,			! Flush the output buffer
+    DTK$$GET_STATUS,			! Read status and keypad input
+    DTK$$GET_TERM_DATA,			! Retrieve a command
+    DTK$$INPUT,				! Read characters
+    DTK$$OUTPUT,			! Output text (buffered)
+    DTK$$SET_TERM_CHARACTERISTICS,	! Set the terminal characteristics
+    DTK$$SETUP_TERMINAL_TYPE,		! Do terminal setup
+    DTK$$SIM_AUTO,			! Simulate AUTOSTOP mode for DTC01
+    DTK$$VCB_EXIT_HANDLER,		! Exit handler
+    OUTPUT;				! Output raw text
+
+!
+! INCLUDE FILES
+!
+
+REQUIRE 'RTLIN:DTKPROLOG';		! defines psects, macros, vcb
+
+!
+! LITERALS
+!
+
+LITERAL
+
+! Self-test codes
+
+    K_TST_POWER   = 1,
+    K_TST_HDATA   = 2,
+    K_TST_HCONTROL= 3,
+    K_TST_DATA    = 4,
+    K_TST_SPEAK   = 5,
+
+! Phone codes
+
+    K_STATUS      = 0,
+    K_ANSWER      = 10,
+    K_HANGUP      = 11,
+    K_KEYPAD_ON   = 20,
+    K_KEYPAD_OFF  = 21,
+    K_KEYPAD_AUTO = 22,
+    K_TIMEOUT	  = 30,
+    K_DIAL_TONE   = 40,
+    K_DIAL_PULSE  = 41,
+    K_WINK	  = 50,
+    K_NOWINK	  = 51,
+
+
+! One parameter sequence codes
+
+    K_STOP        = 10,
+    K_SYNC        = 11,
+    K_INDEX_QUERY = 22,
+
+! Two parameter sequence codes
+
+    K_SPEAK       = 12,
+    K_INDEX       = 20,
+    K_PHONE       = 60,
+    K_MODE        = 80,
+    K_LOG	  = 81,
+    K_TERMINAL	  = 82,
+    K_MASK	  = 83,
+
+! Misc values
+
+    K_DISABLE	  = 0,			! Disable speaking
+    K_ENABLE	  = 1,			! Enable speaking
+    K_2_SECONDS   = %X'00004100',	! 2.0 in floating point format
+    K_TMO_SEC     = 30,			! Input QIOW timeout value in seconds.
+    K_TMO_HR	  = 3600,		! SPEAK_TEXT timeout
+    K_BUFFER_LEN  = 128,		! Size of buffer for input operations
+    K_VT          = 11,			! CTRL/K character
+    K_SP          = 32,			! Blank character
+    K_ESC         = 27;			! Escape character
+
+!
+! OWN STORAGE
+!
+
+OWN
+    DTK_A_ZONE_ID   : LONG INITIAL (0),
+    DTK_L_EFN	    : LONG INITIAL(0),
+    DTK_L_EFN_2	    : LONG INITIAL(0),
+    DTK_L_EFN_MASK  : LONG INITIAL(0),
+    VCB_QUEUE       : VOLATILE INITIAL (0);
+
+!+
+! Setup sequences
+!-
+
+$DTK$DEFINE_SEQ(S7C1T,		' F',		0 );
+$DTK$DEFINE_SEQ(DA_PRIMARY,	'[0c',		0 );
+$DTK$DEFINE_SEQ(DTC01,		'[?19c',	0 );
+$DTK$DEFINE_SEQ(DTC03,		'[?8',		0 );
+$DTK$DEFINE_SEQ(DECSTR,		'[!p',		0 );
+$DTK$DEFINE_SEQ(DSREXT,		'[n',		0 );
+$DTK$DEFINE_SEQ(DECTST,		'[5;!ZLy',	0 );
+
+!+
+! Phone sequences
+!-
+
+$DTK$DEFINE_SEQ(DT_ANSWER,	'60;10;!ZLz',	1 );
+$DTK$DEFINE_SEQ(DT_DIAL,	'60;!ZLz!AS',	1 );
+
+!+
+! Misc sequences
+!-
+
+$DTK$DEFINE_SEQ(DT_DICT,	'40z!AS !AS',	1 );
+$DTK$DEFINE_SEQ(DT_MISC,	'!ZLz',		1 );
+$DTK$DEFINE_SEQ(DT_MISC2,	'!ZL;!ZLz',	1 );
+$DTK$DEFINE_SEQ(DT_PHOTEXT,	'0z!AS',	1 );
+
+!
+! EXTERNAL REFERENCES
+!
+
+EXTERNAL ROUTINE
+    LIB$ANALYZE_SDESC,	! Analyze a string desc
+    LIB$CREATE_VM_ZONE,	! Create a dynamic memory zone
+    LIB$CVT_DTB,	! Convert text to binary
+    LIB$FREE_VM,	! Free dynamic memory
+    LIB$GET_EF,		! Allocate an event flag
+    LIB$GET_VM,		! Allocate dynamic memory
+    LIB$SCOPY_R_DX,	! Copy a string
+    LIB$SIG_TO_RET,	! Convert signal to return status
+    LIB$WAIT,		! Wait a specified number of seconds
+    OTS$CVT_L_TU,	! Convert longword to text
+    OTS$CVT_T_F,	! Convert text to floating
+    STR$CONCAT,		! Concat two strings
+    STR$FIND_FIRST_IN_SET, ! Find first character in set of characters
+    STR$FREE1_DX,	! Free one dynamic string
+    STR$RIGHT,		! Copy rightmost part of string
+    STR$UPCASE;		! Translate string to uppercase
+
+EXTERNAL LITERAL
+    DTK$_BUSY,		! Phone number was dialed and line was busy.
+    DTK$_COMFAIL,	! A communications failure was detected.
+    DTK$_CONSEQERR,	! A control sequence malfunction was detected.
+    DTK$_DECTSTFAI,	! A local self-test has failed.
+    DTK$_ERRPHOTRA,	! Phonemic transcription error was detected.
+    DTK$_FATERRLIB,	! Fatal error - internal consistancy check failed.
+    DTK$_FILTOOLON,	! File specification is too long.
+    DTK$_INPBUFOVR,	! Input buffer overflow was detected.
+    DTK$_INVARG,	! Invalid argument.
+    DTK$_INVMODE,	! Invalid mode parameter specified.
+    DTK$_INVVOI_ID,	! Invalid voice id.
+    DTK$_NOANSWER,	! Phone number was dialed and no one answered.
+    DTK$_NODIATONE,	! No dial tone was found on phone line.
+    DTK$_NOMALFUN1,	! No malfunctions detected (first reply)
+    DTK$_NOMALFUN2,	! No malfunctions detected (second and later reply)
+    DTK$_NOROOM,	! No room in dictionary for word.
+    DTK$_NOTLCLTRM,	! Output device is not a local terminal.
+    DTK$_NOTIMP,	! Not implemented.
+    DTK$_NVROPRFAI,	! Last NVR operation failed.
+    DTK$_OFFHOOK,	! Phone is offhook.
+    DTK$_ONHOOK,	! Phone is onhook.
+    DTK$_STRTERESC,	! Escape sequence imbedded in string.
+    DTK$_TIMEOUT,	! A timeout has occurred.
+    DTK$_TOOLONG,	! A dictionary entry or phone number is too long.
+    DTK$_UNKESCSEQ,	! Unknown escape sequence.
+    DTK$_UNKREPLY,	! Unknown reply.
+    DTK$_VOIALREXI,	! VCB already exists for this device.
+    DTK$_WINK,		! A wink was detected on the phone line (caller hungup).
+    DTK$_WRONUMARG,	! Wrong number of arguments.
+    LIB$_EF_ALRFRE;	! Event flag already free.
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$ANSWER_PHONE - Wait for phone to ring and answer.'
+GLOBAL ROUTINE DTK$ANSWER_PHONE (
+	VOICE_ID,
+	NUM_RINGS,
+	TEXT,
+	TIMEOUT
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will wait for the phone connected to the DECtalk
+!	described by VOICE_ID to ring and will then answer it.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$ANSWER_PHONE (VOICE_ID.rl.r
+!					     [,NUM_RINGS.rl.r]
+!					     [,TEXT.rt.dx]
+!					     [,TIMEOUT.rl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	NUM_RINGS.rl.r		[OPTIONAL]  Number of rings to wait before 
+!					    answering the phone.  
+!					    Defaults to 1 ring.
+!
+!	TEXT.rt.dx		[OPTIONAL]  Text to speak after answering 
+!					    the phone.  
+!
+!	TIMEOUT.rl.r		[OPTIONAL]  Number of seconds to wait for the
+!				phone to be answered.  
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!
+! SIDE EFFECTS:
+!
+!	The phone is answered when it rings and text may be spoken.
+!
+!-
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	RET_STATUS,			! Phone status
+	RINGS : INITIAL(1),		! Number of rings to wait.
+	VCB   : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (1, 4);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! Check for number of rings to wait before answering the phone.
+    !-
+
+    IF NOT NULLPARAMETER(NUM_RINGS) THEN RINGS = ..NUM_RINGS;
+
+    !+
+    ! Send answer phone sequence.  Two replies will be recieved.
+    ! First one indicates sequence has been recieved.
+    ! Second one indicates phone was answered.
+    !-
+
+    $DTK$OUTPUT_DATA( DT_ANSWER, .RINGS );
+
+    STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, %REF(K_TMO_SEC) );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+    IF .RET_STATUS NEQ DTK$_ONHOOK THEN $DTK$RETURN (.RET_STATUS);
+
+    STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS,
+				(IF NOT NULLPARAMETER(TIMEOUT)
+				 THEN .TIMEOUT ELSE 0) );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    !+
+    ! If the phone was answered, enable wink detection which
+    ! will give us a status if the user hangs up.
+    !-
+
+    IF .RET_STATUS EQL DTK$_OFFHOOK
+    THEN
+	BEGIN
+
+	!+
+	! Enable the phone keypad.
+	!-
+
+	STATUS = DTK$SET_KEYPAD_MODE( .VOICE_ID, %REF(DTK$K_KEYPAD_AUTO) );
+	IF .STATUS NEQ SS$_NORMAL THEN $DTK$RETURN (.STATUS);
+
+	!+
+	! Wait two seconds for the caller to get the phone to his ear.
+	!-
+
+	STATUS = LIB$WAIT( %REF( K_2_SECONDS ) );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	!+
+	! Enable wink detection if available.
+	!-
+
+	IF .VCB [VCB_B_DEVTYPE] NEQ DTK$K_DTC_01
+	THEN
+	    BEGIN
+
+	    VCB [VCB_V_WINK] = 0;
+	    $DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_WINK );
+
+	    STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, %REF(K_TMO_SEC));
+	    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+	    IF .RET_STATUS NEQ DTK$_OFFHOOK THEN $DTK$RETURN (.RET_STATUS);
+
+	    END;
+
+	!+
+	! Speak any specified text.
+	!-
+
+	IF NOT NULLPARAMETER(TEXT)
+	THEN
+	    BEGIN
+	    STATUS = DTK$SPEAK_TEXT( .VOICE_ID, .TEXT );
+	    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+	    END;
+
+	END
+    ELSE
+	$DTK$RETURN (.RET_STATUS);
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;				! End of routine DTK$ANSWER_PHONE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$CHECK_HDWR_STATUS - Check DECtalk hardware status.'
+GLOBAL ROUTINE DTK$CHECK_HDWR_STATUS (
+	VOICE_ID,
+	HDWR_STATUS
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will check the DECtalk hardware
+!	described by VOICE_ID for hardware malfunctions (by using the
+!	DSR extended escape sequence) and return the status to the caller.
+!	If more than one hardware malfunction has occurred, this routine
+!	can be called multiple times to retrieve all of the error status.
+!	A status of "no malfunctions" also indicates that there are no
+!	further error status to be returned.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$CHECK_HDWR_STATUS (VOICE_ID.rl.r, 
+!						  HDWR_STATUS.wl.r)
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	HDWR_STATUS.wl.r	Status of DECtalk hardware.  Values are:
+!					DTK$_NOMALFUN1	- no malfunctions, 1st
+!					DTK$_NOMALFUN2	- no malfunctions, 2nd
+!					DTK$_COMFAIL	- communication failure
+!					DTK$_INPBUFOVR	- input buffer overflow
+!					DTK$_NVROPRFAI	- NVR operation failed
+!					DTK$_ERRPHOTRA	- Phonemic trans error
+!					DTK$_CONSEQERR	- control seq error
+!					DTK$_DECTSTFAI  - self-test failed
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	LIB$_xxxx	Any error from LIB$GET_VM or LIB$FREE_VM
+!
+! SIDE EFFECTS:
+!
+!	none
+!
+!-
+
+    BEGIN
+
+    BUILTIN
+	REMQUE;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	RET_STATUS,			! Hardware status
+	STSQUE : REF $STSQUE_DECL,	! New entry from status queue
+	VCB    : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 2);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    STATUS = REMQUE(.VCB[VCB_L_HDWR_STS_FLINK], STSQUE);
+
+    IF .STATUS
+    THEN
+
+	!+
+	! Hardware status queue was empty.  Send hardware status request.
+	!-
+
+	BEGIN				! Queue was empty
+
+	$DTK$OUTPUT_DATA( DSREXT );
+
+	STATUS = DTK$$GET_STATUS(.VCB, 0, %REF(K_TMO_SEC));
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	STATUS = REMQUE(.VCB[VCB_L_HDWR_STS_FLINK], STSQUE);
+	IF .STATUS THEN $DTK$RETURN(DTK$_FATERRLIB);
+
+	END;				! Queue was empty
+
+    .HDWR_STATUS = .STSQUE[STATUS_L_STATUS];
+
+    STATUS = LIB$FREE_VM(%REF(STSQUE_K_SIZE), STSQUE, DTK_A_ZONE_ID);
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;				! End of routine DTK$CHECK_HDWR_STATUS
+
+
+%SBTTL 'DTK$DIAL_PHONE - Dial the telephone.'
+GLOBAL ROUTINE DTK$DIAL_PHONE (
+	VOICE_ID,
+	PHONE_NUM,
+	MODE,
+	TEXT,
+	TIMEOUT
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will dial the specified number on the telephone.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$DIAL_PHONE (VOICE_ID.rl.r,
+!					   PHONE_NUM.rt.dx
+!					   [,MODE.rl.r]
+!					   [,TEXT.rt.dx]
+!					   [,TIMEOUT.rl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	PHONE_NUM.rt.dx		Phone number to dial.
+!
+!	MODE.rl.r		[OPTIONAL]  Mode to use when dialing the phone.
+!				Valid values are:
+!					DTK$K_DIAL_PULSE  Use pulse dialing (default)
+!					DTK$K_DIAL_TONE   Use tone dialing
+!
+!	TEXT.rt.dx		[OPTIONAL]  Text to speak after the phone is
+!				answered.
+!
+!	TIMEOUT.rl.r		[OPTIONAL]  Number of seconds to wait for the
+!				phone to be answered.  For the DTC01, a wait of
+!				this number of seconds will always be done.  For
+!				the DTC03, this is the maximum number of seconds
+!				to wait.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_TOOLONG	Phone number is too long.
+!	DTK$_INVMODE	Invalid mode specified.
+!	DTK$_OFFHOOK	Phone is offhook (active)
+!	DTK$_ONHOOK	Phone is onhook (inactive)
+!	DTK$_NODIATONE	No dial tone on line.
+!	DTK$_BUSY	Line is busy.
+!	DTK$_NOANSWER	No answer on line.
+!
+! SIDE EFFECTS:
+!
+!	The phone number is dialed on the associated telephone.
+!	If a call is currently active, the phone is not hungup.
+!
+!-
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	RET_STATUS,			! Status returned by DECtalk
+	DIAL_TYPE : INITIAL(DTK$K_DIAL_PULSE),	! Method of dialing the phone
+	PHONE_ADDR: REF $DTK$DESCRIPTOR,! Address of phone number descriptor
+	TOUT_FLOAT: LONG,		! TIMEOUT as a floating point number
+	TOUT_BUF  : LONG VOLATILE,	! Buffer for TOUT_LEN
+	TOUT_DSC  : $DTK$DESCRIPTOR	! Desc for TIMEOUT as a string
+		    PRESET(
+			[DSC$B_DTYPE]   = DSC$K_DTYPE_T,
+			[DSC$B_CLASS]   = DSC$K_CLASS_S,
+			[DSC$W_LENGTH]  = 3,
+			[DSC$A_POINTER] = TOUT_BUF),
+	PHONE_DSC : $DTK$DESCRIPTOR VOLATILE,
+	TEXT_LEN  : LONG INITIAL(0),
+	TEXT_ADDR : REF VECTOR[,BYTE],
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 5);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    PHONE_ADDR = .PHONE_NUM;
+
+    !+
+    ! Verify input parameters are valid.
+    !-
+
+    IF NOT (STATUS = LIB$ANALYZE_SDESC ( .PHONE_NUM, TEXT_LEN, TEXT_ADDR))
+    THEN
+	$DTK$RETURN ( .STATUS);
+
+    !+
+    ! Set up mode from parameter or default value.
+    !-
+
+    IF NOT NULLPARAMETER(MODE) THEN DIAL_TYPE = ..MODE;
+
+    !+
+    ! If a timeout value was specified, check its validity.
+    !-
+
+    IF NOT NULLPARAMETER(TIMEOUT)
+    THEN
+	BEGIN
+
+	IF ..TIMEOUT LSS 10 OR 
+	   ..TIMEOUT GTR 120 
+	THEN 
+	    $DTK$RETURN (DTK$_INVARG);
+
+	!+
+	! Initialize string descriptors
+	!-
+
+	IF ..TIMEOUT LSS 100 THEN TOUT_DSC[DSC$W_LENGTH] = 2;
+
+	PHONE_DSC [DSC$B_DTYPE]  = DSC$K_DTYPE_T;
+	PHONE_DSC [DSC$B_CLASS]  = DSC$K_CLASS_S;
+	PHONE_DSC [DSC$W_LENGTH] = 3 + .TOUT_DSC[DSC$W_LENGTH] + .TEXT_LEN;
+
+	!+
+	! Convert TIMEOUT parameter to a string.
+	! This is then used as part of the phone number (DTC03) or
+	! is converted to floating point for use with LIB$WAIT (DTC01).
+	!-
+
+	STATUS = OTS$CVT_L_TU(.TIMEOUT, TOUT_DSC );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	!+
+	! If TIMEOUT is requested and this is a DTC03, add 
+	! the necessary X<> command to the phone number.
+	!-
+
+	IF .VCB [VCB_B_DEVTYPE] NEQ DTK$K_DTC_01
+	THEN
+	    BEGIN
+
+	    !+
+	    ! Allocate some dynamic memory to hold the phone number
+	    ! and the timeout characters.
+	    !-
+
+	    STATUS = LIB$GET_VM( %REF( .PHONE_DSC[DSC$W_LENGTH] ),
+				 PHONE_DSC[DSC$A_POINTER],
+				 DTK_A_ZONE_ID );
+	    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	    !+
+	    ! Copy the phone number and the timeout command in one operation.
+	    !-
+
+	    CH$COPY( .TEXT_LEN, 		.TEXT_ADDR,	! From
+		     2, 			UPLIT('X<'),	! From
+		     .TOUT_DSC[DSC$W_LENGTH],	TOUT_BUF,	! From
+		     1, 			UPLIT('>'),	! From
+		     0,						! Fill
+		     .PHONE_DSC[DSC$W_LENGTH], .PHONE_DSC[DSC$A_POINTER] ); ! To
+
+	    PHONE_ADDR = PHONE_DSC;
+
+	    END;		! DTC03
+	END;			! TIMEOUT parameter specified
+
+    !+
+    ! Send sequence to dial phone with pluse or tone dialing.
+    !-
+
+    SELECTONE .DIAL_TYPE OF
+    SET
+
+    [DTK$K_DIAL_PULSE]:
+	BEGIN
+	$DTK$OUTPUT_DATA( DT_DIAL, K_DIAL_PULSE, .PHONE_ADDR );
+	END;
+
+    [DTK$K_DIAL_TONE]:
+	BEGIN
+	$DTK$OUTPUT_DATA( DT_DIAL, K_DIAL_TONE, .PHONE_ADDR );
+	END;
+
+    [OTHERWISE]:
+	$DTK$RETURN (DTK$_INVMODE);
+
+    TES;
+
+    !+
+    ! If TIMEOUT:
+    !     deallocate virtual memory if DTC03.
+    !     wait specified amount of time if DTC01.
+    !-
+
+    IF NOT NULLPARAMETER(TIMEOUT)
+    THEN
+	IF .VCB [VCB_B_DEVTYPE] EQL DTK$K_DTC_01 
+	THEN
+	    BEGIN
+
+	    STATUS = OTS$CVT_T_F( TOUT_DSC, TOUT_FLOAT, 0, 0, %REF(17) );
+
+	    STATUS = LIB$WAIT( TOUT_FLOAT );
+	    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	    END
+	ELSE
+	    BEGIN
+
+	    STATUS = LIB$FREE_VM( %REF( .PHONE_DSC[DSC$W_LENGTH] ),
+				  PHONE_DSC[DSC$A_POINTER],
+				  DTK_A_ZONE_ID );
+	    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	    END;
+
+    !+
+    ! Wait for phone to be answered.  
+    !-
+
+    STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, %REF(K_TMO_HR) );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+    IF .RET_STATUS NEQ DTK$_OFFHOOK THEN $DTK$RETURN (.RET_STATUS);
+
+    VCB [VCB_V_KEYPAD_ON] = 0;
+    VCB [VCB_V_AUTOSTOP]  = 0;
+    VCB [VCB_V_WINK]      = 0;
+
+    !+
+    ! Wait 2 seconds for the user to get the phone to their ear.
+    !-
+
+    STATUS = LIB$WAIT( %REF( K_2_SECONDS ) );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    !+
+    ! Enable the phone keypad.
+    !-
+
+    STATUS = DTK$SET_KEYPAD_MODE( .VOICE_ID, %REF(DTK$K_KEYPAD_AUTO) );
+    IF .STATUS NEQ SS$_NORMAL THEN $DTK$RETURN (.STATUS);
+
+    !+
+    ! Enable wink detection if available.
+    !-
+
+    IF .VCB [VCB_B_DEVTYPE] NEQ DTK$K_DTC_01
+    THEN
+	BEGIN
+
+	$DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_WINK );
+
+	STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, %REF(K_TMO_SEC));
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+	IF .RET_STATUS NEQ DTK$_OFFHOOK THEN $DTK$RETURN (.RET_STATUS);
+
+	END;
+
+    !+
+    ! Speak any specified text.
+    !-
+
+    IF NOT NULLPARAMETER(TEXT)
+    THEN
+	BEGIN
+	STATUS = DTK$SPEAK_TEXT( .VOICE_ID, .TEXT );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+	END;
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;				! End of routine DTK$DIAL_PHONE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$HANGUP_PHONE - Hangup the phone.'
+GLOBAL ROUTINE DTK$HANGUP_PHONE (
+	VOICE_ID,
+	TEXT
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will speak an optional message and then hangup the phone.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$HANGUP_PHONE (VOICE_ID.rl.r
+!					     [,TEXT.rt.dx])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	TEXT.rt.dx		[OPTIONAL]   Text to be spoken before hanging 
+!					     up the phone. Text will be followed
+!					     by a sync command to make sure all
+!					     text is spoken before hanging up.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!
+! SIDE EFFECTS:
+!
+!	The phone is hungup after speaking any optional text.
+!
+!-
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	RET_STATUS,			! Phone status
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    ENABLE LIB$SIG_TO_RET;
+
+    $DTK$VALIDATE_ARGCOUNT (1, 2);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! Speak text before hanging up the phone.
+    !-
+
+    IF NOT NULLPARAMETER(TEXT)
+    THEN
+	BEGIN
+	STATUS = DTK$SPEAK_TEXT( .VOICE_ID, .TEXT, %REF(DTK$K_WAIT) );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+	END;
+
+    !+
+    ! Hang up phone.
+    !-
+
+    $DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_HANGUP );
+
+    STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, %REF(K_TMO_SEC));
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+    IF .RET_STATUS NEQ DTK$_ONHOOK THEN $DTK$RETURN (.RET_STATUS);
+    VCB [VCB_V_WINK] = 0;
+
+    !+
+    ! Free the keypad input buffer string.
+    !-
+
+    IF .VCB[VCB_W_LENGTH] NEQ 0
+    THEN
+	BEGIN
+
+	STATUS = STR$FREE1_DX(VCB[VCB_Q_INPUT_DESC]);
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	END;
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;				! End of routine DTK$HANGUP_PHONE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$INITIALIZE - Initialize DECtalk.'
+GLOBAL ROUTINE DTK$INITIALIZE (
+				NEW_VID,
+				OUT_DEVICE,
+				DEVICE_TYPE
+				) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!       This routine creates a DECtalk device -- returning its assigned
+!	voice_id.  OUT_DEVICE is the device upon which this
+!	DECtalk is to be written.  If not supplied, output will flow
+!	to SYS$OUTPUT.
+!
+!	If called upon to create a 2nd DECtalk on a device that
+!	already has a voice_id associated with it, we simply return
+!	the id of the already-existing DECtalk and the qualified
+!	success DTK$_VOIALREXI.
+!
+! CALLING SEQUENCE:
+!
+!       ret_status.wlc.v = DTK$INITIALIZE ( 
+!				NEW_VOID.wl.r,
+!				OUT_DEVICE.rt.dx
+!				[,DEVICE_TYPE.ml.r])
+!
+! FORMAL PARAMETERS:
+!
+!       NEW_VOID.wl.r     	Voice-id of newly-created DECtalk.
+!
+!	OUT_DEVICE.rt.dx	This parameter
+!				is the file specification or logical
+!				name upon which the output associated
+!				with this DECtalk will be written.
+!
+!	DEVICE_TYPE.ml.r	[Optional].  If specified, the DECtalk type
+!				is returned.  DTK$K_DTC_01 for DECtalk I and
+!				DTK$K_DTC_03 for DECtalk III.  DTK$K_DTC_UNKNOWN
+!				if no response from DECtalk is recieved.
+!
+! IMPLICIT INPUTS:
+!
+!       NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!       NONE
+!
+! COMPLETION STATUS:
+!
+!       SS$_NORMAL      Normal successful completion
+!	SS$_xxxx	Any error from $GETDVI
+!	RMS$_xxxx	Any error from $PARSE
+!	LIB$_xxxx	Any error from LIB$GET_VM or LIB$GET_EF
+!       LIB$_INSVIRMEM  Insufficient virtual memory to allocate needed buffer.
+!	DTK$_VOIALREXI	DECtalk already exists for this device
+!       DTK$_WRONUMARG  Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!       NONE
+!--
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	NAME_DESC  : $DTK$DESCRIPTOR,	! Fixed length descriptor
+	STATUS,				! Status returned by routines
+	IOSB	   : VECTOR[4,WORD],	! IOSB for $QIOW
+	FS_LEN     : LONG INITIAL(0),	! Length of device name
+	FS_ADDR    : REF VECTOR[,BYTE],	! Address of device name
+    	BUFFER     : VECTOR [K_BUFFER_LEN, BYTE],	! Input buffer 
+	BUFFER_LEN : LONG INITIAL(0),	! Number of chars read into BUFFER
+	SEARCH_VCB : REF $VCB_DECL,	! Next VCB in list
+	VCB        : REF $VCB_DECL;	! Address of voice control block being created.
+
+    $DTK$VALIDATE_ARGCOUNT (2, 3);	! Test for right no. of args
+
+!+
+! Decide what device is to receive the the output.
+!-
+    IF NOT (STATUS = LIB$ANALYZE_SDESC ( .OUT_DEVICE, FS_LEN, FS_ADDR))
+    THEN
+	RETURN (.STATUS);
+
+!+
+! Create the dynamic memory zone if none has been created yet.
+!-
+
+    IF .DTK_A_ZONE_ID EQL 0
+    THEN
+	BEGIN
+        STATUS = LIB$CREATE_VM_ZONE( DTK_A_ZONE_ID,
+				     %REF(LIB$K_VM_FIRST_FIT),
+				     0,
+				     %REF(LIB$M_VM_BOUNDARY_TAGS OR
+					  LIB$M_VM_EXTEND_AREA) );
+
+	IF NOT .STATUS THEN RETURN (.STATUS);
+	END;
+
+!+
+! Get the event flag number if it has not been done already.
+!-
+    IF .DTK_L_EFN EQL 0
+    THEN
+	BEGIN
+
+	STATUS = LIB$GET_EF( DTK_L_EFN );
+	IF NOT .STATUS THEN RETURN (.STATUS); 
+
+	STATUS = LIB$GET_EF( DTK_L_EFN_2 );
+	IF NOT .STATUS THEN RETURN (.STATUS); 
+
+	DTK_L_EFN_MASK = 1 ^ (.DTK_L_EFN - 32) OR 1 ^ (.DTK_L_EFN_2 - 32);
+
+	END;
+
+!+
+! Create a VCB.  Allocate buffers, etc.
+! Extract the necessary device attributes and store in VCB.
+!-
+    STATUS = DTK$$SETUP_TERMINAL_TYPE ( 
+		.FS_ADDR,		   ! filespec addr
+		.FS_LEN,		   ! Len of filespec
+		VCB);			   ! Address to receive address of VCB
+
+    IF NOT .STATUS THEN RETURN (.STATUS);
+
+!+
+! If the device is not a terminal, return an error.
+!-
+
+    IF .VCB[VCB_B_CLASS] NEQ DC$_TERM THEN $DTK$RETURN (DTK$_NOTLCLTRM);
+
+!+
+! Loop thru all current VCBs looking for a match.  If found, this 
+! device has been already allocated.  Return an "already allocated" status.
+!-
+
+    SEARCH_VCB = .VCB_QUEUE;
+
+    WHILE .SEARCH_VCB NEQ 0 DO
+	IF CH$EQL( .SEARCH_VCB[VCB_W_DEVNAM_LEN], SEARCH_VCB[VCB_T_DEVNAM],
+		   .VCB[VCB_W_DEVNAM_LEN], 	  VCB[VCB_T_DEVNAM] )
+	THEN
+	    BEGIN
+	    STATUS = LIB$FREE_VM( %REF (VCB_K_SIZE), VCB, DTK_A_ZONE_ID );
+	    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+	    $DTK$RETURN (DTK$_VOIALREXI);
+	    END
+	ELSE
+	    SEARCH_VCB = .SEARCH_VCB[VCB_A_NEXT];
+
+!+
+! Insert this VCB into the queue.
+!-
+
+    VCB[VCB_A_NEXT] = .VCB_QUEUE;
+    VCB_QUEUE = .VCB;
+
+!+
+! Store voice-id in the VCB itself.
+!-
+
+    VCB [VCB_L_VID] = .VCB;
+
+!+
+! Return the new DECtalk id to caller.
+!-
+
+    .NEW_VID = .VCB;
+
+!+
+! Store the original name (that the user specified) for this device
+! in the VCB.  This name may include a filename as well as a device name.
+! First we allocate virtual memory for this buffer and
+! then we store the length and address in the VCB for future reference.
+!-
+
+    STATUS = LIB$GET_VM( %REF(.FS_LEN), VCB[VCB_A_OUTNAM], DTK_A_ZONE_ID );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    VCB[VCB_W_OUTNAM_LEN] = .FS_LEN;
+    CH$MOVE( .FS_LEN,.FS_ADDR,.VCB[VCB_A_OUTNAM] );
+
+!+
+! Create a fixed length descriptor for our device name string
+! for use by $ASSIGN.
+!-
+
+    NAME_DESC[DSC$B_DTYPE]   = DSC$K_DTYPE_T;
+    NAME_DESC[DSC$B_CLASS]   = DSC$K_CLASS_S;
+    NAME_DESC[DSC$W_LENGTH]  = .VCB[VCB_W_DEVNAM_LEN];
+    NAME_DESC[DSC$A_POINTER] =  VCB[VCB_T_DEVNAM];
+
+!+
+! Assign the channel.
+! Put the resulting channel number in VCB[VCB_W_CHAN].
+!-
+
+    IF .VCB[VCB_W_CHAN] EQL 0
+    THEN
+	BEGIN
+	STATUS = $ASSIGN( DEVNAM = NAME_DESC,
+			  CHAN   = VCB[VCB_W_CHAN] );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+	END;
+
+!+
+! The following line was added to solve a TTDRIVER problem.  When the first
+! output is done to the channel, no typeahead buffer has been set up yet.
+! This results in the first character of the DA_PRIMARY response being lost.
+! This only happens on high speed lines.  The following line causes the
+! driver to set up a typeahead buffer before we do the first output operation.
+! This must not be done on LAT lines however, since LAT needs a write as the
+! first operation.  If this is a LAT line, connect to the port.
+!-
+
+    IF CH$FAIL(CH$FIND_SUB(.NAME_DESC[DSC$W_LENGTH], .NAME_DESC[DSC$A_POINTER],
+			   2, UPLIT('LT')))
+    THEN
+        $QIOW(	CHAN	= .VCB[VCB_W_CHAN],
+		EFN	= .DTK_L_EFN,
+		FUNC	= IO$_READVBLK OR IO$M_ESCAPE    OR IO$M_TIMED OR
+		 	  IO$M_NOECHO  OR IO$M_TRMNOECHO OR IO$M_PURGE,
+		IOSB	= IOSB,
+		P1	= BUFFER,
+		P2	= K_BUFFER_LEN,
+		P3	= 0)
+    ELSE
+	BEGIN
+	STATUS = $QIOW(	CHAN	= .VCB[VCB_W_CHAN],
+		      	EFN	= .DTK_L_EFN,
+			FUNC	= IO$_TTY_PORT OR IO$M_LT_CONNECT,
+			IOSB	= IOSB);
+	IF NOT .STATUS  THEN $DTK$RETURN (.STATUS);
+	IF NOT .IOSB[0] THEN $DTK$RETURN (.IOSB[0]);
+	END;
+
+!+
+! Change the terminal characteristics to
+! NOBROADCAST	no broadcast messages are spoken,
+! TTSYNC	CTRL/S and CTRL/Q work correctly,
+! ANSICRT	escape sequences are interperted by the terminal driver.
+! NOWRAP	don't generate an extra <CR> at the end of the line.
+!-
+
+    STATUS = DTK$$SET_TERM_CHARACTERISTICS(.VCB,
+					TT$M_NOBRDCST OR TT$M_TTSYNC,	! on
+					TT2$M_ANSICRT,			! on
+					TT$M_WRAP );			! off
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+!+
+! Set up our exit block which is contained within the VCB.
+! This exit block is used to establish an exit handler for
+! this terminal. When the exit handler is called,
+! it will flush the output buffers, reset the terminal characteristics,
+! and make sure the phone is hung up.
+! This guarantees that the user will get all his output and the device will
+! be left in the same state as we found it.
+!-
+
+    VCB [VCB_A_EXIT_ADDR] = DTK$$VCB_EXIT_HANDLER;
+					! Address of our exit handler
+    VCB [VCB_B_EXIT_ARGCNT] = 2;	! Our exit handler gets called with
+					! two arguments.
+    VCB [VCB_A_EXIT_RSN] = VCB [VCB_L_EXIT_REASON];
+					! The first argument is the address
+					! of the longword to receive the
+					! exit reason.  This longword appears
+					! elsewhere in the VCB (not in
+					! the exit block).
+    VCB [VCB_A_EXIT_VCB] = .VCB;	! The second argument is the address
+					! of this VCB.  This is needed
+					! because there are many VCBs and
+					! one exit routine serves them all.
+					! There is a separate exit block for
+					! each VCB.
+
+!+
+! Establish the exit handler, using the exit block just created.
+!-
+
+    STATUS = $DCLEXH( DESBLK = VCB[VCB_R_EXIT_BLOCK] );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+!+
+! Setup our status queues and the keypad input string descriptor.
+!-
+
+    VCB [VCB_L_STATUS_FLINK] = VCB [VCB_L_STATUS_FLINK];
+    VCB [VCB_L_STATUS_BLINK] = VCB [VCB_L_STATUS_FLINK];
+
+    VCB [VCB_L_HDWR_STS_FLINK] = VCB [VCB_L_HDWR_STS_FLINK];
+    VCB [VCB_L_HDWR_STS_BLINK] = VCB [VCB_L_HDWR_STS_FLINK];
+
+    VCB [VCB_B_CLASS] = DSC$K_CLASS_D;
+    VCB [VCB_B_DTYPE] = DSC$K_DTYPE_T;
+
+!+
+! Determine if this is a DTC01 or DTC03.
+!-
+
+    $DTK$BUFFERING_ON(VCB);			! Turn on buffering
+
+    $DTK$OUTPUT_DATA( DECSTR );			! soft reset
+    $DTK$OUTPUT_DATA( S7C1T );			! 7 bit codes
+    $DTK$OUTPUT_DATA( DT_MISC2, K_MASK, 0 );	! mask off
+    $DTK$OUTPUT_DATA( DA_PRIMARY );		! request type of terminal
+
+    $DTK$BUFFERING_OFF(VCB);			! Turn off buffering
+
+!+
+! Read back the sequence that tells us what type of device this is.
+! Use a timeout so we don't hang if the device does not respond.
+!-
+
+    STATUS = DTK$$INPUT( .VCB, BUFFER_LEN, BUFFER, %REF(K_TMO_SEC) );
+
+    IF CH$EQL(K_DTC01_LEN, DTC01, K_DTC01_LEN, BUFFER)
+    THEN
+	VCB [VCB_B_DEVTYPE] = DTK$K_DTC_01;
+
+    IF CH$EQL(K_DTC03_LEN, DTC03, K_DTC03_LEN, BUFFER)
+    THEN
+	VCB [VCB_B_DEVTYPE] = DTK$K_DTC_03;
+
+    IF .STATUS EQL SS$_TIMEOUT
+    THEN
+	VCB [VCB_B_DEVTYPE] = DTK$K_DTC_UNKNOWN;
+
+!+
+! Return type to user if requested.
+! If user requested a specific device type, force that type to be used.
+!-
+
+    IF NOT NULLPARAMETER(DEVICE_TYPE)
+    THEN
+	IF ..DEVICE_TYPE NEQ 0
+	THEN
+	    VCB [VCB_B_DEVTYPE] = ..DEVICE_TYPE
+	ELSE
+	    .DEVICE_TYPE = .VCB [VCB_B_DEVTYPE];
+
+!+
+! Return the new DECtalk id to caller
+!-
+    .NEW_VID = .VCB;
+
+    $DTK$RETURN (.STATUS);
+
+    END;			! Routine DTK$INITIALIZE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$LOAD_DICTIONARY - Load a word into the DECtalk dictionary.'
+GLOBAL ROUTINE DTK$LOAD_DICTIONARY (
+	VOICE_ID,
+	TEXT,
+	SUBSTITUTION
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will load a phonemic definition of a word into
+!	the DECtalk dictionary.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$LOAD_DICTIONARY (VOICE_ID.rl.r, 
+!						TEXT.rt.dx,
+!						SUBSTITUTION.rt.dx)
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	TEXT.rt.dx		Word to load into the dictionary
+!
+!	SUBSTITUTION.rt.dx	Phonemic definition for WORD
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_NOROOM	No room in dictionary to add the word
+!	DTK$_TOOLON	Word definition is too long
+!
+! SIDE EFFECTS:
+!
+!	The specified word is stored in the DECtalk dictionary.
+!
+!--
+
+    BEGIN
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	RET_STATUS,			! Dictionary status
+	TEXT_LEN : LONG INITIAL(0),	! Length
+	TEXT_ADDR: REF VECTOR[,BYTE],	! Address
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (3, 3);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! Verify input parameters are valid descriptors.
+    !-
+
+    IF NOT (STATUS = LIB$ANALYZE_SDESC ( .SUBSTITUTION, TEXT_LEN, TEXT_ADDR))
+    THEN
+	$DTK$RETURN (.STATUS);
+
+    IF NOT (STATUS = LIB$ANALYZE_SDESC ( .TEXT, TEXT_LEN, TEXT_ADDR ) )
+    THEN
+	$DTK$RETURN (.STATUS);
+
+    !+
+    ! Send word definition sequence to DECtalk
+    ! and get returned status.
+    !-
+
+    $DTK$OUTPUT_DATA( DT_DICT, .TEXT, .SUBSTITUTION );
+
+    STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, %REF(K_TMO_SEC));
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    $DTK$RETURN (.RET_STATUS);
+
+    END;				! End of routine DTK$LOAD_DICTIONARY
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$NOT_IMPLEMENTED - For adding new routines.'
+GLOBAL ROUTINE DTK$NOT_IMPLEMENTED =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns a NOT_IMPLEMENTED error status.
+!
+! CALLING SEQUENCE:
+!
+!       ret_status.wlc.v = DTK$NOT_IMPLEMENTED ( )
+!
+! FORMAL PARAMETERS:
+!
+!	None
+!
+! IMPLICIT INPUTS:
+!
+!       None
+!
+! IMPLICIT OUTPUTS:
+!
+!       None
+!
+! COMPLETION STATUS:
+!
+!	DTK$_NOTIMP		Routine not implemented
+!
+! SIDE EFFECTS:
+!
+!       NONE
+!--
+    BEGIN
+
+    RETURN (DTK$_NOTIMP);
+
+    END;			! End of routine DTK$NOT_IMPLEMENTED
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$OUTPUT - Output raw text.'
+GLOBAL ROUTINE DTK$OUTPUT(
+	VOICE_ID,
+	TEXT
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will output the specified text without any 
+!	parsing.  This is for internal DIGITAL use only!
+!	DTK$SPEAK_TEXT is the general routine and should be used
+!	instead of this one.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$OUTPUT (VOICE_ID.rl.r,
+!				       TEXT.rt.dx)
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	TEXT.rt.dx		Text to output.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!
+! SIDE EFFECTS:
+!
+!	The specified text is output.
+!
+!-
+
+    BEGIN
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	TEXT_LEN : LONG INITIAL(0),
+	TEXT_ADDR: REF VECTOR[,BYTE],
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 2);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! Verify input parameters are valid.
+    !-
+
+    IF NOT (STATUS = LIB$ANALYZE_SDESC ( .TEXT, TEXT_LEN, TEXT_ADDR))
+    THEN
+	$DTK$RETURN (.STATUS);
+
+    STATUS = DTK$$OUTPUT( .VCB, .TEXT_LEN, .TEXT_ADDR );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    $DTK$RETURN (SS$_NORMAL);
+    END;				! End of routine DTK$OUTPUT
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$READ_KEYSTROKE - Read a key entered on the keypad.'
+GLOBAL ROUTINE DTK$READ_KEYSTROKE (
+	VOICE_ID,
+	KEY_CODE,
+	PROMPT,
+	TIMEOUT
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will read a key entered on the phone keypad
+!	after speaking any optional prompt message.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$READ_KEYSTROKE  (VOICE_ID.rl.r, 
+!						KEY_CODE.wl.r
+!						[,PROMPT.rt.dx]
+!						[,TIMEOUT.rl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	KEY_CODE.wl.r		DTK$K_TRM_xxxx code for key entered
+!
+!	PROMPT.rt.dx		Optional text to speak before waiting for input
+!
+!	TIMEOUT.rl.r		Optional number of seconds to wait for input
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_ONHOOK	Phone is onhook (inactive).
+!	DTK$_WINK	A wink has occurred.
+!
+! SIDE EFFECTS:
+!
+!	The key entered on the phone keypad is read.
+!
+!--
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	RET_STATUS,			! Phone status
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    ENABLE LIB$SIG_TO_RET;
+
+    $DTK$VALIDATE_ARGCOUNT (2, 4);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! Check to see if a WINK has occurred.
+    !-
+
+    IF .VCB [VCB_V_WINK]
+    THEN 
+	BEGIN
+	VCB [VCB_V_WINK] = 0;
+	$DTK$RETURN (DTK$_WINK);
+	END;
+
+    !+
+    ! Send phone status sequence to DECtalk
+    ! to be sure the phone is still offhook.
+    !-
+
+    $DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_STATUS );
+
+    STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, %REF(K_TMO_SEC) );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+    IF .RET_STATUS NEQ DTK$_OFFHOOK THEN $DTK$RETURN (.RET_STATUS);
+
+    !+
+    ! If keypad is not enabled, enable it now.
+    !-
+
+    IF NOT .VCB[VCB_V_KEYPAD_ON]
+    THEN
+	BEGIN
+	STATUS = DTK$SET_KEYPAD_MODE( .VOICE_ID, %REF(DTK$K_KEYPAD_AUTO) );
+	IF .STATUS NEQ SS$_NORMAL THEN $DTK$RETURN (.STATUS);
+	END;
+
+    !+
+    ! If a prompt was specified, speak it now.
+    !-
+
+    IF NOT NULLPARAMETER(PROMPT)
+    THEN
+	BEGIN
+	STATUS = DTK$SPEAK_TEXT( .VOICE_ID, .PROMPT );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+	END;
+
+    !+
+    ! Get users keypad input.  
+    !-
+
+    IF .VCB [VCB_W_LENGTH] NEQ 0
+    THEN
+	RET_STATUS = SS$_NORMAL
+    ELSE
+	RET_STATUS = DTK$$GET_STATUS( .VCB,
+				      0,
+				      (IF NOT NULLPARAMETER(TIMEOUT)
+				       THEN .TIMEOUT ELSE 0) );
+
+
+    !+
+    ! If this is a DECtalk I, we need to simulate 
+    ! AUTOSTOP mode if the user specified it.
+
+    IF (.VCB[VCB_B_DEVTYPE] EQL DTK$K_DTC_01) AND
+	.VCB[VCB_V_AUTOSTOP]
+    THEN
+	BEGIN
+	$DTK$OUTPUT_DATA( DT_MISC, K_STOP );
+	VCB [VCB_B_SPEECH_MODES] = DTK$K_HALT;
+	END;
+
+    !+
+    ! Check to see if a WINK has occurred.
+    !-
+
+    IF .VCB [VCB_V_WINK]
+    THEN 
+	BEGIN
+	VCB [VCB_V_WINK] = 0;
+	$DTK$RETURN (DTK$_WINK);
+	END;
+
+    !+
+    ! Return the key entered.
+    !-
+
+    IF .RET_STATUS EQL SS$_TIMEOUT
+    THEN
+	.KEY_CODE = DTK$K_TRM_TIMEOUT
+    ELSE
+	.KEY_CODE = CH$RCHAR(.VCB[VCB_A_POINTER]);
+
+    !+
+    ! Remove the first character in the keypad input string.
+    !-
+
+    STATUS = STR$RIGHT( VCB[VCB_Q_INPUT_DESC], VCB[VCB_Q_INPUT_DESC], %REF(2) );
+    IF NOT .STATUS THEN $DTK$RETURN(.STATUS);
+
+    !+
+    ! Done.
+    !-
+
+    $DTK$RETURN (.RET_STATUS);
+    END;			! End of routine DTK$READ_KEYSTROKE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$READ_STRING - Read a sequence of keys entered on the keypad.'
+GLOBAL ROUTINE DTK$READ_STRING (
+	VOICE_ID,
+	OUT_STRING,
+	PROMPT,
+	TIMEOUT,
+	TERM_CODE
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will read a series of keys entered on the phone keypad
+!	after speaking any optional prompt message.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$READ_STRING (VOICE_ID.rl.r, 
+!					    OUT_STRING.wt.dx
+!					    [,PROMPT.rt.dx]
+!					    [,TIMEOUT.rl.r]
+!					    [,KEY_CODE.wl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	OUT_STRING.wt.dx	String into which is written the keys pressed
+!
+!	PROMPT.rt.dx		[OPTIONAL]  Text to speak before waiting 
+!				for input
+!
+!	TIMEOUT.rl.r		[OPTIONAL]  Number of seconds to wait for input
+!
+!	TERM_CODE.wl.r		[OPTIONAL]  DTK$K_TRM_xxxx code for terminating
+!				key entered.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_ONHOOK	Phone is onhook (inactive).
+!	DTK$_WINK	A wink has occurred.
+!
+! SIDE EFFECTS:
+!
+!	A series of keys entered on the phone keypad is read.
+!
+!--
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	TERM_SET : $DTK$DESCRIPTOR	! Descriptor for terminator set
+		   PRESET(
+			[DSC$B_CLASS]   = DSC$K_CLASS_S,
+			[DSC$B_DTYPE]   = DSC$K_DTYPE_T,
+			[DSC$W_LENGTH]  = 2,
+			[DSC$A_POINTER] = UPLIT(BYTE(%C'*',%C'#'))),
+	STATUS,				! Status returned by routines
+	RET_STATUS,			! Phone status
+	TERM_CHAR_POS,			! Terminating character position
+	LEN : LONG INITIAL(0),		! Length of sequence entered
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    ENABLE LIB$SIG_TO_RET;
+
+    $DTK$VALIDATE_ARGCOUNT (2, 5);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! Check to see if a WINK has occurred.
+    !-
+
+    IF .VCB [VCB_V_WINK]
+    THEN 
+	BEGIN
+	VCB [VCB_V_WINK] = 0;
+	$DTK$RETURN (DTK$_WINK);
+	END;
+
+    !+
+    ! Send phone status sequence to DECtalk
+    ! to be sure the phone is still offhook.
+    !-
+
+    $DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_STATUS );
+
+    STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, %REF(K_TMO_SEC) );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+    IF .RET_STATUS NEQ DTK$_OFFHOOK THEN $DTK$RETURN (.RET_STATUS);
+
+    !+
+    ! If keypad is not enabled, enable it now.
+    !-
+
+    IF NOT .VCB[VCB_V_KEYPAD_ON]
+    THEN
+	BEGIN
+	STATUS = DTK$SET_KEYPAD_MODE( .VOICE_ID, %REF(DTK$K_KEYPAD_AUTO) );
+	IF .STATUS NEQ SS$_NORMAL THEN $DTK$RETURN (.STATUS);
+	END;
+
+    !+
+    ! If a prompt was specified, speak it now.
+    !-
+
+    IF NOT NULLPARAMETER(PROMPT)
+    THEN
+	BEGIN
+	STATUS = DTK$SPEAK_TEXT( .VOICE_ID, .PROMPT );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+	END;
+
+    !+
+    ! Get users keypad input.  
+    !-
+
+    RET_STATUS = SS$_NORMAL;
+
+    TERM_CHAR_POS = STR$FIND_FIRST_IN_SET(VCB[VCB_Q_INPUT_DESC], TERM_SET);
+
+    WHILE .TERM_CHAR_POS EQL 0 DO
+	BEGIN
+
+	RET_STATUS = DTK$$GET_STATUS( .VCB,
+				      0,
+				      (IF NOT NULLPARAMETER(TIMEOUT)
+				       THEN .TIMEOUT ELSE 0) );
+
+	IF .RET_STATUS EQL SS$_TIMEOUT THEN EXITLOOP;
+	IF .VCB [VCB_V_WINK] THEN EXITLOOP;
+	IF NOT .RET_STATUS THEN $DTK$RETURN(.RET_STATUS);
+
+	TERM_CHAR_POS = STR$FIND_FIRST_IN_SET(VCB[VCB_Q_INPUT_DESC], TERM_SET);
+
+	END;
+
+    !+
+    ! If this is a DECtalk I, we need to simulate AUTOSTOP mode if
+    ! the user specified it.
+    !-
+
+    IF (.VCB[VCB_B_DEVTYPE] EQL DTK$K_DTC_01) AND
+	.VCB[VCB_V_AUTOSTOP]
+    THEN
+	BEGIN
+	$DTK$OUTPUT_DATA( DT_MISC, K_STOP );
+	VCB [VCB_B_SPEECH_MODES] = DTK$K_HALT;
+	END;
+
+    !+
+    ! Check to see if a WINK has occurred.
+    !-
+
+    IF .VCB [VCB_V_WINK]
+    THEN 
+	BEGIN
+	VCB [VCB_V_WINK] = 0;
+	$DTK$RETURN (DTK$_WINK);
+	END;
+
+    !+
+    ! Find length of character string.
+    !-
+
+    LEN = (IF .TERM_CHAR_POS EQL 0 
+	   THEN .VCB[VCB_W_LENGTH] 
+	   ELSE .TERM_CHAR_POS - 1 );
+
+    !+
+    ! Return the terminating key entered.
+    !-
+
+    IF NOT NULLPARAMETER(TERM_CODE)
+    THEN
+	IF .RET_STATUS EQL SS$_TIMEOUT
+	THEN
+	    .TERM_CODE = DTK$K_TRM_TIMEOUT
+	ELSE
+	    .TERM_CODE = (IF .TERM_CHAR_POS EQL 0
+			  THEN DTK$K_TRM_BUFFER_FULL
+			  ELSE CH$RCHAR(CH$PLUS(.VCB[VCB_A_POINTER], .LEN)));
+
+    !+
+    ! Copy the input to the users string.
+    !-
+
+    STATUS = LIB$SCOPY_R_DX( LEN, .VCB[VCB_A_POINTER], .OUT_STRING );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    !+
+    ! Remove the users input from our keypad input buffer.
+    ! Also remove the terminator if entered.
+    !-
+
+    LEN = .LEN + (IF .TERM_CHAR_POS EQL 0 THEN 1 ELSE 2);
+
+    STATUS = STR$RIGHT( VCB[VCB_Q_INPUT_DESC], VCB[VCB_Q_INPUT_DESC], LEN);
+
+    !+
+    ! Done.
+    !-
+
+    $DTK$RETURN (.RET_STATUS);
+
+    END;			! End of routine DTK$READ_STRING
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$RETURN_LAST_INDEX - Return last index spoken.'
+GLOBAL ROUTINE DTK$RETURN_LAST_INDEX (
+	VOICE_ID,
+	INDEX
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will return the last index spoken.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$RETURN_LAST_INDEX (VOICE_ID.rl.r,
+!					 	  INDEX.wl.r)
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	INDEX.wl.r		Index to be returned. 
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!
+! SIDE EFFECTS:
+!
+!	The last spoken index is returned.
+!
+!-
+
+    BEGIN
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 2);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! Send index query sequence to DECtalk
+    ! and get returned value.
+    !-
+
+    $DTK$OUTPUT_DATA( DT_MISC, K_INDEX_QUERY );
+
+    STATUS = DTK$$GET_STATUS( .VCB, .INDEX, %REF(K_TMO_SEC) );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    .INDEX = .VCB [VCB_W_LAST_INDEX];	! Return last index spoken
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;				! End of routine DTK$RETURN_LAST_INDEX
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$RUN_SELF_TEST - Run local self-tests.'
+GLOBAL ROUTINE DTK$RUN_SELF_TEST (
+	VOICE_ID,
+	P_MODE
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will run the specified DECtalk local self-test.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$RUN_SELF_TEST (VOICE_ID.rl.r,
+!					      P_MODE.rl.r)
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	P_MODE.rl.r		Self-test to be run.  Valid values are:
+!					DTK$K_TEST_POWER
+!					DTK$K_TEST_HDATA
+!					DTK$K_TEST_HCONTROL
+!					DTK$K_TEST_DATA
+!					DTK$K_TEST_SPEAK
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVARG	Invalid argument.
+!
+! SIDE EFFECTS:
+!
+!	The specified self-test is run.
+!
+!-
+
+    BEGIN
+
+    BIND
+	MODE = .P_MODE;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	TEST_NUM,			! Number of test to run
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 2);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    SELECTONE .MODE OF 
+	SET
+
+	[DTK$K_TEST_POWER]    : TEST_NUM = K_TST_POWER;
+	[DTK$K_TEST_HDATA]    : TEST_NUM = K_TST_HDATA;
+	[DTK$K_TEST_HCONTROL] : TEST_NUM = K_TST_HCONTROL;
+	[DTK$K_TEST_DATA]     : TEST_NUM = K_TST_DATA;
+	[DTK$K_TEST_SPEAK]    : TEST_NUM = K_TST_SPEAK;
+	[OTHERWISE]           : $DTK$RETURN (DTK$_INVARG);
+
+	TES;
+
+    !+
+    ! Send self-test sequence to DECtalk.
+    !-
+
+    $DTK$OUTPUT_DATA( DECTST, .TEST_NUM );
+
+    !+
+    ! Wait for the test to run.
+    !-
+
+    STATUS = LIB$WAIT( %REF( K_2_SECONDS ) );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    STATUS = LIB$WAIT( %REF( K_2_SECONDS ) );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    STATUS = LIB$WAIT( %REF( K_2_SECONDS ) );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;			! routine DTK$RUN_SELF_TEST
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$SET_INDEX - Insert an index at current position.'
+GLOBAL ROUTINE DTK$SET_INDEX (
+	VOICE_ID,
+	P_INDEX
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will insert an index in the current output stream.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$SET_INDEX (VOICE_ID.rl.r,
+!					  P_INDEX.rl.r)
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	P_INDEX.rl.r		Index to be inserted.  Allowed value is 1-32767.
+!				An index of 0 is reserved for internal use.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVARG	Invalid argument.
+!
+! SIDE EFFECTS:
+!
+!	The specified index is inserted in the current 
+!	position in the output stream.
+!
+!-
+
+    BEGIN
+
+    BIND
+	INDEX = .P_INDEX;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 2);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! Index value must be between 1 and 32767.
+    !-
+
+    IF (.INDEX LSS 1) OR (.INDEX GTR 32767) THEN $DTK$RETURN (DTK$_INVARG);
+
+    !+
+    ! Send index sequence to DECtalk.
+    !-
+
+    $DTK$OUTPUT_DATA( DT_MISC2, K_INDEX, .INDEX );
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;			! routine DTK$SET_INDEX
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$SET_KEYPAD_MODE - Turn the phone keypad on/off.'
+GLOBAL ROUTINE DTK$SET_KEYPAD_MODE (
+	VOICE_ID,
+	MODE
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine turns recognition of the telephone keypad on or off.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$SET_KEYPAD_MODE (VOICE_ID.rl.r, 
+!						MODE.rl.r)
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	MODE.rl.r		DTK$K_KEYPAD_ON to turn the keypad on,
+!				DTK$K_KEYPAD_OFF to turn it off,
+!				DTK$K_KEYPAD_AUTO to turn it on with auto-stop.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_ONHOOK	Phone is onhook
+!	DTK$_INVMODE	Invalid mode specified.
+!	DTK$_WINK	A wink has occurred.
+!
+! SIDE EFFECTS:
+!
+!	Recognition of the phone keypad is turned on or off.
+!
+!--
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	RET_STATUS,			! Status returned by DECtalk
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 2);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! Check for mode and then send sequence.
+    !-
+
+    SELECTONE ..MODE OF
+    SET
+
+    [DTK$K_KEYPAD_ON]:
+	BEGIN
+	$DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_KEYPAD_ON );
+	VCB [VCB_V_KEYPAD_ON] = 1;
+	VCB [VCB_V_AUTOSTOP]  = 0;
+	END;
+
+    [DTK$K_KEYPAD_OFF]:
+	BEGIN
+	$DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_KEYPAD_OFF );
+	VCB [VCB_V_KEYPAD_ON] = 0;
+	VCB [VCB_V_AUTOSTOP]  = 0;
+	END;
+
+    [DTK$K_KEYPAD_AUTO]:
+	BEGIN
+
+	IF .VCB [VCB_B_DEVTYPE] EQL DTK$K_DTC_01
+	THEN
+	    BEGIN
+	    $DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_KEYPAD_ON );
+	    END
+	ELSE
+	    BEGIN
+	    $DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_KEYPAD_AUTO );
+	    END;
+
+	VCB [VCB_V_KEYPAD_ON] = 1;
+	VCB [VCB_V_AUTOSTOP]  = 1;
+
+	END;
+
+    [OTHERWISE]:
+	$DTK$RETURN (DTK$_INVMODE);
+
+    TES;
+
+    !+
+    ! Read status response.
+    !-
+
+    STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, %REF(K_TMO_SEC));
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+    IF .RET_STATUS EQL DTK$_OFFHOOK THEN $DTK$RETURN (SS$_NORMAL);
+
+    !+
+    ! Something happened to the phone connection.  Assume the user
+    ! has hungup.
+    !-
+
+    VCB [VCB_V_OFFHOOK]   = 0;
+    VCB [VCB_V_KEYPAD_ON] = 0;
+    VCB [VCB_V_AUTOSTOP]  = 0;
+    VCB [VCB_V_WINK]      = 0;
+
+    $DTK$RETURN (.RET_STATUS);
+
+    END;				! End of routine DTK$SET_KEYPAD_MODE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$SET_LOGGING_MODE - Set the specified mode on the DECtalk terminal.'
+GLOBAL ROUTINE DTK$SET_LOGGING_MODE (
+	VOICE_ID,
+	NEW_MODE,
+	OLD_MODE
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine sets or resets the specified mode on the DECtalk terminal.
+!
+!	The last two parameters are optional.  First, if OLD_MODE
+!	is supplied, it is filled in with the current mode bit settings.
+!	Secondly, if the NEW_MODE parameter is provided, its
+!	contents are used to set the current mode(s) of operation.
+!	
+!	Hence this routine can typically be used in three way.
+!	a).	To find out current settings:
+!		DTK$SET_LOGGING_MODE ( VOICE_ID, , OLD_MODE)
+!
+!	b).	To set the bits with no regard for their current setting:
+!		DTK$SET_LOGGING_MODE ( VOICE_ID, NEW_MODE)
+!
+!	c).	To write modular code, saving the current settings,
+!		setting them to your desired setting, then restoring
+!		original settings before exiting your procedure:
+!		DTK$SET_LOGGING_MODE ( VOICE_ID, 
+!				   NEW_MODE, saved_mode_bits )
+!		and before exiting,
+!		DTK$SET_LOGGING_MODE ( VOICE_ID, saved_mode_bits )
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$SET_LOGGING_MODE (VOICE_ID.rl.r
+!						 [,NEW_MODE.rl.r]
+!						 [,OLD_MODE.wl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device.
+!
+!	NEW_MODE.rl.r		DECtalk mode to be set.  Valid values are:
+!					DTK$M_TEXT
+!					DTK$M_PHONEME
+!					DTK$M_RAWHOST
+!					DTK$M_INHOST
+!					DTK$M_OUTHOST
+!					DTK$M_ERROR
+!					DTK$M_TRACE
+!					DTK$M_DEBUG
+!				These values may be OR'd together to set more
+!				than one mode at a time.  Any mode not specified
+!				is reset.
+!
+!	OLD_MODE.wl.r		[OPTIONAL].  If specified, recieves the old
+!				mode settings in effect before setting the new
+!				ones.
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_INVMODE	Invalid mode specified.
+!
+! SIDE EFFECTS:
+!
+!	The specified modes are set on the device.  All others are reset.
+!
+!--
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 3);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! If user asked for old modes, return them now.
+    !-
+
+    IF NOT NULLPARAMETER(OLD_MODE) THEN .OLD_MODE = .VCB [VCB_B_MODE_LOGGING];
+
+    !+
+    ! Set new mode values if specified.
+    !-
+
+    IF NOT NULLPARAMETER(NEW_MODE)
+    THEN
+	BEGIN
+
+	!+
+	! Only allow legal modes.
+	!-
+
+	IF .(.NEW_MODE)<8,24> NEQ 0 THEN $DTK$RETURN (DTK$_INVMODE);
+
+	!+
+	! Output sequence to set mode.
+	!-
+
+	$DTK$OUTPUT_DATA( DT_MISC2, K_LOG, ..NEW_MODE );
+
+	!+
+	! Remember the new mode.
+	!-
+
+	VCB [VCB_B_MODE_LOGGING] = ..NEW_MODE;
+
+	END;
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;			! end of routine DTK$SET_LOGGING_MODE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$SET_MODE - Set the specified mode on the DECtalk terminal.'
+GLOBAL ROUTINE DTK$SET_MODE (
+	VOICE_ID,
+	NEW_MODE,
+	OLD_MODE
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine sets or resets the specified mode on the DECtalk terminal.
+!
+!	The last two parameters are optional.  First, if OLD_MODE
+!	is supplied, it is filled in with the current mode bit settings.
+!	Secondly, if the NEW_MODE parameter is provided, its
+!	contents are used to set the current mode(s) of operation.
+!	
+!	Hence this routine can typically be used in three way.
+!	a).	To find out current settings:
+!		DTK$SET_MODE ( VOICE_ID, , OLD_MODE)
+!
+!	b).	To set the bits with no regard for their current setting:
+!		DTK$SET_MODE ( VOICE_ID, NEW_MODE)
+!
+!	c).	To write modular code, saving the current settings,
+!		setting them to your desired setting, then restoring
+!		original settings before exiting your procedure:
+!		DTK$SET_MODE ( VOICE_ID, 
+!				   NEW_MODE, saved_mode_bits )
+!		and before exiting,
+!		DTK$SET_MODE ( VOICE_ID, saved_mode_bits )
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$SET_MODE (VOICE_ID.rl.r
+!					 [,NEW_MODE.rl.r]
+!					 [,OLD_MODE.wl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device.
+!
+!	NEW_MODE.rl.r		DECtalk mode to be set.  Valid values are:
+!					DTK$M_SQUARE
+!					DTK$M_ASCII
+!					DTK$M_MINUS
+!					DTK$M_EUROPE
+!					DTK$M_SPELL
+!				These values may be OR'd together to set more
+!				than one mode at a time.  Any mode not specified
+!				is reset.
+!
+!	OLD_MODE.wl.r		[OPTIONAL].  If specified, recieves the old
+!				mode settings in effect before setting the new
+!				ones.
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_INVMODE	Invalid mode specified.
+!
+! SIDE EFFECTS:
+!
+!	The specified modes are set on the device.  All others are reset.
+!
+!--
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 3);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! If user asked for old modes, return them now.
+    !-
+
+    IF NOT NULLPARAMETER(OLD_MODE) THEN .OLD_MODE = .VCB [VCB_W_MODE_SETTINGS];
+
+    !+
+    ! Set new mode values if specified.
+    !-
+
+    IF NOT NULLPARAMETER(NEW_MODE)
+    THEN
+	BEGIN
+
+	!+
+	! Only allow legal modes.
+	!-
+
+	IF .(.NEW_MODE)<6,26> NEQ 0 THEN $DTK$RETURN (DTK$_INVMODE);
+
+	!+
+	! Output sequence to set mode.
+	!-
+
+	$DTK$OUTPUT_DATA( DT_MISC2, K_MODE, ..NEW_MODE );
+
+	!+
+	! Remember the new mode.
+	!-
+
+	VCB [VCB_W_MODE_SETTINGS] = ..NEW_MODE;
+
+	END;
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;			! end of routine DTK$SET_MODE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$SET_SPEECH_MODE - Set speech mode on or off.'
+GLOBAL ROUTINE DTK$SET_SPEECH_MODE (
+	VOICE_ID,
+	NEW_MODE,
+	OLD_MODE
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will start or stop the DECtalk from speaking.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$SET_SPEECH_MODE (VOICE_ID.rl.r, 
+!						NEW_MODE.rl.r
+!						[,OLD_MODE.wl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	NEW_MODE.rl.r		Indicates which mode to set.  Valid values are:
+!					DTK$K_SPEAK	start speaking
+!					DTK$K_STOP	stop speaking when done
+!					DTK$K_HALT	stop speaking immedately
+!
+!	OLD_MODE.wl.r		[OPTIONAL].  If specified, recieves the current
+!				mode setting before setting the new modes. 
+!				Values are the same as NEW_MODE.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVMODE	Invalid mode specified.
+!
+! SIDE EFFECTS:
+!
+!	The specified starts or stops speaking text.
+!
+!--
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 3);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! Select sequence to send based on mode value.
+    !-
+
+    SELECTONE ..NEW_MODE OF
+    SET
+
+    [DTK$K_SPEAK]:
+
+	!+
+	! Begin speaking by sending DT_SPEAK_ENABLE.
+	!-
+
+	BEGIN
+	$DTK$OUTPUT_DATA( DT_MISC2, K_SPEAK, K_ENABLE );
+	END;
+
+    [DTK$K_STOP]:
+
+	!+
+	! Stop speaking after all text is spoken 
+	! by sending DT_SPEAK_DISABLE.
+	!-
+
+	BEGIN
+	$DTK$OUTPUT_DATA( DT_MISC2, K_SPEAK, K_DISABLE );
+	END;
+
+    [DTK$K_HALT]:
+
+	!+
+	! Stop speaking immedately by sending DT_STOP.
+	!-
+
+	BEGIN
+	$DTK$OUTPUT_DATA( DT_MISC, K_STOP );
+	END;
+
+    [OTHERWISE]:
+	$DTK$RETURN (DTK$_INVMODE);
+
+    TES;
+
+    !+
+    ! If user asked for old modes, return them now.
+    !-
+
+    IF NOT NULLPARAMETER(OLD_MODE) THEN .OLD_MODE = .VCB [VCB_B_SPEECH_MODES];
+
+    !+
+    ! Remember the new mode.
+    !-
+
+    VCB [VCB_B_SPEECH_MODES] = ..NEW_MODE;
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;			! end of routine DTK$SET_SPEECH_MODE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$SET_TERMINAL_MODE - Set the specified mode on the DECtalk terminal.'
+GLOBAL ROUTINE DTK$SET_TERMINAL_MODE (
+	VOICE_ID,
+	NEW_MODE,
+	OLD_MODE
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine sets or resets the specified mode on the DECtalk terminal.
+!
+!	The last two parameters are optional.  First, if OLD_MODE
+!	is supplied, it is filled in with the current mode bit settings.
+!	Secondly, if the NEW_MODE parameter is provided, its
+!	contents are used to set the current mode(s) of operation.
+!	
+!	Hence this routine can typically be used in three way.
+!	a).	To find out current settings:
+!		DTK$SET_MODE ( VOICE_ID, , OLD_MODE)
+!
+!	b).	To set the bits with no regard for their current setting:
+!		DTK$SET_MODE ( VOICE_ID, NEW_MODE)
+!
+!	c).	To write modular code, saving the current settings,
+!		setting them to your desired setting, then restoring
+!		original settings before exiting your procedure:
+!		DTK$SET_MODE ( VOICE_ID, 
+!				   NEW_MODE, saved_mode_bits )
+!		and before exiting,
+!		DTK$SET_MODE ( VOICE_ID, saved_mode_bits )
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$SET_TERMINAL_MODE (VOICE_ID.rl.r
+!						  [,NEW_MODE.rl.r]
+!						  [,OLD_MODE.wl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device.
+!
+!	NEW_MODE.rl.r		DECtalk mode to be set.  Valid values are:
+!					DTK$M_HOST
+!					DTK$M_SPEAK
+!					DTK$M_EDITED
+!					DTK$M_HARD
+!					DTK$M_SETUP
+!					DTK$M_FILTER
+!				These values may be OR'd together to set more
+!				than one mode at a time.  Any mode not specified
+!				is reset.
+!
+!	OLD_MODE.wl.r		[OPTIONAL].  If specified, recieves the old
+!				mode settings in effect before setting the new
+!				ones.
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_INVMODE	Invalid mode specified.
+!
+! SIDE EFFECTS:
+!
+!	The specified modes are set on the device.  All others are reset.
+!
+!--
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 3);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! If user asked for old modes, return them now.
+    !-
+
+    IF NOT NULLPARAMETER(OLD_MODE) THEN .OLD_MODE = .VCB [VCB_B_MODE_TERMINAL];
+
+    !+
+    ! Set new mode values if specified.
+    !-
+
+    IF NOT NULLPARAMETER(NEW_MODE)
+    THEN
+	BEGIN
+
+	!+
+	! Only allow legal modes.
+	!-
+
+	IF .(.NEW_MODE)<7,25> NEQ 0 THEN $DTK$RETURN (DTK$_INVMODE);
+
+	!+
+	! Output sequence to set mode.
+	!-
+
+	$DTK$OUTPUT_DATA( DT_MISC2, K_TERMINAL, ..NEW_MODE );
+
+	!+
+	! Remember the new mode.
+	!-
+
+	VCB [VCB_B_MODE_TERMINAL] = ..NEW_MODE;
+
+	END;
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;			! end of routine DTK$SET_TERMINAL_MODE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$SET_VOICE - Set voice characteristics.'
+GLOBAL ROUTINE DTK$SET_VOICE (
+	VOICE_ID,
+	NEW_VOICE,
+	SPEECH_RATE,
+	COMMA_PAUSE,
+	PEROID_PAUSE
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will change the DECtalk voice characteristics to the
+!	ones specified.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$SET_VOICE (VOICE_ID.rl.r
+!					  [,NEW_VOICE.rl.r]
+!					  [,SPEECH_RATE.rl.r]
+!					  [,COMMA_PAUSE.rl.r]
+!					  [,PEROID_PAUSE.rl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	NEW_VOICE.rl.r		[OPTIONAL]  Voice to use.  Valid values are:
+!				DTK$K_VOICE_MALE	   standard male voice
+!				DTK$K_VOICE_FEMALE	   standard female voice
+!				DTK$K_VOICE_CHILD	   standard child voice
+!				DTK$K_VOICE_DEEP_MALE	   deep male voice
+!				DTK$K_VOICE_DEEP_FEMALE    deep female voice
+!				DTK$K_VOICE_OLDER_MALE     older male voice
+!				DTK$K_VOICE_LIGHT_FEMALE   light female voice
+!
+!	SPEECH_RATE.rl.r	[OPTIONAL]  Rate at which to speak in words per
+!						minute.  Valid range is 120-350.
+!
+!	COMMA_PAUSE.rl.r	[OPTIONAL]  Number of milliseconds to pause 
+!						after a comma.  
+!						
+!	PEROID_PAUSE.rl.r	[OPTIONAL]  Number of milliseconds to pause 
+!						after a peroid.  
+!						
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion.
+!	SS$_xxxx	Any error from QIO$.
+!	DTK$_INVVOIID	Invalid voice id.
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVARG	Invalid arguement.
+!	OTS$_xxxx	Any error from OTS$CVT_L_TU
+!
+! SIDE EFFECTS:
+!
+!	The specified voice characteristics are set.
+!
+!-
+
+    BEGIN
+
+    LITERAL
+	K_RATE_LEN = 4,
+	K_VOICE_LEN = 3;
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	TEMP     : VECTOR[4 + K_RATE_LEN, BYTE] VOLATILE,
+	TEXT     : VECTOR[4, BYTE] VOLATILE,
+	TEXT_DSC : $DTK$DESCRIPTOR	! Descriptor for DTK$SPEAK_PHONEMIC_TEXT
+		   PRESET(
+			[DSC$B_DTYPE]   = DSC$K_DTYPE_T,
+			[DSC$B_CLASS]   = DSC$K_CLASS_S,
+			[DSC$W_LENGTH]  = 4,
+			[DSC$A_POINTER] = TEXT ),
+	TEMP_DSC : $DTK$DESCRIPTOR	! Descriptor for setting speech rates
+		   PRESET(
+			[DSC$B_DTYPE]   = DSC$K_DTYPE_T,
+			[DSC$B_CLASS]   = DSC$K_CLASS_S,
+			[DSC$W_LENGTH]  = 4 + K_RATE_LEN,
+			[DSC$A_POINTER] = TEMP ),
+	VCB      : REF $VCB_DECL;	! Address of voice control block
+
+    !+
+    ! Validate the arguements and get the VCB address.
+    !-
+
+    $DTK$VALIDATE_ARGCOUNT (1, 5);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! Set new voice.
+    !-
+
+    IF NOT NULLPARAMETER(NEW_VOICE)
+    THEN
+	BEGIN
+
+	SELECTONE ..NEW_VOICE OF 
+	SET
+
+	[DTK$K_VOICE_MALE]:
+		CH$MOVE( K_VOICE_LEN, UPLIT(BYTE(':np')), TEXT );
+
+	[DTK$K_VOICE_FEMALE]:
+		CH$MOVE( K_VOICE_LEN, UPLIT(BYTE(':nb')), TEXT );
+
+	[DTK$K_VOICE_CHILD]:
+		CH$MOVE( K_VOICE_LEN, UPLIT(BYTE(':nk')), TEXT );
+
+	[DTK$K_VOICE_DEEP_MALE]:
+		CH$MOVE( K_VOICE_LEN, UPLIT(BYTE(':nh')), TEXT );
+
+	[DTK$K_VOICE_OLDER_MALE]:
+		CH$MOVE( K_VOICE_LEN, UPLIT(BYTE(':nf')), TEXT );
+
+	[DTK$K_VOICE_DEEP_FEMALE]:
+		CH$MOVE( K_VOICE_LEN, UPLIT(BYTE(':nr')), TEXT );
+
+	[DTK$K_VOICE_LIGHT_FEMALE]:
+		CH$MOVE( K_VOICE_LEN, UPLIT(BYTE(':nu')), TEXT );
+
+	[OTHERWISE]:
+		$DTK$RETURN (DTK$_INVARG);
+
+	TES;
+
+	!+
+	! Now that the descriptor is set up, call DTK$SPEAK_PHONEMIC_TEXT
+	! to set the voice and remember new voice in VCB.
+	!-
+
+	TEXT_DSC [DSC$W_LENGTH] = K_VOICE_LEN;
+
+	STATUS = DTK$SPEAK_PHONEMIC_TEXT( .VOICE_ID, TEXT_DSC );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	VCB [VCB_B_CURR_VOICE] = ..NEW_VOICE;
+
+	END;
+
+    !+
+    ! Set new speaking rate.
+    !-
+
+    IF NOT NULLPARAMETER(SPEECH_RATE)
+    THEN
+	BEGIN
+
+	!+
+	! DECtalk only allows a rate between 120 and 350.
+	!-
+
+	IF (..SPEECH_RATE LSS 120) OR 
+	   (..SPEECH_RATE GTR 350)
+	THEN
+	    $DTK$RETURN (DTK$_INVARG);
+
+	!+
+	! The rate command wants the rate as text chars so convert the parameter
+	!-
+
+	TEXT_DSC [DSC$W_LENGTH]  = K_RATE_LEN;
+
+	STATUS = OTS$CVT_L_TU( .SPEECH_RATE, TEXT_DSC );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	!+
+	! Copy the entire command into buffer and call SPEAK_PHONEMIC_TEXT 
+	! to send the command.  
+	!-
+
+	CH$COPY( K_RATE_LEN, UPLIT(BYTE(':ra ')), 			! From
+		 .TEXT_DSC[DSC$W_LENGTH], .TEXT_DSC[DSC$A_POINTER], 	! From
+		 %C' ',							! Fill
+		 .TEMP_DSC[DSC$W_LENGTH], .TEMP_DSC[DSC$A_POINTER] );	! To
+
+	STATUS = DTK$SPEAK_PHONEMIC_TEXT( .VOICE_ID, TEMP_DSC );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	END;
+
+    !+
+    ! Set comma pause rate.
+    !-
+
+    IF NOT NULLPARAMETER(COMMA_PAUSE)
+    THEN
+	BEGIN
+
+	!+
+	! Only allowed rate is between 0 and 9999.
+	!-
+
+	IF (..COMMA_PAUSE LSS 0) OR 
+	   (..COMMA_PAUSE GTR 9999)
+	THEN
+	    $DTK$RETURN (DTK$_INVARG);
+
+	!+
+	! The rate command wants the rate as text chars so convert the parameter
+	!-
+
+	TEXT_DSC [DSC$W_LENGTH]  = K_RATE_LEN;
+
+	STATUS = OTS$CVT_L_TU( .COMMA_PAUSE, TEXT_DSC );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	!+
+	! Copy the entire command into buffer and call SPEAK_PHONEMIC_TEXT 
+	! to send the command.  
+	!-
+
+	CH$COPY( K_RATE_LEN, UPLIT(BYTE(':cp ')), 
+		 .TEXT_DSC[DSC$W_LENGTH], .TEXT_DSC[DSC$A_POINTER], 
+		 %C' ',
+		 .TEMP_DSC[DSC$W_LENGTH], .TEMP_DSC[DSC$A_POINTER] );
+
+	STATUS = DTK$SPEAK_PHONEMIC_TEXT( .VOICE_ID, TEMP_DSC );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	END;
+
+    !+
+    ! Set new peroid pause rate.
+    !-
+
+    IF NOT NULLPARAMETER(PEROID_PAUSE)
+    THEN
+	BEGIN
+
+	!+
+	! Only allowed rate is between 0 and 9999.
+	!-
+
+	IF (..PEROID_PAUSE LSS 0) OR 
+	   (..PEROID_PAUSE GTR 9999)
+	THEN
+	    $DTK$RETURN (DTK$_INVARG);
+
+	!+
+	! The rate command wants the rate as text chars so convert the parameter
+	!-
+
+	TEXT_DSC [DSC$W_LENGTH]  = K_RATE_LEN;
+
+	STATUS = OTS$CVT_L_TU( .PEROID_PAUSE, TEXT_DSC );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	!+
+	! Copy the entire command into buffer and call SPEAK_PHONEMIC_TEXT 
+	! to send the command.  
+	!-
+
+	CH$COPY( K_RATE_LEN, UPLIT(BYTE(':pp ')), 
+		 .TEXT_DSC[DSC$W_LENGTH], .TEXT_DSC[DSC$A_POINTER], 
+		 %C' ',
+		 .TEMP_DSC[DSC$W_LENGTH], .TEMP_DSC[DSC$A_POINTER] );
+
+	STATUS = DTK$SPEAK_PHONEMIC_TEXT( .VOICE_ID, TEMP_DSC );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	END;
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;				! End of routine DTK$SET_VOICE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$SPEAK_FILE - Speak text in specified file.'
+GLOBAL ROUTINE DTK$SPEAK_FILE (
+	VOICE_ID,
+	FILESPEC,
+	MODE
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will speak the text contained in the specified file.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$SPEAK_FILE (VOICE_ID.rl.r,
+!					   FILESPEC.rt.dx
+!					   [,MODE.rl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	FILESPEC.rt.dx		File containing text to be spoken
+!
+!	MODE.rl.r		[OPTIONAL]  Valid values are:
+!				DTK$K_IMMED to return to the user immedately.
+!					   (default)
+!				DTK$K_WAIT to wait until text is completely 
+!					   spoken.
+!				DTK$K_STATUS same as DTK$K_WAIT but also return
+!					a phone status.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	RMS$_xxx	Any error from RMS
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVMODE	Invalid mode specified.
+!
+! SIDE EFFECTS:
+!
+!	The text in the specified file is spoken.
+!
+!-
+
+BEGIN
+
+BIND
+    K_SP_PTR = UPLIT( BYTE( K_SP ) );
+
+BUILTIN
+    NULLPARAMETER;
+
+LOCAL
+    RET_STATUS,
+    STATUS,				! Status returned by routines
+    RAB_STATUS,				! RAB status
+    SPEAK_STATUS : INITIAL(SS$_NORMAL),	! Speak status
+    BUF_ADDR  : VECTOR [NAM$C_MAXRSS, BYTE] VOLATILE, ! Buffer
+    FAB	   : $FAB_DECL VOLATILE,	! RMS File Attributes Block
+    NAM    : $NAM_DECL VOLATILE,	! RMS NAM block
+    RAB    : $RAB_DECL VOLATILE,	! RMS RAB block
+    FS_LEN : LONG INITIAL(0),		! Length of filespec name used
+    FS_ADDR: REF VECTOR[,BYTE],		! Address of filespec name used
+    VCB    : REF $VCB_DECL;		! Get address of VCB
+
+$DTK$VALIDATE_ARGCOUNT (2, 3);	! Test for right no. of parameters
+$DTK$GET_VCB (.VOICE_ID, VCB);
+
+IF NOT (STATUS = LIB$ANALYZE_SDESC (.FILESPEC, FS_LEN, FS_ADDR))
+THEN
+    $DTK$RETURN (.STATUS);
+
+IF .FS_LEN GTRU 255 THEN $DTK$RETURN (DTK$_FILTOOLON);
+
+!+
+! Initialize the FAB and RAB
+!-
+
+$FAB_INIT(	FAB = FAB,
+		FAC = GET,
+		NAM = NAM,
+		FNA = .FS_ADDR,
+		FNS = .FS_LEN,
+		ORG = SEQ,			! Sequential file
+		FOP = SQO,			! Sequential operations only
+		RAT = CR,			! Carriage control
+		RFM = VAR);			! Variable length records
+
+$NAM_INIT(	NAM = NAM,
+		ESA = BUF_ADDR,
+		ESS = NAM$C_MAXRSS);
+
+$RAB_INIT(	RAB = RAB,
+		FAB = FAB,
+		UBF = BUF_ADDR,
+		USZ = NAM$C_MAXRSS,
+		RAC = SEQ);			! Sequential
+
+!+
+! Open the file for input
+!
+
+STATUS = $OPEN (FAB=FAB);			! Open input file
+IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+!+
+! Connect a record stream to the file
+!-
+
+STATUS = $CONNECT (RAB=RAB);
+IF NOT .STATUS 
+THEN
+    BEGIN
+    $CLOSE (FAB=FAB);
+    $DTK$RETURN (.STATUS);
+    END;
+
+!+
+! First be sure SPEAK_MODE is on.
+! If this is a DTC03 in AUTOSTOP mode, always force
+! SPEAK_MODE since we don't know if the user has already
+! entered input from the phone keypad.
+!-
+
+IF (.VCB [VCB_B_SPEECH_MODES] NEQ DTK$K_SPEAK) OR
+   ((.VCB[VCB_B_DEVTYPE] NEQ DTK$K_DTC_01) AND .VCB[VCB_V_AUTOSTOP])
+THEN
+    BEGIN
+    $DTK$OUTPUT_DATA( DT_MISC2, K_SPEAK, K_ENABLE );
+    VCB [VCB_B_SPEECH_MODES] = DTK$K_SPEAK;
+    END;
+
+!+
+! Loop thru all records in the file, speaking each one.
+!-
+
+WHILE (RAB_STATUS = $GET(RAB=RAB)) DO
+    BEGIN		! while loop
+    IF .RAB [RAB$W_RSZ] NEQ 0
+    THEN
+        BEGIN		! while records remain
+
+	!+
+	! If this is a DECtalk I, we need to simulate 
+	! AUTOSTOP mode if the user specified it.
+	!-
+
+	IF (.VCB[VCB_B_DEVTYPE] EQL DTK$K_DTC_01) AND
+	    .VCB[VCB_V_AUTOSTOP] AND 
+	    .VCB[VCB_V_OFFHOOK]
+	THEN
+	    BEGIN
+
+	    SPEAK_STATUS = DTK$$SIM_AUTO(.VCB, .RAB [RAB$W_RSZ], BUF_ADDR);
+
+	    IF (NOT .SPEAK_STATUS) OR
+	       (.VCB [VCB_W_LENGTH] NEQ 0)
+	    THEN 
+		EXITLOOP;
+
+	    END
+	ELSE
+
+	    !+
+	    ! Output the text.  
+	    !-
+
+	    BEGIN
+	    SPEAK_STATUS=DTK$$OUTPUT(.VCB, .RAB [RAB$W_RSZ], BUF_ADDR);
+	    IF NOT .SPEAK_STATUS THEN EXITLOOP;
+	    END;
+
+	!+
+	! Output a blank after each line to force 
+	! it to be spoken correctly.
+	!-
+
+	SPEAK_STATUS=DTK$$OUTPUT(.VCB, 1, K_SP_PTR);
+	IF NOT .SPEAK_STATUS THEN $DTK$RETURN (.STATUS);
+
+	!+
+	! Determine when we should return to the user.
+	!-
+
+	IF NOT NULLPARAMETER(MODE)
+	THEN
+	    SELECTONE ..MODE OF
+	    SET
+
+	    [DTK$K_IMMED]:
+		;
+
+	    [DTK$K_WAIT, 
+	     DTK$K_STATUS]:
+
+		BEGIN
+
+	        !+
+	        ! Wait until text is completely spoken by sending 
+	        ! DT_SYNC and then requesting a status.
+	        !-
+
+	        $DTK$OUTPUT_DATA( DT_MISC,  K_SYNC    );
+	        $DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_STATUS );
+
+	        SPEAK_STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, 
+						%REF(K_TMO_HR) );
+	        IF NOT .SPEAK_STATUS THEN EXITLOOP;
+
+	        IF .RET_STATUS NEQ DTK$_OFFHOOK 
+	        THEN 
+		    BEGIN
+		    VCB [VCB_V_KEYPAD_ON] = 0;
+		    VCB [VCB_V_AUTOSTOP]  = 0;
+		    VCB [VCB_V_WINK]      = 0;
+		    IF ..MODE EQL DTK$K_STATUS THEN SPEAK_STATUS = .RET_STATUS;
+		    END;
+	        END;
+
+	    [OTHERWISE]:
+		BEGIN
+		SPEAK_STATUS = DTK$_INVMODE;
+		EXITLOOP;
+		END;
+	    TES;
+	END;		! End of while records remain
+    END;		! End of while loop
+
+
+STATUS = $CLOSE (FAB=FAB);
+IF NOT .STATUS THEN $DTK$RETURN(.STATUS);
+
+IF NOT .SPEAK_STATUS
+THEN
+    $DTK$RETURN (.SPEAK_STATUS)
+ELSE
+    IF .RAB_STATUS EQL RMS$_EOF
+    THEN
+        $DTK$RETURN (SS$_NORMAL)
+    ELSE
+        $DTK$RETURN (.RAB_STATUS);
+
+END;					! End of routine DTK$SPEAK_FILE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$SPEAK_PHONEMIC_TEXT - Speak the specified phonemic text.'
+GLOBAL ROUTINE DTK$SPEAK_PHONEMIC_TEXT (
+	VOICE_ID,
+	TEXT,
+	MODE
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will send the specified phonemic text to
+!	the DECtalk terminal to be spoken.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$SPEAK_PHONEMIC_TEXT (VOICE_ID.rl.r, 
+!						    TEXT.rt.dx
+!						    [,MODE.rl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device.
+!
+!	TEXT.rt.dx		String descriptor of the phonemic text to
+!				be spoken.
+!
+!	MODE.rl.r		[OPTIONAL].  Valid values are:
+!				DTK$K_IMMED to return to the user immedately.
+!					(default)
+!				DTK$K_WAIT to wait until text is completely 
+!					   spoken.
+!				DTK$K_STATUS same as DTK$K_WAIT but also return
+!					a phone status.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from $QIO.
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVMODE	Invalid mode specified.
+!	DTK$_ONHOOK	Phone is onhook (inactive).
+!
+! SIDE EFFECTS:
+!
+!	The specified phonemic text is spoken.
+!
+!--
+
+    BEGIN
+
+    BIND
+	K_VT_PTR = UPLIT( BYTE( K_VT ) );
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	TEXT_LEN : LONG INITIAL(0),
+	TEXT_ADDR: REF VECTOR[,BYTE],
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 3);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    !+
+    ! Verify input parameter is a valid string descriptor.
+    !-
+
+    IF NOT (STATUS = LIB$ANALYZE_SDESC ( .TEXT, TEXT_LEN, TEXT_ADDR ) )
+    THEN
+	$DTK$RETURN (.STATUS);
+
+    !+
+    ! Don't allow imbedded escape sequences.
+    !-
+
+    IF NOT CH$FAIL( CH$FIND_CH( .TEXT_LEN, .TEXT_ADDR, K_ESC ) )
+    THEN
+	$DTK$RETURN (DTK$_STRTERESC);
+
+    $DTK$BUFFERING_ON(VCB);		! Turn on buffering
+
+    !+
+    ! First be sure SPEAK_MODE is on.
+    ! If this is a DTC03 in AUTOSTOP mode, always force
+    ! SPEAK_MODE since we don't know if the user has already
+    ! entered input from the phone keypad.
+    !-
+
+    IF (.VCB [VCB_B_SPEECH_MODES] NEQ DTK$K_SPEAK) OR
+       ((.VCB[VCB_B_DEVTYPE] NEQ DTK$K_DTC_01) AND .VCB[VCB_V_AUTOSTOP])
+    THEN
+	BEGIN
+	$DTK$OUTPUT_DATA( DT_MISC2, K_SPEAK, K_ENABLE );
+	VCB [VCB_B_SPEECH_MODES] = DTK$K_SPEAK;
+	END;
+
+    !+
+    ! Output the text with a trailing ^K to force it to be spoken immediately.
+    !-
+
+    $DTK$OUTPUT_DATA( DT_PHOTEXT, .TEXT );
+
+    STATUS=DTK$$OUTPUT(.VCB, 1, K_VT_PTR);
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    $DTK$BUFFERING_OFF(VCB);		! Turn off buffering
+
+    !+
+    ! Determine when we should return to the user.
+    !-
+
+    IF NOT NULLPARAMETER(MODE)
+    THEN
+	SELECTONE ..MODE OF
+	SET
+
+	[DTK$K_IMMED]:
+		;
+
+	[DTK$K_WAIT, 
+	 DTK$K_STATUS]:
+
+	    BEGIN
+	    LOCAL
+		RET_STATUS;
+
+	    !+
+	    ! Wait until text is completely spoken by sending 
+	    ! DT_SYNC and then requesting a status.
+	    !-
+
+	    $DTK$OUTPUT_DATA( DT_MISC,  K_SYNC    );
+	    $DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_STATUS );
+
+	    STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, %REF(K_TMO_HR) );
+	    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	    IF .RET_STATUS NEQ DTK$_OFFHOOK 
+	    THEN 
+		BEGIN
+		VCB [VCB_V_KEYPAD_ON] = 0;
+		VCB [VCB_V_AUTOSTOP]  = 0;
+		VCB [VCB_V_WINK]      = 0;
+		IF ..MODE EQL DTK$K_STATUS THEN $DTK$RETURN (.RET_STATUS);
+		END;
+	    END;
+
+	[OTHERWISE]:
+	    $DTK$RETURN (DTK$_INVMODE);
+
+	TES;
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;			! End of routine DTK$SPEAK_PHONEMIC_TEXT
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$SPEAK_TEXT - Speak text.'
+GLOBAL ROUTINE DTK$SPEAK_TEXT (
+	VOICE_ID,
+	TEXT,
+	MODE
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will speak the specified text.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$SPEAK_TEXT (VOICE_ID.rl.r,
+!					   TEXT.rt.dx
+!					   [,MODE.rl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	TEXT.rt.dx		Text to be spoken
+!
+!	MODE.rl.r		[OPTIONAL].  Valid values are:
+!				DTK$K_IMMED to return to the user immedately.
+!					(default)
+!				DTK$K_WAIT to wait until text is completely 
+!					   spoken.
+!				DTK$K_STATUS same as DTK$K_WAIT but also return
+!					a phone status.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVMODE	Invalid mode specified.
+!	DTK$_ONHOOK	Phone is onhook (inactive).
+!
+! SIDE EFFECTS:
+!
+!	The specified text is spoken.
+!
+!-
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    BIND
+	K_VT_PTR = UPLIT( BYTE( K_VT ) );
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	TEXT_LEN : LONG INITIAL(0),
+	TEXT_ADDR: REF VECTOR[,BYTE],
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 3);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    IF NOT (STATUS = LIB$ANALYZE_SDESC ( .TEXT, TEXT_LEN, TEXT_ADDR ) )
+    THEN
+	$DTK$RETURN (.STATUS);
+
+    !+
+    ! Don't allow imbedded escape sequences.
+    !-
+
+    IF NOT CH$FAIL( CH$FIND_CH( .TEXT_LEN, .TEXT_ADDR, K_ESC ) )
+    THEN
+	$DTK$RETURN (DTK$_STRTERESC);
+
+    $DTK$BUFFERING_ON(VCB);		! Turn on buffering
+
+    !+
+    ! First be sure SPEAK_MODE is on.
+    ! If this is a DTC03 in AUTOSTOP mode, always force
+    ! SPEAK_MODE since we don't know if the user has already
+    ! entered input from the phone keypad.
+    !-
+
+    IF (.VCB [VCB_B_SPEECH_MODES] NEQ DTK$K_SPEAK) OR
+       ((.VCB[VCB_B_DEVTYPE] NEQ DTK$K_DTC_01) AND .VCB[VCB_V_AUTOSTOP])
+    THEN
+	BEGIN
+	$DTK$OUTPUT_DATA( DT_MISC2, K_SPEAK, K_ENABLE );
+	VCB [VCB_B_SPEECH_MODES] = DTK$K_SPEAK;
+	END;
+
+    !+
+    ! If this is a DECtalk I, we need to simulate 
+    ! AUTOSTOP mode if the user specified it.
+    !-
+
+    IF (.VCB[VCB_B_DEVTYPE] EQL DTK$K_DTC_01) AND
+	.VCB[VCB_V_AUTOSTOP] AND
+	.VCB[VCB_V_OFFHOOK]
+    THEN
+	BEGIN
+
+	$DTK$BUFFERING_OFF(VCB);		! Turn off buffering
+
+	STATUS = DTK$$SIM_AUTO(.VCB, .TEXT_LEN, .TEXT_ADDR);
+	IF NOT .STATUS THEN $DTK$RETURN(.STATUS);
+
+	END
+
+    ELSE
+
+	!+
+	! Output the text. 
+	!-
+
+	BEGIN
+
+	STATUS=DTK$$OUTPUT(.VCB, .TEXT_LEN, .TEXT_ADDR);
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	$DTK$BUFFERING_OFF(VCB);		! Turn off buffering
+
+	END;
+
+    !+
+    ! Output a trailing ^K to force the text
+    ! to be spoken immediately.
+    !-
+
+    STATUS=DTK$$OUTPUT(.VCB, 1, K_VT_PTR);
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    !+
+    ! Determine when we should return to the user.
+    !-
+
+    IF NOT NULLPARAMETER(MODE)
+    THEN
+	SELECTONE ..MODE OF
+	SET
+
+	[DTK$K_IMMED]:
+		;
+
+	[DTK$K_WAIT, 
+	 DTK$K_STATUS]:
+
+	    BEGIN
+	    LOCAL
+		RET_STATUS;
+
+	    !+
+	    ! Wait until text is completely spoken by sending 
+	    ! DT_SYNC and then requesting a status.
+	    !-
+
+	    $DTK$OUTPUT_DATA( DT_MISC,  K_SYNC    );
+	    $DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_STATUS );
+
+	    STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, %REF(K_TMO_HR) );
+	    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	    IF .RET_STATUS NEQ DTK$_OFFHOOK 
+	    THEN 
+		BEGIN
+		VCB [VCB_V_KEYPAD_ON] = 0;
+		VCB [VCB_V_AUTOSTOP]  = 0;
+		VCB [VCB_V_WINK]      = 0;
+		IF ..MODE EQL DTK$K_STATUS THEN $DTK$RETURN (.RET_STATUS);
+		END;
+	    END;
+
+	[OTHERWISE]:
+	    $DTK$RETURN (DTK$_INVMODE);
+
+	TES;
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;				! End of routine DTK$SPEAK_TEXT
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$SPELL_TEXT - Spell text.'
+GLOBAL ROUTINE DTK$SPELL_TEXT (
+	VOICE_ID,
+	TEXT,
+	MODE
+	) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will spell out the specified text.
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$SPELL_TEXT (VOICE_ID.rl.r,
+!					   TEXT.rt.dx
+!					   [,MODE.rl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	VOICE_ID.rl.r		Voice id of DECtalk device
+!
+!	TEXT.rt.dx		Text to be spelled out
+!
+!	MODE.rl.r		[OPTIONAL].  Valid values are:
+!				DTK$K_IMMED to return to the user immedately.
+!					(default)
+!				DTK$K_WAIT to wait until text is completely 
+!					   spelled out.
+!				DTK$K_STATUS same as DTK$K_WAIT but also return
+!					a phone status.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xxxx	Any error from QIOW$
+!	DTK$_INVVOIID	Invalid voice id
+!	DTK$_WRONUMARG	Wrong number of arguements.
+!	DTK$_INVMODE	Invalid mode specified.
+!	DTK$_ONHOOK	Phone is onhook (inactive).
+!
+! SIDE EFFECTS:
+!
+!	The specified text is spelled out.
+!
+!-
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    BIND
+	K_VT_PTR = UPLIT( BYTE( K_VT ) );
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	VM_PTR   : REF VECTOR[,BYTE],	! VM containing the text to spell
+	TEXT_LEN : LONG INITIAL(0),	! Length of users text
+	TEXT_ADDR: REF VECTOR[,BYTE],	! Address of users text
+	UP_DESC  : $DTK$DESCRIPTOR,	! Upcased text
+	VCB : REF $VCB_DECL;		! Address of voice control block
+
+    $DTK$VALIDATE_ARGCOUNT (2, 3);	! Test for right no. of args
+    $DTK$GET_VCB (.VOICE_ID, VCB);	! Get address of VCB
+
+    $INIT_DYNDESC(UP_DESC);
+
+    STATUS = STR$UPCASE(UP_DESC, .TEXT);
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    IF NOT (STATUS = LIB$ANALYZE_SDESC ( UP_DESC, TEXT_LEN, TEXT_ADDR ) )
+    THEN
+	$DTK$RETURN (.STATUS);
+
+    !+
+    ! Don't allow imbedded escape sequences.
+    !-
+
+    IF NOT CH$FAIL( CH$FIND_CH( .TEXT_LEN, .TEXT_ADDR, K_ESC ) )
+    THEN
+	$DTK$RETURN (DTK$_STRTERESC);
+
+    !+
+    ! Allocate a buffer that is twice the length of the users string.
+    !-
+
+    STATUS = LIB$GET_VM(%REF(2 * .TEXT_LEN), VM_PTR, DTK_A_ZONE_ID);
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    !+
+    ! Copy the users string into the buffer just allocated,
+    ! separating each character with a peroid.
+    !-
+
+    INCR I FROM 0 TO .TEXT_LEN - 1 DO
+	CH$COPY(1, CH$PLUS(.TEXT_ADDR, .I), 	! From
+		1, UPLIT(BYTE(%C'.')),		! From
+		0,				! Fill
+		2, CH$PLUS(.VM_PTR, .I * 2) );	! To
+
+    !+
+    ! Turn on buffering
+    !-
+
+    $DTK$BUFFERING_ON(VCB);		! Turn on buffering
+
+    !+
+    ! First be sure SPEAK_MODE is on.
+    ! If this is a DTC03 in AUTOSTOP mode, always force
+    ! SPEAK_MODE since we don't know if the user has already
+    ! entered input from the phone keypad.
+    !-
+
+    IF (.VCB [VCB_B_SPEECH_MODES] NEQ DTK$K_SPEAK) OR
+       ((.VCB[VCB_B_DEVTYPE] NEQ DTK$K_DTC_01) AND .VCB[VCB_V_AUTOSTOP])
+    THEN
+	BEGIN
+	$DTK$OUTPUT_DATA( DT_MISC2, K_SPEAK, K_ENABLE );
+	VCB [VCB_B_SPEECH_MODES] = DTK$K_SPEAK;
+	END;
+
+    !+
+    ! If this is a DECtalk I, we need to simulate AUTOSTOP 
+    ! mode if the user specified it and the phone is active.
+    !-
+
+    IF (.VCB[VCB_B_DEVTYPE] EQL DTK$K_DTC_01) AND
+	.VCB[VCB_V_AUTOSTOP] AND
+	.VCB[VCB_V_OFFHOOK]
+    THEN
+	BEGIN
+
+	$DTK$BUFFERING_OFF(VCB);		! Turn off buffering
+
+	STATUS = DTK$$SIM_AUTO(.VCB, 2 * .TEXT_LEN, .VM_PTR);
+	IF NOT .STATUS THEN $DTK$RETURN(.STATUS);
+
+	END
+
+    ELSE
+
+	!+
+	! Output the text.
+	!-
+
+	BEGIN
+
+	STATUS=DTK$$OUTPUT(.VCB, 2 * .TEXT_LEN, .VM_PTR);
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	$DTK$BUFFERING_OFF(VCB);		! Turn off buffering
+
+	END;
+
+    !+
+    ! Output a trailing ^K to force the text
+    ! to be spoken immediately.
+    !-
+
+    STATUS=DTK$$OUTPUT(.VCB, 1, K_VT_PTR);
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    !+
+    ! Free the buffer we used.
+    !-
+
+    STATUS = LIB$FREE_VM(%REF(2 * .TEXT_LEN), VM_PTR, DTK_A_ZONE_ID);
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    STATUS = STR$FREE1_DX(UP_DESC);
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    !+
+    ! Determine when we should return to the user.
+    !-
+
+    IF NOT NULLPARAMETER(MODE)
+    THEN
+	SELECTONE ..MODE OF
+	SET
+
+	[DTK$K_IMMED]:
+		;
+
+	[DTK$K_WAIT, 
+	 DTK$K_STATUS]:
+
+	    BEGIN
+	    LOCAL
+		RET_STATUS;
+
+	    !+
+	    ! Wait until text is completely spelled out by sending 
+	    ! DT_SYNC and then requesting a status.
+	    !-
+
+	    $DTK$OUTPUT_DATA( DT_MISC,  K_SYNC    );
+	    $DTK$OUTPUT_DATA( DT_MISC2, K_PHONE, K_STATUS );
+
+	    STATUS = DTK$$GET_STATUS( .VCB, RET_STATUS, %REF(K_TMO_HR) );
+	    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	    IF .RET_STATUS NEQ DTK$_OFFHOOK 
+	    THEN 
+		BEGIN
+		VCB [VCB_V_KEYPAD_ON] = 0;
+		VCB [VCB_V_AUTOSTOP]  = 0;
+		VCB [VCB_V_WINK]      = 0;
+		IF ..MODE EQL DTK$K_STATUS THEN $DTK$RETURN (.RET_STATUS);
+		END;
+	    END;
+
+	[OTHERWISE]:
+	    $DTK$RETURN (DTK$_INVMODE);
+
+	TES;
+
+    $DTK$RETURN (SS$_NORMAL);
+
+    END;				! End of routine DTK$SPELL_TEXT
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$TERMINATE - Terminate DECtalk.'
+GLOBAL ROUTINE DTK$TERMINATE ( VID ) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine terminates all use of a given DECtalk.
+!	It deallocates the voice control block and all its 
+!	substructures.  It gets rid of the event flag and the channel 
+!	number.  It removes any associated exit handler.
+!
+! CALLING SEQUENCE:
+!
+!       ret_status.wlc.v = DTK$TERMINATE ( VID.rl.r )
+!
+! FORMAL PARAMETERS:
+!
+!       VID.rl.r    		 Voice-id of DECtalk device.
+!
+! IMPLICIT INPUTS:
+!
+!       NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!       NONE
+!
+! COMPLETION STATUS:
+!
+!       SS$_NORMAL      Normal successful completion
+!       DTK$_WRONUMARG  Wrong number of arguments.
+!	SS$_xyz		errors from $DASSGN
+!	LIB$_xyz	errors from LIB$FREE_VM or LIB$FREE_EF
+!
+! SIDE EFFECTS:
+!
+!       NONE
+!--
+
+BEGIN
+
+LOCAL
+	STATUS,				! Status returned by routines
+	SEARCH_VCB : REF $VCB_DECL,	! Next VCB in list
+	VCB	   : REF $VCB_DECL;	! Address of voice control block
+
+ENABLE LIB$SIG_TO_RET;
+
+$DTK$VALIDATE_ARGCOUNT (1, 1);	! Test for right no. of args
+$DTK$GET_VCB (.VID,VCB);	! Get address of VCB
+
+!+
+! Get rid of our exit handler.  Ignore a no handler found error.
+!-
+
+STATUS = $CANEXH( DESBLK = VCB[VCB_R_EXIT_BLOCK] );
+IF (NOT .STATUS) AND (.STATUS NEQ SS$_NOHANDLER) THEN $DTK$RETURN (.STATUS);
+
+!+
+! If there is a channel assigned, deassign it now.
+! This automatically cancels any I/O on the channel.
+! But first reset the terminal characteristics.
+!-
+
+IF .VCB[VCB_W_CHAN] NEQ 0
+  THEN	BEGIN	! deassigning channel
+
+	!+
+	! Call the exit handler to flush the buffer, hangup the phone, and
+	! reset the terminal characteristics.
+	!-
+
+	STATUS = DTK$$VCB_EXIT_HANDLER(0,.VCB);
+
+	STATUS = $DASSGN( CHAN = .VCB[VCB_W_CHAN] );
+	VCB[VCB_W_CHAN] = 0;			! just in case we get called
+						! again after returning an error
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS)
+
+	END;	! deassigning channel
+
+!+
+! Free the keypad input buffer string.
+!-
+
+IF .VCB[VCB_W_LENGTH] NEQ 0
+THEN
+    BEGIN
+
+    STATUS = STR$FREE1_DX( VCB[VCB_Q_INPUT_DESC] );
+    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+    END;
+
+!+
+! Free the output filename.
+!-
+
+IF .VCB[VCB_W_OUTNAM_LEN] NEQ 0
+THEN
+	BEGIN	! freeing outname
+
+	STATUS = LIB$FREE_VM( %REF (.VCB[VCB_W_OUTNAM_LEN] ),
+			      VCB[VCB_A_OUTNAM],
+			      DTK_A_ZONE_ID );
+	VCB[VCB_W_OUTNAM_LEN] = 0;
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS)
+
+	END;	! freeing outname
+
+!+
+! Free the escape sequence capability buffer.
+!-
+
+IF .VCB[VCB_A_CAP_BUFFER] NEQ 0
+THEN
+	BEGIN	! freeing buffer
+
+	STATUS = LIB$FREE_VM( %REF (VCB$K_LONGEST_SEQUENCE),
+			      VCB[VCB_A_CAP_BUFFER],
+			      DTK_A_ZONE_ID );
+	VCB[VCB_A_CAP_BUFFER] = 0;
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS)
+
+	END;	! freeing buffer
+
+!+
+! Free the output buffer.
+!-
+
+IF .VCB[VCB_A_OUTPUT_BUFFER] NEQ 0
+THEN
+	BEGIN	! freeing buffer
+	STATUS = LIB$FREE_VM( %REF (.VCB[VCB_W_OUTPUT_BUFSIZ]),
+			      VCB[VCB_A_OUTPUT_BUFFER],
+			      DTK_A_ZONE_ID );
+	VCB[VCB_A_OUTPUT_BUFFER] = 0;
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS)
+
+	END;	! freeing buffer
+
+!+
+! Loop thru all current VCBs looking for a match.  If found, remove from queue.
+!-
+
+SEARCH_VCB = VCB_QUEUE;
+
+WHILE .SEARCH_VCB NEQ 0 DO
+    IF .SEARCH_VCB[VCB_A_NEXT] EQL .VCB
+    THEN
+	BEGIN
+	SEARCH_VCB[VCB_A_NEXT] = .VCB[VCB_A_NEXT];
+	EXITLOOP;
+	END
+    ELSE
+	SEARCH_VCB = .SEARCH_VCB[VCB_A_NEXT];
+
+!+
+! Now go free the VCB itself.
+!-
+
+VCB [VCB_B_STRUCT_TYPE] = 0;
+
+IF NOT (STATUS=LIB$FREE_VM (%REF (VCB_K_SIZE), VCB, DTK_A_ZONE_ID)) 
+THEN 
+    $DTK$RETURN (.STATUS);
+
+.VID = 0;
+RETURN (SS$_NORMAL);
+
+END;			! End or routine DTK$TERMINATE
+
+!*****************************
+! Start of internal routines.*
+!*****************************
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$$FLUSH_BUFFER - Flush all buffered output to terminal'
+ROUTINE DTK$$FLUSH_BUFFER ( P_VCB ) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine causes all output which has been buffered up but
+!	not yet sent to the terminal, to be output at once.
+!
+! CALLING SEQUENCE:
+!
+!       ret_status.wlc.v = DTK$$FLUSH_BUFFER ( P_VCB.rab.r )
+!
+! FORMAL PARAMETERS:
+!
+!	P_VCB.rab.r	The voice control block address for which 
+!			the flushing action is to take place.
+!
+! IMPLICIT INPUTS:
+!
+!       VCB[VCB_W_OUTPUT_BUFLEN]	number of characters in buffer
+!       VCB[VCB_W_OUTPUT_BUFFER]	address of buffer
+!
+! IMPLICIT OUTPUTS:
+!
+!       VCB[VCB_W_OUTPUT_BUFLEN]	set to 0 (indicating buffer empty)
+!
+! COMPLETION STATUS:
+!
+!       SS$_NORMAL      Normal successful completion
+!	SS$_xyz		errors from DTK$$OUTPUT.
+!
+! SIDE EFFECTS:
+!
+!       NONE
+!--
+
+BEGIN
+
+BIND
+	VCB	=  .P_VCB : $VCB_DECL,		! voice control block
+	OUTBUF	= .VCB[VCB_A_OUTPUT_BUFFER] : VECTOR,
+	OUTLEN	= VCB[VCB_W_OUTPUT_BUFLEN]  : WORD;
+
+LOCAL
+	STATUS;
+
+!+
+! Do nothing if the buffer is empty.
+!-
+
+IF .OUTLEN EQL 0 THEN RETURN (SS$_NORMAL);
+
+!+
+! Output the buffer now.
+! Save time by calling OUTPUT directly rather than DTK$$OUTPUT.
+! (DTK$$OUTPUT would try to buffer the text up anyhow.)
+!-
+
+STATUS = OUTPUT(VCB,.OUTLEN,OUTBUF);
+IF NOT .STATUS THEN RETURN (.STATUS);
+
+!+
+! Note that the buffer is now empty.
+!-
+
+OUTLEN = 0;
+
+RETURN (SS$_NORMAL);
+
+END;			! End of routine DTK$$FLUSH_BUFFER
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$$GET_STATUS - Get status reply from DECtalk.'
+ROUTINE DTK$$GET_STATUS ( 
+		P_VCB,
+		P_RET_STATUS,
+		TIMEOUT
+		) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will read in the reply sequence sent by
+!	DECtalk, parse it, and return the necessary information
+!	in RET_STATUS.
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$$GET_STATUS ( P_VCB.rl.r
+!					    [,P_RET_STATUS.wl.r]
+!					    [,TIMEOUT.rl.r])
+!
+! FORMAL PARAMETERS:
+!
+!	P_VCB.rl.r		Voice control block
+!	P_RET_STATUS.wl.r	[OPTIONAL]  Longword to recieve the status
+!				being reported by DECtalk.  This may be a 
+!				status or a normal value depending on the 
+!				reply being sent by DECtalk.
+!				If not specified, a call is being made from
+!				one of the DTK$$READ_xxxx routines to just 
+!				read in a key.  A status is not returned.
+!
+!	TIMEOUT.rl.r		[OPTIONAL]  Timeout value to use for the QIOs
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	normal successful completion
+!	SS$_xxxx	any error from $QIO
+!
+! SIDE EFFECTS:
+!
+!	A status reply from DECtalk is read.
+!--
+
+    BEGIN
+
+    BUILTIN
+	INSQUE,
+	REMQUE,
+	NULLPARAMETER;
+
+    LOCAL
+	RET_STATUS    : INITIAL(DTK$_UNKREPLY),	! Status read from DECtalk
+	STATUS,				! Status returned by routines
+	FUNC_CODE     : REF VECTOR[,BYTE],! Ptr to function code from esc sequence
+	CURR_CHAR     : REF VECTOR[,BYTE],! Ptr to current character being parsed
+	STSQUE        : REF $STSQUE_DECL,! New entry for status queue
+	TYPEAHEAD_BUF : $TYPEAHEAD_DECL,! Typeahead buffer status
+	QIO_IOSB      : VECTOR[4,WORD],	! I/O Status block for $QIO
+	BUFFER_LEN,			! Number of chars read into BUFFER
+	BUFFER        : VECTOR [K_BUFFER_LEN, BYTE] VOLATILE, ! Input buffer 
+	STR_DESC      : $DTK$DESCRIPTOR	! String descriptor for keypad input
+		   	PRESET(
+			    [DSC$W_LENGTH] = 1,
+			    [DSC$B_DTYPE]  = DSC$K_DTYPE_T,
+			    [DSC$B_CLASS]  = DSC$K_CLASS_S,
+			    [DSC$A_POINTER]= BUFFER);
+
+    BIND
+	VCB = .P_VCB : $VCB_DECL;
+
+    ENABLE LIB$SIG_TO_RET;
+    VCB [VCB_V_STSREAD] = 0;
+
+    !+
+    ! Process all characters in the input buffer.
+    ! If we are to return a status, keep reading until we get one.
+    !-
+
+    DO
+	BEGIN			! Start of WHILE loop
+
+	!+
+	! Get the first character in the typeahead buffer.
+	!-
+
+	STATUS = $QIOW(	CHAN = .VCB[VCB_W_CHAN],
+			EFN  = .DTK_L_EFN,
+			IOSB = QIO_IOSB,
+			FUNC = IO$_READVBLK OR IO$M_NOECHO OR
+		    		(IF NOT NULLPARAMETER(TIMEOUT) 
+				THEN IO$M_TIMED ELSE 0),
+			P1   = .STR_DESC[DSC$A_POINTER],
+			P2   = .STR_DESC[DSC$W_LENGTH],
+			P3   = (IF NOT NULLPARAMETER(TIMEOUT) 
+				THEN ..TIMEOUT ELSE 0)
+			);
+	IF NOT .STATUS THEN RETURN (.STATUS);
+	IF NOT .QIO_IOSB[0] THEN RETURN (.QIO_IOSB[0]);
+
+	!+
+	! If the first character is not an escape, it is keypad input.
+	! Place this input in the user input buffer, which is just a
+	! long dynamic string maintained by the STR$ routines.
+	!-
+
+	IF CH$RCHAR(.STR_DESC[DSC$A_POINTER]) NEQ K_ESC
+	THEN 
+	    BEGIN		! Begin keypad input processing
+
+	    STATUS = STR$CONCAT( VCB[VCB_Q_INPUT_DESC], 
+				 VCB[VCB_Q_INPUT_DESC],
+				 STR_DESC);
+	    IF NOT .STATUS THEN RETURN (.STATUS);
+
+	    END			! End keypad input processing
+	ELSE
+
+	    BEGIN		! Escape char found
+
+	    !+
+	    ! Read in the next status.
+	    ! Note::  we have already read in the escape character.
+	    !-
+
+	    STATUS = DTK$$INPUT(.P_VCB, BUFFER_LEN, BUFFER[1], %REF(K_TMO_SEC) );
+	    IF NOT .STATUS THEN RETURN (.STATUS);
+
+	    BUFFER_LEN = .BUFFER_LEN + 1;	! Add in first char read
+
+	    !+
+	    ! Check first part of buffer to be sure 
+	    ! it is a sequence we know about.
+	    !-
+
+	    CURR_CHAR = CH$FIND_CH(.BUFFER_LEN,BUFFER,K_ESC);
+
+	    IF CH$FAIL(CURR_CHAR) OR .BUFFER_LEN LSS 2 
+	    THEN 
+		RETURN (DTK$_UNKESCSEQ);
+
+	    !+
+	    ! Check for type of escape sequence.
+	    !-
+
+	    IF CH$A_RCHAR(CURR_CHAR) EQL %C'['
+	    THEN
+		!+
+		! We now have a valid CSI, skip ahead to the function
+		! code which is just after the private delimiter '?'.
+		!-
+
+		BEGIN			! Begin CSI processing
+
+		CURR_CHAR = CH$FIND_CH( .BUFFER_LEN, BUFFER, %C'?');
+		IF CH$FAIL(CURR_CHAR) THEN RETURN (DTK$_UNKESCSEQ);
+
+		DO
+		    BEGIN		! Loop until end is found
+
+		    FUNC_CODE = CH$A_RCHAR(CURR_CHAR);
+
+		    !+
+		    ! Determine what to do based on the function code.
+		    !-
+
+		    SELECTONE .FUNC_CODE OF
+		    SET
+
+		    [%C'2']:
+
+			!+
+			! This is a DSR Extended reply sequence.  
+			! The sub-function code is the status.  
+			!-
+
+			SELECTONE CH$A_RCHAR(CURR_CHAR) OF
+			    SET
+			    [%C'0']: 		RET_STATUS = DTK$_NOMALFUN2;
+			    [%C'1']: 		RET_STATUS = DTK$_NOMALFUN1;
+			    [%C'2']: 		RET_STATUS = DTK$_COMFAIL;
+			    [%C'3']: 		RET_STATUS = DTK$_INPBUFOVR;
+			    [%C'4']:		RET_STATUS = DTK$_NVROPRFAI;
+			    [%C'5']:		RET_STATUS = DTK$_ERRPHOTRA;
+			    [%C'6']:		RET_STATUS = DTK$_CONSEQERR;
+			    [%C'7']:		RET_STATUS = DTK$_DECTSTFAI;
+			    [OTHERWISE]: 	RET_STATUS = DTK$_UNKREPLY;
+			    TES;
+
+		    [OTHERWISE]: 
+
+			RET_STATUS = DTK$_UNKESCSEQ;
+
+		    TES;
+
+		    !+
+		    ! Add status entry to status queue.
+		    !-
+
+		    STATUS = LIB$GET_VM(%REF(STSQUE_K_SIZE), 
+					STSQUE, DTK_A_ZONE_ID);
+		    IF NOT .STATUS THEN RETURN (.STATUS);
+
+		    STSQUE [STATUS_L_STATUS] = .RET_STATUS;
+		    INSQUE(.STSQUE, VCB[VCB_L_HDWR_STS_FLINK]);
+
+		    END			! End of loop until end is found
+
+		    !+
+		    ! Check the next character.  This should be either a ';'
+		    ! (another status to process) or an 'n' (end of sequence).
+		    !-
+
+		UNTIL (CH$A_RCHAR(CURR_CHAR) EQL %C'n') OR
+		      (CH$RCHAR(.CURR_CHAR)  EQL %C'c')
+
+		END			! End CSI processing
+	    ELSE
+
+	    IF CH$RCHAR_A(CURR_CHAR) EQL %C'P'
+	    THEN
+		!+
+		! We now have a valid DCS, skip ahead to the function 
+		! code which is just after the next ';'.
+		!-
+
+		BEGIN			! Begin DCS processing
+
+		CURR_CHAR = CH$FIND_CH( .BUFFER_LEN, BUFFER, %C';');
+		IF CH$FAIL(CURR_CHAR) THEN RETURN (DTK$_UNKESCSEQ);
+
+		FUNC_CODE = CH$A_RCHAR(CURR_CHAR);
+
+		!+
+		! We now have the function code, skip ahead to the
+		! sub-function code which is just after the next ';'.
+		!-
+
+		CURR_CHAR = CH$FIND_CH( .BUFFER_LEN, .CURR_CHAR, %C';');
+		IF CH$FAIL(CURR_CHAR) THEN RETURN (DTK$_UNKESCSEQ);
+
+		!+
+		! Determine what to do based on the function code.
+		!-
+
+		SELECTONE .FUNC_CODE OF
+		SET
+
+		[%C'5']:
+
+		    !+
+		    ! This is a DT_DICT reply sequence sequence.  The 
+		    ! sub-function code is the status.
+		    !-
+
+		    SELECTONE CH$A_RCHAR(CURR_CHAR) OF
+		    SET
+		    [%C'z',
+		     %C'0']: 	 RET_STATUS = SS$_NORMAL;
+		    [%C'1']: 	 RET_STATUS = DTK$_NOROOM;
+		    [%C'2']: 	 RET_STATUS = DTK$_TOOLONG;
+		    [OTHERWISE]: RET_STATUS = DTK$_UNKREPLY;
+		    TES;
+
+		[%C'3']:
+		    !+
+		    ! This is a DT_INDEX_QUERY reply sequence sequence.  
+		    ! The characters between the sub-function code and 
+		    ! 'z' is the index.  Convert this to binary.
+		    !-
+		    BEGIN
+		    LOCAL
+			Z_CHAR : REF VECTOR[,BYTE];
+
+		    CH$RCHAR_A(CURR_CHAR);
+
+		    Z_CHAR = CH$FIND_CH( .BUFFER_LEN, .CURR_CHAR, %C'z');
+		    IF CH$FAIL(Z_CHAR) THEN RETURN (DTK$_UNKESCSEQ);
+
+		    STATUS = LIB$CVT_DTB( CH$DIFF(.Z_CHAR,.CURR_CHAR), 
+					  .CURR_CHAR,
+					  RET_STATUS);
+		    IF NOT .STATUS THEN RETURN (DTK$_UNKESCSEQ);	    
+
+		    VCB [VCB_W_LAST_INDEX] = .RET_STATUS;
+
+		    END;
+
+		[%C'7']:
+
+		    !+
+		    ! This is a DT_PHONE reply sequence sequence.  
+		    ! The sub-function code is the status.  
+		    !-
+
+		    SELECTONE CH$A_RCHAR(CURR_CHAR) OF
+		    SET
+		    [%C'z',
+		     %C'0']: 	 
+				 BEGIN
+				 RET_STATUS = DTK$_ONHOOK;
+				 VCB [VCB_V_OFFHOOK]   = 0;
+				 VCB [VCB_V_KEYPAD_ON] = 0;
+				 VCB [VCB_V_AUTOSTOP]  = 0;
+				 VCB [VCB_V_WINK]      = 0;
+				 END;
+
+		    [%C'1']: 	 
+				 BEGIN
+				 RET_STATUS = DTK$_OFFHOOK;
+				 VCB [VCB_V_OFFHOOK] = 1;
+				 END;
+
+		    [%C'2']: 	 RET_STATUS = DTK$_TIMEOUT;
+		    [%C'3']: 	 RET_STATUS = DTK$_TOOLONG;
+		    [%C'4']:
+				 BEGIN
+				 RET_STATUS = DTK$_WINK;
+				 VCB [VCB_V_WINK] = 1;
+				 END;
+
+		    [%C'5']:	 RET_STATUS = DTK$_NODIATONE;
+		    [%C'6']:	 RET_STATUS = DTK$_BUSY;
+		    [%C'7']:	 RET_STATUS = DTK$_NOANSWER;
+		    [OTHERWISE]: RET_STATUS = DTK$_UNKREPLY;
+		    TES;
+
+		[OTHERWISE]: 
+
+		    RET_STATUS = DTK$_UNKESCSEQ;
+
+		TES;
+
+	    !+
+	    ! Add status entry to status queue.
+	    !-
+
+	    IF .RET_STATUS NEQ DTK$_WINK
+	    THEN
+		BEGIN
+
+		STATUS = LIB$GET_VM(%REF(STSQUE_K_SIZE), STSQUE, DTK_A_ZONE_ID);
+		IF NOT .STATUS THEN RETURN (.STATUS);
+
+		STSQUE [STATUS_L_STATUS] = .RET_STATUS;
+		INSQUE(.STSQUE, VCB[VCB_L_STATUS_FLINK]);
+
+		VCB [VCB_V_STSREAD] = 1;	! Set status flag
+
+		END;
+	    END;				! End of DCS processing
+	END;					! End of escape char found
+
+    !+
+    ! Check the typeahead buffer.
+    !-
+
+    STATUS=$QIOW(CHAN	= .VCB[VCB_W_CHAN],
+		 EFN	= .DTK_L_EFN,
+		 IOSB	= QIO_IOSB,
+		 FUNC	= IO$_SENSEMODE OR IO$M_TYPEAHDCNT,
+		 P1	= TYPEAHEAD_BUF,
+		 P2	= 8);
+
+    IF NOT .STATUS THEN RETURN (.STATUS);
+    IF NOT .QIO_IOSB[0] THEN RETURN (.QIO_IOSB[0]);
+
+    END					! End of WHILE
+    WHILE (.TYPEAHEAD_BUF [TYPEAHEAD_COUNT] NEQ 0) OR
+	  (NOT NULLPARAMETER(P_RET_STATUS) AND .VCB[VCB_V_STSREAD] EQL 0);
+
+    !+
+    ! We have now processed all characters in the input buffer.
+    ! Return the last status read by removing the latest entry
+    ! on the status queue.  In most cases, this is the only queue 
+    ! entry but it may not be since the DECTALK may have sent us
+    ! an unsolicited status (wink).
+    !-
+
+    IF NOT NULLPARAMETER(P_RET_STATUS)
+    THEN
+	BEGIN					! Return status
+
+	STATUS = REMQUE(.VCB[VCB_L_STATUS_FLINK], STSQUE);
+
+	IF .STATUS
+ 	THEN
+	    .P_RET_STATUS = SS$_NORMAL		! Queue was empty
+	ELSE
+	    BEGIN				! Queue was not empty
+
+	    .P_RET_STATUS = .STSQUE[STATUS_L_STATUS];
+
+	    STATUS = LIB$FREE_VM(%REF(STSQUE_K_SIZE), STSQUE, DTK_A_ZONE_ID);
+	    IF NOT .STATUS THEN RETURN (.STATUS);
+
+	    END;				! End of queue was empty
+	END;					! End of return status
+
+    RETURN (SS$_NORMAL);
+
+    END;				! End of routine DTK$$GET_STATUS
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$$GET_TERM_DATA - Get terminal data.'
+ROUTINE DTK$$GET_TERM_DATA ( 
+		P_VCB,
+		SEQ_PTR,
+		SEQ_LEN,
+		INPUT_ARG1,
+		INPUT_ARG2
+		) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$$GET_TERM_DATA ( P_VCB.rl.r
+!						SEQ_PTR.rl.r,
+!						SEQ_LEN.rl.r
+!						[,INPUT_ARG1]
+!						[,INPUT_ARG2])
+!
+! FORMAL PARAMETERS:
+!
+!	P_VCB.rl.r		Address of voice control block
+!	SEQ_PTR.rl.r		Address of sequence to retrieve
+!	SEQ_LEN.rl.r		Length of sequence
+!	INPUT_ARG1		Value for first sequence substitution
+!	INPUT_ARG2		Value for second sequence substitution
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	normal successful completion
+!	SS$_xxxx	any error from $FAO
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!--
+
+    BEGIN
+
+    LITERAL
+	K_ARG1 = 4,
+	K_ARG2 = 5;
+
+    BUILTIN
+	ACTUALCOUNT,
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,				! Status returned by routines
+	CONTROL_DSC : $DTK$DESCRIPTOR,
+	RETURN_DSC  : $DTK$DESCRIPTOR;
+
+    BIND
+	VCB = .P_VCB : $VCB_DECL;
+
+    !+
+    ! If no arguement substitution is required, just
+    ! move the capability into the buffer and return.
+    !-
+
+    IF ACTUALCOUNT() LSS K_ARG1
+    THEN
+	BEGIN
+	VCB [VCB_L_CAP_LENGTH] = .SEQ_LEN;
+	CH$MOVE( .SEQ_LEN, .SEQ_PTR, .VCB [VCB_A_CAP_BUFFER] );
+	RETURN (SS$_NORMAL);
+	END;
+
+    !+
+    ! Call $FAO to process the string.
+    !-
+
+    CONTROL_DSC [DSC$B_DTYPE]   = DSC$K_DTYPE_T;
+    CONTROL_DSC [DSC$B_CLASS]   = DSC$K_CLASS_S;
+    CONTROL_DSC [DSC$W_LENGTH]  = .SEQ_LEN;
+    CONTROL_DSC [DSC$A_POINTER] = .SEQ_PTR;
+
+    RETURN_DSC [DSC$B_DTYPE]   = DSC$K_DTYPE_T;
+    RETURN_DSC [DSC$B_CLASS]   = DSC$K_CLASS_S;
+    RETURN_DSC [DSC$W_LENGTH]  = VCB$K_LONGEST_SEQUENCE;
+    RETURN_DSC [DSC$A_POINTER] = .VCB [VCB_A_CAP_BUFFER];
+
+    STATUS = $FAO ( CONTROL_DSC, 
+		    VCB [VCB_L_CAP_LENGTH],
+		    RETURN_DSC,
+		    .INPUT_ARG1,
+		    (IF NOT NULLPARAMETER(INPUT_ARG2)
+		     THEN .INPUT_ARG2 ELSE 0)
+		    );
+
+    RETURN (.STATUS);
+
+    END;				! End of routine DTK$$GET_TERM_DATA
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$$INPUT - Low level input'
+GLOBAL ROUTINE DTK$$INPUT(P_VCB,P_TEXT_LEN,TEXT_ADR,TIMEOUT) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Handles low level input by issuing a QIO.
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$$INPUT(
+!				P_VCB.rab.r,
+!				P_TEXT_LEN.wl.r,
+!				TEXT_ADR.rt.r
+!				[, TIMEOUT])
+!
+! FORMAL PARAMETERS:
+!
+!	P_VCB.rab.r		Address of voice control block.
+!
+!	P_TEXT_LEN.wl.v		Number of characters to read/read into 
+!				the text string
+!
+!	TEXT_ADR.rt.r		Address of start of text string
+!				The text may contain escape sequences.
+!
+!	TIMEOUT.rl.r		[OPTIONAL] Number of seconds to wait for
+!				the input.
+! IMPLICIT INPUTS:
+!
+!	Contents of VCB.
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xyz		errors from QIO
+!	SS$_xyz		errors from $ASSIGN
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!--
+
+BEGIN
+
+BUILTIN
+	NULLPARAMETER;
+
+BIND
+	TEXT_LEN = .P_TEXT_LEN,
+	VCB	 = .P_VCB : $VCB_DECL;	! voice control block
+
+LOCAL
+	STATUS,			! Status returned by routines
+	CURR_CHAR : REF VECTOR[,BYTE],
+	QIO_IOSB  : VECTOR[4, WORD];
+
+TEXT_LEN = 0;
+
+!+
+! Issue a QIO to read the string.
+!-
+
+STATUS=$QIOW(	CHAN	= .VCB[VCB_W_CHAN],
+		EFN	= .DTK_L_EFN,
+		FUNC	= IO$_READVBLK OR IO$M_ESCAPE OR 
+			  IO$M_NOECHO  OR IO$M_TRMNOECHO OR
+			  (IF NOT NULLPARAMETER(TIMEOUT) 
+			   THEN IO$M_TIMED ELSE 0),
+		IOSB	= QIO_IOSB,
+		P1	= .TEXT_ADR,
+		P2	= K_BUFFER_LEN,
+		P3	= (IF NOT NULLPARAMETER(TIMEOUT) 
+			   THEN ..TIMEOUT ELSE 0));
+IF NOT .STATUS      THEN RETURN (.STATUS);
+IF NOT .QIO_IOSB[0] THEN RETURN (.QIO_IOSB[0]);
+
+TEXT_LEN  = .QIO_IOSB[1] + .QIO_IOSB[3];
+CURR_CHAR = CH$PLUS(.TEXT_ADR,(.TEXT_LEN - 2));
+
+IF .TEXT_LEN GEQ 2 AND
+   CH$RCHAR_A(CURR_CHAR) EQL K_ESC AND 
+   CH$RCHAR_A(CURR_CHAR) EQL %C'P'
+THEN
+    !+
+    ! We have just read in a DCS.  Read in the remaining part of the sequence.
+    !-
+    BEGIN
+
+    STATUS=$QIOW(CHAN	= .VCB[VCB_W_CHAN],
+		 EFN	= .DTK_L_EFN,
+		 FUNC	= IO$_READVBLK OR IO$M_ESCAPE OR IO$M_NOECHO,
+		 IOSB	= QIO_IOSB,
+		 P1	= .CURR_CHAR,
+		 P2	= K_BUFFER_LEN);
+    IF NOT .STATUS      THEN RETURN (.STATUS);
+    IF NOT .QIO_IOSB[0] THEN RETURN (.QIO_IOSB[0]);
+
+    TEXT_LEN = .TEXT_LEN + .QIO_IOSB[1] + .QIO_IOSB[3];
+
+    END;
+
+RETURN (SS$_NORMAL);
+
+END;				! End of routine DTK$$INPUT
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$$OUTPUT - Output to DECtalk'
+GLOBAL ROUTINE DTK$$OUTPUT (P_VCB,TEXT_LEN,TEXT_ADR) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Handles output by buffering all text and sending it in
+!	one QIO when the buffer is full if buffering mode is on.
+!	If not, issues a QIO to output the text.
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$$OUTPUT(
+!					P_VCB.rab.r,
+!					TEXT_LEN.rl.v,
+!					TEXT_ADR.rt.r)
+!
+! FORMAL PARAMETERS:
+!
+!	P_VCB.rab.r		Address of voice control block.
+!
+!	TEXT_LEN.rl.v		Number of characters in text string
+!
+!	TEXT_ADR.rt.r		Address of start of text string
+!				The text may contain escape sequences.
+!
+! IMPLICIT INPUTS:
+!
+!	Contents of VCB.
+!
+! IMPLICIT OUTPUTS:
+!
+!	VCB[VCB_W_OUTPUT_BUFLEN]	may change if buffering is enabled.
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!	Output may occur.
+!	If buffering is enabled, buffers may fill and/or dump.
+!--
+
+BEGIN
+
+BIND
+	VCB	= .P_VCB	: $VCB_DECL,	! voice control block
+	TEXT	= .TEXT_ADR	: VECTOR[,BYTE],! string to be output
+	BUFLEN	=  VCB[VCB_W_OUTPUT_BUFLEN] : WORD,	! num of chars in buffer
+	BUFSIZ	=  VCB[VCB_W_OUTPUT_BUFSIZ] : WORD,	! size of buffer
+	BUFFER	= .VCB[VCB_A_OUTPUT_BUFFER] : VECTOR[,BYTE]; ! Output buffer
+
+LOCAL
+	STATUS;
+
+!+
+! If buffering is enabled, and the new string won't fit in the buffer,
+! then we must output the buffer now.
+! If it will fit, then just put it in the buffer.
+! Do not break up the string since we do not want to output
+! a partial escape sequence.
+!-
+
+IF .VCB[VCB_V_BUF_ENABLED]
+  THEN	BEGIN	! buffering is enabled
+
+	!+
+	! See if the string will fit in the buffer.
+	!-
+
+	IF .TEXT_LEN+.BUFLEN GTRU .BUFSIZ
+	  THEN	BEGIN	! No - Dump buffer
+
+		STATUS=OUTPUT(VCB,.BUFLEN,BUFFER);
+		IF NOT .STATUS THEN RETURN (.STATUS);
+		BUFLEN=0;
+
+		END	! No - Dump buffer
+	  ELSE	BEGIN	! Yes - append to buffer
+
+		!+
+		! Copy the text into the buffer,
+		! update BUFLEN which keeps track of
+		! how much data is in the buffer,
+		! and then return.
+		!-
+
+		CH$MOVE(.TEXT_LEN,TEXT,BUFFER[.BUFLEN]);
+		BUFLEN=.BUFLEN+.TEXT_LEN;
+		RETURN (SS$_NORMAL);
+
+		END;	! Yes - append to buffer
+
+	!+
+	! We reach here if the string would not fit in the buffer.
+	! The buffer has been dumped.
+	! Put the new string into the buffer.
+	! If it will not fit, we output it in chunks.
+	! We output as many full buffer chunks as we can.
+	! When we are all done, we are left with a string
+	! smaller than one buffer's worth, which we then
+	! put into our output buffer.
+	!-
+
+	INCR I FROM 0 BY .BUFSIZ DO
+		IF .I+.BUFSIZ LEQU .TEXT_LEN
+		  THEN
+			BEGIN	! output next part of string
+			STATUS=OUTPUT(VCB,.BUFSIZ,TEXT[.I]);
+			IF NOT .STATUS THEN RETURN (.STATUS);
+			END	! output next part of string
+		  ELSE
+			BEGIN	! buffer final part of string
+			BUFLEN=.TEXT_LEN-.I;			! could be 0
+			CH$MOVE(.BUFLEN,TEXT[.I],BUFFER);
+			EXITLOOP
+			END	! buffer final part of string
+
+	END	! buffering is enabled
+  ELSE	BEGIN	! no buffering
+
+	!+
+	! Output the string directly.
+	!-
+
+	STATUS=OUTPUT(VCB,.TEXT_LEN,TEXT);
+	IF NOT .STATUS THEN RETURN (.STATUS);
+
+	END;	! no buffering
+
+RETURN (SS$_NORMAL);
+
+END;				! End of routine DTK$$OUTPUT
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$$SET_TERM_CHARACTERISTICS - Setup terminal line characteristics.'
+ROUTINE DTK$$SET_TERM_CHARACTERISTICS (
+	P_VCB, ON_CHARACTERISTICS1, ON_CHARACTERISTICS2,
+	OFF_CHARACTERISTICS1, OFF_CHARACTERISTICS2 ) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine changes the terminal characteristics
+!	for a given DECtalk.
+!
+! CALLING SEQUENCE:
+!
+!       RET_STATUS.wlc.v = DTK$$SET_TERM_CHARACTERISTICS (
+!				P_VCB.rl.r
+!				[,ON_CHARACTERISTICS1.rl.v]
+!				[,ON_CHARACTERISTICS2.rl.v]
+!				[,OFF_CHARACTERISTICS1.rl.v]
+!				[,OFF_CHARACTERISTICS2.rl.v]
+!
+! FORMAL PARAMETERS:
+!
+!	P_VCB.rl.r			voice control block
+!	ON_CHARACTERITSICS1.rl.v	bits to turn on in 1st characteristics
+!	ON_CHARACTERITSICS2.rl.v	bits to turn on in 2nd characteristics
+!	OFF_CHARACTERITSICS1.rl.v	bits to turn off in 1st characteristics
+!	OFF_CHARACTERITSICS2.rl.v	bits to turn off in 2nd characteristics
+!
+! IMPLICIT INPUTS:
+!
+!	Terminal characteristics
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!       SS$_NORMAL      Normal successful completion
+!	DTK$_NOT_A_TRM	Success - but device is not a terminal
+!	LIB$_xyz	Errors from LIB$GET_VM
+!	SS$_xyz		Errors from $DCLEXH or $QIOW
+!
+! SIDE EFFECTS:
+!
+!--
+
+BEGIN
+
+BIND
+	VCB = .P_VCB : $VCB_DECL;
+
+LOCAL
+	STATUS,				! Status returned by routines
+	TTIOSB	: VECTOR[4,WORD],	! I/O status block
+	OLD_CHARBUF : BLOCK[12,BYTE];	! Old characteristics buffer
+
+BUILTIN
+	NULLPARAMETER;
+
+!+
+! Save the old characteristics buffer.
+!-
+
+CH$MOVE(12,VCB[VCB_R_CHARBUF],OLD_CHARBUF);
+
+!+
+! OR in the new characteristic bits requested on.
+!-
+
+IF NOT NULLPARAMETER(2)
+  THEN	VCB[VCB_L_DEVDEPEND]=
+		.VCB[VCB_L_DEVDEPEND] OR .ON_CHARACTERISTICS1;
+
+IF NOT NULLPARAMETER(3)
+  THEN	VCB[VCB_L_DEVDEPEND2]=
+		.VCB[VCB_L_DEVDEPEND2] OR .ON_CHARACTERISTICS2;
+
+!+
+! AND out the characteristics bits requested off.
+!-
+
+IF NOT NULLPARAMETER(4)
+  THEN	VCB[VCB_L_DEVDEPEND]=
+		.VCB[VCB_L_DEVDEPEND] AND (NOT .OFF_CHARACTERISTICS1);
+
+IF NOT NULLPARAMETER(5)
+  THEN	VCB[VCB_L_DEVDEPEND2]=
+		.VCB[VCB_L_DEVDEPEND2] AND (NOT .OFF_CHARACTERISTICS2);
+
+!+
+! Set the terminal to have the desired new characteristics.
+!-
+
+STATUS=$QIOW(	CHAN	= .VCB[VCB_W_CHAN],
+		FUNC	= IO$_SETMODE,
+		EFN	= .DTK_L_EFN,
+		IOSB	= TTIOSB,
+		P1	= VCB[VCB_R_CHARBUF],
+		P2	= 12);
+
+CH$MOVE(12,OLD_CHARBUF,VCB[VCB_R_CHARBUF]);
+
+IF NOT .STATUS THEN RETURN (.STATUS);
+IF NOT .TTIOSB[0] THEN RETURN (.TTIOSB[0]);
+
+RETURN (SS$_NORMAL);
+
+END;				! End of routine DTK$$SET_TERM_CHARACTERISTICS
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$$SETUP_TERMINAL_TYPE - Setup terminal type for DTK$$ routines'
+ROUTINE DTK$$SETUP_TERMINAL_TYPE ( 
+		FILE_NAME,
+		NAME_LEN,
+		VCB_ADR
+		) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine uses the specified file name to determine device
+!	characteristics and assign a terminal type code which is understood
+!	by other DTK$$ routines.  DTK$$ routines use the terminal type to
+!	determine the correct escape sequence for a given function.
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$$SETUP_TERM_TYPE (FILE_NAME.rt.r,
+!						 NAME_LEN.rl.v,
+!						 P_TERM_TYPE.wl.r,
+!						 VCB_ADR.wl.r)
+!
+! FORMAL PARAMETERS:
+!
+!	FILE_NAME.rt.r		addr of file name text
+!	NAME_LEN.rl.v		length of file name text
+!	P_TERM_TYPE.wl.r	terminal type code, one of the following:
+!				    unknown
+!
+!	VCB_ADR.wl.r		Address of longword to receive address
+!				of the DECtalk control block.
+!				If 0 or omitted, no VCB gets allocated.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	VCB fields get filled in.
+!
+! COMPLETION STATUS:
+!
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!--
+
+    BEGIN
+
+    BUILTIN
+	NULLPARAMETER;
+
+    LOCAL
+	STATUS,					! Status returned by routines
+	DTKFAB : $FAB_DECL VOLATILE,
+	DTKNAM : $NAM_DECL VOLATILE,
+	DEVNAM_DSC : $DTK$DESCRIPTOR,		! dsc for name
+	DVI_ITMLST : VECTOR [6*3 + 1] INITIAL	! item list for $GETDVI
+		(DVI$_DEVTYPE    ^ 16 + 4, 0, 0,!  device type  (DT$_xyz)
+		 DVI$_DEVDEPEND  ^ 16 + 4, 0, 0,!  device dependent bits (1)
+		 DVI$_DEVDEPEND2 ^ 16 + 4, 0, 0,!  device dependent bits (2)
+		 DVI$_DEVBUFSIZ  ^ 16 + 4, 0, 0,!  terminal width
+		 DVI$_DEVCLASS   ^ 16 + 4, 0, 0,!  device class (DC$_xyz)
+		 DVI$_DEVNAM     ^ 16 +64, 0, 0,!  result name string
+		 0),				!  terminator
+
+	DVI_IOSB	: VECTOR [4, WORD],	! I/O Status block for $GETDVI
+	DEV_TYPE	: VOLATILE,		! storage for $GETDVI value
+	DEV_DEPEND	: VOLATILE BLOCK [4, BYTE],	! device dependent bits (1)
+	DEV_DEPEND2	: VOLATILE BLOCK [4, BYTE],	! device dependent bits (2)
+	DEV_BUFSIZ	: VOLATILE,		! storage for $GETDVI value
+	DEV_CLASS	: VOLATILE,		! storage fpr $GETDVI value
+
+	DEV_PAGSIZ	: VOLATILE INITIAL(0),	! gets number of rows of device
+
+	DEV_DEVNAM : VECTOR [64, BYTE] VOLATILE,! Buffer for result name string
+
+	DEV_NAMLEN : VOLATILE WORD INITIAL(0);	! Length of returned
+						! resultant name string
+
+    BIND
+	DVI_TYPE    = DVI_ITMLST + 4,		! make it easy to reference
+	DVI_DEPEND  = DVI_ITMLST + 16,		!
+	DVI_DEPEND2 = DVI_ITMLST + 28,		!  items retd by $GETDVI
+	DVI_BUFSIZ  = DVI_ITMLST + 40,		!
+	DVI_CLASS   = DVI_ITMLST + 52,		!
+	DVI_DEVNAM  = DVI_ITMLST + 64,		!
+	DVI_NAMLEN  = DVI_ITMLST + 68;		!
+
+    BIND
+
+	FABDNS 		= DTKFAB[FAB$B_DNS] 	: BYTE,
+	NAMNOP 		= DTKNAM[NAM$B_NOP] 	: BYTE,
+	NAMRLF 		= DTKNAM[NAM$L_RLF] 	: LONG,
+	FABDEV		= DTKFAB[FAB$L_DEV]	: BLOCK[,BYTE], ! Device characteristcs
+	DVI_NAME_LEN	= DTKNAM[NAM$T_DVI]	: BYTE,
+	DVI_NAME	= DTKNAM[NAM$T_DVI]+1	: VECTOR[,BYTE];
+
+
+    !+
+    ! Use RMS to parse the device name.
+    ! This will give us a 1-15 character physical device name
+    ! in the DVI field in the NAM block.
+    ! (If we just use $GETDVI, it may return a 63-character hidden
+    ! device name.)
+    ! The main reason we call $PARSE is so that we can allow filenames.
+    ! If the user specifies "TTB5:" as his device, he gets a terminal.
+    !-
+
+    !+
+    ! Initialize the FAB and NAM blocks.
+    !-
+
+    $FAB_INIT(	FAB	= DTKFAB,
+		DNM	= 'DTKOUTPUT.LIS',
+		NAM	= DTKNAM,
+		FNA	= .FILE_NAME,
+		FNS	= .NAME_LEN);
+
+    $NAM_INIT(NAM=DTKNAM);
+
+    STATUS=$PARSE(FAB=DTKFAB);
+    IF NOT .STATUS THEN RETURN (.STATUS);
+
+    !+
+    ! The device name is now a counted string in the NAM block
+    ! beginning at offset NAM$T_DVI.
+    ! There is an obscure case though that can occur.  If the output device
+    ! is on another node, then RMS cannot figure out the device name
+    ! so the DVI field is empty.  This can happen if an DTK job is
+    ! run as a TASK with SYS$OUTPUT defined to be SYS$NET.
+    ! This happens when you use the "TASK=FOO" kind of file specification
+    ! to RMS.
+    ! To allow this to work, we check to see if the device characteristic
+    ! of the DECtalk device is DEV$M_NET.  If so, we bypass the call
+    ! to $GETDVI, and we fill in the fields the best we can.
+    !-
+
+    IF .FABDEV[DEV$V_NET]
+    THEN
+	BEGIN		! Network device
+
+	!+
+	! Fudge the items to reasonable values.
+	!-
+
+	DEV_TYPE	= DT$_MBX;
+	DEV_DEPEND	= 0;
+	DEV_DEPEND2	= 0;
+	DEV_CLASS	= DC$_MAILBOX;
+	DEV_BUFSIZ	= 80;
+	DEV_DEVNAM	= .FILE_NAME;
+	DEV_NAMLEN	= .NAME_LEN;
+	END		! Network device
+    ELSE
+	BEGIN		! Normal device
+
+	DVI_TYPE    = DEV_TYPE;			! fill in rest of itmlst
+	DVI_DEPEND  = DEV_DEPEND;
+	DVI_DEPEND2 = DEV_DEPEND2;
+	DVI_CLASS   = DEV_CLASS;
+	DVI_BUFSIZ  = DEV_BUFSIZ;			
+	DVI_DEVNAM  = DEV_DEVNAM;
+	DVI_NAMLEN  = DEV_NAMLEN;
+
+	!+
+	! Create a descriptor for use by $GETDVI.
+	!-
+
+	DEVNAM_DSC [DSC$B_DTYPE]   =  DSC$K_DTYPE_T;
+	DEVNAM_DSC [DSC$B_CLASS]   =  DSC$K_CLASS_S;
+	DEVNAM_DSC [DSC$W_LENGTH]  = .DVI_NAME_LEN;
+	DEVNAM_DSC [DSC$A_POINTER] =  DVI_NAME;
+
+	STATUS = $GETDVIW(	EFN	= .DTK_L_EFN,
+				IOSB	=  DVI_IOSB,
+				DEVNAM	=  DEVNAM_DSC,
+				ITMLST	=  DVI_ITMLST);
+	IF NOT .STATUS THEN RETURN (.STATUS);
+	IF NOT .DVI_IOSB [0] THEN RETURN (.DVI_IOSB [0]);
+
+	END;	! Normal device
+
+    !+
+    ! Allocate a voice control block (VCB).
+    !-
+
+    IF NOT (STATUS = LIB$GET_VM (%REF (VCB_K_SIZE), .VCB_ADR, DTK_A_ZONE_ID))
+    THEN
+	RETURN (.STATUS);
+	
+    CH$FILL (0, VCB_K_SIZE, ..VCB_ADR); ! Clear all fields to default 0
+
+    !+
+    ! Store items in the VCB.
+    !-
+
+	BEGIN
+
+	BIND
+	    VCB = ..VCB_ADR : $VCB_DECL ;
+
+	!+
+	! Lock the VCB.  This will prevent a second call made to
+	! this routine disrupting the first one while it is being 
+	! processed.
+	!-
+
+	VCB [VCB_V_LOCKED] = 1;
+
+	!+
+	! Fill in the 12-byte device characteristics block in the VCB.
+	! Note that the DEVDEPEND field will not be valid if the device
+	! is not a terminal because we replace the top byte of this
+	! longword with the device page size (as it would be for a terminal).
+	!-
+
+	VCB [VCB_B_DEVTYPE] 	= DTK$K_DTC_UNKNOWN;
+	VCB [VCB_B_PHY_DEV_TYPE]= .DEV_TYPE;	! Physical type.
+	VCB [VCB_B_CLASS]	= .DEV_CLASS;	! Device class
+	VCB [VCB_W_WIDTH]	= .DEV_BUFSIZ;	! Number of columns.
+	VCB [VCB_L_DEVDEPEND]	= .DEV_DEPEND;	! Implicitly sets overlapped
+						! field VCB_B_ROWS also.
+	VCB [VCB_B_ROWS]	= .DEV_PAGSIZ;	! Reset it again.
+	VCB [VCB_L_DEVDEPEND2]  = .DEV_DEPEND2;	! Secondary characteristics.
+
+	VCB [VCB_W_MODE_SETTINGS] = VCB_K_DEF_MODE_SETTINGS;
+	VCB [VCB_B_STRUCT_TYPE]   = VCB_K_STRUCT_TYPE;
+	VCB [VCB_W_OUTPUT_BUFSIZ] = VCB$K_LONGEST_SEQUENCE;
+
+	!+
+	! Fill in the device name.
+	!-
+
+	VCB [VCB_W_DEVNAM_LEN]= .DEV_NAMLEN;	! Length of device name
+	CH$MOVE ( .DEV_NAMLEN, DEV_DEVNAM, VCB[VCB_T_DEVNAM]);
+
+	!+
+	! Allocate a buffer to hold the escape sequence being parsed.
+	!-
+
+	IF NOT (STATUS = LIB$GET_VM (%REF (VCB$K_LONGEST_SEQUENCE),
+				     VCB [VCB_A_CAP_BUFFER],
+				     DTK_A_ZONE_ID))
+	THEN
+	    RETURN (.STATUS);
+	
+	CH$FILL (0, VCB$K_LONGEST_SEQUENCE, .VCB [VCB_A_CAP_BUFFER]);
+
+	!+
+	! Allocate a buffer to hold the output sequence being sent.
+	!-
+
+	IF NOT (STATUS = LIB$GET_VM (%REF (VCB$K_LONGEST_SEQUENCE),
+				     VCB [VCB_A_OUTPUT_BUFFER],
+				     DTK_A_ZONE_ID))
+	THEN
+	    RETURN (.STATUS);
+	
+	CH$FILL (0, VCB$K_LONGEST_SEQUENCE, .VCB [VCB_A_OUTPUT_BUFFER]);
+
+	END;
+
+    !+
+    ! Call $PARSE again to deallocate its memory.
+    !-
+
+    FABDNS = 0;
+    NAMRLF = 0;
+    NAMNOP = NAM$M_SYNCHK;
+
+    $PARSE(FAB=DTKFAB);
+
+    RETURN (.STATUS);
+
+    END;			! End of routine DTK$$SETUP_TERMINAL_TYPE
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$$SIM_AUTO - Simulate AUTOSTOP mode for DTC01.'
+ROUTINE DTK$$SIM_AUTO(P_VCB,TEXT_LEN,TEXT_ADR) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	The DTC03 has an AUTOSTOP mode in hardware that, when set,
+!	will cause it to stop speaking when a key is pressed on the
+!	phone keypad.  The DTC01 does not have this mode.  This routine
+!	will simulate this mode for the DTC01.
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = DTK$$SIM_AUTO(
+!				P_VCB.rab.r,
+!				TEXT_LEN.rl.v,
+!				TEXT_ADR.rt.r)
+!
+! FORMAL PARAMETERS:
+!
+!	P_VCB.rab.r		Address of voice control block.
+!
+!	TEXT_LEN.rl.v		Number of characters in text string
+!
+!	TEXT_ADR.rt.r		Address of start of text string
+!				The text may contain escape sequences.
+!
+! IMPLICIT INPUTS:
+!
+!	Contents of VCB.
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xyz		errors from $QIO, $WFLOR, $CANCEL
+!
+! SIDE EFFECTS:
+!
+!	Any text currently being spoken may be discarded.
+!--
+
+BEGIN
+
+BIND
+	VCB = .P_VCB : $VCB_DECL;	! voice control block
+
+LOCAL
+	STATUS,				! Status returned by routines
+	INPUT_IOSB    : VECTOR[4, WORD],! IOSB for input QIO
+	OUTPUT_IOSB   : VECTOR[4, WORD],! IOSB for output QIO 
+	BUFFER        : BYTE VOLATILE, 	! One character input buffer 
+	STR_DESC      : $DTK$DESCRIPTOR	! String descriptor for keypad input
+		   	PRESET(
+			    [DSC$W_LENGTH] = 1,
+			    [DSC$B_DTYPE]  = DSC$K_DTYPE_T,
+			    [DSC$B_CLASS]  = DSC$K_CLASS_S,
+			    [DSC$A_POINTER]= BUFFER),
+	TYPEAHEAD_BUF : $TYPEAHEAD_DECL;! Typeahead buffer
+
+!+
+! Establish a signal handler.
+!-
+
+ENABLE LIB$SIG_TO_RET;
+
+!+
+! Check the typeahead buffer to see if the user has
+! already entered some input from the phone keypad.
+! This will also process any pending escape sequences.
+!-
+
+STATUS=$QIOW(	 CHAN	= .VCB[VCB_W_CHAN],
+		 EFN	= .DTK_L_EFN,
+		 IOSB	= INPUT_IOSB,
+		 FUNC	= IO$_SENSEMODE OR IO$M_TYPEAHDCNT,
+		 P1	= TYPEAHEAD_BUF,
+		 P2	= 8);
+IF NOT .STATUS THEN RETURN (.STATUS);
+IF NOT .INPUT_IOSB[0] THEN RETURN (.INPUT_IOSB[0]);
+
+!+
+! Process any pending input.
+!-
+
+IF .TYPEAHEAD_BUF [TYPEAHEAD_COUNT] NEQ 0
+THEN
+    BEGIN
+    STATUS = DTK$$GET_STATUS(VCB);
+    IF NOT .STATUS THEN RETURN (.STATUS);
+    END;
+
+!+
+! If keypad input has already been entered or
+! we don't have any text to speak, return.
+!-
+
+IF (.TEXT_LEN EQL 0) OR (.VCB[VCB_W_LENGTH] NEQ 0) THEN RETURN (SS$_NORMAL);
+
+!+
+! Issue a QIO to start speaking the string.
+!-
+
+STATUS = $QIO(	CHAN	= .VCB[VCB_W_CHAN],
+		EFN	= .DTK_L_EFN,
+		FUNC	= IO$_WRITEVBLK OR IO$M_NOFORMAT,
+		IOSB	= OUTPUT_IOSB,
+		P1	= .TEXT_ADR,
+		P2	= .TEXT_LEN);
+IF NOT .STATUS THEN RETURN (.STATUS);
+
+!+
+! Issue a QIO to read in the keypad input.
+! NOTE:: The DTC01 does NOT send any unsolicited escape sequences.
+!-
+
+STATUS = $QIO(	CHAN = .VCB[VCB_W_CHAN],
+		EFN  = .DTK_L_EFN_2,
+		IOSB = INPUT_IOSB,
+		FUNC = IO$_READVBLK OR IO$M_NOECHO,
+		P1   = .STR_DESC[DSC$A_POINTER],
+		P2   = .STR_DESC[DSC$W_LENGTH]
+		);
+IF NOT .STATUS THEN RETURN (.STATUS);
+
+!+
+! Wait for one of the QIO's to complete.
+!-
+
+STATUS = $WFLOR(EFN = .DTK_L_EFN, MASK = .DTK_L_EFN_MASK);
+IF NOT .STATUS THEN RETURN (.STATUS);
+
+!+
+! Cancel the remaining QIO.
+!-
+
+STATUS = $CANCEL(CHAN = .VCB[VCB_W_CHAN]);
+IF NOT .STATUS THEN RETURN (.STATUS);
+
+!+
+! At this point, an I/O has completed.  Check to see which one it is.
+!-
+
+IF .INPUT_IOSB[0] EQL SS$_NORMAL
+THEN
+
+    !+
+    ! The input QIO has completed.  The user pressed a 
+    ! phone keypad key.  Stop speaking.
+    ! Wait for the output QIO to be cancelled.
+    !-
+
+    BEGIN			! Input QIO completed
+
+    STATUS = $SYNCH(EFN = .DTK_L_EFN, IOSB = OUTPUT_IOSB);
+    IF NOT .STATUS THEN RETURN (.STATUS);
+
+    STATUS = DTK$SET_SPEECH_MODE(P_VCB, %REF(DTK$K_HALT));
+    IF NOT .STATUS THEN RETURN (.STATUS);
+
+    !+
+    ! Place the input in the user input buffer, which is just a
+    ! long dynamic string maintained by the STR$ routines.
+    !-
+
+    IF CH$RCHAR(.STR_DESC[DSC$A_POINTER]) NEQ K_ESC
+    THEN 
+	BEGIN
+
+	STATUS = STR$CONCAT( VCB[VCB_Q_INPUT_DESC], 
+			     VCB[VCB_Q_INPUT_DESC],
+			     STR_DESC);
+	IF NOT .STATUS THEN RETURN (.STATUS);
+
+	END
+    END				! Input QIO completed
+
+ELSE
+
+    !+
+    ! The output QIO has completed.  
+    ! Wait for the input QIO to be cancelled.
+    !-
+
+    BEGIN			! Output QIO completed
+
+    STATUS = $SYNCH(EFN = .DTK_L_EFN_2, IOSB = INPUT_IOSB);
+    IF NOT .STATUS THEN RETURN (.STATUS);
+
+    END;			! Output QIO completed
+
+RETURN (.STATUS);
+
+END;				! End of routine DTK$$SIM_AUTO
+
+!<BLF/PAGE>
+
+%SBTTL 'DTK$$VCB_EXIT_HANDLER - Exit handler'
+ROUTINE DTK$$VCB_EXIT_HANDLER ( P_REASON, P_VCB ) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine gets called on image exit once for
+!	each active VCB.  It flushes the output on that 
+!	device and resets the terminal characteristics.
+!
+! CALLING SEQUENCE:
+!
+!       ret_status.wlc.v = DTK$$VCB_EXIT_HANDLER ( P_REASON.rl.r,
+!						   P_VCB.rab.r )
+!
+! FORMAL PARAMETERS:
+!
+!	P_REASON	Address of word that contains exit reason.
+!			Should be VCB[VCB_L_EXIT_REASON].
+!
+!	P_VCB.rab.r	The voice control block address for which 
+!			the flushing action is to take place.
+!
+! IMPLICIT INPUTS:
+!
+!	contents of VCB
+!
+! IMPLICIT OUTPUTS:
+!
+!       VCB[VCB_W_OUTPUT_BUFLEN]	set to 0 (indicating buffer empty)
+!
+! COMPLETION STATUS:
+!
+!       SS$_NORMAL      Normal successful completion
+!
+! SIDE EFFECTS:
+!
+!       NONE
+!--
+
+BEGIN
+
+LOCAL
+    QIO_IOSB : VECTOR[4,WORD];
+
+BIND
+    VCB = .P_VCB : $VCB_DECL;
+
+!+
+! Flush any remaining buffered output.
+! Hangup the phone.
+! Reset the original terminal characteristics.
+! Disconnect from any LAT port.
+!-
+
+$CANCEL (CHAN = .VCB[VCB_W_CHAN]);
+
+IF .VCB [VCB_V_BUF_ENABLED] THEN DTK$$FLUSH_BUFFER(VCB);
+IF .VCB [VCB_V_OFFHOOK]     THEN DTK$HANGUP_PHONE(VCB[VCB_L_VID]);
+
+$QIOW(	CHAN = .VCB[VCB_W_CHAN],
+	EFN  = .DTK_L_EFN,
+	IOSB = QIO_IOSB,
+	FUNC = IO$_SETMODE,
+	P1   = VCB[VCB_R_CHARBUF],
+	P2   = 12);
+
+$QIOW(	CHAN	= .VCB[VCB_W_CHAN],
+	EFN	= .DTK_L_EFN,
+	FUNC	= IO$_TTY_PORT OR IO$M_LT_DISCON,
+	IOSB	= QIO_IOSB);
+
+RETURN (SS$_NORMAL);
+
+END;			! Routine DTK$$VCB_EXIT_HANDLER
+
+!<BLF/PAGE>
+
+%SBTTL 'OUTPUT - Low level output'
+ROUTINE OUTPUT(P_VCB,TEXT_LEN,TEXT_ADR) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Handles low level output by issuing a QIO.
+!	No buffering occurs here.
+!
+! CALLING SEQUENCE:
+!
+!	ret_status.wlc.v = OUTPUT(
+!				P_VCB.rab.r,
+!				TEXT_LEN.rl.v,
+!				TEXT_ADR.rt.r)
+!
+! FORMAL PARAMETERS:
+!
+!	P_VCB.rab.r		Address of voice control block.
+!
+!	TEXT_LEN.rl.v		Number of characters in text string
+!
+!	TEXT_ADR.rt.r		Address of start of text string
+!				The text may contain escape sequences.
+!
+! IMPLICIT INPUTS:
+!
+!	Contents of VCB.
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	SS$_NORMAL	Normal successful completion
+!	SS$_xyz		errors from QIO
+!	SS$_xyz		errors from $ASSIGN
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!--
+
+BEGIN
+
+BIND
+	VCB = .P_VCB : $VCB_DECL;	! voice control block
+
+LOCAL
+	STATUS,				! Status returned by routines
+	QIO_IOSB : VECTOR[4, WORD];
+
+!+
+! Null strings succeed no matter what.
+!-
+
+IF .TEXT_LEN EQL 0 THEN RETURN (SS$_NORMAL);
+
+!+
+! Issue a QIO to output the string.
+!-
+
+STATUS=$QIOW(	CHAN	= .VCB[VCB_W_CHAN],
+		EFN	= .DTK_L_EFN,
+		FUNC	= IO$_WRITEVBLK OR IO$M_NOFORMAT,
+		IOSB	= QIO_IOSB,
+		P1	= .TEXT_ADR,
+		P2	= .TEXT_LEN);
+IF NOT .STATUS THEN RETURN (.STATUS);
+IF NOT .QIO_IOSB[0] THEN RETURN (.QIO_IOSB[0]);
+
+RETURN (SS$_NORMAL);
+
+END;				! End of routine OUTPUT
+
+END				! End of module DTK$UTIL
+ELUDOM

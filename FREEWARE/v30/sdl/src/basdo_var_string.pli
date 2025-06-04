@@ -1,0 +1,119 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* DO_VAR_STRING handles character varying strings. Character	*/
+/* varying strings are prefixed with a word length. To do this	*/
+/* in Basic an aggregate with length and text is put out. If    */
+/* it is a level one item a variable is declared of that aggregate */
+/*								*/
+/****************************************************************/
+
+do_var_string : proc (cur_node,level,dec,dim,str_len);
+
+					    /********************/
+					    /*			*/
+					    /* DO_VAR_STRING	*/
+					    /*			*/
+					    /********************/
+%include 'sdl$library:sdlnodef.in';
+
+/* declare variables */
+declare
+    cur_node pointer,			    /* pointer to the current node  */
+    level fixed binary(31),		    /* level in the aggregate	    */
+    dec char(*) var,			    /* declare,common or external   */
+    dim char(*) var,			    /* dimension, if any	    */
+    str_len char(*) var,		    /* string length		    */
+    v_tabs char(132) var,		    /* tabs			    */
+    typ_buf char(15) var,		    /* record or group		    */
+    buf char(1024) var;			    /* output buffer		    */
+
+
+DCL OUTPUT_BUF ENTRY (
+	character(1024) VARYING );
+
+DCL ADD_COMMENTS ENTRY (
+	pointer,
+	character(1024) VARYING );
+
+DCL TABS ENTRY (
+	pointer,
+	fixed binary(31),
+	bit(1) ) returns(char(132) var) ;
+
+
+
+
+    v_tabs = tabs(cur_node,level,'1'b);
+    if( level > 1)
+    then do;
+	/* varying strings declared with an aggregate have the dimension */
+	/* appended to the group name					 */
+	buf = v_tabs || 'group ' || cur_node->nod$t_name || dim;
+	call add_comments(cur_node,buf);
+	typ_buf = 'group ';
+    end;
+    else do;    
+	buf = v_tabs || 'record ' || cur_node->nod$t_name ;
+	typ_buf = 'record ';
+    end;
+
+/*
+ * output the structure declaration 
+ */
+    call output_buf(buf);
+    call output_buf(v_tabs || '   WORD str_len');
+    call output_buf(v_tabs || '   STRING str_text' || str_len);
+    call output_buf(v_tabs || 'end ' || typ_buf || cur_node->nod$t_name);
+
+    if( level = 1 )
+    then do;
+	/* varying strings declared as level one items have the	*/
+	/* dimension appended to the variable declaration	*/
+	buf = v_tabs || dec || cur_node->nod$t_name || ' ' || cur_node->nod$t_name || dim ;
+	call add_comments(cur_node,buf);
+	call output_buf(buf);
+    end;
+
+end do_var_string;

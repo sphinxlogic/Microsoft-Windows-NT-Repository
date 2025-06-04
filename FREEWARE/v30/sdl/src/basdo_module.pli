@@ -1,0 +1,121 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* DO_MODULE processes a module node in the tree		*/
+/*								*/
+/****************************************************************/
+
+
+%include 'sdl$library:sdlnodef.in';	    /* definition of the node structure */
+ 
+do_module: procedure (cur_node, level);
+					    /********************/
+					    /*			*/
+					    /* do_module	*/
+					    /*			*/
+					    /********************/
+
+/* declare parameters */
+declare
+    cur_node	pointer,		    /* pointer to the current node  */
+    level fixed binary(31),		    /* level in the aggregate	    */
+    buf char(1024) varying,		    /* output buffer		    */
+    global_db fixed binary(7) external,	    /* for debugging		    */
+    local_db fixed binary(7) initial(1);    /* for debugging		    */
+
+/* decalre external routines */
+DCL OUTPUT_BUF ENTRY (
+	character(1024) VARYING );
+
+DCL ADD_COMMENTS ENTRY (
+	pointer,
+	character(1024) VARYING );
+
+DCL DO_CHILDREN ENTRY (
+	pointer,
+	fixed binary(31) );
+
+DCL TABS ENTRY (
+	pointer,
+	fixed binary(31),
+	bit(1) ) returns(char(132) var) ;
+
+DCL TRIM ENTRY (
+	fixed binary(31))
+	RETURNS (character(32) VARYING );
+
+
+
+
+	if( global_db = 1 ) then
+	if ( local_db = 1 ) then
+	put skip list ('in do_module at level ',level);
+
+/*
+ * Put out the module name as a comment 
+ */
+	call output_buf (' ');
+	buf= ' !*** MODULE '||cur_node->nod$t_name;
+	if cur_node->nod$t_naked ^= '' then
+		buf=buf||' IDENT '||cur_node->nod$t_naked;
+	buf=buf||' ***';
+	call output_buf (buf);  /* put out the buffer	*/
+	buf = ' ';
+        call add_comments(cur_node,buf);
+	call output_buf (buf);  /* put out the comment*/
+	call output_buf (' ');  /* put out a blank line */
+
+
+
+/* now process children */
+    call do_children(cur_node,level);
+
+
+	if( global_db = 1 ) then
+	if ( local_db = 1 ) then
+	put skip list ('end of do_module at level ',level);
+
+
+
+end do_module;

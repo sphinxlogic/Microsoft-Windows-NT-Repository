@@ -1,0 +1,317 @@
+MODULE PPL$RELSPINLOCK ( ADDRESSING_MODE ( EXTERNAL=GENERAL ), 	!
+			IDENT = 'V57-001'
+		      ) =
+BEGIN
+
+!
+!			  COPYRIGHT (c) 1986 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:
+!		PPL ( Parallel Processing Library )
+!
+! ABSTRACT:
+!
+!
+! ENVIRONMENT:
+!
+!
+!--
+!<BLF/PAGE>
+
+!++
+!
+! AUTHOR:	Catherine M. Fariz, CREATION DATE: (dd-mm-yy)
+!
+!
+! MODIFIED BY:
+!
+! 	Catherine M. Fariz, (dd-mm-yy): VERSION 00
+!
+! X01-000	- Original version
+!
+! X01-002	To correct the ident to match the cms generatio.CMF  26-Jan-1987
+!
+! V051-001	Replaced references to CTX[CTX_L_PPLSECT_ADR] by PPL$$GL_PPLSECT
+!								WWS   9-Sep-1988
+!
+! V053-001	Removed local CTX and placed ppl$$gl_context	PJC  08-AUG-1989
+!
+! V053-002	Add JSB routine for ppl$release_spin_lock	PJC  27-MAR-1990
+!
+! V057-001	EVMS/Alpha port.				PJC  12-NOV-1991
+!--
+!<BLF/PAGE>
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+
+LIBRARY 'RTLSTARLE';			! System symbols
+LIBRARY 'SYS$LIBRARY:XPORT';
+UNDECLARE %QUOTE $DESCRIPTOR;		! Clean up conflict
+LIBRARY 'OBJ$:PPLLIB';
+REQUIRE 'RTLIN:RTLPSECT';		! Define DECLARE_PSECTS macro
+
+!
+! LINKAGE
+!
+LINKAGE
+    jsb_call1 = jsb (register = 0):
+		preserve (1,2,3,4,5,6,7,8,9,10,11);
+
+!
+! FORWARD ROUTINE
+!
+FORWARD ROUTINE
+    ppl$release_spin_lock,
+    ppl$release_spin_lock_r0 : jsb_call1;
+
+!
+! MACROS:
+!
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! OWN STORAGE:
+!
+
+!
+! PSECT DECLARATION:
+!
+DECLARE_PSECTS (PPL);		! Declare psects for PPL facility
+
+!
+! EXTERNAL REFERENCES:
+!
+EXTERNAL
+    PPL$$GL_PPLSECT :	REF PPLSECT_BLOCK,
+    PPL$$GL_CONTEXT :	REF CTX_BLOCK;
+
+
+%SBTTL 'ROUTINE: PPL$RELEASE_SPIN_LOCK - Release the spin lock, decrements it.'
+!
+GLOBAL ROUTINE PPL$RELEASE_SPIN_LOCK 
+	(
+	lock_id : ref vector [1]
+	) =	
+!
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Relinquishes the lock by clearing the bit representing the lock.
+!	The lock must have been created by calling PPL$CREATE_SPIN_LOCK.
+!
+!	If there are other exdecution paths spin waiting to obtain the
+!	lock, this action will allow one of those spin wait loops to
+!	terminate.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$RELEASE_SPIN_LOCK ( LOCK_ID );
+!
+! FORMAL ARGUMENT(S):
+!
+!	LOCK_ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	This is an unsigned longword representing the user's handle on
+!	the lock.
+!
+! IMPLICIT INPUTS:
+!
+!	The Spin Lock Block.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The Spin Lock Block.
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVELETYP	Invalid elemnt TYPE for requested operation.
+!
+!	PPL$_LOCNOTEST	The lock was not established.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_NOSUCHELE  An element with the specified ID does not exist.
+!
+!	PPL$_WRONUMBAR  Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+BEGIN	!ppl$release_spin_lock
+
+BUILTIN
+	actualcount;
+
+LITERAL
+    	max_args = 1;			! Maximum number of parameters
+
+LOCAL
+    	sem_block : ref csb_block,	! Semaphore block
+	status;				! Status
+
+!+
+! Validate number of parameters passed.
+!-
+
+    if ( actualcount () neq max_args )
+    then
+    	return ppl$_wronumarg;
+
+status = ppl$release_spin_lock_r0(.lock_id);
+
+return .status;
+
+END;			! End of Routine PPL$RELEASE_SPIN_LOCK
+
+
+
+%SBTTL 'ROUTINE: PPL$RELEASE_SPIN_LOCK_R0 - Release the spin lock, decrements it.'
+!
+GLOBAL ROUTINE PPL$RELEASE_SPIN_LOCK_R0 
+	(
+	lock_id : ref vector [1]
+	) : jsb_call1 =
+!
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This is the JSB call for ppl$release_spin_lock
+!
+!	Relinquishes the lock by clearing the bit representing the lock.
+!	The lock must have been created by calling PPL$CREATE_SPIN_LOCK.
+!
+!	If there are other exdecution paths spin waiting to obtain the
+!	lock, this action will allow one of those spin wait loops to
+!	terminate.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$RELEASE_SPIN_LOCK ( LOCK_ID );
+!
+! FORMAL ARGUMENT(S):
+!
+!	LOCK_ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	This is an unsigned longword representing the user's handle on
+!	the lock.
+!
+! IMPLICIT INPUTS:
+!
+!	The Spin Lock Block.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The Spin Lock Block.
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVELETYP	Invalid elemnt TYPE for requested operation.
+!
+!	PPL$_LOCNOTEST	The lock was not established.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_NOSUCHELE  An element with the specified ID does not exist.
+!
+!	PPL$_WRONUMBAR  Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+BEGIN	!ppl$release_spin_lock_r0
+
+LITERAL
+    	max_args = 1;			! Maximum number of parameters
+
+LOCAL
+    	sem_block : ref csb_block,	! Semaphore block
+	status;		! Status
+
+
+!+
+! Validate the ID
+!-
+
+    if (.ppl$$gl_pplsect eql 0) then return ppl$_noinit;
+
+    sem_block = .lock_id[0] + ppl$$gl_pplsect[base_];
+
+    if ( .sem_block[csb_l_eid] neq .lock_id[0] )
+    then
+    	return ppl$_nosuchele;
+
+!+
+! Validate the lock type
+!-
+
+    if ( .sem_block[csb_l_type] neq ppl$k_spin_lock )
+    then
+    	return ppl$_inveletyp;
+
+!+
+! Validate that the lock is set.
+!-
+
+    if ( .sem_block[csb_w_csval] neq 1 )
+    then
+    	return ppl$_locnotest;
+
+!+
+! Call the macro to release the spin lock
+!-
+
+    unlock_bit_(sem_block[csb_w_csval]);
+
+    return ppl$_normal;
+
+end;			! End of Routine PPL$RELEASE_SPIN_LOCK_R0
+
+
+END				! End of Module PPL$RELSPINLOCK
+ELUDOM

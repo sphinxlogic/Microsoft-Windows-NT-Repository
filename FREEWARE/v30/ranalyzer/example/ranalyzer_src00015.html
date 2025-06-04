@@ -1,0 +1,984 @@
+<TITLE>Routine Analyzer Source File Analysis - objects.c</TITLE>
+<H2><A NAME="s1002d880">objects.c</a> Source Code</H2>
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00015.html#s1001db00">Next file in section</a>; <A HREF="ranalyzer_src00015.html#s1001da00">Previous file in section</a>.<P>
+<H3><A NAME="routines_in_this_file">Routines In This File (Alphabetical)</a></H3>
+<PRE>
+ Line Name
+----- ----
+  534 <A HREF="#d10034180">compare_caller</A>
+  568 <A HREF="#d10034200">compare_caller_name</A>
+  279 <A HREF="#d1002de80">compare_def</A>
+  349 <A HREF="#d1002df00">compare_def_file</A>
+  169 <A HREF="#d1002dc80">compare_file</A>
+  601 <A HREF="#d10034280">compare_ref</A>
+   30 <A HREF="#d1002d980">def_ident</A>
+  677 <A HREF="#d10034380">discard_dup_refs</A>
+  399 <A HREF="#d1002df80">find_def</A>
+  634 <A HREF="#d10034300">find_ref_in_tree</A>
+  235 <A HREF="#d1002dd80">free_def</A>
+  147 <A HREF="#d1002dc00">free_file</A>
+   88 <A HREF="#d1002db00">free_lang</A>
+  490 <A HREF="#d10034080">free_ref</A>
+  196 <A HREF="#d1002dd00">new_def</A>
+  111 <A HREF="#d1002db80">new_file</A>
+   55 <A HREF="#d1002da80">new_lang</A>
+  448 <A HREF="#d10034000">new_ref</A>
+  745 <A HREF="#d10034400">sort_file_order</A>
+  256 <A HREF="#d1002de00">trace_def</A>
+  511 <A HREF="#d10034100">trace_ref</A>
+</PRE>
+<HR>
+<PRE>BEGINNING OF FILE
+</PRE>
+<HR>
+<PRE>
+     1: /****************************************************************************/
+     2: /*									    */
+     3: /*  FACILITY:	Routine Analyzer					    */
+     4: /*									    */
+     5: /*  MODULE:	Object Management Support				    */
+     6: /*									    */
+     7: /*  AUTHOR:	Steve Branam, Network Product Support Group, Digital	    */
+     8: /*		Equipment Corporation, Littleton, MA, USA.		    */
+     9: /*									    */
+    10: /*  DESCRIPTION: This module contains all support routines for managing the */
+    11: /*  object types used by Routine Analyzer. They are: source files; routine  */
+    12: /*  definitions; and routine references. These objects are all descendents  */
+    13: /*  of the List Entry generic type, which means that they are linkable via  */
+    14: /*  a list entry header. This allows them to be stored in arbitrary ordered */
+    15: /*  and unordered lists, stacks, and queues. Support routines are supplied  */
+    16: /*  for creating and destroying objects from the heap, and for comparing,   */
+    17: /*  finding, and sorting them.						    */
+    18: /*									    */
+    19: /*  REVISION HISTORY:							    */
+    20: /*									    */
+    21: /*  V0.1-00 24-AUG-1994 Steve Branam					    */
+    22: /*									    */
+    23: /*	Original version.						    */
+    24: /*									    */
+    25: /****************************************************************************/
+    26: 
+    27: #include "ranalyzer.h"
+    28: 
+    29: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002d980">ROUTINE</A> <A HREF="ranalyzer_xrf00003.html#x1002d980">def_ident</A>. Go to: 
+<A HREF="#d1002da80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+    30: char *def_ident(
+    31: /* Formats an indentification string for a definition entry. The string	    */
+    32: /* includes the routine name and the source file name (if known).	    */
+    33: 
+    34:     DEFINITION
+    35: 	    *aDef
+    36: 	    /* (READ, BY ADDR):  					    */
+    37: 	    /* Definition entry to identify.				    */
+    38: 
+    39: )	/* Returns formatted string ptr.  WARNING: The returned ptr is the  */
+    40: 	/* address of a statically-defined string buffer, so the string	    */
+    41: 	/* must be read from it immediately.				    */
+    42: 	/*****************************************************************--*/
+    43: 
+    44: {
+    45: 					    /* Trace name string buffer.    */
+    46:     static char	strbuf[MAX_ROUTINE_IDENT + 1];
+    47: 
+    48:     sprintf(strbuf, "%s - %s", def_name(aDef),
+    49: 	(isdefined_routine(aDef) ?
+    50: 	source_name(def_source(aDef)) : "External"));
+    51:     return strbuf;
+    52: }
+</PRE>
+END def_ident. Go to: <A HREF="#d1002d980">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+    53: 
+    54: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002da80">ROUTINE</A> <A HREF="ranalyzer_xrf00014.html#x1002da80">new_lang</A>. Go to: 
+<A HREF="#d1002db00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+    55: LANGUAGE_TRANSLATION *new_lang(
+    56: /* Creates and initializes a new language translation record.		    */
+    57: 
+    58:     char    *aFileExt,
+    59: 	    /* (READ, BY ADDR):						    */
+    60: 	    /* Source file extension string.				    */
+    61: 
+    62:     SOURCE_LANGUAGE
+    63: 	    vCode
+    64: 	    /* (READ, BY VAL):						    */
+    65: 	    /* Source language code.					    */
+    66: 
+    67: )	/* Returns ptr to initialized record.				    */
+    68: 	/*****************************************************************--*/
+    69: 
+    70: {
+    71:     LANGUAGE_TRANSLATION		    /* Ptr to new record.	    */
+    72: 	    *record;
+    73: 
+    74:     if ((record = (LANGUAGE_TRANSLATION *)
+    75: 	    obj_alloc(sizeof(LANGUAGE_TRANSLATION),
+    76: 		sizeof(LANGUAGE_TRANSLATION), OBJ_NAME_LANGTRANS)) != NULL) {
+    77: 	inc_nlang();
+    78: 	record-&gt;code   = vCode;
+    79: 	record-&gt;fext   = new_str(aFileExt, MAX_FILE_NAME, OBJ_NAME_LANG_EXT);
+    80: 	if (trace_obj_enabled()) {
+    81: 	    trace_new_obj(record, OBJ_NAME_LANGTRANS, aFileExt, num_lang());
+    82: 	}
+    83:     }
+    84:     return record;
+    85: }
+</PRE>
+END new_lang. Go to: <A HREF="#d1002da80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+    86: 
+    87: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002db00">ROUTINE</A> <A HREF="ranalyzer_xrf00008.html#x1002db00">free_lang</A>. Go to: 
+<A HREF="#d1002db80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+    88: LANGUAGE_TRANSLATION *free_lang(
+    89: /* Frees a source language translation record. The file extension string is */
+    90: /* not freed; it is assumed to be picked up by another ptr.		    */
+    91: 
+    92:     LANGUAGE_TRANSLATION
+    93: 	    *aLangTrans
+    94: 	    /* (DELETE, BY ADDR):					    */
+    95: 	    /* Translation block to free.				    */
+    96: 
+    97: )	/* Returns NULL ptr.						    */
+    98: 	/*****************************************************************--*/
+    99: 
+   100: {
+   101:     dec_nlang();
+   102:     if (trace_obj_enabled()) {
+   103: 	trace_free_obj(aLangTrans, OBJ_NAME_LANGTRANS, lang_fext(aLangTrans),
+   104: 	    num_lang());
+   105:     }
+   106:     return obj_free(aLangTrans, sizeof(LANGUAGE_TRANSLATION),
+   107: 	OBJ_NAME_LANGTRANS);
+   108: }
+</PRE>
+END free_lang. Go to: <A HREF="#d1002db00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   109: 
+   110: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002db80">ROUTINE</A> <A HREF="ranalyzer_xrf00014.html#x1002db80">new_file</A>. Go to: 
+<A HREF="#d1002dc00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   111: SOURCEFILE *new_file(
+   112: /* Creates and initializes a new source file record.			    */
+   113: 
+   114:     char    *aSourceName,
+   115: 	    /* (READ, BY ADDR):						    */
+   116: 	    /* Source file name string.					    */
+   117: 
+   118:     int	    vTabSize
+   119: 	    /* (READ, BY VAL):						    */
+   120: 	    /* Source text tab size.					    */
+   121: 
+   122: )	/* Returns ptr to initialized record.				    */
+   123: 	/*****************************************************************--*/
+   124: 
+   125: {
+   126:     SOURCEFILE				    /* Ptr to new record.	    */
+   127: 	    *record;
+   128: 
+   129:     if ((record = (SOURCEFILE *) obj_alloc(sizeof(SOURCEFILE),
+   130: 	    sizeof(SOURCEFILE), OBJ_NAME_SOURCEFILE)) != NULL) {
+   131: 	inc_nfiles();
+   132: 	record-&gt;tabsize = vTabSize;
+   133: 	record-&gt;seqnum	= num_files();
+   134: 	record-&gt;name	= new_str(aSourceName, MAX_FILE_NAME,
+   135: 			    OBJ_NAME_FILENAME);
+   136: 	record-&gt;author	= new_str(PROGRAM_AUTHOR, sizeof(PROGRAM_AUTHOR),
+   137: 			    OBJ_NAME_AUTHORNAME);
+   138: 	if (trace_obj_enabled()) {
+   139: 	    trace_new_obj(record, OBJ_NAME_SOURCEFILE, aSourceName,
+   140: 		num_files());
+   141: 	}
+   142:     }
+   143:     return record;
+   144: }
+</PRE>
+END new_file. Go to: <A HREF="#d1002db80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   145: 
+   146: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002dc00">ROUTINE</A> <A HREF="ranalyzer_xrf00008.html#x1002dc00">free_file</A>. Go to: 
+<A HREF="#d1002dc80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   147: SOURCEFILE *free_file(
+   148: /* Frees a source file record.						    */
+   149: 
+   150:     SOURCEFILE
+   151: 	    *aSourceFile
+   152: 	    /* (DELETE, BY ADDR):					    */
+   153: 	    /* Source file to free.					    */
+   154: 
+   155: )	/* Returns NULL ptr.						    */
+   156: 	/*****************************************************************--*/
+   157: 
+   158: {
+   159:     dec_nfiles();
+   160:     if (trace_obj_enabled()) {
+   161: 	trace_free_obj(aSourceFile, OBJ_NAME_SOURCEFILE,
+   162: 	    source_name(aSourceFile), num_files());
+   163:     }
+   164:     free_str(source_name(aSourceFile));
+   165:     return obj_free(aSourceFile, sizeof(SOURCEFILE), OBJ_NAME_SOURCEFILE);
+   166: }
+</PRE>
+END free_file. Go to: <A HREF="#d1002dc00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   167: 
+   168: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002dc80">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x1002dc80">compare_file</A>. Go to: 
+<A HREF="#d1002dd00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   169: int compare_file(
+   170: /* Compares two file information records for ordering by file name. Entries */
+   171: /* are sorted alphabetically.						    */
+   172: 
+   173:     SOURCEFILE
+   174: 	    *aSourceFile1,
+   175: 	    /* (READ, BY ADDR):						    */
+   176: 	    /* First record to compare.					    */
+   177: 
+   178:     SOURCEFILE
+   179: 	    *aSourceFile2
+   180: 	    /* (READ, BY ADDR):						    */
+   181: 	    /* Second record to compare.				    */
+   182: 	    
+   183: )	/* Returns status value indicating comparison results:		    */
+   184: 	/*    0	- File names are equal.					    */
+   185: 	/*  &lt; 0 - File name of aSourceFile1 is less than name of	    */
+   186: 	/*	  aSourceFile2.						    */
+   187: 	/*  &gt; 0 - File name of aSourceFile1 is greater than name of	    */
+   188: 	/*	  aSourceFile2.						    */
+   189: 	/*****************************************************************--*/
+   190: 
+   191: {
+   192:     return strcmp(source_name(aSourceFile1), source_name(aSourceFile2));
+   193: }
+</PRE>
+END compare_file. Go to: <A HREF="#d1002dc80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   194: 
+   195: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002dd00">ROUTINE</A> <A HREF="ranalyzer_xrf00014.html#x1002dd00">new_def</A>. Go to: 
+<A HREF="#d1002dd80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   196: DEFINITION *new_def(
+   197: /* Creates and initializes a new routine definition record.		    */
+   198: 
+   199:     char    *aName,
+   200: 	    /* (READ, BY ADDR):						    */
+   201: 	    /* Routine name string.					    */
+   202: 
+   203:     SOURCEFILE
+   204: 	    *aSourceRecord
+   205: 	    /* (READ, BY ADDR):						    */
+   206: 	    /* Source file record.					    */
+   207: 
+   208: )	/* Returns ptr to initialized record.				    */
+   209: 	/*****************************************************************--*/
+   210: 
+   211: {
+   212:     DEFINITION				    /* Ptr to new record.	    */
+   213: 	    *record;
+   214: 
+   215:     if ((record = (DEFINITION *) obj_alloc(sizeof(DEFINITION),
+   216: 	    sizeof(DEFINITION), OBJ_NAME_DEFINITION)) != NULL) {
+   217: 	inc_ndefs();
+   218: 	record-&gt;name = new_str(aName, MAX_ROUTINE_NAME, OBJ_NAME_ROUTINENAME);
+   219: 	set_def_source(record, aSourceRecord);
+   220: 	if (trace_obj_enabled()) {
+   221: 	    trace_new_obj(record, OBJ_NAME_DEFINITION, aName, num_defs());
+   222: 	    if (aSourceRecord != NULL) {
+   223: 		printf("       Source file %s @ %lxh\n",
+   224: 		    source_name(aSourceRecord), aSourceRecord);
+   225: 	    }
+   226: 	    else {
+   227: 		puts("       No source file (routine call, not definition)");
+   228: 	    }
+   229: 	}
+   230:     }
+   231:     return record;
+   232: }
+</PRE>
+END new_def. Go to: <A HREF="#d1002dd00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   233: 
+   234: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002dd80">ROUTINE</A> <A HREF="ranalyzer_xrf00007.html#x1002dd80">free_def</A>. Go to: 
+<A HREF="#d1002de00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   235: DEFINITION *free_def(
+   236: /* Frees a routine definition record.					    */
+   237: 
+   238:     DEFINITION
+   239: 	    *aDef
+   240: 	    /* (DELETE, BY ADDR):					    */
+   241: 	    /* Definition to free.					    */
+   242: 
+   243: )	/* Returns NULL ptr.						    */
+   244: 	/*****************************************************************--*/
+   245: 
+   246: {
+   247:     dec_ndefs();
+   248:     if (trace_obj_enabled()) {
+   249: 	trace_free_obj(aDef, OBJ_NAME_DEFINITION, def_ident(aDef),
+   250: 	    num_defs());
+   251:     }
+   252:     return obj_free(aDef, sizeof(DEFINITION), OBJ_NAME_DEFINITION);
+   253: }
+</PRE>
+END free_def. Go to: <A HREF="#d1002dd80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   254: 
+   255: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002de00">ROUTINE</A> <A HREF="ranalyzer_xrf00031.html#x1002de00">trace_def</A>. Go to: 
+<A HREF="#d1002de80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   256: void trace_def(
+   257: /* Traces an action on a definition entry.				    */
+   258: 
+   259:     DEFINITION
+   260: 	    *aDef,
+   261: 	    /* (READ, BY ADDR):  					    */
+   262: 	    /* Definition entry to trace.				    */
+   263: 
+   264:     char    *aAction
+   265: 	    /* (READ, BY ADDR):  					    */
+   266: 	    /* Action string describing what is being done to entry.	    */
+   267: 
+   268: )	/* No return value.      					    */
+   269: 	/*****************************************************************--*/
+   270: 
+   271: {
+   272:     if (trace_obj_enabled()) {
+   273: 	printf("TRACE: %s %s %s @ %lxh\n", aAction, OBJ_NAME_DEFINITION,
+   274: 	    def_ident(aDef), aDef);
+   275:     }
+   276: }
+</PRE>
+END trace_def. Go to: <A HREF="#d1002de00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   277: 
+   278: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002de80">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x1002de80">compare_def</A>. Go to: 
+<A HREF="#d1002df00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   279: int compare_def(
+   280: /* Compares two routine definition entries for ordering by routine, file    */
+   281: /* names, and line number (some languages allow multiple definition of the  */
+   282: /* same routine name within different scopes in the same module). Entries   */
+   283: /* are sorted alphabetically, with a special provision. If either or both   */
+   284: /* routine is currently undefined (i.e. the source file is not yet known),  */
+   285: /* they will be considered equal, since either 1) they are both forward	    */
+   286: /* references to an as yet undefined routine, or 2) one is the actual	    */
+   287: /* definition, while the other is just a reference, in which case the	    */
+   288: /* source information from the defined one is copied to the undefined one.  */
+   289: 
+   290:     DEFINITION
+   291: 	    *aDef1,
+   292: 	    /* (MODIFY, BY ADDR):					    */
+   293: 	    /* First entry to compare. The source information may be	    */
+   294: 	    /* updated.							    */
+   295: 
+   296:     DEFINITION
+   297: 	    *aDef2
+   298: 	    /* (MODIFY, BY ADDR):					    */
+   299: 	    /* Second entry to compare. The source information may be	    */
+   300: 	    /* updated.		   					    */
+   301: 	    
+   302: )	/* Returns status value indicating comparison results:		    */
+   303: 	/*    0	- Routine, file names, and line numbers are equal.	    */
+   304: 	/*  &lt; 0 - Routine/file name/line of aDef1 less than aDef2.	    */
+   305: 	/*  &gt; 0 - Routine/file name/line of aDef1 greater than aDef2.	    */
+   306: 	/*****************************************************************--*/
+   307: 
+   308: {
+   309:     int	    cmpstat;			    /* Comparison status.	    */
+   310: 
+   311:     /*+									    */
+   312:     /*	Compare routine names. If they are unequal, no further comparison   */
+   313:     /*	is needed. Otherwise, if both routines are defined, compare their   */
+   314:     /*	files names and line numbers to determine final comparison status.  */
+   315:     /*-									    */
+   316: 
+   317:     if ((cmpstat = ustrncmp(def_name(aDef1), def_name(aDef2),
+   318: 	max(strlen(def_name(aDef1)), strlen(def_name(aDef2))))) == 0) {
+   319: 	if (isdefined_routine(aDef1) &amp;&amp; isdefined_routine(aDef2)) {
+   320: 	    if ((cmpstat = compare_file(def_source(aDef1), def_source(aDef2)))
+   321: 		== 0) {
+   322: 		cmpstat = def_begin(aDef1) - def_begin(aDef2);
+   323: 	    }
+   324: 	}				    
+   325: 	else {
+   326: 
+   327: 	    /*+								    */
+   328: 	    /*	One or both is undefined, assume either one is the actual   */
+   329: 	    /*	definition and the other is actually a reference to it, or  */
+   330: 	    /*	both are actually just references. In either case they are  */
+   331: 	    /*	equal in that they represent the same routine. Copy the	    */
+   332: 	    /*	source information from the defined one to the undefined    */
+   333: 	    /*	one so they will both be truly equal.			    */
+   334: 	    /*								    */
+   335: 		    
+   336: 	    cmpstat = 0;
+   337: 	    if (isdefined_routine(aDef2)) { /* aDef2 is the defined one.    */
+   338: 		set_def_source(aDef1, def_source(aDef2));
+   339: 	    }
+   340: 	    else {			    /* Vice versa (or both undef).  */
+   341: 		set_def_source(aDef2, def_source(aDef1));
+   342: 	    }
+   343: 	}				    
+   344:     }
+   345:     return cmpstat;
+   346: }
+</PRE>
+END compare_def. Go to: <A HREF="#d1002de80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   347: 
+   348: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002df00">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x1002df00">compare_def_file</A>. Go to: 
+<A HREF="#d1002df80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   349: int compare_def_file(
+   350: /* Compares two routine definition entries for ordering by file name and    */
+   351: /* line number, i.e. by the order in which they occurred in the files.	    */
+   352: /* Entries are sorted alphabetically, with the provision that undefined	    */
+   353: /* routines sort before defined ones.					    */
+   354: 
+   355:     DEFINITION
+   356: 	    *aDef1,
+   357: 	    /* (READ, BY ADDR):						    */
+   358: 	    /* First entry to compare.					    */
+   359: 
+   360:     DEFINITION
+   361: 	    *aDef2
+   362: 	    /* (READ, BY ADDR):						    */
+   363: 	    /* Second entry to compare.					    */
+   364: 	    
+   365: )	/* Returns status value indicating comparison results:		    */
+   366: 	/*    0	- File and line numbers are equal.			    */
+   367: 	/*  &lt; 0 - File/line of aDef1 less than aDef2.			    */
+   368: 	/*  &gt; 0 - File/line of aDef1 greater than aDef2.		    */
+   369: 	/*****************************************************************--*/
+   370: 
+   371: {
+   372:     int	    cmpstat;			    /* Comparison status.	    */
+   373: 
+   374:     /*+									    */
+   375:     /*	If both routines are defined, compare file names and line numbers.  */
+   376:     /*	Otherwise, undefined one is less than defined one (or both are	    */
+   377:     /*	undefined, and entries are considered equal).			    */
+   378:     /*-									    */
+   379: 
+   380:     if (isdefined_routine(aDef1) &amp;&amp; isdefined_routine(aDef2)) {
+   381: 	if ((cmpstat = compare_file(def_source(aDef1), def_source(aDef2)))
+   382: 	    == 0) {
+   383: 	    cmpstat = def_begin(aDef1) - def_begin(aDef2);
+   384: 	}
+   385:     }
+   386:     else if (isdefined_routine(aDef2)) {    /* aDef2 is the defined one.    */
+   387: 	cmpstat = -1;
+   388:     }
+   389:     else if (isdefined_routine(aDef1)) {    /* Vice versa.		    */
+   390: 	cmpstat = 1;
+   391:     }
+   392:     else {				    /* Both undefined.		    */
+   393: 	cmpstat = 0;
+   394:     }
+   395:     return cmpstat;
+   396: }
+</PRE>
+END compare_def_file. Go to: <A HREF="#d1002df00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   397: 
+   398: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002df80">ROUTINE</A> <A HREF="ranalyzer_xrf00005.html#x1002df80">find_def</A>. Go to: 
+<A HREF="#d10034000">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   399: DEFINITION *find_def(
+   400: /* Searches the global routine list for a routine definition entry from the */
+   401: /* specified source file. If an entry is not found, creates and initializes */
+   402: /* a new one and returns it.						    */
+   403: 
+   404:     char    *aName,
+   405: 	    /* (READ, BY ADDR):						    */
+   406: 	    /* Routine name string to find.				    */
+   407: 
+   408:     SOURCEFILE
+   409: 	    *aSourceRecord
+   410: 	    /* (READ, BY ADDR):						    */
+   411: 	    /* Source file record to find. If a NULL ptr is passed, any	    */
+   412: 	    /* routine definition from any file will satisfy the request.   */
+   413: 	    /* In any case, if a definition entry must be created, the	    */
+   414: 	    /* value passed as aSourceRecord will be used to initialize the */
+   415: 	    /* definition source file.					    */
+   416: 
+   417: 
+   418: )	/* Returns ptr to found (and possibly created) record.		    */
+   419: 	/*****************************************************************--*/
+   420: 
+   421: {
+   422:     DEFINITION				    /* Ptr to search entry.	    */
+   423: 	    *searchdef;
+   424:     DEFINITION				    /* Ptr to found entry.	    */
+   425: 	    *curdef;
+   426: 
+   427:     /*+									    */
+   428:     /*	Create a temporary search entry and use it to search the definition */
+   429:     /*	list for a match. If a match is found, discard the search entry and */
+   430:     /*	return the found entry. Otherwise, add the search entry to the list */
+   431:     /*	and return it as the "found" entry. This guarantees that this	    */
+   432:     /*	routine will always "find" an entry.				    */
+   433:     /*-									    */
+   434: 
+   435:     searchdef = new_def(aName, aSourceRecord);
+   436:     if ((curdef = find_ordered_entry(global_deflist(), searchdef,
+   437: 		    compare_def)) != NULL) {
+   438: 	free_def(searchdef);		    /* Found match, return it.	    */
+   439: 	return curdef;
+   440:     }
+   441:     else {				    /* Match not found, use search  */
+   442: 	add_def(searchdef);		    /* entry.			    */
+   443: 	return searchdef;
+   444:     }
+   445: }
+</PRE>
+END find_def. Go to: <A HREF="#d1002df80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   446: 
+   447: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034000">ROUTINE</A> <A HREF="ranalyzer_xrf00014.html#x10034000">new_ref</A>. Go to: 
+<A HREF="#d10034080">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   448: REFERENCE *new_ref(
+   449: /* Creates and initializes a new routine reference record.		    */
+   450: 
+   451:     long    vLine,
+   452: 	    /* (READ, BY VAL):						    */
+   453: 	    /* Line number in source file where routine is called.	    */
+   454: 
+   455:     DEFINITION
+   456: 	    *aRefDef,
+   457: 	    /* (READ, BY ADDR):						    */
+   458: 	    /* Refenced routine's definition record.			    */
+   459: 
+   460:     DEFINITION
+   461: 	    *aCallerDef
+   462: 	    /* (READ, BY ADDR):						    */
+   463: 	    /* Caller's definition record.				    */
+   464: 
+   465: )	/* Returns ptr to initialized record.				    */
+   466: 	/*****************************************************************--*/
+   467: 
+   468: {
+   469:     REFERENCE				    /* Ptr to new record.	    */
+   470: 	    *record;
+   471: 
+   472:     if ((record = (REFERENCE *) obj_alloc(sizeof(REFERENCE), sizeof(REFERENCE),
+   473: 	    OBJ_NAME_REFERENCE)) != NULL) {
+   474: 	inc_nrefs();
+   475: 	record-&gt;definition = aRefDef;
+   476: 	record-&gt;line       = vLine;
+   477: 	record-&gt;caller     = aCallerDef;
+   478: 	if (trace_obj_enabled()) {
+   479: 	    trace_new_obj(record, OBJ_NAME_REFERENCE, def_name(aRefDef), 
+   480: 		num_refs());
+   481: 	    printf("       Definition is @ %lxh, caller is %s @ %lxh\n",
+   482: 		aRefDef, (aCallerDef == NULL ? "(none)" : def_name(aCallerDef)),
+   483: 		(aCallerDef == NULL ? NULL : aCallerDef));
+   484: 	}
+   485:     }
+   486:     return record;
+   487: }
+</PRE>
+END new_ref. Go to: <A HREF="#d10034000">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   488: 
+   489: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034080">ROUTINE</A> <A HREF="ranalyzer_xrf00008.html#x10034080">free_ref</A>. Go to: 
+<A HREF="#d10034100">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   490: REFERENCE *free_ref(
+   491: /* Frees a routine reference record.					    */
+   492: 
+   493:     REFERENCE
+   494: 	    *aRef
+   495: 	    /* (DELETE, BY ADDR):					    */
+   496: 	    /* Reference to free.					    */
+   497: 
+   498: )	/* Returns NULL ptr.						    */
+   499: 	/*****************************************************************--*/
+   500: 
+   501: {
+   502:     dec_nrefs();
+   503:     if (trace_obj_enabled()) {
+   504: 	trace_free_obj(aRef, OBJ_NAME_REFERENCE,
+   505: 	    def_ident(ref_definition(aRef)), num_refs());
+   506:     }
+   507:     return obj_free(aRef, sizeof(REFERENCE), OBJ_NAME_DEFINITION);
+   508: }
+</PRE>
+END free_ref. Go to: <A HREF="#d10034080">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   509: 
+   510: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034100">ROUTINE</A> <A HREF="ranalyzer_xrf00032.html#x10034100">trace_ref</A>. Go to: 
+<A HREF="#d10034180">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   511: void trace_ref(
+   512: /* Traces an action on a reference entry.				    */
+   513: 
+   514:     REFERENCE
+   515: 	    *aRef,
+   516: 	    /* (READ, BY ADDR):  					    */
+   517: 	    /* Reference entry to trace.				    */
+   518: 
+   519:     char    *aAction
+   520: 	    /* (READ, BY ADDR):  					    */
+   521: 	    /* Action string describing what is being done to entry.	    */
+   522: 
+   523: )	/* No return value.      					    */
+   524: 	/*****************************************************************--*/
+   525: 
+   526: {
+   527:     if (trace_obj_enabled()) {
+   528: 	printf("TRACE: %s %s %s @ %lxh\n", aAction, OBJ_NAME_REFERENCE,
+   529: 	    def_ident(ref_definition(aRef)), aRef);
+   530:     }
+   531: }
+</PRE>
+END trace_ref. Go to: <A HREF="#d10034100">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   532: 
+   533: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034180">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10034180">compare_caller</A>. Go to: 
+<A HREF="#d10034200">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   534: int compare_caller(
+   535: /* Compares two reference entries for ordering by caller routine. Entries   */
+   536: /* are sorted alphabetically, and by line number within the same caller.    */
+   537: 
+   538:     REFERENCE
+   539: 	    *aRef1,
+   540: 	    /* (READ, BY ADDR):						    */
+   541: 	    /* First entry to compare.					    */
+   542: 
+   543:     REFERENCE
+   544: 	    *aRef2
+   545: 	    /* (READ, BY ADDR):						    */
+   546: 	    /* Second entry to compare. 				    */
+   547: 	    
+   548: )	/* Returns status value indicating comparison results:		    */
+   549: 	/*    0	- Callers are equal.					    */
+   550: 	/*  &lt; 0 - Caller from aRef1 is less than aRef2.			    */
+   551: 	/*  &gt; 0 - Caller from aRef1 is greater than aRef2.		    */
+   552: 	/*****************************************************************--*/
+   553: 
+   554: {
+   555:     int	    cmpstat;			    /* Comparison status.	    */
+   556: 
+   557:     /*+									    */
+   558:     /*	If the caller names are the same, compare the line numbers.	    */
+   559:     /*-									    */
+   560: 
+   561:     if ((cmpstat = compare_def(ref_caller(aRef1), ref_caller(aRef2))) == 0) {
+   562: 	cmpstat = ref_offset(aRef1) - ref_offset(aRef2);
+   563:     }
+   564:     return cmpstat;
+   565: }
+</PRE>
+END compare_caller. Go to: <A HREF="#d10034180">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   566: 
+   567: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034200">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10034200">compare_caller_name</A>. Go to: 
+<A HREF="#d10034280">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   568: int compare_caller_name(
+   569: /* Compares two reference entries for equality by caller routine name.	    */
+   570: /* Entries are not sorted by this routine.				    */
+   571: 
+   572:     REFERENCE
+   573: 	    *aRef1,
+   574: 	    /* (READ, BY ADDR):						    */
+   575: 	    /* First entry to compare.					    */
+   576: 
+   577:     REFERENCE
+   578: 	    *aRef2
+   579: 	    /* (READ, BY ADDR):						    */
+   580: 	    /* Second entry to compare. 				    */
+   581: 	    
+   582: )	/* Returns status value indicating comparison results:		    */
+   583: 	/*    0	- Callers are equal.					    */
+   584: 	/*   -1 - Callers are not equal.				    */
+   585: 	/*****************************************************************--*/
+   586: 
+   587: {
+   588:     /*+									    */
+   589:     /*	Compare the caller names.					    */
+   590:     /*-									    */
+   591: 
+   592:     if (strcmp(def_name(ref_caller(aRef1)), def_name(ref_caller(aRef2))) != 0) {
+   593: 	return -1;
+   594:     }
+   595:     else {
+   596: 	return 0;
+   597:     }
+   598: }
+</PRE>
+END compare_caller_name. Go to: <A HREF="#d10034200">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   599: 
+   600: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034280">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10034280">compare_ref</A>. Go to: 
+<A HREF="#d10034300">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   601: int compare_ref(
+   602: /* Compares two reference entries for equality by routine definition.	    */
+   603: /* Entries are not sorted by this routine.				    */
+   604: 
+   605:     REFERENCE
+   606: 	    *aRef1,
+   607: 	    /* (READ, BY ADDR):						    */
+   608: 	    /* First entry to compare.					    */
+   609: 
+   610:     REFERENCE
+   611: 	    *aRef2
+   612: 	    /* (READ, BY ADDR):						    */
+   613: 	    /* Second entry to compare. 				    */
+   614: 	    
+   615: )	/* Returns status value indicating comparison results:		    */
+   616: 	/*    0	- Definitions are equal.				    */
+   617: 	/*   -1 - Definitions are not equal.				    */
+   618: 	/*****************************************************************--*/
+   619: 
+   620: {
+   621:     /*+									    */
+   622:     /*	Compare the definitions.					    */
+   623:     /*-									    */
+   624: 
+   625:     if (compare_def(ref_definition(aRef1), ref_definition(aRef2)) != 0) {
+   626: 	return -1;
+   627:     }
+   628:     else {
+   629: 	return 0;
+   630:     }
+   631: }
+</PRE>
+END compare_ref. Go to: <A HREF="#d10034280">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   632: 
+   633: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034300">ROUTINE</A> <A HREF="ranalyzer_xrf00005.html#x10034300">find_ref_in_tree</A>. Go to: 
+<A HREF="#d10034380">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   634: REFERENCE *find_ref_in_tree(
+   635: /* Find the first reference to a routine in a call tree.		    */
+   636: 
+   637:     DEFINITION
+   638: 	    *aTreeRoot,
+   639: 	    /* (READ, BY ADDR):						    */
+   640: 	    /* Routine definition entry that is root of this call tree.	    */
+   641: 
+   642:     char    *aName
+   643: 	    /* (READ, BY ADDR):						    */
+   644: 	    /* Routine name to search for.				    */
+   645: 
+   646: )	/* Returns ptr to found reference, or NULL if no matching reference */
+   647: 	/* found.							    */
+   648: 	/*****************************************************************--*/
+   649: 
+   650: {
+   651:     REFERENCE				    /* Current reference being	    */
+   652: 	    *curref;			    /* checked at this level.	    */
+   653:     REFERENCE				    /* Reference found in a	    */
+   654: 	    *foundref;			    /* subtree.			    */
+   655: 
+   656:     /*+									    */
+   657:     /*	For each routine referenced at this level, see if it matches the    */
+   658:     /*	name. If not, recursively search that routine's subtree for a match */
+   659:     /*	and return the match if found. If no match is found at this level   */
+   660:     /*	or any sublevels, no such reference exists in this tree.	    */
+   661:     /*-									    */
+   662: 
+   663:     for (curref = list_first(def_refs(aTreeRoot)); curref != NULL;
+   664: 	curref = next_entry(curref)) {
+   665: 	if (strcmp(def_name(ref_definition(curref)), aName) == 0) {
+   666: 	    return curref;		    /* Found it at this level!	    */
+   667: 	}
+   668: 	else if ((foundref = find_ref_in_tree(ref_definition(curref), aName))
+   669: 	    != NULL) {
+   670: 	    return foundref;		    /* Found it in a subtree!	    */
+   671: 	}
+   672:     }
+   673:     return NULL;			    /* Did not find it anywhere.    */
+   674: }
+</PRE>
+END find_ref_in_tree. Go to: <A HREF="#d10034300">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   675: 
+   676: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034380">ROUTINE</A> <A HREF="ranalyzer_xrf00005.html#x10034380">discard_dup_refs</A>. Go to: 
+<A HREF="#d10034400">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   677: void discard_dup_refs(
+   678: /* Discards any duplicate reference entries in any definition ref and	    */
+   679: /* caller lists. This leaves at most one reference for each routine in any  */
+   680: /* list.								    */
+   681: 
+   682:     /* No arguments.							    */
+   683: 
+   684: )	/* No return value.						    */
+   685: 	/*****************************************************************--*/
+   686: 
+   687: {
+   688:     DEFINITION					/* Current routine entry.   */
+   689: 	    *curdef;
+   690:     REFERENCE					/* Current routine	    */
+   691: 	    *curref;				/* reference.		    */
+   692:     LIST    curlist;				/* Current list being	    */
+   693: 						/* trimmed.		    */
+   694: 
+   695:     for (curdef = list_first(global_deflist()); curdef != NULL;
+   696: 	curdef = next_entry(curdef)) {
+   697: 
+   698: 	/*+								    */
+   699: 	/*  First, if the current routine is defined, trim its reference    */
+   700: 	/*  list. To do this, move the reference list to a temporary list,  */
+   701: 	/*  clearing the definition's list. For each reference in the	    */
+   702: 	/*  temporary list, see if a matching entry already exists in the   */
+   703: 	/*  definition's list. If so, this is a duplicate, discard it;	    */
+   704: 	/*  otherwise, add it to the definition's list. This regrows the    */
+   705: 	/*  definition's list back with only one reference to each routine. */
+   706: 	/*-								    */
+   707: 
+   708: 	if (isdefined_routine(curdef)) {
+   709: 	    trace_def(curdef, "Trim refs");
+   710: 	    copy_list(def_refs(curdef), &amp;curlist);
+   711: 	    init_list(def_refs(curdef));
+   712: 	    while ((curref = dequeue_entry(&amp;curlist)) != NULL) {
+   713: 		if (find_ref(curdef, curref)) {		
+   714: 		    free_ref(curref);		/* Duplicate, discard it.   */
+   715: 		}
+   716: 		else {
+   717: 		    add_ref(curdef, curref);	/* New one, keep it.	    */
+   718: 		    trace_ref(curref, "Keep ref");
+   719: 		}
+   720: 	    }
+   721: 	}
+   722: 
+   723: 	/*+								    */
+   724: 	/*  Now, regardless of whether or not the routine is defined, trim  */
+   725: 	/*  its caller list, using the same procedure.			    */
+   726: 	/*-								    */
+   727: 
+   728: 	trace_def(curdef, "Trim callers");
+   729: 						/* Move list to temporary.  */
+   730: 	copy_list(def_callers(curdef), &amp;curlist);
+   731: 	init_list(def_callers(curdef));
+   732: 	while ((curref = dequeue_entry(&amp;curlist)) != NULL) {
+   733: 	    if (find_caller(curdef, curref)) {
+   734: 		free_ref(curref);		/* Duplicate, discard it.   */
+   735: 	    }
+   736: 	    else {
+   737: 		add_caller(curdef, curref);	/* New one, keep it.	    */
+   738: 		trace_ref(curref, "Keep caller");
+   739: 	    }
+   740: 	}
+   741:     }
+   742: }
+</PRE>
+END discard_dup_refs. Go to: <A HREF="#d10034380">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   743: 
+   744: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034400">ROUTINE</A> <A HREF="ranalyzer_xrf00029.html#x10034400">sort_file_order</A>. Go to: 
+<A HREF="#d1001dc00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   745: void sort_file_order(
+   746: /* Resorts the global definition list in order by file, then routine within */
+   747: /* file.								    */
+   748: 
+   749:     /* No arguments.							    */
+   750: 
+   751: )	/* No return value.						    */
+   752: 	/*****************************************************************--*/
+   753: 
+   754: {
+   755:     DEFINITION					/* Current routine entry.   */
+   756: 	    *curdef;
+   757:     LIST    templist;				/* Temporary list.	    */
+   758: 
+   759:     /*									    */
+   760:     /*	Perform an insertion sort on the global definition list.  To do	    */
+   761:     /*	this, move the definition list to a temporary list, clearing the    */
+   762:     /*	definition list. For each definition, dequeue it from the temporary */
+   763:     /*	list and insert it back into the definition list according the	    */
+   764:     /*	file/routine/line ordering.					    */
+   765:     /*-									    */
+   766: 
+   767:     copy_list(global_deflist(), &amp;templist);
+   768:     init_list(global_deflist());
+   769:     while ((curdef = dequeue_entry(&amp;templist)) != NULL) {
+   770: 	trace_def(curdef, "Sort file order");
+   771: 	insert_ordered_entry(global_deflist(), curdef, compare_def_file);
+   772:     }
+   773: }
+</PRE>
+END sort_file_order. Go to: <A HREF="#d10034400">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   774: 
+<HR>
+END OF FILE
+
+TOTAL: 21 routines, 34 Avg Length
+</PRE>
+<HR>
+
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00015.html#s1001db00">Next file in section</a>; <A HREF="ranalyzer_src00015.html#s1001da00">Previous file in section</a>.<P>

@@ -1,0 +1,201 @@
+%TITLE	'FPARSE'
+MODULE FPARSE (IDENT = 'V1.0') = 
+BEGIN
+!++
+!
+!  Facility:	FPARSE
+!
+!  Author:	Hunter Goatley
+!
+!  Date:	December 7, 1994
+!
+!  Abstract:
+!
+!	Easy access to $PARSE system service.  Modeled after the DCL
+!	lexical F$PARSE().
+!
+!  Modified by:
+!
+!	V1.0		Hunter Goatley		 7-DEC-1994 15:05
+!		Original version.
+!
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';			!Pull stuff from STARLET
+
+SWITCHES ADDRESSING_MODE (EXTERNAL = GENERAL, NONEXTERNAL = WORD_RELATIVE);
+
+    FORWARD ROUTINE
+	fparse;					!The fparse routine
+
+    EXTERNAL ROUTINE
+	LIB$ANALYZE_SDESC,			!Analyze string descriptor
+	STR$COPY_R;				!Copy a string
+
+    LITERAL					!Define the options bitmask
+	fp_v_ver   = 0,				!... flags
+	fp_v_type  = 1,
+	fp_v_name  = 2,
+	fp_v_dir   = 3,
+	fp_v_dev   = 4,
+	fp_v_node  = 5;
+
+
+%SBTTL	'FPARSE'
+GLOBAL ROUTINE fparse (result_a, file_a, default_a, related_a, options_a) =
+BEGIN
+!+
+!
+!  Routine:	FPARSE
+!
+!  Functional Description:
+!
+!	Provide easy access to the $PARSE RMS routine.  This routine is
+!	based on DCL's F$PARSE routine.  It does a syntax-only parse on
+!	the name (the existence of the directory is not checked).
+!
+!  Formal parameters:
+!
+!	result_a	- Descriptor for buffer to receive information
+!	file_a		- Descriptor for file specification to be parsed
+!	default_a	- Descriptor for default file specification (default is
+!			  SYS$DISK:[].;)
+!	related_a	- Descriptor for related file specification
+!	options_a	- Address of bit mask describing information to be
+!			  returned
+!			  (Default is NODE::DEVICE:[DIRECTORY]NAME.TYPE;VERSION)
+!
+!				Bit 5 set - return node name (usually null)
+!				Bit 4 set - return device name
+!				Bit 3 set - return directory name
+!				Bit 2 set - return file name
+!				Bit 1 set - return file type name
+!				Bit 0 set - return version number
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!  Side effects:
+!
+!
+!-
+    BIND
+	result		= .result_a	: $BBLOCK,
+	file		= .file_a	: $BBLOCK,
+	default		= .default_a	: $BBLOCK,
+	related		= .related_a	: $BBLOCK,
+	options		= .options_a	: BITVECTOR[32];
+
+    LOCAL
+	parse_result	: $BBLOCK [NAM$C_MAXRSS],
+	work_buffer	: $BBLOCK [NAM$C_MAXRSS],
+	related_nam	: $NAM(),
+	parse_nam	: $NAM (ESA = parse_result,
+				ESS = NAM$C_MAXRSS,
+				RLF = related_nam),
+	parse_fab	: $FAB (DNM = 'SYS$DISK:[].;',
+				FOP = NAM,
+				NAM = parse_nam),
+	length,
+	address		: REF $BBLOCK,
+	work_options	: BITVECTOR [32],
+	status		: UNSIGNED LONG;
+
+    IF (default NEQA 0)				!Store the default filename
+    THEN					!... in the $FAB, if given
+	BEGIN
+	LIB$ANALYZE_SDESC (default, length, address);
+	parse_fab [FAB$B_DNS] = .length;
+	parse_fab [FAB$L_DNA] = .address;
+	END;
+
+    IF (related NEQA 0)				!Store the related filename
+    THEN					!... in the $NAM, if given
+	BEGIN
+	LIB$ANALYZE_SDESC (related, length, address);
+	related_nam [NAM$B_RSL] = .length;
+	related_nam [NAM$L_RLF] = .address;
+	END;
+
+    IF (file NEQA 0)				!Store the filename in the
+    THEN					!... $FAB, if given
+	BEGIN
+	LIB$ANALYZE_SDESC (file, length, address);
+	parse_fab [FAB$B_FNS] = .length;
+	parse_fab [FAB$L_FNA] = .address;
+	END;
+
+    !
+    !  Call $PARSE to parse the file specification(s).
+    !
+    status = $PARSE (FAB = parse_fab);
+
+    IF (.status)
+    THEN
+	BEGIN
+	!
+	!  If options is omitted, then return everything.
+	!
+	work_options = (IF (options EQLA 0) THEN %X'FF' ELSE .options);
+
+	address = work_buffer;			!Point to work buffer
+
+	IF (.work_options [fp_v_node])
+	THEN
+	    BEGIN
+	    CH$MOVE (.parse_nam [NAM$B_NODE], .parse_nam [NAM$L_NODE],
+		     .address);
+	    address = CH$PLUS (.address, .parse_nam [NAM$B_NODE]);
+	    END;
+
+	IF (.work_options [fp_v_dev])
+	THEN
+	    BEGIN
+	    CH$MOVE (.parse_nam [NAM$B_DEV], .parse_nam [NAM$L_DEV],
+		     .address);
+	    address = CH$PLUS (.address, .parse_nam [NAM$B_DEV]);
+	    END;
+
+	IF (.work_options [fp_v_dir])
+	THEN
+	    BEGIN
+	    CH$MOVE (.parse_nam [NAM$B_DIR], .parse_nam [NAM$L_DIR],
+		     .address);
+	    address = CH$PLUS (.address, .parse_nam [NAM$B_DIR]);
+	    END;
+
+	IF (.work_options [fp_v_name])
+	THEN
+	    BEGIN
+	    CH$MOVE (.parse_nam [NAM$B_NAME], .parse_nam [NAM$L_NAME],
+		     .address);
+	    address = CH$PLUS (.address, .parse_nam [NAM$B_NAME]);
+	    END;
+
+	IF (.work_options [fp_v_type])
+	THEN
+	    BEGIN
+	    CH$MOVE (.parse_nam [NAM$B_TYPE], .parse_nam [NAM$L_TYPE],
+		     .address);
+	    address = CH$PLUS (.address, .parse_nam [NAM$B_TYPE]);
+	    END;
+
+	IF (.work_options [fp_v_ver])
+	THEN
+	    BEGIN
+	    CH$MOVE (.parse_nam [NAM$B_VER], .parse_nam [NAM$L_VER],
+		     .address);
+	    address = CH$PLUS (.address, .parse_nam [NAM$B_VER]);
+	    END;
+
+	length = CH$DIFF (.address, work_buffer);
+	status = STR$COPY_R (result, length, work_buffer);
+
+	END;
+
+    RETURN (.status);				!Set success status
+
+END;						!End of routine FPARSE
+
+END						!End of module BEGIN
+ELUDOM						!End of module

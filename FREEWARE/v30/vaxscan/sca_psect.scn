@@ -1,0 +1,192 @@
+MODULE sca_psect;
+
+    !+
+    !   This program generates lots of PSECT declarations.  It generates
+    !   $TOKEN, $MACRO and $CODE.  It also generates $DATA and put any
+    !   static variables there.  For every COMMON variable, a PSECT of
+    !   the same name is generated to contain it.  READ and WRITE statements
+    !   without file variables implicitly declare COMMON file variables
+    !   called SYS$INPUT and SYS$OUTPUT.
+    !
+    !   Unfortunately, you can't display SCAN psects directly with SCA
+    !   commands.  (Or if you can, I don't know how.)  So this has to
+    !   be an ANADUMP test.  Ugh!!!
+    !
+    !   Melinda Barton - 7-APR-1989
+    !-
+    
+    !+
+    !   COMMON storage at the module level
+    !-
+
+    DECLARE some_file:	COMMON FILE;
+    DECLARE a,b,c :	COMMON INTEGER;
+    DECLARE some_str:	COMMON STRING (25);
+    DECLARE some_tree:  COMMON TREE (STRING, INTEGER) OF STRING;
+
+    !+
+    !   GLOBAL storage
+    !-
+
+    DECLARE glob_int:	GLOBAL INTEGER;
+    DECLARE glob_str:	GLOBAL STRING;
+
+    CONSTANT compile_file = 2;
+
+    !+
+    !   Variables that are declared but never referenced are not allocated.
+    !   Therefore, they should not get PSECT information.
+    !-
+
+    DECLARE not_alloc:	COMMON INTEGER;
+
+    !+
+    !   Generate some tokens and macros.  The tables go in $TOKEN and $MACRO
+    !-
+
+    SET non_quote		( NOT( s'eol' OR s'eos' OR '''' ) );
+    SET eol			( s'eol' OR s'eos' );
+    SET non_eol			( NOT eol );
+    SET alpha			( 'a'..'z' OR 'A'..'Z' );
+    SET other			( alpha OR '0'..'9' OR '_' OR '$' );
+    
+    TOKEN require CASELESS 	{ 'require' };
+    TOKEN name			{ alpha [ other... ] };
+    TOKEN semi ALIAS ';'	{ ';' };
+    TOKEN space	IGNORE		{ { ' ' | s'ht' | s'ff' }... };
+    TOKEN comment		{ '!' non_eol... eol };
+    TOKEN spec			{ '''' non_quote... '''' };
+	
+    !+
+    !   Declare some $DATA static storage at the module level
+    !-
+    
+    DECLARE reference: TREE( integer, string, string ) of integer;
+    DECLARE file_name: string;
+    DECLARE file_type: integer;
+    
+    MACRO find_require_reference trigger { require s:spec semi };
+	!+
+	!   Declare COMMON storage within a PSECT
+	!-
+
+	DECLARE var_in_macro: COMMON INTEGER;
+	
+	s = trim( s, '''');
+	reference( file_type, file_name, s ) = 0;
+	var_in_macro = 0;
+    END MACRO;
+    
+    PROCEDURE main MAIN (  );
+	
+    !+
+    !   These are dynamic, and should NOT have psects
+    !-
+	DECLARE file_spec,full_file_name: STRING;
+	DECLARE context: INTEGER;
+
+    !+
+    !   Generate the SYS$INPUT and SYS$OUTPUT psects
+    !-
+
+	WRITE 'file spec to process:';
+	READ file_spec;
+
+    !+
+    !   Reference all the variables, so the allocator will allocate them.
+    !-
+
+    glob_int = 27;
+    glob_str = 'I am a global string';
+
+
+    OPEN FILE( some_file ) AS 'foo.bar' FOR OUTPUT;
+    a = 1;
+    b = 2;
+    c = a + b;
+
+    some_str = 'hello world';
+    some_tree ('foobar', 27) = 'hello';
+
+    full_file_name = 'dtm_tst:sca_psect.scn';
+    context = 0;
+
+    END PROCEDURE;
+
+    PROCEDURE some_proc ();
+
+	!+
+	!   Procedure level declarations.  Only STATIC and COMMON get psects.
+	!-
+
+	DECLARE p0: STATIC TREEPTR( integer ) TO TREE( string,string ) of integer;
+	DECLARE p1: TREEPTR( string ) TO TREE( string ) of integer;
+	DECLARE p2: COMMON TREEPTR( string ) TO integer;
+	DECLARE line,command: STATIC string;
+	DECLARE i: integer;
+	
+	IF EXISTS( reference( compile_file ))
+	THEN
+	    p1 = first( reference( compile_file ) );
+	    
+	    WHILE p1 >< NIL;
+	    
+		p1 = NEXT( p1 );
+
+		IF p1 <> NIL
+		THEN
+		    line = line & ', -';
+		END IF;
+	    END WHILE;
+	END IF;
+
+	p0 = first( reference );
+
+	WHILE p0 >< NIL;
+
+	    p1 = first( p0 );
+
+	    p2 = first( p1 );
+	    
+        END WHILE;
+    command = 'do this NOW!';
+    I = 0;
+
+
+    END PROCEDURE;
+
+!+
+! COMMON variables with the same name over overlaid within the same
+! PSECT.  The size of the PSECT should be the same size as the largest
+! variable that it contains.  Make sure this is the case.
+!-
+
+    PROCEDURE com_over1 (  );
+	
+	DECLARE over1:	COMMON INTEGER;
+	DECLARE over2:  COMMON STRING (20);
+
+	over1 = 27;
+        over2 = '12345678901234567890';
+
+    END PROCEDURE;
+
+    PROCEDURE com_over2 (  );
+	
+	DECLARE over1:	COMMON STRING (10);
+	DECLARE over2:  COMMON STRING (10);
+
+	over1 = 'Hello there!!!';
+	over2 = '0987654321';
+
+    END PROCEDURE;
+
+    PROCEDURE com_over3 (  );
+	
+	DECLARE over1:	COMMON STRING (8);
+
+	over1 = '12345678';
+
+    END PROCEDURE;
+
+END MODULE;

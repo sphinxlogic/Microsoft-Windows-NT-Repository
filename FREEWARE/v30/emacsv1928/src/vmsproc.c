@@ -1,0 +1,1993 @@
+/* Interfaces to subprocesses on VMS.
+   Copyright (C) 1988, 1994 Free Software Foundation, Inc.
+
+This file is part of GNU Emacs.
+
+GNU Emacs is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 1, or (at your option)
+any later version.
+
+GNU Emacs is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with GNU Emacs; see the file COPYING.  If not, write to
+the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
+
+
+#include	<ssdef.h>
+#include	<iodef.h>
+#include	<dcdef.h>
+#include	<ttdef.h>
+#include	<tt2def.h>
+#include	<dvidef.h>
+#include	<clidef.h>
+#ifndef CLI$M_AUTHPRIV		/* Not defined with VAX C!!!  */
+#define CLI$M_AUTHPRIV	128
+#endif
+#include	<libdef.h>
+#include	<descrip.h>
+#include	<signal.h>
+#include 	<errno.h>
+#ifdef _GNUC_
+#include	<stdlib.h>
+#else
+#include	<unixio.h>
+#endif
+#include	<sys/file.h>
+
+#include	"config.h"
+#include	"getpagesize.h"
+
+/* We need to do the following, or we may get declaration conflicts */
+#ifdef select
+#undef select
+#endif
+#ifdef connect
+#undef connect
+#endif
+
+#ifdef HAVE_SOCKETS
+#ifdef MULTINET
+#include "multinet_root:[multinet.include.vms]inetiodef.h"
+#include "multinet_root:[multinet.include.sys]ioctl.h"
+#endif /* MULTINET */
+#if defined(UCX) || defined(NETLIB)
+#include <netdb.h>
+#include <in.h>
+#include <inet.h>
+#ifndef NETLIB				/* We may not need this... */
+#include <ucx$inetdef.h>
+#endif
+#include <socket.h>
+/* #include "ucxdef.h"
+   struct hostent *dest_host; */
+#endif /* UCX */
+#ifdef NETLIB
+#include "vms_netlib.h"
+#endif
+#endif /* HAVE_SOCKETS */
+
+#include	"lisp.h"
+#include	"buffer.h"
+#include	"commands.h"
+#include	"process.h"
+#include	"vmsproc.h"
+#include	"systty.h"
+#include	"systime.h"
+
+#define select sys_select
+#define connect sys_connect
+
+extern Lisp_Object call_process_cleanup ();
+
+#define max(a,b) ((a) > (b) ? (a) : (b))
+
+#if 0
+#define SELECTDEBUG
+#endif
+
+/*
+    Event flag and `select' emulation:
+
+    Previously, Event flags were hardcoded to the following:
+
+	0 is never used
+	1 is the terminal
+	23 is the timer event flag
+	24-31 are reserved by VMS
+
+    This is completely idiotic, because hardcoded event flags
+    are not supported on VMS. Instead, just consider the above
+    to be the index into the vector of VMS_PROC_STUFF below,
+    with the following meaning:
+
+	0 keyboard
+	1 never used (is stdout on Unix)
+	2 never used (is stderr on Unix)
+
+    We'll get the real event flag from inside that structure.
+
+*/
+
+/* This keeps track of the last available VMS_PROC_STUFF.
+   This depends on how many event flags were allocated. */
+int timer_event = 0;
+int synch_process_event = 0;
+
+static VMS_PROC_STUFF	procList[MAX_VMS_PROC_STUFF];
+static VMS_CHAN_STUFF	fdList[MAX_VMS_CHAN_STUFF];
+
+#define KEYBOARD_INDEX 0
+
+#define KEYBOARD_EVENT_FLAG		fdList[KEYBOARD_INDEX].eventFlag
+#define TIMER_EVENT_FLAG		timer_event
+#define SYNCH_PROCESS_EVENT_FLAG	synch_process_event
+
+extern Lisp_Object chan_process[];
+#ifdef FD_SET
+/* We could get this from param.h, but better not to depend on finding that.
+   And better not to risk that it might define other symbols used in this
+   file.  */
+#define MAXDESC 64
+#define SELECT_TYPE fd_set
+#else /* no FD_SET */
+#define MAXDESC 32
+#define SELECT_TYPE int
+
+/* Define the macros to access a single-int bitmap of descriptors.  */
+#define FD_SET(n, p) (*(p) |= (1 << (n)))
+#define FD_CLR(n, p) (*(p) &= ~(1 << (n)))
+#define FD_ISSET(n, p) (*(p) & (1 << (n)))
+#define FD_ZERO(p) (*(p) = 0)
+#endif /* no FD_SET */
+
+/* This is copied from process.c */
+
+extern Lisp_Object Qrun, Qexit, Qnil;
+extern int process_tick;
+extern SELECT_TYPE input_wait_mask;
+
+get_kbd_event_flag ()
+{
+  /*
+    Return the first event flag for keyboard input.
+    */
+  VMS_CHAN_STUFF	*vs = &fdList[KEYBOARD_INDEX];
+
+  return (vs->eventFlag);
+}
+
+get_timer_event_flag ()
+{
+  return (TIMER_EVENT_FLAG);
+}
+
+VMS_CHAN_STUFF *
+get_vms_channel_stuff ()
+{
+  /*
+    Return a channel_stuff structure
+    */
+  int i;
+  VMS_CHAN_STUFF *vs;
+
+  for (i=1, vs = fdList; i<MAX_VMS_CHAN_STUFF; i++, vs++)
+    {
+      if (!vs->busy)
+	{
+	  int status = LIB$GET_EF (&vs->eventFlag);
+	  if (!(status & 1))
+	    break;
+	  if (vs->eventFlag / 32 != KEYBOARD_EVENT_FLAG / 32)
+	    {
+	      LIB$FREE_EF (&vs->eventFlag);
+	      break;
+	    }
+	  vs->busy = 1;
+	  vs->chan = 0;
+	  sys$clref (vs->eventFlag);
+	  return (vs);
+	}
+    }
+  return ((VMS_CHAN_STUFF *)0);
+}
+
+VMS_PROC_STUFF *
+get_vms_process_stuff ()
+{
+  /*
+    Return a channel_stuff structure
+    */
+  int i;
+  VMS_PROC_STUFF *vs;
+
+  for (i=1, vs = procList; i<MAX_VMS_PROC_STUFF; i++, vs++)
+    {
+      if (vs->active == 0 && vs->process == 0 && vs->statusCode != -1)
+	{
+	  return (vs);
+	}
+    }
+  return ((VMS_PROC_STUFF *)0);
+}
+
+give_back_vms_channel_stuff (vs)
+     VMS_CHAN_STUFF *vs;
+{
+  /*
+    Return an event flag to our pool
+    */
+  vs->busy = 0;
+  vs->chan = 0;
+  sys$clref (vs->eventFlag);
+  LIB$FREE_EF (&vs->eventFlag);
+}
+
+give_back_vms_process_stuff (vs)
+     VMS_PROC_STUFF *vs;
+{
+  /*
+    Return an event flag to our pool
+    */
+  vs->active = 0;
+  vs->process = 0;
+}
+
+VMS_PROC_STUFF *
+get_vms_process_pointer (p)
+     register struct Lisp_Process *p;
+{
+  /*
+    Given a process structure, return the VMS_STUFF pointer
+    */
+  register int			i;
+  register VMS_PROC_STUFF	*vs;
+
+  for (i=0, vs=procList; i<MAX_VMS_PROC_STUFF; i++, vs++)
+    {
+      if (vs->process != 0 && vs->process == p)
+	return (vs);
+    }
+  return ((VMS_PROC_STUFF *)0);
+}
+
+VMS_CHAN_STUFF *
+get_vms_channel_pointer (fd)
+     register int fd;
+{
+  /*
+    Given a file descriptor, return the VMS_CHAN_STUFF pointer
+    */
+  register int			i;
+  register VMS_CHAN_STUFF	*vs;
+
+  vs = &fdList[fd];
+  if (vs->busy)
+    return (vs);
+
+  return ((VMS_PROC_STUFF *)0);
+}
+
+#if 0 /* Apparently not used, and it gives problems with NETLIB contexts,
+	 so... */
+VMS_CHAN_STUFF *
+get_vms_channel_pointer_by_channel (chan)
+     register short chan;
+{
+  /*
+    Given a VMS channel number, return the VMS_CHAN_STUFF pointer
+    */
+  register int i;
+  register VMS_CHAN_STUFF *vs;
+  for (i=1, vs = fdList; i<MAX_VMS_CHAN_STUFF; i++, vs++)
+    {
+      if (vs->busy && vs->chan == chan)
+	{
+	  return (vs);
+	}
+    }
+  return ((VMS_CHAN_STUFF *)0);
+}
+#endif
+
+int
+get_vms_channel_handle (vs)
+     register VMS_CHAN_STUFF *vs;
+{
+  /*
+    Given a VMS_CHAN_STUFF pointer, give a pseudo file descriptor
+    */
+  register int fd = vs - fdList;
+
+  if (fd < 0 || fd >= MAX_VMS_CHAN_STUFF)
+    {
+      errno = EBADF;
+      return -1;
+    }
+  return fd;
+}
+
+#if 0
+extern unsigned long waiting_for_ast; /* in sysdep.c */
+#endif
+
+select (nDesc, rdsc, wdsc, edsc, timeOut)
+     int nDesc;
+     int *rdsc;
+     int *wdsc;
+     int *edsc;
+#ifdef __DECC
+     struct timeval *timeOut;
+#else
+     EMACS_TIME *timeOut;
+#endif
+{
+  /* Emulate a select call
+     
+     timeout == 100000 & bit 0 is set in *rdsc means wait on keyboard
+     input until something shows up.  If timeout == 0, we just read
+     the event flags and return what we find.  */
+
+  int nfds = 0, private_rdsc = 0;
+  int status;
+  EMACS_TIME timeout = *(EMACS_TIME *)timeOut;
+  EMACS_TIME time;
+  unsigned long timeout_secs = EMACS_SECS (timeout);
+  unsigned long timeout_usecs = EMACS_USECS (timeout);
+  unsigned long mask, readMask, waitMask, allMask;
+  unsigned long save_ast_flag;
+
+  readMask = 0;
+  allMask = 1 << SYNCH_PROCESS_EVENT_FLAG;
+
+#ifdef SELECTDEBUG
+  fprintf (stderr, "debugging select (): BEGIN\n");
+#endif
+
+  if (rdsc)
+    {
+      private_rdsc = *rdsc;
+      *rdsc = 0;
+    }
+
+  {
+    int i, j=private_rdsc;
+    for (i = 0; i < MAX_VMS_CHAN_STUFF; j >>= 1, i++)
+      {
+	register int k = 1 << (fdList[i].eventFlag % 32);
+	/* pseudo file descriptor 1 and 2 are just unused placeholders.  */
+	if (fdList[i].busy && (i != 1) && (i != 2))
+	  allMask |= k;
+	if (i < nDesc && j & 1)
+	  readMask |= k;
+      }
+  }
+
+#ifdef SELECTDEBUG
+  fprintf (stderr, "  We expect these events      : 0x%x\n", readMask);
+  fprintf (stderr, "  but we handle these as well : 0x%x\n", allMask);
+#endif
+
+  /* In order to correctly mimic the UNIX select (), we must detect ANY
+     event, and return -1 if one occured, and it wasn't one we really
+     are waiting for.  */
+
+  /* This expression makes select return -1 if there was any unexpected
+     AST, even if there were some expected ones.  */
+#define testexpression ((mask & allMask & ~readMask) != 0)
+
+  save_ast_flag = sys$setast (0); /* Block interrupts */
+  sys$readef (KEYBOARD_EVENT_FLAG, &mask); /* See what is set */
+#ifdef SELECTDEBUG
+  fprintf (stderr, "  Initially, we get this mask: 0x%x\n", mask);
+#endif
+
+  /* the following line was previously: if (mask == 0 && readMask) */
+  if ((mask & allMask) == 0)
+    {		/* Nothing set, we must wait */
+      if (timeout_secs != 0 || timeout_usecs != 0)
+	{	/* Not just inspecting... */
+	  if (!(timeout_usecs == 0 && timeout_secs == 100000 &&
+		readMask == (1 << (KEYBOARD_EVENT_FLAG % 32))))
+	    {
+	      int i = (1 << (TIMER_EVENT_FLAG % 32));
+	      EMACS_NEGATE_TIME (time, timeout);
+	      /* Warning: DEC C RTL uses timer 1 for alarm() */
+	      sys$cantim (2, 0);
+	      sys$clref (TIMER_EVENT_FLAG);
+	      sys$setimr (TIMER_EVENT_FLAG, &time, 0, 2);
+	      waitMask = allMask | i;
+	    }
+	  else
+	    {
+	      waitMask = allMask;
+	    }
+	  waitMask |= (1 << (SYNCH_PROCESS_EVENT_FLAG % 32));
+	  sys$setast (1);
+	  sys$wflor (KEYBOARD_EVENT_FLAG, waitMask);
+	  sys$setast (0);
+	  sys$cantim (2, 0);
+	  sys$readef (KEYBOARD_EVENT_FLAG, &mask);
+	}
+#ifdef SELECTDEBUG
+      fprintf (stderr, "  ... but eventually, we got this mask: 0x%x\n", mask);
+      if (mask & TIMER_EVENT_FLAG)
+	fprintf (stderr, "    TIMEOUT!!!\n");
+#endif
+    }
+#ifdef SELECTDEBUG
+  else
+    fprintf (stderr, "  ... and we keep it\n");
+#endif
+
+  if ((readMask & (1 << (KEYBOARD_EVENT_FLAG % 32)))
+      || (testexpression && (allMask & (1 << (KEYBOARD_EVENT_FLAG % 32)))))
+    {
+#ifdef SELECTDEBUG
+      fprintf (stderr, "  clearing the keyboard event flag\n");
+#endif
+      sys$clref (KEYBOARD_EVENT_FLAG);
+    }
+
+  sys$setast (save_ast_flag == SS$_WASSET);
+
+  if testexpression
+    {
+      errno = EINTR;
+#ifdef SELECTDEBUG
+      fprintf (stderr, "  returning -1\n");
+      fprintf (stderr, "debugging select (): END\n");
+#endif
+      return -1;
+    }
+
+  /* Count number of descriptors that are ready.  Some people might think
+     that we need to check if the timer timed out.  There's no real need for
+     that, because if that happened (and no OTHER expected event occured),
+     mask will be zero, and thus, so will nfds.  */
+
+  mask &= readMask;
+
+  if (rdsc)			/* Back to Unix format */
+    {
+      int i;
+      *rdsc = 0;
+      nfds = 0;
+      for (i = 0; i < MAX_VMS_CHAN_STUFF; i++)
+	if (mask & (1 << (fdList[i].eventFlag % 32)))
+	  {
+	    nfds++;
+	    *rdsc |= 1 << i;
+	  }
+#ifdef SELECTDEBUG
+      fprintf (stderr, "  returning %d, with the output mask 0x%x\n",
+	       nfds, *rdsc);
+#endif
+    }
+#ifdef SELECTDEBUG
+  else
+    fprintf (stderr, "  returning %d\n", nfds);
+#endif
+    
+#ifdef SELECTDEBUG
+  fprintf (stderr, "debugging select (): BEGIN\n");
+#endif
+  return (nfds);
+}
+
+/* accessor macros */
+
+#define PTY_STRUCT(vs, i) (&((vs)->a.pty.pty_buffers[i]))
+#define PTY_BUF(vs, i) (&((vs)->a.pty.pty_buffers[i].buf[0]))
+#define PTY_LEN(vs, i) ((vs)->a.pty.pty_buffers[i].len)
+#define PTY_STAT(vs, i) ((vs)->a.pty.pty_buffers[i].stat)
+#define PTY_LASTLEN(vs, i) ((vs)->a.pty.pty_lastlen[i])
+
+#define MBX_BUF(vs) ((vs)->a.mbx.mbx_buffer)
+#define MBX_IOSB(vs) ((vs)->a.mbx.iosb)
+
+#define NET_BUF(vs) ((vs)->a.net.net_buffer.dsc$a_pointer)
+#define NET_BUF_SIZE(vs) ((vs)->a.net.net_buffer.dsc$w_length)
+#define NET_BUF_DSC(vs) ((vs)->a.net.net_buffer)
+#define NET_IOSB(vs) ((vs)->a.net.iosb)
+
+#define NET_CONTEXT(vs) ((vs)->chan)
+
+#ifdef NETLIB
+unsigned int NETLIB_receive_ast (vs)
+     VMS_CHAN_STUFF *vs;
+{
+  SYS$SETEF (vs->eventFlag);
+}
+#endif
+
+/* start input on the pfd described by the indicated slot. */
+static void vms_start_input (vs)
+     VMS_CHAN_STUFF *vs;
+{
+  int status;
+
+  {
+    VMS_PROC_STUFF *ps = 0;
+    int fd = get_vms_channel_handle (vs);
+    int i;
+    
+    for (i = 0; i < MAX_VMS_PROC_STUFF; i++)
+      if (procList[i].process != 0
+	  && XPROCESS (procList[i].process)->infd == fd)
+	{
+	  ps = &procList[i];
+	  break;
+	}
+	 
+    if (ps == 0 || ps->active)
+      sys$clref (vs->eventFlag);
+  }
+   
+  if (vs->is_pty)
+    {
+#ifdef HAVE_VMS_PTYS
+      status = ptd$read (vs->eventFlag, vs->chan, 0, vs,
+			 PTY_STRUCT (vs, PTY_READBUF), PTYBUF_SIZE);
+#endif
+    }
+  else if (vs->is_net)
+    {
+#ifdef HAVE_SOCKETS
+#ifdef MULTINET
+      status = SYS$QIO(vs->eventFlag, NET_CONTEXT(vs), IO$_RECEIVE,
+		       &NET_IOSB (vs), 0, vs, NET_BUF (vs), NETBUFSIZ,
+		       0, 0, 0, 0);
+#endif
+#ifdef UCX
+      status = SYS$QIO(vs->eventFlag, NET_CONTEXT(vs), IO$_READVBLK,
+		       &NET_IOSB (vs), 0, vs, NET_BUF (vs), NETBUFSIZ,
+		       0, 0, 0, 0);
+#endif
+#ifdef NETLIB
+      status = tcp_receive (&NET_CONTEXT (vs), &NET_BUF_DSC (vs),
+			    &NET_IOSB (vs), NETLIB_receive_ast, vs, 0);
+#endif
+#endif
+    }
+  else
+    {
+      status = SYS$QIO(vs->eventFlag, vs->chan, IO$_READVBLK,
+		       &MBX_IOSB (vs), 0, vs, MBX_BUF (vs), MSGSIZE,
+		       0, 0, 0, 0);
+    }
+  if (! (status & 1))
+    LIB$SIGNAL (status);
+}
+
+
+/* functions for reading and writing pfds */
+
+int vms_read_fd(fd, buf, len, translate)
+     int fd, len, translate;
+     char *buf;
+{
+  VMS_CHAN_STUFF *vs = get_vms_channel_pointer(fd);
+  char *chars;
+  int nchars;
+  unsigned long mask;
+
+  if (vs == 0 || !vs->busy)
+    {
+      errno = EBADF;
+      return -1;
+    }
+
+  /* return now if there's nothing to read */
+  while (sys$readef (KEYBOARD_EVENT_FLAG, &mask),
+	 !(mask & ((1 << (vs->eventFlag % 32))
+		   | (1 << (SYNCH_PROCESS_EVENT_FLAG % 32)))))
+    {
+      int Atemp = 1 << (vs->eventFlag % 32);
+      EMACS_TIME timeout;
+      EMACS_SET_SECS_USECS (timeout, 100000, 0);
+      if (select (MAXDESC, &Atemp, 0, 0, &timeout) < 0)
+	return 0;
+    }
+
+  if (mask & (1 << (SYNCH_PROCESS_EVENT_FLAG % 32)))
+    return 0;
+
+  /* reading from net streams */
+  if (vs->is_net)
+    {
+      chars = NET_BUF (vs);
+      nchars = NET_IOSB (vs).size;
+      if (!(NET_IOSB(vs).status & 1))
+	{
+	  errno = NET_IOSB(vs).size;
+	  vaxc$errno = NET_IOSB(vs).status;
+	  return -1;
+	}
+      NET_IOSB (vs).size = 0;
+      /* if nchars == 0 the connection has gone away?
+	 try returning 0 here so waiting_for_process_input will terminate
+	 the stream. */
+      if (nchars == 0) return 0;
+    }
+
+  /* reading from ptys */
+  else if (vs->is_pty)
+    {
+      char *p;
+
+      chars = PTY_BUF (vs, PTY_READBUF);
+      nchars = PTY_LEN (vs, PTY_READBUF);
+      PTY_LEN (vs, PTY_READBUF) = 0;
+
+      /* remove carriage returns and NUL's if translation is on */
+      if (translate)
+	for (p = chars; p < chars+nchars; p++)
+	  if (*p == '\r' || *p == '\0')
+	    {
+	      --nchars;
+	      memcpy (p, p+1, nchars - (p-chars));
+	      --p;
+	    }
+    }
+
+  /* reading from mbxs */
+  else
+    {
+      chars = MBX_BUF (vs);
+      nchars = MBX_IOSB (vs).size;
+      MBX_IOSB (vs).size = 0;
+
+      /* Hack around VMS oddity of sending extraneous CR/LF characters for
+       * some of the commands (but not most). (if translation is on)
+       */
+      if (translate)
+	{
+	  if (nchars > 0 && *chars == '\r')
+	    {
+	      chars++;
+	      nchars--;
+	    }
+	  if (nchars > 0 && chars[nchars - 1] == '\n')
+	    nchars--;
+	  if (nchars > 0 && chars[nchars - 1] == '\r')
+	    nchars--;
+      
+	  /* add a newline onto the end */
+	  chars[nchars++] = '\n';
+	}
+    }
+
+  /* copy the data to the output buffer */
+  if (nchars > len) nchars = len;
+  memcpy (buf, chars, nchars);
+
+  /* queue another read to the channel */
+  vms_start_input (vs);
+
+  /* we can't just return 0; if we do, wait_reading_process_input() will
+     think that the process has died.  so, do the following to fake it out. */
+  if (nchars == 0)
+    {
+      nchars = -1;
+      errno = EWOULDBLOCK;
+    }
+
+  return nchars;
+}
+
+#ifdef HAVE_VMS_PTYS
+
+static int vms_write_pty(vs, buf, len, translate)
+     VMS_CHAN_STUFF *vs;
+     char *buf;
+     int len, translate;
+{
+  int i, status;
+
+  /* we can't write more than PTYBUF_SIZE characters at once... */
+  if (len > PTYBUF_SIZE)
+    len = PTYBUF_SIZE;
+
+  /* find a free buffer */
+  for (i = 0; i < PTY_BUFFERS; i++)
+    if (i != PTY_READBUF && PTY_STAT (vs, i) != 0)
+      break;
+
+  /* if we couldn't find one, return an error status with
+     errno = EWOULDBLOCK */
+  if (i >= PTY_BUFFERS)
+    {
+      errno = EWOULDBLOCK;
+      return -1;
+    }
+
+  /* if the previous write resulted in a data overrun error, requeue that
+     write, and return an EWOULDBLOCK error. */
+  if (PTY_STAT (vs, i) == SS$_DATAOVERUN)
+    {
+      int j;
+
+      /* the number of characters that the last request tried to write
+	 is in PTY_LASTLEN(vs, i).  the number of characters that were
+	 actually written is in PTY_LEN(vs, i). */
+
+      len = PTY_LASTLEN (vs, i) - PTY_LEN (vs, i);
+      for (j=0; j<len; j++)
+	PTY_BUF (vs, i)[j] = PTY_BUF (vs, i)[j + PTY_LEN (vs, i)];
+      PTY_LASTLEN(vs, i) = len;
+      PTY_STAT (vs, i) = SS$_NORMAL;
+      if (len)
+	status = ptd$write (vs->chan, 0, 0, PTY_STRUCT (vs, i), len, 0, 0);
+      else
+	status = SS$_NORMAL;
+      if (! (status & 1))
+	{
+	  errno = EVMSERR;
+	  vaxc$errno = status;
+	  return -1;
+	}
+      errno = EWOULDBLOCK;
+      return -1;
+    }
+
+  /* copy the data to the pty buffer */
+  memcpy (PTY_BUF (vs, i), buf, len);
+
+  if (translate)
+    {
+      /* if the buffer consists of the single character ^D, change it to ^Z.
+	 also translate NL's to CR's */
+      if (len == 1 && PTY_BUF (vs, i)[0] == '\004')
+	PTY_BUF (vs, i)[0] = '\032';
+      else
+	{
+	  char *p;
+	  for (p = PTY_BUF (vs, i); p < PTY_BUF (vs, i) + len; p++)
+	    if (*p == '\n')
+	      *p = '\r';
+	}
+    }
+
+
+  /* que the write */
+  PTY_STAT (vs, i) = SS$_NORMAL;
+  PTY_LASTLEN (vs, i) = len;
+#if 1 /* experiment.  Suggested by Roland B. Roberts.  */
+  if (len)
+    status = ptd$write (vs->chan, 0, 0, PTY_STRUCT (vs, i), len, 0, 0);
+  else
+    status = SS$_NORMAL;
+#else
+  status = ptd$write (vs->chan, 0, 0, PTY_STRUCT (vs, i), len, 0, 0);
+#endif
+  if (! (status & 1))
+    {
+      errno = EVMSERR;
+      vaxc$errno = status;
+      return -1;
+    }
+
+  return len;
+}
+
+#endif
+
+static int vms_write_mbx(vs, buf, len, translate)
+     VMS_CHAN_STUFF *vs;
+     char *buf;
+     int len, translate;
+{
+  int status, oldrwm;
+  int xlen = len;
+
+  /* turn off resource-wait mode to prevent blocking on a full mbx */
+  oldrwm = sys$setrwm(1);
+
+  /* as a special hack, if the buffer consists of the single character ^D,
+     write EOF to the mailbox. */
+
+  if (len == 1 && buf[0] == '\004' && translate)
+    status = SYS$QIOW (0, vs->chan, IO$_WRITEOF | IO$M_NOW,
+		       0, 0, 0, buf, xlen, 0, 0, 0, 0);
+  else
+    {
+      /* strip trailing newlines if translation is on */
+      if (xlen > 0 && buf[xlen-1] == '\n' && translate)
+	--xlen;
+      status = SYS$QIOW (0, vs->chan, IO$_WRITEVBLK | IO$M_NOW,
+			 0, 0, 0, buf, xlen, 0, 0, 0, 0);
+    }
+
+  /* restore the previous state of resource-waiting */
+  if (oldrwm == SS$_WASCLR)
+    sys$setrwm (0);
+
+  if (! (status & 1))
+    {
+      if (status == SS$_MBFULL)
+	errno = EWOULDBLOCK;
+      else
+	{
+	  errno = EVMSERR;
+	  vaxc$errno = status;
+	}
+      
+      return -1;
+    }
+
+  return len;
+}
+
+#ifdef HAVE_SOCKETS
+
+static int vms_write_net(vs, buf, len)
+     VMS_CHAN_STUFF *vs;
+     char *buf;
+     int len;
+{
+  int status;
+  int dum_0 = 0, dum_1 = 1;
+  short iosb[4];
+
+  /* do the write */
+#ifdef UCX
+  status = SYS$QIOW(0, NET_CONTEXT(vs), IO$_WRITEVBLK, iosb, 0, 0, buf, len,
+                    0, 0, 0, 0);
+#endif
+#ifdef NETLIB
+  {
+    struct dsc$descriptor tmpstr;
+
+    tmpstr.dsc$b_dtype = DSC$K_DTYPE_T;
+    tmpstr.dsc$b_class = DSC$K_CLASS_S;
+    tmpstr.dsc$a_pointer = buf;
+    tmpstr.dsc$w_length = strlen(buf);
+
+    status = tcp_send (&NET_CONTEXT(vs), &tmpstr, 2, iosb, 0, 0);
+  }
+#endif
+#if defined(UCX) || defined(NETLIB)
+  if (!(status & 1))
+    {
+      errno = EVMSERR;
+      vaxc$errno = status;
+      return -1;
+    }
+  if (!(iosb[0] & 1))
+    {
+      errno = iosb[1];
+      vaxc$errno = iosb[0];
+      return -1;
+    }
+  status = iosb[1]; /* We shall return how many bytes were actually
+                       returned */
+#endif
+
+#ifdef MULTINET
+  {
+    extern int socket_errno;
+    /* turn on nonblocking mode */
+    if (socket_ioctl (NET_CONTEXT(vs), FIONBIO, &dum_1) != 0)
+      {
+	errno = socket_errno;
+	return -1;
+      }
+
+    /* do the write */
+    status = socket_write (NET_CONTEXT(vs), buf, len);
+    if (status == -1) errno = socket_errno;
+
+    /* back to blocking mode so reads will work properly */
+    if (socket_ioctl (NET_CONTEXT(vs), FIONBIO, &dum_0) != 0)
+      {
+	errno = socket_errno;
+	return -1;
+      }
+  }
+#endif /* MULTINET */
+
+  return status;
+}
+
+#endif
+
+int vms_write_fd(fd, buf, len, translate)
+     int fd, len, translate;
+     char *buf;
+{
+  VMS_CHAN_STUFF *vs = get_vms_channel_pointer(fd);
+
+  if (vs == 0 || !vs->busy)
+    {
+      errno = EBADF;
+      return -1;
+    }
+
+  if (vs->is_pty)
+    {
+#ifdef HAVE_VMS_PTYS
+      /* it's a pty */
+      return vms_write_pty (vs, buf, len, translate);
+#endif
+    }
+  else if (vs->is_net)
+    {
+#ifdef HAVE_SOCKETS
+      /* it's a socket */
+      return vms_write_net (vs, buf, len);
+#endif
+    }
+  else
+    {
+      /* it's a mailbox */
+      return vms_write_mbx (vs, buf, len, translate);
+    }
+}
+
+/* close a pfd and free its buffers */
+
+int vms_close_fd (fd)
+     int fd;
+{
+  VMS_CHAN_STUFF *vs = get_vms_channel_pointer(fd);
+
+  if (vs == 0 || !vs->busy)
+    {
+      errno = EBADF;
+      return -1;
+    }
+
+  if (vs->is_pty)
+    {
+#ifdef HAVE_VMS_PTYS
+      ptd$delete (vs->chan);
+      free (vs->a.pty.pty_buffers);
+#endif
+    }
+  else if (vs->is_net)
+    {
+#ifdef HAVE_SOCKETS
+#if defined(MULTINET) || defined(UCX) || defined(NETLIB)
+      socket_close (NET_CONTEXT(vs));
+#else
+      close (NET_CONTEXT(vs));
+#endif
+      if (NET_BUF (vs))
+	{
+	  free (NET_BUF (vs));
+	  NET_BUF (vs) = 0;
+	}
+#endif
+    }
+  else
+    {
+      SYS$DASSGN (vs->chan);
+      if (MBX_BUF (vs))
+	{
+	  free (MBX_BUF (vs));
+	  MBX_BUF (vs) = 0;
+	}
+    }
+  vs->busy = 0;
+  sys$clref(vs->eventFlag);
+  give_back_vms_channel_stuff(vs);
+  FD_CLR (fd, &input_wait_mask);
+
+  return 0;
+}
+
+/* functions for creating pfds */
+
+/* Creates a temporary mailbox and returns the channel in CHAN.
+ * 'buffer_factor' is used to allow sending messages asynchronously
+ * till some point.
+ */
+
+static int
+create_mbx (chan, buffer_factor)
+     int *chan;
+     int buffer_factor;
+{
+  int status;
+
+  status = sys$crembx (0, chan, MSGSIZE, MSGSIZE * buffer_factor, 0, 0, 0);
+  if (! (status & 1))
+    {
+      message ("Unable to create mailbox.  Need TMPMBX privilege.");
+      errno = EVMSERR;
+      vaxc$errno = status;
+      return 0;
+    }
+  return 1;
+}                             /* create_mbx */
+
+void vms_get_device_name (fd, dsc)
+     int fd;
+     struct dsc$descriptor_s *dsc;
+{
+  int status;
+  short retlen;
+  VMS_CHAN_STUFF *vs = get_vms_channel_pointer(fd);
+  int dum_DVI$_DEVNAM = DVI$_DEVNAM;
+
+  if (vs == 0)
+    abort ();
+
+  if (!vs->busy)
+    abort();
+
+  status = lib$getdvi (&dum_DVI$_DEVNAM, &vs->chan, 0, 0, dsc,
+		       &retlen);
+  if (! (status & 1))
+    LIB$SIGNAL (status);
+
+  dsc->dsc$w_length = retlen;
+}
+
+int vms_pipe (fds)
+     int fds[2];
+{
+  int i, j;
+  VMS_CHAN_STUFF *vs[2];
+
+  /* allocate VMS_CHAN_STUFF for two free pseudo-fds;
+     store their indices in fds. If it wasn't possible to allocate
+     them, return an error status. */
+  if ((vs[0] = get_vms_channel_stuff ()) == 0)
+    {
+      errno = ENFILE;
+      return -1;
+    }
+  fds[0] = get_vms_channel_handle (vs[0]);
+
+  if ((vs[1] = get_vms_channel_stuff ()) == 0)
+    {
+      give_back_vms_channel_stuff(vs[0]);
+      errno = ENFILE;
+      return -1;
+    }
+  fds[1] = get_vms_channel_handle (vs[1]);
+
+  errno = EACCES;
+
+  /* create the input mailbox */
+  vs[1]->busy = 1;
+  vs[1]->is_pty = vs[1]->is_net = 0;
+  sys$clref(vs[1]->eventFlag);
+  if (! create_mbx (&vs[1]->chan, 2))
+    return -1;
+
+  /* create the output mailbox */
+  vs[0]->busy = 1;
+  vs[0]->is_pty = vs[0]->is_net = 0;
+  MBX_BUF (vs[0]) = (char *) xmalloc (MSGSIZE+1);
+  sys$clref(vs[0]->eventFlag);
+  if (! create_mbx (&vs[0]->chan, 1))
+    return -1;
+  FD_SET (fds[0], &input_wait_mask);
+
+  vms_start_input (vs[0]);
+
+  /* done! */
+  errno = 0;
+  return 0;
+}
+
+#ifdef HAVE_VMS_PTYS
+
+int vms_make_pty(fds)
+     int fds[2];
+{
+  int i, status;
+  VMS_CHAN_STUFF *vs;
+  struct ptybuf *addarr[2];
+  struct
+    {
+      char class;
+      char type;
+      unsigned short scr_wid;
+      unsigned long tt_char : 24, scr_len : 8;
+      unsigned long tt2_char;
+    } term_mode;
+
+  /* allocate VMS_CHAN_STUFF for a free pseudo-fds;
+     store its index in fds. If it wasn't possible to allocate
+     them, return an error status. */
+  if ((vs = get_vms_channel_stuff ()) == 0)
+    {
+      errno = ENFILE;
+      return -1;
+    }
+  fds[0] = fds[1] = get_vms_channel_handle (vs);
+
+  vs->a.pty.pty_buffers = valloc (PTY_BUFFERS * PAGESIZE);
+  if (vs->a.pty.pty_buffers == 0)
+    return -1;
+
+  /* mark buffers as not busy */
+  for (i=0; i<PTY_BUFFERS; i++)
+    PTY_STAT(vs, i) = 1;
+
+#if 0
+  /* get the current terminal characteristics */
+  SYS$QIOW (0, input_chan, IO$_SENSEMODE, 0, 0, 0,
+          &term_mode, sizeof(term_mode), 0, 0, 0, 0);
+
+  /* use those characteristics for the new pty, with the exception
+     of pasthru.. */
+  term_mode.tt2_char &= ~TT2$M_PASTHRU;
+#endif
+  term_mode.class = DC$_TERM;
+  term_mode.type = TT$_UNKNOWN;
+  term_mode.scr_wid = 511;
+  term_mode.scr_len = 255;
+  term_mode.tt_char = TT$M_ESCAPE | TT$M_LOWER | TT$M_MECHFORM | TT$M_NOECHO |
+                      TT$M_EIGHTBIT;
+  /*
+   * RBR - I've had problems with ALTYPEAHD, even when $getsyi reports its
+   * size as 2048.
+   */
+  /* term_mode.tt2_char = TT2$M_ALTYPEAHD; */
+  term_mode.tt2_char = 0;
+
+  /* create the pty */
+  addarr[0] = vs->a.pty.pty_buffers;
+  addarr[1] = addarr[0] + PTY_BUFFERS;
+  addarr[1] = (char *) addarr[1] - 1;
+  status = ptd$create (&vs->chan, 0, &term_mode, sizeof (term_mode),
+		       0, 0, 0, addarr);
+  if (! (status & 1))
+    {
+      errno = EVMSERR;
+      vaxc$errno = status;
+      return -1;
+    }
+
+  /* finish initializing and start the input */
+  vs->busy = 1;
+  vs->is_pty = 1;
+  vs->is_net = 0;
+  sys$clref(vs->eventFlag);
+  vms_start_input (vs);
+
+  return 0;
+}
+
+#endif
+
+#ifdef HAVE_SOCKETS
+
+int vms_net_chan(vms_chan, fds)
+     int vms_chan;
+     int fds[2];
+{
+  int i;
+  VMS_CHAN_STUFF *vs;
+
+  /* allocate VMS_CHAN_STUFF for a free pseudo-fds;
+     store its index in fds. If it wasn't possible to allocate
+     them, return an error status. */
+  if ((vs = get_vms_channel_stuff ()) == 0)
+    {
+      errno = ENFILE;
+      return -1;
+    }
+  fds[0] = fds[1] = get_vms_channel_handle (vs);
+
+  vs->busy = 1;
+  vs->is_pty = 0;
+  vs->is_net = 1;
+  vs->chan = vms_chan;
+
+  NET_BUF (vs) = (char *) xmalloc (NETBUFSIZ+1);
+  NET_BUF_SIZE (vs) = NETBUFSIZ;
+  sys$clref(vs->eventFlag);
+  vms_start_input (vs);
+
+  /* done! */
+  return 0;
+}
+
+#if defined(UCX) || defined(NETLIB)
+/* We need socket routines that handle VMS I/O channels directly.
+   Unfortunatelly, the VAX C socket library routines return
+   handles to its internal file structure array, which is not
+   really the same... */
+/* Most of the following is picked from the Example A-4 in the
+   DEC TCP/IP Services for VMS Programming Manual */
+
+struct itlst {
+  int lgth;
+  struct sockaddr_in *hst;
+};
+
+struct itlst_1 {
+  int lgth;
+  char *rmt_adrs;
+  int *retlth;
+};
+
+struct itlst_3 {
+  int lgth;
+  struct sockaddr_in *hst;
+  int *retlth;
+};
+
+struct socket_structure {
+#ifdef NETLIB
+  void *net_chan;
+  int protocol;
+#else
+  int net_chan;
+#endif
+  int inet_family;
+  char inuse:1;
+  char connected:1;
+} socket_structure[MAXDESC];
+
+static struct sockaddr_in prototype_sockaddr;
+#endif
+
+#ifdef UCX
+socket (af, type, protocol)
+    int af, type, protocol;
+{
+  int status,i;
+  long net_chan;
+  short sck_parm[2];
+  short iosb[4];
+  struct sockaddr_in local_host = prototype_sockaddr;
+  struct itlst lhst_adrs;
+  struct itlst_1 lsck_adrs;
+  int l_retlen;
+  char local_hostaddr[16];
+  $DESCRIPTOR(ucx_template,"BG:");
+
+  /* Initialize the parameters */
+  sck_parm[0] = INET$C_TCP;
+  sck_parm[1] = type;
+
+  /* Itlst for local IP address */
+  lhst_adrs.lgth= sizeof(local_host);
+  lhst_adrs.hst=  &local_host;
+  lsck_adrs.lgth=     16;
+  lsck_adrs.rmt_adrs= &local_hostaddr;
+  lsck_adrs.retlth=   &l_retlen;
+
+  local_host.sin_family=af;
+  local_host.sin_port=0;
+  local_host.sin_addr.s_addr=0;
+
+  for (i=0; i<MAXDESC; i++)
+    if (!socket_structure[i].inuse)
+      {
+        socket_structure[i].inuse = 1;
+        break;
+      }
+  if (i==MAXDESC)
+    {
+      errno=ENFILE;
+      return -1;
+    }
+
+  SYS$ASSIGN(&ucx_template,&net_chan,0,0);
+  socket_structure[i].inet_family = af;
+  socket_structure[i].net_chan=net_chan;
+  status = SYS$QIOW(0,net_chan, IO$_SETMODE, iosb, 0, 0,
+		    &sck_parm, 0x01000000|SOCKOPT$M_REUSEADDR,
+		    &lhst_adrs, 0, 0, 0);
+  if (!(status & 1))
+    {
+      errno = EVMSERR;
+      vaxc$errno = status;
+      SYS$DASSGN(net_chan);
+      return -1;
+    }
+  if (!(iosb[0] & 1))
+    {
+      errno = iosb[1];
+      if (errno == 0)
+	errno = EVMSERR;
+      vaxc$errno = iosb[0];
+      SYS$DASSGN(net_chan);
+      return -1;
+    }
+  socket_structure[i].inuse = 1;
+  return net_chan;
+}
+
+connect (net_chan, name, namelen)
+    int net_chan,namelen;
+    struct sockaddr *name;
+{
+  int status,i;
+  short iosb[4];
+  struct sockaddr_in remote_host = prototype_sockaddr;
+  struct sockaddr_in *name_in = (struct sockaddr_in *)name;
+  struct itlst rhst_adrs;
+  struct itlst_1 rsck_adrs;
+  int r_retlen;
+  char remote_hostaddr[16];
+
+  rhst_adrs.lgth= sizeof(*name_in);
+  rhst_adrs.hst=  name_in;
+  rsck_adrs.lgth=     16;
+  rsck_adrs.rmt_adrs= &remote_hostaddr;
+  rsck_adrs.retlth=   &r_retlen;
+
+  for(i=0; i<MAXDESC; i++)
+    if (socket_structure[i].inuse && 
+        socket_structure[i].net_chan == net_chan)
+      {
+        if (socket_structure[i].connected)
+          {
+            errno = EISCONN;
+	    return -1;
+	  }
+	break;
+      }
+
+  if (i==MAXDESC)
+    {
+      errno = EBADF;
+      return -1;
+    }
+
+  status = SYS$QIOW(0, net_chan, IO$_ACCESS, iosb, 0, 0,
+		    0, 0, &rhst_adrs, 0, 0, 0);
+  if (!(status & 1))
+    {
+      errno = EVMSERR;
+      vaxc$errno = status;
+      SYS$DASSGN(net_chan);
+      return -1;
+    }
+  if (!(iosb[0] & 1))
+    {
+      errno = iosb[1];
+      if (errno == 0)
+	errno = EVMSERR;
+      vaxc$errno = iosb[0];
+      SYS$DASSGN(net_chan);
+      return -1;
+    }
+  socket_structure[i].connected = 1;
+  return 0;
+}
+
+socket_close (net_chan)
+    int net_chan;
+{
+  int i;
+
+  for(i=0; i<MAXDESC; i++)
+    if (socket_structure[i].inuse &&
+        socket_structure[i].net_chan == net_chan)
+      break;
+  if (i==MAXDESC)
+    {
+      errno = EBADF;
+      return -1;
+    }
+	
+  SYS$QIOW(0,net_chan,IO$_DEACCESS|IO$M_SHUTDOWN,0,0,0,
+	   0,0,0,UCX$C_DSC_ALL,0,0);
+  SYS$QIOW(0,net_chan,IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+  SYS$DASSGN(net_chan);
+  socket_structure[i].inuse = 0;
+  socket_structure[i].connected = 0;
+  return 0;
+}
+#endif /* UCX */
+
+#ifdef NETLIB
+socket (af, type, protocol)
+     int af, type, protocol;
+{
+  int net_chan, status, i;
+
+  for (i=0; i<MAXDESC; i++)
+    if (!socket_structure[i].inuse)
+      {
+        socket_structure[i].inuse = 1;
+        break;
+      }
+  if (i==MAXDESC)
+    {
+      errno=ENFILE;
+      return -1;
+    }
+
+  switch(protocol)
+    {
+    case IPPROTO_IP:
+      switch (type)
+	{
+	case SOCK_STREAM:
+	  protocol = IPPROTO_TCP;
+	  break;
+	case SOCK_DGRAM:
+	default:
+	  protocol = IPPROTO_UDP;
+	  break;
+	}
+      break;
+    case IPPROTO_TCP:
+    case IPPROTO_UDP:
+      break;
+    default:
+      errno = EPROTONOSUPPORT;
+      return -1;
+    }
+
+  status = net_assign (&net_chan);
+  if (!(status & 1))
+    {
+      errno = EVMSERR;
+      vaxc$errno = status;
+      return -1;
+    }
+  socket_structure[i].inet_family = af;
+  socket_structure[i].protocol = protocol;
+  socket_structure[i].net_chan=net_chan;
+  if (!(status & 1))
+    {
+      errno = EVMSERR;
+      vaxc$errno = status;
+      net_deassign (&net_chan);
+      return -1;
+    }
+  socket_structure[i].inuse = 1;
+  return net_chan;
+}
+
+connect (net_chan, name, namelen)
+     int net_chan,namelen;
+     struct sockaddr *name;
+{
+  int status,i;
+  struct sockaddr_in remote_host = prototype_sockaddr;
+  struct sockaddr_in *name_in = (struct sockaddr_in *)name;
+
+  for(i=0; i<MAXDESC; i++)
+    if (socket_structure[i].inuse && 
+        socket_structure[i].net_chan == net_chan)
+      {
+        if (socket_structure[i].connected)
+          {
+            errno = EISCONN;
+	    return -1;
+	  }
+	break;
+      }
+
+  if (i==MAXDESC)
+    {
+      errno = EBADF;
+      return -1;
+    }
+
+  if (socket_structure[i].inet_family != AF_INET)
+    {
+      errno = EAFNOSUPPORT;
+      return -1;
+    }
+
+  switch (socket_structure[i].protocol)
+    {
+    case IPPROTO_TCP:
+      status = net_bind (&net_chan, 1, ntohs(name_in->sin_port), 1, 1);
+      if (status == SS$_NORMAL)
+	status = tcp_connect_addr (&net_chan, &(name_in->sin_addr.s_addr),
+				   ntohs(name_in->sin_port));
+      break;
+    case IPPROTO_UDP:
+      status = net_bind (&net_chan, 2, ntohs(name_in->sin_port), 0, 1);
+      break;
+    }
+  if (!(status & 1))
+    {
+      vaxc$errno = status;
+      errno = EVMSERR;
+      return -1;
+    }
+  socket_structure[i].connected = 1;
+  return 0;
+}
+
+socket_close (net_chan)
+    void *net_chan;
+{
+  int i;
+
+  for(i=0; i<MAXDESC; i++)
+    if (socket_structure[i].inuse &&
+        socket_structure[i].net_chan == net_chan)
+      break;
+  if (i==MAXDESC)
+    {
+      errno = EBADF;
+      return -1;
+    }
+	
+  if (socket_structure[i].connected)
+    tcp_disconnect (&net_chan);
+  net_deassign (&net_chan);
+
+  socket_structure[i].inuse = 0;
+  socket_structure[i].connected = 0;
+  return 0;
+}
+#endif /* NETLIB */
+#endif /* HAVE_SOCKETS */
+
+VMSgetwd (buf)
+     char *buf;
+{
+  /*
+    Return the current directory
+    */
+  char curdir[256];
+  char *getenv ();
+  char *s;
+  short len;
+  int status;
+  struct
+    {
+      int	l;
+      char	*a;
+    } d;
+
+  s = getenv ("SYS$DISK");
+  if (s)
+    strcpy (buf, s);
+  else
+    *buf = '\0';
+
+  d.l = 255;
+  d.a = curdir;
+  status = sys$setddir (0, &len, &d);
+  if (status & 1)
+    {
+      curdir[len] = '\0';
+      strcat (buf, curdir);
+    }
+}
+
+#if 0 /* declared by process.h */
+extern int synch_process_retcode;
+extern int synch_process_alive;
+#endif
+
+call_process_ast ()
+{
+  sys$setef (SYNCH_PROCESS_EVENT_FLAG);
+}
+
+int call_process_check_end ()
+{
+  long mask;
+  EMACS_TIME timeout;
+  SELECT_TYPE Atemp = input_wait_mask;
+  EMACS_SET_SECS_USECS (timeout, /*100000*/ 0, 0);
+  select (MAXDESC, &Atemp, 0, 0, &timeout); /* to avoid constant looping */
+  sys$readef (KEYBOARD_EVENT_FLAG, &mask);
+  return mask & (1 << (SYNCH_PROCESS_EVENT_FLAG % 32));
+}
+
+wait_for_termination (pid)
+     int pid;
+{
+  sys$waitfr (SYNCH_PROCESS_EVENT_FLAG);
+  sys$clref (SYNCH_PROCESS_EVENT_FLAG); 
+}
+
+void
+child_setup (in, out, err, new_argv, set_pgrp, current_dir)
+     int in, out, err;
+     register char **new_argv;
+     int set_pgrp;
+     Lisp_Object current_dir;
+{
+  /* ??? I suspect that maybe this shouldn't be done on VMS.  */
+#if 0 /* This should ABSOLUTELY NOT be done on VMS */
+#ifdef subprocesses
+  /* Close Emacs's descriptors that this process should not have.  */
+  close_process_descs ();
+#endif
+#endif
+
+  if (XTYPE (current_dir) == Lisp_String)
+    {
+      chdir (XSTRING (current_dir)->data);
+#ifdef DEBUG_VMSPROC
+      fprintf (stderr, "Changed directory to %s.\n",
+	       XSTRING (current_dir)->data);
+#endif
+    }
+}
+
+char *
+hack_argv (new_argv)
+unsigned char **new_argv;
+{
+  int totlen = 0,i;
+  char * line;
+
+  for (i = 0; new_argv[i] != 0; i++)
+    totlen += strlen(new_argv[i]) + 1;
+  line = (char *) xmalloc (totlen + 1);
+  line[0] = '\0';
+  for (i = 0; new_argv[i] != 0; i++)
+    {
+      strcat (line, new_argv[i]);
+      strcat (line, " ");
+    }
+
+  return line;
+}
+
+char *
+hack_vms_program_name (path)
+     char *path;
+{
+  Lisp_Object lpath;
+  char *pathrest = strchr (path, ' ');
+  unsigned char *tem;
+  unsigned int pathrestlen;
+
+  if (pathrest == 0)
+    {
+      tem = path;
+      pathrestlen = 0;
+    }
+  else
+    {
+      unsigned int len;
+
+      len = pathrest - path;
+
+      tem = alloca (len + 1);
+      strncpy (tem, path, len);
+      tem[len] = '\0';
+
+      pathrestlen = strlen(pathrest);
+    }
+
+  openp (Vexec_path, build_string (tem), ".EXE:.COM", &lpath, 1);
+  if ( ! NILP (lpath))
+    {
+      if (XSTRING(lpath)->size >= 4)
+	if (strcmp (XSTRING (lpath)->data + XSTRING (lpath)->size - 4,
+		    ".EXE") == 0)
+	  {
+	    unsigned char *buf = alloca (XSTRING (lpath)->size + 5
+					 + pathrestlen);
+	    strcpy (buf, "MCR ");
+	    strcpy (buf + 4, XSTRING (lpath)->data);
+	    if (pathrest)
+	      strcpy (buf + 4 + XSTRING (lpath)->size, pathrest);
+	    strcpy (path, buf);
+	  }
+	else if (strcmp (XSTRING (lpath)->data + XSTRING (lpath)->size - 4,
+			 ".COM") == 0)
+	  {
+	    unsigned char *buf = alloca (XSTRING (lpath)->size + 2
+					 + pathrestlen);
+	    strcpy (buf, "@");
+	    strcpy (buf + 1, XSTRING (lpath)->data);
+	    if (pathrest)
+	      strcpy (buf + 1 + XSTRING (lpath)->size, pathrest);
+	    strcpy (path, buf);
+	  }
+      /* else assume DCL verb or symbol.  */
+    }
+
+  return path;
+}
+
+/* This function will just concatenate the elements of new_argv into one
+   string. It really should do more checking of the first element...
+
+   This function might clobber new_argv.
+*/
+
+create_process (process, new_argv, current_dir)
+     Lisp_Object process;
+     char **new_argv;
+     Lisp_Object current_dir;
+{
+  int pid, fd[2];
+  char old_dir[512];
+  short iosb[4];
+  int status;
+  int spawn_flags = CLI$M_NOWAIT;
+  int pty_flag;
+  int child_sig ();
+  char in_dev_name[65];
+  char out_dev_name[65];
+  $DESCRIPTOR (din,in_dev_name);
+  $DESCRIPTOR (dout,out_dev_name);
+  struct dsc$descriptor_s dcmd;
+  VMS_PROC_STUFF *ps;
+  VMS_PROC_STUFF *get_vms_process_stuff ();
+  extern Lisp_Object Vprocess_connection_type;
+
+
+  /* create the I/O channels either ptys or mailboxes */
+  status = -1;
+#ifdef HAVE_VMS_PTYS
+  if (EQ (Vprocess_connection_type, Qt))
+    {
+      status = vms_make_pty (fd);
+      if (status >= 0)
+	pty_flag = 1;
+    }
+#endif
+
+  if (status < 0)
+    {
+      if (vms_pipe (fd) < 0)
+	error ("Can't create mailboxes");
+    }
+
+  ps = get_vms_process_pointer (XPROCESS (process));
+  if (ps == 0)
+    {
+      remove_process (process);
+      error ("make_process () didn't make a process.");
+    }
+
+  ps->process = XPROCESS (process);
+  ps->translate_p = 1;
+  ps->active = 1;
+
+  dcmd.dsc$b_dtype = DSC$K_DTYPE_T;
+  dcmd.dsc$b_class = DSC$K_CLASS_S;
+  if (strcmp (*new_argv, "*dcl*") == 0)
+    {
+      if (strcmp (new_argv[1], "-c") == 0)
+	{
+	  dcmd.dsc$a_pointer = hack_argv(new_argv + 2);
+	  dcmd.dsc$w_length = strlen(dcmd.dsc$a_pointer);
+	}
+      else
+	{
+	  dcmd.dsc$w_length = 0;
+	  dcmd.dsc$a_pointer = (char *)0;
+	}
+    }
+  else
+    {
+      dcmd.dsc$a_pointer = hack_argv(new_argv);
+      dcmd.dsc$w_length = strlen(dcmd.dsc$a_pointer);
+    }
+
+  /* fill in the fields of the process struct */
+  chan_process[fd[0]] = process;
+  XSET (XPROCESS (process)->infd, Lisp_Int, fd[0]);
+  XSET (XPROCESS (process)->outfd, Lisp_Int, fd[1]);
+  XPROCESS (process)->pty_flag = (pty_flag ? Qt : Qnil);
+  XPROCESS (process)->status = Qrun;
+  XPROCESS (process)->subtty = Qnil;
+
+  FD_SET (fd[0], &input_wait_mask);
+  {
+    extern int max_process_desc;
+    if (fd[0] > max_process_desc)
+      max_process_desc = fd[0];
+  }
+
+  /* Until we store the proper pid, enable sigchld_handler
+     to recognize an unknown pid as standing for this process.
+     It is very important not to let this `marker' value stay
+     in the table after this function has returned; if it does
+     it might cause call-process to hang and subsequent asynchronous
+     processes to get their return values scrambled.  */
+  XSETINT (XPROCESS (process)->pid, -1);
+
+  /* spawn the subprocess... */
+  vms_get_device_name (fd[0], &din);
+  vms_get_device_name (fd[1], &dout);
+
+  /* Delay interrupts until we have a chance to store
+     the new fork's pid in its process structure */
+  sys$setast (0);
+
+  /* Switch current directory so that the child inherits it. */
+  VMSgetwd (old_dir);
+  child_setup (0, 0, 0, 0, 0, current_dir);
+
+  message ("Creating subprocess...");
+  do {
+    spawn_flags ^= CLI$M_AUTHPRIV;
+    ps->statusCode = -1;
+    
+    /* Scott Snyder suggests I flip din and dout in this call... done */
+    status = lib$spawn (&dcmd, &dout, &din, &spawn_flags, 0, &pid,
+			&ps->statusCode, 0, child_sig, ps);
+  }
+  while (status == LIB$_INVARG && (spawn_flags & CLI$M_AUTHPRIV));
+
+  free (dcmd.dsc$a_pointer);
+
+  chdir (old_dir);
+
+  if (status != SS$_NORMAL)
+    {
+      char *msg = strerror (EVMSERR, status);
+      sys$setast (1);
+      remove_process (process);
+#if 0
+      error ("Error calling LIB$SPAWN: %x", status);
+#else
+      if (msg != 0)
+	error ("Unable to spawn subprocess: %s", msg);
+      else
+	error ("Unable to spawn subprocess");
+#endif
+    }
+
+  /* We only keep the low 24 bits of the pid, because the high 8 bits
+     are hopefully the same for all processes on one machine
+     --- Richard Levitte */
+  XFASTINT (XPROCESS (process)->pid) = (pid & 0xFFFFFF);
+
+  sys$setast(1);
+
+  message ("Creating subprocess...done");
+}
+
+child_sig (ps)
+     VMS_PROC_STUFF *ps;
+{
+  register struct Lisp_Process *p = XPROCESS (ps->process);
+  int old_errno = errno;
+
+  if (p)
+    {
+      VMS_CHAN_STUFF *vs = get_vms_channel_pointer (p->infd);
+
+      if (ps->active)
+	{
+	  XFASTINT (p->raw_status_low) = ps->statusCode & 0xffff;
+	  XFASTINT (p->raw_status_high) = ps->statusCode >> 16;
+#if 0
+	  p->status = Fcons (Qexit, Fcons (make_number (ps->statusCode), Qnil));
+#endif
+	  XSETINT (p->tick, ++process_tick);
+	}
+
+      ps->statusCode = 0;
+      ps->active = 0;
+      sys$setef (vs->eventFlag);
+    }
+
+  return;
+}
+
+extern Lisp_Object Qprocessp;
+
+DEFUN ("set-process-translation-mode", Fset_process_translation_mode,
+  Sset_process_translation_mode,  2, 2, 0,
+  "Set the translation mode for PROCESS to MODE.\n\
+If MODE is non-nil, the following translations are performed:\n\
+\n\
+  Sending to PTY processes:\n\
+    If the output string consists of the single character ^D, it is\n\
+      changed to a ^Z. \n\
+    All newlines (^J) are converted to carriage-returns (^M).\n\
+\n\
+  Reading from PTY processes:\n\
+    All carriage-returns (^M) and nuls (^@) are removed.\n\
+\n\
+  Sending to MBX processes:\n\
+    If the output string consists of the single character ^D, an EOF\n\
+      is written to the mailbox instead.\n\
+    If the output string ends in a newline (^J), the newline is removed.\n\
+\n\
+  Reading from MBX processes:\n\
+    If the string starts with a carriage return (^M) it is removed.\n\
+    If the string ends with a CR/LF sequence (^M^J), the sequence is\n\
+      removed.\n\
+    A newline (^J) is added to the end of the string.\n\
+\n\
+This function is unique to VMS.")
+  (proc, mode)
+     register Lisp_Object proc, mode;
+{
+  VMS_PROC_STUFF *ps;
+  int pid;
+
+  CHECK_PROCESS (proc, 0);
+
+  pid = XFASTINT (XPROCESS (proc)->pid);
+  ps = get_vms_process_pointer (XPROCESS (proc));
+  if (ps)
+    ps->translate_p = EQ (mode, Qt);
+  else
+    error ("could not find VMS_PROC_STUFF for process %x", pid);
+  return mode;
+}
+
+DEFUN ("process-translation-mode", Fprocess_translation_mode,
+  Sprocess_translation_mode, 1, 1, 0,
+  "Returns the translation mode of PROCESS.\n\
+See set-process-translation-mode for more info on process I/O translations.\n\
+\n\
+This function is unique to VMS.")
+  (proc)
+     register Lisp_Object proc;
+{
+  VMS_PROC_STUFF *ps;
+  int pid;
+
+  CHECK_PROCESS (proc, 0);
+
+  pid = XFASTINT (XPROCESS (proc)->pid);
+  ps = get_vms_process_pointer (XPROCESS (proc));
+  if (ps = 0)
+    error ("could not find VMS_PROC_STUFF for process %x", pid);
+
+  return ps->translate_p ? Qt : Qnil;
+}
+
+syms_of_vmsproc ()
+{
+#if 0
+  defsubr (&Scall_process);
+#endif
+  defsubr (&Sset_process_translation_mode);
+  defsubr (&Sprocess_translation_mode);
+}
+
+init_vmsproc ()
+{
+  int i;
+  unsigned int status;
+  VMS_CHAN_STUFF *vs;
+  VMS_PROC_STUFF *ps;
+  int last_event_flag = 0;
+
+  for (vs = &fdList[0], i=0; i<MAX_VMS_CHAN_STUFF; vs++, i++)
+    {
+      vs->busy = 0;
+      vs->eventFlag = -1;
+      vs->chan = 0;
+    }
+
+  fdList[1].busy = 1;		/* stdout */
+  fdList[2].busy = 1;		/* stderr */
+
+  status = LIB$GET_EF (&synch_process_event);
+  if (!(status & 1))
+    abort ();
+  sys$clref (synch_process_event);
+
+  status = LIB$GET_EF (&timer_event);
+  if (!(status & 1))
+    abort ();
+  if (synch_process_event / 32 != timer_event / 32)
+    croak ("Synch process and timer event flags in different clusters.");
+  sys$clref (timer_event);
+
+  status = LIB$GET_EF (&fdList[KEYBOARD_INDEX].eventFlag);
+  if (!(status & 1))
+    abort ();
+  if (timer_event / 32 != fdList[KEYBOARD_INDEX].eventFlag / 32)
+    croak ("Timer and keyboard event flags in different clusters.");
+  sys$clref (KEYBOARD_EVENT_FLAG);
+  fdList[KEYBOARD_INDEX].busy = 1;		/* stdin */
+
+  for (ps = procList, i = 0; i < MAX_VMS_PROC_STUFF; i++, ps++)
+    {
+      ps->process = 0;
+      ps->statusCode = 0;
+      ps->active = 0;
+    }
+}

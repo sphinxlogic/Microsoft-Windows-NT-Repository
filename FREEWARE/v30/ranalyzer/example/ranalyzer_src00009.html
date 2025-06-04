@@ -1,0 +1,627 @@
+<TITLE>Routine Analyzer Source File Analysis - cmdopt.c</TITLE>
+<H2><A NAME="s10023680">cmdopt.c</a> Source Code</H2>
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00009.html#s10014000">Next file in section</a>; <A HREF="ranalyzer_src00009.html#s10025900">Previous file in section</a>.<P>
+<H3><A NAME="routines_in_this_file">Routines In This File (Alphabetical)</a></H3>
+<PRE>
+ Line Name
+----- ----
+   74 <A HREF="#d10023880">cmdopt_cmp</A>
+  122 <A HREF="#d10023980">kwdef_cmp</A>
+  189 <A HREF="#d10023a80">kwstrleadlen</A>
+  165 <A HREF="#d10023900">kwstrlen</A>
+  315 <A HREF="#d10023c00">process_keyword</A>
+  214 <A HREF="#d10023b00">process_options</A>
+  454 <A HREF="#d10023d00">process_options_file</A>
+  390 <A HREF="#d10023c80">translate_keyword</A>
+   36 <A HREF="#d10023780">ustrncmp</A>
+</PRE>
+<HR>
+<PRE>BEGINNING OF FILE
+</PRE>
+<HR>
+<PRE>
+     1: /****************************************************************************/
+     2: /*									    */
+     3: /*  FACILITY:	Generic Support Library					    */
+     4: /*									    */
+     5: /*  MODULE:	Command Line Keyword and Option Processing		    */
+     6: /*									    */
+     7: /*  AUTHOR:	Steve Branam, Network Product Support Group, Digital	    */
+     8: /*		Equipment Corporation, Littleton, MA, USA.		    */
+     9: /*									    */
+    10: /*  DESCRIPTION: This module contains routines to process command line	    */
+    11: /*  arguments, given a dispatch table of keywords and handlers. This can be */
+    12: /*  used for main program command lines, or internal command lines parsed   */
+    13: /*  in a similar manner.						    */
+    14: /*									    */
+    15: /*  REVISION HISTORY:							    */
+    16: /*									    */
+    17: /*  V0.1-00 24-AUG-1994 Steve Branam					    */
+    18: /*									    */
+    19: /*	Original version.						    */
+    20: /*									    */
+    21: /*  V0.2-00 23-SEP-1994 Steve Branam					    */
+    22: /*									    */
+    23: /*	Addded keyword translation code.				    */
+    24: /*									    */
+    25: /****************************************************************************/
+    26: 
+    27: #include &lt;stdio.h&gt;
+    28: #include &lt;ctype.h&gt;
+    29: #include "cmdopt.h"
+    30: 
+    31: static KEYWORD_DEFINITION			/* Option dispatch table,   */
+    32: 	    *mOptionTable;			/* used by options file	    */
+    33: 						/* processing.		    */
+    34: 
+    35: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10023780">ROUTINE</A> <A HREF="ranalyzer_xrf00032.html#x10023780">ustrncmp</A>. Go to: 
+<A HREF="#d10023880">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+    36: int ustrncmp(
+    37: /* Compares strings in upper-case, serving as a case-insensitive string	    */
+    38: /* comparison; otherwise identical to strncmp.				    */
+    39: 
+    40:     char    *aStr1,
+    41: 	    /* (READ, BY ADDR):						    */
+    42: 	    /* First string to compare.					    */
+    43: 
+    44:     char    *aStr2,
+    45: 	    /* (READ, BY ADDR):						    */
+    46: 	    /* Second string to compare.				    */
+    47: 
+    48:     int	    vLength
+    49: 	    /* (READ, BY VAL):						    */
+    50: 	    /* Maximum number of characters to compare.			    */
+    51: 
+    52: )	/* Returns status value indicating comparison results:		    */
+    53: 	/*    0	- Strings are equal.					    */
+    54: 	/*  &lt; 0 - String aStr1 is less than aStr2.			    */
+    55: 	/*  &gt; 0 - String aStr1 is greater than aStr2.			    */
+    56: 	/*****************************************************************--*/
+    57: 
+    58: {
+    59:     /*+									    */
+    60:     /*	Compare upper-case version of each char in strings until unequal    */
+    61:     /*	chars ard found, end of string is found, or maximum number of	    */
+    62:     /*	characters exceeded.						    */
+    63:     /*- 								    */
+    64: 
+    65:     for (; toupper(*aStr1) == toupper(*aStr2); aStr1++, aStr2++) {
+    66: 	if (*aStr1 == '\0' || --vLength == 0) {
+    67: 	    return 0;			    /* Strings are "equal".	    */
+    68: 	}
+    69:     }					    /* String are not equal.	    */
+    70:     return toupper(*aStr1) - toupper(*aStr2);
+    71: }
+</PRE>
+END ustrncmp. Go to: <A HREF="#d10023780">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+    72: 
+    73: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10023880">ROUTINE</A> <A HREF="ranalyzer_xrf00001.html#x10023880">cmdopt_cmp</A>. Go to: 
+<A HREF="#d10023980">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+    74: static int cmdopt_cmp(
+    75: /* Compares an argument string to a command line option using a case-	    */
+    76: /* insensitive string comparison.  The argument matches the option if the   */
+    77: /* keyword portion is at least as long as the minimum option keyword	    */
+    78: /* length, and matches the keyword for all specified characters.	    */
+    79: 
+    80:     KEYWORD_DEFINITION
+    81: 	    *aOption,
+    82: 	    /* (READ, BY ADDR):						    */
+    83: 	    /* Command line option keyword definition to compare.	    */
+    84: 
+    85:     char    *aArgStr
+    86: 	    /* (READ, BY ADDR):						    */
+    87: 	    /* Argument string to compare. Options are assumed to be	    */
+    88: 	    /* specified in one of two forms, either just the option switch */
+    89: 	    /* char followed by the keyword (for toggle options), or the    */
+    90: 	    /* option switch char and keyword followed by an equal sign and */
+    91: 	    /* the option value string (for value options).		    */
+    92: 
+    93: )	/* Returns length of keyword portion of aArgstr (including switch   */
+    94: 	/* char) to indicate successful match, or 0 if argument does not    */
+    95: 	/* match option.						    */
+    96: 	/********************************************************************/
+    97: 
+    98: {
+    99:     int	    kwlen;			    /* Length of argument keyword   */
+   100: 					    /* portion (including switch    */
+   101: 					    /* char).			    */
+   102: 
+   103:     /*+									    */
+   104:     /*	Find length of argument keyword portion. If it is less than minimum */
+   105:     /*	required length, no match. Otherwise, compare argument to option    */
+   106:     /*	keyword to determine match.					    */
+   107:     /*-									    */
+   108: 
+   109:     if ((kwlen = kwstrlen(&amp;aArgStr[1])) &lt; kwdef_minlen(aOption)) {  
+   110: 	return 0;			    /* Too short, no match.	    */
+   111:     }
+   112:     else if (ustrncmp(kwdef_keyword(aOption), &amp;aArgStr[1],
+   113: 		max(kwlen, kwdef_minlen(aOption))) == 0) {
+   114: 	return kwlen + 1;			    /* Argument matches option.	    */
+   115:     }
+   116:     else {
+   117: 	return 0;			    /* No match.		    */
+   118:     }
+   119: }
+</PRE>
+END cmdopt_cmp. Go to: <A HREF="#d10023880">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   120: 
+   121: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10023980">ROUTINE</A> <A HREF="ranalyzer_xrf00011.html#x10023980">kwdef_cmp</A>. Go to: 
+<A HREF="#d10023900">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   122: static int kwdef_cmp(
+   123: /* Compares a string to a keyword using a case- insensitive string	    */
+   124: /* comparison.  The string matches the keyword if it is at least as long as */
+   125: /* the minimum keyword length, and matches the keyword for all specified    */
+   126: /* characters.								    */
+   127: 
+   128:     KEYWORD_DEFINITION
+   129: 	    *aKwDef,
+   130: 	    /* (READ, BY ADDR):						    */
+   131: 	    /* Keyword definition to compare.				    */
+   132: 
+   133:     char    *aKwStr,
+   134: 	    /* (READ, BY ADDR):						    */
+   135: 	    /* Keyword string to compare.				    */
+   136: 
+   137:     int	    vLength
+   138: 	    /* (READ, BY VAL):						    */
+   139: 	    /* Keyword string length.					    */
+   140: 
+   141: )	/* Returns status flag:						    */
+   142: 	/*  1 - Successful match					    */
+   143: 	/*  0 - String does not match keyword.				    */
+   144: 	/* ******************************************************************	*/
+   145: 
+   146: {
+   147:     /*+									    */
+   148:     /*	If string length is less than minimum required length, no match.    */
+   149:     /*	Otherwise, compare argument to option keyword to determine match.   */
+   150:     /*									    */
+   151: 
+   152:     if (vLength &lt; kwdef_minlen(aKwDef)) {  
+   153: 	return 0;			    /* Too short, no match.	    */
+   154:     }
+   155:     else if (ustrncmp(kwdef_keyword(aKwDef), aKwStr,
+   156: 		max(vLength, kwdef_minlen(aKwDef))) == 0) {
+   157: 	return 1;			    /* String matches keyword.	    */
+   158:     }
+   159:     else {
+   160: 	return 0;			    /* No match.		    */
+   161:     }
+   162: }
+</PRE>
+END kwdef_cmp. Go to: <A HREF="#d10023980">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   163: 
+   164: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10023900">ROUTINE</A> <A HREF="ranalyzer_xrf00011.html#x10023900">kwstrlen</A>. Go to: 
+<A HREF="#d10023a80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   165: int kwstrlen(
+   166: /* Finds the length of a keyword string. A keyword is a contiguous string   */
+   167: /* of alphanumerics and the underscore character '_'.			    */
+   168: 
+   169:     char    *aKwStr
+   170: 	    /* (READ, BY ADDR):						    */
+   171: 	    /* Keyword string to find length of. It is assumed to contain   */
+   172: 	    /* no leading non-keyword characters (if it does, the length    */
+   173: 	    /* returned will be 0).					    */
+   174: 
+   175: )	/* Returns length of string, or 0 if the first character is not a   */
+   176: 	/* valid keyword string character.				    */
+   177: 	/********************************************************************/
+   178: 
+   179: {
+   180:     int	    kwlen;				/* Length of keyword.	    */
+   181: 
+   182:     for (kwlen = 0;
+   183: 	isalnum(aKwStr[kwlen]) || aKwStr[kwlen] == '_';
+   184: 	kwlen++);
+   185:     return kwlen;
+   186: }
+</PRE>
+END kwstrlen. Go to: <A HREF="#d10023900">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   187: 
+   188: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10023a80">ROUTINE</A> <A HREF="ranalyzer_xrf00011.html#x10023a80">kwstrleadlen</A>. Go to: 
+<A HREF="#d10023b00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   189: int kwstrleadlen(
+   190: /* Finds the length of leading non-keyword characters in a keyword string,  */
+   191: /* which may subsequently be treated as the offset to the beginning of the  */
+   192: /* keyword.								    */
+   193: 
+   194:     char    *aKwStr
+   195: 	    /* (READ, BY ADDR):						    */
+   196: 	    /* Keyword string that may contain leading non-keyword	    */
+   197: 	    /* characters.						    */
+   198: 
+   199: )	/* Returns length of leading characters, or 0 if the string	    */
+   200: 	/* contains no leading characters (or is a null string).	    */
+   201: 	/********************************************************************/
+   202: 
+   203: {
+   204:     int	    leadlen;				/* Length of leading chars. */
+   205: 
+   206:     for (leadlen = 0;
+   207: 	!isalnum(aKwStr[leadlen])
+   208: 	&amp;&amp; aKwStr[leadlen] != '_' &amp;&amp; aKwStr[leadlen] != '\0';
+   209: 	leadlen++);
+   210:     return leadlen;
+   211: }
+</PRE>
+END kwstrleadlen. Go to: <A HREF="#d10023a80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   212: 
+   213: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10023b00">ROUTINE</A> <A HREF="ranalyzer_xrf00017.html#x10023b00">process_options</A>. Go to: 
+<A HREF="#d10023c00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   214: int process_options(
+   215: /* Parses user command line arguments for options and dispatches option	    */
+   216: /* handler routines. Processing will terminate if any handler indicates	    */
+   217: /* failure.								    */
+   218: 
+   219:     int	    vArgc,
+   220: 	    /* (READ, BY VAL):						    */
+   221: 	    /* Number of program argument strings in aArgv.		    */
+   222: 
+   223:     char    *aArgv[],
+   224: 	    /* (READ, BY ADDR):						    */
+   225: 	    /* List of program argument strings.			    */
+   226: 
+   227:     int	    vFirstOption,
+   228: 	    /* (READ, BY VAL):						    */
+   229: 	    /* Starting argument number for option. All preceding arguments */
+   230: 	    /* are assumed to be required, not options.			    */
+   231: 
+   232:     KEYWORD_DEFINITION
+   233: 	    *aOptionTable
+   234: 	    /* (READ, BY ADDR):						    */
+   235: 	    
+   236: 	    /* Option definition table, containing option keywords (not	    */
+   237: 	    /* including option switch character), handler routine ptrs,    */
+   238: 	    /* and keyword translation codes.  The table is terminated by   */
+   239: 	    /* an entry containing a NULL keyword ptr. The interface for a  */
+   240: 	    /* handler routine is:					    */
+   241: 	    /*								    */
+   242: 	    /*	    int handler(code, valstr, n)			    */
+   243: 	    /*								    */
+   244: 	    /* where code is the translation code for the matched keyword,  */
+   245: 	    /* valstr is the ptr to the remainder of the argument string    */
+   246: 	    /* following the matched argument characters, and n is the	    */
+   247: 	    /* option's argument position on the command line; however, a   */
+   248: 	    /* handler is free to ignore (and therefore not declare) any    */
+   249: 	    /* trailing subset of these parameters. The handler returns 1   */
+   250: 	    /* if the argument is handled successfully, or 0 otherwise.	    */
+   251: 	    /* This interface supports two styles of usage: common handlers */
+   252: 	    /* may handle several different options, discriminating the	    */
+   253: 	    /* matched option via the translation code; or individual	    */
+   254: 	    /* handlers may be used for each option, ignoring the	    */
+   255: 	    /* translation codes.					    */
+   256: 
+   257: )	/* Returns status indicating processing success:		    */
+   258: 	/*  1	- All options handled successfully (any unrecognized	    */
+   259: 	/*	  arguments/options ignored).				    */
+   260: 	/*  0	- An argument could not be processed.			    */
+   261: 	/********************************************************************/
+   262: 
+   263: {
+   264:     int	    arg;				/* Argument number.	    */
+   265:     KEYWORD_DEFINITION				/* Current keyword def.	    */
+   266: 	    *kwdef;
+   267:     int	    kwlen;				/* Length of argument	    */
+   268: 						/* keyword portion	    */
+   269: 						/* (including switch char). */
+   270: 
+   271:     /*+									    */
+   272:     /*	Save option table ptr in case we run into an option to process an   */
+   273:     /*	options file, then attempt to process each command line argument    */
+   274:     /*	following the required ones as an option.			    */
+   275:     /*-									    */
+   276: 
+   277:     mOptionTable = aOptionTable;
+   278:     for (arg = vFirstOption; arg &lt; vArgc; arg++) {
+   279: 
+   280: 	/*+								    */
+   281: 	/*  If argument starts with option switch character, go through	    */
+   282: 	/*  option table trying to match it. On match, call option handler  */
+   283: 	/*  and skip the rest of the option table; if the handler return    */
+   284: 	/*  failure, abort. If no match, issue warning and ignore the	    */
+   285: 	/*  argument. If it did not start with switch char, issue warning   */
+   286: 	/*  and ignore it.						    */
+   287: 	/*-								    */
+   288: 						
+   289: 	if (*aArgv[arg] == CMDLINE_OPTION_SWITCH) {
+   290: 	    for (kwdef = aOptionTable; kwdef_keyword(kwdef) != NULL; kwdef++) {
+   291: 		if ((kwlen = cmdopt_cmp(kwdef, aArgv[arg]))) {
+   292: 
+   293: 						/* Match, call handler.	    */
+   294: 		    if (!(kwdef_handler(kwdef))(kwdef_code(kwdef),
+   295: 			    &amp;aArgv[arg][kwlen], arg)) {
+   296: 			return 0;		/* Abort, handler failed!   */
+   297: 		    }
+   298: 		    break;			/* Skip rest of table.	    */
+   299: 		}
+   300: 	    }
+   301: 	    if (!kwlen) {			/* No option matches.	    */
+   302: 		printf("ERROR: Unrecognized/ambiguous option %s\n", aArgv[arg]);
+   303: 		return 0;
+   304: 	    }
+   305: 	}
+   306: 	else {					/* Not an option argument.  */
+   307: 	    printf("ERROR: Unexpected command line argument %s\n", aArgv[arg]);
+   308: 	    return 0;
+   309: 	}
+   310:     }						/* All options processed    */
+   311:     return 1;					/* successfully.	    */
+   312: }
+</PRE>
+END process_options. Go to: <A HREF="#d10023b00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   313: 
+   314: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10023c00">ROUTINE</A> <A HREF="ranalyzer_xrf00017.html#x10023c00">process_keyword</A>. Go to: 
+<A HREF="#d10023c80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   315: int process_keyword(
+   316: /* Parses keyword strings and dispatches to keyword handler routines.	    */
+   317: /* Processing will terminate if any handler indicates failure. 		    */
+   318: 
+   319:     char    *aKwStr,
+   320: 	    /* (READ, BY ADDR):						    */
+   321: 	    /* Keyword string, with no leading, trailing, or enclosed	    */
+   322: 	    /* whitespace. May be a single keyword, or a list of keywords,  */
+   323: 	    /* separated by commas.					    */
+   324: 
+   325:     KEYWORD_DEFINITION
+   326: 	    *aKwTable
+   327: 	    /* (READ, BY ADDR):						    */
+   328: 	    /* Keyword definition table, containing keywords, handler	    */
+   329: 	    /* routine ptrs, and keyword translation codes. The table is    */
+   330: 	    /* terminated by an entry containing a NULL keyword ptr. The    */
+   331: 	    /* interface for a handler routine is:			    */
+   332: 	    /*								    */
+   333: 	    /*	    int handler(code)					    */
+   334: 	    /*								    */
+   335: 	    /* where code is the keyword translation code.  (there are no   */
+   336: 	    /* arguments to the handler).  The handler returns 1 if the	    */
+   337: 	    /* argument is handled successfully, or 0 otherwise. This	    */
+   338: 	    /* interface supports two styles of usage: common handlers may  */
+   339: 	    /* handle several different keywords, discriminating the	    */
+   340: 	    /* matched keyword via the translation code; or individual	    */
+   341: 	    /* handlers may be used for each keyword, ignoring the	    */
+   342: 	    /* translation codes.					    */
+   343: 
+   344: )	/* Returns status indicating processing success:		    */
+   345: 	/*  1	- All keywords handled successfully.			    */
+   346: 	/*  0	- A keyword could not be processed.			    */
+   347: 	/********************************************************************/
+   348: 
+   349: {
+   350:     KEYWORD_DEFINITION				/* Current keyword def.	    */
+   351: 	    *kwdef;
+   352:     int	    kwlen;				/* Length of keyword.	    */
+   353:     int	    found;				/* Flag indicating match.   */
+   354:     char    *savestr = aKwStr;			/* Saved string ptr.	    */
+   355: 
+   356: 						/* For each keyword in list */
+   357:     while (*aKwStr != '\0') {			/* (or just one)...	    */
+   358: 
+   359: 	if ((kwlen = kwstrlen(aKwStr)) == 0) {
+   360: 	    printf("ERROR: Missing keyword %s\n", savestr);
+   361: 	    return 0;
+   362: 	}
+   363: 	else {					/* Scan keyword table for   */
+   364: 						/* match.		    */
+   365: 	    for (kwdef = aKwTable; kwdef_keyword(kwdef) != NULL; kwdef++) {
+   366: 		if ((found = kwdef_cmp(kwdef, aKwStr, kwlen))) {
+   367: 
+   368: 						/* Match, call handler with */
+   369: 						/* translation code.	    */
+   370: 		    if (!(kwdef_handler(kwdef))(kwdef_code(kwdef))) {
+   371: 			return 0;		/* Abort, handler failed!   */
+   372: 		    }
+   373: 		    break;			/* Skip rest of table.	    */
+   374: 		}
+   375: 	    }
+   376: 	    if (!found) {
+   377: 		printf("ERROR: Unrecognized/ambiguous keyword %s\n", aKwStr);
+   378: 		return 0;
+   379: 	    }
+   380: 	}
+   381: 	if (aKwStr[kwlen] == KEYWORD_LIST_SEPARATOR) {
+   382: 	    kwlen++;				/* Account for separator.   */
+   383: 	}
+   384: 	aKwStr += kwlen;			/* Advance past keyword.    */
+   385:     }						
+   386:     return 1;					/* All keywords processed   */
+   387: }						/* successfully.	    */
+</PRE>
+END process_keyword. Go to: <A HREF="#d10023c00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   388: 
+   389: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10023c80">ROUTINE</A> <A HREF="ranalyzer_xrf00032.html#x10023c80">translate_keyword</A>. Go to: 
+<A HREF="#d10023d00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   390: int translate_keyword(
+   391: /* Parses a single keyword string and returns a translation code.	    */
+   392: 
+   393:     char    *aKwStr,
+   394: 	    /* (READ, BY ADDR):						    */
+   395: 	    /* Keyword string. If it contains any leading non-keyword	    */
+   396: 	    /* characters, they will be ignored.  If it contains more than  */
+   397: 	    /* one keyword, only the first one will be translated.	    */
+   398: 
+   399:     KEYWORD_DEFINITION
+   400: 	    *aKwTable
+   401: 	    /* (READ, BY ADDR):						    */
+   402: 	    /* Keyword definition table, containing keywords, handler	    */
+   403: 	    /* routine ptrs, and keyword translation codes. The table is    */
+   404: 	    /* terminated by an entry containing a NULL keyword ptr. The    */
+   405: 	    /* handler routine is called only if its ptr is non-NULL. The   */
+   406: 	    /* interface for a handler routine is:			    */
+   407: 	    /*								    */
+   408: 	    /*	    int handler(code)					    */
+   409: 	    /*								    */
+   410: 	    /* where code is the keyword translation code.  (there are no   */
+   411: 	    /* arguments to the handler).  The handler returns 1 if the	    */
+   412: 	    /* argument is handled successfully, or 0 otherwise. This	    */
+   413: 	    /* interface supports two styles of usage: common handlers may  */
+   414: 	    /* handle several different keywords, discriminating the	    */
+   415: 	    /* matched keyword via the translation code; or individual	    */
+   416: 	    /* handlers may be used for each keyword, ignoring the	    */
+   417: 	    /* translation codes.					    */
+   418: 
+   419: )	/* Returns matching keyword translation code, or 0 if no match	    */
+   420: 	/* found or the matching keyword handler returns 0.		    */
+   421: 	/********************************************************************/
+   422: 
+   423: {
+   424:     KEYWORD_DEFINITION				/* Current keyword def.	    */
+   425: 	    *kwdef;
+   426:     int	    kwlen;				/* Length of keyword.	    */
+   427:     char    *savestr = aKwStr;			/* Saved string ptr.	    */
+   428: 
+   429:     if ((kwlen = kwstrlen(aKwStr)) == 0) {
+   430: 	return 0;
+   431:     }
+   432:     else {					/* Scan keyword table for   */
+   433: 						/* match.		    */
+   434: 	for (kwdef = aKwTable; kwdef_keyword(kwdef) != NULL; kwdef++) {
+   435: 	    if (kwdef_cmp(kwdef, aKwStr, kwlen)) {
+   436: 
+   437: 						/* Match, if handler	    */
+   438: 						/* defined, call it with    */
+   439: 						/* translation code.	    */
+   440: 		if (kwdef_handler(kwdef) != NULL
+   441: 		    &amp;&amp; !(kwdef_handler(kwdef))(kwdef_code(kwdef))) {
+   442: 		    return 0;			/* Abort, handler failed!   */
+   443: 		}
+   444: 		else {				/* Handler ok (or not	    */
+   445: 		    return kwdef_code(kwdef);	/* defined), return code.   */
+   446: 		}
+   447: 	    }
+   448: 	}
+   449: 	return 0;				/* No match.		    */
+   450:     }
+   451: }
+</PRE>
+END translate_keyword. Go to: <A HREF="#d10023c80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   452: 
+   453: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10023d00">ROUTINE</A> <A HREF="ranalyzer_xrf00017.html#x10023d00">process_options_file</A>. Go to: 
+<A HREF="#d10014100">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   454: int process_options_file(
+   455: /* Command line option handler to read an options file, where each line is  */
+   456: /* a single command line option, just as if it were parsed from the command */
+   457: /* line. Option files may be nested, just be careful of looped files or	    */
+   458: /* running out of resources due to excessive nesting. Comments lines and    */
+   459: /* trailing comment are allowed.					    */
+   460: 
+   461:     int	    vKwCode,
+   462: 	    /* (READ, BY ADDR):						    */
+   463: 	    /* Option keyword translation code, ignored by this routine.    */
+   464: 
+   465:     char    *aValStr
+   466: 	    /* (READ, BY ADDR):						    */
+   467: 	    /* Option value string, preceded by equal sign.		    */
+   468:     
+   469: )	/* Returns status code:						    */
+   470: 	/*  1	- Successful processing of this option.			    */
+   471: 	/*  0	- Option file name missing, or file cannot be opened.	    */
+   472: 	/*****************************************************************--*/
+   473: 
+   474: {
+   475:     FILE    *optfile;			    /* Options file ptr.	    */
+   476:     int	    rcount;			    /* Routine name count.	    */
+   477:     char    option[512];		    /* Option string buffer.	    */
+   478:     char    *optend;			    /* End-of-option ptr.	    */
+   479:     char    *optv;			    /* Option buffer ptr.	    */
+   480: 
+   481: 					    /* Check for equal sign and	    */
+   482: 					    /* make sure there is a file.   */
+   483:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR &amp;&amp; *aValStr != '\0') {
+   484: 	if ((optfile = fopen(aValStr, "r")) != NULL) {
+   485: 	
+   486: 					    /* For each line, locate	    */
+   487: 					    /* beginning of text.	    */
+   488: 	    while (fgets(option, sizeof(option), optfile) != NULL) {
+   489: 		for (optv = option;
+   490: 		    *optv != '\0' &amp;&amp; *optv != CMDLINE_OPTION_SWITCH &amp;&amp;
+   491: 		    *optv != CMDLINE_OPTION_COMMENT;
+   492: 		    optv++);
+   493: 					    /* Ignore comment lines. Find   */
+   494: 					    /* end of option field and	    */
+   495: 					    /* process option.		    */
+   496: 		if (*optv != CMDLINE_OPTION_COMMENT) {
+   497: 		    for (optend = optv;
+   498: 			*optend &gt; ' ' &amp;&amp; *optend != CMDLINE_OPTION_COMMENT;
+   499: 			optend++);
+   500: 		    *optend = '\0';
+   501: 		    if (!process_options(1, &amp;optv, 0, mOptionTable)) {
+   502: 			printf(
+   503: 			    "ERROR: Failure processing option \"%s\" in %s\n",
+   504: 			    option, aValStr);
+   505: 			fclose(optfile);
+   506: 			return 0;
+   507: 		    }
+   508: 		}
+   509: 	    }
+   510: 	    fclose(optfile);
+   511: 	    return 1;
+   512: 	}
+   513: 	else {
+   514: 	    printf("ERROR: Unable to open options file %s for input\n",
+   515: 		aValStr);
+   516: 	    return 0;
+   517: 	}
+   518:     }
+   519:     else {
+   520: 	printf("ERROR: %coptions option requires options file name\n",
+   521: 	    CMDLINE_OPTION_SWITCH);
+   522: 	return 0;
+   523:     }
+   524: }
+</PRE>
+END process_options_file. Go to: <A HREF="#d10023d00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   525: 
+<HR>
+END OF FILE
+
+TOTAL: 9 routines, 53 Avg Length
+</PRE>
+<HR>
+
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00009.html#s10014000">Next file in section</a>; <A HREF="ranalyzer_src00009.html#s10025900">Previous file in section</a>.<P>

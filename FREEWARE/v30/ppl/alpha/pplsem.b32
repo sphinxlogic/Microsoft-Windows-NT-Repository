@@ -1,0 +1,2188 @@
+MODULE PPL$SEM ( ADDRESSING_MODE ( EXTERNAL = GENERAL ),
+			IDENT = 'V57-001'
+			) =
+BEGIN
+
+!
+!			  COPYRIGHT (c) 1986 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:
+!		PPL ( Parallel Processing Library )
+!
+! ABSTRACT:
+!
+!		This module implements ppl's semaphore and barrier support.
+!
+! ENVIRONMENT:
+!
+!		Thread-, AST-, and multi-process reentrant.
+!
+!--
+!<BLF/PAGE>
+!++
+!
+! AUTHOR:	Peter Gilbert, Creation date: (dd-mm-yy)
+!
+! MODIFIED BY:
+!
+! X01-000	Original version
+!
+! X01-001	To correct the ident to match the CMS		CMF  26-Jan-1987
+!		generation number.
+!
+! X01-002	To add the Routine PPL$WAIT_AT_BARRIER.		CMF  19-Feb-1987
+!		This routine has been added here because
+!		it is similar in design to the incrementing
+!		and decrementing of a semaphore.
+!
+! X01-003	Complete barrier support for FT2 with rewrite 	DLR  3-JUL-1987
+!		of all plus addition of set_quorum and
+!		adjust_quorum.
+!
+! X01-004	Make barriers support only explicit quorums.	DLR  9-NOV-1987
+!		Add read_barrier.
+!
+! X01-005	Move code out of the section guarded by		PDG 22-JAN-1988
+!		the csb_v_lock.  Remove the csb_v_in_wait
+!		flag -- check for waiters directly.
+!		Make conclude_barrier_wait non-global.
+!		
+! V05-001	Changed routine comments to reflect all the	WWS  8-Jul-1988
+!		correct possible condition codes.
+!
+! V051-001	Replace uses of CTX[CTX_L_PPLSECT_ADR] and	WWS  9-Sep-1988
+!		the local PPLSECT with PPL$$GL_PPLSECT and
+!		reformatted debugging mesages.
+!
+! V53-001	Added stubs for PPL$Adjust_Semaphore_Maximum	WWS 22-Mar-1989
+!		and PPL$Set_Semaphore_Maximum.
+!
+! V53-002	To add Routines PPL$SET_SEMAPHORE_MAXIMUM	HPO 24-Apr-1989
+!		and PPL$ADJUST_SEMAPHORE_MAXIMUM
+!		PPL$ADJUST_QUORUM modified to test for
+!		positive quorum.
+!
+! V53-003	PPL$_Incrememt_Semaphore and			HPO  5-MAY-1989
+!		PPL$_Decrement_Semaphore completely rewritten
+!		due to locking in PPL$SET_SEMAPHORE_MAXIMUM.
+!
+! V53-004	Semaphore value "csb_w_csval" if negative	HPO  9-MAY-1989
+!		shows the amount of processes waiting. 
+!
+!
+! V53-005	PPL$READ_BARRIER modified to ensure cache	HPO 12-MAY-1989
+!		consistency.
+!
+! V53-006	references to csb_v_restricted removed,		HPO 23-JUN-1989
+!		tests added for deletion of semaphores
+!
+! V53-007	Purged %ASCIDs from code			WWS 30-JUN-1989
+!		Signal PPL$_BADLOGIC instead of returning it
+!
+! V53-008	Changed all occurrences of local CTX and	PJC 08-AUG-1989
+!		PPLSECT to global.  Updated checks for NOINIT 
+!		to reflect global structure referenced in routines.  
+!		Added critical regions around mutex locks.
+!
+! V53-009	Added an ungrab_marker_ when trying to wake	PJC 21-SEP-1989
+!		a non-existent process to ppl$increment_semaphore
+!
+! V53-010	Rearranged handling of $wake and MKRs inside	PJC 19-SEP-1989
+!		of ppl$increment_semaphore.
+!
+! V53-011	Rewrote PPL$ADJUST_SEMAPHORE_MAXIMUM to take	PJC 16-NOV-1989
+!		into account blocked processes upon adjustment.
+!
+! V53-012	Added ppl$$condition_handler to single '$'	PJC 30-NOV-1989
+!		routines.  Also, added a number of JSB routines
+!		And, added ppl$tell do_wake_up calls for $wake
+!
+! V54-001	Fix CLD CXO06763/Modify ppl$increment_semaphore PJC 28-JUN-1991
+!		release spinlock sonner, add debugging messages
+!
+! V57-001	EVMS/Alpha port.				PJC 12-NOV-1991
+!
+! V57-002	Fix a bug in decrement_semaphore.  Add ungrab	PJC 30-MAR-1992
+!		of marker after blocking path.
+!
+! V57-003	Rework semaphore design in response to		PJC 31-DEC-1992
+!		CLD CXO-09177 which focused on semaphore 
+!		performance issues.
+!
+! V57-004	Remove builtins include by ppllib.req.		PJC 02-Feb-1993
+!
+! V57-005	Fix bug in PPL$DECREMENT_SEMAPHORE which caused	PJC 06-Aug-1993
+!		certain processes to spin for long periods.
+!
+! V57-006	Remove obsolete routines ppl$$do_creation	PJC 19-OCT-1993
+!		updates and ppl$$do_termination updates
+!
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+
+LIBRARY 'RTLSTARLE';			! System symbols
+LIBRARY 'SYS$LIBRARY:XPORT';
+UNDECLARE %QUOTE $DESCRIPTOR;		! Clear up conflict
+LIBRARY 'OBJ$:PPLLIB';
+REQUIRE 'RTLIN:RTLPSECT';		! Define DECLARE_PSECTS macro
+
+
+!
+! LINKAGES
+!
+linkage
+    jsb_call1 = jsb (register = 0):				 ! Input value
+		preserve (1,2,3,4,5,6,7,8,9,10,11),
+    jsb_call3 = jsb (register = 0, register = 1, register = 2):  ! Input values
+		preserve (3,4,5,6,7,8,9,10,11);
+
+
+!
+! FORWARD ROUTINES 
+!
+FORWARD ROUTINE
+    ppl$increment_semaphore,
+    ppl$increment_semaphore_r0	: jsb_call1,
+    ppl$decrement_semaphore,
+    ppl$decrement_semaphore_r2	: jsb_call3,
+    ppl$wait_at_barrier,
+    ppl$wait_at_barrier_r2	: jsb_call3,
+    conclude_barrier_wait,
+    ppl$set_quorum,
+    ppl$adjust_quorum,
+    ppl$set_semaphore_maximum,
+    ppl$adjust_semaphore_maximum;
+
+!
+! MACROS:
+!
+macro
+    do_nothing = 0%;
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! PSECT DECLARATIONS
+!
+declare_psects (ppl);			! Declare psect
+
+!
+! OWN STORAGE:
+!
+
+!
+! EXTERNAL ROUTINES:
+!
+external routine
+    ppl$$hiber:		novalue,
+    ppl$$condition_handler,
+    ppl$$tell,
+    ppl$pid_to_index,
+    ppl$$allocate;
+!
+! EXTERNAL REFERENCES:
+!
+external
+    ppl$$gl_pplsect :   ref pplsect_block, ! Pointer to the PPL sect block
+    ppl$$gl_context :	ref ctx_block;	   ! Pointer to the PPL context area
+
+
+
+!
+! IMPLEMENTATION NOTES:
+!
+! The structure of the implementation is as follows:
+!
+! increment:
+!	remqhi queue, task
+!	if was empty then
+!	    call add_awaken
+!	else
+!	    call wake(task)
+!
+! add_awaken:
+!   L1:	adawi #1, count
+!	if <= 0 then return
+!	if queue is empty then return
+!   L2:	adawi #-1, count
+!	if < 0 then goto L1
+!   L3:	remqhi queue, task
+!	if was empty then goto L1
+!	call wake(task)
+!	goto L2 (or alternatively, just return)		! (1)
+!
+! decrement:
+!	adawi #-1, count			!\
+!	if >= 0 and queue is empty then return	! > These lines optional (2)
+!	call add_awaken				!/
+!	insqti self, queue
+!	adawi #-1, count			!\ Tacky (3)
+!	call add_awaken				!/
+!	while not self awakened do call block(self)
+!
+! Notes:
+!
+!	There are two kinds of resources; 'real' resources and 'virtual'
+!	resources.  A real resource is allocated by an 'adawi #-1' that
+!	results in a count >= 0.  A virtual resource is allocated by an
+!	'adawi #-1' that results in a count < 0.
+!
+!	The routine increment releases a real resource.
+!	The routine add_awaken releases a virtual or a real resource.
+!
+!	Note that add_awaken goes through the following sequence: queue is
+!	empty, adawi #1, return if queue is empty; and the decrement code
+!	goes through the sequence: queue self, check count.  Thus, if the
+!	decrement code misses the adawi #1, the add_awaken code will see
+!	the queue entry, while if the add_awaken misses the queue entry,
+!	the decrement count will see the wake.  So that 'hang' is avoided.
+!
+!	Progress is made in the 'infinite' loop in in add_awaken.  When
+!	looping through L1, L2, and L3, the queue is alternately non-empty
+!	and empty.  Hence some thread has made progress through decrement.
+!
+!	When looping through L1 and L2, the count is alternately < 0 and > 0;
+!	to continue looping through these, some thread must make it = 0.
+!	If the thread that makes it zero is in the loop, it gets out (either
+!	returning or reaching L3), and hence makes progress.  If the thread
+!	that makes it = 0 is not in the loop, it must be in increment or
+!	decrement (neither of which contain loops), and hence it is making
+!	progress.
+!
+!	(1) Once a call to increment or decrement wakes some thread, it need
+!	do no additional work.  Thus, a return is valid here.
+!
+!	(2) This code can be prefixed to almost any valid decrement routine,
+!	to (presumably) give a performance improvement in the usual case.
+!
+!	(3) This code is pretty tacky, but avoids some duplicitous code.
+!	Note that the insqti is assumed to be expensive -- after the insqti
+!	(actually, once it's decided that an insqti will be done), some
+!	suboptimal code is admissable.  Note that decrement could be rewritten:
+!
+!	decrement:
+!		adawi #-1, count
+!		if >= 0 and queue is empty then return
+!		insqti self, queue
+!		call add_awaken
+!		while not self awakened do call block(self)
+!
+!	In this form, if the insqti takes a *very* long time (recall that
+!	it may need to allocate memory), then the thread will be holding a
+!	resource that it's not using.
+
+%SBTTL 'ROUTINE: ADD_AWAKEN'
+ROUTINE ADD_AWAKEN (
+	SEM_BLOCK :	REF CSB_BLOCK,	! Semaphore block
+	MKR :		REF MKR_BLOCK
+	) =
+    BEGIN
+
+!+
+! add_awaken:
+!   L1:	adawi #1, count
+!	if <= 0 then return
+!	if queue is empty then return
+!   L2:	adawi #-1, count
+!	if < 0 then goto L1
+!   L3:	remqhi queue, task
+!	if was empty then goto L1
+!	call wake(task)
+!	goto L2 (or alternatively, just return)		! (1)
+!-
+
+    WHILE TRUE DO		! (L1:)
+	BEGIN
+
+	IF NOT PSL_GTR_( ADAWI(%REF(1), SEM_BLOCK[CSB_W_CSVAL]) )
+	THEN
+	    EXITLOOP;		! (return)
+
+	IF EMPTY_SR_( SEM_BLOCK[CSB_Q_QUEUE] )
+	THEN
+	    EXITLOOP;		! (return)
+
+	WHILE TRUE DO		! (L2:)
+	    BEGIN
+	    LOCAL
+		Q : REF MKR_BLOCK,
+		STATUS;
+
+	    IF PSL_LSS_( ADAWI(%REF(-1), SEM_BLOCK[CSB_W_CSVAL]) )
+	    THEN
+		EXITLOOP;	! (goto L1)
+
+	    WHILE REMQ_BUSY_(STATUS = REMQHI (SEM_BLOCK[CSB_Q_QUEUE], Q)) DO 0;
+	    IF REMQ_NULL_(.STATUS)
+	    THEN
+	        EXITLOOP;	! (goto L1)
+
+	    Q = .Q - %FIELDEXPAND_(MKR_L_FLINK,0);
+
+	    Q[MKR_V_VALID] = TRUE;		! This is a valid wake
+
+	    IF Q[BASE_] NEQ MKR[BASE_]
+	    THEN
+		BEGIN
+		STATUS = $WAKE (PIDADR = Q[MKR_L_PID]);
+		IF NOT .STATUS THEN RETURN .STATUS;
+		END;
+
+	    END;		! (goto L2)
+
+	END;
+
+    RETURN SS$_NORMAL;
+
+    END;			! End of Routine ADD_AWAKEN
+
+%SBTTL 'ROUTINE: PPL$INCREMENT_SEMAPHORE - increments the value and wakes a process'
+GLOBAL ROUTINE PPL$INCREMENT_SEMAPHORE
+    (
+	SEMAPHORE_ID : REF VECTOR [1]
+    ) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This is the V or signal protocol associated with semaphores.
+!	The routine increments the value of the semaphore by one and
+!	wakes a process waiting for the semaphore.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$INCREMENT_SEMAPHORE ( semaphore-id )
+!
+! FORMAL ARGUMENT(S):
+!
+!	SEMAPHORE-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  reference
+!
+!	An unsigned longword that is the user's handle on the semaphore.
+!
+! IMPLICIT INPUTS:
+!
+!	The Counting Semaphore Block.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The Counting Semaphore Block.
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVARG	Invalid argument(s).
+!
+!	PPL$_INVELEID	Invalid element ID.
+!
+!	PPL$_BADLOGIC	Invalid semaphore value i.e. > csb_w_csmax
+!
+!	PPL$_INVELETYP  Invalid element TYPE for attempted operation.
+!
+!	PPL$_NOINIT	PPL$INITIALIZE must be called before this routine.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_SEMALRMAX	The semaphore is already at its maximum value.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+BEGIN	!ppl$increment_semaphore
+
+builtin
+    	actualcount,
+	nullparameter;
+
+literal
+    	max_args = 1;		! Minimum number of arguments passed
+
+local
+	status	    : unsigned long,		! Status
+	ast_status  : unsigned volatile long,	! Used in critical region
+        top_flag    : unsigned volatile long,
+        mutex_flag  : unsigned volatile long,
+        mutex       : unsigned volatile long;
+
+enable
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate the number of parameters passed.
+!-
+if actualcount () neq max_args then
+    return ppl$_wronumarg;
+
+status = ppl$increment_semaphore_r0 (.semaphore_id);
+
+return .status;
+
+END;			! End of Routine PPL$INCREMENT_SEMAPHORE
+
+
+%SBTTL 'ROUTINE: PPL$INCREMENT_SEMAPHORE_R0 - increments the value and wakes a process'
+GLOBAL ROUTINE PPL$INCREMENT_SEMAPHORE_R0
+    (
+	SEMAPHORE_ID : REF VECTOR [1]
+    ) : jsb_call1 =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This is the JSB version of PPL$INCREMENT_SEMAPHORE
+!
+!	This is the V or signal protocol associated with semaphores.
+!	The routine increments the value of the semaphore by one and
+!	wakes a process waiting for the semaphore.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$INCREMENT_SEMAPHORE_R0 ( semaphore-id )
+!
+! FORMAL ARGUMENT(S):
+!
+!	SEMAPHORE-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  reference
+!
+!	An unsigned longword that is the user's handle on the semaphore.
+!
+! IMPLICIT INPUTS:
+!
+!	The Counting Semaphore Block.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The Counting Semaphore Block.
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVARG	Invalid argument(s).
+!
+!	PPL$_INVELEID	Invalid element ID.
+!
+!	PPL$_BADLOGIC	Invalid semaphore value i.e. > csb_w_csmax
+!
+!	PPL$_INVELETYP  Invalid element TYPE for attempted operation.
+!
+!	PPL$_NOINIT	PPL$INITIALIZE must be called before this routine.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_SEMALRMAX	The semaphore is already at its maximum value.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+BEGIN	!ppl$increment_semaphore_r0
+
+literal
+    	max_args = 1;		! Minimum number of arguments passed
+
+local
+	q	    : ref mkr_block,
+    	sem_block   : ref csb_block,		! Semaphore block
+	index	    : unsigned long,
+	status	    : unsigned long,		! Status
+	ast_status  : unsigned volatile long;
+
+
+!+
+! Validate the number of parameters passed.
+!-
+
+if .semaphore_id[0] eql 0 then return ppl$_invarg;
+
+!+
+! Determine if the ID passed is valid.  This can be accomplished by
+! using the formula to get the ID in the reverse order.
+!-
+if (.ppl$$gl_pplsect eql 0) then return ppl$_noinit;
+
+sem_block = .semaphore_id[0] + ppl$$gl_pplsect[base_];
+
+if .sem_block[csb_l_eid] neq .semaphore_id[0] then
+    return ppl$_inveleid;
+
+if .sem_block[csb_l_type] neq ppl$k_semaphore then
+    return ppl$_inveletyp;
+
+interlock_(sem_block[csb_v_delete]);
+if (.sem_block[csb_v_delete] neq 0) then
+    return ppl$_inveleid;
+
+!if .sem_block[csb_w_csval] geq .sem_block[csb_w_csmax] then
+!    (
+!    confirm_(.sem_block[csb_w_csval] leq .sem_block[csb_w_csmax]);
+!    return ppl$_semalrmax;
+!    );
+
+interlock_(sem_block[csb_w_csmax]);
+interlock_(sem_block[csb_w_csval]);
+if .sem_block[csb_w_csval] eql .sem_block[csb_w_csmax] then
+    return ppl$_semalrmax;
+
+adawi (%ref(1), sem_block[csb_w_semval]);
+
+!+
+! increment:
+!       remqhi queue, task
+!       if was empty then
+!           call add_awaken
+!       else
+!           call wake(task)
+!-
+
+while remq_busy_(status = remqhi (sem_block[csb_q_queue], q)) do 0;
+if remq_null_(.status)
+then
+    status = add_awaken (sem_block[base_], 0)
+else
+    begin
+
+    q = .q - %fieldexpand_(mkr_l_flink,0);
+
+    ! Set the bit to indicate that this is a valid wake.
+    ! Note that this does not need to be interlocked, since
+    ! only the process that removes the entry from the queue
+    ! will set this bit.
+    !
+    q[mkr_v_valid] = true;          ! This is a valid wake
+
+    status = $wake (pidadr = q[mkr_l_pid]);
+    end;
+	
+if NOT .status 
+then 
+    return signal ( ppl$_syserror, 0, .status )
+else if .status eql ss$_nonexpr 
+then
+    ungrab_marker_(q);
+
+
+return ppl$_normal;
+
+END;			! End of Routine PPL$INCREMENT_SEMAPHORE_R0
+
+
+
+%SBTTL 'ROUTINE: PPL$DECREMENT_SEMAPHORE - Acquires the rights to the semaphore'
+GLOBAL ROUTINE PPL$DECREMENT_SEMAPHORE
+    (
+    	semaphore_id	: ref vector [1],
+	flags		: ref vector [1],
+	spin		: ref vector [1]
+    )  =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Checks the parameters and then passes them along to 
+!	PPL$DECREMENT_SEMAPHORE_R2.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$DECREMENT_SEMAPHORE ( SEMAPHORE_ID [,FLAGS])
+!
+! FORMAL ARGUMENT(S):
+!
+!	SEMAPHORE_ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	A long word identifier representing the user's handle on the semaphore.
+!
+!
+!	FLAGS
+!	VMS USAGE	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	Specifies options for the decrement_semaphore operation.  The flags
+!	argument is the value of a longword bit mask containing the flag.
+!	The bit, when set, specifies the corresponding option:
+!
+!	PPL$M_NON_BLOCKING	Indicates that the caller is not to block
+!				if the resource is not available.
+!
+!				DEFAULT:  false - caller will block if resource
+!						is unavailable
+!
+!       PPL$M_SPIN_WAIT		Indicates that the caller is never to
+!                               block, but rather to always spin while
+!                               waiting at this barrier.
+!
+!       PPL$M_SPIN_COUNTED         Indicates that the caller wishes to
+!                               spin, for a given amount of instructions,
+!                               and then block.
+!
+!                               DEFAULT:  Block immediately, do not spin
+!                                         at all.
+!
+!
+!       SPIN
+!       VMS USAGE       :  identifier
+!       TYPE            :  long ( unsigned )
+!       ACCESS          :  write only
+!       MECHANISM       :  by reference
+!
+!       This value must be specified when using the PPL$M_SPIN_COUNTED flag,
+!       and represents a relative time a process will spins before
+!       blocking.
+!
+!
+! IMPLICIT INPUTS:
+!
+!	The Counting Semaphore Block.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The Counting Semaphore Block.
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_INSVIRMEM	    Insufficient virtual memory available.
+!
+!	PPL$_INVARG	    Invalid argument(s).
+!
+!	PPL$_INVELEID	    Invalid element ID.
+!
+!	PPL$_INVELETYP	    Invalid element type.
+!
+!	PPL$_NOINIT	    PPL$INITIALIZE must be called before this routine.
+!
+!	PPL$_NORMAL	    Normal successful completion.
+!
+!	PPL$_NOT_AVAILABLE  for non-blocking call.
+!
+!	PPL$_WRONUMARG	    Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+BEGIN	!ppl$decrement_sempahore
+
+builtin
+    	actualcount,
+	nullparameter;
+
+literal
+    	min_args = 1,		! Minimum number of arguments passed
+    	max_args = 3;		! Max number of arguments passed
+
+local
+	cflags	    : unsigned long,
+	status	    : unsigned long,		      ! Status
+	lspin	    : unsigned long,
+	ast_status  : unsigned volatile long,	      ! Used in critical region
+        top_flag    : unsigned volatile long,
+        mutex_flag  : unsigned volatile long,
+        mutex       : unsigned volatile long;
+
+enable
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+debug_msg_(0, 'Begin PPL$DECREMENT_SEMAPHORE');
+!+
+! Validate parameters.
+!-
+if (actualcount () gtr max_args) or (actualcount () lss min_args) then
+    return ppl$_wronumarg;
+
+if nullparameter ( semaphore_id ) then
+    return ppl$_invarg;
+
+if (nullparameter (flags)) then
+    cflags = 0
+else
+    cflags = .flags[0];
+
+if (nullparameter (spin)) then
+    lspin = 0
+else if .spin eql 0 then
+    lspin = 0
+else 
+    lspin = .spin[0];
+
+status = ppl$decrement_semaphore_r2(.semaphore_id, cflags, lspin);
+
+return .status;
+
+END;			! End of Routine PPL$DECREMENT_SEMAPHORE
+
+
+
+%SBTTL 'ROUTINE: PPL$DECREMENT_SEMAPHORE_R2 - Acquires the rights to the semaphore'
+GLOBAL ROUTINE PPL$DECREMENT_SEMAPHORE_R2
+    (
+    	semaphore_id	: ref vector [1],
+	flags		: ref vector [1],
+	spin		: ref vector [1]
+    ) : jsb_call3 =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Waits for a semaphore to have a value greater than zero.
+!	The current value of the semaphore is then decremented by 1
+!	to indicate the allocation of a resource.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$DECREMENT_SEMAPHORE ( SEMAPHORE_ID [,FLAGS])
+!
+! FORMAL ARGUMENT(S):
+!
+!	SEMAPHORE_ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	A long word identifier representing the user's handle on the semaphore.
+!
+!
+!	FLAGS
+!	VMS USAGE	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	Specifies options for the decrement_semaphore operation.  The flags
+!	argument is the value of a longword bit mask containing the flag.
+!	The bit, when set, specifies the corresponding option:
+!
+!	PPL$M_NON_BLOCKING	Indicates that the caller is to be blocked
+!				if the resource is not available.
+!
+!				DEFAULT:  false - caller will block if resource
+!						is unavailable
+!
+!       PPL$M_SPIN_WAIT		Indicates that the caller is never to
+!                               block, but rather to always spin while
+!                               waiting at this barrier.
+!
+!       PPL$M_SPIN_COUNTED      Indicates that the caller wishes to
+!                               spin, for a given amount of instructions,
+!                               and then block.
+!
+!                               DEFAULT:  Block immediately, do not spin
+!                                         at all.
+!
+!
+!       SPIN
+!       VMS USAGE       :  identifier
+!       TYPE            :  long ( unsigned )
+!       ACCESS          :  write only
+!       MECHANISM       :  by reference
+!
+!       This value must be specified when using the PPL$M_SPIN_COUNTED flag,
+!       and represents a relative time a process will spin before
+!       blocking.
+!
+!
+! IMPLICIT INPUTS:
+!
+!	The Counting Semaphore Block.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The Counting Semaphore Block.
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_INSVIRMEM	    Insufficient virtual memory available.
+!
+!	PPL$_INVARG	    Invalid argument(s).
+!
+!	PPL$_INVELEID	    Invalid element ID.
+!
+!	PPL$_INVELETYP	    Invalid element type.
+!
+!	PPL$_NOINIT	    PPL$INITIALIZE must be called before this routine.
+!
+!	PPL$_NORMAL	    Normal successful completion.
+!
+!	PPL$_NOT_AVAILABLE  for non-blocking call.
+!
+!	PPL$_WRONUMARG	    Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+BEGIN	!ppl$decrement_sempahore_r2
+
+literal
+    	min_args = 1,		! Minimum number of arguments passed
+    	max_args = 3;		! Max number of arguments passed
+
+local
+	mkr	    : ref mkr_block,		! Marker for insert into queue
+    	sem_block   : ref csb_block,		! Semaphore block
+	ispin	    : unsigned long,		! holds amount to spin
+	spin_count  : unsigned long,
+	status	    : unsigned long,		! Status
+	ast_status  : unsigned volatile long;
+
+
+!+
+! Validate parameters.
+!-
+
+if .semaphore_id[0] eql 0 then return ppl$_invarg;
+
+!+
+! Double check the ID.
+!-
+if (.ppl$$gl_pplsect eql 0) then return ppl$_noinit;
+
+sem_block = .semaphore_id[0] + ppl$$gl_pplsect[base_];
+
+if (.sem_block[csb_l_eid] neq .semaphore_id[0]) then
+    return ppl$_inveleid;
+
+if (.sem_block[csb_l_type] neq ppl$k_semaphore) then
+    return ppl$_inveletyp;
+
+interlock_(sem_block[csb_v_delete]);
+if (.sem_block[csb_v_delete] neq 0) then
+    return ppl$_inveleid;
+
+adawi (%ref(-1), sem_block[csb_w_semval]);
+!+
+! decrement:
+!       adawi #-1, count                        !\
+!       if >= 0 and queue is empty then return  ! > These lines optional (2)
+!       call add_awaken                         !/
+!       insqti self, queue
+!       adawi #-1, count                        !\ Tacky (3)
+!       call add_awaken                         !/
+!       while not self awakened do call block(self)
+!-
+if psl_geq_( adawi(%ref(-1), sem_block[csb_w_csval]) ) then !RESOURCE AVAILABLE
+    if empty_sr_( sem_block[csb_q_queue] ) then
+	return ppl$_normal;
+
+
+STATUS = ADD_AWAKEN (SEM_BLOCK[BASE_], 0);          !went below zero - restore
+IF NOT .STATUS THEN RETURN SIGNAL ( PPL$_SYSERROR, 0, .STATUS );
+
+!+
+! If we got here, we don't get to take the resource immediately, so we
+! don't worry about the overhead of checking the non-blocking flag or the
+! spin flags.
+!-
+if (.flags eql 0) then
+        ispin = 0
+else if (.flags[0] eql ppl$m_non_blocking) then
+    return ppl$_not_available
+else if ((.flags[0] and ppl$m_spin_wait) neq 0) then
+    ispin = -1
+else if ((.flags[0] and ppl$m_spin_counted) neq 0) then
+    ispin = .spin[0]
+else if (.flags[0] eql 0) then
+    ispin = 0
+else
+    return(ppl$_invarg);
+
+grab_marker_(mkr);              ! Also clears MKR_V_VALID
+while insq_busy_ (insqti (mkr[mkr_l_flink],sem_block[csb_q_queue])) do 0;
+
+adawi (%ref(-1), sem_block[csb_w_csval]);
+
+status = add_awaken (sem_block[base_], mkr[base_]);
+if not .status then return signal ( ppl$_syserror, 0, .status );
+
+if (.ispin eql 0) then
+    until .mkr[mkr_v_valid] do ppl$$hiber ()
+else if (.ispin leq -1) then
+    until .mkr[mkr_v_valid] do 0 
+else
+    begin
+    spin_count = 0;
+
+    until ((.spin_count geq .ispin) or (isset_i(mkr[mkr_v_valid]))) do
+        spin_count = .spin_count + 1;
+
+    until .mkr[mkr_v_valid] do ppl$$hiber ();
+    end;
+
+ungrab_marker_(mkr);
+
+return ppl$_normal;
+
+END;			! End of Routine PPL$DECREMENT_SEMAPHORE2_R
+
+
+
+%SBTTL 'ROUTINE: PPL$WAIT_AT_BARRIER - Block caller until barrier quorum arrives'
+!
+GLOBAL ROUTINE PPL$WAIT_AT_BARRIER
+    (
+	BARRIER_ID :	REF VECTOR [1],
+	FLAGS	   :	REF VECTOR [1],
+	SPIN	   :    REF VECTOR [1]
+    ) =	
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine implements a synchronization mechanism termed a barrier.
+!	A barrier is a user-defined point in the code beyond which no one can
+!	progress until ALL of those involved in the quorum are at the barrier.
+!	So, as each process calls this routine, it blocks until the quorum
+!	has been met, at which point all blocked processes are resumed.
+!	(The quorum can be specified by calls to ppl$set_quorum and
+!	ppl$adjust_quorum.)
+!
+!	Also note that a barrier wait may be concluded by a call to
+!	PPL$ADJUST_QUORUM.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$WAIT_AT_BARRIER ( barrier-id )
+!
+! FORMAL ARGUMENT(S):
+!
+!	BARRIER-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the barrier.  This identifier must be
+!	used in other calls to identify the barrier.
+!	
+!	FLAGS
+!	VMS USAGE	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	Specifies options for the wait_at_barrier operation.  The flags
+!	arguments is the value of a longword bit mask containing the flag.
+!	The bit, when set, specifies the corresponding option:
+!
+!	PPL$M_SPIN_WAIT  	Indicates that the caller is never to
+!				block, but rather to always spin while
+!				waiting at this barrier.
+!
+!	PPL$M_SPIN_COUNTED 	Indicates that the caller wishes to 
+!				spin, for a given amount of instructions,
+!				and then block.
+!
+!				DEFAULT:  Block immediately, do not spin
+!					  at all.
+!
+!	SPIN
+!	VMS USAGE	:  identifier
+!	TYPE		:  long ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	This value must be specified when using the PPL$M_SPIN_COUNTED flag,
+!	and is a represents a relative time a process will spins before
+!	blocking.
+!
+!
+! IMPLICIT INPUTS:
+!
+!	The Counting Semaphore Block associated with this barrier.
+!	
+! IMPLICIT OUTPUTS:
+!
+!	The Counting Semaphore Block associated with this barrier.
+!
+! COMPLETION CODES:
+!
+!	PPL$_ATTUSETWO	Attempted use of two application-wide (full) barriers
+!			simultaneously - user logic error resulting in deadlock.
+!
+!	PPL$_INVELEID	Invalid element ID.
+!
+!	PPL$_INVELETYP	Invalid element type for specified operation.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+BEGIN	!ppl$wait_at_barrier
+
+builtin
+	nullparameter,
+	actualcount;
+
+literal
+	num_args = 3;		    ! number of arguments
+
+local
+	status		: unsigned long,
+	cflags		: unsigned long,
+	ast_status	: unsigned volatile long, ! Used in critical region
+        top_flag	: unsigned volatile long,
+        mutex_flag	: unsigned volatile long,
+        mutex		: unsigned volatile long;
+
+enable
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate barrier parameter.
+!-
+
+if ( actualcount () gtr num_args ) then
+    return ppl$_wronumarg;
+
+if (nullparameter (flags)) then
+    cflags = 0
+else
+    cflags = .flags[0];
+
+status = ppl$wait_at_barrier_r2 (.barrier_id, cflags, .spin);
+
+return .status;
+
+END;			! End of routine PPL$WAIT_AT_BARRIER
+
+
+
+%SBTTL 'ROUTINE: PPL$WAIT_AT_BARRIER_R2 - Block caller until barrier quorum arrives'
+!
+GLOBAL ROUTINE PPL$WAIT_AT_BARRIER_R2
+    (
+	BARRIER_ID :	REF VECTOR [1],
+	FLAGS	   :	REF VECTOR [1],
+	SPIN	   :	REF VECTOR [1]
+    ) : jsb_call3 =	
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This is the JSB version of ppl$wait_at_barrier.
+!
+!	This routine implements a synchronization mechanism termed a barrier.
+!	A barrier is a user-defined point in the code beyond which no one can
+!	progress until ALL of those involved in the quorum are at the barrier.
+!	So, as each process calls this routine, it blocks until the quorum
+!	has been met, at which point all blocked processes are resumed.
+!	(The quorum can be specified by calls to ppl$set_quorum and
+!	ppl$adjust_quorum.)
+!
+!	Also note that a barrier wait may be concluded by a call to
+!	PPL$ADJUST_QUORUM.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$WAIT_AT_BARRIER_R2 ( barrier-id )
+!
+! FORMAL ARGUMENT(S):
+!
+!	BARRIER-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the barrier.  This identifier must be
+!	used in other calls to identify the barrier.
+!
+!	FLAGS
+!	VMS USAGE	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	Specifies options for the wait_at_barrier operation.  The flags
+!	arguments is the value of a longword bit mask containing the flag.
+!	The bit, when set, specifies the corresponding option:
+!
+!	PPL$M_SPIN_WAIT		Indicates that the caller is never to
+!				block, but rather to always spin while
+!				waiting at this barrier.
+!
+!	PPL$M_SPIN_COUNTED	Indicates that the caller wishes to 
+!				spin, for a given amount of instructions,
+!				and then block.
+!
+!				DEFAULT:  Block immediately, do not spin
+!					  at all.
+!
+!	SPIN
+!	VMS USAGE	:  identifier
+!	TYPE		:  long ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	This value must be specified when using the PPL$M_SPIN_COUNTED flag,
+!	and is a represents a relative time a process will spins before
+!	blocking.
+!
+!
+! IMPLICIT INPUTS:
+!
+!	The Counting Semaphore Block associated with this barrier.
+!	
+! IMPLICIT OUTPUTS:
+!
+!	The Counting Semaphore Block associated with this barrier.
+!
+! COMPLETION CODES:
+!
+!	PPL$_ATTUSETWO	Attempted use of two application-wide (full) barriers
+!			simultaneously - user logic error resulting in deadlock.
+!
+!	PPL$_INVELEID	Invalid element ID.
+!
+!	PPL$_INVELETYP	Invalid element type for specified operation.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+BEGIN	!ppl$wait_at_barrier_r2
+
+literal
+	num_args = 1;		    ! number of arguments
+
+local
+	barrier		: ref csb_block,	! Barr sem block
+	barr_init	: unsigned long,	! BARRIER initial value
+	barr_max	: unsigned long,	! BARRIER maximum value
+	mkr		: ref mkr_block,	! Marker for insertion into que
+	q		: ref mkr_block,
+	ispin		: unsigned long,	! holds amount to spin
+	status		: unsigned long,
+	ast_status	: unsigned volatile long;
+
+!+
+! Validate barrier parameter.
+!-
+
+if (.ppl$$gl_pplsect eql 0) or (ppl$$gl_context eql 0) then
+    return ppl$_noinit;			    !can't have a valid barrier if
+					    !no ppl$init has occurred
+
+barrier = .barrier_id[0] + ppl$$gl_pplsect[base_];
+
+if ( .barrier[csb_l_eid] neq .barrier_id[0] ) then
+    return ppl$_inveleid;
+
+if ( .barrier[csb_l_type] neq ppl$k_barrier_synch ) then
+    return ppl$_inveletyp;
+
+
+enter_critical_region_;	    ! disables asts
+
+
+!+
+! Decrement the barrier's down_counter.
+! If it goes to zero, conclude the barrier wait.
+! Otherwise, watch for errors,
+! Spin if necessary and then block, if 
+! ppl$m_spin_wait is not specified. 
+!
+! All accesses to a barrier block's csval and csmax are protected
+! by the csb_v_lock mutex.
+!-
+lock_bit_ (barrier[csb_v_lock]);
+
+
+if (.barrier[csb_v_delete] neq 0) then
+    (
+    unlock_bit_ (barrier[csb_v_lock]);              !let others in
+    leave_critical_region_;			    ! enable asts
+    return ppl$_inveleid;
+    );
+
+if  (( barrier[csb_w_csval] = .barrier[csb_w_csval] -1) EQL 0) then
+    (			    !the down_counter reached zero - lift off
+        !move everyone onto the global (at least for now) pplsect waiting Q
+        !we have to let these guys go (one at a time) & still be
+        !able to handle future requests against the same barrier
+    while true do
+	(
+	while remq_busy_(status = remqhi(barrier[csb_q_queue], mkr)) do 0;
+	if remq_null_(.status) then EXITLOOP;
+	while
+	    insq_busy_(insqti(mkr[mkr_l_flink],
+			ppl$$gl_pplsect[pplsect_q_barr_queue]))
+	    do 0;
+	);
+
+    barrier[csb_w_csval] = .barrier[csb_w_csmax];   !reset quorum
+    unlock_bit_ (barrier[csb_v_lock]);		    !let others in
+    leave_critical_region_;	! enable asts
+
+    status = conclude_barrier_wait (barrier[base_]);
+		!you may correctly conclude that this status is ignored
+    return (ppl$_normal);
+    )
+
+else if (.barrier[csb_w_csval] lss 0) then
+    ppl_signal_(ppl$_badlogic)
+
+else	!put this caller into barrier wait state
+    (
+
+    grab_marker_(mkr);		! also clears mkr_v_valid	
+    while insq_busy_(insqti(mkr[mkr_l_flink], barrier[csb_q_queue])) do 0;
+
+    unlock_bit_ (barrier[csb_v_lock]);
+    leave_critical_region_;	! enable asts
+
+    !+
+    ! Decide how much to spin
+    !-
+    
+    if (.flags eql 0) then
+	ispin = 0
+    else if ((.flags[0] and ppl$m_spin_wait) neq 0) then
+	ispin = -1
+    else if ((.flags[0] and ppl$m_spin_counted) neq 0) then
+	ispin = .spin[0]
+    else if (.flags[0] eql 0) then
+	ispin = 0
+    else 
+	return(ppl$_invarg);
+
+    spin_hiber_(ispin,mkr[mkr_v_valid]);
+
+    ungrab_marker_(mkr);
+
+    return (ppl$_normal);
+    );
+
+END;			! End of routine PPL$WAIT_AT_BARRIER_R2
+
+
+
+%SBTTL 'ROUTINE: CONCLUDE_BARRIER_WAIT - release blocked threads'
+!
+ROUTINE CONCLUDE_BARRIER_WAIT (
+
+	BARRIER	:   REF csb_block
+				       ) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Conclude the barrier's wait by releasing all threads blocked on it.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = CONCLUDE_BARRIER_WAIT ( barrier )
+!
+! FORMAL ARGUMENT(S):
+!
+!	BARRIER
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  modify
+!	MECHANISM	:  by reference
+!
+!	The internal block representing a barrier.
+!
+! IMPLICIT INPUTS:
+!
+!	none
+!
+! IMPLICIT OUTPUTS:
+!
+!	none
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!	Wakes the list of blocked processes in the pplsect.
+!
+! ASSUMPTIONS:
+!
+!  1)	A critical region with regard to the barrier block is in effect.
+!  2)	pplsect has been initted.
+!
+!--
+begin	!conclude_barrier_wait
+
+local
+    mkr			: ref mkr_block,        ! for queueing procs
+    unexpected_status	: unsigned long,
+    index		: unsigned long,
+    status		: unsigned long;
+
+
+unexpected_status = ppl$_normal;
+
+
+!now release all those waiting
+while true do
+    (
+    while remq_busy_(status = remqhi(ppl$$gl_pplsect[pplsect_q_barr_queue],mkr))
+	do 0;
+    if remq_null_(.status) then
+	EXITLOOP;
+
+    testbitssi(mkr[mkr_v_valid]);
+    status = $wake (pidadr = mkr[mkr_l_pid]);
+
+    if (.status eql ss$_nonexpr) then
+		!we expect some can die before we get around to wake-ups
+	ungrab_marker_(mkr)	!anyone who's alive would do this himself
+				!and check for valid wake
+    else if not .status then
+	unexpected_status = .status;
+	    ! other errors are a problem, but they can't hold up this routine
+    );	!end loop
+
+
+if (.unexpected_status neq ppl$_normal) then ppl_signal_(.unexpected_status);
+
+!we leave a status here even tho it's ignored unless signaled
+ppl$_normal
+
+
+end; !conclude_barrier_wait
+
+
+
+
+%SBTTL 'ROUTINE: PPL$SET_QUORUM - set barrier quorum'
+!
+GLOBAL ROUTINE PPL$SET_QUORUM
+    (barrier_id : ref vector [1, long, unsigned],
+     quorum	: ref vector [1, word, signed]
+    ) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Set the value of the barrier's quorum.  If any processes are
+!	are in a wait on this barrier at the time of the call, this
+!	call fails with a status of PPL$_IN_BARRIER_WAIT.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$SET_QUORUM ( barrier-id, quorum )
+!
+! FORMAL ARGUMENT(S):
+!
+!	BARRIER-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the barrier.  This identifier must be
+!	used in other calls to identify the barrier.
+!
+!	QUORUM
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	Value to establish as the barrier's quorum.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!	
+! IMPLICIT OUTPUTS:
+!
+!	The Counting Semaphore BLock.
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVARG		Invalid argument(s).
+!
+!	PPL$_INVELEID		Invalid element ID.
+!
+!	PPL$_INVELETYP		Invalid element type for specified operation.
+!
+!	PPL$_IN_BARRIER_WAIT	Other processes are blocked on this barrier.
+!
+!	PPL$_NORMAL		Normal successful completion.
+!
+!	PPL$_WRONUMARG		Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+! ASSUMPTIONS:
+!
+!	NONE
+!
+!--
+begin	!ppl$set_quorum
+
+builtin
+    actualcount;
+
+literal
+    num_args = 2;
+
+local
+    barrier	    : ref csb_block,
+    ast_status	    : volatile unsigned long,	! Used in critical region
+    status	    : unsigned long,
+    top_flag	    : unsigned volatile long,
+    mutex_flag	    : unsigned volatile long,
+    mutex	    : unsigned volatile long;
+
+enable
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate the parameters.
+!-
+
+if ( actualcount () neq num_args ) then
+    return ppl$_wronumarg;
+
+if (.ppl$$gl_pplsect eql 0) or (.ppl$$gl_context eql 0) then
+    return ppl$_noinit;		    !can't have a valid barrier if
+					    !no ppl$init has occurred
+
+barrier = .barrier_id[0] + ppl$$gl_pplsect[base_];
+
+if ( .barrier[csb_l_eid] neq .barrier_id[0] ) then
+    return ppl$_inveleid;
+
+if ( .barrier[csb_l_type] neq ppl$k_barrier_synch ) then
+    return ppl$_inveletyp;
+
+if (.quorum[0] lss 1) then
+    return ppl$_invarg;
+
+debug_msg_(2, 'Index: !UL, (ppl$set_quorum)!_barrier: !XL!_quorum: !XL',
+		.ppl$$gl_context[ctx_l_my_index], .barrier, .quorum[0]);
+
+
+enter_critical_region_;	    ! disable asts
+
+!+
+! IFF no one is waiting on the barrier now, we can set the quorum.
+!-
+mutex = barrier[csb_v_lock];
+mutex_flag = 1;
+lock_bit_ (barrier[csb_v_lock]);	!mutex access to barrier block
+
+if (.barrier[csb_v_delete] neq 0) then
+	ppl_signal_(ppl$_inveleid);
+
+if empty_sr_(barrier[csb_q_queue]) then	! only ok when no one waits
+    (
+    if (.quorum[0] eql 0) then
+		!set quorum = number of processes now in application
+	(
+        barrier[csb_w_csmax] = .ppl$$gl_pplsect[pplsect_w_curr_procs];
+        barrier[csb_w_csval] = .ppl$$gl_pplsect[pplsect_w_curr_procs];
+	)
+    else    !take whatever user says as new quorum
+	(
+        barrier[csb_w_csmax] = .quorum[0];
+        barrier[csb_w_csval] = .quorum[0];
+	);
+    unlock_bit_ (barrier[csb_v_lock]);
+    leave_critical_region_;	! enable asts
+    status = ppl$_normal;
+    )
+else	!someone's waiting on it, disallow quorum change thru this interface
+    (
+    unlock_bit_(barrier[csb_v_lock]);
+    leave_critical_region_;	! enable asts
+    status = ppl$_in_barrier_wait;
+    );
+
+.status
+
+end; !ppl$set_quorum
+
+
+
+%SBTTL 'ROUTINE: PPL$ADJUST_QUORUM - adjust barrier quorum'
+!
+GLOBAL ROUTINE PPL$ADJUST_QUORUM
+    (
+	barrier_id  : ref vector [1, long, unsigned],
+	amount	    : ref vector [1, word, signed]
+    ) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Add the input "amount" to the barrier's quorum.  Then, if
+!	the barrier has waiters, see if the resulting quorum has been
+!	met, for completion of the barrier wait.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$ADJUST_QUORUM ( barrier-id, amount )
+!
+! FORMAL ARGUMENT(S):
+!
+!	BARRIER-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the barrier.
+!
+!	AMOUNT
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	Value to add to the barrier's quorum.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!	
+! IMPLICIT OUTPUTS:
+!
+!	The Counting Semaphore Block.
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVELEID		Invalid element ID.
+!
+!	PPL$_INVELETYP		Invalid element type for specified operation.
+!
+!	PPL$_WRONUMARG		Wrong number of arguments.
+!
+!	PPL$_INVARG		Invalid argument.
+!				    !"amount" arg caused overflow
+!
+!	PPL$_NORMAL		Normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+! ASSUMPTIONS:
+!
+!	NONE
+!
+!--
+begin	!ppl$adjust_quorum
+
+builtin
+    actualcount;
+
+literal
+    num_args = 2;
+
+local
+    barrier	: ref csb_block,
+    mkr		: ref mkr_block,
+    temp	: signed word,
+    ast_status	: volatile unsigned long,	    ! Used in critical region
+    status	: unsigned long,
+    top_flag    : unsigned volatile long,
+    mutex_flag  : unsigned volatile long,
+    mutex       : unsigned volatile long;
+
+enable
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+  
+!+
+! Validate the parameters.
+!-
+
+if ( actualcount () neq num_args ) then
+    return ppl$_wronumarg;
+
+if (.ppl$$gl_pplsect eql 0) or (.ppl$$gl_context eql 0) then
+    return ppl$_noinit;		    !can't have a valid barrier if
+					    !no ppl$init has occurred
+
+barrier = .barrier_id[0] + ppl$$gl_pplsect[base_];
+
+if ( .barrier[csb_l_eid] neq .barrier_id[0] ) then
+    return ppl$_inveleid;
+
+if ( .barrier[csb_l_type] neq ppl$k_barrier_synch ) then
+    return ppl$_inveletyp;
+
+
+debug_msg_(2,'Index: !UL, (ppl$adjust_quorum)!_barrier: !XL!_amount: !XL',
+		.ppl$$gl_context[ctx_l_my_index], .barrier, .amount[0]);
+
+
+enter_critical_region_;	    ! enable asts
+
+!+
+! Mutex access to barrier block.
+! Add the amount specified, check for conclusion of barrier wait.
+!-
+mutex = barrier[csb_v_lock];
+mutex_flag = 1;
+lock_bit_ (barrier[csb_v_lock]);
+
+if (.barrier[csb_v_delete] neq 0) then
+    ppl_signal_(ppl$_inveleid);
+
+temp = .barrier[csb_w_csmax];
+if (barrier[csb_w_csmax] = .barrier[csb_w_csmax] + .amount[0]) gtr 0 then
+    (
+
+    if (barrier[csb_w_csval] = .barrier[csb_w_csval] + .amount[0]) leq 0 then
+	(			  !down_counter reached zero
+        !move everyone onto the global (at least for now) pplsect waiting Q
+        !we have to let these guys go (one at a time) & still be
+        !able to handle future requests against the same barrier
+	while true do
+	    (
+	    while remq_busy_(status = remqhi(barrier[csb_q_queue], mkr)) do 0;
+	    if remq_null_(.status) then EXITLOOP;
+		while 
+		    insq_busy_(insqti(mkr[mkr_l_flink],
+			ppl$$gl_pplsect[pplsect_q_barr_queue]))
+		do 0;
+	    );
+	barrier[csb_w_csval] = .barrier[csb_w_csmax];
+	status = conclude_barrier_wait (barrier[base_]);
+	status = ppl$_normal;
+        )
+    else
+	status = ppl$_normal;
+    )
+else
+    (
+    status = ppl$_invarg;
+    barrier[csb_w_csmax] = .temp;
+    );
+
+unlock_bit_ (barrier[csb_v_lock]);
+
+leave_critical_region_;	    ! enable asts
+
+return (.status);
+
+
+end; !ppl$adjust_quorum
+
+%SBTTL 'ROUTINE: PPL$READ_BARRIER - Read barrier state'
+!
+GLOBAL ROUTINE PPL$READ_BARRIER
+    (
+	barrier_id  : ref vector [1, long, unsigned],
+	quorum	    : ref vector [1, word, signed],
+	waiters	    : ref vector [1, word, signed]
+    ) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	PPL$READ_BARRIER returns the current quorum of the specified barrier,
+!	and the number of waiters currently blocked on the barrier.
+!	Note that the values thus obtained for the barrier are subject to change
+!	through application calls to barrier services in other participants,
+!	even before the caller receives these results.
+!
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$READ_BARRIER ( barrier-id, quorum, waiters )
+!
+!
+! FORMAL ARGUMENT(S):
+!
+!	BARRIER-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the barrier.
+!
+!
+!	QUORUM
+!	VMS USAGE	:  word_signed
+!	TYPE		:  word ( signed )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The number of participants which will be required to terminate a
+!	wait for this barrier.
+!
+!
+!	WAITERS
+!	VMS USAGE	:  word_signed
+!	TYPE		:  word ( signed )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The number of participants currently waiting at this barrier.
+!
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!	
+! IMPLICIT OUTPUTS:
+!
+!	The Counting Semaphore Block.
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVELEID		Invalid element ID.
+!
+!	PPL$_INVELETYP		Invalid element type for specified operation.
+!
+!	PPL$_WRONUMARG		Wrong number of arguments.
+!
+!	PPL$_INVARG		Invalid argument.
+!
+!	PPL$_NORMAL		Normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+! ASSUMPTIONS:
+!
+!	NONE
+!
+!--
+begin	!ppl$read_barrier
+
+builtin
+    actualcount,
+    nullparameter;
+
+literal
+    num_args = 3;
+
+local
+    barrier	    : ref csb_block,
+    status	    : unsigned long;
+
+
+!+
+! Validate the parameters.
+!-
+
+if ( actualcount () neq num_args ) then
+    return ppl$_wronumarg;
+if nullparameter (barrier_id) or
+	    nullparameter (quorum) or
+	    nullparameter (waiters) then
+    return ppl$_invarg;
+
+if (.ppl$$gl_pplsect eql 0) then
+    return ppl$_noinit;			    !can't have a valid barrier if
+					    !no ppl$init has occurred
+
+barrier = .barrier_id[0] + .ppl$$gl_pplsect;
+
+if ( .barrier[csb_l_eid] neq .barrier_id[0] ) then
+    return ppl$_inveleid;
+
+if ( .barrier[csb_l_type] neq ppl$k_barrier_synch ) then
+    return ppl$_inveletyp;
+
+
+!+
+! for cache consistency an interlocked instruction is required
+!-
+interlock_(barrier[csb_v_lock]);
+if (.barrier[csb_v_delete] neq 0) then return ppl$_inveleid;
+
+quorum[0] = .barrier[csb_w_csmax];
+waiters[0] = .barrier[csb_w_csmax] - .barrier[csb_w_csval];
+
+return ppl$_normal;
+
+
+end; !ppl$read_barrier
+
+
+
+%SBTTL 'ROUTINE: PPL$SET_SEMAPHORE_MAXIMUM - Set a semaphore maximum'
+global routine ppl$set_semaphore_maximum
+    (semaphore_id   :	ref vector [1, long, unsigned], 
+     maximum	    :	ref vector [1, word, signed]
+    ) = 
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$SET_SEMAPHORE_MAXIMUM - Set a Semaphore Maximum
+!
+!   The Set Semaphore Maximum routine dynamically sets a maximum for the
+!   specified semaphore's maximum. This allows semaphores to be reused easily
+!   for different purposes with various numbers of participants. The semaphore
+!   must have been created by PPL$CREATE_ SEMAPHORE.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+!
+!             semaphore-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Identifier of the semaphore. The semaphore-id argumentis the
+!             address of an unsigned longword containing the identifier.
+!
+!
+!             semaphore-maximum
+!             VMS Usage: word_signed
+!             type:      word (signed)
+!             access:    read only
+!             mechanism: by reference
+!
+!             New maximum value of the semaphore. The semaphore-maximum argument
+!             is the address of a signed word containing the maximum value. This
+!             value must be nonnegative.
+!
+! 
+! IMPLICIT INPUTS:
+! 
+!   NONE
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   The Counting Semaphore Block
+! 
+
+
+! COMPLETION CODES:
+! 
+!   PPL$_ELEINUSE         The specified element is currently in use and may not be changed.
+!
+!   PPL$_INVARG           Invalid argument.
+!
+!   PPL$_NOINIT		  Element not initialized
+!
+!   PPL$_INVELEID         Invalid element identifier.
+!
+!   PPL$_INVELETYP        Invalid element type.
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   NONE
+!--
+
+
+begin   ! ppl$set_semaphore_maximum
+
+
+builtin
+    actualcount;
+
+literal
+    num_args = 2;
+
+local
+    i		    : unsigned long,
+    sema	    : ref csb_block,
+    ast_status	    : volatile unsigned long,	   ! Used in critical region
+    status	    : unsigned long,
+    top_flag	    : unsigned volatile long,
+    mutex_flag	    : unsigned volatile long,
+    mutex	    : unsigned volatile long;
+
+enable
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate the parameters.
+!-
+
+if ( actualcount () neq num_args ) then
+    return ppl$_wronumarg;
+
+
+if (.ppl$$gl_pplsect eql 0) then				!can't have a valid semaphore if
+    return ppl$_noinit;						!no ppl$init has occurred
+
+sema  = .semaphore_id[0] + ppl$$gl_pplsect[base_];
+
+if ( .sema[csb_l_eid] neq .semaphore_id[0] ) then
+    return ppl$_inveleid;
+
+if ( .sema[csb_l_type] neq ppl$k_counting_semaphore ) then
+    return ppl$_inveletyp;
+
+if (.maximum[0] lss 1) then
+    return ppl$_invarg;
+
+debug_msg_(2,'Index: !UL, (ppl$set_semaphore_maximum)!_semaphore: !XL!_maximum: !XL',
+		.ppl$$gl_context[ctx_l_my_index], .sema, .maximum[0]);
+
+
+interlock_(sema[csb_v_delete]);
+if (.sema[csb_v_delete] neq 0) then
+    ppl_signal_(ppl$_inveleid);
+
+interlock_(sema[csb_w_csmax]);
+interlock_(sema[csb_w_csval]);
+if .sema[csb_w_csval] neq .sema[csb_w_csmax] then
+    ppl_signal_(ppl$_eleinuse);
+
+
+sema[csb_w_csmax] = .maximum[0];	    ! set the new semaphore max value
+interlock_(sema[csb_w_csmax]);
+sema[csb_w_csval] = .maximum[0];	    ! set semaphore current value.
+interlock_(sema[csb_w_csval]);
+sema[csb_w_semval] = .maximum[0];	    ! write the real value
+interlock_(sema[csb_w_semval]);
+
+ppl$_normal
+
+end;    ! ppl$set_semaphore_maximum
+
+
+
+
+
+
+%SBTTL 'ROUTINE: PPL$ADJUST_SEMAPHORE_MAXIMUM Adjust a semaphore maximum'
+global routine ppl$adjust_semaphore_maximum
+    (semaphore_id   :	ref vector [1, long, unsigned], 
+     amount	    :	ref vector [1, word,   signed]
+    ) = 
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$ADJUST_SEMAPHORE_MAXIMUM-Adjust a Semaphore Maximum
+!
+!   The Adjust Semaphore Maximum routine increments or decrements the maximum
+!   associated with the specified semaphore, thus allowing a semaphore to
+!   dynamically alter the number of resources protected by the semaphore. The
+!   semaphore must have been created by PPL$CREATE_SEMAPHORE.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+!
+!             semaphore-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Identifier of the semaphore. The semaphore-id argumentis the
+!             address of an unsigned longword containing the identifier.
+!
+!
+!             amount
+!             VMS Usage: word_signed
+!             type:      word (signed)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Value to add to the semaphore maximum. The amount argument is the
+!             address of a signed word containing the amount. You may speecify a
+!             negative value to decrease the maximum.
+!
+! 
+! IMPLICIT INPUTS:
+! 
+!   NONE
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   The Counting Semaphore Block
+! 
+
+
+! COMPLETION CODES:
+! 
+!   PPL$_INVARG           Invalid argument.
+!
+!   PPL$_INVELEID         Invalid element identifier.
+!
+!   PPL$_NOINIT		  Element not initialized
+!
+!   PPL$_INVELETYP        Invalid element type.
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   NONE
+!--
+
+
+begin   ! ppl$adjust_semaphore_maximum
+	
+builtin
+    actualcount;
+	
+literal
+    num_args = 2;
+	
+local
+   i		    : unsigned long, 
+   q		    : ref mkr_block,
+   sema		    : ref csb_block,
+   ast_status	    : volatile unsigned long,	   ! Used in critical region
+   index	    : unsigned long,
+   cflags	    : unsigned long,
+   spin		    : unsigned long,
+   status	    : unsigned long,
+   top_flag	    : unsigned volatile long,
+   mutex_flag	    : unsigned volatile long,
+   mutex	    : unsigned volatile long;
+
+enable
+   ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+	
+!+
+! Validate the parameters.
+!-
+
+if ( actualcount () neq num_args ) then
+   return ppl$_wronumarg;
+
+if ( .ppl$$gl_pplsect eql 0 )  then		!can't have a valid semaphore if
+   return ppl$_noinit;				!no ppl$init has occurred
+
+sema = .semaphore_id[0] + ppl$$gl_pplsect[base_];
+
+if ( .sema[csb_l_eid] neq .semaphore_id[0] ) then
+    return ppl$_inveleid;
+
+if ( .sema[csb_l_type] neq ppl$k_counting_semaphore ) then
+    return ppl$_inveletyp;
+
+
+debug_msg_(2,'Index: !UL, (ppl$adjust_semaphore_maximum)!_semaphore: !XL!_amount: !XL',
+	    .ppl$$gl_context[ctx_l_my_index], .sema, .amount[0]);
+
+interlock_(sema[csb_v_delete]);
+if (.sema[csb_v_delete] neq 0) then
+    ppl_signal_(ppl$_inveleid);
+
+!+
+! Check adjustment for legal value:  a decrease is only allowed when
+! the resulting count will be non-negative.
+!-
+interlock_(sema[csb_w_csval]);
+if (( .amount[0] lss 0 ) and ( .sema[csb_w_csval] + .amount[0] lss 0 )) then
+    ppl_signal_(ppl$_invarg);
+
+!+
+! If the adjustment is positive increment the semaphore properly.
+!-
+if .amount[0] gtr 0 then
+    incr i from 1 to (.amount[0]) do
+	begin
+	    sema[csb_w_csmax] = .sema[csb_w_csmax] + 1;
+	    status = ppl$increment_semaphore (.semaphore_id);
+	    if not .status then
+		return .status;
+	end;
+
+!+
+! If the adjustment is negative decrement the semaphore properly.
+!-
+if .amount[0] lss 0 then
+    incr i from 1 to (-.amount[0]) do
+	begin
+	    cflags = 0;
+	    spin = 0;
+	    status = ppl$decrement_semaphore (.semaphore_id, cflags, spin);
+	    if not .status then
+		return .status;
+	    sema[csb_w_csmax] = .sema[csb_w_csmax] - 1;
+	    interlock_(sema[csb_w_csmax]);
+	end;
+
+
+return (ppl$_normal);
+
+end;    ! ppl$adjust_semaphore_maximum
+
+
+
+END				! End of module PPL$SEM
+ELUDOM

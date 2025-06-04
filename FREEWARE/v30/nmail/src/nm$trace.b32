@@ -1,0 +1,307 @@
+%title 'nm$trace'
+module nm$trace (
+                ident='05',
+    		addressing_mode(external=general)
+    	        ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1988, 1989, 1991, 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	23-Apr-1988
+!
+! Revision history:
+!
+!   01	28-Jan-1989
+!	Add 'sending attributes message' phase
+!
+!   02	16-Dec-1991	Cathy Wright
+!	ALPHA specific changes.
+!
+!   03	7-May-1992
+!	Merge VAX and ALPHA cases
+!
+!   04	1-Jul-1992
+!	Signal NM$_FAO on FAO error
+!
+!   05	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!--
+
+
+!
+! Library declarations
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+!
+! Module-wide data
+!
+own
+    tr_fab 	: $fab_decl alias,			! FAB for trace file
+    tr_rab 	: $rab_decl,				! RAB, ditto
+    tr_nam 	: $nam_decl alias,			! NAM block, ditto
+    tr_xabpro 	: $xabpro_decl alias,			! Protection XAB, ditto
+    tr_exp_buf  : vector[nm$s_filespec,byte] alias;	! Expanded filespec
+
+!
+! Vector to map protocol phase codes to printable text.
+! (Makes assumptions about symbol values and ordering).
+!
+bind
+    ph_txt = uplit(
+		  '....',			!  0  null
+		  'conn',			!  1  connecting
+		  'from',			!  2  from
+		  'addr',			!  3  address
+		  '  to',			!  4  to-list
+		  '  cc',			!  5  cc-list
+		  'subj',			!  6  subject
+		  'attr',			!  7  attributes
+		  'text',			!  8  message text
+		  ' sts',			!  9  status from sending
+		  'disc',			! 10  disconnecting
+		  'text',			! 11  (internal only)
+		  'text'			! 12  (internal only)
+		  ) : vector;
+
+%sbttl 'open trace file'
+global routine nm$open_trace (fspec : ref descrip) : novalue =
+
+!++
+! Functional description:
+!
+! Opens a file to receive trace output.
+!
+! Formal parameters:
+! 
+! fspec.rt.dx = filespec for trace file
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local 
+	status;
+
+    !
+    ! Return if tracing not enabled
+    !
+    if not .nm$gl_trace[0] then return;
+
+    !
+    ! Initialise RMS data structures for opening the report file.
+    !
+    $fab_init(
+	     fab=tr_fab,
+             fns=.fspec[dsc$w_length],
+	     fna=.fspec[dsc$a_pointer],
+             dns=.nm$gt_tr_def[0],
+    	     dna=nm$gt_tr_def[1],
+	     lnm_mode=psl$c_exec,
+	     fac=put,
+    	     shr=(upi,get),
+	     fop=(sqo,cif),
+	     nam=tr_nam,
+	     xab=tr_xabpro,
+    	     rat=cr,
+    	     rfm=var
+	     );
+    $xabpro_init(
+    	     xab=tr_xabpro,
+    	     pro=(rwd,rwd,,),
+    	     uic=(1,4)
+    	     );
+    $nam_init(
+	     nam=tr_nam,
+	     esa=tr_exp_buf,
+	     ess=nm$s_filespec,
+	     rsa=tr_exp_buf,
+	     rss=nm$s_filespec
+	     );
+    $rab_init(
+	     rab=tr_rab,
+	     fab=tr_fab,
+	     rop=eof
+	     );
+
+    !
+    ! If no output file was specified, default it (this is 'NMAILTRACE',
+    ! and the defaulting can't be done through the default filespec as
+    ! we wish to cope with redefinition of the logical name)
+    !
+    if .tr_fab[fab$b_fns] eql 0
+    then
+	begin
+	tr_fab[fab$b_fns] = .nm$gt_tr_fspec[0];
+	tr_fab[fab$l_fna] = nm$gt_tr_fspec[1];
+	end;
+
+    !
+    ! Open the file for append
+    !
+    status = $create(fab=tr_fab);
+    if not .status 
+    then 
+    	nm$rms_error(nm$_open, tr_fab);
+
+    !
+    ! Connect the RAB
+    !
+    status = $connect(rab=tr_rab);
+    if not .status 
+    then 
+	nm$rms_error(nm$_rms, tr_rab);
+
+    !
+    ! Zero the XAB chain now
+    !
+    tr_fab[fab$l_xab] = 0;
+
+    end;
+
+%sbttl 'close trace file'
+global routine nm$close_trace : novalue =
+
+!++
+! Functional description:
+!
+! Closes the trace file if it's open
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+    	status;
+
+    if .tr_fab[fab$w_ifi] eql 0 then return;
+
+    status = $close(fab=tr_fab);
+    if not .status then nm$rms_error(nm$_close, tr_fab);
+
+    end;
+
+%sbttl 'write record to trace file'
+global routine nm$write_trace (code, count, fao1) : novalue =
+
+!++
+! Functional description:
+!
+! Writes a formatted record to the trace file.
+!
+! Formal parameters:
+!
+! code.rlc.v = message code
+! count.rl.v = fao count
+! fao1.rl.v  = first fao parameter
+! fao2.rl.v  = second fao parameter
+!		:
+!		:
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    builtin
+	argptr;
+
+    !
+    ! Internal routine to write a single time-stamped record;
+    ! it's called as a putmsg action routine
+    !
+    routine writeline(str : ref descrip) =
+	begin
+        local
+	    status,
+	    proto  : $str('!%T  !AD !AS'),
+	    outbuf : vector[128,byte] alias,
+	    outdsc : descrip initial(128,outbuf);
+        tr_rab[rab$l_rbf] = outbuf;
+        status = $fao(
+		     proto, tr_rab[rab$w_rsz], outdsc, 
+		     0, 4, ph_txt[.nm$gl_phase], .str
+		     );
+	if not .status then signal_stop(nm$_fao, 0, .status);
+        status = $put(rab=tr_rab);
+        if not .status then nm$rms_error(nm$_write, tr_rab);
+	false
+	end;
+
+    !
+    ! Return if we're not tracing
+    !
+    if not .nm$gl_trace[0] or .nm$gl_phase eql ph$k_txt2 then return;
+
+    !
+    ! Perform special actions for suppressed message text
+    !
+    if .nm$gl_phase eql ph$k_txt1
+    then
+	begin
+	local skip : $str('   :');
+	writeline(skip);
+	nm$gl_phase = ph$k_txt2;
+	return;
+	end;
+
+    !
+    ! For trace messages, poke the 'text only' bit in the argument count.  
+    ! Note that we are modifying the argument block.  This is very naughty.
+    !
+    if .code geq nm$_trjob and .code leq nm$_trzzz
+    then
+	argptr() = .argptr() or put_txt;
+
+    ! 
+    ! Expand the message, calling an action routine to
+    ! write to the trace file
+    !
+    $putmsg(msgvec=argptr(), actrtn=writeline);
+
+    !
+    ! If this was the mail-11 message text, see whether we're supposed
+    ! to suppress the rest of the message
+    !
+    if .nm$gl_phase eql ph$k_text and not .nm$gl_trace[1]
+    then
+	nm$gl_phase = ph$k_txt1;
+
+    end;
+
+end
+eludom

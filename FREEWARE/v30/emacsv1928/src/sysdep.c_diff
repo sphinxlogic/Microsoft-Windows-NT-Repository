@@ -1,0 +1,1146 @@
+*** ed19:[src]sysdep.c	Fri Feb  3 08:43:43 1995
+--- ed1928:[src]sysdep.c	Thu May  4 09:46:47 1995
+***************
+*** 1,3 ****
+  /* Interfaces to system-dependent kernel and library entries.
+!    Copyright (C) 1985, 1986, 1987, 1988, 1993 Free Software Foundation, Inc.
+  
+--- 1,3 ----
+  /* Interfaces to system-dependent kernel and library entries.
+!    Copyright (C) 1985, 86, 87, 88, 93, 94 Free Software Foundation, Inc.
+  
+***************
+*** 7,9 ****
+  it under the terms of the GNU General Public License as published by
+! the Free Software Foundation; either version 1, or (at your option)
+  any later version.
+--- 7,9 ----
+  it under the terms of the GNU General Public License as published by
+! the Free Software Foundation; either version 2, or (at your option)
+  any later version.
+***************
+*** 61,62 ****
+--- 61,66 ----
+  
++ #ifndef HAVE_H_ERRNO
++ extern int h_errno;
++ #endif
++ 
+  #include <stdio.h>
+***************
+*** 66,72 ****
+  
+! extern int errno;
+! #ifndef VMS
+! extern char *sys_errlist[];
+  #endif
+  
+  #if 0
+--- 70,80 ----
+  
+! #ifdef MSDOS	/* Demacs 1.1.2 91/10/20 Manabu Higashida, MW Aug 1993 */
+! #include <dos.h>
+! #include "dosfns.h"
+! #include "msdos.h"
+! #include <sys/param.h>
+  #endif
+  
++ extern int errno;
++ 
+  #if 0
+***************
+*** 117,119 ****
+--- 125,129 ----
+  
++ #ifndef MSDOS
+  #include <sys/ioctl.h>
++ #endif
+  #include "systty.h"
+***************
+*** 123,124 ****
+--- 133,135 ----
+  #undef TIOCGWINSZ
++ #undef TIOCSWINSZ
+  #endif
+***************
+*** 131,133 ****
+  #endif
+! #ifdef TIOCGWINSZ
+  #ifdef NEED_SIOCTL
+--- 142,144 ----
+  #endif
+! #if defined (TIOCGWINSZ) || defined (ISC4_0)
+  #ifdef NEED_SIOCTL
+***************
+*** 139,141 ****
+  #endif
+! #endif /* TIOCGWINSZ */
+  #endif /* USG */
+--- 150,152 ----
+  #endif
+! #endif /* TIOCGWINSZ or ISC4_0 */
+  #endif /* USG */
+***************
+*** 235,238 ****
+--- 246,254 ----
+  #else /* not Apollo */
++ #ifdef MSDOS	/* Demacs 1.1.1 91/10/16 HIRANO Satoshi */
++   while (dos_keyread () != -1)
++   	;
++ #else /* not MSDOS */
+    EMACS_GET_TTY (input_fd, &buf);
+    EMACS_SET_TTY (input_fd, &buf, 0);
++ #endif /* not MSDOS */
+  #endif /* not Apollo */
+***************
+*** 265,266 ****
+--- 281,285 ----
+      {
++ #ifdef MSDOS
++     ospeed = 15;
++ #else
+  #ifdef VMS
+***************
+*** 279,280 ****
+--- 298,304 ----
+        ospeed = cfgetospeed (&sg);
++ #if defined (USE_GETOBAUD) && defined (getobaud)
++       /* m88k-motorola-sysv3 needs this (ghazi@noc.rutgers.edu) 9/1/94. */
++       if (ospeed == 0)
++         ospeed = getobaud (sg.c_cflag);
++ #endif
+  #else /* neither VMS nor TERMIOS */
+***************
+*** 300,301 ****
+--- 324,326 ----
+  #endif /* not VMS */
++ #endif /* not MSDOS */
+      }
+***************
+*** 463,464 ****
+--- 488,490 ----
+  {
++ #ifndef MSDOS
+    struct emacs_tty s;
+***************
+*** 470,479 ****
+    s.main.c_oflag &= ~ONLCR;	/* Disable map of NL to CR-NL on output */
+    s.main.c_oflag &= ~(NLDLY|CRDLY|TABDLY|BSDLY|VTDLY|FFDLY);
+    				/* No output delays */
+    s.main.c_lflag &= ~ECHO;	/* Disable echo */
+    s.main.c_lflag |= ISIG;	/* Enable signals */
+!   s.main.c_iflag &= ~IUCLC;	/* Disable map of upper case to lower on
+! 				   input */
+!   s.main.c_oflag &= ~OLCUC;	/* Disable map of lower case to upper on
+! 				   output */
+    s.main.c_cflag = (s.main.c_cflag & ~CSIZE) | CS8; /* Don't strip 8th bit */
+--- 496,509 ----
+    s.main.c_oflag &= ~ONLCR;	/* Disable map of NL to CR-NL on output */
++ #ifdef NLDLY
+    s.main.c_oflag &= ~(NLDLY|CRDLY|TABDLY|BSDLY|VTDLY|FFDLY);
+    				/* No output delays */
++ #endif
+    s.main.c_lflag &= ~ECHO;	/* Disable echo */
+    s.main.c_lflag |= ISIG;	/* Enable signals */
+! #ifdef IUCLC
+!   s.main.c_iflag &= ~IUCLC;	/* Disable downcasing on input.  */
+! #endif
+! #ifdef OLCUC
+!   s.main.c_oflag &= ~OLCUC;	/* Disable upcasing on output.  */
+! #endif
+    s.main.c_cflag = (s.main.c_cflag & ~CSIZE) | CS8; /* Don't strip 8th bit */
+***************
+*** 546,547 ****
+--- 576,578 ----
+  #endif /* RTU */
++ #endif /* not MSDOS */
+  }
+***************
+*** 610,612 ****
+  #else
+! #ifdef SIGTSTP
+  
+--- 641,643 ----
+  #else
+! #if defined(SIGTSTP) && !defined(MSDOS)
+  
+***************
+*** 627,630 ****
+     while we wait.  */
+!   int pid = fork ();
+    struct save_signal saved_handlers[5];
+  
+--- 658,680 ----
+     while we wait.  */
+!   sys_subshell ();
+! 
+! #endif /* no USG_JOBCTRL */
+! #endif /* no SIGTSTP */
+! #endif /* not VMS */
+! }
+! 
+! /* Fork a subshell.  */
+! 
+! sys_subshell ()
+! {
+! #ifndef VMS
+! #ifdef MSDOS	/* Demacs 1.1.2 91/10/20 Manabu Higashida */
+!   int st;
+!   char oldwd[MAXPATHLEN+1]; /* Fixed length is safe on MSDOS.  */
+! #endif
+!   int pid;
+    struct save_signal saved_handlers[5];
++   Lisp_Object dir;
++   unsigned char *str = 0;
++   int len;
+  
+***************
+*** 640,641 ****
+--- 690,712 ----
+  
++   /* Mentioning current_buffer->buffer would mean including buffer.h,
++      which somehow wedges the hp compiler.  So instead...  */
++ 
++   dir = intern ("default-directory");
++   /* Can't use NILP */
++   if (XFASTINT (Fboundp (dir)) == XFASTINT (Qnil))
++     goto xyzzy;
++   dir = Fsymbol_value (dir);
++   if (XTYPE (dir) != Lisp_String)
++     goto xyzzy;
++ 
++   dir = expand_and_dir_to_file (Funhandled_file_name_directory (dir), Qnil);
++   str = (unsigned char *) alloca (XSTRING (dir)->size + 2);
++   len = XSTRING (dir)->size;
++   bcopy (XSTRING (dir)->data, str, len);
++   if (str[len - 1] != '/') str[len++] = '/';
++   str[len] = 0;
++  xyzzy:
++ 
++   pid = vfork ();
++ 
+    if (pid == -1)
+***************
+*** 646,647 ****
+--- 717,721 ----
+  
++ #ifdef MSDOS	/* MW, Aug 1993 */
++       getwd (oldwd);
++ #endif
+        sh = (char *) egetenv ("SHELL");
+***************
+*** 649,675 ****
+  	sh = "sh";
+        /* Use our buffer's default directory for the subshell.  */
+!       {
+! 	Lisp_Object dir;
+! 	unsigned char *str;
+! 	int len;
+! 
+! 	/* mentioning current_buffer->buffer would mean including buffer.h,
+! 	   which somehow wedges the hp compiler.  So instead... */
+! 
+! 	dir = intern ("default-directory");
+! 	/* Can't use NULL */
+! 	if (XFASTINT (Fboundp (dir)) == XFASTINT (Qnil))
+! 	  goto xyzzy;
+! 	dir = Fsymbol_value (dir);
+! 	if (XTYPE (dir) != Lisp_String)
+! 	  goto xyzzy;
+! 
+! 	str = (unsigned char *) alloca (XSTRING (dir)->size + 2);
+! 	len = XSTRING (dir)->size;
+! 	bcopy (XSTRING (dir)->data, str, len);
+! 	if (str[len - 1] != '/') str[len++] = '/';
+! 	str[len] = 0;
+  	chdir (str);
+!       }
+!     xyzzy:
+  #ifdef subprocesses
+--- 723,729 ----
+  	sh = "sh";
++ 
+        /* Use our buffer's default directory for the subshell.  */
+!       if (str)
+  	chdir (str);
+! 
+  #ifdef subprocesses
+***************
+*** 678,680 ****
+  
+! #ifdef PRIO_PROCESS
+        {
+--- 732,734 ----
+  
+! #ifdef SET_EMACS_PRIORITY
+        {
+***************
+*** 682,684 ****
+  
+! 	if (emacs_priority)
+  	  nice (-emacs_priority);
+--- 736,738 ----
+  
+! 	if (emacs_priority < 0)
+  	  nice (-emacs_priority);
+***************
+*** 687,688 ****
+--- 741,748 ----
+  
++ #ifdef MSDOS	/* Demacs 1.1.2 91/10/20 Manabu Higashida */
++       st = system (sh);
++       chdir (oldwd);
++       if (st)
++         report_file_error ("Can't execute subshell", Fcons (build_string (sh), Qnil));
++ #else /* not MSDOS */
+        execlp (sh, sh, 0);
+***************
+*** 690,691 ****
+--- 750,752 ----
+        _exit (1);
++ #endif /* not MSDOS */
+      }
+***************
+*** 696,701 ****
+    restore_signal_handlers (saved_handlers);
+! 
+! #endif /* no USG_JOBCTRL */
+! #endif /* no SIGTSTP */
+! #endif /* not VMS */
+  }
+--- 757,759 ----
+    restore_signal_handlers (saved_handlers);
+! #endif /* !VMS */
+  }
+***************
+*** 781,782 ****
+--- 839,866 ----
+   
++ #ifdef _CX_UX
++ 
++ #include <termios.h>
++ 
++ request_sigio ()
++ {
++   int on = 1;
++   sigset_t st;
++ 
++   sigemptyset(&st);
++   sigaddset(&st, SIGIO);
++   ioctl (input_fd, FIOASYNC, &on);
++   interrupts_deferred = 0;
++   sigprocmask(SIG_UNBLOCK, &st, (sigset_t *)0);
++ }
++ 
++ unrequest_sigio ()
++ {
++   int off = 0;
++ 
++   ioctl (input_fd, FIOASYNC, &off);
++   interrupts_deferred = 1;
++ }
++ 
++ #else /* ! _CX_UX */
++ 
+  request_sigio ()
+***************
+*** 791,792 ****
+--- 875,877 ----
+   
++ #endif /* _CX_UX */
+  #endif /* STRIDE */
+***************
+*** 797,799 ****
+  
+! #ifdef BSD
+  
+--- 882,884 ----
+  
+! #ifdef BSD_PGRPS
+  
+***************
+*** 841,843 ****
+  
+! #endif
+  
+--- 926,928 ----
+  
+! #endif /* BSD_PGRPS */
+  
+***************
+*** 874,875 ****
+--- 959,961 ----
+  #else
++ #ifndef MSDOS
+    /* I give up - I hope you have the BSD ioctls.  */
+***************
+*** 877,879 ****
+      return -1;
+! 
+  #endif
+--- 963,965 ----
+      return -1;
+! #endif /* not MSDOS */
+  #endif
+***************
+*** 965,966 ****
+--- 1051,1053 ----
+  #else
++ #ifndef MSDOS
+    /* I give up - I hope you have the BSD ioctls.  */
+***************
+*** 968,969 ****
+--- 1055,1057 ----
+      return -1;
++ #endif /* not MSDOS */
+  
+***************
+*** 1083,1085 ****
+  
+! #ifdef BSD
+    if (! read_socket_hook && EQ (Vwindow_system, Qnil))
+--- 1171,1173 ----
+  
+! #ifdef BSD_PGRPS
+    if (! read_socket_hook && EQ (Vwindow_system, Qnil))
+***************
+*** 1098,1099 ****
+--- 1186,1191 ----
+  #if defined (HAVE_TERMIO) || defined (HAVE_TERMIOS)
++ #ifdef DGUX
++       /* This allows meta to be sent on 8th bit.  */
++       tty.main.c_iflag &= ~INPCK;	/* don't check input for parity */
++ #endif
+        tty.main.c_iflag |= (IGNBRK);	/* Ignore break condition */
+***************
+*** 1106,1108 ****
+  #ifdef IEXTEN
+!       tty.main.c_iflag &= ~IEXTEN;	/* Disable other editing characters.  */
+  #endif
+--- 1198,1200 ----
+  #ifdef IEXTEN
+!       tty.main.c_lflag &= ~IEXTEN;	/* Disable other editing characters.  */
+  #endif
+***************
+*** 1161,1162 ****
+--- 1253,1260 ----
+  #endif /* VDISCARD */
++ #ifdef VSTART
++       tty.main.c_cc[VSTART] = CDISABLE;
++ #endif /* VSTART */
++ #ifdef VSTOP
++       tty.main.c_cc[VSTOP] = CDISABLE;
++ #endif /* VSTOP */
+  #endif /* mips or HAVE_TCATTR */
+***************
+*** 1191,1192 ****
+--- 1289,1291 ----
+  #else /* not VMS (BSD, that is) */
++ #ifndef MSDOS
+        tty.main.sg_flags &= ~(ECHO | CRMOD | XTABS);
+***************
+*** 1195,1196 ****
+--- 1294,1296 ----
+        tty.main.sg_flags |= interrupt_input ? RAW : CBREAK;
++ #endif
+  #endif /* not VMS (BSD, that is) */
+***************
+*** 1232,1233 ****
+--- 1332,1337 ----
+  #endif /* HAVE_LTCHARS */
++ #ifdef MSDOS	/* Demacs 1.1.2 91/10/20 Manabu Higashida, MW Aug 1993 */
++       internal_terminal_init ();
++       dos_ttraw ();
++ #endif
+  
+***************
+*** 1273,1275 ****
+  #ifdef F_GETOWN		/* F_SETFL does not imply existence of F_GETOWN */
+!   if (interrupt_input)
+      {
+--- 1377,1380 ----
+  #ifdef F_GETOWN		/* F_SETFL does not imply existence of F_GETOWN */
+!   if (interrupt_input
+!       && ! read_socket_hook && EQ (Vwindow_system, Qnil))
+      {
+***************
+*** 1299,1301 ****
+  #endif
+!   set_terminal_modes ();
+    if (term_initted && no_redraw_on_reenter)
+--- 1404,1408 ----
+  #endif
+!   if (! read_socket_hook && EQ (Vwindow_system, Qnil))
+!     set_terminal_modes ();
+! 
+    if (term_initted && no_redraw_on_reenter)
+***************
+*** 1331,1336 ****
+  }
+! 
+  /* Get terminal size from system.
+!    Store number of lines into *heightp and width into *widthp.
+!    If zero or a negative number is stored, the value is not valid.  */
+  
+--- 1438,1443 ----
+  }
+! 
+  /* Get terminal size from system.
+!    Store number of lines into *HEIGHTP and width into *WIDTHP.
+!    We store 0 if there's no valid information.  */
+  
+***************
+*** 1377,1382 ****
+  
+  #else /* system doesn't know size */
+- 
+    *widthp = 0;
+    *heightp = 0;
+  
+--- 1484,1493 ----
+  
++ #else
++ #ifdef MSDOS
++   *widthp = ScreenCols ();
++   *heightp = ScreenRows ();
+  #else /* system doesn't know size */
+    *widthp = 0;
+    *heightp = 0;
++ #endif
+  
+***************
+*** 1387,1388 ****
+--- 1498,1536 ----
+  
++ /* Set the logical window size associated with descriptor FD
++    to HEIGHT and WIDTH.  This is used mainly with ptys.  */
++ 
++ int
++ set_window_size (fd, height, width)
++      int fd, height, width;
++ {
++ #ifdef TIOCSWINSZ
++ 
++   /* BSD-style.  */
++   struct winsize size;
++   size.ws_row = height;
++   size.ws_col = width;
++ 
++   if (ioctl (fd, TIOCSWINSZ, &size) == -1)
++     return 0; /* error */
++   else
++     return 1;
++ 
++ #else
++ #ifdef TIOCSSIZE
++ 
++   /* SunOS - style.  */
++   struct ttysize size;  
++   size.ts_lines = height;
++   size.ts_cols = width;
++ 
++   if (ioctl (fd, TIOCGSIZE, &size) == -1)
++     return 0;
++   else
++     return 1;
++ #else
++   return -1;
++ #endif /* not SunOS-style */
++ #endif /* not BSD-style */
++ }
++ 
+  
+***************
+*** 1435,1436 ****
+--- 1583,1587 ----
+  #endif /* F_SETOWN_BUG */
++ #ifdef O_NDELAY
++   fcntl (input_fd, F_SETFL, fcntl (input_fd, F_GETFL, 0) & ~O_NDELAY);
++ #endif
+  #endif /* F_SETFL */
+***************
+*** 1450,1451 ****
+--- 1601,1606 ----
+  
++ #ifdef MSDOS	/* Demacs 1.1.2 91/10/20 Manabu Higashida */
++   dos_ttcooked ();
++ #endif
++ 
+  #ifdef AIX
+***************
+*** 1454,1456 ****
+  
+! #ifdef BSD
+    widen_foreground_group ();
+--- 1609,1611 ----
+  
+! #ifdef BSD_PGRPS
+    widen_foreground_group ();
+***************
+*** 1866,1867 ****
+--- 2021,2023 ----
+  	      update_mode_lines++;
++ 	      prepare_menu_bars ();
+  	      redisplay_preserve_echo_area ();
+***************
+*** 2009,2011 ****
+  
+! #ifndef CANNOT_UNEXEC
+  char *
+--- 2165,2167 ----
+  
+! #if !defined (CANNOT_UNEXEC) && !defined (HAVE_TEXT_START)
+  char *
+***************
+*** 2025,2027 ****
+  }
+! #endif /* not CANNOT_UNEXEC */
+  
+--- 2181,2183 ----
+  }
+! #endif /* not CANNOT_UNEXEC and not HAVE_TEXT_START */
+  
+***************
+*** 2115,2118 ****
+  
+! /* Get_system_name returns as its value
+!  a string for the Lisp function system-name to return. */
+  
+--- 2271,2274 ----
+  
+! /* init_system_name sets up the string for the Lisp function
+!    system-name to return. */
+  
+***************
+*** 2122,2135 ****
+  
+! /* Can't have this within the function since `static' is #defined to 
+!    nothing for some USG systems.  */
+! #ifdef USG
+! #ifdef HAVE_GETHOSTNAME
+! static char get_system_name_name[256];
+! #else /* not HAVE_GETHOSTNAME */
+! static struct utsname get_system_name_name;
+! #endif /* not HAVE_GETHOSTNAME */
+! #endif /* USG */
+  
+  #ifndef BSD4_1
+- #ifndef USG
+  #ifndef VMS
+--- 2278,2282 ----
+  
+! extern Lisp_Object Vsystem_name;
+  
+  #ifndef BSD4_1
+  #ifndef VMS
+***************
+*** 2140,2174 ****
+  #endif /* not VMS */
+- #endif /* not USG */
+  #endif /* not BSD4_1 */
+  
+! char *
+! get_system_name ()
+  {
+- #ifdef USG
+- #ifdef HAVE_GETHOSTNAME
+-   gethostname (get_system_name_name, sizeof (get_system_name_name));
+-   return get_system_name_name;
+- #else /* not HAVE_GETHOSTNAME */
+-   uname (&get_system_name_name);
+-   return (get_system_name_name.nodename);
+- #endif /* not HAVE_GETHOSTNAME */
+- #else /* Not USG */
+  #ifdef BSD4_1
+!   return sysname;
+! #else /* not USG, not 4.1 */
+!   static char system_name_saved[256];
+! #ifdef VMS
+!   extern void gethostname ();
+!   gethostname (system_name_saved, sizeof (system_name_saved));
+!   if (*system_name_saved == '\0')
+!     strcpy (system_name_saved, "vax-vms");
+!   else
+      {
+!       char *end;
+  
+!       if ((end = index (system_name_saved, ':')) != 0)
+! 	*end = '\0';
+      }
+- #else /* not VMS */
+-   gethostname (system_name_saved, sizeof (system_name_saved));
+  #ifdef HAVE_SOCKETS
+--- 2287,2320 ----
+  #endif /* not VMS */
+  #endif /* not BSD4_1 */
+  
+! void
+! init_system_name ()
+  {
+  #ifdef BSD4_1
+!   Vsystem_name = build_string (sysname);
+! #else
+! #ifndef HAVE_GETHOSTNAME
+!   struct utsname uts;
+!   uname (&uts);
+!   Vsystem_name = build_string (uts.nodename);
+! #else /* HAVE_GETHOSTNAME */
+!   int hostname_size = 256;
+!   char *hostname = (char *) alloca (hostname_size);
+! 
+!   /* Try to get the host name; if the buffer is too short, try
+!      again.  Apparently, the only indication gethostname gives of
+!      whether the buffer was large enough is the presence or absence
+!      of a '\0' in the string.  Eech.  */
+!   for (;;)
+      {
+!       gethostname (hostname, hostname_size - 1);
+!       hostname[hostname_size - 1] = '\0';
+! 
+!       /* Was the buffer large enough for the '\0'?  */
+!       if (strlen (hostname) < hostname_size - 1)
+! 	break;
+  
+!       hostname_size <<= 1;
+!       hostname = (char *) alloca (hostname_size);
+      }
+  #ifdef HAVE_SOCKETS
+***************
+*** 2182,2211 ****
+        struct hostent *hp;
+!       hp = gethostbyname (system_name_saved);
+!       if (hp && strlen (hp->h_name) < sizeof(system_name_saved))
+! 	strcpy (system_name_saved, hp->h_name);
+      }
+  #endif /* HAVE_SOCKETS */
+- #endif /* not VMS */
+-   return system_name_saved;
+- #endif /* not USG, not 4.1 */
+- #endif /* not USG */
+- }
+- 
+  #ifdef VMS
+! #ifndef HAVE_GETHOSTNAME
+! void gethostname(buf, len)
+!     char *buf;
+!     int len;
+! {
+!     char *s;
+!     s = getenv ("SYS$NODE");
+!     if (s == NULL)
+!         buf[0] = '\0';
+!     else {
+!         strncpy (buf, s, len - 2);
+!         buf[len - 1] = '\0';
+!     } /* else */
+! } /* static void gethostname */
+! #endif /* ! HAVE_GETHOSTNAME */
+  #endif /* VMS */
+  
+--- 2328,2404 ----
+        struct hostent *hp;
+!       int count;
+!       for (count = 0; count < 10; count++)
+! 	{
+! #ifdef TRY_AGAIN
+! 	  h_errno = 0;
+! #endif
+! 	  hp = gethostbyname (hostname);
+! #ifdef TRY_AGAIN
+! 	  if (! (hp == 0 && h_errno == TRY_AGAIN))
+! #endif
+! 	    break;
+! 	  Fsleep_for (make_number (1), Qnil);
+! 	}
+!       if (hp)
+! 	{
+! 	  char *fqdn = hp->h_name;
+! 	  char *p;
+! 
+! 	  if (!index (fqdn, '.'))
+! 	    {
+! 	      /* We still don't have a fully qualified domain name.
+! 		 Try to find one in the list of alternate names */
+! 	      char **alias = hp->h_aliases;
+! 	      while (*alias && !index (*alias, '.'))
+! 		alias++;
+! 	      if (*alias)
+! 		fqdn = *alias;
+! 	    }
+! 	  hostname = fqdn;
+! #if 0
+! 	  /* Convert the host name to lower case.  */
+! 	  /* Using ctype.h here would introduce a possible locale
+! 	     dependence that is probably wrong for hostnames.  */
+! 	  p = hostname;
+! 	  while (*p)
+! 	    {
+! 	      if (*p >= 'A' && *p <= 'Z')
+! 		*p += 'a' - 'A';
+! 	      p++;
+! 	    }
+! #endif
+! 	}
+      }
+  #endif /* HAVE_SOCKETS */
+  #ifdef VMS
+!   if (*hostname == '\0')
+!     {
+! #endif /* VMS */
+! #endif /* HAVE_GETHOSTNAME */
+! #ifdef VMS
+!       char *sp, *end;
+!       if ((sp = egetenv ("SYS$NODE")) == 0)
+! 	strcpy (hostname, "vax-vms");
+!       else if ((end = index (sp, ':')) == 0)
+! 	strcpy (hostname, sp);
+!       else
+! 	{
+! 	  strncpy (hostname, sp, end - sp);
+! 	  hostname[end - sp] = '\0';
+! 	}
+! #ifdef HAVE_GETHOSTNAME
+!     }
+! #endif /* HAVE_GETHOSTNAME */
+  #endif /* VMS */
++ #ifdef HAVE_GETHOSTNAME
++   Vsystem_name = build_string (hostname);
++ #endif /* HAVE_GETHOSTNAME */
++ #endif /* BSD4_1 */
++   {
++     unsigned char *p;
++     for (p = XSTRING (Vsystem_name)->data; *p; p++)
++       if (*p == ' ' || *p == '\t')
++ 	*p = '-';
++   }
++ }
+  
+***************
+*** 2310,2311 ****
+--- 2503,2507 ----
+  #else /* no FIONREAD */
++ #ifdef MSDOS
++ 		      abort (); /* I don't think we need it.  */
++ #else /* not MSDOS */
+  		      /* Hoping it will return -1 if nothing available
+***************
+*** 2320,2321 ****
+--- 2516,2518 ----
+  			}
++ #endif /* not MSDOS */
+  #endif /* no FIONREAD */
+***************
+*** 2340,2341 ****
+--- 2537,2542 ----
+  	{
++ #ifdef MSDOS
++ 	  sleep_or_kbd_hit (SELECT_PAUSE, (orfds & 1) != 0);
++ 	  select_alarm ();
++ #else /* not MSDOS */
+  	  /* If we are interested in terminal input,
+***************
+*** 2351,2352 ****
+--- 2552,2554 ----
+  	    pause ();
++ #endif /* not MSDOS */
+  	}
+***************
+*** 2558,2560 ****
+--- 2760,2769 ----
+    new_action.sa_handler = action;
++ #ifdef SA_RESTART
++   /* Emacs mostly works better with restartable system services. If this
++    * flag exists, we probably want to turn it on here.
++    */
++   new_action.sa_flags = SA_RESTART;
++ #else
+    new_action.sa_flags = 0;
++ #endif
+    sigaction (signal_number, &new_action, &old_action);
+***************
+*** 2653,2655 ****
+  #ifdef VMS
+! #if __ALPHA
+    memcpy (b2, b1, length);
+--- 2862,2864 ----
+  #ifdef VMS
+! #if 0  /* Was: __ALPHA  */
+    memcpy (b2, b1, length);
+***************
+*** 2699,2701 ****
+  #ifndef HAVE_RANDOM
+! #ifdef USG
+  /*
+--- 2908,2911 ----
+  #ifndef HAVE_RANDOM
+! #ifndef random 
+! 
+  /*
+***************
+*** 2710,2713 ****
+  {
+!   /* Arrange to return a range centered on zero.  */
+!   return (rand () << 15) + rand () - (1 << 29);
+  }
+--- 2920,2934 ----
+  {
+! #ifdef HAVE_LRAND48
+!   return lrand48 ();
+! #else
+! /* The BSD rand returns numbers in the range of 0 to 2e31 - 1,
+!    with unusable least significant bits.  The USG rand returns
+!    numbers in the range of 0 to 2e15 - 1, all usable.  Let us
+!    build a usable 30 bit number from either.  */
+! #ifdef USG
+!   return (rand () << 15) + rand ();
+! #else
+!   return (rand () & 0x3fff8000) + (rand () >> 16);
+! #endif
+! #endif
+  }
+***************
+*** 2717,2737 ****
+  {
+    srand (arg);
+  }
+  
+! #endif /* USG */
+! 
+! #ifdef BSD4_1
+! long random ()
+! {
+!   /* Arrange to return a range centered on zero.  */
+!   return (rand () << 15) + rand () - (1 << 29);
+! }
+! 
+! srandom (arg)
+!      int arg;
+! {
+!   srand (arg);
+! }
+! #endif /* BSD4_1 */
+! #endif
+  
+--- 2938,2948 ----
+  {
++ #ifdef HAVE_LRAND48
++   srand48 (arg);
++ #else
+    srand (arg);
++ #endif
+  }
+  
+! #endif /* no random */
+! #endif /* not HAVE_RANDOM */
+  
+***************
+*** 2884,2885 ****
+--- 3095,3111 ----
+  #endif /* VMS */
++ 
++ #ifndef HAVE_STRERROR
++ char *
++ strerror (errnum)
++      int errnum;
++ {
++   extern char *sys_errlist[];
++   extern int sys_nerr;
++ 
++   if (errnum >= 0 && errnum < sys_nerr)
++     return sys_errlist[errnum];
++   return (char *) "Unknown error";
++ }
++ 
++ #endif /* ! HAVE_STRERROR */
+  
+***************
+*** 2950,2952 ****
+  	  else
+! 	    return (-1);
+  	}
+--- 3176,3178 ----
+  	  else
+! 	    return (bytes_written ? bytes_written : -1);
+  	}
+***************
+*** 3049,3050 ****
+--- 3275,3298 ----
+    "power-fail restart",			/* 19 SIGPWR */
++ #ifdef sun
++   "window size change",			    /* 20 SIGWINCH */
++   "urgent socket condition",		    /* 21 SIGURG */
++   "pollable event occured",		    /* 22 SIGPOLL */
++   "stop (cannot be caught or ignored)", /*  23 SIGSTOP */
++   "user stop requested from tty",	    /* 24 SIGTSTP */
++   "stopped process has been continued",	/* 25 SIGCONT */
++   "background tty read attempted",	    /* 26 SIGTTIN */
++   "background tty write attempted",    /* 27 SIGTTOU */
++   "virtual timer expired",		    /* 28 SIGVTALRM */
++   "profiling timer expired",		    /* 29 SIGPROF */
++   "exceeded cpu limit",			    /* 30 SIGXCPU */
++   "exceeded file size limit",		    /* 31 SIGXFSZ */
++   "process's lwps are blocked",	    /*  32 SIGWAITING */
++   "special signal used by thread library", /* 33 SIGLWP */
++ #ifdef SIGFREEZE
++   "Special Signal Used By CPR",	    /* 34 SIGFREEZE */
++ #endif
++ #ifdef SIGTHAW
++   "Special Signal Used By CPR",	    /* 35 SIGTHAW */
++ #endif
++ #endif /* sun */
+  #endif /* not AIX */
+***************
+*** 3178,3180 ****
+    if (fd != newd)
+!     error ("can't dup2 (%i,%i) : %s", oldd, newd, sys_errlist[errno]);
+  #else
+--- 3426,3428 ----
+    if (fd != newd)
+!     error ("can't dup2 (%i,%i) : %s", oldd, newd, strerror (errno));
+  #else
+***************
+*** 3622,3623 ****
+--- 3870,3874 ----
+   */
++ #ifdef MKDIR_PROTOTYPE
++ MKDIR_PROTOTYPE
++ #else
+  int
+***************
+*** 3626,3627 ****
+--- 3877,3879 ----
+       int dmode;
++ #endif
+  {
+***************
+*** 3722,3737 ****
+          }
+-       execl ("/bin/rmdir", "rmdir", dpath, (char *) 0);
+-       _exit (-1);		/* Can't exec /bin/mkdir */
+- 
+-     default:			/* Parent process */
+        wait_for_termination (cpid);
+      }
+  
+!   if (synch_process_death != 0 || synch_process_retcode != 0)
+      {
+        errno = EIO;		/* We don't know why, but */
+!       return -1;		/* /bin/rmdir failed */
+      }
+  #endif /* VMS */
+- 
+    return 0;
+--- 3974,3988 ----
+          }
+        wait_for_termination (cpid);
++   if (synch_process_death != 0 || synch_process_retcode != 0)
++       return -1;		/* /bin/rmdir failed */
++     default:			/* Parent process */
++       while (cpid != wait (&status));	/* Wait for kid to finish */
+      }
+  
+!   if (WIFSIGNALED (status) || WEXITSTATUS (status) != 0)
+      {
+        errno = EIO;		/* We don't know why, but */
+!       return -1;		/* /bin/mkdir failed */
+      }
+  #endif /* VMS */
+    return 0;
+***************
+*** 3830,3837 ****
+      unsigned short int dummy;
+- #if 0
+-     item itemlst[3];
+-     static int constant = ACL$C_FILE;
+-     DESCRIPTOR (path_desc, path);
+-     DESCRIPTOR (user_desc, user);
+- #else
+      int cnt;
+--- 4081,4082 ----
+***************
+*** 3842,3844 ****
+      char  *aclbuf;
+- #endif
+   
+--- 4087,4088 ----
+***************
+*** 3846,3856 ****
+      acces = 0;
+! #if 0 /* Why the HELL does it do this?  standard access() is definitelly
+! 	 nothing we should trust, not even with DEC C 4.0, I just discovered.
+! 	 ---  Richard Levitte  */
+!     if ((mode & X_OK) && ((stat = access (path, mode)) < 0 || mode == X_OK))
+!       return stat;
+! #else
+      if (mode & X_OK)
+        acces |= ARM$M_EXECUTE;
+- #endif
+      if (mode & R_OK)
+--- 4090,4094 ----
+      acces = 0;
+! 
+      if (mode & X_OK)
+        acces |= ARM$M_EXECUTE;
+      if (mode & R_OK)
+***************
+*** 3859,3872 ****
+        acces |= ARM$M_WRITE;
+- #if 0
+-     itemlst[0].buflen = sizeof (int);
+-     itemlst[0].code = CHP$_FLAGS;
+-     itemlst[0].bufadr = (char *) &flags;
+-     itemlst[0].retlenadr = &dummy;
+-     itemlst[1].buflen = sizeof (int);
+-     itemlst[1].code = CHP$_ACCESS;
+-     itemlst[1].bufadr = (char *) &acces;
+-     itemlst[1].retlenadr = &dummy;
+-     itemlst[2].end = CHP$_END;
+-     stat = sys$check_ACCESS (&constant, &path_desc, &user_desc, itemlst);
+- #else
+      
+--- 4097,4098 ----
+***************
+*** 3930,3932 ****
+      stat = sys$chkpro(itemlst);
+! #endif
+      return stat == SS$_NORMAL ? 0 : -1;
+--- 4156,4158 ----
+      stat = sys$chkpro(itemlst);
+! 
+      return stat == SS$_NORMAL ? 0 : -1;
+***************
+*** 4038,4040 ****
+  #endif /* access */
+!   
+  static char vtbuf[NAM$C_MAXRSS+1];
+--- 4264,4266 ----
+  #endif /* access */
+! 
+  static char vtbuf[NAM$C_MAXRSS+1];
+***************
+*** 4386,4409 ****
+  }
+- 
+- #if 0
+- int
+- sys_write (fildes, buf, nbyte)
+-      int fildes;
+-      char *buf;
+-      unsigned int nbyte;
+- {
+-   register int nwrote, rtnval = 0;
+- 
+-   while (nbyte > MAXIOSIZE && (nwrote = write (fildes, buf, MAXIOSIZE)) > 0) {
+-     nbyte -= nwrote;
+-     buf += nwrote;
+-     rtnval += nwrote;
+-   }
+-   if (nwrote < 0)
+-     return rtnval ? rtnval : -1;
+-   if ((nwrote = write (fildes, buf, nbyte)) < 0)
+-     return rtnval ? rtnval : -1;
+-   return (rtnval + nwrote);
+- }
+- #endif /* 0 */
+  
+--- 4612,4613 ----

@@ -1,0 +1,522 @@
+!<BLF/REQUIRE'ADABLF_INI'>
+module PATLRTUNE (ident = 'X2-001'
+	%require ('PATSWITCH_REQ')
+		) =
+begin
+!
+!			  COPYRIGHT (c) 1982 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:	PAT Parser
+!
+! ABSTRACT:
+!
+!	PATLRTUNE.REQ defines the interface between the user of the
+!	PAT Parser and the language independent portion of the parser.
+!	PATLRTUNE.REQ and PATLRTUNE.BLI are provided with the PAT parser 
+!	package and provide an example of a particular implementation of 
+!	the interface specification.
+!
+!	Logical name PAT_LRTUNE_LIBRARY should be defined as the
+!	library file produced by
+!
+!		BLISS/LIB PATLRTUNE.REQ
+!
+!	PATLRTUNE.REQ is the specification for local error recovery
+!	tuning.  It defines the local error recovery tables and
+!	permits some control of the order in which various corrections
+!	are attempted.
+!
+!	Good results can be obtained with no modifications to this 
+!	file.
+!
+! ENVIRONMENT:	VAX/VMS user mode
+!
+! AUTHOR:  Harvey Alcabes, CREATION DATE:  18-Nov-80
+!
+! MODIFIED BY:
+!
+!	Charlie Mitchell, 12-Nov-1981 : VERSION X2-001
+! 001 -	Use new PAT/BLISS interface.  Remove from LANGSPEC since
+!	changes often aren't needed for particular applications
+!	and since this interface is more likely to change in the
+!	future than the LANGSPEC interface.
+!--
+
+!
+! INCLUDE FILES:
+!
+
+require 'PATPROLOG_REQ';
+
+library 'PAT_LRTUNE_LIBRARY';
+
+library 'PATDATA_LIB';
+
+!
+! TABLE OF CONTENTS OF INTERNAL ROUTINES:
+!
+!	NONE
+!
+!
+! MACROS:
+!
+
+macro
+    SET_TERM (ROW) [TERM] =
+	[ROW, TERM] = TRUE %;
+
+macro
+    FROM_TO (START, FINISH) [] =
+	START
+
+	%if START lss FINISH
+	%then
+	    , FROM_TO (START + 1, FINISH)
+	%fi
+
+    %;
+
+!
+! Weak Recovery Priorities
+!
+
+global
+    PAT$LR_PRIORITIES_ARE_ADVISORY : initial (TRUE),
+    PAT$LR_SUB_PRIORITY : initial (1),
+    PAT$LR_INSERT_PRIORITY : initial (2),
+    PAT$LR_SCOPE_PRIORITY : initial (3),
+    PAT$LR_DELETE_PRIORITY : initial (4);
+
+!<blf/page>
+
+!+
+!
+!   Tables for local error recovery:
+!
+!-
+!
+!   This table is used in the language independent portion of the parser.
+!   It lists pairs of identifiers which might be entered instead of a reserved
+!   word and the terminal symbol number corresponding to that reserved word.
+!   The error recovery routines may try to correct an error by merging these
+!   tokens.  For example, for Ada the identifiers "GO" and "TO" could be merged
+!   into the terminal symbol "GOTO".
+!   The contents of this table are **LANGUAGE SPECIFIC**
+
+global
+    PAT$LR_IDENTIFIER_MERGE_TABLE : blockvector [LR_NUM_IM, LR_IM_SIZE]	!
+	field (LR_IM_FIRST_ID, LR_IM_SECOND_ID, LR_IM_MERGED_TERM) 
+;
+!!preset (
+!!	[0, LR_IM_FIRST_ID] = SD_REF ('GO'),
+!!	[0, LR_IM_SECOND_ID] = SD_REF ('TO'),
+!!	[0, LR_IM_MERGED_TERM] = T_GOTO);
+
+!   This table is used in the language independent portion of the parser.
+!   It lists pairs of terminals whose symbols might be entered instead of a
+!   multi-symbol terminal and the number of the corresponding terminal.
+!   The error recovery routines may try to correct an error by merging these
+!   tokens.  For example, for Ada the terminals ":" and "=" could be merged
+!   into ":=".
+!   The contents of this table are **LANGUAGE SPECIFIC**
+
+global
+    PAT$LR_SYMBOL_MERGE_TABLE : blockvector [LR_NUM_SM, LR_SM_SIZE]	!
+	field (LR_SM_FIRST_TERM, LR_SM_SECOND_TERM, LR_SM_MERGED_TERM, LR_SM_UNUSED) 
+;
+!!preset (
+!!	[0, LR_SM_FIRST_TERM] = T_COLON,
+!!	[0, LR_SM_SECOND_TERM] = T_EQUAL,
+!!	[0, LR_SM_MERGED_TERM] = T_COLON_EQUAL,
+!!	[1, LR_SM_FIRST_TERM] = T_LESS,
+!!	[1, LR_SM_SECOND_TERM] = T_EQUAL,
+!!	[1, LR_SM_MERGED_TERM] = T_LESS_EQUAL,
+!!	[2, LR_SM_FIRST_TERM] = T_GREATER,
+!!	[2, LR_SM_SECOND_TERM] = T_EQUAL,
+!!	[2, LR_SM_MERGED_TERM] = T_GREATER_EQUAL,
+!!	[3, LR_SM_FIRST_TERM] = T_EQUAL,
+!!	[3, LR_SM_SECOND_TERM] = T_LESS,
+!!	[3, LR_SM_MERGED_TERM] = T_LESS_EQUAL,
+!!	[4, LR_SM_FIRST_TERM] = T_EQUAL,
+!!	[4, LR_SM_SECOND_TERM] = T_GREATER,
+!!	[4, LR_SM_MERGED_TERM] = T_EQUAL_GREATER,
+!!	[5, LR_SM_FIRST_TERM] = T_LESS,
+!!	[5, LR_SM_SECOND_TERM] = T_GREATER,
+!!	[5, LR_SM_MERGED_TERM] = T_LESS_GREATER,
+!!	[6, LR_SM_FIRST_TERM] = T_GREATER,
+!!	[6, LR_SM_SECOND_TERM] = T_GREATER,
+!!	[6, LR_SM_MERGED_TERM] = T_GREATER_GREAT,
+!!	[7, LR_SM_FIRST_TERM] = T_LESS,
+!!	[7, LR_SM_SECOND_TERM] = T_LESS,
+!!	[7, LR_SM_MERGED_TERM] = T_LESS_LESS,
+!!	[8, LR_SM_FIRST_TERM] = T_SLASH,
+!!	[8, LR_SM_SECOND_TERM] = T_EQUAL,
+!!	[8, LR_SM_MERGED_TERM] = T_SLASH_EQUAL,
+!!	[9, LR_SM_FIRST_TERM] = T_STAR,
+!!	[9, LR_SM_SECOND_TERM] = T_STAR,
+!!	[9, LR_SM_MERGED_TERM] = T_STAR_STAR,
+!!	[10, LR_SM_FIRST_TERM] = T_DOT,
+!!	[10, LR_SM_SECOND_TERM] = T_DOT,
+!!	[10, LR_SM_MERGED_TERM] = T_DOT_DOT);
+
+!   This table is used in the language independent portion of the parser.
+!   It contains a bit which is set for each terminal that should not
+!   be substituted for during local error recovery.
+!   The contents of this table are **LANGUAGE SPECIFIC**
+
+global
+    PAT$LR_NEVER_SUBSTITUTE_FOR : bitvector [PAT$DATA_NUM_TERM] 
+;
+!!preset (	!
+!!	[T_END] = TRUE,		! 
+!!	[T_IN] = TRUE,		!
+!!	[T_IS] = TRUE,		!
+!!	[T_SEMICOLON] = TRUE,		!
+!!	[T_IDENTIFIER] = TRUE,		!
+!!	[T_NUMBER] = TRUE,		!
+!!	[T_CHARACTER_STR] = TRUE,		!
+!!	[T_CHARACTER_LIT] = TRUE,		!
+!!	[T_REAL] = TRUE);
+
+!   This table is used in the language independent portion of the parser.
+!   It contains a bit which is set for each terminal that the
+!   local error recovery routines should preference when there
+!   exist more than one possible insertion or replacement.
+!   The contents of this table are **LANGUAGE SPECIFIC**
+
+global
+    PAT$LR_PREFERRED_INSERTIONS : bitvector [PAT$DATA_NUM_TERM] 
+;
+!!preset (	!
+!!	[T_BEGIN] = TRUE,		!
+!!	[T_COMMA] = TRUE,		!
+!!	[T_IDENTIFIER] = TRUE);
+
+!   This table is used in the language independent portion of the parser for local error recovery.
+!   It indicates the terminal numbers of tokens which should not be inserted
+!   immediately prior to a specific pair of tokens.  This can be used to
+!   prevent corrections which may parse but are generally not the desired
+!   correction.  For example, for Ada DECLARE should not be inserted
+!   immediately prior to PRAGMA IDENTIFIER.
+!   The contents of this table are **LANGUAGE SPECIFIC**
+
+global
+    PAT$LR_NEVER_INSERT_BEFORE : blockvector [LR_NUM_NIB, LR_NIB_SIZE]	!
+	field (LR_NIB_INSERTION, LR_NIB_CURTOK, LR_NIB_NEXTTOK, LR_NIB_UNUSED) 
+;
+!!preset (	!
+!!	[0, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[0, LR_NIB_CURTOK] = T_PRAGMA,		!
+!!	[0, LR_NIB_NEXTTOK] = T_IDENTIFIER,		!
+!!	[1, LR_NIB_INSERTION] = T_LOOP,		!
+!!	[1, LR_NIB_CURTOK] = T_END,		!
+!!	[1, LR_NIB_NEXTTOK] = T_LOOP,		!
+!!	[2, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[2, LR_NIB_CURTOK] = T_PROCEDURE,		!
+!!	[2, LR_NIB_NEXTTOK] = T_IDENTIFIER,		!
+!!	[3, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[3, LR_NIB_CURTOK] = T_FUNCTION,		!
+!!	[3, LR_NIB_NEXTTOK] = T_IDENTIFIER,	!
+!!	[4, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[4, LR_NIB_CURTOK] = T_TASK,		!
+!!	[4, LR_NIB_NEXTTOK] = T_IDENTIFIER,		!
+!!	[5, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[5, LR_NIB_CURTOK] = T_PACKAGE,		!
+!!	[5, LR_NIB_NEXTTOK] = T_IDENTIFIER,		!
+!!	[6, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[6, LR_NIB_CURTOK] = T_GENERIC,		!
+!!	[6, LR_NIB_NEXTTOK] = T_L_PAREN,		!
+!!	[7, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[7, LR_NIB_CURTOK] = T_GENERIC,		!
+!!	[7, LR_NIB_NEXTTOK] = T_TASK,		!
+!!	[8, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[8, LR_NIB_CURTOK] = T_GENERIC,		!
+!!	[8, LR_NIB_NEXTTOK] = T_PROCEDURE,		!
+!!	[9, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[9, LR_NIB_CURTOK] = T_GENERIC,		!
+!!	[9, LR_NIB_NEXTTOK]= T_PACKAGE,		!
+!!	[10, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[10, LR_NIB_CURTOK] = T_GENERIC,		!
+!!	[10, LR_NIB_NEXTTOK] = T_FUNCTION,		!
+!!	[11, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[11, LR_NIB_CURTOK] = T_SEPARATE,		!
+!!	[11, LR_NIB_NEXTTOK] = T_TASK,		!
+!!	[12, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[12, LR_NIB_CURTOK] = T_SEPARATE,		!
+!!	[12, LR_NIB_NEXTTOK] = T_PROCEDURE,		!
+!!	[13, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[13, LR_NIB_CURTOK] = T_SEPARATE,		!
+!!	[13, LR_NIB_NEXTTOK] = T_PACKAGE,		!
+!!	[14, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[14, LR_NIB_CURTOK] = T_SEPARATE,		!
+!!	[14, LR_NIB_NEXTTOK] = T_FUNCTION,		!
+!!	[15, LR_NIB_INSERTION] = T_DECLARE,		!
+!!	[15, LR_NIB_CURTOK] = T_SEPARATE,		!
+!!	[15, LR_NIB_NEXTTOK] = T_GENERIC,		!
+!!	[16, LR_NIB_INSERTION] = T_FOR,		!
+!!	[16, LR_NIB_CURTOK] = T_IDENTIFIER,		!
+!!	[16, LR_NIB_NEXTTOK] = T_L_PAREN,		!
+!!	[17, LR_NIB_INSERTION] = T_ENTRY,		!
+!!	[17, LR_NIB_CURTOK] = T_IDENTIFIER,		!
+!!	[17, LR_NIB_NEXTTOK] = T_L_PAREN,		!
+!!	[18, LR_NIB_INSERTION] = T_FUNCTION,		!
+!!	[18, LR_NIB_CURTOK] = T_IDENTIFIER,		!
+!!	[18, LR_NIB_NEXTTOK] = T_L_PAREN,		!
+!!	[19, LR_NIB_INSERTION] = T_PRAGMA,		!
+!!	[19, LR_NIB_CURTOK] = T_IDENTIFIER,		!
+!!	[19, LR_NIB_NEXTTOK] = T_L_PAREN,		!
+!!	[20, LR_NIB_INSERTION] = T_TASK,		!
+!!	[20, LR_NIB_CURTOK] = T_IDENTIFIER,		!
+!!	[20, LR_NIB_NEXTTOK] = T_L_PAREN,		!
+!!	[21, LR_NIB_INSERTION] = T_PROCEDURE,		!
+!!	[21, LR_NIB_CURTOK] = T_IDENTIFIER,		!
+!!	[21, LR_NIB_NEXTTOK] = T_L_PAREN,		!
+!!	[22, LR_NIB_INSERTION] = T_USE,		!
+!!	[22, LR_NIB_CURTOK] = T_IDENTIFIER,		!
+!!	[22, LR_NIB_NEXTTOK] = T_L_PAREN);
+
+!
+!   Tables for scope recovery:
+!
+!   This table is used in the language independent portion of the parser
+!   for scope recovery.
+!
+!   It indicates contents of each scope closer by listing the
+!   number of tokens in the closer and the actual tokens.
+!   For example, for Ada the closer "END;" has 2 for the number of tokens
+!   and END and SEMICOLON for the tokens.
+!   If one closer fully contains another and they both have the same
+!   beginning (e.g. "end if" and "end if;") then the LONGER closer
+!   must appear in the table FIRST or the scope recovery routine  may
+!   incorrectly insert the shorter one in its place.
+!
+!   Its indicies include literals declared in the enumeration LR_CLOSER
+!   in PATLRTUNE.REQ.
+!
+!   The contents of this table are **LANGUAGE SPECIFIC**
+
+global
+    PAT$LR_CLOSER_TOKENS : LR_MATRIX [LR_NUM_CLOSERS, (LR_MAX_TOKENS_IN_CLOSER + 1)]	!
+;
+!!	preset (				!
+!!	[LR_RP, LR_NUM_TOKS_INDEX] = 1,			! ")"
+!!	[LR_RP, 1] = T_R_PAREN,				!
+!!	[LR_ES, LR_NUM_TOKS_INDEX] = 2,			! "END;"
+!!	[LR_ES, 1] = T_END,				!
+!!	[LR_ES, 2] = T_SEMICOLON,				!
+!!	[LR_ECS, LR_NUM_TOKS_INDEX] = 3,			! "END CASE;"
+!!	[LR_ECS, 1] = T_END,				!
+!!	[LR_ECS, 2] = T_CASE,				!
+!!	[LR_ECS, 3] = T_SEMICOLON,				!
+!!	[LR_EIS, LR_NUM_TOKS_INDEX] = 3,			! "END IF;"
+!!	[LR_EIS, 1] = T_END,				!
+!!	[LR_EIS, 2] = T_IF,				!
+!!	[LR_EIS, 3] = T_SEMICOLON,				!
+!!	[LR_ELS, LR_NUM_TOKS_INDEX] = 3,			! "END LOOP;"
+!!	[LR_ELS, 1] = T_END,				!
+!!	[LR_ELS, 2] = T_LOOP,				!
+!!	[LR_ELS, 3] = T_SEMICOLON,				!
+!!	[LR_ERS, LR_NUM_TOKS_INDEX] = 3,			! "END RECORD;"
+!!	[LR_ERS, 1] = T_END,				!
+!!	[LR_ERS, 2] = T_RECORD,				!
+!!	[LR_ERS, 3] = T_SEMICOLON,				!
+!!	[LR_ESS, LR_NUM_TOKS_INDEX] = 3,			! "END SELECT;"
+!!	[LR_ESS, 1] = T_END,				!
+!!	[LR_ESS, 2] = T_SELECT,				!
+!!	[LR_ESS, 3] = T_SEMICOLON,				!
+!!	[LR_SE, LR_NUM_TOKS_INDEX] = 2,			! "; END"
+!!	[LR_SE, 1] = T_SEMICOLON,				!
+!!	[LR_SE, 2] = T_END,				!
+!!	[LR_CSE, LR_NUM_TOKS_INDEX] = 3,			! "CASE; END"
+!!	[LR_CSE, 1] = T_CASE,				!
+!!	[LR_CSE, 2] = T_SEMICOLON,				!
+!!	[LR_CSE, 3] = T_END,				!
+!!	[LR_ISE, LR_NUM_TOKS_INDEX] = 3,			! "IF; END"
+!!	[LR_ISE, 1] = T_IF,				!
+!!	[LR_ISE, 2] = T_SEMICOLON,				!
+!!	[LR_ISE, 3] = T_END,				!
+!!	[LR_LSE, LR_NUM_TOKS_INDEX] = 3,			! "LOOP; END"
+!!	[LR_LSE, 1] = T_LOOP,				!
+!!	[LR_LSE, 2] = T_SEMICOLON,				!
+!!	[LR_LSE, 3] = T_END,				!
+!!	[LR_RSE, LR_NUM_TOKS_INDEX] = 3,			! "RECORD; END"
+!!	[LR_RSE, 1] = T_RECORD,				!
+!!	[LR_RSE, 2] = T_SEMICOLON,				!
+!!	[LR_RSE, 3] = T_END,				!
+!!	[LR_SSE, LR_NUM_TOKS_INDEX] = 3,			! "SELECT; END"
+!!	[LR_SSE, 1] = T_SELECT,				!
+!!	[LR_SSE, 2] = T_SEMICOLON,				!
+!!	[LR_SSE, 3] = T_END,				!
+!!	[LR_BNSES, LR_NUM_TOKS_INDEX] = 5,		! "BEGIN NULL; END;"
+!!	[LR_BNSES, 1] = T_BEGIN,				!
+!!	[LR_BNSES, 2] = T_NULL,				!
+!!	[LR_BNSES, 3] = T_SEMICOLON,			!
+!!	[LR_BNSES, 4] = T_END,				!
+!!	[LR_BNSES, 5] = T_SEMICOLON);
+
+!   This table is used in the language independent portion of the parser
+!   for scope recovery.
+!   Its rows correspond to literals declared in the enumeration LR_CLOSER
+!   in PATLRTUNE.REQ.
+!   It indicates where each scope closer may be inserted with a bit
+!   set corresponding the the terminals that it may be inserted before.
+!   This is necessary because insertions performed by scope recovery are
+!   not checked with a parse beyond the inserted closers, allowing for
+!   several scopes to be closed.  The table is derived from the grammar
+!   by listing the terminals which are in the "follow set" of the closer
+!   to be inserted or of closers in that set.
+!   All such terminals may be listed, but care should be taken when including
+!   those that are likely to occur within the scope being closed.
+!   The first terminal in the token itself need not be listed because
+!   if it was in the input an error would not have occurred.
+!
+!   For example, for Ada the closer "END;" can be followed by the terminals
+!   FUNCTION, GENERIC, PACKAGE,	PROCEDURE, SEPARATE, TASK, WITH or the
+!   end of file token.
+!   The contents of this table are **LANGUAGE SPECIFIC**
+
+global
+    PAT$LR_ONLY_CLOSE_BEFORE : LR_BITMATRIX [LR_NUM_CLOSERS, PAT$DATA_NUM_TERM] 
+;
+!!preset (
+!!	SET_TERM (LR_RP, FROM_TO				!
+!!		(PAT$DATA_FIRST_TERM, PAT$DATA_LAST_TERM)),	! ")"
+!!	SET_TERM (LR_ES, T_FUNCTION, T_GENERIC, T_PACKAGE,	!
+!!		T_PROCEDURE, T_SEPARATE, T_TASK, T_WITH,	!
+!!		T_EOF),						! "END;"
+!!	SET_TERM (LR_ECS, T_BEGIN, T_ELSE, T_ELSIF, T_ENTRY,	!
+!!		T_EXCEPTION, T_FOR, T_FUNCTION, T_GENERIC,	!
+!!		T_PACKAGE, T_PRAGMA, T_PROCEDURE, T_SEPARATE, 	!
+!!		T_SUBTYPE, T_TASK, T_TYPE, T_USE, T_WITH,	!
+!!		T_EOF),						! "END CASE;"
+!!	SET_TERM (LR_EIS, T_ELSE, T_ELSIF, T_EXCEPTION, 	!
+!!		T_FUNCTION, T_GENERIC, T_PACKAGE, T_PROCEDURE, 	!
+!!		T_SEPARATE, T_TASK, T_WITH, T_EOF),		! "END IF;"
+!!	SET_TERM (LR_ELS, T_ELSE, T_ELSIF, T_EXCEPTION,		!
+!!		T_FUNCTION, T_GENERIC, T_PACKAGE, T_PROCEDURE,	!
+!!		T_SEPARATE, T_TASK, T_WITH, T_EOF),		! "END LOOP;"
+!!	SET_TERM (LR_ERS, T_BEGIN, T_ENTRY, T_FOR, T_FUNCTION, 	!
+!!		T_GENERIC, T_PACKAGE, T_PRIVATE, T_PROCEDURE, 	!
+!!		T_SUBTYPE, T_SEPARATE, T_TASK, T_TYPE,	T_USE,	!
+!!		T_WITH, T_EOF),					! "END RECORD;"
+!!	SET_TERM (LR_ESS, T_ELSE, T_ELSIF, T_EXCEPTION,		!
+!!		T_FUNCTION, T_GENERIC, T_PACKAGE, T_PROCEDURE,	!
+!!		T_SEPARATE, T_TASK, T_WITH, T_EOF),		! "END SELECT;"
+!!	SET_TERM (LR_SE, T_CASE, T_IF, T_LOOP, T_RECORD,	!
+!!		T_SELECT,),					! "; END"
+!!	SET_TERM (LR_CSE, T_IF, T_LOOP, T_RECORD, T_SELECT,	!
+!!		T_SEMICOLON, T_IDENTIFIER),			! "CASE; END"
+!!	SET_TERM (LR_ISE, T_CASE, T_LOOP, T_RECORD, T_SELECT,	!
+!!		T_SEMICOLON, T_IDENTIFIER),			! "IF; END"
+!!	SET_TERM (LR_LSE, T_CASE, T_IF, T_RECORD, T_SELECT,	!
+!!		T_SEMICOLON, T_IDENTIFIER),			! "LOOP; END"
+!!	SET_TERM (LR_RSE, T_CASE, T_IF, T_LOOP, T_SELECT,	!
+!!		T_SEMICOLON, T_IDENTIFIER),			! "RECORD; END"
+!!	SET_TERM (LR_SSE, T_CASE, T_IF, T_LOOP, T_RECORD,	!
+!!		T_SEMICOLON, T_IDENTIFIER),			! "SELECT; END"
+!!	SET_TERM (LR_BNSES, T_FUNCTION, T_GENERIC, T_PACKAGE,	!
+!!		T_PROCEDURE, T_SEPARATE, T_TASK, T_WITH,	!
+!!		T_EOF));			! "BEGIN NULL; END;"
+
+!   This table is used in the language independent portion of the parser
+!   for scope recovery.
+!   Its indicies are literals declared in the enumeration LR_CLOSER
+!   in PATLRTUNE.REQ.
+!   For each closer it contains either the terminal or nonterminal symbol
+!   on the stack which opens the corresponding scope or the literal
+!   LR_NOT_MATCHED if the error message will not indicate the matching
+!   scope opener.
+!   For example, for Ada the closer "END;" closes a scope opened by the
+!   terminal BEGIN (which appears on the stack until the scope is closed).
+!   The contents of this table are **LANGUAGE SPECIFIC**
+
+global
+    PAT$LR_CLOSER_MATCH : vector [LR_NUM_CLOSERS] 
+;
+!!preset (
+!!	[LR_RP] = LR_NOT_MATCHED,		! ")"
+!!	[LR_ES] = T_BEGIN,			! "END;"
+!!	[LR_ECS] = T_CASE,			! "END CASE;"
+!!	[LR_EIS] = T_IF,			! "END IF;"
+!!	[LR_ELS] = T_LOOP,			! "END LOOP;"
+!!	[LR_ERS] = T_RECORD,			! "END RECORD;"
+!!	[LR_ESS] = T_SELECT,			! "END SELECT;"
+!!	[LR_SE] = T_BEGIN,			! "; END"
+!!	[LR_CSE] = T_CASE,			! "CASE; END"
+!!	[LR_ISE] = T_IF,			! "IF; END"
+!!	[LR_LSE] = T_LOOP,			! "LOOP; END"
+!!	[LR_RSE] = T_RECORD,			! "RECORD; END"
+!!	[LR_SSE] = T_SELECT,			! "SELECT; END"
+!!	[LR_BNSES] = LR_NOT_MATCHED);		! "BEGIN NULL; END;"
+
+!   This table is used in the language independent portion of the parser
+!   for scope recovery.
+!   Its indicies are literals declared in the enumeration LR_CLOSER
+!   in PATLRTUNE.REQ.
+!   For each closer it contains a pointer to a string descriptor
+!   which contains text for the closer.
+!   For example, for Ada there is the text "end;" for the closer "END;".
+!   The contents of this table are **LANGUAGE SPECIFIC**
+
+global
+    PAT$LR_CLOSER_MESSAGE : vector [LR_NUM_CLOSERS]	!
+;
+!!	preset (				!
+!!	[LR_RP] = SD_REF ('")"'),				! ")"
+!!	[LR_ES] = SD_REF ('"end;"'),				! "END;"
+!!	[LR_ECS] = SD_REF ('"end case;"'),			! "END CASE;"
+!!	[LR_EIS] = SD_REF ('"end if;"'),			! "END IF;"
+!!	[LR_ELS] = SD_REF ('"end loop;"'),			! "END LOOP;"
+!!	[LR_ERS] = SD_REF ('"end record;"'),			! "END RECORD;"
+!!	[LR_ESS] = SD_REF ('"end select;"'),			! "END SELECT;"
+!!	[LR_SE] = SD_REF ('"end;"'),				! "; END"
+!!	[LR_CSE] = SD_REF ('"end case;"'),			! "CASE; END"
+!!	[LR_ISE] = SD_REF ('"end if;"'),			! "IF; END"
+!!	[LR_LSE] = SD_REF ('"end loop;"'),			! "LOOP; END"
+!!	[LR_RSE] = SD_REF ('"end record;"'),			! "RECORD; END"
+!!	[LR_SSE] = SD_REF ('"end select;"'),			! "SELECT; END"
+!!	[LR_BNSES] = SD_REF ('missing statement'));	! "BEGIN NULL; END;"
+
+!   This table is used in the language independent portion of the parser
+!   for scope recovery.
+!   Its indicies are literals declared in the enumeration LR_CLOSER
+!   in PATLRTUNE.REQ.
+!   Each entry is TRUE iff the error message should indicate the
+!   token before the one where the error was encountered.
+!   For example, for Ada when "if; end;" is inserted after "end" the
+!   error message should indicate that "end if;" appeared before the "end".
+!   The contents of this table are **LANGUAGE SPECIFIC**
+
+global
+!!    PAT$LR_POINT_AT_PREV_TOKEN : bitvector [LR_NUM_CLOSERS] preset (	! SHOULD BE THIS 
+!!		MOD DUE TO BLISS BUG
+    PAT$LR_POINT_AT_PREV_TOKEN : bitvector [32] 
+;
+!!preset (	!
+!!	[LR_SE] = TRUE,					! "; END"
+!!	[LR_CSE] = TRUE,				! "CASE; END"
+!!	[LR_ISE] = TRUE,				! "IF; END"
+!!	[LR_LSE] = TRUE,				! "LOOP END"
+!!	[LR_RSE] = TRUE,				! "RECORD; END"
+!!	[LR_SSE] = TRUE);			! "SELECT; END"
+
+end						! End of module
+
+eludom

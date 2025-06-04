@@ -1,0 +1,147 @@
+%TITLE 'FORMAT_INFO'
+MODULE FORMAT_INFO (IDENT='V1.1') =
+BEGIN
+!++
+! FACILITY: 	    FINGER
+!
+! ABSTRACT: 	    Formats user information for FINGER.
+!
+! MODULE DESCRIPTION:
+!
+!   description
+!
+! AUTHOR:   	    M. Madison
+!   	    	    Copyright © 1994, MadGoat Software.
+!   	    	    ALL RIGHTS RESERVED.
+!
+! CREATION DATE:    30-APR-1990
+!
+! MODIFICATION HISTORY:
+!
+!   30-APR-1990	V1.0	Madison	    Initial coding.
+!   27-MAY-1993 V1.1	Goatley     Modified to show owner name, not image.
+!--
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'FINGER';
+    LIBRARY 'FIELDS';
+
+    EXTERNAL ROUTINE
+    	G_HAT (LIB$SYS_FAO, STR$TRIM);
+
+    _DEF (ITM2)
+    	ITM2_W_LEN  	= _WORD,
+    	ITM2_W_CODE 	= _WORD,
+    	ITM2_L_POINTER	= _LONG,
+    	ITM2_L_FINAL	= _LONG
+    _ENDDEF (ITM2);
+
+%SBTTL 'FORMAT_INFO'
+GLOBAL ROUTINE FORMAT_INFO (INF_A, STR_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   description
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   FORMAT_INFO  inf, str
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	INF 	= .INF_A    	: INFDEF,
+    	STR 	= .STR_A    	: BLOCK [,BYTE];
+
+    LOCAL
+    	FSCLST	: ITM2DEF,
+    	SDSC	: BLOCK [DSC$K_S_BLN,BYTE],
+    	XSTR	: BLOCK [DSC$K_S_BLN,BYTE],
+    	STATUS;
+
+    INIT_DYNDESC (XSTR);
+
+    SDSC [DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    SDSC [DSC$B_CLASS] = DSC$K_CLASS_S;
+
+    IF .INF [INF_W_IMAGE] GTR 0 THEN
+    BEGIN
+    	SDSC [DSC$A_POINTER] = INF [INF_T_IMAGE];
+    	SDSC [DSC$W_LENGTH] = .INF [INF_W_IMAGE];
+    	FSCLST [ITM2_W_CODE] = FSCN$_NAME;
+    	FSCLST [ITM2_L_FINAL] = 0;
+    	STATUS = $FILESCAN (SRCSTR=SDSC, VALUELST=FSCLST);
+    END
+    ELSE STATUS = 0;
+    IF NOT .STATUS THEN
+    BEGIN
+    	FSCLST [ITM2_W_LEN] = 0;
+    	FSCLST [ITM2_L_POINTER] = INF [INF_T_IMAGE];
+    END;
+
+    LIB$SYS_FAO (%ASCID'!12AF !21AF  !7AF !8AF !26AF', 0, XSTR,
+    	.INF [INF_W_USERNAME], INF [INF_T_USERNAME],
+!    	.FSCLST [ITM2_W_LEN], .FSCLST [ITM2_L_POINTER],
+	.INF [INF_W_OWNER], INF [INF_T_OWNER],
+    	.INF [INF_W_NODE], INF [INF_T_NODE],
+    	(IF .INF [INF_W_TERMINAL] LSS 2 THEN 0 ELSE
+    	.INF [INF_W_TERMINAL]-2), CH$PLUS (INF [INF_T_TERMINAL], 1),
+    	.INF [INF_W_ACCPOR], INF [INF_T_ACCPOR]);
+
+    STR$TRIM (STR, XSTR);
+
+    FREE_STRINGS (XSTR);
+
+    SS$_NORMAL
+
+END; ! FORMAT_INFO
+
+%SBTTL 'FORMAT_HDR'
+GLOBAL ROUTINE FORMAT_HDR (STR_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Formats header line for info display.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   FORMAT_HDR
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	STR = .STR_A	: BLOCK [,BYTE];
+
+    LIB$SYS_FAO (%ASCID'!12AS !21AS  !7AS !AS!/!79*-',
+    	0, STR, %ASCID'Username', %ASCID'Personal name', %ASCID'Node',
+    	%ASCID'Terminal name')
+
+END; ! FORMAT_HDR
+
+END
+ELUDOM

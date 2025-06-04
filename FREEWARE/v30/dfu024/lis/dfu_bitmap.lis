@@ -1,0 +1,1209 @@
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 1
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (1)
+
+
+
+    1        	/*
+    2        	     DFU V2.4
+    3        	
+    4        	     DFU_BITMAP.C
+    5        	
+    6        	     This file contains the bitmap and quota file scanning routines.
+    7        	     Uses ACPQIO to process these files.
+    8        	
+    9        	     Called by REPORT, UNDELETE and VERIFY 
+   10        	
+   11        	*/
+   12        	#ifndef VAXC
+   13        	#pragma message disable(GLOBALEXT)
+   14        	#endif
+   15        	
+   16        	#include fibdef
+  494        	#include ssdef
+ 1985        	#include iodef
+ 2960        	#include libdef
+ 3335        	#include stdio
+ 4011        	#include descrip
+ 4987        	#include "file_hdr"
+ 5425        	
+ 5426        	typedef unsigned long Boolean;
+ 5427        	
+ 5428        	typedef struct _usg { 
+ 5429        	  int owner, flag, rsize, asize, hdr;
+ 5430        	};
+ 5431        	
+ 5432        	typedef struct _qb { 
+ 5433        	  int flags, uic_long, usage, permquota, 
+ 5434        	  overdraft, unused[3]; 
+ 5435        	};
+ 5436        	
+ 5437        	extern unsigned int ctrlc;
+ 5438        	extern unsigned int lbnstart, lbncount;
+ 5439        	extern Boolean trigger;
+ 5440        	extern char outbuf[255];
+ 5441        	
+ 5442        	static struct { 
+ 5443        	  unsigned short iosb_1;
+ 5444        	  unsigned int length;
+ 5445        	  short spec; 
+ 5446        	} 
+ 5447        	iostat;
+ 5448        	
+ 5449        	globalvalue DFU_EXPREG;
+ 5450        	
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 2
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (2)
+
+             	
+ 5451        	int flush_cache(short chan, int flag)
+ 5452        	/*
+ 5453        	   Flush the extent cache
+ 5454        	   Assumes channel is already open
+ 5455        	*/
+ 5456        	
+ 5457        	{ 
+ 5458        	  static struct fibdef bfib; /* File information block for bitmap */
+ 5459        	  struct { 
+ 5460        	    int fiblen; 
+ 5461        	    struct fibdef *fibadr; 
+ 5462        	  } 
+ 5463        	  fibdescr;
+ 5464        	  int func_code, status, bytes;
+ 5465        	
+ 5466        	  /* Fill in FIB for bitmap */
+ 5467        	
+ 5468        	  fibdescr.fiblen = sizeof(bfib); /* Short fib */
+ 5469        	  fibdescr.fibadr = &bfib;
+ 5470        	
+ 5471        	  bfib.fib$w_exctl = FIB$C_FLUSH_CACHE;
+ 5472        	  bfib.fib$l_exsz = FIB$C_EXTENT_CACHE;
+ 5473        	
+ 5474        	  /* Now flush the cache asynch*/
+ 5475        	  if (flag ==1) 
+ 5476        	    status = SYS$QIOW(0, chan, IO$_ACPCONTROL, &iostat, 0, 0,
+ 5477        	    &fibdescr, 0, 0, 0, 0 , 0);
+ 5478        	  else
+ 5479        	    status = SYS$QIO(0, chan, IO$_ACPCONTROL, &iostat, 0, 0,
+ 5480        	    &fibdescr, 0, 0, 0, 0 , 0);
+ 5481        	  return(status);
+ 5482        	}
+ 5483        	
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 3
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (3)
+
+             	
+ 5484        	int read_bitmap(short chan, int xpages, Boolean locked, int *addr)
+ 5485        	
+ 5486        	/* 
+ 5487        	   Read BITMAP.SYS in dynamic space 
+ 5488        	   Assumes 'chan' already opened by calling procedure 
+ 5489        	*/
+ 5490        	
+ 5491        	{ 
+ 5492        	  static struct fibdef bfib; /* File information block for bitmap */
+ 5493        	  struct { 
+ 5494        	    int fiblen; 
+ 5495        	    struct fibdef *fibadr; 
+ 5496        	  } 
+ 5497        	  fibdescr;
+ 5498        	  int func_code, status, bytes;
+ 5499        	
+ 5500        	  /* Fill in FIB for bitmap */
+ 5501        	
+ 5502        	  fibdescr.fiblen = sizeof(bfib); /* Short fib */
+ 5503        	  fibdescr.fibadr = &bfib;
+ 5504        	  bfib.fib$w_fid[0] = 2;
+ 5505        	  bfib.fib$w_fid[1] = 2;
+ 5506        	  bfib.fib$w_fid[2] = 0;
+ 5507        	  bfib.fib$w_did[0] = 0;
+ 5508        	  bfib.fib$w_did[1] = 0;
+ 5509        	  bfib.fib$w_did[2] = 0;
+ 5510        	  bfib.fib$b_wsize = 7;
+ 5511        	  if (locked == FALSE )
+ 5512        	    bfib.fib$l_acctl = FIB$M_WRITE | FIB$M_WRITETHRU 
+ 5513        	      | FIB$M_NORECORD | FIB$M_NOLOCK;
+ 5514        	  else
+ 5515        	    bfib.fib$l_acctl = FIB$M_NOLOCK;
+ 5516        	
+ 5517        	  /* Open bitmap. (Channel already opened in calling procedure)
+ 5518        	     If the device is not write locked, we open it for write 
+ 5519        	     to force a cache flush. */
+ 5520        	
+ 5521        	  func_code = IO$_ACCESS | IO$M_ACCESS;
+ 5522        	  status = SYS$QIOW(0, chan, func_code, &iostat, 0,0,&fibdescr,0,0,0,0,0);
+ 5523        	  if ((status & 1) == 1) status = iostat.iosb_1;
+ 5524        	  if ((status & 1) != 1) 
+ 5525        	  { 
+ 5526        	    sprintf(outbuf,"%%DFU-E-BITMAP, Error opening bitmap,");
+ 5527        	    put_disp();
+ 5528        	    singlemsg(0,status); 
+ 5529        	    return(status);  
+ 5530        	  }
+ 5531        	
+ 5532        	  /* Read in bitmap starting from VBN 2 (VBN 1 is Storage control block ) */
+ 5533        	  bytes = 512*xpages;
+ 5534        	  status = SYS$QIOW(0, chan, IO$_READVBLK, &iostat, 0,0, *addr, bytes,
+ 5535        	  2,0,0,0);
+ 5536        	  if ((status & 1) == 1) status = iostat.iosb_1;
+ 5537        	  if ((status & 1) != 1)
+ 5538        	  { 
+ 5539        	    sprintf(outbuf,"%%DFU-E-READERR, Error reading bitmap,");
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 4
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (3)
+
+ 5540        	    put_disp();
+ 5541        	    singlemsg(0,status); 
+ 5542        	  }
+ 5543        	  return(status);
+ 5544        	}
+ 5545        	
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 5
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (4)
+
+             	
+ 5546        	int scan_bitmap(short chan, int pages, Boolean locked, int *free, 
+ 5547        	int *large, int *blocks, int *large_lbn, int *table)
+ 5548        	/* 
+ 5549        	   Scan bitmap.sys. Count all the used and free bits to report
+ 5550        	   largest contiguous free space, count of fragment, largest extent and LBN.
+ 5551        	   Also create graph table. Called by REPORT.
+ 5552        	*/
+ 5553        	
+ 5554        	{
+ 5555        	  char size;
+ 5556        	  register int i;
+ 5557        	  int status, bmap_addr[2], count, offset,
+ 5558        	  which, interval, entry, xpages ,j;
+ 5559        	  unsigned int total_blocks, total_count, lbn, savebit, 
+ 5560        	  maxlong, savelongword, largest, temp;
+ 5561        	  int *ix; 
+ 5562        	
+ 5563        	  /* Allocate dynamic space */
+ 5564        	  xpages = (pages + 4095) / 4096;
+ 5565        	  status = SYS$EXPREG(xpages, &bmap_addr[0], 0, 0);
+ 5566        	  if ((status & 1) != 1)
+ 5567        	  { 
+ 5568        	    singlemsg(DFU_EXPREG,status); 
+ 5569        	    return(status);  
+ 5570        	  }
+ 5571        	
+ 5572        	  status = read_bitmap(chan, xpages, locked, &bmap_addr[0]);
+ 5573        	  /* Close it now */
+ 5574        	  SYS$QIOW(0, chan, IO$_DEACCESS, 0,0,0,0,0,0,0,0,0);
+ 5575        	  if ((status & 1) != 1) 
+ 5576        	  { 
+ 5577        	    SYS$DELTVA(&bmap_addr, &bmap_addr, 0);
+ 5578        	    return(status);  
+ 5579        	  }
+ 5580        	  /* Now we have the bitmap read in, process it */
+ 5581        	
+ 5582        	  total_blocks = 0;
+ 5583        	  total_count = 0;
+ 5584        	  lbn = 0;
+ 5585        	  savebit = 0;
+ 5586        	  savelongword = 0;
+ 5587        	  largest = 0;
+ 5588        	  count = 0; 
+ 5589        	  j = 0;  
+ 5590        	  maxlong = (pages + 31) / 32 ;  /* Maximum longwords to scan */
+ 5591        	  interval = maxlong / 70; 
+ 5592        	  if (interval ==0) interval = 1;
+ 5593        	  entry = 0; 
+ 5594        	  which = interval;
+ 5595        	  ix = (int *) bmap_addr[0]; /* Start of array */
+ 5596        	  i = 0;
+ 5597        	  offset = 0;
+ 5598        	  while (i < maxlong) /* Loop through the bitmap longword by longword */
+ 5599        	  { 
+ 5600        	    size = 32 - offset;
+ 5601        	    if (*ix == 0) status = 0; /* This longword fully used */
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 6
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (4)
+
+ 5602        	    else status = lib$ffs(&offset, &size, ix, &offset);
+ 5603        	    if ((status &1) != 1) 
+ 5604        	    { /* Adjust the graph table */
+ 5605        	      if (i >= which) 
+ 5606        	      { 
+ 5607        	        entry = interval - entry; 
+ 5608        	        entry = entry * 100;
+ 5609        	        which += interval; 
+ 5610        	        j++;
+ 5611        	        /* Take care not to cross table bounds. This can only happen
+ 5612        	           due to rounding errors on very small devices. */
+ 5613        	        if (j <=70) 
+ 5614        	        { 
+ 5615        	          *table = entry / interval;
+ 5616        	          table++; 
+ 5617        	        }
+ 5618        	        entry = 0;
+ 5619        	      }
+ 5620        	      entry++;  
+ 5621        	      offset = 0; 
+ 5622        	      ix++; 
+ 5623        	      i++; /* Next long word */
+ 5624        	    }
+ 5625        	    else
+ 5626        	    { 
+ 5627        	      total_count++; 
+ 5628        	      savelongword = i;
+ 5629        	      savebit = offset; 
+ 5630        	      status = 0; 
+ 5631        	      while (status != 1) 
+ 5632        	      { 
+ 5633        	        size = 32 - offset; 
+ 5634        	        if (*ix == -1) status = 0;
+ 5635        	        else status = lib$ffc(&offset, &size, ix, &offset);
+ 5636        	        if ((status & 1) !=1) /* We still have a contiguous free extent */
+ 5637        	        { 
+ 5638        	          offset = 0; 
+ 5639        	          i++; 
+ 5640        	          ix++;
+ 5641        	          if (i >= maxlong ) status = 1;
+ 5642        	        }
+ 5643        	      }
+ 5644        	      /* We have a free extent , calculate the various fields now */
+ 5645        	      temp = i - savelongword;
+ 5646        	      if ( i == 0)
+ 5647        	        temp = offset - savebit; 
+ 5648        	      else
+ 5649        	      { 
+ 5650        	        temp--; 
+ 5651        	        savebit = 32 - savebit;
+ 5652        	        temp = temp*32 + savebit + offset;     
+ 5653        	      }
+ 5654        	      total_blocks += temp;
+ 5655        	      if (temp >= largest)
+ 5656        	      { 
+ 5657        	        largest = temp; 
+ 5658        	        savebit = 32 - savebit;
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 7
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (4)
+
+ 5659        	        lbn = 32*savelongword + savebit;
+ 5660        	      }
+ 5661        	    }
+ 5662        	  }
+ 5663        	  /* Report results to caller */
+ 5664        	  SYS$DELTVA(&bmap_addr, &bmap_addr, 0);
+ 5665        	  *free = total_count;
+ 5666        	  *large = largest;
+ 5667        	  *blocks = total_blocks;
+ 5668        	  *large_lbn = lbn; 
+ 5669        	  return(1);
+ 5670        	}  
+ 5671        	
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 8
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (5)
+
+             	
+ 5672        	void new_bitmap(int *addr, struct header_area_struct *hdr, int cluster,
+ 5673        	int curvol, FILE *fp, int pass, int *lis, Boolean *flag,
+ 5674        	Boolean matoutput)
+ 5675        	/* 
+ 5676        	     1) Disassemble retrieval pointers into LBN's
+ 5677        	     2) Build up new bitmap into the dynamic area
+ 5678        	     3) Report multiple allocated blocks.
+ 5679        	     If pass =1 the multiple allocated blocks are saved in a dynamic
+ 5680        		linked list pointed to by *lis (and *flag is set to true).
+ 5681        	     The VERIFY_COMMAND procedure will call us a second time with pass=2
+ 5682        	     to report the multiple allocated blocks to the user. This
+ 5683        	     is done to ensure that all involved files will be reported
+ 5684        	*/
+ 5685        	
+ 5686        	{ 
+ 5687        	  struct _bm {
+ 5688        	    int block[128];
+ 5689        	  } 
+ 5690        	  *start, *bmap; /* Pointer to a bitmap block (128 longwords */
+ 5691        	  struct _hd {
+ 5692        	    unsigned short block[256]; 
+ 5693        	  } 
+ 5694        	  *head; /* pointer to header */
+ 5695        	  struct ident_area_struct *id;
+ 5696        	  struct mult { 
+ 5697        	    unsigned int l_start, l_end;
+ 5698        	    struct mult *next;
+ 5699        	  } 
+ 5700        	  *m_list;	        
+ 5701        	  static struct _mlt { 
+ 5702        	    unsigned int lbnstart, lbnend;
+ 5703        	    unsigned short fid[3]; 
+ 5704        	  } 
+ 5705        	  sort_rec;
+ 5706        	  static struct _srt { 
+ 5707        	    unsigned long size ;
+ 5708        	    struct _mlt * pointer;
+ 5709        	  } 
+ 5710        	  sor_descr;
+ 5711        	  int i, l, k, ibit, iword, iblock, lbit, lword, lblock, status, 
+ 5712        	  expon,offset,map_bytes, endj, size, lbnc1, lbne1, namelen, format, fidnum;
+ 5713        	  Boolean report;
+ 5714        	  char name[86];
+ 5715        	  register int j;
+ 5716        	
+ 5717        	  sor_descr.size = 14;
+ 5718        	  sor_descr.pointer = &sort_rec;
+ 5719        	  head = (struct _hd *) hdr; /*We can now view the header as 256 words */
+ 5720        	  start = (struct _bm *) addr;
+ 5721        	  i = hdr->idoffset;
+ 5722        	  id = (struct ident_area_struct *) &(head->block[i]);
+ 5723        	  offset = hdr->mpoffset; /* Start of map area */
+ 5724        	  map_bytes = hdr->map_inuse;
+ 5725        	  lbncount = 0;
+ 5726        	  report = FALSE;
+ 5727        	  expon = -1;
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 9
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (5)
+
+ 5728        	  l = 1; 
+ 5729        	  if (pass ==1) m_list = (struct mult *) *lis;
+ 5730        	
+ 5731        	  /* Now disassemble retrieval pointers into LBNSTART, LBNCOUNT */
+ 5732        	  for (i = offset; i<(offset+map_bytes);)
+ 5733        	  { 
+ 5734        	    disass_map_ptr(hdr,&i);
+ 5735        	    if (lbncount !=0) 
+ 5736        	      /* Setup dynamic array. We try to set it up longword by longword ('j' loop).
+ 5737        	         If multiple allocated blocks are discoverd we must check bit by bit
+ 5738        	         to determine the exact LBN's ('k' loop) */
+ 5739        	    { 
+ 5740        	      lbnstart = lbnstart/cluster;
+ 5741        	      lbncount = lbncount/cluster;
+ 5742        	      iblock = lbnstart/4096 + 1; 
+ 5743        	      if ((lbnstart % 4096) == 0) iblock--; /* Block boundary */
+ 5744        	      /* End position of this pointer...*/
+ 5745        	      endj = lbnstart + lbncount - 1;
+ 5746        	      lblock = endj/4096 + 1;
+ 5747        	      lbit = endj % 4096;
+ 5748        	      lword = lbit/32 + 1;
+ 5749        	      lbit = lbit % 32;
+ 5750        	      j = lbnstart;
+ 5751        	      while (j <= endj)
+ 5752        	      { 
+ 5753        	        ibit = j % 4096;
+ 5754        	        if (ibit == 0) iblock ++; /* Next block */
+ 5755        	        iword = ibit/32 + 1;
+ 5756        	        ibit = ibit % 32;
+ 5757        	        if ((lword == iword) && (iblock == lblock))
+ 5758        	          size = lbit - ibit + 1;
+ 5759        	        else size = 32 - ibit; /*How many bits to parse in this longword */
+ 5760        	        /* Now check if these bits are free, if yes fill them up */
+ 5761        	        bmap = start+(iblock-1); /* Pointer to correct block */
+ 5762        	        if (lib$extzv(&ibit, &size, &bmap->block[iword-1]) == 0)
+ 5763        	          lib$insv(&expon, &ibit, &size, &bmap->block[iword-1]);
+ 5764        	        else /* We have multiple allocated blocks */
+ 5765        	        { 
+ 5766        	          for (k = j; k <= j+size-1; k++)
+ 5767        	          { 
+ 5768        	            if (lib$extzv(&ibit, &l ,&bmap->block[iword-1]) == 1)
+ 5769        	            { 
+ 5770        	              if (report == FALSE)
+ 5771        	              { 
+ 5772        	                report = TRUE;
+ 5773        	                lbne1 = k*cluster;
+ 5774        	                lbnc1 = lbne1 + cluster - 1;
+ 5775        	              }
+ 5776        	              else lbnc1=(k+1)*cluster - 1;
+ 5777        	            }
+ 5778        	            else
+ 5779        	              /* We now have a consecutive chunk of multiple allocated blocks, report them */
+ 5780        	              if (report == TRUE)
+ 5781        	              { 
+ 5782        	                report = FALSE; /* Don't report twice */
+ 5783        	                if (pass == 2) /* now report the file to the user */
+ 5784        	                { 
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 10
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (5)
+
+ 5785        	                  sort_rec.lbnstart = lbne1;
+ 5786        	                  sort_rec.lbnend = lbnc1;
+ 5787        	                  copy_fid(&sort_rec.fid[0], 
+ 5788        	                  &(hdr->fid_overlay.fid_fields.fid_num), FALSE);
+ 5789        	                  status = sor$release_rec(&sor_descr,0);
+ 5790        	                }
+ 5791        	                else /* Save these blocks */
+ 5792        	                { 
+ 5793        	                  *flag = TRUE;
+ 5794        	                  m_list->l_start = lbne1;
+ 5795        	                  m_list->l_end = lbnc1;
+ 5796        	                  m_list->next = (struct mult *) malloc(sizeof(struct mult));
+ 5797        	                  m_list = m_list->next;
+ 5798        	                  *lis = (int) m_list;
+ 5799        	                }
+ 5800        	              }
+ 5801        	            lib$insv(&l,&ibit,&l,&bmap->block[iword-1]);
+ 5802        	            ibit++;
+ 5803        	          } /* End k loop */
+ 5804        	        }
+ 5805        	        j+=size;
+ 5806        	      } /* End j loop */
+ 5807        	      /* Check if we still have some unreported blocks left */
+ 5808        	      if (report == TRUE)
+ 5809        	      { 
+ 5810        	        report = FALSE; /* Don't report twice */
+ 5811        	        if (pass == 2) /* now report the file to the user */
+ 5812        	        { 
+ 5813        	          sort_rec.lbnstart = lbne1;
+ 5814        	          sort_rec.lbnend = lbnc1;
+ 5815        	          copy_fid(&sort_rec.fid[0], 
+ 5816        	          &(hdr->fid_overlay.fid_fields.fid_num), FALSE);
+ 5817        	          status = sor$release_rec(&sor_descr,0);
+ 5818        	        }
+ 5819        	        else
+ 5820        	        { 
+ 5821        	          *flag = TRUE;
+ 5822        	          m_list->l_start = lbne1;
+ 5823        	          m_list->l_end = lbnc1;
+ 5824        	          m_list->next = (struct mult *) malloc(sizeof(struct mult));
+ 5825        	          m_list = m_list->next;
+ 5826        	          *lis = (int) m_list;
+ 5827        	        }
+ 5828        	      }
+ 5829        	    }
+ 5830        	  } /* End i loop */
+ 5831        	}
+ 5832        	
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 11
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (6)
+
+             	
+ 5833        	void set_bitmap(int * addr, int cluster, int lbn_start, 
+ 5834        	int lbn_count, Boolean mbs)
+ 5835        	/* 
+ 5836        		Set the multiple allocated blocks in the new bitmap
+ 5837        	        They were found in new_bitmap and entered in m_list
+ 5838        	
+ 5839        	*/
+ 5840        	
+ 5841        	{ 
+ 5842        	  struct _bm {
+ 5843        	    int block[128];
+ 5844        	  } 
+ 5845        	  *start, *bmap; /* Pointer to a bitmap block (128 longwords */
+ 5846        	  int i, l, k, ibit, iword, iblock, lbit, lword, lblock , expon,
+ 5847        	  offset, map_bytes, endj, size, lbnc1, lbne1, namelen, format, fidnum;
+ 5848        	  register int j;
+ 5849        	
+ 5850        	  start = (struct _bm *) addr;
+ 5851        	  if (mbs) 
+ 5852        	    expon = -1;
+ 5853        	  else
+ 5854        	    expon = 0;
+ 5855        	
+ 5856        	  l = 1; 
+ 5857        	
+ 5858        	  if (lbn_count !=0) 
+ 5859        	  { 
+ 5860        	    lbn_count = lbn_count - lbn_start + 1;
+ 5861        	    lbn_start = lbn_start/cluster;
+ 5862        	    lbn_count = lbn_count/cluster;
+ 5863        	    iblock = lbn_start/4096 + 1; 
+ 5864        	    if ((lbn_start % 4096) == 0) iblock--; /* Block boundary */
+ 5865        	    /* End position of this pointer...*/
+ 5866        	    endj = lbn_start + lbn_count - 1;
+ 5867        	    lblock = endj/4096 + 1;
+ 5868        	    lbit = endj % 4096;
+ 5869        	    lword = lbit/32 + 1;
+ 5870        	    lbit = lbit % 32;
+ 5871        	    j = lbn_start;
+ 5872        	    while (j <= endj)
+ 5873        	    { 
+ 5874        	      ibit = j % 4096;
+ 5875        	      if (ibit == 0) iblock ++; /* Next block */
+ 5876        	      iword = ibit/32 + 1;
+ 5877        	      ibit = ibit % 32;
+ 5878        	      if ((lword == iword) && (iblock == lblock))
+ 5879        	        size = lbit - ibit + 1;
+ 5880        	      else size = 32 - ibit; /*How many bits to parse in this longword */
+ 5881        	      bmap = start+(iblock-1); /* Pointer to correct block */
+ 5882        	      lib$insv(&expon, &ibit, &size, &bmap->block[iword-1]);
+ 5883        	      j+=size;
+ 5884        	    } /* End j loop */
+ 5885        	  } 
+ 5886        	}
+ 5887        	
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 12
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (7)
+
+             	
+ 5888        	int rebuild_bitmap(struct header_area_struct *hdr, int *addr, int cluster,
+ 5889        	int curvol, Boolean check_only)
+ 5890        	/*   Called by UNDELETE
+ 5891        	     1) Disassemble retrieval pointers into LBN's
+ 5892        	          If check_only is FALSE...
+ 5893        	     2) rebuild the bitmap into the dynamic area
+ 5894        	     3) Report multiple allocated blocks.
+ 5895        	*/
+ 5896        	
+ 5897        	{ 
+ 5898        	  struct _bm {
+ 5899        	    int block[128];
+ 5900        	  } 
+ 5901        	  *start, *bmap; /* Pointer to a bitmap block (128 longwords */
+ 5902        	  struct _hd {
+ 5903        	    unsigned short block[256]; 
+ 5904        	  } 
+ 5905        	  *head; /* pointer to header */
+ 5906        	  struct ident_area_struct *id;
+ 5907        	  int i, l, k, ibit, iword, iblock, lbit, lword, lblock, 
+ 5908        	  expon, offset, map_bytes, endj, size, lbnc1, lbne1, namelen, 
+ 5909        	  format, fidnum, status;
+ 5910        	  Boolean report;
+ 5911        	  char name[86];
+ 5912        	  register int j;
+ 5913        	
+ 5914        	  head = (struct _hd *) hdr; /*We can now view the header as 256 words */
+ 5915        	  start = (struct _bm *) addr;
+ 5916        	  i = hdr->idoffset;
+ 5917        	  id = (struct ident_area_struct *) &(head->block[i]);
+ 5918        	  offset = hdr->mpoffset; /* Start of map area */
+ 5919        	  map_bytes = hdr->map_inuse;
+ 5920        	  lbncount = 0;
+ 5921        	  report = FALSE;
+ 5922        	  expon = 0;
+ 5923        	  l = 1; 
+ 5924        	  status = 1; /* Assume success */
+ 5925        	
+ 5926        	  /* Now disassemble retrieval pointers into LBNSTART, LBNCOUNT */
+ 5927        	  for (i = offset; i<(offset+map_bytes);)
+ 5928        	  { 
+ 5929        	    disass_map_ptr(hdr,&i);
+ 5930        	    if (lbncount !=0) 
+ 5931        	      /* Setup dynamic array. We try to set it up longword by longword ('j' loop).
+ 5932        	         If multiple allocated blocks are discoverd we must check bit by bit
+ 5933        	         to determine the exact LBN's ('k' loop) */
+ 5934        	    { 
+ 5935        	      lbnstart = lbnstart/cluster;
+ 5936        	      lbncount = lbncount/cluster;
+ 5937        	      iblock = lbnstart/4096 + 1; 
+ 5938        	      if ((lbnstart % 4096) == 0) iblock--; /* Block boundary */
+ 5939        	      /* End position of this pointer...*/
+ 5940        	      endj = lbnstart + lbncount - 1;
+ 5941        	      lblock = endj/4096 + 1;
+ 5942        	      lbit = endj % 4096;
+ 5943        	      lword = lbit/32 + 1;
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 13
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (7)
+
+ 5944        	      lbit = lbit % 32;
+ 5945        	      j = lbnstart;
+ 5946        	      while (j <= endj)
+ 5947        	      { 
+ 5948        	        ibit = j % 4096;
+ 5949        	        if (ibit == 0) iblock ++; /* Next block */
+ 5950        	        iword = ibit/32 + 1;
+ 5951        	        ibit = ibit % 32;
+ 5952        	        if ((lword == iword) && (iblock == lblock))
+ 5953        	          size = lbit - ibit + 1;
+ 5954        	        else size = 32 - ibit; /*How many bits to parse in this longword */
+ 5955        	        /* Now check if these bits are free, if yes fill them up */
+ 5956        	        bmap = start+(iblock-1); /* Pointer to correct block */
+ 5957        	        if (lib$extv(&ibit, &size, &bmap->block[iword-1]) == -1)
+ 5958        	        {  
+ 5959        	          if (!check_only) 
+ 5960        	            lib$insv(&expon, &ibit, &size, &bmap->block[iword-1]);
+ 5961        	        }
+ 5962        	        else /* We have multiple allocated blocks */
+ 5963        	        { 
+ 5964        	          if (check_only) 
+ 5965        	          { 
+ 5966        	            i = 512 ; 
+ 5967        	            j = endj + 1; /* Stop further processing */
+ 5968        	            status = 0;
+ 5969        	          }
+ 5970        	          else
+ 5971        	          { 
+ 5972        	            status = 0;
+ 5973        	            for (k = j; k <= j+size-1; k++)
+ 5974        	            { 
+ 5975        	              if (lib$extv(&ibit, &l ,&bmap->block[iword-1]) == 0)
+ 5976        	              { 
+ 5977        	                if (report == FALSE)
+ 5978        	                { 
+ 5979        	                  report = TRUE;
+ 5980        	                  lbne1 = k*cluster;
+ 5981        	                  lbnc1 = lbne1 + cluster - 1;
+ 5982        	                }
+ 5983        	                else lbnc1=(k+1)*cluster - 1;
+ 5984        	              }
+ 5985        	              else
+ 5986        	                /* We now have a consecutive chunk of multiple allocated blocks, report them */
+ 5987        	                if (report == TRUE)
+ 5988        	                { 
+ 5989        	                  report = FALSE; /* Don't report twice */
+ 5990        	                  memcpy(&name[0],id->filename,20);
+ 5991        	                  if (name[19] != ' ') memcpy(&name[20],id->filenamext,66);
+ 5992        	                  namelen = strindex(&name[0]," ",86); 
+ 5993        	                  sprintf(outbuf,"%%DFU-E-MULTALLOC, file %.*s blocks LBN %d through %d already allocated",
+ 5994        	                  namelen, name, lbne1, lbnc1);
+ 5995        	                  put_disp();
+ 5996        	                }
+ 5997        	              ibit++;
+ 5998        	            } /* End k loop */
+ 5999        	          }
+ 6000        	        }
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 14
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (7)
+
+ 6001        	        j+=size;
+ 6002        	      } /* End j loop */
+ 6003        	      /* Check if we still have some unreported blocks left */
+ 6004        	      if (report == TRUE)
+ 6005        	      { 
+ 6006        	        report = FALSE; /* Don't report twice */
+ 6007        	        memcpy(&name[0],id->filename,20);
+ 6008        	        if (name[19] != ' ') memcpy(&name[20],id->filenamext,66);
+ 6009        	        namelen = strindex(&name[0]," ",86); 
+ 6010        	        sprintf(outbuf,"%%DFU-E-MULTALLOC, file %.*s blocks LBN %d through %d already allocated",
+ 6011        	        namelen, name, lbne1, lbnc1);
+ 6012        	        put_disp();
+ 6013        	      }
+ 6014        	    }
+ 6015        	  } /* End i loop */
+ 6016        	  return(status);
+ 6017        	}
+ 6018        	
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 15
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (8)
+
+             	
+ 6019        	int compare_bitmap(short chan, int *addr, int pages, Boolean locked, 
+ 6020        	     int cluster, FILE *fp, Boolean rebuild, Boolean matoutput)
+ 6021        	/*
+ 6022        	   Compare the bitmap build up in new_bitmap with the real BITMAP.SYS.
+ 6023        	   The new bitmap has bits set for each used cluster, whereas BITMAP.SYS
+ 6024        	   has such bits clear. So we XOR each longword ; this should result in -1.
+ 6025        	   If not we have incorrectly marked free or allocated clusters which
+ 6026        	   we report back to the user. Modified the code to rebuild
+ 6027        	   and rewrite the bitmap.
+ 6028        	*/
+ 6029        	
+ 6030        	{ 
+ 6031        	  struct _bm {
+ 6032        	    int block[128];
+ 6033        	  } 
+ 6034        	  *start, *bmap; /* Pointer to a bitmap block (128 longwords */
+ 6035        	  int i, l, k, status, xpages, bmap_addr[2], bounds, maxblocks, chk;
+ 6036        	  int blkss, blkse, blkas, blkae, bytes;
+ 6037        	  register int j;
+ 6038        	  Boolean reports, reportc, trigger;
+ 6039        	
+ 6040        	  /* Allocate dynamic space */
+ 6041        	  sprintf(outbuf,"%%DFU-I-CHKBITMAP, Checking BITMAP.SYS...");
+ 6042        	  put_disp(); 
+ 6043        	  if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6044        	  maxblocks = pages * cluster;
+ 6045        	  xpages = (pages + 4095) / 4096;
+ 6046        	  status = SYS$EXPREG(xpages, &bmap_addr[0], 0, 0);
+ 6047        	  if ((status & 1) != 1)
+ 6048        	  { 
+ 6049        	    singlemsg(DFU_EXPREG,status); 
+ 6050        	    return(status);  
+ 6051        	  }
+ 6052        	
+ 6053        	  trigger = FALSE;
+ 6054        	  status = read_bitmap(chan, xpages, locked, &bmap_addr[0]);
+ 6055        	  if ((status & 1) != 1) 
+ 6056        	  { 
+ 6057        	    SYS$DELTVA(&bmap_addr, &bmap_addr, 0);
+ 6058        	    SYS$QIOW(0, chan, IO$_DEACCESS, 0,0,0,0,0,0,0,0,0);
+ 6059        	    return(status);  
+ 6060        	  }
+ 6061        	  /* Close it now if no rebuild is needed */
+ 6062        	  if (!rebuild) SYS$QIOW(0, chan, IO$_DEACCESS, 0,0,0,0,0,0,0,0,0);
+ 6063        	
+ 6064        	  /* Now we have the bitmap read in, process it */
+ 6065        	  start = (struct _bm *) addr; 
+ 6066        	  bmap = (struct _bm *) bmap_addr[0];
+ 6067        	  l = 1;
+ 6068        	  reports = FALSE; 
+ 6069        	  reportc = FALSE;
+ 6070        	  for (i = 0; i < xpages; i++)
+ 6071        	  { 
+ 6072        	    bounds = (i * 4096) * cluster - 32*cluster;
+ 6073        	    for (j = 0; j <= 127; j++)
+ 6074        	    { 
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 16
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (8)
+
+ 6075        	      bounds += 32*cluster;
+ 6076        	      if (bounds <= maxblocks) /* Do not cross array bounds */
+ 6077        	      { 
+ 6078        	        chk = ((start+i)->block[j] ^ (bmap+i)->block[j]);
+ 6079        	        if (chk != -1) /* Found some blocks...*/
+ 6080        	        { 
+ 6081        	          for (k=0; k <= 31; k++)
+ 6082        	          { 
+ 6083        	            bounds += cluster;
+ 6084        	            if (bounds <= maxblocks) /* Do not cross array bounds */
+ 6085        	            { 
+ 6086        	              chk = lib$extzv(&k, &l, &(bmap+i)->block[j]) +
+ 6087        	                lib$extzv(&k, &l, &(start+i)->block[j]);
+ 6088        	              if (chk == 2) /* Incorrectly set bits */
+ 6089        	              { 
+ 6090        	                if (reports == FALSE) 
+ 6091        	                { 
+ 6092        	                  reports = TRUE;
+ 6093        	                  blkss = ((i * 4096) + j*32 + k) * cluster;
+ 6094        	                  blkse = blkss + cluster - 1;
+ 6095        	                }
+ 6096        	                else 
+ 6097        	                  blkse = ((i * 4096) + j*32 + k + 1) * cluster - 1;
+ 6098        	              }
+ 6099        	              else /* Report these blocks */
+ 6100        	              { 
+ 6101        	                if (reports == TRUE)
+ 6102        	                { 
+ 6103        	                  reports = FALSE; 
+ 6104        	                  trigger = TRUE;
+ 6105        	                  sprintf(outbuf,"%%DFU-E-ALLOCSET, blocks LBN %d through %d incorrectly marked free",
+ 6106        	                  blkss, blkse);
+ 6107        	                  put_disp(); 
+ 6108        	                  if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6109        	                  if (rebuild) 
+ 6110        	                    set_bitmap((int *) bmap,cluster,blkss,blkse,FALSE);
+ 6111        	                }
+ 6112        	              }
+ 6113        	              if (chk == 0) /* Incorrectly clear bits */
+ 6114        	              { 
+ 6115        	                if (reportc == FALSE) 
+ 6116        	                { 
+ 6117        	                  reportc = TRUE;
+ 6118        	                  blkas = ((i * 4096) + j*32 + k) * cluster;
+ 6119        	                  blkae = blkas + cluster - 1;
+ 6120        	                }
+ 6121        	                else 
+ 6122        	                  blkae = ((i * 4096) + j*32 + k + 1) * cluster - 1;
+ 6123        	              }
+ 6124        	              else /* Report these blocks */
+ 6125        	              { 
+ 6126        	                if (reportc == TRUE)
+ 6127        	                { 
+ 6128        	                  reportc = FALSE; 
+ 6129        	                  trigger = TRUE;
+ 6130        	                  sprintf(outbuf,"%%DFU-E-ALLOCCLR, blocks LBN %d through %d incorrectly marked allocated",
+ 6131        	                  blkas, blkae);
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 17
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (8)
+
+ 6132        	                  put_disp(); 
+ 6133        	                  if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6134        	                  if (rebuild) 
+ 6135        	                    set_bitmap( (int *) bmap,cluster,blkas,blkae,TRUE);
+ 6136        	                }
+ 6137        	              }
+ 6138        	            }
+ 6139        	          } /* end k loop */
+ 6140        	        }
+ 6141        	      } 
+ 6142        	    } /* end j loop */
+ 6143        	  } /* end i loop */
+ 6144        	  /* Check if we have unreported blocks left */
+ 6145        	  if (reports == TRUE)
+ 6146        	  { 
+ 6147        	    reports == FALSE; 
+ 6148        	    trigger = TRUE;
+ 6149        	    sprintf(outbuf,"%%DFU-E-ALLOCSET, blocks LBN %d through %d incorrectly marked free",
+ 6150        	    blkss, blkse);
+ 6151        	    put_disp(); 
+ 6152        	    if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6153        	    if (rebuild) 
+ 6154        	      set_bitmap((int *) bmap,cluster,blkss,blkse,FALSE);
+ 6155        	  }
+ 6156        	  if (reportc == TRUE)
+ 6157        	  { 
+ 6158        	    reportc == FALSE; 
+ 6159        	    trigger = TRUE;
+ 6160        	    sprintf(outbuf,"%%DFU-E-ALLOCCLR, blocks LBN %d through %d incorrectly marked allocated",
+ 6161        	    blkas, blkae);
+ 6162        	    put_disp(); 
+ 6163        	    if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6164        	    if (rebuild) 
+ 6165        	      set_bitmap((int *) bmap,cluster,blkas,blkae,TRUE);
+ 6166        	  }
+ 6167        	
+ 6168        	  if ((rebuild) && (trigger))
+ 6169        	  { /* Now rewrite the bitmap */
+ 6170        	    bytes = 512*xpages;
+ 6171        	    status = SYS$QIOW(0, chan, IO$_WRITEVBLK, &iostat, 0,0, bmap_addr[0], 
+ 6172        	    bytes,2,0,0,0);
+ 6173        	    if ((status & 1) == 1) status = iostat.iosb_1;
+ 6174        	    if ((status & 1) != 1)
+ 6175        	    { 
+ 6176        	      sprintf(outbuf,"%%DFU-E-RBDBMAP, Error rewriting BITMAP.SYS,");
+ 6177        	      put_disp();
+ 6178        	      singlemsg(0,status);
+ 6179        	    }
+ 6180        	    else
+ 6181        	    { 
+ 6182        	      sprintf(outbuf,"%%DFU-S-RBDBITMAP, BITMAP.SYS succesfully rebuild");
+ 6183        	      put_disp(); 
+ 6184        	      if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6185        	    }
+ 6186        	  }
+ 6187        	  if (rebuild) SYS$QIOW(0, chan, IO$_DEACCESS, 0,0,0,0,0,0,0,0,0);
+ 6188        	
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 18
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (8)
+
+ 6189        	  SYS$DELTVA(&bmap_addr, &bmap_addr, 0);
+ 6190        	  return(1);
+ 6191        	}
+ 6192        	
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 19
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (9)
+
+             	
+ 6193        	void add_usage(struct _usg *table, int owner, int r_size, int a_size, int hdrs)
+ 6194        	/* 
+ 6195        	   Build a disk usage table based on identifiers/uic's.
+ 6196        	*/
+ 6197        	
+ 6198        	{ 
+ 6199        	  struct _usg *usage_table;
+ 6200        	  int i,j; 
+ 6201        	  Boolean found;
+ 6202        	
+ 6203        	  found = FALSE;
+ 6204        	  i = 1;
+ 6205        	  usage_table = table;
+ 6206        	  while (!found)
+ 6207        	  { 
+ 6208        	    if (usage_table->flag == 0)
+ 6209        	    { 
+ 6210        	      usage_table->flag = 1;
+ 6211        	      found = TRUE;
+ 6212        	      usage_table->rsize = 0;
+ 6213        	      usage_table->asize = 0;
+ 6214        	      usage_table->hdr = 0;
+ 6215        	      usage_table->owner = owner;
+ 6216        	    }
+ 6217        	    else 
+ 6218        	      if (usage_table->owner == owner) 
+ 6219        	        found = TRUE;
+ 6220        	      else
+ 6221        	        if (i < 750) 
+ 6222        	        { 
+ 6223        	          i++; 
+ 6224        	          usage_table++;
+ 6225        	        }
+ 6226        	        else 
+ 6227        	          found = TRUE;
+ 6228        	  }
+ 6229        	  usage_table->hdr += hdrs;
+ 6230        	  usage_table->asize += a_size;
+ 6231        	  usage_table->rsize += r_size;
+ 6232        	}
+ 6233        	
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 20
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (10)
+
+             	
+ 6234        	void add_quota(short chan, int uic, int hdrs, int size)
+ 6235        	/* 
+ 6236        	   Add the diskquota for an undeleted file
+ 6237        	*/
+ 6238        	
+ 6239        	{ 
+ 6240        	  static struct fibdef qfib; /* File information block for quota file */
+ 6241        	  static struct _qb qblock;
+ 6242        	  struct { 
+ 6243        	    int fiblen; 
+ 6244        	    struct fibdef *fibadr; 
+ 6245        	  } 
+ 6246        	  fibdescr;
+ 6247        	  struct { 
+ 6248        	    int qlen; 
+ 6249        	    struct _qb *qadr; 
+ 6250        	  } 
+ 6251        	  qb_descr;
+ 6252        	  int len, status;
+ 6253        	  Boolean matquota;
+ 6254        	
+ 6255        	  matquota = TRUE;
+ 6256        	  /* Fill in FIB for quota file */
+ 6257        	
+ 6258        	  fibdescr.fiblen = sizeof(qfib); /* Short fib */
+ 6259        	  fibdescr.fibadr = &qfib;
+ 6260        	  len = 32;
+ 6261        	  qfib.fib$w_exctl = FIB$C_EXA_QUOTA;
+ 6262        	  qfib.fib$l_exsz = 0;
+ 6263        	  qb_descr.qlen = sizeof(qblock);
+ 6264        	  qb_descr.qadr = &qblock;
+ 6265        	  qblock.uic_long = uic;
+ 6266        	
+ 6267        	  /* Check if quota is enabled */
+ 6268        	  status = SYS$QIOW(0, chan, IO$_ACPCONTROL, &iostat, 0, 0,
+ 6269        	  &fibdescr, &qb_descr, &len, &qb_descr, 0 , 0);
+ 6270        	  if ((status &1) !=1) matquota = FALSE;
+ 6271        	  if (iostat.iosb_1 == SS$_QFNOTACT) matquota = FALSE;
+ 6272        	
+ 6273        	  if (matquota)
+ 6274        	  { 
+ 6275        	    qfib.fib$w_exctl = FIB$C_MOD_QUOTA;
+ 6276        	    qfib.fib$l_exsz = FIB$M_MOD_USE;
+ 6277        	    sprintf(outbuf,"%%DFU-I-ADDQUOTA, updating diskquota...");
+ 6278        	    put_disp();
+ 6279        	    qblock.usage += (hdrs + size);
+ 6280        	    status = SYS$QIOW(0, chan, IO$_ACPCONTROL, &iostat, 0, 0,
+ 6281        	    &fibdescr, &qb_descr, &len, &qb_descr, 0 , 0);
+ 6282        	  }
+ 6283        	}
+ 6284        	
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 21
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (11)
+
+             	
+ 6285        	void report_usage(struct _usg *table, short chan, FILE *fp, 
+ 6286        	Boolean matoutput, unsigned int uic)
+ 6287        	/* 
+ 6288        	   Report the disk usage (and quota usage)
+ 6289        	   V2.4 : if uic !=0  report only this uic
+ 6290        	*/
+ 6291        	
+ 6292        	{ 
+ 6293        	  struct _usg *usage_table;
+ 6294        	  int i, status, outlen, len; 
+ 6295        	  Boolean matquota;
+ 6296        	  static char ident[30];
+ 6297        	  static struct fibdef qfib; /* File information block for quota file */
+ 6298        	  static struct _qb qblock;
+ 6299        	  struct { 
+ 6300        	    int fiblen; 
+ 6301        	    struct fibdef *fibadr; 
+ 6302        	  } 
+ 6303        	  fibdescr;
+ 6304        	  struct { 
+ 6305        	    int qlen; 
+ 6306        	    struct _qb *qadr; 
+ 6307        	  } 
+ 6308        	  qb_descr;
+ 6309        	  $DESCRIPTOR(id_descr , ident);
+ 6310        	  $DESCRIPTOR(out_descr , outbuf);
+ 6311        	  $DESCRIPTOR(ctrstr,"!%I");
+ 6312        	  $DESCRIPTOR(ctrstr2,"!30AS!9UL/!9<!UL!>!6UL  !9UL/!9<!UL!>");
+ 6313        	  $DESCRIPTOR(ctrstr3,"!30AS!9UL/!9<!UL!>!6UL");
+ 6314        	
+ 6315        	  /* Fill in FIB for quota file */
+ 6316        	
+ 6317        	  fibdescr.fiblen = sizeof(qfib); /* Short fib */
+ 6318        	  fibdescr.fibadr = &qfib;
+ 6319        	  qfib.fib$w_exctl = FIB$C_EXA_QUOTA;
+ 6320        	  qfib.fib$l_exsz = 0;
+ 6321        	  qb_descr.qlen = sizeof(qblock);
+ 6322        	  qb_descr.qadr = &qblock;
+ 6323        	  len = 0;
+ 6324        	  qblock.uic_long=0;
+ 6325        	  matquota = TRUE;
+ 6326        	
+ 6327        	  /* Check if quota is enabled */
+ 6328        	  status = SYS$QIOW(0, chan, IO$_ACPCONTROL, &iostat, 0, 0,
+ 6329        	  &fibdescr, &qb_descr, &len, &qb_descr, 0 , 0);
+ 6330        	  if ((status &1) !=1) matquota = FALSE;
+ 6331        	  if (iostat.iosb_1 == SS$_QFNOTACT) matquota = FALSE;
+ 6332        	
+ 6333        	  outlen = 0;
+ 6334        	  if(matquota==TRUE) 
+ 6335        	  { 
+ 6336        	    sprintf(outbuf,
+ 6337        	    "\n      ***** Disk Usage Table (from INDEXF.SYS and QUOTA.SYS) *****"); 
+ 6338        	    put_disp(); 
+ 6339        	    if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6340        	    sprintf(outbuf," Identifier/UIC                   Used/Allocated   Headers   Quota Used/Perm");
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 22
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (11)
+
+ 6341        	    put_disp(); 
+ 6342        	    if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6343        	  }
+ 6344        	  else
+ 6345        	  { 
+ 6346        	    sprintf(outbuf,"\n        ***** Disk Usage Table (from INDEXF.SYS) *****");
+ 6347        	    put_disp(); 
+ 6348        	    if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6349        	    sprintf(outbuf," Identifier/UIC                   Used/Allocated   Headers");
+ 6350        	    put_disp(); 
+ 6351        	    if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6352        	  }
+ 6353        	  sprintf(outbuf," ---------------------------------------------------------------------------");
+ 6354        	  put_disp(); 
+ 6355        	  if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6356        	  i = 1;
+ 6357        	  usage_table = table;
+ 6358        	  while ((i < 750) && (usage_table->flag == 1))
+ 6359        	  { 
+ 6360        	    if ((uic == 0 ) || (uic == usage_table->owner))
+ 6361        	    { 
+ 6362        	      status = SYS$FAO(&ctrstr, &id_descr.dsc$w_length, &id_descr,
+ 6363        	      usage_table->owner);
+ 6364        	      if ((status &1) != 1) singlemsg(0,status);
+ 6365        	      if (matquota == TRUE) /* Get the actual quota */
+ 6366        	      { 
+ 6367        	        qblock.uic_long = usage_table->owner;
+ 6368        	        status = SYS$QIOW(0, chan, IO$_ACPCONTROL, &iostat, 0, 0,
+ 6369        	        &fibdescr, &qb_descr, &len, &qb_descr, 0 , 0);
+ 6370        	        if (((status &1) !=1) || (iostat.iosb_1 == SS$_NODISKQUOTA))
+ 6371        	        { 
+ 6372        	          qblock.usage = 0;
+ 6373        	          qblock.permquota = 0;
+ 6374        	        }
+ 6375        	        status = SYS$FAO(&ctrstr2, &outlen, &out_descr, &id_descr,
+ 6376        	        usage_table->rsize, usage_table->asize, usage_table->hdr,
+ 6377        	        qblock.usage, qblock.permquota);
+ 6378        	        if ((status &1) != 1) singlemsg(0,status);
+ 6379        	      }
+ 6380        	      else
+ 6381        	      {  
+ 6382        	        status = SYS$FAO(&ctrstr3, &outlen, &out_descr, &id_descr,
+ 6383        	        usage_table->rsize, usage_table->asize, usage_table->hdr);
+ 6384        	        if ((status &1) != 1) singlemsg(0,status);
+ 6385        	      }
+ 6386        	      if (matoutput) fprintf(fp,"%*s\n",outlen,outbuf);
+ 6387        	      outbuf[outlen] = '\0';
+ 6388        	      put_disp();
+ 6389        	      id_descr.dsc$w_length = 30;
+ 6390        	    }
+ 6391        	    i++; 
+ 6392        	    usage_table++;
+ 6393        	  }
+ 6394        	}
+ 6395        	
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 23
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (12)
+
+             	
+ 6396        	void check_usage(struct _usg *table, short chan, FILE *fp, Boolean reb,
+ 6397        	Boolean matoutput)
+ 6398        	/* 
+ 6399        	   Compare the usage calculated in the usage table
+ 6400        	   with the diskquota (if enabled).
+ 6401        	   Report mismatches, and repair them if rebuild is requested.
+ 6402        	   This routine is called by VERIFY
+ 6403        	*/
+ 6404        	
+ 6405        	{ 
+ 6406        	  struct _usg *usage_table;
+ 6407        	  int i, status, len; 
+ 6408        	  unsigned int exp_quota;
+ 6409        	  Boolean matquota, trigger, reb_done;
+ 6410        	  static char ident[30];
+ 6411        	  static struct fibdef qfib; /* File information block for quota file */
+ 6412        	  struct { 
+ 6413        	    int fiblen; 
+ 6414        	    struct fibdef *fibadr; 
+ 6415        	  } 
+ 6416        	  fibdescr;
+ 6417        	  static struct _qb qblock;
+ 6418        	  struct { 
+ 6419        	    int qlen; 
+ 6420        	    struct _qb *qadr; 
+ 6421        	  } 
+ 6422        	  qb_descr;
+ 6423        	  $DESCRIPTOR(id_descr , ident);
+ 6424        	  $DESCRIPTOR(ctrstr,"!%I");
+ 6425        	
+ 6426        	  /* Fill in FIB for quota file */
+ 6427        	
+ 6428        	  fibdescr.fiblen = sizeof(qfib); /* Short fib */
+ 6429        	  fibdescr.fibadr = &qfib;
+ 6430        	  qfib.fib$w_exctl = FIB$C_EXA_QUOTA;
+ 6431        	  qfib.fib$l_exsz = 0;
+ 6432        	  qb_descr.qlen = sizeof(qblock);
+ 6433        	  qb_descr.qadr = &qblock;
+ 6434        	  qblock.uic_long=0;
+ 6435        	  matquota = TRUE;
+ 6436        	  i = 1;
+ 6437        	  len = 32;
+ 6438        	  /* Check if quota is enabled */
+ 6439        	  status = SYS$QIOW(0, chan, IO$_ACPCONTROL, &iostat, 0, 0,
+ 6440        	  &fibdescr, &qb_descr, &len, &qb_descr, 0 , 0);
+ 6441        	  if ((status &1) !=1) matquota = FALSE;
+ 6442        	  if (iostat.iosb_1 == SS$_QFNOTACT) matquota = FALSE;
+ 6443        	  reb_done = FALSE;
+ 6444        	  if(matquota==TRUE) 
+ 6445        	  { 
+ 6446        	    usage_table = table;
+ 6447        	    sprintf(outbuf,"%%DFU-I-CHKQUOTA, Checking QUOTA.SYS...");
+ 6448        	    put_disp(); 
+ 6449        	    if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6450        	    while ((i < 750) && (usage_table->flag == 1) && (ctrlc != 1) )
+ 6451        	    { 
+
+DFU_BITMAP                                                      13-AUG-1996 10:16:10    DEC C      V5.2-003                 Page 24
+V1.0                                                            13-AUG-1996 10:15:41    DFU_BITMAP.C;2 (12)
+
+ 6452        	      trigger = FALSE;
+ 6453        	      qblock.uic_long = usage_table->owner;
+ 6454        	      status = SYS$QIOW(0, chan, IO$_ACPCONTROL, &iostat, 0, 0,
+ 6455        	      &fibdescr, &qb_descr, &len, &qb_descr, 0 , 0);
+ 6456        	      if (((status &1) !=1) || (iostat.iosb_1 == SS$_NODISKQUOTA))
+ 6457        	      { 
+ 6458        	        qblock.usage = 0;
+ 6459        	        qblock.permquota = 0;
+ 6460        	      }
+ 6461        	      else trigger = TRUE;
+ 6462        	      exp_quota = usage_table->asize + usage_table->hdr;
+ 6463        	      if (exp_quota != qblock.usage)
+ 6464        	      { 
+ 6465        	        SYS$FAO(&ctrstr, &id_descr.dsc$w_length, &id_descr,
+ 6466        	        usage_table->owner);
+ 6467        	        sprintf(outbuf,"%%DFU-W-QUOTAERR, %.*s has %d blocks used, QUOTA indicates %d blocks"
+ 6468        	          ,id_descr.dsc$w_length, ident, exp_quota, qblock.usage);
+ 6469        	        put_disp(); 
+ 6470        	        if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6471        	        id_descr.dsc$w_length = 30;
+ 6472        	        if ((reb) && (trigger)) /* rebuild if there was an entry for this UIC*/
+ 6473        	        { 
+ 6474        	          qfib.fib$w_exctl = FIB$C_MOD_QUOTA;
+ 6475        	          qfib.fib$l_exsz = FIB$M_MOD_USE;
+ 6476        	          qblock.usage = exp_quota;
+ 6477        	          status = SYS$QIOW(0, chan, IO$_ACPCONTROL, &iostat, 0, 0,
+ 6478        	          &fibdescr, &qb_descr, &len, &qb_descr, 0 , 0);
+ 6479        	          reb_done = TRUE;
+ 6480        	          qfib.fib$w_exctl = FIB$C_EXA_QUOTA;
+ 6481        	          qfib.fib$l_exsz = 0;
+ 6482        	        }
+ 6483        	      }
+ 6484        	      i++; 
+ 6485        	      usage_table++;
+ 6486        	    }
+ 6487        	  }
+ 6488        	  if ((reb) && (reb_done))
+ 6489        	  { 
+ 6490        	    sprintf(outbuf,"%%DFU-S-REBQUOTA, QUOTA.SYS succesfully rebuild");
+ 6491        	    put_disp(); 
+ 6492        	    if (matoutput) fprintf(fp,"%s\n",outbuf);
+ 6493        	  }
+ 6494        	}
+
+ 
+ 
+Command Line
+------------
+ 
+CC/DECC/EXTERN=COMMON/SHARE/WARN=NOINFO DFU_BITMAP/LIS
+

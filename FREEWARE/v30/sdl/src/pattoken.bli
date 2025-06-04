@@ -1,0 +1,293 @@
+!<BLF/REQUIRE'PATBLF_INI'>
+module PATTOKEN (ident = 'X1-001'
+	%require ('PATSWITCH_REQ')
+		) =
+begin
+!
+!			  COPYRIGHT (c) 1982 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:	PAT parser
+!
+! ABSTRACT:
+!
+!	PATTOKEN.BLI.  Routines and data structures to manage
+!	the lexical token buffer.
+!
+!	This file is language independent.
+!
+! ENVIRONMENT:
+!
+! AUTHOR:  C. Mitchell, CREATION DATE:  9-Nov-1981
+!
+! MODIFIED BY:
+!
+!--
+
+!
+! INCLUDE FILES:
+!
+
+require 'PATPROLOG_REQ';
+
+library 'PATTOKEN_LIB';
+
+library 'PAT_LANGSP_LIBRARY';
+
+library 'DEB_LIB';
+
+!
+! TABLE OF CONTENTS FOR INTERNAL ROUTINES:
+!
+!	NONE
+!
+!
+! MACROS:
+!
+!
+! EQUATED SYMBOLS:
+!
+
+literal
+    MAX_BUFFERED_TOKENS = 12,
+    MAX_SAVED_BUF = 2;
+
+!
+! OWN STORAGE:
+!
+
+own
+    SAVED_BUFFER : vector [MAX_SAVED_BUF*%upval],
+    TOKEN_BUFFER : vector [MAX_BUFFERED_TOKENS*%upval],
+    PAT$TOKEN_BUF_TEMP_HEAD;
+
+global
+    PAT$TOKEN_BUF_LOW,
+    PAT$TOKEN_BUF_HIGH,
+    PAT$TOKEN_BUF_HEAD,
+    PAT$TOKEN_BUF_TAIL,
+    PAT$TOKEN_CURRENT_PTR;
+
+
+global routine PAT$TOKEN_INIT_BUFFER : novalue =
+    begin
+    PAT$TOKEN_BUF_LOW = TOKEN_BUFFER;
+    PAT$TOKEN_BUF_HIGH = TOKEN_BUFFER + (MAX_BUFFERED_TOKENS - 1)*%upval;
+    PAT$TOKEN_BUF_HEAD = TOKEN_BUFFER;
+    PAT$TOKEN_BUF_TAIL = TOKEN_BUFFER;
+    PAT$TOKEN_BUF_TEMP_HEAD = TOKEN_BUFFER;
+    end;
+
+
+global routine PAT$TOKEN_GET (CONSUME) =
+    begin
+
+    if .CONSUME
+    then 					! Consume tokens
+	PAT$TOKEN_GET_CONSUME
+    else 					! Don't consume tokens
+
+	if (.PAT$TOKEN_BUF_TEMP_HEAD eql .PAT$TOKEN_BUF_TAIL)
+	then 					! End of buffer
+	    begin
+	    PAT$TOKEN_CURRENT_PTR = LS_GET_LEX_TOKEN;
+	    PAT$TOKEN_ADVANCE (PAT$TOKEN_BUF_TAIL);
+	    .PAT$TOKEN_BUF_TEMP_HEAD = .PAT$TOKEN_CURRENT_PTR;
+	    PAT$TOKEN_ADVANCE (PAT$TOKEN_BUF_TEMP_HEAD);
+	    end
+	else 					! Unread tokens in buffer
+	    begin
+	    PAT$TOKEN_CURRENT_PTR = ..PAT$TOKEN_BUF_TEMP_HEAD;
+	    PAT$TOKEN_ADVANCE (PAT$TOKEN_BUF_TEMP_HEAD);
+	    end;
+
+    return LS_LEX_TERM (PAT$TOKEN_CURRENT_PTR)
+    end;					! Of routine PAT$TOKEN_GET
+
+
+global routine PAT$TOKEN_SAVE (TOKEN_PTR, PERMANENT) : novalue =
+    begin
+
+    if .PERMANENT
+    then
+	PAT$TOKEN_SAVE_PERMANENT (.TOKEN_PTR)
+    else
+	begin
+	PAT$TOKEN_BACKUP (PAT$TOKEN_BUF_TEMP_HEAD);
+	.PAT$TOKEN_BUF_TEMP_HEAD = .TOKEN_PTR;
+	end;
+
+    end;					! Of routine PAT$TOKEN_SAVE
+
+
+global routine PAT$TOKEN_SAVE_BUF (SAVE_UPTO) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Save the first SAVE_UPTO tokens (or all if there are not that many)
+!	from the token buffer into temporary storage so that they can be
+!	restored even if they are clobbered by the error recovery routines.
+!
+! FORMAL PARAMETERS:
+!
+!	SAVE_UPTO	- Maximum number of tokens which must be saved.
+!
+! ROUTINE VALUE:
+!
+!	NUM_SAVED, the number of tokens actually saved in SAVE_BUFFER
+!
+!--
+
+    begin
+
+    local
+	NUM_SAVED;
+
+    DEB_ASSERT ((.SAVE_UPTO leq MAX_SAVED_BUF), 'SAVED_BUFFER overflowed');
+    NUM_SAVED = 0;
+    PAT$TOKEN_RESET_BUFFER ();
+
+    while (.PAT$TOKEN_BUF_TEMP_HEAD neq .PAT$TOKEN_BUF_TAIL) and 	!
+	(.NUM_SAVED lss .SAVE_UPTO) do
+	begin
+	PAT$TOKEN_GET (FALSE);
+	SAVED_BUFFER [.NUM_SAVED*%upval] = .PAT$TOKEN_CURRENT_PTR;
+	NUM_SAVED = .NUM_SAVED + 1;
+	end;
+
+    PAT$TOKEN_RESET_BUFFER ();
+    return .NUM_SAVED
+    end;					! End of PAT$TOKEN_SAVE_BUF
+
+global routine PAT$TOKEN_RESTORE_BUF (NUM_TOKENS) : novalue =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Restore the token buffer to the state it was in before being saved.
+!
+! FORMAL PARAMETERS:
+!
+!	NUM_TOKENS	- The number of tokens which were actually saved,
+!			  thus the number which must be restored.
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+!--
+
+    begin
+
+    incr INDEX1 from 0 to (.NUM_TOKENS - 1) do
+	PAT$TOKEN_ADVANCE (PAT$TOKEN_BUF_HEAD);
+
+    decr INDEX2 from (.NUM_TOKENS - 1) to 0 do
+	PAT$TOKEN_SAVE (.SAVED_BUFFER [.INDEX2*%upval], TRUE);
+
+    PAT$TOKEN_RESET_BUFFER ();
+    end;					! End of PAT$TOKEN_RESTORE_BUF
+
+
+global routine PAT$TOKEN_RESET_BUFFER : novalue =
+    begin
+    PAT$TOKEN_BUF_TEMP_HEAD = .PAT$TOKEN_BUF_HEAD;
+    end;
+
+
+global routine PAT$TOKEN_TEMP_HEAD =
+    begin
+    return .PAT$TOKEN_BUF_TEMP_HEAD
+    end;
+
+
+global routine PAT$TOKEN_SET_TEMP_HEAD (TEMP_HEAD) : novalue =
+    begin
+    PAT$TOKEN_BUF_TEMP_HEAD = .TEMP_HEAD;
+    end;
+
+global routine PAT$TOKEN_SET_HEAD (HEAD) : novalue =
+    begin
+    PAT$TOKEN_BUF_HEAD = .HEAD;
+    end;
+
+!<BLF/PAGE>
+%if PATBLSEXT_DEBUGGING
+%then
+
+global routine PAT$DUMP_TKN_BUF : novalue =
+    begin
+
+    local
+	SAVE_TEMP_HEAD,
+	SAVE_PAT$TOKEN_CURRENT_PTR;
+
+    SAVE_TEMP_HEAD = .PAT$TOKEN_BUF_TEMP_HEAD;
+    SAVE_PAT$TOKEN_CURRENT_PTR = .PAT$TOKEN_CURRENT_PTR;
+    PUT_MSG_EOL ('PAT$DUMP_TKN_BUF:');
+    PUT_EOL ();
+    PAT$TOKEN_BUF_TEMP_HEAD = .PAT$TOKEN_BUF_HEAD;
+    PUT_MSG_EOL ('TOKEN BUFFER :');
+    PUT_EOL ();
+
+    while (.PAT$TOKEN_BUF_TEMP_HEAD neq .PAT$TOKEN_BUF_TAIL) do
+	begin
+	PAT$TOKEN_GET (FALSE);
+	LS_DUMP_TOK (.PAT$TOKEN_CURRENT_PTR);
+	PUT_EOL ();
+	end;
+
+    PUT_MSG_EOL ('END OF TOKEN BUFFER');
+    PUT_EOL ();
+    PUT_EOL ();
+    PAT$TOKEN_BUF_TEMP_HEAD = .SAVE_TEMP_HEAD;
+    PUT_MSG_EOL ('TEMPORARY TOKEN BUFFER :');
+    PUT_EOL ();
+
+    while (.PAT$TOKEN_BUF_TEMP_HEAD neq .PAT$TOKEN_BUF_TAIL) do
+	begin
+	PAT$TOKEN_GET (FALSE);
+	LS_DUMP_TOK (.PAT$TOKEN_CURRENT_PTR);
+	PUT_EOL ();
+	end;
+
+    PUT_MSG_EOL ('END OF TEMPORARY TOKEN BUFFER');
+    PUT_EOL ();
+    PAT$TOKEN_BUF_TEMP_HEAD = .SAVE_TEMP_HEAD;
+    PAT$TOKEN_CURRENT_PTR = .SAVE_PAT$TOKEN_CURRENT_PTR;
+    end;					! Of PAT$DUMP_TKN_BUF
+
+%fi
+
+%if PATBLSEXT_DEBUGGING
+%then
+
+global routine PAT$DUMP_TOKEN : novalue =
+    begin
+    PUT_MSG_EOL ('PAT$DUMP_TOKEN		PAT$TOKEN_CURRENT_PTR points to:');
+    PUT_EOL ();
+    LS_DUMP_TOK (.PAT$TOKEN_CURRENT_PTR);
+    end;					! Of PAT$DUMP_TOKEN
+
+%fi
+
+end						!End of module
+
+eludom

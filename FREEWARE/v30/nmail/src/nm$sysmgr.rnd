@@ -1,0 +1,404 @@
+.spr0.ap.ebb.date.fl subs
+.require "ident"
+.title $ident() System Manager's manual
+.subtit $ident()
+###
+.b6
+.c;DEC INTERNAL USE ONLY
+.b
+.c;N#M#A#I#L
+.b
+.c;SYSTEM MANAGER'S MANUAL
+.b4
+
+This document contains system management information for $ident(). 
+Nmail is a tool which allows mail sent from the VMS
+MAIL utility to be queued for subsequent delivery, with recovery from
+network failures and similar problems.
+
+This Nmail kit is for use only within DEC.
+DEC customers (in the USA at least) can buy Nmail through the ASSETS 
+software library, also known as the Digital Solutions Library.
+
+Nmail was written by Dave Porter and is entirely unfunded; 
+please send comments, suggestions, gratitude and
+legal tender to MU::PORTER. Supply of this software and documentation
+does not commit me to anything, anytime.
+
+.pg;.do contents "/deepest=2/double_space"
+
+.pg;.hl1 INTRODUCTION
+
+Nmail works in conjunction with the VMS MAIL utility to
+implement queued transmission of mail.  This allows you to
+queue up mail to nodes that are currently unreachable, for
+example, or to transmit long documents without needing to
+wait until transmission is complete.
+
+To send mail with Nmail, you run the VMS MAIL utility, and prefix addresses
+with "NM%". This causes the Nmail interface code to be invoked, and
+an entry is made in the Nmail queue (a VMS server queue under the jurisdiction
+of the job controller).
+
+The Nmail queue is processed by the Nmail server symbiont, which
+handles the MAIL-11 protocol directly, and takes care of job
+resubmission as necessary to recover from network failures. In
+the case of errors which are deemed irrecoverable, a report
+wil be mailed to the original sender, and the message text returned.
+
+No special software is needed at the target node; mail sent by Nmail
+is received by the standard MAIL utility at the target.
+                                        
+$ident() requires VMS V5.4 or later on VAX systems, or 
+VMS V1.0 or later on Alpha systems.
+
+This manual contains information of interest to the system manager,
+including details of a few privileged commands.  The information
+needed by ordinary users can be found in the User Guide (file NM_$UGUIDE.DOC)
+and in online help.
+
+.pg.hl1 COMPARISON WITH PREVIOUS VERSIONS
+.require "nm$new.rno"
+
+
+.pg;.hl1 INSTALLATION 
+
+.hl2 Running VMSINSTAL
+.require "nm$install.rno"
+
+.hl2 Installation Verification
+After all the Nmail files have been copied to their target
+directories, the Installation Verification
+Procedure  will (if selected) 
+send a message via Nmail to the username under which
+you're currently logged in.  It should take under a minute for the
+mail to arrive; if it fails to arrive then something's amiss.
+A later section of this document describes some steps which
+may assist you in isolating the problem.
+
+The VMS username under which you perform the installation must
+be able to send and receive mail, or else the IVP will fail to work correctly.
+To avoid confusion, mail to this username should not be forwarded; use
+MAIL's SHOW FORWARD command to check. Forwarding will not actually prevent 
+the IVP from working but makes it more difficult to determine what's
+going on in the unlikely event of the IVP failing.
+
+.hl2 Completing the installation
+If you are installing Nmail in a cluster then you need to take further 
+action to make Nmail available throughout the cluster.   You must log in to
+the system manager's account, or some other suitably privileged account,
+on each of the other nodes; type "@SYS_$STARTUP:NM_$STARTUP" in order to
+complete the installation.
+
+This step is necessary because, although VMSINSTAL may automatically execute
+NM_$STARTUP.COM, it can only do so for the system on which 
+it is actually running.
+
+The SYSMAN utility may help make it easier for you to perform
+these operations throughout the cluster, without the need to
+log in to each and every cluster member.  Consult VMS documentation
+for details of SYSMAN operation, in particular the DO command.
+
+You must also reinstall the DCLTABLES image on each other cluster node.
+DCLTABLES was modified during installation to include the NMAIL
+command syntax, but VMSINSTAL is only able to replace the image on the
+running system. Use the INSTALL REPLACE command to reinstall DCLTABLES.
+
+Finally, you must edit your system startup procedures so that Nmail is
+started up whenever the system is rebooted.  How to do this is described in the
+next section.
+
+.hl2 Tweaking things later
+
+Your answers to the installation questions are recorded at the top
+of the startup command procedure SYS_$STARTUP:NM_$STARTUP.COM.  You
+can edit these lines (and only these lines) to make changes to your
+configuration.  For example, creating extra Nmail execution queues
+is achieved by simply changing the appropriate number assigned in
+NM_$STARTUP.COM.
+
+After editing NM_$STARTUP.COM, make sure you stop all running queues 
+(NMAIL#STOP#QUEUE) before invoking the new 
+version.  If the queues are still running, then NM_$STARTUP won't 
+give any error, but it won't exactly work as expected either, since
+any INITIALIZE command qualifiers which attempt to modify a 
+running queue are quietly ignored by the job controller.
+
+
+.pg;.hl1 SYSTEM STARTUP PROCEDURES
+You must edit your system startup procedures so that Nmail is correctly
+initialised whenever the system is rebooted. If your system is part of a
+cluster 
+then you must do this for all nodes in the cluster which need
+access to Nmail, not just those which you selected for execution queues.
+
+To initialise Nmail, insert the following line at a suitable place in your
+system startup command file.
+.b;########_$#@SYS_$STARTUP:NM_$STARTUP
+
+You must place this line such that it will only be executed 
+after DECnet is up-and-running. In particular, all node names must be defined
+before the Nmail symbiont queues can be started, or else there is a risk
+that mail will fail with a spurious "unknown node" error.
+
+If you  normally allow users to log in before DECnet is fully started, then
+it's best to initialise Nmail in two stages.  Firstly, execute the following 
+line to initialise everything that's needed so that users can use Nmail.
+This should preferably be done before users can log in.
+.b;########_$#@SYS_$STARTUP:NM_$STARTUP##INIT
+
+Secondly, at some point after all DECnet node names have been defined, execute
+the following line to complete the initialisation by starting the queues.
+.b;########_$#@SYS_$STARTUP:NM_$STARTUP##START
+
+You must choose to either use the single stage startup (just one call to 
+NM_$STARTUP without parameters) or two stage startup (two calls, the first
+specifying INIT, the second specifying START). 
+
+.pg.hl1 FILES WHICH WILL APPEAR ON YOUR SYSTEM
+Installation of $ident() will result in the following changes being
+made to your system:
+
+.hl2 Files 
+The following files are copied to your system from the Nmail kit
+when you execute the VMSINSTAL procedure:
+.lt
+
+	SYS$SHARE:NM_MAILSHR.EXE 	Interface to VMS MAIL
+	SYS$SHARE:NM_MAILSHRP.EXE 	Privileged interface routines
+
+	SYS$SYSTEM:NM$DAEMON.EXE   	Nmail daemon (symbiont)
+	SYS$SYSTEM:NM$QUEMAN.EXE	Utility commands
+	SYS$SYSTEM:NM$ERROR.DAT   	Hard error message list
+
+	SYS$STARTUP:NM$STARTUP.COM   	Startup command file
+
+	SYS$HELP:NM$UGUIDE.DOC	 	User Guide
+	SYS$HELP:NM$SYSMGR.DOC		System Manager's manual
+.el
+
+All of the above files are owned by the system UIC and have 
+standard protection
+codes of (SYSTEM=RWED,#OWNER=RWED,#GROUP=RWED,#WORLD=RE).  You can change
+the protection in any way that you think suitable to your system security
+requirements. The effects of changing protection should be obvious to
+you.
+
+.hl2 Work directory
+The installation procedure will create the work directory 
+SYS_$COMMON:[NMAIL] if it does not already exist.  Nmail uses
+this directory to store the 'control files' that it uses. Each control
+file contains all information needed to process one Nmail'd mail message.
+The control file is deleted when a message has been fully processed.
+
+The directory is owned by the system UIC and the protection is set to 
+(SYSTEM=RWE,#OWNER=RWE,#GROUP,#WORLD). The world is thus
+unable to create files in this directory, but Nmail is able to
+do so because it runs in a privileged mode.
+
+Individual control files are created with owner set to the system
+UIC and protection (SYSTEM=RWD,#OWNER=RWD,#GROUP,#WORLD) so cannot
+be read or modified by the world, thus ensuring a reasonable level
+of privacy.
+
+You can if you wish place the work directory on another disk, but
+you must make sure the disk is available whenever users can log
+in or the Nmail queues are running.  Create the directory with
+appropriate ownership and protection (see above), and then
+edit NM_$STARTUP.COM to change the 'work__directory' assignment
+in the first few lines of the file.
+
+.hl2 Queues
+The Nmail startup procedure NM_$STARTUP.COM, which is executed during the
+installation procedure and also at every system startup, initialises
+the queues used by the Nmail system.
+
+Generally speaking, there is a single generic queue called NM_$QUEUE
+feeding some number of execution queues called NM_$QUEnn, where nn is
+a two-digit number.  Systems that have only one execution
+queue will not have NM_$QUEnn queues but will have NM_$QUEUE as the
+execution queue.
+
+The queues are owned by the system UIC and the 
+protection code is set to (SYSTEM=E,#OWNER=D,#GROUP=R,#WORLD=R).
+This prevents non-system users from submitting random files into
+the queue.
+Nmail is able to submit legal Nmail jobs since it runs in
+a privileged mode.
+Non-privileged users are only able to read (display) the queues and
+to delete or modify jobs that they own. 
+
+I recommend that you do not change the protection code on the queues,
+as no benefit can be obtained by so doing, but detrimental effects
+can certainly result.
+
+.hl2 Other stuff
+
+Help information will
+be included in the system help library under the topic "Nmail".
+
+The DCL command "NMAIL" will be added to your system-wide DCL tables.
+This command invokes the utilities used to display and cancel Nmail jobs.
+See the User Guide or the online help for command formats.
+
+.pg;.hl1 TAILORABLE OPTIONS
+
+The following options allow the default behaviour of Nmail to
+be modified for the entire system.    
+There are similar options available per user or per message;
+see the Nmail User Guide for details of these.
+
+.hl2 Retry interval (NM_$DELTA)
+The default retry period is 30 minutes. This can be changed by defining
+the logical name NM_$DELTA in the LNM_$SYSTEM table. The equivalence must
+be a valid VMS delta time string. Nmail will not permit you to set
+the retry period to less than 10 minutes.
+
+A VMS delta time string has the format "dd#hh:mm:ss.cc", where
+dd, hh, mm, ss and cc give the number of days, hours, minutes, seconds
+and centiseconds, respectively, in the time interval.
+For example, defining NM_$DELTA as "0#01:00:00.00" will
+change the retry period to one hour. 
+
+The symbiont looks at this logical
+name only during initialisation; any redefinition will not take effect until
+you stop and restart the symbiont. To do this, use:
+.literal
+
+	$ NMAIL STOP QUEUE /LOG
+	$ NMAIL START QUEUE /LOG
+.end literal
+
+.hl2 Expiration period (NM_$EXPIRE)
+The default expiration period is 3 days. This can be changed by defining
+the logical name NM_$EXPIRE in the LNM_$SYSTEM table.
+The equivalence must be a valid VMS delta time string, as defined above.
+
+As with NM_$DELTA, the symbiont only looks at this logical name during
+initialisation, so you must stop and restart the queues to change 
+the expiration period.
+                                   
+.hl2 Irrecoverable error analysis
+If Nmail encounters some error whilst sending your message, it examines
+the text messages returned from the network in order to decide whether the
+condition is potentially recoverable and hence whether it should retry later
+of else give up now.
+
+A text message indicates an irrecoverable error if it contains one of the
+text fragments listed in SYS_$SYSTEM:NM_$ERROR.DAT; otherwise it is 
+recoverable.  You can edit this file to add extra conditions that you think
+should be considered fatal; please contact me if you do so, and I will 
+consider adding your message to the released file.
+
+If you edit the error data file, then you must stop and restart the symbiont
+before the changes will be effective.
+
+
+.pg.hl1 SYSTEM MANAGEMENT COMMANDS
+
+Nmail provides a few commands which are of use only to system
+managers and operators. They are described below.
+
+.hl2 Stopping Nmail queues
+.require "nm$stop.rno"
+
+.hl2 Restarting Nmail queues
+.require "nm$start.rno"
+
+.hl2 Verifying queue consistency
+.require "nm$repair.rno"
+
+.pg.hl1 MISCELLANEOUS SYSTEM MANAGEMENT INFORMATION
+
+.hl2 Abnormal error conditions
+
+If an Nmail job suffers from some abnormal error condition which cannot
+be reported back to the original sender, for example a corrupt control file,
+then the symbiont will broadcast a message to the operator console
+(via OPCOM class CENTRAL if OPCOM is running, otherwise directly to
+device OPA0:).
+
+Such errors generally indicate
+internal Nmail problems and will be few and far between; however, they can also
+be caused by deliberate mischief, for example a privileged user SUBMITting an
+ordinary text file into the Nmail queue.
+
+If a fatal run error occurs, the job will be left in the queue in a "completed"
+state -- the output from the NMAIL SHOW QUEUE command will include the
+status message "error in execution".
+
+To delete the entry use the NMAIL
+CANCEL command.  To reattempt the job, if
+you think the error may have been a transient condition, use the
+NMAIL RELEASE command.  Both of these commands are described in
+the User Guide.
+        
+.hl2 Loss of system queue file
+
+If for some reason, your system queue file is deleted, corrupted,
+or otherwise suffers some disaster, then don't worry: you haven't
+lost all the unsent mail. Use the Nmail Queue Repair utility (described
+in this manual) to recover from the damage.
+
+.hl2 What to do if the IVP message never comes
+
+If the Nmail IVP appears to execute correctly, but you never receive
+the mail message which it sends to you, then check the following
+things:
+
+.ls "."
+.le;Is the job still in the queue?  Use the command NMAIL SHOW QUEUE /FULL
+to check.  If it's not there, then the message probably has been sent ok,
+but perhaps the account you're using for the installation has
+mail forwarded elsewhere.
+.le;If the job is in the queue, has Nmail in fact tried to
+send it yet?  The output from the Nmail SHOW QUEUE command will
+tell you this information.  If the message has not yet been attempted,
+then it could be that all Nmail queues are busy (if this isn't
+the first time Nmail has been installed, and other users
+have messages waiting). 
+.le;Another possibility, if the message hasn't been attempted at all,
+is that you didn't include an execution queue on the current
+node, and you have not yet run NM_$STARTUP.COM on the other nodes.
+Thus there is no active execution queue available for
+your message.
+.le;If Nmail has tried to deliver your message, what error did
+it encounter?  The last error encountered is displayed in
+the output from NMAIL SHOW QUEUE /FULL.  If it is something
+such as "network partner exited", it indicates a problem with
+the DECnet mail server on your node.
+.le;To show that it is your local mail server's problem, try 
+sending a message without using Nmail.  Send the message to
+0::username -- the use of "0::" forces MAIL to use DECnet
+even for local delivery.
+.els
+
+
+.hl2 Protocol trace
+You probably don't ever need to do this, but if you're
+very unlucky, you'll experience an Nmail problem that
+requires a MAIL-11 protocol trace to resolve.
+
+To enable Nmail tracing, you must define the logical
+name NM_$TRACE before starting the Nmail queues:
+.b
+.br;########_$#NMAIL STOP QUEUE
+.br;########_$#ASSIGN/SYSTEM 1 NM_$TRACE
+.br;########_$#NMAIL START QUEUE
+
+Each symbiont appends trace data to the file SYS_$MANAGER:NMAILTRACE__nnnn.LOG,
+where the "nnnn" is the same number as the number in
+the name of the queue that this symbiont serves.  If NM_$QUEUE is
+an execution queue, the symbiont will use file NMAILTRACE.LOG.
+
+The trace information is cryptic, and requires an understanding
+of MAIL-11 to appreciate it.  Only the first and last blocks
+of the text transfer phase of the protocol are traced.  In addition,
+only 16 or so characters are traced from each message, in order
+to protect the privacy of the sender.
+
+Don't leave trace enabled when you don't need it, unless you've
+got disk space to waste on frivolous things.
+
+.b2
+[End of Nmail System Manager's manual]

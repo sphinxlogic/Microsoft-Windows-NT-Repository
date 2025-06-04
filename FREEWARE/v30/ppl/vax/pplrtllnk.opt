@@ -1,0 +1,227 @@
+! PPLRTLLNK.OPT - Linker options file for building PPLRTL.EXE
+!
+! 1-001 - Original.						CMF 24-NOV-1986
+!
+! 1-002 - Resolve undefined symbols by requireing LIBDEF.	CMF 16-JAN-1987
+!
+! 1-003 - Added PPLCREBARR.					CMF 27-JAN-1987
+!
+! 1-004 - Change name of message file from PPl$MSG to		CMF 16-FEB-1987
+!	  PPL$MSGDEF to be consistent with other message
+!	  files of the RTL.
+!
+! 1-005	- Add ppl$event.					DLR 30-JUL-1987
+!
+! 1-006 - Add ppl$m_nozero, ppl$m_notify_one, ppl$m_spin_wait,	DLR  9-NOV-1987
+!	  ppl$k_init_size.
+!
+! 1-007 - Add ppl$k_abnormal_exit, ppl$k_normal_exit.		DLR 14-DEC-1987
+!
+! V52-1 - Bumped the minor version ID to 2 to solve potential	WWS 06-JAN-1989
+!	  version mismatch problems surrounding PPLRTL.EXE
+!	  files which are distributed with VAX C V3.0
+!
+! V53-1 - Added modules PPL$Delete and PPL$WorkQ to the library WWS 30-Jun-1989
+!	- The variables PPL$$GL_PPLSect and PPL$$GL_Context are
+!	  now universal symbols
+!	- Added new application creation flags and messages
+!	- Added new work queue and object deletion flags and messages
+!
+! V53-2 - The variables PPL$$GL_PPLSect and PPL$$GL_Context are WWS  1-Sep-1989
+!	  no longer universal symbols
+!
+! V53-3 - Added ppl$m_noclisym,ppl$m_nolognam,ppl$m_nokeypad,	PJC 25-Aug-1989
+!	  ppl$m_notify, ppl$m_nocontrol as flags for ppl$spawn
+!	  Commented out ppl$$gl_contect and ppl$$gl_pplsect
+! V60-1 - Added ppl$m_spin_counted, ppl$m_call_unique,          PJC 20-Jul-1990
+!         and ppl$m_proc_unique.
+!
+! V60-2 - Merge development version with VAX/VMS version	PJC 30-Aug-1993
+!
+! V62-1 - Bump the image ident -- removed the workq JSB rtns	WWS 15-Aug-1994
+!
+!+
+! Specify image name and ident.  Note that this is not the same as
+! the global section ident given with GSMATCH.  IDENT should change
+! each time PPLRTL changes in a released version, such as a maintenance
+! update.  GSMATCH should change only when the vector is modified in an
+! incompatible (backwards) fashion.
+!-
+
+NAME=PPLRTL
+IDENT="V62-27-0"
+GSMATCH=LEQUAL,1,3
+
+!+
+! Make the 1 page of read/write storage be demand-zero.
+!
+! Note that uninitialized copy-on-reference image sections (like ours), are
+! made into demand-zero image sections by the Linker, even though they contain
+! fewer that DZRO_MIN pages (default is 5).  Thus, we needn't change DZRO_MIN.
+!
+! The UNSUPPORTED option is not supported (as the name implies).  It tells the
+! Linker to do demand-zero compression even for a shareable image.
+!-
+UNSUPPORTED=1
+
+!+
+! Most other RTL components have COLLECT and/or CLUSTER options.
+! PPLRTL doesn't (yet) because the link map looks good without them,
+! and I don't have the time to verify the effect of putting them in.
+!-
+!COLLECT=CLUSTER1,psect,psect,...
+!COLLECT=CLUSTER2,psect,psect,...
+
+!+
+! Specify modules to be included.  The first one must be
+! PPLVECTOR
+!-
+OBJ$:PPLVECTOR,-
+OBJ$:PPLRTL/INCLUDE=(-
+  PPL$ALLOC,-
+  PPL$BITS,-
+  PPL$CHOOSE,-
+  PPL$CREBARR,-
+  PPL$CREPROC,-
+  PPL$CRESEM,-
+  PPL$CRESPINLOCK,-
+  PPL$DELETE,-
+  PPL$EVENT,-
+  PPL$FINDID,-
+  PPL$INTERF,-
+  PPL$MSGDEF,-
+  PPL$NAMES,-
+  PPL$RELSPINLOCK,-
+  PPL$RETSEMVAL,-
+  PPL$SECT,-
+  PPL$SEIZESPINLOCK,-
+  PPL$SEM,-
+  PPL$TELL,-
+  PPL$TOP,-
+  PPL$UNIQUE,-
+! PPL$UTIL,-
+  PPL$VM,-
+  PPL$VM_PAGE,-
+  PPL$WORKQ)
+
+
+!+
+! Declare as universal those symbols which are not entry points, but
+! which are referenced outside the shareable image.  The offsets of these
+! symbols must never change.
+!-
+
+UNIVERSAL =-
+
+  PPL$K_INIT_SIZE,-		!default PPL space allocation - avail
+				!to users only at linktime
+  PPL$K_ABNORMAL_EXIT,-		!abnormal_exit event id
+  PPL$K_NORMAL_EXIT,-		!normal_exit event id
+
+  ! Flags for shared memory routines
+  PPL$M_NOZERO,-		! Zero global section
+  PPL$M_NOWRT,-			! Read-only (non-writable) section
+  PPL$M_FLUSH,-			! Flush the section
+  PPL$M_PIC,-			! PIC section (internal use only)
+  PPL$M_NOUNI,-			! Don't make the name unique
+
+  ! Flags for creating applications
+  PPL$M_PERM,-			! Create permanent global sections
+  PPL$M_SYSTEM,-		! Create system global sections and locks
+  PPL$M_JOINONLY,-		! Only join an existing app, do not create
+  PPL$M_FORMONLY,-		! Only form a new app, do not join an existing
+
+  ! Flags for process management routines
+  PPL$M_INIT_SYNCH,-		! Wait until all subprocesses init
+  PPL$M_NODEBUG,-		! run without DEBUG
+  PPL$M_STOP_CHILDREN,-		! Abort all subprocesses
+  PPL$M_NON_BLOCKING,-		! Don't force wait on locks & semaphores
+  PPL$M_NOTIFY_ONE,-		! Notify only one event-waiter
+  PPL$M_SPIN_WAIT,-		! Spin rather than $hiber
+  PPL$M_SPIN_COUNTED,-		! Spin count times before $hiber'ing
+  PPL$M_ATHEAD,-		! Insert at head of queue
+  PPL$M_DELETEALL,-		! Delete all maching members
+  PPL$M_TAILFIRST,-		! Start search at tail
+  PPL$M_FROMTAIL,-		! Remove queue entry from its tail
+  PPL$M_FORCEDEL,-		! forced deletion of work queue
+
+  ! Flags for spawning processes
+  PPL$M_NOCLISYM,-		! Do not inherit creators CLI symbols
+  PPL$M_NOLOGNAM,-		! Do not inherit creators logical names
+  PPL$M_NOKEYPAD,-		! Inherit creators keypad settings
+  PPL$M_NOTIFY,-		! Broadcast a message to sys$output
+  PPL$M_NOCONTROL,-		! Request no cr/line-feed attached to prompt
+
+  ! Flags for unique naming
+  PPL$M_CALL_UNIQUE,-		! Request a name unique to the call
+  PPL$M_PROC_UNIQUE,-		! Request a name unique to the process
+
+  ! Flag to request proc block reuese
+  PPL$M_NOSAVE_PROC_INFO,-      ! Specify that procs block can be reused
+
+  ! Flag to request PPL events occur only once initiated
+  PPL$M_IGNORE_EXITS,-  ! PPL events triggered only if used.
+
+  ! Make condition values universal
+  PPL$_FACILITY,-		! Our facility code
+
+  PPL$_ABNORMAL_EXIT,-
+!  PPL$_ABNTERMIN,-
+  PPL$_APPALREXI,-
+  PPL$_ATTUSETWO,-	!no deadlock detection implemented
+  PPL$_BADLOGIC,-
+  PPL$_BUFOVFL,-
+  PPL$_CREATED,-
+  PPL$_CREATED_SOME,-
+  PPL$_DELETED,-
+  PPL$_ELEALREXI,-
+  PPL$_ELEINUSE,-
+  PPL$_EVENT_OCCURRED,-
+  PPL$_EXHNEVCAL,-
+  PPL$_EXITSTATUS,-
+  PPL$_FORMEDAPP,-
+  PPL$_IN_BARRIER_WAIT,-
+  PPL$_INCOMPARG,-
+  PPL$_INCOMPEXI,-
+  PPL$_INSVIRMEM,-
+  PPL$_INTDELPRC,-
+  PPL$_INTTERMIN,-
+  PPL$_INVAPPNAM,-
+  PPL$_INVARG,-
+  PPL$_INVDESC,-
+  PPL$_INVELEID,-
+  PPL$_INVELENAM,-
+  PPL$_INVELETYP,-
+  PPL$_INVNUMCHI,-
+  PPL$_INVSEMINI,-
+  PPL$_INVSEMMAX,-
+  PPL$_JOINEDAPP,-
+  PPL$_LOCNOTEST,-
+  PPL$_NO_SUCH_PARTY,-
+  PPL$_NOINIT,-
+  PPL$_NOMATCH,-
+  PPL$_NONPIC,-
+  PPL$_NOONE_ENABLED,-
+  PPL$_NORMAL,-
+  PPL$_NORMAL_EXIT,-
+  PPL$_NOSECEX,-
+  PPL$_NOSUCHAPP,-
+  PPL$_NOSUCHELE,-
+  PPL$_NOSUCHLOC,-
+  PPL$_NOSUCHNAM,-
+  PPL$_NOT_AVAILABLE,-
+  PPL$_NOTIMP,-
+  PPL$_OPENIN,-
+  PPL$_OPENOUT,-
+  PPL$_SEMALRMAX,-
+  PPL$_SEMININON,-
+  PPL$_SYSERROR,-
+  PPL$_WRONUMARG
+
+
+RESOBJ$:LIBRTL.OLB/INCLUDE=(-
+	LIB$MSGDEF)
+
+SYS$LIBRARY:STARLET/INCLUDE=(SYS$P1_VECTOR,SYS$SSDEF)
+
+SYS$LIBRARY:IMAGELIB/INCLUDE=(LIBRTL)

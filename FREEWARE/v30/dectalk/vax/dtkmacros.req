@@ -1,0 +1,297 @@
+! Macro Definitions for RTL DTK$ facility
+! File:  DTKMACROS.REQ	Edit: TS1003
+!
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1978, 1980, 1982, 1984, 1985, 1986, 1987, 1988 BY	    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+!
+
+!++
+! FACILITY:	DECtalk Management
+!
+! ABSTRACT:
+!
+!	This file contains macros used by DECtalk management routines.
+!
+! MODIFIED BY:
+!
+! 1-004 - Add descriptor macro.  TS 7-Mar-1988
+! 1-003 - Remove unused queue macros.  TS 23-Jun-1986
+! 1-002 - Add $DTK$RETURN macro.  TS 9-Apr-1986
+! 1-001	- Original.  TS 6-Aug-1985
+!--
+
+
+!+
+! $DTK$DESCRIPTOR
+! ---------------
+!
+! This macro is used to declare a string descriptor.
+!-
+
+MACRO
+    $DTK$DESCRIPTOR = BLOCK [DSC$K_S_BLN, BYTE] %;
+
+!+
+! $DTK$RETURN
+! -----------
+!
+! This macro is used to return the status of a called routine if
+! the status is not successful.  It also resets the locked bit.
+!
+!-
+MACRO
+    $DTK$RETURN(S) =
+	    BEGIN
+	    VCB [VCB_V_LOCKED] = 0;
+	    RETURN S;
+	    END
+    %;
+
+!+
+! $DTK$BUFFERING_ON
+! -----------------
+!
+! This macro is used to turn on buffering mode.  This will minimize the
+! number of $QIOs that need to be done.
+!
+!-
+MACRO
+    $DTK$BUFFERING_ON(VCB) = 
+	VCB[VCB_V_BUF_ENABLED] = 1
+    %;
+
+!+
+! $DTK$BUFFERING_OFF
+! ------------------
+!
+! This macro is used to turn off buffering mode.  This will result in 
+! a $QIO for each output.  It will also output the current contents of 
+! the buffer.
+!
+!-
+MACRO 
+    $DTK$BUFFERING_OFF(VCB) =
+
+	IF .VCB[VCB_V_BUF_ENABLED]
+	THEN
+	    BEGIN
+
+	    STATUS = DTK$$FLUSH_BUFFER(.VCB);
+	    IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	    VCB[VCB_V_BUF_ENABLED] = 0;
+
+	    END
+    %;	
+
+!+
+! $DTK$OUTPUT_DATA
+! ----------------
+!
+! This macro is used to retrieve and output a specific sequence to the
+! DECtalk device.  Assumes you have a symbol named VCB.
+!
+!-
+MACRO
+    $DTK$OUTPUT_DATA(CAP,ARG1,ARG2) =
+	BEGIN
+
+	$DTK$GET_TERM_DATA(	%NAME(CAP)
+				%IF NOT %NULL(ARG1)
+				%THEN
+					,ARG1
+				%FI
+				%IF NOT %NULL(ARG2)
+				%THEN
+					,ARG2
+				%FI
+				);
+
+	STATUS = DTK$$OUTPUT( .VCB, 
+			      .VCB [VCB_L_CAP_LENGTH], 
+			      .VCB [VCB_A_CAP_BUFFER] );
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	END
+    %;
+
+!+
+! $DTK$GET_TERM_DATA
+! ------------------
+!
+! This macro is used to retrieve a specified sequence to be sent to the
+! DECtalk device.  Assumes you have a symbol named VCB.
+!
+!-
+MACRO
+    $DTK$GET_TERM_DATA(CAP,ARG1,ARG2) =
+
+	BEGIN
+
+	STATUS=DTK$$GET_TERM_DATA(.VCB,
+				%NAME(CAP),
+				%NAME(K_,CAP,_LEN)
+				%IF NOT %NULL(ARG1)
+				%THEN
+					,ARG1
+				%FI
+				%IF NOT %NULL(ARG2)
+				%THEN
+					,ARG2
+				%FI
+				);
+
+	IF NOT .STATUS THEN $DTK$RETURN (.STATUS);
+
+	END
+    %;
+
+!+
+! $DTK$DEFINE_SEQ
+! ---------------
+!
+! This macro defines an escape sequence for a capability in read-only
+! own storage.  CAP is the capability name, SEQ is the sequence without
+! the leading <ESC>, and FLAG indicates this is a DCS sequence if set.
+! The length of the capability is also defined as a literal.
+!
+!-
+MACRO
+    $DTK$DEFINE_SEQ ( CAP, SEQ, FLAG ) =
+
+    LITERAL %NAME(K_,CAP,_LEN) = %CHARCOUNT(SEQ) + 1
+				%IF FLAG NEQ 0 %THEN + 4 %FI
+				;
+
+    OWN
+	%NAME(CAP) :	VECTOR [%NAME(K_,CAP,_LEN), BYTE]
+			PSECT (_DTK$CODE)
+			INITIAL ( BYTE ( 
+
+			    K_ESC
+
+			%IF FLAG NEQ 0 %THEN
+			    , 'P;'
+			%FI
+
+			    ,%STRING(SEQ)
+
+			%IF FLAG NEQ 0 %THEN
+			    , K_ESC, '\'
+			%FI
+
+			) )
+    %;
+
+!+
+! $DTK$VALIDATE_ARGCOUNT
+! ----------------------
+!
+! Macro used to check that a DTK$ procedure was called with the correct
+! number of arguments.  If the test fails, the procedure returns with the
+! failure status DTK$_WRONUMARG.
+!
+! Format:
+!	$DTK$VALIDATE_ARGCOUNT (lo, hi);
+!
+!	lo = Lowest number of arguments which are valid (0-255)
+!	hi = Highest number of arguments which are valid (0-255)
+!-
+
+MACRO
+    $DTK$VALIDATE_ARGCOUNT (lo, hi) =
+	BEGIN
+
+	BUILTIN
+	    ACTUALCOUNT;
+
+	EXTERNAL LITERAL
+	    DTK$_WRONUMARG;
+
+	%IF lo NEQ hi
+	%THEN
+	    %IF lo NEQ 0
+	    %THEN
+		LOCAL
+		    DIFF: BYTE;
+		DIFF = ACTUALCOUNT () - lo;
+		IF .DIFF  GTRU (hi - lo)
+		THEN
+		    RETURN (DTK$_WRONUMARG);
+	    %ELSE
+		IF ACTUALCOUNT () GTRU hi
+		THEN
+		    RETURN (DTK$_WRONUMARG);
+	    %FI
+
+	%ELSE
+	    IF ACTUALCOUNT () NEQU lo
+	    THEN
+		RETURN (DTK$_WRONUMARG);
+	%FI
+
+	END %;
+
+!+
+! $DTK$GET_VCB
+! ------------
+! Macro $DTK$GET_VCB validates the suppled voice id (VID) and
+! computes the starting address of the corresponding Voice Control
+! Block (VCB).   If VID is invalid, DTK$_INVVOI_ID is returned to caller
+! of routine that invokes this macro.
+!-
+MACRO
+    $DTK$GET_VCB ( VID, VCB_ADDR) =
+    BEGIN
+
+    BUILTIN
+	TESTBITSS;
+
+    BIND 
+	LOC_VID = VID : REF BLOCK [,BYTE];
+
+    EXTERNAL LITERAL 
+	DTK$_TLKINUSE,
+	DTK$_INVVOI_ID;
+
+    IF .VID LEQ 0
+    THEN				! VID of 0 or a negative number
+	RETURN (DTK$_INVVOI_ID);	! is invalid
+
+    IF .LOC_VID [VCB_L_VID] NEQ .VID
+    THEN
+	RETURN (DTK$_INVVOI_ID);	! Not pointing to one of our
+					! control blocks
+
+    IF .LOC_VID [VCB_B_STRUCT_TYPE] NEQ VCB_K_STRUCT_TYPE
+    THEN
+	RETURN (DTK$_INVVOI_ID);	! Not pointing to a VCB
+
+    VCB_ADDR = .VID;			! Assume ok
+
+!    IF TESTBITSS(VCB [VCB_V_LOCKED])
+!    THEN
+!	RETURN (DTK$_TLKINUSE);		! Protect against asts
+
+    END %;

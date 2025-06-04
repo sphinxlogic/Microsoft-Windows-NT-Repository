@@ -1,0 +1,561 @@
+	.TITLE	ACC_Convert - System Accounting Record Conversion.
+	.IDENT	/1.85/
+
+; This program converts System accounting records to fixed format for
+; processing by Datatrieve (or other languages which would have a hard
+; time with the "screwy" un-normalized accounting file format).
+;
+; B. Z. Lederman	15-Apr-1987
+;			20-Jan-1988	Add LOGFAIL, SYSINIT records
+;						IMAGE records
+;			21-Jan-1988	Conditionalize
+;			28-Nov-1995	Quadword Alignment
+;			 3-May-1996	Conditionals for Alpha
+;
+; There are three image file name options:
+;
+; Type 1: The full (up to 255 character) image file name as supplied.
+; Type 2: Use LIB$TRIM_FILESPEC to reduce the image file name
+; Type 3: Look for the last directory spec, then LIB$TRIM_FILESPEC from there.
+;
+; Type 3 is the default, unless otherwise defined in a prefix file.
+;
+; The default image file name length is: 255 for Type 1, 64 for Types 2 and 3
+; unless an explicit value is placed in a prefix file.
+;
+
+	.IF	NOT_DEFINED	TYPE1
+	.IF	NOT_DEFINED	TYPE3
+
+TYPE2 = 0
+
+	.ENDC
+	.ENDC
+
+	.IF	NOT_DEFINED	NAM_LEN
+	.IF	DEFINED		TYPE1
+
+NAM_LEN = 255
+
+	.ENDC
+	.IF	NOT_DEFINED	TYPE1
+
+NAM_LEN = 64
+
+	.ENDC
+	.ENDC
+
+	.ENABLE	SUPPRESSION
+
+;
+;  Define ALPHA if R22 is a register and not a symbol (from Hunter Goatley)
+;
+	.NTYPE	...IS_IT_ALPHA,R22		;Get the type of R22
+	...IS_IT_ALPHA = <...IS_IT_ALPHA@-4&^XF>-5
+	.IIF EQ,...IS_IT_ALPHA,	ALPHA=1
+
+; Macro library calls
+
+	$ACRDEF				; Accounting record definitions
+	$NAMDEF				; RMS Name Block Definitions
+	.PAGE
+	.PSECT	RWDATA, WRT, NOEXE, QUAD
+
+; RMS control blocks - these are first to make them longword aligned
+;
+; Input FAB
+;
+
+ACC_FAB::
+	$FAB	FAC = GET, -			; Only GETs are required
+		DNM = <ACCOUNTNG.DAT>, -	; default file name
+		SHR = <GET, PUT, UPI>, -	; shared
+		FOP = SQO			; Sequential access only
+
+	.ALIGN	QUAD
+
+; Input RAB
+
+ACC_RAB::
+	$RAB	FAB = ACC_FAB, -		; Associated FAB
+		ROP = RAH, -			; Read ahead
+		UBF = ACC_REC, -		; User buffer address
+		USZ = ACC_REC_LEN		; User buffer size
+
+	.ALIGN	QUAD
+
+; Output FAB
+;
+; The output file is ACCOUNTING.FIX in the current default directory
+
+OUT_FAB::
+	$FAB	FAC = PUT, -			; Access for $PUTs
+		DNM = <ACCOUNTING.FIX>, -	; File name
+		FOP = <TEF, -			; Truncate at end of file
+			SQO>, -			; Sequential access only
+		RAT = CR, -			; CR carriage control
+		RFM = VAR			; Variable length records
+
+	.ALIGN	QUAD
+
+; Output RAB
+
+OUT_RAB::
+	$RAB	FAB = OUT_FAB, -		; Associated FAB
+		RBF = OUT_REC, -		; Output buffer
+		RSZ = OUT_REC_LEN, -		; Record size
+		ROP = WBH			; Write behind
+
+; Input file name stuff
+
+	.ALIGN	QUAD
+
+ACC_FSPEC::
+	.LONG	NAM$C_MAXRSS
+	.LONG	ACC_FSPEC_BUF
+ACC_FSPEC_BUF:
+	.BLKB	NAM$C_MAXRSS
+ACC_FSPEC_LEN:
+	.BLKW	1
+ACC_FILE_QUAL:
+	.ASCID	/INPUT_FILE/
+
+; Output file name stuff
+
+	.ALIGN	QUAD
+
+OUT_FSPEC:
+	.LONG	NAM$C_MAXRSS
+	.LONG	OUT_FSPEC_BUF
+OUT_FSPEC_BUF:
+	.BLKB	NAM$C_MAXRSS
+OUT_FSPEC_LEN:
+	.BLKW	1
+OUT_FILE_QUAL:
+	.ASCID	/OUTPUT_FILE/
+
+; Accounting record buffer
+
+	.ALIGN	QUAD
+
+ACC_REC_LEN ==	512
+ACC_REC::
+	.BLKB	ACC_REC_LEN
+
+; Output record buffer:
+;	fields are named to make moves easier and
+;	to make re-arraingement of fields easier.
+;	This version has the ID fields first,
+;	then (termination) fields.
+
+	.ALIGN	QUAD
+
+OUT_REC::
+				; Start Record
+TYPE:	.BLKW	1		; packet type
+SYSTIME:			; end time
+	.BLKQ	1
+
+PID:	.BLKL	1		; start ID packet
+PIDOWN:	.BLKL	1
+UIC:	.BLKL	1
+PRIV:	.BLKQ	1
+PRIO:	.BLKB	1
+USERNAME:
+	.BLKB	12
+ACCOUNT:
+	.BLKB	8
+NODE:	.BLKB	6
+TERMINAL:
+	.BLKB	6
+JOBNAME:
+	.BLKB	12
+JOBID:	.LONG	0
+QUEUE:	.BLKB	32
+NODEADDR:
+	.BLKW	1
+REMID:	.BLKB	16
+
+STARTIME:			; start resource packet
+	.BLKQ	1		; start time
+STATUS:	.BLKL	1		; final status
+IMGCNT:	.BLKL	1		; execution count or sequence number
+CPUTIME:
+	.BLKL	1		; total CPU time
+FAULTS:	.BLKL	1		; Page Fault Count
+FAULTIO:
+	.BLKL	1		; Fault I/O Count
+WSPEAK:	.BLKL	1		; Peak Working Set
+PAGEFL:	.BLKL	1		; peak page file usage
+DIOCNT:	.BLKL	1		; Direct I/O Count
+BIOCNT:	.BLKL	1		; Buffered I/O Count
+VOLUMES:
+	.BLKL	1		; Volumes Mounted
+
+; For Image Deletion Records	; Blank filled for others
+
+IMGNAM:
+	.BLKB	NAM_LEN		; Image Name, up to specified size
+
+OUT_REC_LEN == .-OUT_REC	; Get resultant length of output record
+
+	.ALIGN	QUAD
+
+IMGDSC:
+	.WORD	NAM_LEN		; String descriptor for image name
+	.BYTE	DSC$K_DTYPE_T
+	.BYTE	DSC$K_CLASS_S
+	.ADDRESS IMGNAM
+
+	.ALIGN	QUAD
+
+INPDSC:
+	.WORD	255		; Descriptor for input name
+	.BYTE	DSC$K_DTYPE_T
+	.BYTE	DSC$K_CLASS_S
+	.ADDRESS IMGNAM		; filled in later
+
+	.ALIGN	QUAD
+
+ARGLST:
+	.LONG	2		; only 2 arguments to LIB$TRIM_FILESPEC used
+	.ADDRESS INPDSC		; input file spec
+	.ADDRESS IMGDSC		; output file spec
+	.LONG	0, 0		; just in case
+	.PAGE
+	.PSECT	CODE, NOWRT, EXE, QUAD
+
+; The program opens the input and output files.
+; It then loops through each record moving the fields.
+;
+; Any error status returned from a system service or an RMS service
+; is emitted on exit, otherwise SS$_NORMAL
+
+	.ENTRY	ACC_BINARY, ^M<>
+					; See if user specified an input file
+	PUSHAL	ACC_FILE_QUAL		; is there an input (P1) parameter?
+	CALLS	#1, G^CLI$PRESENT
+	BLBC	R0, 10$			; branch if not
+
+	PUSHAL	ACC_FSPEC		; get the file specification
+	PUSHAL	ACC_FILE_QUAL
+	CALLS	#2, G^CLI$GET_VALUE
+;					check and skip if error
+	PUSHAL	ACC_FSPEC_LEN
+	PUSHAL	ACC_FSPEC
+	PUSHAL	ACC_FSPEC
+	CALLS	#3, G^STR$TRIM		; trim off trailing blanks
+
+	$FAB_STORE -			; put real name into FAB
+		FAB = ACC_FAB, -
+		FNA = @ACC_FSPEC+4, -	; address
+		FNS = ACC_FSPEC_LEN	; real length
+
+
+10$:	$OPEN	FAB = ACC_FAB		; Open the accounting file
+	BSBW	ERROR
+
+	$CONNECT RAB = ACC_RAB
+	BSBW	ERROR
+					; See if user specified an output file
+	PUSHAL	OUT_FILE_QUAL		; is there an /OUTPUT qualifier?
+	CALLS	#1, G^CLI$PRESENT
+	BLBC	R0, 20$			; branch if not
+
+	PUSHAL	OUT_FSPEC		; get the file specification
+	PUSHAL	OUT_FILE_QUAL
+	CALLS	#2, G^CLI$GET_VALUE
+;					check and skip if error
+	PUSHAL	OUT_FSPEC_LEN
+	PUSHAL	OUT_FSPEC
+	PUSHAL	OUT_FSPEC
+	CALLS	#3, G^STR$TRIM		; trim off trailing blanks
+
+	$FAB_STORE -			; put real name into FAB
+		FAB = OUT_FAB, -
+		FNA = @OUT_FSPEC+4, -	; address
+		FNS = OUT_FSPEC_LEN	; real length
+
+20$:	$CREATE	FAB = OUT_FAB		; Open output file
+	BSBW	ERROR
+
+	$CONNECT RAB = OUT_RAB
+	BSBW	ERROR
+	.PAGE
+NEXT_RECORD:					; Main Processing loop
+
+	$GET	RAB = ACC_RAB			; Read record
+	BLBS	R0, 20$				; If LBS - read was ok
+	CMPL	R0, #RMS$_EOF			; Is it end of file ?
+	BNEQ	10$				; If EQL - all done
+	BRW	FINISH
+
+	.ALIGN	QUAD
+
+10$:	BSBW	ERROR				; Show the error
+
+20$:					; Check if this is a record we want
+
+	CMPZV	#ACR$V_VERSION, #ACR$S_VERSION, -
+		ACC_REC+ACR$W_TYPE, #ACR$K_VERSION3
+						; Is this a format I understand ?
+	BNEQ	NEXT_RECORD			; If NE - no
+
+	CMPZV	#ACR$V_TYPE, #ACR$S_TYPE, -
+		ACC_REC+ACR$W_TYPE, #ACR$K_PRCDEL
+						; Is this a process record ?
+	BEQL	OK_RECORD			; If EQ - yes
+
+	CMPZV	#ACR$V_TYPE, #ACR$S_TYPE, -
+		ACC_REC+ACR$W_TYPE, #ACR$K_LOGFAIL
+						; Login failure record ?
+	BEQL	OK_RECORD			; If EQ - yes
+
+	CMPZV	#ACR$V_TYPE, #ACR$S_TYPE, -
+		ACC_REC+ACR$W_TYPE, #ACR$K_SYSINIT
+						; System Init. record ?
+	BEQL	OK_RECORD			; If EQ - yes
+
+	CMPZV	#ACR$V_TYPE, #ACR$S_TYPE, -
+		ACC_REC+ACR$W_TYPE, #ACR$K_IMGDEL
+						; Image Deletion record ?
+	BEQL	OK_RECORD			; If EQ - yes
+
+	BRW	NEXT_RECORD			; I don't understand
+						; anything else right now.
+	.ALIGN	QUAD
+
+	.PAGE
+OK_RECORD:
+
+	CLRL	R11				; Name packet may not be present
+
+; There are 5 subtypes: Interactive, Subprocess, Detached, Batch,
+; and Network: we want all of them so the following isn't used.
+;
+;	CMPZV	#ACR$V_SUBTYPE, #ACR$S_SUBTYPE, -
+;		ACC_REC+ACR$W_TYPE, #ACR$K_xxxx
+;						; Is it a particular sub-type?
+;	BNEQ	NEXT_RECORD			; If NE - no
+
+
+; It is a Process or Image Deletion, LOGFAIL, or SYSINIT record.
+
+						; Find the start of the packet
+	MOVZWL	ACC_REC+ACR$W_LENGTH, R8	; Length of record
+	ADDL2	#ACC_REC, R8			; End of the record
+	MOVAB	ACC_REC+ACR$K_HDRLEN, R7	; Start of the first packet
+
+30$:	CMPZV	#ACR$V_TYPE, #ACR$S_TYPE, -
+		ACR$W_TYPE(R7), #ACR$K_RESOURCE	; resource packet ?
+	BNEQ	40$				; If NE - no, try again
+	MOVAB	(R7), R9			; Save start of packet
+	BRB	60$
+
+	.ALIGN	QUAD
+
+40$:	CMPZV	#ACR$V_TYPE, #ACR$S_TYPE, -
+		ACR$W_TYPE(R7), #ACR$K_ID
+						; ID packet ?
+	BNEQ	50$				; If NE - no, try again
+	MOVAB	(R7), R10			; Save start of ID packet
+	BRB	60$
+
+	.ALIGN	QUAD
+
+50$:	CMPZV	#ACR$V_TYPE, #ACR$S_TYPE, -
+		ACR$W_TYPE(R7), #ACR$K_IMAGENAME
+					; Image Name packet ?
+	BNEQ	60$			; If NE - no, try again
+	MOVAB	(R7), R11		; Save start of Image Name packet
+
+
+60$:	MOVZWL	ACR$W_LENGTH(R7), R1	; Length of this packet
+	ADDL2	R1, R7			; Try next packet
+	CMPL	R7, R8			; End of record ?
+	BLSS	30$			; If LS - not end of record, try again
+
+	MOVAB	ACC_REC, R8		; Get start of record in register
+
+; R8 = start address of record
+; R9 = start address of resource packet
+; R10 = start address of ID packet
+; R11 = start address of image name packet (or zero if no image name)
+	.PAGE
+MOVEIT:					; Move data from input to output area.
+
+	MOVC5	#0, #0, #32, #OUT_REC_LEN, OUT_REC ; blank fill record
+	MOVW	ACR$W_TYPE(R8), TYPE		; packet type
+	MOVQ	ACR$Q_SYSTIME(R8), SYSTIME	; System (finish) time
+
+; Start ID packet
+
+	MOVL	ACR$L_PID(R10), PID		; process ID
+	MOVL	ACR$L_OWNER(R10), PIDOWN	; owning process ID
+	MOVL	ACR$L_UIC(R10), UIC		; UIC
+	MOVQ	ACR$Q_PRIV(R10), PRIV		; privileges at termination
+	MOVB	ACR$B_PRI(R10), PRIO		; priority
+
+	MOVZWL	ACR$W_USERNAME(R10), R1		; Offset of username (ID packet)
+	BEQL	10$				; if zero, field is blank
+	ADDL2	R10, R1				; Add base of ID packet to
+						; obtain address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #12, USERNAME	; move characters blank fill
+
+10$:	MOVZWL	ACR$W_ACCOUNT(R10), R1		; Offset of account
+	BEQL	20$				; if zero, it's blank
+	ADDL2	R10, R1				; Address of account
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #8, ACCOUNT	; move characters blank fill
+
+20$:	MOVZWL	ACR$W_NODENAME(R10), R1		; Offset of nodename
+	BEQL	30$				; if zero, it's blank
+	ADDL2	R10, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #6, NODE		; move characters blank fill
+
+30$:	MOVZWL	ACR$W_TERMINAL(R10), R1		; Offset of terminal
+	BEQL	40$				; if zero it's blank
+	ADDL2	R10, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #6, TERMINAL	; move characters blank fill
+
+40$:	MOVZWL	ACR$W_JOBNAME(R10), R1		; Offset of jobname
+	BEQL	50$				; if zero it's blank
+	ADDL2	R10, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #12, JOBNAME	; move characters blank fill
+
+50$:	MOVL	ACR$L_JOBID(R10), JOBID
+
+	MOVZWL	ACR$W_QUEUE(R10), R1		; Offset of queue
+	BEQL	60$				; if zero it's blank
+	ADDL2	R10, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #32, QUEUE	; move characters blank fill
+
+60$:	MOVW	ACR$W_NODEADDR(R10), NODEADDR	; node address
+
+	MOVZWL	ACR$W_REMOTEID(R10), R1		; Offset of remote process
+	BEQL	70$				; if zero, blank
+	ADDL2	R10, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #16, REMID	; move characters blank fill
+	.PAGE
+; Start Resource Packet
+
+70$:	MOVQ	ACR$Q_LOGIN(R9),   STARTIME
+	MOVL	ACR$L_STATUS(R9),  STATUS
+	MOVL	ACR$L_IMGCNT(R9),  IMGCNT
+	MOVL	ACR$L_CPUTIME(R9), CPUTIME
+	MOVL	ACR$L_FAULTS(R9),  FAULTS
+	MOVL	ACR$L_FAULTIO(R9), FAULTIO
+	MOVL	ACR$L_WSPEAK(R9),  WSPEAK
+	MOVL	ACR$L_PAGEFL(R9),  PAGEFL
+	MOVL	ACR$L_DIOCNT(R9),  DIOCNT
+	MOVL	ACR$L_BIOCNT(R9),  BIOCNT
+	MOVL	ACR$L_VOLUMES(R9), VOLUMES
+
+; Start image name packet
+
+	TSTL	R11				; is there a name packet?
+	BEQL	WRITE				; if not, write record now
+
+	.IF	DEFINED	TYPE1
+
+; Type 1: move all characters (up to 255) into the output record.
+;	IMGNAM must be 255 characters long
+
+	CLRL	R7				; will move unsigned byte
+	MOVB	ACR$T_FILENAME(R11), R7		; get length of string
+	MOVC5	R7, 5(R11), #32, #NAM_LEN, IMGNAM ; move characters blank fill
+
+	.ENDC
+	.IF	DEFINED	TYPE2
+
+; Type 2: Trim the file spec to no more than N characters.
+;	Normally this will only remove trailing blanks unless N is small.
+
+	MOVB	ACR$T_FILENAME(R11), INPDSC+DSC$W_LENGTH ; Fill in
+	MOVAB	5(R11), INPDSC+DSC$A_POINTER	; Descriptor
+	CALLG	ARGLST, G^LIB$TRIM_FILESPEC	; call RTL routine
+	CMPL	R0, #LIB$_STRTRU		; was file truncated?
+	BEQL	WRITE				; branch if yes (o.k.)
+	BSBW	ERROR				; check for other errors
+
+	.ENDC
+	.PAGE
+	.IF	DEFINED	TYPE3
+
+; Type 3: Manually find the last directory, then
+;	trim the file spec to no more than N characters from there.
+;	Normally this will remove the device and redundant directories.
+
+	CLRL	R7				; because of unsigned byte
+	MOVB	ACR$T_FILENAME(R11), R7		; length of field
+	MOVAB	5(R11), R6			; address of start
+	ADDL2	R7, R6				; address of end
+	CLRL	R5				; will be new length
+80$:
+	INCL	R5				; count one char
+	CMPB	-(R6), #^A/[/			; found desired start?
+	BEQL	90$				; branch if yes
+	SOBGTR	R7, 80$				; continue until found
+
+90$:	CVTLW	R5, INPDSC+DSC$W_LENGTH		; Fill in
+	MOVAB	(R6), INPDSC+DSC$A_POINTER	; Descriptor
+	CALLG	ARGLST, G^LIB$TRIM_FILESPEC	; call RTL routine
+	CMPL	R0, #LIB$_STRTRU		; was file truncated?
+	BEQL	WRITE				; branch if yes (o.k.)
+	BSBW	ERROR				; check for other errors
+
+	.ENDC
+
+; ready to write record
+
+WRITE:
+	MOVAB	OUT_REC, OUT_RAB+RAB$L_RBF	; Fill in record buffer address
+	MOVW	#OUT_REC_LEN, OUT_RAB+RAB$W_RSZ	; and size
+
+; Output the record
+
+	$PUT	RAB = OUT_RAB
+	BSBW	ERROR
+
+	BRW	NEXT_RECORD		; get next record
+
+	.ALIGN	QUAD
+
+FINISH:
+	$CLOSE	FAB = ACC_FAB		; Close the input file
+	BSBW	ERROR
+
+	$CLOSE	FAB = OUT_FAB		; Close the output file
+	BSBW	ERROR
+
+	$EXIT_S	CODE = #SS$_NORMAL
+
+	RET				; needed for Alpha
+
+; If any errors occur, the program exits with the error status
+
+	.ALIGN	QUAD
+
+.IF DEFINED ALPHA
+
+ERROR:	.JSB32_ENTRY	PRESERVE=R0
+
+.IFF
+
+ERROR::					; Check system service status (in R0)
+
+.ENDC
+	BLBC	R0, ERR			; If low bit clear then error occurred
+	RSB				; No errors so return
+
+	.ALIGN	QUAD
+
+ERR:	$EXIT_S	CODE = R0		; Error occurred, exit with status
+
+	.END	ACC_BINARY
